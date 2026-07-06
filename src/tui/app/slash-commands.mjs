@@ -16,7 +16,6 @@ export const SLASH_COMMANDS = [
   { name: 'workflow', usage: '/workflow', description: 'Switch the active workflow' },
   { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style' },
   { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme' },
-  { name: 'mouse', usage: '/mouse', params: '[native|app]', description: 'Toggle terminal-native vs app mouse handling' },
   { name: 'agents', usage: '/agents', description: 'Show available workflow agents' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
   { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },

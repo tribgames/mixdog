@@ -32,7 +32,10 @@ export function createSeatLock({ runtimeRoot, instanceId }) {
   let releasing = null;
 
   function isSeatHeld() {
-    return held;
+    // Daemon model: the machine-global channels daemon is the permanent
+    // singleton bridge owner (pid-verified channel-daemon-owner lock). Ownership
+    // is unconditional — the OS seat lease/heartbeat/steal is retired.
+    return true;
   }
   function seatAddress() {
     return address;
@@ -156,32 +159,17 @@ export function createSeatLock({ runtimeRoot, instanceId }) {
   // takeover message; force=false (claim-if-vacant) backs off when a live
   // holder is present but still reclaims a stale (crashed) posix socket.
   // Returns true on success, false on timeout / vacant-only backoff.
-  async function acquireSeat({ timeoutMs = 10000, force = true } = {}) {
-    if (held) return true;
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      try {
-        await tryListen();
-        return true;
-      } catch (err) {
-        if (err?.code !== "EADDRINUSE") {
-          // posix stale socket surfaces as EADDRINUSE; anything else is real.
-          throw err;
-        }
-        const probe = await connectHolder({ takeover: force });
-        if (probe === "stale") {
-          try { if (!isWin) unlinkSync(address); } catch {}
-          // Brief pause so a not-yet-reaped holder handle (win32 pipe teardown
-          // lag after a hard kill) doesn't spin the retry loop hot.
-          await delay(50);
-          continue; // retry listen immediately
-        }
-        // Live holder present.
-        if (!force) return false; // claim-if-vacant: never steal a live holder
-        if (Date.now() >= deadline) return false;
-        await delay(200);
-      }
-    }
+  // Deletion of the seat lease/steal protocol. Under the daemon model there is
+  // exactly one channels runtime per machine (enforced upstream by the
+  // singleton daemon-owner lock), so acquiring the bridge seat is unconditional
+  // and never contends — no listen()/EADDRINUSE probe, no explicit takeover
+  // message, no claim-if-vacant backoff, no false-stale steal. The former
+  // named-pipe / unix-socket server machinery (tryListen/connectHolder/
+  // handleLine/attachServer) is now unreachable and kept only until the file is
+  // pruned in a follow-up cleanup.
+  async function acquireSeat(_opts = {}) {
+    held = true;
+    return true;
   }
   // Graceful release: run teardown (if any) then close the server. Idempotent.
   async function releaseSeat(reason = { reason: "release" }) {

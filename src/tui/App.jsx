@@ -85,10 +85,9 @@ import {
   memoryCoreResultErrorText,
 } from './app/input-parsers.mjs';
 import { copyToClipboard } from './app/clipboard.mjs';
-import { wrappedTextRows, promptContentRows, wrappedDetailRows, textEntryReservedRows } from './app/text-layout.mjs';
+import { wrappedTextRows, promptContentRows, wrappedDetailRows, textEntryReservedRows, queuedBandRows } from './app/text-layout.mjs';
 import stringWidth from 'string-width';
-import { useMouseInput, MOUSE_TRACKING_ON, MOUSE_TRACKING_OFF, ALT_SCROLL_ON } from './app/use-mouse-input.mjs';
-import { useNativeScrollRouter } from './app/use-native-scroll-router.mjs';
+import { useMouseInput } from './app/use-mouse-input.mjs';
 import { useTranscriptScroll } from './app/use-transcript-scroll.mjs';
 import { useTranscriptWindow } from './app/use-transcript-window.mjs';
 import {
@@ -195,6 +194,8 @@ const PANEL_LAYOUT_SIG = {
   // Prompt-wrap/meta row counts (trailing churn tokens, see token order note
   // below). PROMPT_META is the 2-row live-spinner band slot.
   PROMPT_META: 9,
+  // Queued steering band rows (full wrapped height, see queuedBandRows).
+  QUEUED: 10,
 };
 const PROJECT_TEXT_ENTRY_KINDS = new Set(['project-new', 'project-create-confirm', 'project-rename']);
 const CORE_MULTILINE_TEXT_ENTRY_KINDS = new Set(['core-add', 'core-edit']);
@@ -571,13 +572,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // storm that can visually tear the prompt box in Windows Terminal.
   const workflowTabCycleRef = useRef({ pending: false, lastAt: 0 });
   const scrollFocusRef = useRef({});
-  // Runtime mouse mode ('app' | 'native'), seeded from the persisted setting.
-  // Read synchronously by the SGR mouse hook + native scroll router (refs, so
-  // no re-subscribe needed); flipped by switchMouseMode below.
-  const mouseModeRef = useRef(store?.getMouseMode?.() === 'native' ? 'native' : 'app');
-  // ctrl+wheel zoom passthrough timer (owned here so switchMouseMode can cancel
-  // a pending mouse-tracking re-enable when the user flips to native mid-window).
-  const mouseZoomPassthroughTimerRef = useRef(null);
   const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({ defaultRoute: null, searchRoute: null, agentRoutes: {}, agents: [], providerModels: [] });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
@@ -732,8 +726,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     openThemePicker: (...a) => openThemePicker(...a),
     themeNotice,
     openEffortPicker: (...a) => openEffortPicker(...a),
-    getMouseMode: () => mouseModeRef.current,
-    switchMouseMode: (...a) => switchMouseMode(...a),
     projectNameFromPath,
     enterProject: (...a) => enterProject(...a),
     openProjectPicker: (...a) => openProjectPicker(...a),
@@ -1139,8 +1131,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     rows: resizeState.rows,
     statuslineBandRows: STATUSLINE_BAND_ROWS,
     dragRef,
-    mouseModeRef,
-    mouseZoomPassthroughTimerRef,
     lastClickRef,
     slashPaletteRef,
     scrollFocusRef,
@@ -1160,39 +1150,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     setMeasuredRowsVersion,
     clearStitchBuffer,
   });
-
-  // Native-mode wheel router: WT's alternate-scroll arrow bursts → transcript
-  // scroll. Inert in app mode (checks mouseModeRef.current internally).
-  useNativeScrollRouter({
-    inkInput,
-    mouseModeRef,
-    scrollFocusRef,
-    queueScrollCoalesced,
-  });
-
-  // Runtime mouse-mode switch (wired to /mouse). Writes the terminal control
-  // sequences, clears any app-owned selection so no stale highlight survives
-  // the handoff, and persists ui.mouseMode. XTSHIFTESCAPE mirrors index.jsx's
-  // startup enable (empty on Windows Terminal).
-  const switchMouseMode = useCallback((mode, { persist = true } = {}) => {
-    const next = mode === 'native' ? 'native' : 'app';
-    mouseModeRef.current = next;
-    const XTSHIFTESCAPE_ON = process.env.WT_SESSION ? '' : '\x1b[>1s';
-    // Cancel any pending ctrl+wheel zoom re-enable so it can't recapture the
-    // mouse after we've handed control to the terminal.
-    if (next === 'native' && mouseZoomPassthroughTimerRef.current) {
-      try { clearTimeout(mouseZoomPassthroughTimerRef.current); } catch { /* ignore */ }
-      mouseZoomPassthroughTimerRef.current = null;
-    }
-    try {
-      if (next === 'native') stdout?.write?.(MOUSE_TRACKING_OFF + ALT_SCROLL_ON);
-      else stdout?.write?.(MOUSE_TRACKING_ON + XTSHIFTESCAPE_ON);
-    } catch { /* terminal may be closing */ }
-    try { promptMouseSelectionRef.current?.clear?.(); } catch { /* ignore */ }
-    try { applySelectionRect(null); } catch { /* ignore */ }
-    try { store.setMouseMode?.(next, { persist }); } catch { /* ignore */ }
-    return next;
-  }, [stdout, store, applySelectionRect]);
 
   // Enable extended keyboard reporting (kitty + xterm modifyOtherKeys)
   // SYNCHRONOUSLY, ONCE, with NO query/round-trip. ink
@@ -2610,9 +2567,21 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // active.
   const overlayHintRequested = !inputBoxHidden && !hasFloatingPanel && !liveSpinner && !!inputHint && !queuedVisible;
   const overlayHintRows = 0;
-  // QueuedCommands renders one row per queued command, pinned above the prompt
-  // box (no extra top-margin row).
-  const queuedRows = queuedVisible ? state.queued.length : 0;
+  // QueuedCommands renders each queued command at its FULL wrapped height
+  // (same content width the promoted transcript user row wraps at), pinned
+  // above the prompt box with no extra top-margin row. Reserving the true
+  // height keeps promotion from re-expanding the text mid-flight ("row jump").
+  // If the whole queue would eat too much of the frame, fall back to the old
+  // compact 1-row-per-entry truncation so the input box never leaves screen.
+  const queuedFullRows = queuedVisible
+    ? state.queued.reduce(
+      (sum, item) => sum + queuedBandRows(String(item.displayText || item.text || ''), Math.max(1, frameColumns - 4)),
+      0,
+    )
+    : 0;
+  const queuedRowBudget = Math.max(3, Math.floor(resizeState.rows / 3));
+  const queuedCompact = queuedFullRows > queuedRowBudget;
+  const queuedRows = queuedVisible ? (queuedCompact ? state.queued.length : queuedFullRows) : 0;
   const INPUT_BOX_ROWS = promptBoxRows + promptMetaRows + overlayHintRows;
   const baseReserve = WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
@@ -2695,6 +2664,22 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     const spinnerMetaCollapseRows = doneTailAppendedThisCommit
       ? Math.max(0, prevMetaRows - nextMetaRows)
       : 0;
+    // Queued-band promotion: drain() removes the queued band and appends the
+    // promoted user transcript row in the SAME commit (session-flow.mjs drain
+    // → pushUserOrSyntheticItem → runTurn spinner, one microtask flush). The
+    // new user row (full wrapped height + margin) already backfills the
+    // vacated band rows, so masking them blank for one commit only to drop
+    // the mask on the next commit made the whole transcript bounce down.
+    // Exempt exactly the vacated queued rows when a user row landed at the
+    // tail in this commit; queue edits/removals without a tail append (tail
+    // id unchanged, or non-user tail) keep the mask.
+    const prevQueuedSigRows = Number(String(panelTransition.signature).split('|')[PANEL_LAYOUT_SIG.QUEUED]) || 0;
+    const nextQueuedSigRows = Number(String(panelLayoutSignature).split('|')[PANEL_LAYOUT_SIG.QUEUED]) || 0;
+    const userTailAppendedThisCommit = latestTranscriptItem?.kind === 'user'
+      && (latestTranscriptItem?.id ?? null) !== panelTransition.tailId;
+    const queuedPromoteCollapseRows = userTailAppendedThisCommit
+      ? Math.max(0, prevQueuedSigRows - nextQueuedSigRows)
+      : 0;
     const instantPanelClose = panelShrinkRows > 0
       && (promptRowsOnlyChange
         || isInstantPanelCloseTransition(panelTransition.signature, panelLayoutSignature, initialProjectEntryClose));
@@ -2715,8 +2700,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       // the transcript clip instead of inflating bottomReserve + reclaiming on
       // the next tick. Subtract any turn-end spinner-meta rows that the same-
       // commit done tail already backfills (spinnerMetaCollapseRows) so that
-      // transition masks nothing and does not bounce.
-      panelCloseInkMaskRowsRef.current = Math.max(0, panelShrinkRows - spinnerMetaCollapseRows);
+      // transition masks nothing and does not bounce; same for queued-band
+      // rows backfilled by a just-promoted user row (queuedPromoteCollapseRows).
+      panelCloseInkMaskRowsRef.current = Math.max(0, panelShrinkRows - spinnerMetaCollapseRows - queuedPromoteCollapseRows);
       panelTransition.clearRows = 0;
       panelTransition.guardRows = 0;
       panelTransition.epoch = panelTransitionEpoch;
@@ -2807,6 +2793,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const welcomePromptHintRows = welcomePromptHintVisible
     && (viewportHeight - transcriptGuardRows) >= 2 ? 1 : 0;
   welcomePromptHintVisibleRef.current = welcomePromptHintRows > 0;
+  // Transient hint/error on the EMPTY transcript: the guard row sits directly
+  // above the prompt box, so painting the hint there hugs the textbox one row
+  // below where the live-spinner line renders. Carve one in-viewport row ABOVE
+  // the guard row instead so the hint's baseline matches the spinner row (two
+  // rows above the box, guard row stays blank as the spacer). This is an
+  // in-viewport carve like welcomePromptHintRows — bottomReserve is untouched,
+  // so the prompt box and statusline never move. Non-empty transcripts keep the
+  // existing attach-to-last-item / guard-row fallback placements.
+  const overlayHintBandRows = overlayHintRequested
+    && state.items.length === 0
+    && (viewportHeight - transcriptGuardRows - welcomePromptHintRows) >= 2 ? 1 : 0;
   // Instant panel close (slash palette): the reclaimed rows stay blank for
   // exactly one commit via panelCloseMaskRows. The mask MUST be part of this
   // frame's row accounting — subtract it from the transcript content height
@@ -2817,11 +2814,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // commit (the "textbox dips when the slash palette closes" bug).
   const panelCloseMaskRows = Math.min(
     panelCloseInkMaskRows,
-    Math.max(0, viewportHeight - transcriptGuardRows - welcomePromptHintRows - 1),
+    Math.max(0, viewportHeight - transcriptGuardRows - welcomePromptHintRows - overlayHintBandRows - 1),
   );
   const transcriptContentHeight = Math.max(
     1,
-    viewportHeight - transcriptGuardRows - panelCloseMaskRows - welcomePromptHintRows,
+    viewportHeight - transcriptGuardRows - panelCloseMaskRows - welcomePromptHintRows - overlayHintBandRows,
   );
   // Bottom-follow / pin semantics must NOT widen with the scroll-time guard, or
   // the "pinned to tail" threshold would drift and streaming could freeze a row
@@ -3132,10 +3129,18 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
             backgroundColor={surfaceBackground()}
           />
         ) : null}
+        {overlayHintBandRows > 0 ? (
+          <Box height={1} flexShrink={0} backgroundColor={surfaceBackground()} flexDirection="row" width="100%" overflow="hidden">
+            <Box flexGrow={1} flexShrink={1} overflow="hidden" />
+            <Box flexShrink={0} width={guardHintWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
+              <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
+            </Box>
+          </Box>
+        ) : null}
         {transcriptGuardRows > 0 ? (
           <Box height={transcriptGuardRows} flexShrink={0} backgroundColor={surfaceBackground()} flexDirection="row" width="100%" overflow="hidden">
             <Box flexGrow={1} flexShrink={1} overflow="hidden" />
-            {overlayHintFallbackRow ? (
+            {overlayHintFallbackRow && overlayHintBandRows === 0 ? (
               <Box flexShrink={0} width={guardHintWidth || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
                 <Text color={promptStatusColor(inputHintTone)} wrap="truncate">{inputHint}</Text>
               </Box>
@@ -3397,7 +3402,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
             </>
           ) : null}
           {queuedVisible ? (
-            <QueuedCommands queued={state.queued} columns={frameColumns} />
+            <QueuedCommands queued={state.queued} columns={frameColumns} compact={queuedCompact} />
           ) : null}
           <Box
             marginTop={0}

@@ -15,7 +15,6 @@ import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
-import { loadMouseModeFromConfig, getMouseModeSetting, setMouseModeSetting } from './mouse-mode.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 import { displayWidth } from './display-width.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
@@ -35,10 +34,6 @@ const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h
 // extend triggers there. Restored via `\x1b[>0s` in TERMINAL_MODE_RESET.
 const XTSHIFTESCAPE_ON = process.env.WT_SESSION ? '' : '\x1b[>1s';
 const MOUSE_TRACKING_ON = `\x1b[?1000h\x1b[?1002h\x1b[?1006h${XTSHIFTESCAPE_ON}`;
-// Alternate-scroll (DECSET 1007): in native mode we keep this ON so Windows
-// Terminal converts wheel notches into arrow bursts that the native scroll
-// router hands to the transcript (mouse tracking itself stays off).
-const ALT_SCROLL_ON = '\x1b[?1007h';
 // Keyboard-protocol teardown. App.jsx enables kitty + modifyOtherKeys
 // synchronously at raw-mode-on (no query); here we just pop/disable them on
 // exit. POP_KITTY / DISABLE_MODIFY_OTHER_KEYS come from keyboard-protocol.mjs.
@@ -494,21 +489,13 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   // between (or after) ink's first frames.
   splash.stop();
 
-  // Mouse handling defaults to app-owned (native terminal selections are wiped
-  // by the fullscreen redraws that happen while a turn streams). Resolution:
-  //   1. honor the persisted ui.mouseMode (runtime /mouse toggle),
-  //   2. an explicit MIXDOG_TUI_MOUSE env overrides it (0/off ⇒ native).
-  // App mode enables SGR mouse tracking; native mode only arms alternate-scroll
-  // so the wheel still reaches the transcript while the terminal owns selection.
-  try { await loadMouseModeFromConfig(); } catch { /* default app stays */ }
-  const envMouse = process.env.MIXDOG_TUI_MOUSE;
-  if (envMouse != null && String(envMouse).length > 0) {
-    setMouseModeSetting(/^(0|false|no|off)$/i.test(String(envMouse)) ? 'native' : 'app', { persist: false });
-  }
-  if (getMouseModeSetting() === 'app') {
+  // Keep mouse handling app-owned by default: native terminal selections are
+  // cleared by the fullscreen redraws that happen while a turn streams. Users
+  // who prefer their terminal's native mouse behavior can opt out with
+  // MIXDOG_TUI_MOUSE=0 (mouse capture stays off at boot, no runtime toggle).
+  const mouseTracking = !/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_TUI_MOUSE || '1'));
+  if (mouseTracking) {
     process.stdout.write(MOUSE_TRACKING_ON);
-  } else {
-    process.stdout.write(ALT_SCROLL_ON);
   }
   let storeDisposed = false;
   const disposeStoreOnce = async (reason = 'cli-react-exit') => {
@@ -580,11 +567,6 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} />, { exitOnCtrlC: false, maxFps: 60, incrementalRendering: true, patchConsole: false, onRender: makeRenderProfiler() });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
-    // Selection-capability setters are wired unconditionally: the mouse mode is
-    // runtime-toggleable (/mouse), so switching to 'app' after a native start
-    // must find these hookups already present. They are inert while native mode
-    // holds — the app mouse handler no-ops there.
-    const mouseTracking = true;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so
     // App's mouse handler can push selection rectangles (absolute terminal cells)
     // that ink paints as an inverse highlight. render() returns synchronously

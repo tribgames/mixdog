@@ -11,15 +11,15 @@ import { useCallback, useEffect, useRef } from 'react';
 import { overlayBlocksGlobalTranscriptScroll } from './slash-commands.mjs';
 import { TRANSCRIPT_MEASURED_ROWS } from './transcript-window.mjs';
 
-export const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
-export const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
+const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
+const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 // Alternate-scroll mode (DECSET 1007). In the alt-screen, Windows Terminal
 // converts wheel input into arrow keys while this mode is on — and that
 // conversion WINS over WT's native ctrl+wheel font zoom. During the zoom
 // passthrough window we must turn BOTH mouse tracking and alternate scroll
 // off, or ctrl+wheel lands as Up/Down (prompt history) instead of zooming.
 const ALT_SCROLL_OFF = '\x1b[?1007l';
-export const ALT_SCROLL_ON = '\x1b[?1007h';
+const ALT_SCROLL_ON = '\x1b[?1007h';
 const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
 // Bit 2 (4) of the SGR button byte = shift held during the click. Wheel/ctrl
@@ -45,8 +45,6 @@ export function useMouseInput({
   rows,
   statuslineBandRows,
   dragRef,
-  mouseModeRef,
-  mouseZoomPassthroughTimerRef,
   lastClickRef,
   slashPaletteRef,
   scrollFocusRef,
@@ -66,20 +64,13 @@ export function useMouseInput({
   setMeasuredRowsVersion,
   clearStitchBuffer,
 }) {
-  // Owned by App so switchMouseMode can cancel a pending re-enable when the
-  // user flips to native mid-window (falls back to a local ref if unwired).
-  const localZoomTimerRef = useRef(null);
-  const zoomTimerRef = mouseZoomPassthroughTimerRef || localZoomTimerRef;
+  const zoomTimerRef = useRef(null);
   // Edge auto-scroll timer state (see the effect below). Owned at hook scope so
   // it survives re-subscribes; the drag itself lives on the App-owned dragRef.
   const edgeAutoscrollRef = useRef({ dir: 0, timer: null, noMove: 0 });
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     if (!stdout?.write) return;
-    // In native mode mixdog holds NO mouse tracking; the zoom passthrough must
-    // never re-enable MOUSE_TRACKING_ON (that would silently re-capture the
-    // mouse and steal the terminal's native selection).
-    if (mouseModeRef?.current === 'native') return;
     try {
       stdout.write(MOUSE_TRACKING_OFF + ALT_SCROLL_OFF);
     } catch {
@@ -88,9 +79,6 @@ export function useMouseInput({
     if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
     zoomTimerRef.current = setTimeout(() => {
       zoomTimerRef.current = null;
-      // Re-check the mode: a switch to native during the 700ms window must NOT
-      // re-enable MOUSE_TRACKING_ON (that would recapture the mouse).
-      if (mouseModeRef?.current === 'native') return;
       try {
         stdout.write(ALT_SCROLL_ON + MOUSE_TRACKING_ON);
       } catch {
@@ -98,7 +86,7 @@ export function useMouseInput({
       }
     }, 700);
     zoomTimerRef.current.unref?.();
-  }, [stdout, mouseModeRef, zoomTimerRef]);
+  }, [stdout, zoomTimerRef]);
 
   useEffect(() => () => {
     if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
@@ -283,10 +271,6 @@ export function useMouseInput({
     //  handler is registered it is the SOLE consumer of these events.)
     const onMouse = (event) => {
       if (!event || typeof event !== 'object') return;
-      // Native mode: the terminal owns the mouse. Even though tracking is off
-      // (so real SGR events shouldn't arrive), stay inert defensively during
-      // the mode-switch window so no app selection/scroll fires from a mouse.
-      if (mouseModeRef?.current === 'native') return;
       let up = 0;
       let down = 0;
       // Wheel arrives as a ParsedKey; no button/col/row fields.

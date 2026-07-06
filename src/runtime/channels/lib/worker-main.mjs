@@ -773,7 +773,10 @@ async function stop() {
   }
 }
 // ── IPC worker mode ──────────────────────────────────────────────
-if (_isWorkerMode && process.send) {
+// Skipped under the machine-global daemon (MIXDOG_CHANNEL_DAEMON=1): the
+// daemon entry (src/standalone/channel-daemon.mjs) drives start()/stop() and
+// its own HTTP+SSE transport instead of the parent node-IPC call/notify loop.
+if (_isWorkerMode && process.send && process.env.MIXDOG_CHANNEL_DAEMON !== '1') {
   runWorkerIpc({
     start,
     stop,

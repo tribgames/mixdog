@@ -14,6 +14,16 @@ function normalizeChannelNotifyParams(method, params) {
   return params;
 }
 
+// Pluggable notify sink. Under the per-TUI fork model notifies flow over
+// node-IPC to the parent (process.send). Under the machine-global daemon there
+// is no IPC parent: the daemon entry installs a sink that routes each notify to
+// the CORRECT attached TUI over the transport's SSE fan-out (targeted, never
+// broadcast). When a sink is installed it fully replaces the process.send path.
+let _notifySink = null;
+function setChannelNotifySink(fn) {
+  _notifySink = typeof fn === 'function' ? fn : null;
+}
+
 function createParentBridge({ getInstanceId }) {
   function sendNotifyToParent(method, params) {
     // CC channel schema requires meta: Record<string,string> (channelNotification.ts).
@@ -22,6 +32,11 @@ function createParentBridge({ getInstanceId }) {
     // silent_to_agent stays boolean — an internal routing flag the daemon
     // router / agentNotify consume (=== true) before the CC zod boundary.
     const outParams = normalizeChannelNotifyParams(method, params);
+    if (_notifySink) {
+      try { _notifySink(method, outParams); }
+      catch (err) { try { process.stderr.write(`mixdog channels: notify sink failed: ${err && err.message || err}\n`); } catch {} }
+      return;
+    }
     if (!process.send) {
       try { process.stderr.write(`mixdog channels: notify dropped (no IPC channel): ${method}\n`); } catch {}
       return;
@@ -85,4 +100,4 @@ function createParentBridge({ getInstanceId }) {
   };
 }
 
-export { createParentBridge, normalizeChannelNotifyParams };
+export { createParentBridge, normalizeChannelNotifyParams, setChannelNotifySink };

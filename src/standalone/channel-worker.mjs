@@ -7,6 +7,9 @@ import { startChildGuardian } from '../runtime/shared/child-guardian.mjs';
 import { appendBuffered } from '../runtime/shared/buffered-appender.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
+import { attachToDaemon, readDaemonDiscovery, probeDaemonHealth } from './channel-daemon-client.mjs';
+import { claimSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { randomUUID } from 'node:crypto';
 
 const CHANNEL_TOOLS = new Set([
   'reply',
@@ -23,6 +26,11 @@ const CHANNEL_TOOLS = new Set([
 ]);
 
 const WORKER_PRELOAD = fileURLToPath(new URL('./channel-worker-preload.cjs', import.meta.url));
+// Machine-global channels daemon entry (spawn-or-attach target). Overridable
+// via env so the flip smoke can point at a stub daemon (no Discord token).
+const DAEMON_ENTRY = process.env.MIXDOG_CHANNEL_DAEMON_ENTRY
+  ? resolve(process.env.MIXDOG_CHANNEL_DAEMON_ENTRY)
+  : fileURLToPath(new URL('./channel-daemon.mjs', import.meta.url));
 
 // A global package update can briefly remove channel-worker-preload.cjs while
 // the worker is spawning (MODULE_NOT_FOUND boot crash). Retry once before
@@ -86,7 +94,20 @@ export function createStandaloneChannelWorker({
   let bootGeneration = 0;
   let inProcessMod = null;
   let inProcessStartPromise = null;
+  // Set when in-process mode (MIXDOG_CHANNEL_WORKER_PROCESS=0) holds the daemon
+  // singleton lock, so stop() releases it (never double-own beside a daemon).
+  let inProcessOwned = false;
+  // Machine-global channels daemon attach handle. Replaces the per-TUI fork +
+  // node-IPC call/notify plumbing; the daemon is SHARED and never killed on
+  // this TUI's exit (only detached-from). The fork machinery below is retained
+  // as an unreachable legacy path while useProcessWorker is true.
+  let daemonClient = null;
+  let attachPromise = null;
+  let daemonPid = null;
   let nextCallId = 1;
+  // Per-proxy unique prefix so a callId can never collide across TUIs sharing
+  // the same supervisor pid (which would cross-dedup two distinct calls).
+  const proxyId = randomUUID();
   let parentExitCleanup = null;
   const pending = new Map();
   const ownedChildPids = new Set();
@@ -162,10 +183,10 @@ export function createStandaloneChannelWorker({
       };
     }
     return {
-      running: Boolean(child && child.exitCode == null && !child.killed),
-      pid: child?.pid || null,
-      pending: pending.size,
-      mode: 'runtime',
+      running: Boolean(daemonClient),
+      pid: daemonPid,
+      pending: 0,
+      mode: 'daemon',
     };
   }
 
@@ -227,6 +248,9 @@ export function createStandaloneChannelWorker({
 
   function start() {
     if (!useProcessWorker) return startInProcess();
+    // Daemon mode (default): spawn-or-attach to the machine-global channels
+    // daemon. The fork code below is unreachable while useProcessWorker is true.
+    return ensureDaemonAttached().then(() => status());
     if (stopPromise) {
       return stopPromise.then(() => start());
     }
@@ -338,6 +362,155 @@ export function createStandaloneChannelWorker({
   }
 
   async function startInProcess() {
+    if (inProcessMod || inProcessStartPromise) return _startInProcess();
+    // Singleton guard: in-process mode must not run a SECOND live bridge owner
+    // beside the machine-global daemon (double Discord gateway). Claim the same
+    // owner lock the daemon uses; if a LIVE daemon holds it, fail loudly rather
+    // than silently double-own (unset MIXDOG_CHANNEL_WORKER_PROCESS=0 to attach).
+    const claim = claimSingletonOwner(daemonOwnerPath, { kind: 'channel-runtime-daemon', pid: process.pid, meta: { cwd, mode: 'in-process' } });
+    if (!claim.owned) {
+      throw new Error(`in-process channels runtime refused: a live channels daemon (pid=${claim.owner?.pid}) already owns the bridge — refusing to double-own. Unset MIXDOG_CHANNEL_WORKER_PROCESS=0 to attach, or stop the daemon.`);
+    }
+    inProcessOwned = true;
+    try {
+      return await _startInProcess();
+    } catch (err) {
+      // Boot failed: release the just-claimed lock so a retry (or the daemon)
+      // can own it instead of leaking a live lock held by a non-running runtime.
+      if (inProcessOwned && !inProcessMod) {
+        try { releaseSingletonOwner(daemonOwnerPath, process.pid); } catch {}
+        inProcessOwned = false;
+      }
+      throw err;
+    }
+  }
+
+  // ── Machine-global daemon: spawn-or-attach ────────────────────────────────
+  // Second+ TUI attaches to the live daemon instead of forking. Discovery is a
+  // pid-verified file (channel-daemon.json, 127.0.0.1 only). A stale daemon
+  // (dead pid) or unhealthy one is respawned; a spawn race loser exits(0) so we
+  // re-read discovery and attach to the winner (pid-verified singleton lock).
+  const daemonLeadPid = Number(process.env.MIXDOG_SUPERVISOR_PID) || process.pid;
+  const discoveryPath = join(runtimeRoot(), 'channel-daemon.json');
+  function daemonDelay(ms) { return new Promise((r) => setTimeout(r, ms)); }
+  // Same singleton owner file the daemon claims (dataDir-relative), so the
+  // in-process fallback can refuse to run beside a live daemon.
+  const daemonOwnerPath = join(dataDir, 'channel-daemon-owner.json');
+  // Drop the cached attach so the next ensureDaemonAttached() re-reads discovery,
+  // health-probes, and respawns a dead daemon — the recovery hinge for a daemon
+  // restart mid-session (no TUI process restart needed).
+  function invalidateDaemonClient(reason = 'invalidate', expected = null) {
+    // CAS: only tear down when the live handle is still the one that failed, so
+    // a concurrent call that already re-attached a fresh daemon isn't clobbered.
+    if (expected && daemonClient !== expected) return;
+    const client = daemonClient;
+    daemonClient = null;
+    attachPromise = null;
+    daemonPid = null;
+    if (client) { try { client.close(reason); } catch {} }
+  }
+  function daemonEnv() {
+    const env = { ...process.env };
+    scrubLoaderVars(env);
+    return {
+      ...env,
+      MIXDOG_ROOT: rootDir,
+      MIXDOG_DATA_DIR: dataDir,
+      MIXDOG_STANDALONE: '1',
+      MIXDOG_WORKER_MODE: '1',
+      MIXDOG_CHANNEL_DAEMON: '1',
+      MIXDOG_CLI_OWNED: '0',
+      MIXDOG_SUPERVISOR_PID: process.env.MIXDOG_SUPERVISOR_PID || String(process.pid),
+      MIXDOG_QUIET_SESSION_LOG: process.env.MIXDOG_QUIET_SESSION_LOG ?? '1',
+    };
+  }
+  // Fork one daemon candidate DETACHED (it outlives this TUI — machine-global)
+  // and NEVER track it for parent-exit kill. Resolves when the candidate reports
+  // ready OR exits (race loss/crash); the caller then re-checks discovery.
+  function spawnDaemonCandidate() {
+    return new Promise((resolveSpawn) => {
+      let settled = false;
+      const done = () => { if (settled) return; settled = true; resolveSpawn(); };
+      let daemon;
+      try {
+        daemon = fork(DAEMON_ENTRY, [], {
+          cwd,
+          execArgv: ['--require', WORKER_PRELOAD],
+          stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+          detached: true,
+          env: daemonEnv(),
+          windowsHide: true,
+        });
+      } catch (err) {
+        logLine(logPath, `daemon spawn failed: ${err?.message || err}`);
+        done();
+        return;
+      }
+      daemon.stderr?.on('data', (chunk) => {
+        const text = String(chunk || '').trimEnd();
+        if (text) logLine(logPath, text);
+      });
+      daemon.once('message', (msg) => {
+        if (msg && msg.type === 'ready') {
+          // Fully detach: the daemon must not be tied to this TUI's IPC/lifecycle.
+          try { daemon.disconnect?.(); } catch {}
+          try { daemon.unref?.(); } catch {}
+          try { daemon.stderr?.unref?.(); } catch {}
+          done();
+        }
+      });
+      daemon.once('exit', done); // race loss (exit 0) or crash → re-check discovery
+      daemon.once('error', (err) => { logLine(logPath, `daemon spawn error: ${err?.message || err}`); done(); });
+      const t = setTimeout(done, 20_000);
+      t.unref?.();
+    });
+  }
+  async function doAttach(discovery) {
+    const client = await attachToDaemon({
+      discovery,
+      leadPid: daemonLeadPid,
+      cwd,
+      onNotify: (msg) => { try { onNotify?.(msg); } catch {} },
+      // SSE gave up (daemon dead/restarted): drop this attach and proactively
+      // re-attach so notifies resume without waiting for the next call().
+      onFatal: () => { invalidateDaemonClient('sse fatal', client); void ensureDaemonAttached().catch(() => {}); },
+      log: (line) => logLine(logPath, line),
+    });
+    daemonClient = client;
+    daemonPid = discovery.pid;
+    return client;
+  }
+  async function ensureDaemonAttached() {
+    if (daemonClient) return daemonClient;
+    if (attachPromise) return attachPromise;
+    attachPromise = (async () => {
+      const deadline = Date.now() + 30_000;
+      for (let attempt = 0; ; attempt++) {
+        let discovery = readDaemonDiscovery(discoveryPath);
+        if (discovery) {
+          const health = await probeDaemonHealth({ port: discovery.port, token: discovery.token, timeoutMs: attempt === 0 ? 800 : 2000 });
+          if (health) return await doAttach(discovery);
+          discovery = null; // published but unhealthy → respawn
+        }
+        // No live daemon (absent / dead pid / unhealthy): spawn a candidate. A
+        // race loser exits(0); the winner publishes discovery we then attach to.
+        await spawnDaemonCandidate();
+        const after = readDaemonDiscovery(discoveryPath);
+        if (after) {
+          const health = await probeDaemonHealth({ port: after.port, token: after.token, timeoutMs: 3000 });
+          if (health) return await doAttach(after);
+        }
+        if (Date.now() > deadline) throw new Error('channels daemon did not become ready');
+        await daemonDelay(200);
+      }
+    })();
+    try {
+      return await attachPromise;
+    } finally {
+      attachPromise = null;
+    }
+  }
+  async function _startInProcess() {
     if (inProcessMod) return status();
     if (inProcessStartPromise) return inProcessStartPromise;
     inProcessStartPromise = (async () => {
@@ -373,6 +546,25 @@ export function createStandaloneChannelWorker({
         if (timer) clearTimeout(timer);
       }
     }
+    // Daemon path: dispatch over HTTP with bounded re-attach so a daemon
+    // death/restart is transparent — a transport failure drops the stale attach
+    // and ensureDaemonAttached re-reads discovery + respawns-if-dead.
+    let lastDaemonErr = null;
+    // One stable callId for this logical call, reused across retries so the
+    // daemon dedups a retried transport failure to a single side-effect.
+    const logicalCallId = `ch_${proxyId}_${nextCallId++}`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const daemon = await ensureDaemonAttached();
+      try {
+        return await daemon.call(name, args || {}, { timeoutMs, callId: logicalCallId });
+      } catch (err) {
+        if (!err?.daemonTransportError) throw err; // tool error → surface as-is
+        lastDaemonErr = err;
+        invalidateDaemonClient('transport failure', daemon);
+        await daemonDelay(200 * (attempt + 1));
+      }
+    }
+    throw lastDaemonErr || new Error('channels daemon call failed');
     if (!child || !child.send) throw new Error('channels worker is not running');
     const callId = `ch_${nextCallId++}`;
     return await new Promise((resolve, reject) => {
@@ -452,6 +644,9 @@ export function createStandaloneChannelWorker({
     if (stopPromise) return stopPromise;
     if (!useProcessWorker) {
       if (!inProcessMod && !inProcessStartPromise) {
+        // Nothing running, but a lock may still be held if a prior boot claimed
+        // then failed without clearing — release it so stop() never leaks it.
+        if (inProcessOwned) { try { releaseSingletonOwner(daemonOwnerPath, process.pid); } catch {} inProcessOwned = false; }
         return Promise.resolve(false);
       }
       stopPromise = Promise.resolve(inProcessStartPromise)
@@ -459,12 +654,23 @@ export function createStandaloneChannelWorker({
         .then(async () => {
           try { await inProcessMod?.stop?.(reason); } catch {}
           inProcessMod = null;
+          if (inProcessOwned) { try { releaseSingletonOwner(daemonOwnerPath, process.pid); } catch {} inProcessOwned = false; }
           return true;
         })
         .finally(() => {
           stopPromise = null;
         });
       return stopPromise;
+    }
+    // Daemon path: detach this TUI's client only. The shared daemon reaps
+    // itself via client-grace once the last TUI leaves; never kill it here.
+    if (useProcessWorker) {
+      const client = daemonClient;
+      daemonClient = null;
+      attachPromise = null;
+      daemonPid = null;
+      if (!client) return Promise.resolve(false);
+      return client.close(reason).then(() => true).catch(() => true);
     }
     if (!child) {
       return Promise.resolve(false);

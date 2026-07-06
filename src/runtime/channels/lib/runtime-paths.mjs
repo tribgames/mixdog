@@ -38,6 +38,24 @@ function parsePositivePid(value) {
 function getTerminalLeadPid() {
   return parsePositivePid(process.env.MIXDOG_SUPERVISOR_PID) ?? process.pid;
 }
+// Daemon pointer-owner override. The machine-global daemon is spawned once, so
+// its intrinsic terminalLeadPid pins to the FIRST spawner. When the routing
+// pointer moves (a TUI claims the bridge / rebinds its transcript) the daemon
+// calls setOwnerContext({leadPid,cwd}) so active-instance.json owner fields
+// track the CURRENT bound TUI — statusline/webhook/memory resolve the pointer
+// TUI (and its session-cwd), not the spawner.
+let _ownerContextOverride = null;
+function setOwnerContext(ctx) {
+  const leadPid = parsePositivePid(ctx?.leadPid);
+  const next = leadPid ? { leadPid, cwd: ctx?.cwd ?? null } : null;
+  const changed = JSON.stringify(next) !== JSON.stringify(_ownerContextOverride);
+  _ownerContextOverride = next;
+  // Synchronously re-advertise so external readers (statusline/webhook/memory)
+  // see the new owner/cwd immediately, not on the next incidental refresh.
+  if (changed) {
+    try { refreshActiveInstance(makeInstanceId(), {}); } catch {}
+  }
+}
 function getServerPid() {
   return parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? (process.env.MIXDOG_WORKER_MODE === "1" ? null : process.pid);
 }
@@ -75,7 +93,7 @@ function activeInstanceStaleReason(state) {
   return null;
 }
 function buildRuntimeIdentity() {
-  const terminalLeadPid = getTerminalLeadPid();
+  const terminalLeadPid = _ownerContextOverride?.leadPid ?? getTerminalLeadPid();
   const serverPid = getServerPid();
   return {
     ownerLeadPid: terminalLeadPid,
@@ -84,6 +102,7 @@ function buildRuntimeIdentity() {
     server_pid: serverPid,
     worker_pid: process.pid,
     ...process.env.MIXDOG_WORKER_MODE === "1" ? { channels_pid: process.pid } : {},
+    ...(_ownerContextOverride?.cwd ? { sessionCwd: _ownerContextOverride.cwd } : {}),
   };
 }
 function getTurnEndPath(instanceId) {
@@ -472,5 +491,6 @@ export {
   probeActiveOwner,
   refreshActiveInstance,
   releaseOwnedChannelLocks,
+  setOwnerContext,
   writeServerPid
 };

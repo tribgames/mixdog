@@ -57,6 +57,17 @@ export function wrappedDetailRows(text, width) {
   return wrapAnsi(value, w, { trim: false, hard: true }).split('\n').length;
 }
 
+// Rows one queued steering band (QueuedCommands expanded mode) occupies when
+// its full text renders with ink's wrap="wrap" at `width` content columns.
+// Same wrap-ansi call ink uses, so the queuedRows reservation in App.jsx stays
+// in lock-step with the rendered height — a mismatch pushes the input box.
+export function queuedBandRows(text, width) {
+  const value = String(text ?? '');
+  if (!value) return 1;
+  const w = Math.max(1, Math.floor(Number(width) || 1));
+  return Math.max(1, wrapAnsi(value, w, { trim: false, hard: true }).split('\n').length);
+}
+
 // Character offsets where each visual row starts (hard wrap + explicit newlines).
 export function visualRowStartOffsets(text, width) {
   const value = String(text ?? '');

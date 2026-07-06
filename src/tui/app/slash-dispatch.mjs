@@ -26,8 +26,6 @@ export function createSlashDispatch({
   openThemePicker,
   themeNotice,
   openEffortPicker,
-  getMouseMode,
-  switchMouseMode,
   projectNameFromPath,
   enterProject,
   openProjectPicker,
@@ -86,10 +84,10 @@ export function createSlashDispatch({
         return true;
       }
       case 'search':
-        if (state.busy) {
-          store.pushNotice('wait for the current turn to finish before /search', 'warn');
-          return false;
-        }
+        // No busy guard: /search only picks the search provider/model (a config
+        // save consumed by the NEXT search tool call). It never touches the
+        // in-flight turn, and the same picker is already reachable mid-turn via
+        // /settings, so blocking it here was inconsistent.
         if (arg) store.pushNotice('/search sets the search provider/model; the search tool uses that model when called.', 'warn');
         openSearchPicker();
         return true;
@@ -173,43 +171,6 @@ export function createSlashDispatch({
           store.pushNotice(themeNotice(applied || match), 'info');
         } catch (e) {
           store.pushNotice(`Couldn’t set theme: ${e?.message || e}`, 'error');
-        }
-        return true;
-      }
-      case 'mouse': {
-        const value = String(arg || '').trim().toLowerCase();
-        const current = (getMouseMode?.() === 'native') ? 'native' : 'app';
-        if (!value || value === 'status' || value === 'current' || value === 'show') {
-          store.pushNotice(
-            current === 'native'
-              ? 'Mouse mode: native — terminal owns selection/copy; wheel scrolls the transcript.'
-              : 'Mouse mode: app — in-app selection and mouse handling.',
-            'info',
-          );
-          return true;
-        }
-        let target = null;
-        if (['native', 'terminal', 'off', '0', 'false', 'no'].includes(value)) target = 'native';
-        else if (['app', 'on', '1', 'true', 'yes'].includes(value)) target = 'app';
-        else if (value === 'toggle') target = current === 'native' ? 'app' : 'native';
-        if (!target) {
-          store.pushNotice('usage: /mouse [native|app|status]', 'warn');
-          return true;
-        }
-        if (target === current) {
-          store.pushNotice(`Mouse mode already ${target}.`, 'info');
-          return true;
-        }
-        try {
-          switchMouseMode?.(target, { persist: true });
-          store.pushNotice(
-            target === 'native'
-              ? 'Mouse mode: native — terminal owns selection/copy; wheel scrolls the transcript.'
-              : 'Mouse mode: app — in-app selection and mouse handling.',
-            'info',
-          );
-        } catch (e) {
-          store.pushNotice(`Couldn’t switch mouse mode: ${e?.message || e}`, 'error');
         }
         return true;
       }

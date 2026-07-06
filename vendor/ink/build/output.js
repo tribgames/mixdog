@@ -330,7 +330,13 @@ export default class Output {
                     const n = Number(params[i]);
                     if (n === 7) // inverse
                         continue;
-                    if ((n >= 40 && n <= 49) || (n >= 100 && n <= 107)) // basic/default/bright bg
+                    // basic/default/bright bg — 48 is EXCLUDED here: it is the
+                    // extended-bg introducer (48;5;n / 48;2;r;g;b) and must be
+                    // consumed WITH its payload below. Matching it in this range
+                    // check dropped only the lone '48' and left '2;r;g;b' behind,
+                    // which re-parsed as dim(2)+basic colors and grayed out any
+                    // text drawn over a truecolor background (user-message band).
+                    if ((n >= 40 && n <= 47) || n === 49 || (n >= 100 && n <= 107))
                         continue;
                     if (n === 48) { // extended bg: 48;5;n or 48;2;r;g;b
                         const mode = Number(params[i + 1]);
