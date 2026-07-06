@@ -278,8 +278,24 @@ function _reclaimGuardMatchesToken(guardPath, token) {
   }
 }
 
-function _unlinkReclaimGuardIfPidMatches(guardPath, pid) {
-  if (_readLockOwnerPid(guardPath) !== pid) return false;
+function _readGuardContent(guardPath) {
+  try { return readFileSync(guardPath, 'utf8'); } catch { return null; }
+}
+
+function _parseStampPid(raw) {
+  if (raw === null) return null;
+  const tok = String(raw).trim().split(/\s+/)[0];
+  const pid = Number.parseInt(tok, 10);
+  return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+// Unlink the guard only if its FULL content (pid ts token) is still the
+// exact content the stale/dead decision was made against. A regenerated
+// guard — even one whose pid was recycled to the same value (same-pid
+// ABA) — carries a fresh ts+token and therefore never matches, so a
+// fresh guard is never removed by a stale decision.
+function _unlinkReclaimGuardIfContentMatches(guardPath, content) {
+  if (_readGuardContent(guardPath) !== content) return false;
   try { unlinkSync(guardPath); return true; } catch { return false; }
 }
 
@@ -289,10 +305,12 @@ function _unlinkUnreadableStaleReclaimGuard(guardPath, staleMs) {
 }
 
 function _tryClearStaleReclaimGuard(guardPath, staleMs) {
-  const guardPid = _readLockOwnerPid(guardPath);
+  const guardContent = _readGuardContent(guardPath);
+  const guardPid = _parseStampPid(guardContent);
   if (guardPid !== null) {
-    // Re-read the guard immediately before unlinking so a regenerated
-    // guard with a different owner is not removed by a stale decision.
+    // Re-read the guard's full content immediately before unlinking so a
+    // regenerated guard (different owner OR same-pid ABA) is not removed
+    // by a stale decision.
     // This is still not a serialized primitive: correctness comes from
     // the lockPath owner-token reverify before unlinking lockPath, not
     // from making guard cleanup itself authoritative.
@@ -304,7 +322,7 @@ function _tryClearStaleReclaimGuard(guardPath, staleMs) {
     let guardStale = false;
     try { guardStale = Date.now() - statSync(guardPath).mtimeMs > staleMs; } catch {}
     if (_pidIsDead(guardPid) || guardStale) {
-      _unlinkReclaimGuardIfPidMatches(guardPath, guardPid);
+      _unlinkReclaimGuardIfContentMatches(guardPath, guardContent);
     }
     return;
   }

@@ -40,7 +40,7 @@ import { spawn } from 'node:child_process';
 import * as nodeUtil from 'node:util';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { invalidateBuiltinResultCache, analyzeShellCommandEffects, preflightShellLargeFileProbe } from './builtin.mjs';
+import { invalidateBuiltinResultCache, analyzeShellCommandEffects } from './builtin.mjs';
 import { markCodeGraphDirtyPaths, drainCodeGraphCache } from './code-graph-state.mjs';
 import { maybeRewriteWmicProcessCommand } from './shell-policy.mjs';
 import { _maybeEncodePowerShellCommand } from './shell-command.mjs';
@@ -51,13 +51,15 @@ import { startChildGuardian } from '../../../shared/child-guardian.mjs';
 
 globalThis.__mixdogBashSessionRuntimeLoaded = true;
 
-// Default 600 s (10 min), max 1800 s. Aligned with the one-shot bash tool's
-// 600 s default (builtin/bash-tool.mjs); the persistent shell carries
-// longer-running pipelines (build/test/install) than one-shot calls, so a
-// 120 s default left those workflows timing out at 2 min. Per-call `timeout`
-// still overrides, capped at MAX_TIMEOUT_MS.
-const DEFAULT_TIMEOUT_MS = 600_000;
-const MAX_TIMEOUT_MS = 1_800_000;
+// Claude Code parity (refs/claude-code src/utils/timeouts.ts): default 120 s
+// (2 min), max 600 s (10 min), BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS
+// env overrides (max floored at default). Matches the one-shot bash tool
+// (builtin/bash-tool.mjs); per-call `timeout` still overrides, capped at
+// MAX_TIMEOUT_MS.
+const _envDefaultTimeout = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
+const DEFAULT_TIMEOUT_MS = _envDefaultTimeout > 0 ? _envDefaultTimeout : 120_000;
+const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
+const MAX_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 600_000, DEFAULT_TIMEOUT_MS);
 const IDLE_TIMEOUT_MS = 5 * 60_000;
 const MAX_SESSIONS = 10;
 const STDERR_DRAIN_MS = 25;
@@ -643,8 +645,6 @@ async function bash_session(args, cwd = process.cwd(), opts = {}) {
         }
         return requestedCwd;
     })();
-    const largeProbe = await preflightShellLargeFileProbe(command, baseCwd);
-    if (largeProbe) return `Error: ${largeProbe.message}`;
     const rawTimeout = typeof args?.timeout === 'number' ? args.timeout : DEFAULT_TIMEOUT_MS;
     const timeoutMs = rawTimeout;
     const effectiveTimeout = Math.min(Math.max(timeoutMs, 1), wmicRewrite?.timeoutMs || MAX_TIMEOUT_MS);

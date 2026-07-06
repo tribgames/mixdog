@@ -21,7 +21,6 @@ import {
 import {
     analyzeShellCommandEffects,
     foregroundLongCommandHint,
-    preflightShellLargeFileProbe,
 } from './shell-analysis.mjs';
 import {
     cancelBackgroundTask,
@@ -201,8 +200,6 @@ export async function executeBashTool(args, workDir, options = {}) {
         return _execPolicyBlock;
     }
 
-    const largeProbe = await preflightShellLargeFileProbe(command, bashWorkDir);
-    if (largeProbe) return `Error: ${largeProbe.message}`;
     let shellEffects;
     try {
         shellEffects = await analyzeShellCommandEffects(command, bashWorkDir);
@@ -211,9 +208,14 @@ export async function executeBashTool(args, workDir, options = {}) {
     }
     // Keep foreground commands on a long tool-owned timeout. The MCP dispatch
     // layer must not add a shorter fallback ceiling when timeout is omitted.
-    const DEFAULT_BASH_TIMEOUT_MS = 600_000;
-    const DEFAULT_BACKGROUND_BASH_TIMEOUT_MS = 600_000;
-    const MAX_BASH_TIMEOUT_MS = 1_800_000;
+    // Claude Code parity (refs/claude-code src/utils/timeouts.ts): default
+    // 120 s (2 min), max 600 s (10 min); BASH_DEFAULT_TIMEOUT_MS /
+    // BASH_MAX_TIMEOUT_MS env overrides, max floored at default.
+    const _envDefaultTimeout = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
+    const DEFAULT_BASH_TIMEOUT_MS = _envDefaultTimeout > 0 ? _envDefaultTimeout : 120_000;
+    const DEFAULT_BACKGROUND_BASH_TIMEOUT_MS = DEFAULT_BASH_TIMEOUT_MS;
+    const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
+    const MAX_BASH_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 600_000, DEFAULT_BASH_TIMEOUT_MS);
     const defaultTimeoutMs = runInBackground
         ? DEFAULT_BACKGROUND_BASH_TIMEOUT_MS
         : DEFAULT_BASH_TIMEOUT_MS;

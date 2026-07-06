@@ -12,6 +12,19 @@ import {
     executionModeSchemaDescription,
 } from '../../../../shared/background-tasks.mjs';
 
+// Shell timeout envelope surfaced in the tool schema. Mirrors Claude Code:
+// default 120 s / max 600 s, BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS
+// env overrides, max floored at default. Keep in sync with
+// builtin/bash-tool.mjs and bash-session.mjs.
+function _shellDefaultTimeoutMs() {
+    const parsed = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
+    return parsed > 0 ? parsed : 120_000;
+}
+function _shellMaxTimeoutMs() {
+    const parsed = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
+    return Math.max(parsed > 0 ? parsed : 600_000, _shellDefaultTimeoutMs());
+}
+
 export const BUILTIN_TOOLS = [
     {
         name: 'read',
@@ -59,7 +72,7 @@ export const BUILTIN_TOOLS = [
             properties: {
                 command: { type: 'string', description: 'Command.' },
                 cwd: { type: 'string', description: 'Working directory. Persists across shell calls in a session — omit to reuse the previous command\'s directory (e.g. after cd); pass an absolute path to change it.' },
-                timeout: { type: 'number', description: 'Timeout ms.' },
+                timeout: { type: 'number', description: `Timeout ms. Default ${_shellDefaultTimeoutMs()} (${_shellDefaultTimeoutMs() / 60000} min); long-running commands may raise it up to ${_shellMaxTimeoutMs()} (${_shellMaxTimeoutMs() / 60000} min).` },
                 merge_stderr: { type: 'boolean', description: 'Merge stderr.' },
                 mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
                 shell: { type: 'string', enum: ['bash', 'powershell'], description: 'Force shell. Windows defaults to PowerShell; bash = Git Bash/POSIX.' },

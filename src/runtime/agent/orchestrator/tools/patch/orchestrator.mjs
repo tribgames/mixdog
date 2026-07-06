@@ -25,7 +25,7 @@ import {
 } from './paths.mjs';
 import { ensureNativePatchBinaryAvailable } from './native-server.mjs';
 import { assertPathReachable } from '../builtin/fs-reachability.mjs';
-import { dispatchNativePatch } from './dispatch.mjs';
+import { dispatchNativePatch, dispatchJsPatchEntries } from './dispatch.mjs';
 import { normalizeOutputPath } from '../builtin.mjs';
 import {
   planV4ARenameSections,
@@ -242,17 +242,12 @@ async function apply_patch(args, cwd, options = {}) {
     }
     const insideEntries = entries.filter((entry) => !isResolvedPathOutsideBase(entry.fullPath, basePath));
     const outsideEntries = entries.filter((entry) => isResolvedPathOutsideBase(entry.fullPath, basePath));
-    if (outsideEntries.length > 0) {
-      const rels = outsideEntries.map((e) => normalizeOutputPath(e.fullPath || e.displayPath || '(unknown)')).join(', ');
-      return wrapPatchMutationOutput(
-        `Error: apply_patch target resolves outside base path (../ or absolute not allowed): ${rels}`,
-        mutationPlan,
-        { backend: 'native-patch' },
-      );
-    }
     const parsedInside = (parsed || []).filter(
       (entry) => !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
     );
+    const backend = outsideEntries.length > 0
+      ? (insideEntries.length > 0 ? 'native+js-patch' : 'js-patch')
+      : 'native-patch';
     const resultParts = [];
     if (insideEntries.length > 0) {
       const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), headerRewrites);
@@ -268,10 +263,25 @@ async function apply_patch(args, cwd, options = {}) {
         parsed: parsedInside,
       });
       if (isPatchErrorText(nativeResult)) {
-        if (resultParts.length > 0) return wrapPatchMutationOutput(nativeResult, mutationPlan, { backend: 'native-patch' });
-        return wrapPatchMutationOutput(nativeResult, mutationPlan, { backend: 'native-patch' });
+        return wrapPatchMutationOutput(nativeResult, mutationPlan, { backend });
       }
       resultParts.push(nativeResult);
+    }
+    if (outsideEntries.length > 0) {
+      // Out-of-base targets are applied via the JS dispatcher (no base-path
+      // confinement); write permission is enforced at the hook layer.
+      const jsResult = await dispatchJsPatchEntries({
+        rows: outsideEntries,
+        parsed,
+        basePath,
+        dryRun,
+        fuzzy,
+        readStateScope,
+      });
+      if (isPatchErrorText(jsResult)) {
+        return wrapPatchMutationOutput(jsResult, mutationPlan, { backend });
+      }
+      resultParts.push(jsResult);
     }
     let combined = resultParts.join('\n');
     const renameLines = formatV4ARenameSuccessLines(v4aRenameResults);
@@ -287,9 +297,9 @@ async function apply_patch(args, cwd, options = {}) {
         `hunk-level rejected (rejectPartial=false, V4A): ${rejectedV4AHunks.length}`,
         ...rejectedV4AHunks.map((r) => `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '').split(';')[0].trim()}`),
       ];
-      return wrapPatchMutationOutput(`${combined}\n${tail.join('\n')}`, mutationPlan, { backend: 'native-patch' });
+      return wrapPatchMutationOutput(`${combined}\n${tail.join('\n')}`, mutationPlan, { backend });
     }
-    return wrapPatchMutationOutput(combined, mutationPlan, { backend: 'native-patch' });
+    return wrapPatchMutationOutput(combined, mutationPlan, { backend });
   }));
 }
 
