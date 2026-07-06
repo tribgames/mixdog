@@ -720,6 +720,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     openContextPicker: (...a) => openContextPicker(...a),
     openProfilePicker: (...a) => openProfilePicker(...a),
     openUpdatePicker: (...a) => openUpdatePicker(...a),
+    runDoctor: (...a) => store.runDoctor?.(...a),
     requestExit: (...a) => requestExit(...a),
   });
   const promptHintTimerRef = useRef(null);

@@ -46,6 +46,7 @@ export function createSlashDispatch({
   openContextPicker,
   openProfilePicker,
   openUpdatePicker,
+  runDoctor,
   requestExit,
 }) {
   const runSlashCommand = (cmd, arg = '') => {
@@ -382,6 +383,14 @@ export function createSlashDispatch({
         return true;
       case 'update':
         openUpdatePicker();
+        return true;
+      case 'doctor':
+        if (state.commandBusy) {
+          store.pushNotice('wait for the current command to finish before /doctor', 'warn');
+          return false;
+        }
+        void Promise.resolve(runDoctor?.())
+          .catch((e) => store.pushNotice(`doctor failed: ${e?.message || e}`, 'error'));
         return true;
       case 'quit':
         requestExit();

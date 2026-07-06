@@ -5,6 +5,7 @@ import { compactEventDetail, projectNameFromPath } from './labels.mjs';
 import { toolErrorDisplay } from './tool-result-text.mjs';
 import { isQueuedEntryEditable, promptDisplayText } from './queue-helpers.mjs';
 import { createEngineApiB } from './session-api-ext.mjs';
+import { buildDoctorReport } from '../app/doctor.mjs';
 
 export function createEngineApi(bag) {
   return { ...createEngineApiA(bag), ...createEngineApiB(bag) };
@@ -440,6 +441,24 @@ export function createEngineApiA(bag) {
         const result = await runtime.recall(query, args);
         pushNotice(String(result || '').trim() || '(empty recall result)', 'info');
         return result;
+      } finally {
+        set({ commandBusy: false, commandStatus: null });
+      }
+    },
+    runDoctor: async () => {
+      if (getState().commandBusy) return null;
+      const startedAt = Date.now();
+      set({ commandBusy: true, commandStatus: { active: true, verb: 'Running diagnostics', startedAt, mode: 'doctor' } });
+      try {
+        // Yield one event-loop turn so Ink paints the running indicator before
+        // the (mostly synchronous) health checks run — same pattern as compact.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const report = await buildDoctorReport(runtime, getState);
+        pushNotice(report, 'info');
+        return report;
+      } catch (e) {
+        pushNotice(`doctor failed: ${e?.message || e}`, 'error');
+        return null;
       } finally {
         set({ commandBusy: false, commandStatus: null });
       }

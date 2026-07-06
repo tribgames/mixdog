@@ -32,6 +32,7 @@ export const SLASH_COMMANDS = [
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
   { name: 'profile', usage: '/profile', description: 'Set your title and response language' },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog' },
+  { name: 'doctor', usage: '/doctor', description: 'Diagnose installation health' },
   { name: 'quit', usage: '/quit', aliases: ['exit', 'q'], aliasUsage: ['exit', 'q'], description: 'Quit the TUI' },
 ];
 
