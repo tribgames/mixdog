@@ -308,10 +308,7 @@ export function forgetGrokOAuthCredentials() {
 }
 
 let _refreshInFlight = null;
-async function refreshTokens(tokens) {
-    if (!tokens?.refresh_token) {
-        throw new Error('[grok-oauth] refresh token not available — open /providers in mixdog to sign in again');
-    }
+async function _postRefresh(tokens) {
     const tokenEndpoint = tokens.token_endpoint
         ? assertTrustedXaiEndpoint(tokens.token_endpoint, 'token endpoint')
         : (await fetchDiscovery()).token_endpoint;
@@ -362,6 +359,34 @@ async function refreshTokens(tokens) {
         return { ...refreshed, source: 'own', mtimeMs: _mtimeMs(getOwnTokenPath()) };
     } finally {
         timeout.cleanup();
+    }
+}
+
+// 16 mixdog processes share one grok-oauth.json and xAI rotates refresh
+// tokens single-use. Re-read the store immediately before the network POST so
+// a peer's just-completed rotation is adopted instead of spending our
+// (now-stale) refresh_token; on invalid_grant, re-read once and retry with a
+// peer-rotated refresh_token before propagating.
+async function refreshTokens(tokens, { force = false } = {}) {
+    if (!tokens?.refresh_token) {
+        throw new Error('[grok-oauth] refresh token not available — open /providers in mixdog to sign in again');
+    }
+    const disk = _loadOwnTokens();
+    const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
+    if (disk?.access_token && disk.access_token !== tokens.access_token
+        && (!disk.expires_at || disk.expires_at >= validAfter)) {
+        return disk;
+    }
+    try {
+        return await _postRefresh(tokens);
+    } catch (err) {
+        if (err?.isInvalidGrant) {
+            const rotated = _loadOwnTokens();
+            if (rotated?.refresh_token && rotated.refresh_token !== tokens.refresh_token) {
+                return await _postRefresh(rotated);
+            }
+        }
+        throw err;
     }
 }
 
@@ -530,6 +555,9 @@ export class GrokOAuthProvider {
     tokens = null;
     _inner = null;
     _innerKey = null;
+    // Grace window after a non-force refresh failure: keep serving the current
+    // still-valid access_token instead of thrashing the shared refresh_token.
+    _refreshFallbackUntil = 0;
 
     constructor(config) {
         this.config = config || {};
@@ -553,15 +581,44 @@ export class GrokOAuthProvider {
             if (disk?.access_token) this.tokens = disk;
             this._lastDiskScan = ownM;
         }
+        if (!forceRefresh && this._refreshFallbackUntil > Date.now() && this.tokens?.access_token
+            && (!this.tokens.expires_at || this.tokens.expires_at > Date.now())) {
+            return this.tokens;
+        }
         const expiring = this.tokens.expires_at
             && this.tokens.expires_at < Date.now() + TOKEN_REFRESH_SKEW_MS;
         if (forceRefresh || expiring) {
-            if (_refreshInFlight) {
-                this.tokens = await _refreshInFlight;
-            } else {
-                _refreshInFlight = refreshTokens(this.tokens)
-                    .finally(() => { _refreshInFlight = null; });
-                this.tokens = await _refreshInFlight;
+            const currentToken = this.tokens?.access_token || null;
+            try {
+                if (_refreshInFlight) {
+                    const shared = await _refreshInFlight;
+                    this.tokens = shared;
+                    // A forced caller must not accept a shared non-force result
+                    // that merely handed back its own prior token: start a fresh
+                    // forced refresh instead (mirror openai-oauth).
+                    if (forceRefresh && shared?.access_token === currentToken) {
+                        if (!_refreshInFlight) {
+                            _refreshInFlight = refreshTokens(this.tokens, { force: true })
+                                .finally(() => { _refreshInFlight = null; });
+                        }
+                        this.tokens = await _refreshInFlight;
+                    }
+                } else {
+                    _refreshInFlight = refreshTokens(this.tokens, { force: forceRefresh })
+                        .finally(() => { _refreshInFlight = null; });
+                    this.tokens = await _refreshInFlight;
+                }
+                this._refreshFallbackUntil = 0;
+            } catch (err) {
+                // Non-force failure while the current token is still valid: serve
+                // it under a grace window rather than throwing (mirror openai-oauth).
+                if (!forceRefresh && currentToken
+                    && (!this.tokens?.expires_at || this.tokens.expires_at > Date.now())) {
+                    this._refreshFallbackUntil = Date.now() + TOKEN_REFRESH_SKEW_MS;
+                    process.stderr.write(`[grok-oauth] Refresh failed (${String(err?.message || err).slice(0, 120)}); using still-valid current token\n`);
+                    return this.tokens;
+                }
+                throw err;
             }
         }
         return this.tokens;
