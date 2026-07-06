@@ -86,11 +86,15 @@ export async function applyBatchStatusVerdicts(db, batch, nowMs) {
   )
   let promoted = 0
   let archived = 0
+  let archived_active = 0
   for (const r of (res.rows ?? [])) {
     if (r.was_pending && r.new_status === 'active') promoted += 1
-    else if (r.new_status === 'archived') archived += 1
+    else if (r.new_status === 'archived') {
+      archived += 1
+      if (!r.was_pending) archived_active += 1
+    }
   }
-  return { promoted, archived }
+  return { promoted, archived, archived_active }
 }
 
 // Generic status update for archived/active terminal transitions.
@@ -186,24 +190,49 @@ export async function applyMerge(db, targetId, sourceIds, options = {}) {
       )
       continue
     }
+    // Floor guard: archiving an active source row shrinks the active pool, so
+    // it must reserve from the shared floor budget. Over-budget merges are
+    // skipped (source stays active); pending sources never reserve.
+    const srcActive = srcRow.status === 'active'
+    if (srcActive && options.floorGuard && !options.floorGuard.reserve()) {
+      __mixdogMemoryLog(`[cycle2] merge source archive skipped (floor guard): target=${targetId} src=${sid}\n`)
+      continue
+    }
+    let archivedPrevStatus = null
     try {
-      // One source merge is the mutation unit: DB reassignment/archive plus
-      // embedding cleanup. The next abort checkpoint is before the next source.
+      // Archive is the guarded mutation unit: the reservation is only kept if
+      // this transaction commits. Embedding cleanup is deliberately OUTSIDE
+      // this try — a post-commit cleanup failure must NOT refund the budget,
+      // since the active row is already archived.
       await db.transaction(async (tx) => {
         await tx.query(
           `UPDATE entries SET chunk_root = $1, project_id = $2 WHERE chunk_root = $3 AND id != $4 AND is_root = 0`,
           [targetId, target.project_id, sid, sid],
         )
-        await tx.query(
-          `UPDATE entries SET status = 'archived' WHERE id = $1 AND is_root = 1`,
+        // Capture prev status in the same statement so a stale snapshot (the
+        // row was already archived by a concurrent write) can refund below.
+        const ar = await tx.query(
+          `WITH pre AS (SELECT id, status AS prev FROM entries WHERE id = $1 AND is_root = 1)
+           UPDATE entries SET status = 'archived'
+           FROM pre WHERE entries.id = pre.id AND entries.is_root = 1
+           RETURNING pre.prev AS prev_status`,
           [sid],
         )
+        archivedPrevStatus = ar.rows?.[0]?.prev_status ?? null
       })
-      await deleteRootEmbedding(db, sid)
-      moved += 1
     } catch (err) {
+      if (srcActive && options.floorGuard) options.floorGuard.refund()
       __mixdogMemoryLog(`[cycle2] merge failed (target=${targetId} src=${sid}): ${err.message}\n`)
+      continue
     }
+    // Archive committed. If the source was no longer active at UPDATE time,
+    // the reservation did not cover a real active→archived transition — refund.
+    if (srcActive && options.floorGuard && archivedPrevStatus !== 'active') options.floorGuard.refund()
+    // Archive committed — best-effort embedding cleanup only. The next abort
+    // checkpoint is before the next source.
+    moved += 1
+    try { await deleteRootEmbedding(db, sid) }
+    catch (err) { __mixdogMemoryLog(`[cycle2] merge embedding cleanup failed (target=${targetId} src=${sid}): ${err.message}\n`) }
   }
   return moved
 }
@@ -245,6 +274,7 @@ async function _llmJudgePair(summaryA, summaryB, siblingContext = [], options = 
 
 export async function runPhaseMerge(db, options = {}) {
   const signal = options?.signal
+  const floorGuard = options?.floorGuard
   throwIfAborted(signal)
   // PG-side lateral nearest-neighbor via HNSW index — replaces JS O(n²) double loop.
   const pairRes = await db.query(
@@ -296,7 +326,9 @@ export async function runPhaseMerge(db, options = {}) {
     if (mergedIds.has(a.id) || mergedIds.has(b.id)) return
     const keeper = _pickKeeper(a, b)
     const loser = keeper.id === a.id ? b : a
-    const moved = await applyMerge(db, keeper.id, [loser.id], { signal })
+    // phase_merge only pairs active rows, so the loser archive is an active
+    // demotion — thread the floor budget through applyMerge.
+    const moved = await applyMerge(db, keeper.id, [loser.id], { signal, floorGuard })
     if (moved > 0) {
       merged += moved
       mergedIds.add(loser.id)
@@ -372,6 +404,9 @@ export async function runPhaseMerge(db, options = {}) {
     )
     throwIfAborted(signal)
     if (!verdictMerge) continue
+    // Core-overlap archive is an active demotion — reserve floor budget and
+    // refund if the guarded UPDATE turns out not to fire.
+    if (floorGuard && !floorGuard.reserve()) continue
     // Archiving one overlap and deleting its embedding is one mutation unit;
     // cancellation resumes at the next row boundary.
     const r = await db.query(
@@ -387,6 +422,8 @@ export async function runPhaseMerge(db, options = {}) {
     if (Number(r.rowCount ?? r.affectedRows ?? 0) > 0) {
       coreOverlap++
       await deleteRootEmbedding(db, Number(row.entry_id))
+    } else if (floorGuard) {
+      floorGuard.refund()
     }
   }
   throwIfAborted(signal)

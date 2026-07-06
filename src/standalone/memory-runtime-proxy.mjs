@@ -81,7 +81,7 @@ function isConnResetLikeError(err) {
 
 function isMemoryWorkerNotReadyError(err) {
   const msg = String(err?.message || err || '');
-  return /memory worker exited before ready|memory worker ready timeout|memory runtime did not become ready|memory worker degraded/i.test(msg);
+  return /memory worker exited before ready|memory worker ready timeout|memory runtime did not become ready|memory worker degraded|memory worker draining/i.test(msg);
 }
 
 function isTransientMemoryRpcError(err) {
@@ -166,9 +166,67 @@ export function createStandaloneMemoryRuntime({
   let child = null;
   let nextCallId = 1;
   let crashState = null; // { reason, at } — cached deterministic spawn crash
+  // Port we have registered this proxy pid with (so the shared daemon can
+  // reap itself promptly once every client deregisters). Re-registers when
+  // the daemon respawns on a new port.
+  let registeredWithPort = null;
+
+  async function ensureClientRegistered(port) {
+    // Returns the port the pending RPC should target. When an internal respawn
+    // happens the daemon moves to a fresh port, so the caller MUST use the
+    // returned value rather than the port it captured before registering.
+    if (!port || registeredWithPort === port) return port;
+    // The register RPC is provably side-effect-free from the caller's point of
+    // view: a refused/reset connection means the daemon never received it, and
+    // a draining 503 means it refused it. So a register-phase transient is ALWAYS
+    // safe to recover from by respawning a fresh daemon and retrying — even for a
+    // pending WRITE RPC. We do that respawn-and-retry HERE, before the write RPC
+    // is ever attempted, rather than leaning on the outer retry (which must not
+    // blanket-retry refused/reset on the write RPC itself).
+    let curPort = port;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await requestJson({
+          port: curPort,
+          method: 'POST',
+          path: '/client/register',
+          body: { clientPid: process.pid },
+          timeoutMs: 2000,
+        });
+        registeredWithPort = curPort;
+        return curPort;
+      } catch (err) {
+        // Benign failures (e.g. request timeout against a busy-but-live daemon)
+        // are not fatal: registration is best-effort and the idle TTL backstops
+        // a missed register. Only recover from genuine "daemon is gone/dying".
+        if (!isTransientMemoryRpcError(err)) return curPort;
+        if (attempt >= 3) throw err;
+        invalidateMemoryRuntimeAfterTransient(err);
+        await delay(TRANSIENT_MEMORY_RPC_BACKOFF_MS);
+        const started = await start();
+        curPort = started.port;
+      }
+    }
+  }
+
+  async function deregisterClient() {
+    const port = registeredWithPort || portCache;
+    registeredWithPort = null;
+    if (!port) return;
+    try {
+      await requestJson({
+        port,
+        method: 'POST',
+        path: '/client/deregister',
+        body: { clientPid: process.pid },
+        timeoutMs: 1500,
+      });
+    } catch { /* best-effort; sweep + idle TTL reap us anyway */ }
+  }
 
   function invalidateMemoryRuntimeAfterTransient(err) {
     portCache = null;
+    registeredWithPort = null;
     if (!isMemoryWorkerNotReadyError(err)) return;
     startPromise = null;
     const proc = child;
@@ -289,14 +347,34 @@ export function createStandaloneMemoryRuntime({
     }
 
     startPromise = (async () => {
-      const claim = claimOwner();
+      let claim = claimOwner();
       if (!claim.owned) {
-        const owner = readSingletonOwner(ownerPath);
-        if (owner.alive) {
-          const live = await waitForPort(30_000);
-          return live;
+        // Another owner holds the singleton. If it is live AND serving a
+        // healthy port, use it. If it is live but NOT healthy (a daemon that is
+        // draining/shutting down never revives — see getDraining/health in
+        // lib/http-router.mjs), poll: reclaim the instant the old owner exits so
+        // a quick restart still ends with a fresh, working daemon instead of
+        // binding to the dying one and failing the pending RPC.
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline) {
+          const livePort = await findLivePort({ allowStarting: true });
+          if (livePort) {
+            try {
+              const health = await requestJson({ port: livePort, path: '/health', timeoutMs: 1500 });
+              if (health?.status === 'ok') return livePort;
+            } catch { /* dying/unreachable — fall through to reclaim */ }
+          }
+          const reclaim = claimOwner();
+          if (reclaim.owned) { claim = reclaim; break; }
+          await delay(150);
         }
-        releaseOwnerIfSelf();
+        if (!claim.owned) {
+          const owner = readSingletonOwner(ownerPath);
+          if (owner.alive) throw new Error('memory runtime did not become ready');
+          releaseOwnerIfSelf();
+          claim = claimOwner();
+          if (!claim.owned) throw new Error('memory runtime did not become ready');
+        }
       }
 
       const daemonEnv = { ...process.env };
@@ -354,6 +432,7 @@ export function createStandaloneMemoryRuntime({
         if (singletonEnabled && childPid) releaseSingletonOwner(ownerPath, childPid);
         if (child?.pid === childPid) child = null;
         portCache = null;
+        registeredWithPort = null;
       });
 
       const ready = new Promise((resolveReady, rejectReady) => {
@@ -417,7 +496,11 @@ export function createStandaloneMemoryRuntime({
     const callId = `mem_${process.pid}_${nextCallId++}`;
     return await withTransientMemoryRpcRetry(async () => {
       await start();
-      const port = portCache || await findLivePort({ allowStarting: true });
+      let port = portCache || await findLivePort({ allowStarting: true });
+      if (!port) throw new Error('memory runtime is not available');
+      // ensureClientRegistered may respawn onto a fresh daemon/port; target the
+      // port it hands back so the RPC and registration always hit the same one.
+      port = await ensureClientRegistered(port);
       if (!port) throw new Error('memory runtime is not available');
       return await requestJson({
         port,
@@ -433,7 +516,9 @@ export function createStandaloneMemoryRuntime({
   async function buildSessionCoreMemoryPayload(sessionCwd) {
     return await withTransientMemoryRpcRetry(async () => {
       await start();
-      const port = portCache || await findLivePort({ allowStarting: true });
+      let port = portCache || await findLivePort({ allowStarting: true });
+      if (!port) throw new Error('memory runtime is not available');
+      port = await ensureClientRegistered(port);
       if (!port) throw new Error('memory runtime is not available');
       return await requestJson({
         port,
@@ -446,8 +531,10 @@ export function createStandaloneMemoryRuntime({
   }
 
   async function stop() {
-    // Detach only. The daemon owns its own idle lifetime; CLI shutdown must not
-    // tear it down out from under another tab.
+    // Deregister this client so a shared daemon can reap itself within the
+    // seconds-scale client grace once no clients remain, then detach. We never
+    // hard-kill the daemon here — another tab/session may still be using it.
+    await deregisterClient();
     try { child?.disconnect?.(); } catch {}
     try { child?.unref?.(); } catch {}
     child = null;

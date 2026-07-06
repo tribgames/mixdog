@@ -296,6 +296,45 @@ async function ensureHotActiveSearchObjects(db) {
   await db.exec(`CREATE INDEX IF NOT EXISTS mv_hot_active_score ON mv_hot_active(score DESC)`)
 }
 
+// Refresh mv_hot_active. Owned by cycle2 — call after promotion/archival/dedup
+// mutations land so the recall hot path reads the current active set. The MV is
+// created WITH NO DATA (memory.mjs:243), and an unpopulated MV CANNOT be
+// refreshed CONCURRENTLY, so the first refresh is non-concurrent; once populated
+// we refresh CONCURRENTLY (the mv_hot_active_id UNIQUE index — created at
+// :251/:293 — makes this legal) to avoid an AccessExclusive lock on the recall
+// read path. Best-effort: every failure is logged and swallowed so a refresh
+// error never crashes the cycle. Returns true when the view was refreshed.
+export async function refreshHotActive(db) {
+  try {
+    const r = await db.query(
+      `SELECT relispopulated FROM pg_class WHERE relname = 'mv_hot_active' LIMIT 1`,
+    )
+    if (!r.rows.length) {
+      __mixdogMemoryLog('[memory] refreshHotActive: mv_hot_active not found; skipping\n')
+      return false
+    }
+    if (Boolean(r.rows[0].relispopulated)) {
+      try {
+        await db.exec(`REFRESH MATERIALIZED VIEW CONCURRENTLY mv_hot_active`)
+        return true
+      } catch (err) {
+        // CONCURRENTLY needs a populated MV + unique index; if either is not
+        // true (e.g. MV was reset since the catalog read), fall back to a plain
+        // refresh so the view still ends up fresh (brief AccessExclusive lock).
+        __mixdogMemoryLog(`[memory] refreshHotActive CONCURRENTLY failed, retrying non-concurrent: ${err?.message || err}\n`)
+        await db.exec(`REFRESH MATERIALIZED VIEW mv_hot_active`)
+        return true
+      }
+    }
+    // First refresh of a WITH-NO-DATA view — must be non-concurrent.
+    await db.exec(`REFRESH MATERIALIZED VIEW mv_hot_active`)
+    return true
+  } catch (err) {
+    __mixdogMemoryLog(`[memory] refreshHotActive failed: ${err?.message || err}\n`)
+    return false
+  }
+}
+
 async function resetEmbeddingColumnsForDims(db, dimCount) {
   const entriesDims = await getEmbeddingColumnDims(db, 'entries')
   const coreDims = await getEmbeddingColumnDims(db, 'core_entries')

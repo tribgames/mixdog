@@ -42,6 +42,9 @@ export function createHttpRouter({
   handleMemoryAction,
   handleToolCall,
   stop,
+  registerClient,
+  deregisterClient,
+  getDraining,
   getCycle1CallLlm,
   getTraceDb,
   setTraceDb,
@@ -120,6 +123,31 @@ export function createHttpRouter({
 
   const requestHandler = async (req, res) => {
     touchDaemonIdleTimer(`${req.method || 'HTTP'} ${req.url || '/'}`)
+    // Connected-client lifecycle. Proxies register on first use and
+    // deregister on CLI shutdown; the daemon reaps itself shortly after the
+    // last client leaves (see registerClient/deregisterClient in index.mjs).
+    if (req.method === 'POST' && (req.url === '/client/register' || req.url === '/client/deregister')) {
+      if (!isLocalOrigin(req)) {
+        sendJson(res, { ok: false, error: 'forbidden: cross-origin' }, 403)
+        return
+      }
+      let body = {}
+      try { body = await readBody(req) } catch {}
+      const clientPid = Number(body?.clientPid)
+      if (req.url === '/client/register') {
+        const accepted = registerClient?.(clientPid)
+        if (accepted === false) {
+          // Daemon is draining — distinct signal so the proxy respawns a fresh
+          // daemon and retries its pending RPC instead of binding to this one.
+          sendJson(res, { ok: false, draining: true, error: 'memory worker draining' }, 503)
+          return
+        }
+      } else {
+        deregisterClient?.(clientPid)
+      }
+      sendJson(res, { ok: true })
+      return
+    }
     if (req.method === 'POST' && req.url === '/session-reset') {
       const ts = Date.now()
       setBootTimestamp(ts)
@@ -133,6 +161,10 @@ export function createHttpRouter({
     }
 
     if (req.method === 'GET' && req.url === '/health') {
+      if (getDraining?.()) {
+        sendJson(res, { status: 'draining' }, 503)
+        return
+      }
       if (!getInitialized()) {
         sendJson(res, { status: 'starting' }, 503)
         return
@@ -589,6 +621,13 @@ export function createHttpRouter({
     if (req.method === 'POST' && req.url === '/api/tool') {
       if (!isLocalOrigin(req)) {
         sendJson(res, { content: [{ type: 'text', text: 'forbidden: cross-origin' }], isError: true }, 403)
+        return
+      }
+      // Reject tool calls that arrive after shutdown has begun. The error text
+      // carries the "draining" token so the proxy treats it as transient,
+      // respawns a fresh daemon, and retries the RPC (including write RPCs).
+      if (getDraining?.()) {
+        sendJson(res, { content: [{ type: 'text', text: 'memory worker draining' }], isError: true }, 503)
         return
       }
       // Owner-side cancel plumbing: the fork-proxy worker forwards parent

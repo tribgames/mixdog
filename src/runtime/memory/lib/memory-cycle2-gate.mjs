@@ -11,6 +11,12 @@ import { __mixdogMemoryLog, throwIfAborted, resourceDir } from './memory-cycle2-
 
 export const CYCLE2_ACTIVE_TARGET_CAP = 100
 
+// Minimum number of active (promoted) rows cycle2 must preserve. When the
+// active pool is at or below this floor, active recheck/demotion is skipped
+// and no archiving path may push active below it — prevents draining the
+// pool to zero. Configurable via config.active_floor.
+export const CYCLE2_ACTIVE_MIN_FLOOR = 20
+
 // Status-based verb whitelist. 3-tier policy: pending → active/archived,
 // active → active/archived/update/merge.
 const STATUS_ALLOWED_VERBS = {

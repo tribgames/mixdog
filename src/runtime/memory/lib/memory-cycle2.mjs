@@ -6,6 +6,7 @@
 //   memory-cycle2-mutations.mjs  — status/update/merge writers + runPhaseMerge
 //   memory-cycle2-gate.mjs       — prompt/parse/validate + runUnifiedGate + cascade
 import { flushEmbeddingDirty } from './memory-embed.mjs'
+import { refreshHotActive } from './memory.mjs'
 import { backfillCoreEmbeddings, nominateCoreCandidates, CORE_SUMMARY_MAX } from './core-memory-store.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 import { __mixdogMemoryLog, throwIfAborted } from './memory-cycle2-shared.mjs'
@@ -13,7 +14,7 @@ import {
   applyBatchStatusVerdicts, clampPendingPromotions, applySimpleStatus, applyUpdate, applyMerge, runPhaseMerge,
 } from './memory-cycle2-mutations.mjs'
 import {
-  CYCLE2_ACTIVE_TARGET_CAP, loadCurrentRulesDigest, runUnifiedGate, sonnetCascade,
+  CYCLE2_ACTIVE_TARGET_CAP, CYCLE2_ACTIVE_MIN_FLOOR, loadCurrentRulesDigest, runUnifiedGate, sonnetCascade,
   NON_ARCHIVE_VERBS, requiredCoreIdForAction,
 } from './memory-cycle2-gate.mjs'
 
@@ -48,6 +49,7 @@ function mergeCycle2Results(a, b) {
     archived: Number(a.archived || 0) + Number(b.archived || 0),
     merged: Number(a.merged || 0) + Number(b.merged || 0),
     updated: Number(a.updated || 0) + Number(b.updated || 0),
+    floor_protected: Number(a.floor_protected || 0) + Number(b.floor_protected || 0),
     kept: Number(a.kept || 0) + Number(b.kept || 0),
     rejected_verb: Number(a.rejected_verb || 0) + Number(b.rejected_verb || 0),
     merge_rejected: Number(a.merge_rejected || 0) + Number(b.merge_rejected || 0),
@@ -199,6 +201,9 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   const activeTargetCap = Number.isFinite(Number(config.active_target_cap))
     ? Math.max(1, Number(config.active_target_cap))
     : CYCLE2_ACTIVE_TARGET_CAP
+  const activeFloor = Number.isFinite(Number(config.active_floor))
+    ? Math.max(0, Number(config.active_floor))
+    : CYCLE2_ACTIVE_MIN_FLOOR
   const nowMs = Date.now()
 
   const stats = {
@@ -211,6 +216,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     rescore: { updated: 0 },
     phase_merge: { merged: 0, llm_calls: 0, tier1_pairs: 0, tier2_pairs: 0, core_overlap: 0 },
     cascade: { evaluated: 0, dropped: 0 },
+    floor_protected: 0,
   }
 
   if (dataDir) {
@@ -231,6 +237,20 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   const activeCount = Number(activeCountRes.rows[0]?.c ?? 0)
   const reviewActiveRows = activeCount > activeTargetCap
 
+  // Shared floor-demotion budget: the number of active rows that may be
+  // archived this cycle before the active pool would breach the minimum
+  // floor. EVERY archiving path that removes an active row must reserve()
+  // from this single budget (status demotions, cascade drops, applyMerge
+  // sources, and phase_merge) so no path can drain active below the floor.
+  // Reservations are refunded when the underlying write turns out not to
+  // demote (optimistic-guard miss / merge failure).
+  const floorGuard = {
+    remaining: Math.max(0, activeCount - activeFloor),
+    protected: 0,
+    reserve() { if (this.remaining <= 0) { this.protected += 1; return false } this.remaining -= 1; return true },
+    refund(n = 1) { this.remaining += Math.max(0, n) },
+  }
+
   // Rolling active re-review quota. Under cap, the unified selection below
   // pulls only pending rows, so an already-promoted entry that later drifts
   // stale or turns out to restate a rule file never gets re-judged — the
@@ -244,7 +264,9 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   // restatements. Embedding dedup is skipped on purpose: rule restatements
   // are often cross-language paraphrases whose cosine never clears the merge
   // threshold, but the LLM gate catches the semantic overlap.
-  const activeRecheckQuota = reviewActiveRows
+  // Floor guard: when the active pool is at/below the minimum floor, skip the
+  // rolling active recheck entirely so demotions cannot drain it further.
+  const activeRecheckQuota = (reviewActiveRows || activeCount <= activeFloor)
     ? 0
     : Math.max(0, Math.min(Number(config.active_recheck_quota ?? 8), batchSize - 1))
   const pendingLimit = batchSize - activeRecheckQuota
@@ -460,7 +482,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
             )
             continue
           }
-          const moved = await applyMerge(db, targetId, sourceIds, { signal })
+          const moved = await applyMerge(db, targetId, sourceIds, { signal, floorGuard })
           throwIfAborted(signal)
           if (moved > 0) {
             stats.merged += moved
@@ -489,23 +511,62 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
       // Status verdicts are applied as one SQL batch; checkpoint before the
       // batch and then again at the next cycle2 unit boundary.
       throwIfAborted(signal)
-      let activeDemotionsInBatch = 0
+      // Reserve floor budget for each active→archived demotion; over-budget
+      // demotions are dropped (the row stays active, still reviewed_at-bumped
+      // via reviewedIds). Pending→archived never reserves (was never active).
+      const guardedBatch = []
+      let reservedDemotions = 0
       for (const item of statusBatch) {
-        if (item.new_status === 'archived' && !item.was_pending) activeDemotionsInBatch += 1
+        if (item.new_status === 'archived' && !item.was_pending) {
+          if (!floorGuard.reserve()) continue
+          reservedDemotions += 1
+        }
+        guardedBatch.push(item)
       }
-      const activeCountForClamp = Math.max(0, activeCount - activeDemotionsInBatch)
-      const clampRes = clampPendingPromotions(statusBatch, rowsById, activeCountForClamp, activeTargetCap)
+      const activeCountForClamp = Math.max(0, activeCount - reservedDemotions)
+      const clampRes = clampPendingPromotions(guardedBatch, rowsById, activeCountForClamp, activeTargetCap)
       stats.promotion_clamped = clampRes.clamped
       const batchRes = await applyBatchStatusVerdicts(db, clampRes.batch, nowMs)
       stats.promoted += batchRes.promoted
       stats.archived += batchRes.archived
+      // Spend on CONFIRMED demotions only: refund reservations the optimistic
+      // guard skipped (concurrent write moved the row).
+      const confirmedActive = Number(batchRes.archived_active || 0)
+      if (reservedDemotions > confirmedActive) floorGuard.refund(reservedDemotions - confirmedActive)
     }
 
     if (cascadeDropArchiveIds.length > 0) {
       throwIfAborted(signal)
-      const r = await db.query(`UPDATE entries SET status = 'archived' WHERE id = ANY($1::bigint[]) AND is_root = 1`, [cascadeDropArchiveIds])
-      stats.cascade.dropped += Number(r.rowCount ?? r.affectedRows ?? 0)
-      stats.archived += Number(r.rowCount ?? r.affectedRows ?? 0)
+      // Floor guard: a cascade drop of an active row reduces the pool, so
+      // reserve budget; pending rows dropped here never were active. The
+      // snapshot status can be stale (statusBatch above / concurrent writes),
+      // so reserve optimistically then refund against the ACTUAL number of
+      // active→archived transitions the UPDATE performed (prev_status read in
+      // the same statement).
+      let reservedActive = 0
+      const toDrop = []
+      for (const id of cascadeDropArchiveIds) {
+        const row = rowsById.get(Number(id))
+        if (row && row.status === 'active') {
+          if (!floorGuard.reserve()) continue
+          reservedActive += 1
+        }
+        toDrop.push(id)
+      }
+      if (toDrop.length > 0) {
+        const r = await db.query(`
+          WITH pre AS (SELECT id, status AS prev FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1)
+          UPDATE entries SET status = 'archived'
+          FROM pre
+          WHERE entries.id = pre.id AND entries.is_root = 1
+          RETURNING entries.id, pre.prev AS prev_status
+        `, [toDrop])
+        const dropped = r.rows ?? []
+        stats.cascade.dropped += dropped.length
+        stats.archived += dropped.length
+        const actualArchivedActive = dropped.filter(x => x.prev_status === 'active').length
+        if (reservedActive > actualArchivedActive) floorGuard.refund(reservedActive - actualArchivedActive)
+      }
     }
     if (reviewedIds.length > 0) {
       throwIfAborted(signal)
@@ -570,9 +631,12 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   }
 
   // phase_merge: cosine dedup over active entries.
-  const phaseMergeStats = await runPhaseMerge(db, { ...options, signal })
+  const phaseMergeStats = await runPhaseMerge(db, { ...options, signal, floorGuard })
   throwIfAborted(signal)
   stats.phase_merge = phaseMergeStats
+  // Surface how many active-row demotions were withheld to hold the floor
+  // across every archiving path this cycle (status/cascade/merge/phase_merge).
+  stats.floor_protected = floorGuard.protected
 
   // Core-candidate nomination (proposal mode): flag strong durable active
   // roots as core-memory candidates for user approval. Runs AFTER phase_merge
@@ -619,6 +683,18 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   } catch (err) {
     if (signal?.aborted) throw signal.reason ?? err
     __mixdogMemoryLog(`[cycle2] chronic sweep failed: ${err.message}\n`)
+  }
+
+  // Refresh the hot-active materialized view now that every promotion/archival/
+  // dedup mutation for this cycle has landed, so the recall hot path reads a
+  // current active set. refreshHotActive is itself best-effort (logs + swallows);
+  // the guard here also keeps a refresh failure from failing the cycle.
+  try {
+    throwIfAborted(signal)
+    await refreshHotActive(db)
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason ?? err
+    __mixdogMemoryLog(`[cycle2] mv_hot_active refresh failed: ${err.message}\n`)
   }
 
   __mixdogMemoryLog(
