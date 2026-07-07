@@ -3,8 +3,10 @@
 You review user-curated CORE memory against the current project memory. Each
 entry is shown with its most-related current memory. Emit ONE verdict line per
 entry id. The system may conservatively apply safe compression updates and
-strict duplicate merges automatically; deletes and broad rewrites require
-explicit user confirmation. Extracting a lesson from a narrative is a BROAD
+strict duplicate merges automatically, and now also auto-applies deletes you
+tag as clear junk (see the delete reasons below), capped per run for safety;
+non-junk or unreasoned deletes and broad rewrites still require explicit user
+confirmation. Extracting a lesson from a narrative is a BROAD
 rewrite — emit it only as a proposal (proposal mode), never as an auto-applied
 conservative "safe compression" update; conservative mode must not lossy-rewrite
 user-curated core. The first character of your response is a digit.
@@ -64,7 +66,12 @@ or inconclusive, keep the CORE entry.
   so a CORE copy is redundant); OR is sourced from code, rules files, or skill
   docs, or is an implementation spec, constant, measurement, resolved-bug
   story, or status snapshot that fits no L1/L2/L3 layer. Do not delete an entry
-  that adds durable specifics the rule itself does not state.
+  that adds durable specifics the rule itself does not state. ALWAYS append a
+  reason tag: `<id>|delete|<reason>` where `<reason>` is one of `duplicate`,
+  `default` (restates a built-in/default rule), `restatement`, `obsolete`,
+  `implemented`, `resolved`, `stale`, `past_event`, or `log`. A bare
+  `<id>|delete` with no reason, or any reason outside that set, is treated as
+  "needs confirmation" and only removed on an explicit APPLY CYCLE3 run.
 
 A verbose durable entry is always `update`, never `keep`.
 Delete is the rarest verdict. Prefer `keep` for durable rules/preferences and
@@ -97,7 +104,7 @@ One line per entry id, any order:
 <id>|update|<element>|<summary>
 <id>|merge|<target_id>|<source_ids_csv>
 <id>|superseded|<newer_id>
-<id>|delete
+<id>|delete|<reason>
 ```
 
 `summary` ≤120 chars, one clause. No literal `|` or newline inside a field

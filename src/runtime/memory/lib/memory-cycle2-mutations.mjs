@@ -11,6 +11,65 @@ const LLM_JUDGE_CAP = 20
 
 const TRANSIENT_PROMOTE_CATEGORIES = new Set(['task', 'issue'])
 
+// Category grades the pipeline trusts outright: user/cycle1 tagged durable
+// knowledge. These are NEVER content-scanned — a curated constraint like
+// "95% pass threshold" or a rule that cites a metric must still promote.
+const DURABLE_TRUSTED_CATEGORIES = new Set(['rule', 'constraint', 'decision', 'preference', 'goal'])
+
+// Deterministic (non-LLM) signature for transient work-state: status/review
+// churn and benchmark/measurement RESULT snapshots. Narrow on purpose — it
+// requires snapshot phrasing (a measurement verb or an explicit result-metric
+// noun), NOT a bare percentage, so SLO/threshold constraints don't trip it.
+// Applied only to non-durable categories (e.g. 'fact'), catching benchmark
+// snapshots mis-tagged as durable-ish. The gate prompt only *discourages*
+// these; this is the structural enforcement.
+const TRANSIENT_SNAPSHOT_RE = new RegExp(
+  [
+    'terminal-bench',
+    '\\bbenchmark(ed|ing|\\s+(run|result|score))\\b',
+    'pass@\\d',
+    '\\btokens?\\s?\\/\\s?s(ec)?\\b',
+    'status\\s+snapshot',
+    'review(er)?\\s+(validation\\s+)?cycles?',
+    'in[-\\s]progress',
+    '\\bWIP\\b',
+    '\\b(scored|achieved|measured|reached)\\b[^.]{0,40}\\d+(\\.\\d+)?\\s?%',
+    '\\d+(\\.\\d+)?\\s?%\\s+(pass\\s+rate|accuracy|score|throughput|latency)',
+  ].join('|'),
+  'i',
+)
+
+// Structural promotion gate: is this row transient content (task/issue chatter
+// or a status/benchmark snapshot) that must not be promoted pending→active?
+// task/issue block by category. Durable knowledge categories are trusted and
+// skip the content scan. Everything else (e.g. 'fact') is content-scanned so
+// snapshots mis-categorized as durable are still blocked.
+export function isTransientPromotion(row) {
+  if (!row) return false
+  const cat = String(row.category ?? '').toLowerCase()
+  if (TRANSIENT_PROMOTE_CATEGORIES.has(cat)) return true
+  if (DURABLE_TRUSTED_CATEGORIES.has(cat)) return false
+  return TRANSIENT_SNAPSHOT_RE.test(`${row.element ?? ''} ${row.summary ?? ''}`)
+}
+
+// Strip pending→active promotions for transient content out of the status
+// batch BEFORE the cap clamp. Blocked rows are simply dropped from the batch,
+// so they stay pending (held for re-confirmation on a later cycle) — never
+// archived here, and reviewed_at is still bumped via the caller's reviewedIds.
+export function blockTransientPromotions(statusBatch, rowsById) {
+  if (!statusBatch?.length) return { batch: statusBatch ?? [], blocked: 0 }
+  let blocked = 0
+  const batch = statusBatch.filter((item) => {
+    if (item.was_pending && item.new_status === 'active'
+        && isTransientPromotion(rowsById.get(Number(item.entry_id)))) {
+      blocked += 1
+      return false
+    }
+    return true
+  })
+  return { batch, blocked }
+}
+
 // After the gate, cap how many pending→active promotions may land in one batch.
 // Overflow stays pending (not archived). Tiebreak: durable category before
 // task/issue, then score DESC, then older last_seen_at, then id ASC.

@@ -333,7 +333,13 @@ export function createCycleScheduler(deps) {
       try {
         let c3Options = {
           coalescedRetry: true,
-          onCoalescedSuccess: async () => { await setCycleLastRun('cycle3', Date.now()); markCycleDone('cycle3', true) },
+          onCoalescedSuccess: async (result) => {
+            // Only a real, error-free pass persists success; a run that returned
+            // an error (LLM/unparseable) must not stamp last_success_at.
+            if (result?.error) { markCycleDone('cycle3', false, result.error); return }
+            await setCycleLastRun('cycle3', Date.now())
+            markCycleDone('cycle3', true)
+          },
         }
         if (typeof c3Options?.callLlm !== 'function') {
           c3Options = { ...c3Options, callLlm: getCycle3CallLlm() }
@@ -498,6 +504,16 @@ export function createCycleScheduler(deps) {
     // so clear the marker (health/backlog reset to this process's state).
     _cycleRunning = null
     _writeCycleStateFile()
+    // Hydrate health success timestamps from the persisted per-cycle last-run
+    // meta. Without this, a restart re-inits _cycleHealth to last_success_at=0
+    // and the state file reports 0 until the next run — for cycle3 that is up
+    // to 24h later, so a genuinely-successful cycle3 looks like it never ran.
+    Promise.resolve(getCycleLastRun()).then((last) => {
+      if (last?.cycle1 > 0 && !_cycleHealth.cycle1.last_success_at) _cycleHealth.cycle1.last_success_at = last.cycle1
+      if (last?.cycle2 > 0 && !_cycleHealth.cycle2.last_success_at) _cycleHealth.cycle2.last_success_at = last.cycle2
+      if (last?.cycle3 > 0 && !_cycleHealth.cycle3.last_success_at) _cycleHealth.cycle3.last_success_at = last.cycle3
+      _writeCycleStateFile()
+    }).catch(() => {})
     _scheduleNextCheck()
     _startupTimeout = setTimeout(() => { void _runCheckCyclesGuarded() }, 30_000)
   }

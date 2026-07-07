@@ -11,13 +11,17 @@ function __mixdogMemoryLog(...args) {
 // {{CORE_REVIEW}} block for defaults/cycle3-review-prompt.md, then asks the
 // maintenance-preset LLM for one verdict per id. By default Cycle3 performs
 // conservative cleanup: safe compression updates and strict duplicate merges
-// are applied, while deletes stay proposals unless explicitly confirmed.
+// are applied. Deletes now also apply in conservative mode when the model
+// tags the entry as clear junk (a whitelisted junk reason) and — for
+// redundant-with-default reasons — the text actually echoes a current rule,
+// bounded by a per-run delete cap so a run keeps a safety margin instead of
+// nuking the whole set. Unreasoned / non-junk deletes still require APPLY.
 //
 // Verdict line grammar (mirrors parseUnifiedFormat in memory-cycle2.mjs):
 //   <id>|keep
 //   <id>|update|<element>|<summary>
 //   <id>|merge|<target_id>|<source_ids_csv>
-//   <id>|delete
+//   <id>|delete|<reason>
 
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
@@ -136,6 +140,58 @@ function isStrictDuplicate(a, b) {
   return sim >= 0.78
 }
 
+// Whitelisted delete reasons that conservative mode may auto-apply. These are
+// the "clear junk" classes: a copy of a built-in/default rule, a bare
+// restatement, an obsolete/already-implemented decision, or a past-event log.
+// Anything outside this set (or a bare `delete` with no reason) stays held for
+// APPLY CYCLE3 so genuinely durable rules are never removed unattended.
+const SAFE_DELETE_REASONS = new Set([
+  'duplicate', 'dup', 'duplicate_of_default', 'default', 'redundant',
+  'restatement', 'restate', 'restates_default',
+  'obsolete', 'implemented', 'done', 'completed', 'resolved',
+  'superseded_decision', 'stale', 'past_event', 'event_log', 'log',
+])
+// Reasons that claim redundancy with a built-in/default rule — these demand
+// corroboration (the core text must actually echo the current rules digest)
+// before a conservative auto-delete, so a mislabelled durable rule survives.
+const DEFAULT_ECHO_REASONS = new Set([
+  'duplicate', 'dup', 'duplicate_of_default', 'default', 'redundant',
+  'restatement', 'restate', 'restates_default',
+])
+
+function normalizeDeleteReason(reason) {
+  return String(reason ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+// Max trigram similarity of `text` against any substantive line of the current
+// rules digest — how strongly a core entry echoes a built-in rule.
+function digestRedundancy(text, rulesDigest) {
+  if (!text || !rulesDigest) return 0
+  const lines = String(rulesDigest).split('\n').map(l => l.trim()).filter(l => l.length >= 12)
+  let best = 0
+  for (const line of lines) {
+    const d = charDice(text, line)
+    if (d > best) best = d
+    if (best >= 0.9) break
+  }
+  return best
+}
+
+function isSafeConservativeDelete(core, action, rulesDigest) {
+  const reason = normalizeDeleteReason(action?.reason)
+  if (!reason) return { ok: false, reason: 'delete needs a junk reason → APPLY CYCLE3' }
+  if (!SAFE_DELETE_REASONS.has(reason)) return { ok: false, reason: `delete reason "${reason}" not in safe set → APPLY CYCLE3` }
+  if (DEFAULT_ECHO_REASONS.has(reason)) {
+    const red = digestRedundancy(coreText(core), rulesDigest)
+    if (red < 0.5) return { ok: false, reason: `not redundant with defaults (sim=${red.toFixed(2)})` }
+  }
+  return { ok: true, reason }
+}
+
 function formatRelatedRow(r) {
   const tag = r.project_id ? r.project_id : 'COMMON'
   const stat = r.status ? `[${r.status}]` : '[?]'
@@ -206,7 +262,8 @@ function parseVerdicts(raw, idSet) {
       }
       actions.push({ id, verb: 'merge', targetId, sourceIds })
     } else if (verb === 'delete') {
-      actions.push({ id, verb: 'delete' })
+      const reason = (parts[2] ?? '').trim()
+      actions.push({ id, verb: 'delete', reason: reason || null })
     } else if (verb === 'superseded' || verb === 'supersede') {
       // Require newer-id proof: `id|superseded|<newer_id>`. Without a valid
       // newer active core id the supersession has no evidence → drop to keep.
@@ -553,6 +610,10 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
   const held = { updated: 0, merged: 0, deleted: 0, superseded: 0 }
   const details = []
   const touched = new Set() // ids already acted on this cycle — avoid double action
+  // Safety margin: even when every junk verdict is legitimate, a single
+  // conservative run applies at most this many outright deletes and holds the
+  // rest for the next pass. Prevents an over-eager model from clearing the set.
+  const conservativeDeleteCap = Math.max(1, Math.ceil(cores.length * 0.35))
 
   // Core-store edit/delete calls are the mutation unit; checkpoints sit before
   // each action/source and after each awaited unit, not inside one file-store write.
@@ -596,19 +657,28 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
     }
     if (a.verb === 'delete') {
       proposed.deleted++
-      if (!confirmed) {
+      // confirmed → always delete. conservative → delete only clear junk (safe
+      // reason, corroborated for redundant-with-default), capped per run.
+      // proposal → always hold.
+      let applyDelete = confirmed
+      let holdReason = 'proposal mode'
+      let safeReason = null
+      if (!confirmed && conservative) {
+        const safeDel = isSafeConservativeDelete(coreById.get(a.id), a, rulesDigest)
+        if (!safeDel.ok) holdReason = safeDel.reason
+        else if (deleted >= conservativeDeleteCap) holdReason = `conservative delete cap ${conservativeDeleteCap} reached`
+        else { applyDelete = true; safeReason = safeDel.reason }
+      }
+      if (!applyDelete) {
         held.deleted++
-        details.push({
-          id: a.id, verb: 'delete', applied: false, held: true,
-          reason: conservative ? 'delete requires APPLY CYCLE3' : 'proposal mode',
-        })
+        details.push({ id: a.id, verb: 'delete', applied: false, held: true, reason: holdReason })
         touched.add(a.id)
         continue
       }
       try {
         await deleteCore(dataDir, a.id)
         deleted++
-        details.push({ id: a.id, verb: 'delete', applied: true })
+        details.push({ id: a.id, verb: 'delete', applied: true, reason: safeReason || 'confirmed' })
         touched.add(a.id)
       } catch (err) {
         if (signal?.aborted) throw signal.reason ?? err

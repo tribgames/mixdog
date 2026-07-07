@@ -11,7 +11,7 @@ import { backfillCoreEmbeddings, nominateCoreCandidates, CORE_SUMMARY_MAX } from
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 import { __mixdogMemoryLog, throwIfAborted } from './memory-cycle2-shared.mjs'
 import {
-  applyBatchStatusVerdicts, clampPendingPromotions, applySimpleStatus, applyUpdate, applyMerge, runPhaseMerge,
+  applyBatchStatusVerdicts, clampPendingPromotions, blockTransientPromotions, applySimpleStatus, applyUpdate, applyMerge, runPhaseMerge,
 } from './memory-cycle2-mutations.mjs'
 import {
   CYCLE2_ACTIVE_TARGET_CAP, CYCLE2_ACTIVE_MIN_FLOOR, loadCurrentRulesDigest, runUnifiedGate, sonnetCascade,
@@ -54,6 +54,7 @@ function mergeCycle2Results(a, b) {
     rejected_verb: Number(a.rejected_verb || 0) + Number(b.rejected_verb || 0),
     merge_rejected: Number(a.merge_rejected || 0) + Number(b.merge_rejected || 0),
     missing_core_summary: Number(a.missing_core_summary || 0) + Number(b.missing_core_summary || 0),
+    promotion_blocked: Number(a.promotion_blocked || 0) + Number(b.promotion_blocked || 0),
     core_embedding_backfill: Number(a.core_embedding_backfill || 0) + Number(b.core_embedding_backfill || 0),
     core_candidates_nominated: Number(a.core_candidates_nominated || 0) + Number(b.core_candidates_nominated || 0),
     rescore: mergeNestedNumeric(a.rescore, b.rescore),
@@ -211,6 +212,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     updated: 0, kept: 0, rejected_verb: 0,
     merge_rejected: 0,
     missing_core_summary: 0,
+    promotion_blocked: 0,
     core_embedding_backfill: 0,
     core_candidates_nominated: 0,
     rescore: { updated: 0 },
@@ -523,8 +525,13 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
         }
         guardedBatch.push(item)
       }
+      // Structural transient block runs BEFORE the cap clamp: task/issue chatter
+      // and status/benchmark snapshots can never promote pending→active, so they
+      // are stripped here (held pending) regardless of remaining cap slots.
+      const blockRes = blockTransientPromotions(guardedBatch, rowsById)
+      stats.promotion_blocked = blockRes.blocked
       const activeCountForClamp = Math.max(0, activeCount - reservedDemotions)
-      const clampRes = clampPendingPromotions(guardedBatch, rowsById, activeCountForClamp, activeTargetCap)
+      const clampRes = clampPendingPromotions(blockRes.batch, rowsById, activeCountForClamp, activeTargetCap)
       stats.promotion_clamped = clampRes.clamped
       const batchRes = await applyBatchStatusVerdicts(db, clampRes.batch, nowMs)
       stats.promoted += batchRes.promoted
@@ -702,7 +709,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     ` core_backfill=${stats.core_embedding_backfill}` +
     ` active=${activeCount}/${activeTargetCap} review_active=${reviewActiveRows ? 1 : 0}` +
     ` | gate promoted=${stats.promoted} archived=${stats.archived}` +
-    ` promotion_clamped=${stats.promotion_clamped}` +
+    ` promotion_clamped=${stats.promotion_clamped} promotion_blocked=${stats.promotion_blocked}` +
     ` updated=${stats.updated} kept=${stats.kept}` +
     ` rejected_verb=${stats.rejected_verb} merge_rejected=${stats.merge_rejected}` +
     ` missing_core=${stats.missing_core_summary}` +

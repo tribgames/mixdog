@@ -112,6 +112,15 @@ A/B pending rows that encode lasting behavior or map anchors; transient
 When `Active > cap`, contract strictly: any active entry without a concrete
 A/B reason must archive.
 
+**Structural block (enforced, not advisory).** Pending `task`/`issue` rows and
+any row that reads as status/review churn or a benchmark/measurement result
+snapshot are blocked from promotion by the pipeline itself — an `active` verdict
+on them is dropped and the row is **held pending and re-judged on a later
+cycle** (it is neither promoted nor force-archived here). Do NOT archive such a
+row just because it cannot promote now: leave it to be re-confirmed, or promote
+the durable L2 lesson distilled from it under a durable category. Durable
+rules/preferences/constraints promote normally.
+
 If useful content is buried inside work narrative, keep only the durable L2
 behavior lesson (via `update` on an active row, or `active` for a pending row);
 archive the surrounding story.
