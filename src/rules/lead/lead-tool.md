@@ -5,5 +5,4 @@
   directly.
 - Use the session's current project/workspace. Change the work project only
   when the user asks for another project or a tool call needs another root.
-- Use `agent` for scoped implementation, research, review, and debugging — not
-  for git commit/push/stash or Ship.
+- Use `agent` for scoped implementation, research, review, and debugging.

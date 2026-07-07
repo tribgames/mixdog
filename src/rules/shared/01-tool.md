@@ -1,10 +1,12 @@
 # Tool Use
 
-- Every turn carries ALL independent calls you can already specify — a
-  second consecutive single-lookup turn is a defect, not a style choice;
-  serialize only on real data dependency. Merge variants/scopes into ONE
-  call wherever the schema accepts arrays (`pattern[]`, `path[]`,
-  `symbols[]`, `query[]`).
+- BATCH OR IT IS A DEFECT — this is the single hardest rule here. Every turn
+  fires ALL independent calls at once; a second consecutive single-lookup,
+  single-`shell`, or single-`apply_patch` turn is a defect, never a style
+  choice. Serialize ONLY on a real data dependency — nothing else earns a
+  solo call. Merge variants/scopes into ONE call wherever the schema takes
+  arrays (`pattern[]`, `path[]`, `symbols[]`, `query[]`), chain shell with
+  `;`/`&&` or run them in parallel, and put every known edit in ONE patch.
 - Route by what is already known: known symbol/relation → `code_graph`;
   exact text in a known scope → `grep`; unknown location, machine-wide/
   out-of-repo whereabouts, or concept-level question → `explore` (which uses
@@ -33,9 +35,9 @@
   unit (function/section) — over-read once instead of paging the same file
   in small windows across turns; a 3rd window into one file means the first
   should have been wider.
-- Don't mix `apply_patch` with shell or other state-changing calls in one
-  turn; batch independent-file patches in one turn, then verify them all in
-  ONE shell call the next.
-- Consecutive single `shell` or `apply_patch` turns are a batching miss
-  unless output-dependent: chain shell commands with `;`/`&&` or call in
-  parallel; put all known edits in ONE patch.
+- Parallel-first has ONE carve-out: verifying your own edits. Keep an
+  `apply_patch` and the `shell` that checks it in separate turns — not for
+  ordering (same-turn calls run in emit order), but because you must SEE the
+  patch result before verifying: a same-turn shell is already emitted and
+  can't react to a failed or partial patch. Batch the patches this turn,
+  verify them all in ONE shell call the next. Anything else stays parallel.
