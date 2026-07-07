@@ -21,6 +21,7 @@ import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { theme, surfaceBackground } from './theme.mjs';
 import { useEngine } from './hooks/useEngine.mjs';
 import { classifyToolCategory } from '../runtime/shared/tool-surface.mjs';
+import { localPackageVersion } from '../runtime/shared/update-checker.mjs';
 import { Spinner } from './components/Spinner.jsx';
 import { StatusLine } from './components/StatusLine.jsx';
 import { PromptInput } from './components/PromptInput.jsx';
@@ -3058,7 +3059,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           <Text color={theme.logo ?? theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', frameColumns)}</Text>
           <Text color={theme.logo ?? theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', frameColumns)}</Text>
           <Box height={1} flexShrink={0} />
-          <Text color={theme.inactive}>{centerLine(`mixdog coding agent · ${state.cwd}`, frameColumns, 4)}</Text>
+          <Text color={theme.inactive}>{centerLine(`mixdog v${localPackageVersion()} coding agent · ${state.cwd}`, frameColumns, 4)}</Text>
         </Box>
       ) : null}
 

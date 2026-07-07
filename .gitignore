@@ -52,3 +52,8 @@ scripts/recall-bench-*.txt
 .mixdog-bench-*.json
 
 .tmp-ppt/
+
+# TUI stutter benchmark scratch (local-only)
+.bench-tui-stutter/
+bench-tui-stutter.mjs
+bench-tui-stutter-results-*.md

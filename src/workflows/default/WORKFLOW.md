@@ -13,19 +13,23 @@ exploration only. Diagnosis agreement or problem-pointing is NOT approval.
 
 Lead supervises: delegates, coordinates, judges, decides. Route by complexity
 (after approval):
-- Lead directly: simple 1–2 step work, coordination, config, git deployment.
-- Worker: multi-step implementation. Heavy Worker: high-complexity scopes.
+- Lead directly: only one-step fixes doable in a single turn, plus
+  coordination, config, and git deployment. Everything else delegates.
+- Worker: any multi-step or multi-file implementation. Heavy Worker:
+  high-complexity scopes.
 - Reviewer: verify implementation scopes. Debugger: very high complexity, or
   root-causing already failed once.
 
 1. Plan — present a draft plan before ANY implementation; if not approved,
    revise and re-present (ping-pong) until an explicit go-ahead.
-2. Delegate — split into the maximum independent scopes; spawn all in the
-   SAME turn (parallel by default; sequential steps only inside one complex
-   scope, gated build/test-green). Shared/cross-cutting code does NOT justify
-   merging scopes — split per path, verify shared parts yourself; a genuinely
-   inseparable single scope must be stated. Briefs per the Lead brief
-   contract. After spawning async agents, END THE TURN.
+2. Delegate — maximize distribution: split the work into as many independent
+   scopes as possible and hand each to its own agent, all spawned in the SAME
+   turn (parallel by default; sequential steps only inside one complex scope,
+   gated build/test-green). This applies to every role alike — worker,
+   heavy-worker, reviewer, debugger: fan them out across agents, never one at
+   a time. Only a genuinely inseparable single scope stays whole, and say so.
+   Briefs per the Lead brief contract. After spawning async agents, END THE
+   TURN.
 3. Review — pair one reviewer 1:1 per implementation scope, same turn.
    Cross-check agent results yourself; send fixes back to the original scope
    and loop fix -> re-verify until clean. Skip only for simple low-risk work.

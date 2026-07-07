@@ -30,7 +30,7 @@ export const TOOL_DEFS = [
     name: 'recall',
     title: 'Recall',
     annotations: { title: 'Recall', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    description: 'Retrieve stored memory/session history. Use only to check prior conversation or past events: resumes, prior work, earlier decisions or messages. Do not call as a reflexive pre-step, to verify a just-made decision, or before storing memory. Query is topic/semantic search, not regex. Patterns: period:"last" for previous conversation; sessionId without query for current session; period:"3h"/"30m"/"24h" for recent; YYYY-MM-DD, date ranges, or HH:MM~HH:MM for time windows; id for exact follow-up.',
+    description: 'Retrieve stored memory/session history. Call when a task ties to prior work — resumes, continuations, or references to earlier decisions/messages. Do not call as a reflexive pre-step, to verify a just-made decision, or before storing memory. Query is topic/semantic search, not regex. Patterns: period:"last" for previous conversation; sessionId without query for current session; period:"3h"/"30m"/"24h" for recent; YYYY-MM-DD, date ranges, or HH:MM~HH:MM for time windows; id for exact follow-up.',
     inputSchema: {
       type: 'object',
       properties: {

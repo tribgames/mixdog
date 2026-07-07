@@ -18,6 +18,7 @@ import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './the
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 import { displayWidth } from './display-width.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
+import { localPackageVersion } from '../runtime/shared/update-checker.mjs';
 
 // Trailing `\x1b[>0s` restores XTSHIFTESCAPE (shift-to-select-extend) to its
 // terminal default; MOUSE_TRACKING_ON opts into `\x1b[>1s`, so every mouse/alt
@@ -290,7 +291,7 @@ function paintBootSplash() {
       out += `${bold}${fg}${center(logo[i])}${reset}\r\n`;
     }
     out += '\r\n';
-    out += `${subtleFg}${center(`mixdog coding agent · ${process.cwd()}`)}${reset}`;
+    out += `${subtleFg}${center(`mixdog v${localPackageVersion()} coding agent · ${process.cwd()}`)}${reset}`;
 
     // Park the cursor at home so ink's first frame paints top-down over the
     // splash instead of starting at the bottom row and scrolling the screen.

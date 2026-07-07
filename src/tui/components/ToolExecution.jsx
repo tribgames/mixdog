@@ -432,7 +432,16 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const markerGlyph = isAgentResponse
     ? AGENT_RESPONSE_MARKER
     : (isAgentSurfaceCard ? AGENT_CALL_MARKER : TURN_MARKER);
-  const dotText = pending && !blinkExpired && !blinkOn ? ' ' : markerGlyph;
+  // Directional arrow markers (`←` spawn/send out, `→` response back) render 2
+  // cells wide in some terminals (Windows Terminal / Cascadia) while our width
+  // math counts them as 1, so the `Box minWidth={2}` gutter padding gets
+  // overdrawn and the label glues to the arrow ("←Spawn"). Carry an explicit
+  // trailing space in the marker string so the gap is a real character that
+  // survives regardless of how wide the terminal actually draws the glyph. The
+  // `●` turn marker is a true 1-cell glyph and keeps the padding-only gutter.
+  const isDirectionalMarker = isAgentResponse || isAgentSurfaceCard;
+  const markerText = isDirectionalMarker ? `${markerGlyph} ` : markerGlyph;
+  const dotText = pending && !blinkExpired && !blinkOn ? ' ' : markerText;
   let labelText;
   if (isAgentResponse) labelText = agentResponseTitle(parsedArgs);
   else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);

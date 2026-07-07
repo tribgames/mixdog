@@ -166,6 +166,20 @@ export async function run(argv = []) {
   }
 
   // Default: the canonical React/Ink TUI over the mixdog session runtime.
+  // DEV convenience (opt-in via MIXDOG_TUI_DEV): rebuild the JSX bundle from
+  // source before launch so local edits reflect without a manual build. The
+  // dev module is excluded from the published package ("files" negation) and
+  // esbuild is a devDependency, so this is a no-op fallback on any install.
+  if (process.env.MIXDOG_TUI_DEV) {
+    try {
+      const { rebuildTuiFromSource } = await import('./tui/dev/jit-rebuild.mjs');
+      await rebuildTuiFromSource();
+    } catch (err) {
+      if (process.env.MIXDOG_TUI_DEV_VERBOSE) {
+        process.stderr.write(`mixdog[tui-dev]: rebuild skipped — ${err?.message ?? err}\n`);
+      }
+    }
+  }
   const bundle = join(__dirname, 'tui', 'dist', 'index.mjs');
   if (!existsSync(bundle)) {
     process.stderr.write(

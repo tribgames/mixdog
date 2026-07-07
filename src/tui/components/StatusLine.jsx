@@ -709,7 +709,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   return (
     <Box flexDirection="column" width="100%" height={3} overflow="hidden" justifyContent="flex-start" paddingLeft={2} backgroundColor={surfaceBackground()}>
       <Box flexDirection="row" width="100%" overflow="hidden">
-        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+        <Box flexGrow={1} flexShrink={1} flexBasis={0} overflow="hidden">
           <Text wrap="truncate">{lines[0] || ' '}</Text>
         </Box>
         <Box flexShrink={0} marginLeft={1} marginRight={1}>
@@ -717,7 +717,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
         </Box>
       </Box>
       <Box flexDirection="row" width="100%" overflow="hidden">
-        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+        <Box flexGrow={1} flexShrink={1} flexBasis={0} overflow="hidden">
           <Text wrap="truncate">{lines[1] || ' '}</Text>
         </Box>
       </Box>

@@ -16,7 +16,7 @@ import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
 import { checkLatestVersion, localPackageVersion, isDevInstall } from '../runtime/shared/update-checker.mjs';
-import { spawnStagedInstall, runStagedInstall } from '../runtime/shared/staged-update.mjs';
+import { spawnStagedInstall, runStagedInstall, isStagedComplete } from '../runtime/shared/staged-update.mjs';
 import {
   modelVisibleToolCompletionMessage,
   shouldPersistModelVisibleToolCompletion,
@@ -713,15 +713,37 @@ export async function createMixdogSessionRuntime({
   const updateBootTimer = setTimeout(() => {
     void (async () => {
       await checkForUpdateInternal({ force: true });
-      if (autoUpdateEnabled() && !isDevInstall() && updateCheckState.updateAvailable) {
-        const ver = updateCheckState.latestVersion;
-        try { spawnStagedInstall(ver); } catch { /* best-effort background stage */ }
-        const v = ver ? `v${ver}` : 'latest';
-        // UI-only notice (TUI maps meta.kind 'update-notice' to a transcript
-        // notice, never a model-visible message). tone 'info': non-urgent,
-        // staging runs quietly and applies on the next launch.
-        emitRuntimeNotification(`mixdog ${v} staging in background — applies on next launch.`, { kind: 'update-notice', tone: 'info' });
-      }
+      if (!(autoUpdateEnabled() && !isDevInstall() && updateCheckState.updateAvailable)) return;
+      const ver = updateCheckState.latestVersion;
+      if (!ver) return;
+      // The notice fires ONLY once staging has completed (a ready-to-apply
+      // package sits on disk) — never upfront — so the user sees no "update
+      // available / installs on quit" nag while the background stage runs
+      // silently. The wording lives in the notice surface (notification-plan):
+      // this emit only carries meta.version. TUI maps meta.kind 'update-notice'
+      // to a transcript notice, never a model-visible message; tone 'info' =
+      // non-urgent, applies on the next launch.
+      const announceReady = () => {
+        emitRuntimeNotification('update ready', { kind: 'update-notice', version: ver, tone: 'info' });
+      };
+      // Already staged in a prior session → announce immediately.
+      if (isStagedComplete(ver)) { announceReady(); return; }
+      try { spawnStagedInstall(ver); } catch { /* best-effort background stage */ }
+      // Poll for staging completion, then announce once. The interval is
+      // unref'd so it never holds the process open, and gives up silently
+      // after the cap — the next launch retries.
+      const POLL_MS = 3_000;
+      const MAX_MS = 10 * 60 * 1000;
+      const startedAt = Date.now();
+      const poll = setInterval(() => {
+        if (isStagedComplete(ver)) {
+          clearInterval(poll);
+          announceReady();
+        } else if (Date.now() - startedAt > MAX_MS) {
+          clearInterval(poll);
+        }
+      }, POLL_MS);
+      poll.unref?.();
     })().catch(() => {});
   }, 0);
   updateBootTimer.unref?.();

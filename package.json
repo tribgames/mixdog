@@ -29,6 +29,7 @@
     "!scripts/bench/",
     "!scripts/recall-bench-*.txt",
     "src/",
+    "!src/tui/dev",
     "vendor/"
   ],
   "scripts": {

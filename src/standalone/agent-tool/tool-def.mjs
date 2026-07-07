@@ -35,7 +35,7 @@ export const AGENT_TOOL = {
     openWorldHint: true,
     agentHidden: true,
   },
-  description: 'Delegate scoped work. Agent handoffs always start background tasks and return task IDs immediately. Spawn independent scopes in parallel with distinct tags; for the same scope, use send or spawn with the same tag to reuse the live session. Wait for the completion notification before dependent work. Do not call status/read after spawn; they are manual recovery only.',
+  description: 'Delegate scoped work. Agent handoffs always start background tasks and return task IDs immediately. Spawn every independent scope in parallel in the same turn, each with a distinct tag; for the same scope, use send or spawn with the same tag to reuse the live session. Wait for the completion notification before dependent work. Do not call status/read after spawn; they are manual recovery only.',
   inputSchema: {
     type: 'object',
     properties: {

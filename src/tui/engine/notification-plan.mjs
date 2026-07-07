@@ -64,7 +64,11 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
   // UI-only notices (e.g. boot auto-update outcome): render as a transcript
   // notice, never enqueue anything model-visible.
   if (meta.kind === 'update-notice') {
-    return { action: 'notice', displayText: trimmed, tone: meta.tone === 'warn' ? 'warn' : 'info' };
+    // Wording lives here (the notice surface), not in the emitting runtime:
+    // the emitter only supplies meta.version; the sentence is composed here.
+    const ver = String(meta.version || '').trim();
+    const displayText = ver ? `mixdog v${ver} ready — restart to apply.` : trimmed;
+    return { action: 'notice', displayText, tone: meta.tone === 'warn' ? 'warn' : 'info' };
   }
   if (!isExecutionNotification(event, trimmed, parsed)) {
     return { action: 'enqueue', displayText: trimmed, modelContent: trimmed };
