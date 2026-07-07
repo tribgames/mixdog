@@ -24,7 +24,9 @@ import stringWidth from 'string-width';
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 function isProblemCodePoint(cp) {
-    return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2194 && cp <= 0x21ff);
+    // [mixdog fork] U+21BB (↻ quota-reset marker) excluded: WT draws it 1 cell,
+    // so widening it shifted the right-aligned statusline label one col left.
+    return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2194 && cp <= 0x21ff && cp !== 0x21bb);
 }
 
 // [mixdog fork] Fast precheck for the problem ranges above. Lets the hot path

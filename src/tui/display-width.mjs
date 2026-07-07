@@ -38,9 +38,12 @@ const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme
  * markers (agent card ←/→, history ↑/↓): WT draws them 1 cell in
  * Cascadia, and widening them ate the marker's gutter padding space
  * ("←Spawn" rendered glued / shifted vs the ● rows).
+ * Also excludes U+21BB (↻, the statusline quota-reset marker): WT/Cascadia
+ * draws it 1 cell, so widening it reserved a phantom cell that shifted the
+ * right-aligned workflow label one column left when the usage segment appeared.
  */
 export function isProblemCodePoint(cp) {
-  return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2194 && cp <= 0x21ff);
+  return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2194 && cp <= 0x21ff && cp !== 0x21bb);
 }
 
 // Fast precheck for the problem ranges above. Lets the hot path bail before
