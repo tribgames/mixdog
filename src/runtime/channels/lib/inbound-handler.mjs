@@ -10,6 +10,9 @@ import { isNetworkError, retryOnNetwork } from "./network-retry.mjs";
 // preserving): serial inbound queue, backend.onMessage transcript (re)bind +
 // steal logic, and handleInbound voice-transcription + parent notify. Bound to
 // live runtime getters and shared primitives.
+function isImageAttachment(contentType) {
+  return typeof contentType === "string" && contentType.toLowerCase().startsWith("image/");
+}
 export function createInboundHandler({
   getBackend,
   getConfig,
@@ -283,6 +286,46 @@ async function handleInbound(msg, route, options = {}) {
     }
   }
   const hasVoiceAtt = voiceAtts.length > 0;
+  // ── Inbound image attachments → downloaded local paths (vision) ──────
+  // Mirror the voice path: download image/* attachments to the inbox and
+  // hand their local paths downstream so the agent session can attach them
+  // as real image content blocks. A short per-attempt timeout bounds the
+  // serial inboundQueue against a slow/broken image; on failure we degrade
+  // to the metadata-only marker (attMeta below) instead of dropping.
+  const imageAtts = msg.attachments.filter((a) => isImageAttachment(a.contentType));
+  let imagePaths = [];
+  if (imageAtts.length > 0) {
+    try {
+      const files = (await retryOnNetwork(
+        () => getBackend().downloadAttachment(msg.chatId, msg.messageId, {
+          timeoutMs: 20_000,
+          filter: (a) => isImageAttachment(a.contentType),
+        }),
+        { label: "image.download" }
+      )) || [];
+      imagePaths = imageAtts
+        .map((a) => files.find((df) => df.id === a.id) ?? null)
+        .filter(Boolean)
+        .map((f) => f.path)
+        .filter((p) => typeof p === "string" && p.length > 0);
+      if (imagePaths.length > 0) {
+        process.stderr.write(`mixdog: inbound images downloaded (${imagePaths.length})\n`);
+      }
+    } catch (err) {
+      const netFail = isNetworkError(err);
+      process.stderr.write(`mixdog: image.download error${netFail ? " (network, retries exhausted)" : ""}: ${err}\n`);
+      const marker = netFail
+        ? "[attachment: image download failed (network)]"
+        : "[attachment: image download failed]";
+      text = text ? `${text} ${marker}` : marker;
+    }
+  }
+  // An image-only message can arrive with empty text; channelNotificationModelContent
+  // drops empty content (runtime-core), which would strip meta.image_paths and lose
+  // the image. Give it a non-empty marker so the notification (and its images) flow.
+  if (imagePaths.length > 0 && !String(text || "").trim()) {
+    text = "[image]";
+  }
   const attMeta = msg.attachments.length > 0 && !hasVoiceAtt ? {
     attachment_count: String(msg.attachments.length),
     attachments: msg.attachments.map((a) => `${a.name} (${a.contentType}, ${(a.size / 1024).toFixed(0)}KB)`).join("; ")
@@ -300,7 +343,8 @@ async function handleInbound(msg, route, options = {}) {
       ...route.sourceLabel ? { source_label: route.sourceLabel } : {}
     } : {},
     ...attMeta,
-    ...msg.imagePath ? { image_path: msg.imagePath } : {}
+    ...msg.imagePath ? { image_path: msg.imagePath } : {},
+    ...imagePaths.length > 0 ? { image_paths: JSON.stringify(imagePaths) } : {}
   };
   const notificationContent = messageBody;
   sendNotifyToParent("notifications/claude/channel", {

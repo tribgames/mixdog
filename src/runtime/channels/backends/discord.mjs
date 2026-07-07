@@ -435,14 +435,21 @@ class DiscordBackend {
     const msg = await ch.messages.fetch(messageId);
     if (msg.attachments.size === 0) return [];
     const results = [];
+    // Optional filter bounds what gets fetched (e.g. image/* only) so a
+    // caller after images never pulls unrelated large attachments.
+    const filter = typeof opts.filter === "function" ? opts.filter : null;
     for (const att of msg.attachments.values()) {
-      const path = await this.downloadSingleAttachment(att, opts);
-      results.push({
+      const meta = {
         id: att.id,
-        path,
         name: safeAttName(att),
         contentType: att.contentType ?? "unknown",
         size: att.size
+      };
+      if (filter && !filter(meta)) continue;
+      const path = await this.downloadSingleAttachment(att, opts);
+      results.push({
+        ...meta,
+        path
       });
     }
     return results;
