@@ -3059,7 +3059,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           <Text color={theme.logo ?? theme.claude} bold>{centerLine('██║╚██╔╝██║██║ ██╔██╗ ██║  ██║██║   ██║██║   ██║', frameColumns)}</Text>
           <Text color={theme.logo ?? theme.claude} bold>{centerLine('██║ ╚═╝ ██║██║██╔╝ ██╗██████╔╝╚██████╔╝╚██████╔╝', frameColumns)}</Text>
           <Box height={1} flexShrink={0} />
-          <Text color={theme.inactive}>{centerLine(`mixdog v${localPackageVersion()} coding agent · ${state.cwd}`, frameColumns, 4)}</Text>
+          <Text color={theme.inactive}>{centerLine(`mixdog coding agent · v${localPackageVersion()} · ${state.cwd}`, frameColumns, 4)}</Text>
         </Box>
       ) : null}
 
