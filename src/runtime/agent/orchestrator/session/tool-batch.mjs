@@ -30,7 +30,7 @@ import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { crossTurnSignature, crossTurnDedupStub, isEditProgressTool } from './loop/completion-guards.mjs';
 import { getToolKind, isEagerDispatchable, parseNativeToolSearchPayload } from './loop/tool-helpers.mjs';
-import { restoreToolCallBodyForId } from './loop/stored-tool-args.mjs';
+import { restoreToolCallBodyForId, dropCompactedBodyArgsForId } from './loop/stored-tool-args.mjs';
 
 export async function processToolBatch(ctx) {
     const {
@@ -585,6 +585,17 @@ export async function processToolBatch(ctx) {
                     toolCallId: call.id,
                     toolKind: 'error',
                 });
+            }
+            // Successful call: its compacted body/long args are never needed
+            // again. Drop any `[mixdog compacted …]` placeholder from the stored
+            // assistant tool_use so a prior apply_patch INPUT never surfaces a
+            // resubmittable placeholder patch body the model copies back verbatim
+            // (the patch guard catches it, but only after a wasted turn). Gated on
+            // full success + clean post-processing; the failed/post-fail paths run
+            // restoreToolCallBodyForId instead (mutually exclusive per call id).
+            // Cache-safe: assistantTurnMsg is not transmitted until the next send.
+            if (_postProcessOk && _executeOk && _resultKind === 'normal' && call?.id) {
+                dropCompactedBodyArgsForId(assistantTurnMsg, call.id);
             }
             // Soft-cancel after each tool: if close landed during execution,
             // discard the rest of the batch and skip the next provider.send.

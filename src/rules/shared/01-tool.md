@@ -1,8 +1,10 @@
 # Tool Use
 
-- Batch independent calls in one turn; serialize only when a call needs a
-  prior result. Merge equivalent variants/scopes into ONE call wherever the
-  schema accepts arrays (`pattern[]`, `path[]`, `symbols[]`, `query[]`).
+- Every turn carries ALL independent calls you can already specify — a
+  second consecutive single-lookup turn is a defect, not a style choice;
+  serialize only on real data dependency. Merge variants/scopes into ONE
+  call wherever the schema accepts arrays (`pattern[]`, `path[]`,
+  `symbols[]`, `query[]`).
 - Route by what is already known: known symbol/relation → `code_graph`;
   exact text in a known scope → `grep`; unknown location, machine-wide/
   out-of-repo whereabouts, or concept-level question → `explore` (which uses
@@ -31,4 +33,6 @@
   unit (function/section) — over-read once instead of paging the same file
   in small windows across turns; a 3rd window into one file means the first
   should have been wider.
-- Don't mix `apply_patch` with shell or other state-changing calls in one turn.
+- Don't mix `apply_patch` with shell or other state-changing calls in one
+  turn; batch independent-file patches in one turn, then verify them all in
+  ONE shell call the next.

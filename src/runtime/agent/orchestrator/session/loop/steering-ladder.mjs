@@ -40,6 +40,38 @@ function _pathsOf(arg) {
 function _normPath(p) { return String(p).replace(/\\/g, '/').toLowerCase(); }
 function _baseName(p) { const s = _normPath(p); const i = s.lastIndexOf('/'); return i >= 0 ? s.slice(i + 1) : s; }
 function _dirName(p) { const s = _normPath(p); const i = s.lastIndexOf('/'); return i >= 0 ? s.slice(0, i) : ''; }
+// A path targets a specific file (not a directory scope) when its basename
+// carries a file extension — the signal that a grep was already file-scoped.
+function _isFileScopedPath(p) { return /\.[A-Za-z0-9]{1,12}$/.test(_baseName(p)); }
+// Grep context flag: -C/-A/-B count as context ONLY when > 0. An explicit
+// -C:0 / -A:0 / -B:0 is NO context (bare match lines).
+function _hasGrepContext(a) { return Number(a?.['-A']) > 0 || Number(a?.['-B']) > 0 || Number(a?.['-C']) > 0; }
+// Canonical path segments: normalize slashes/case, drop '.' and resolve '..'
+// so ./ and ../ variants collapse. Used by the abs/rel-tolerant path match.
+function _canonSegs(p) {
+    const out = [];
+    for (const seg of _normPath(p).split('/')) {
+        if (seg === '' || seg === '.') continue;
+        if (seg === '..') { if (out.length && out[out.length - 1] !== '..') out.pop(); else out.push('..'); continue; }
+        out.push(seg);
+    }
+    return out;
+}
+function _canonPath(p) { return _canonSegs(p).join('/'); }
+// abs/rel-tolerant same-file test: equal when one canonical path is a
+// segment-aligned suffix of the other (so C:/proj/src/x.mjs, src/x.mjs and
+// ./src/x.mjs all match). Basename equality is implied by the suffix compare.
+function _pathsMatch(a, b) {
+    if (!a || !b) return false;
+    const A = _canonSegs(a); const B = _canonSegs(b);
+    if (!A.length || !B.length) return false;
+    const long = A.length >= B.length ? A : B;
+    const short = A.length >= B.length ? B : A;
+    for (let i = 0; i < short.length; i += 1) {
+        if (long[long.length - short.length + i] !== short[i]) return false;
+    }
+    return true;
+}
 // Exact (normalized) same-file test — used where "related" is too loose.
 function _samePath(a, b) { return !!a && !!b && _normPath(a) === _normPath(b); }
 // Loose sibling/variant relation — cluster detector pairs this WITH token overlap.
@@ -148,6 +180,15 @@ export function createSteeringLadder(ctx) {
     // same-path regions in ONE call are the recommended batched form and are
     // never counted. Fires once per path per session.
     const _readWindowsByPath = new Map();
+    // Detector A state: prior turn's file-scoped grep paths that ran WITHOUT
+    // any -C/-B/-A context (a bare match-line grep on a specific file). Seeds
+    // the grep-no-context-then-read nudge for the next turn.
+    let _lastFileScopedGrepNoCtxPaths = null;
+    // Detector B state: per-path consecutive-read streak (canonical path ->
+    // count). Tracked as a Map so multi-file turns keep independent streaks
+    // ([A,B]->B->B fires on B). Files not read this turn are pruned; a path is
+    // dropped after it fires.
+    const _readStreaks = new Map();
 
     // Level-2 steering emitter shared by both ladder paths (single-call
     // level-1 streak and the independent all-read-only streak). Sets the latch
@@ -178,20 +219,37 @@ export function createSteeringLadder(ctx) {
             // Steering hint gate: at most ONE hint per turn (priority:
             // level-2 > grep/shell detectors > level-1).
             let _hintFiredThisTurn = hintAlreadyFired;
+            // Specific-detector predicates (A: grep-no-context then re-read; B:
+            // 3rd consecutive same-file read). Evaluated up front so the GENERIC
+            // level-1 batching nudge can defer to them (more specific wins),
+            // while the level-2 runaway escalation below still outranks them.
+            const _readCallsThisTurn = calls.filter((c) => c?.name === 'read');
+            const _aWouldFire = !!_lastFileScopedGrepNoCtxPaths
+                && _readCallsThisTurn.some((c) => _pathsOf(c?.arguments?.path)
+                    .some((p) => [..._lastFileScopedGrepNoCtxPaths].some((g) => _pathsMatch(p, g))));
+            let _bWouldFire = false;
+            for (const c of _readCallsThisTurn) {
+                for (const w of _readWindows(c)) {
+                    for (const [k, cnt] of _readStreaks) { if (cnt >= 2 && _pathsMatch(k, w.path)) { _bWouldFire = true; break; } }
+                    if (_bWouldFire) break;
+                }
+                if (_bWouldFire) break;
+            }
             // Missed-parallelism steering: 2+ consecutive turns of a single
             // read-only tool call suggest the model isn't batching independent
             // lookups. Nudge once, then reset (fires again after 2 more).
             if (calls.length === 1 && isEagerDispatchable(calls[0].name, tools)) {
                 _serialReadOnlyStreak += 1;
-                if (_serialReadOnlyStreak >= 2 && !_hintFiredThisTurn) {
+                // Escalation ladder (Step 1). Cumulative level-1 fires are tracked
+                // and NEVER reset. Once level-1 has fired >=3 times with ZERO edits,
+                // escalate to level-2 steering (latched once per 5 turns). The
+                // level-2 escalation always wins; the plain batching nudge instead
+                // DEFERS to the specific A/B detectors when either would fire.
+                const _canEscalate = (_level1FireCount + 1) >= 3 && editCount === 0 && (iterations - _level2LatchAtIteration) >= 5;
+                if (_serialReadOnlyStreak >= 2 && !_hintFiredThisTurn && (_canEscalate || (!_aWouldFire && !_bWouldFire))) {
                     _serialReadOnlyStreak = 0;
-                    // Escalation ladder (Step 1). Cumulative level-1 fires are
-                    // tracked and NEVER reset. Once level-1 has fired >=3 times with
-                    // ZERO edits, escalate to level-2 steering (blocked-report is a
-                    // valid completion) instead of the batching nudge — latched to at
-                    // most once per 5 turns.
                     _level1FireCount += 1;
-                    if (_level1FireCount >= 3 && editCount === 0 && (iterations - _level2LatchAtIteration) >= 5) {
+                    if (_canEscalate) {
                         _emitLevel2Steer();
                     } else {
                         pushSystemReminder('Last 2 turns each ran a single read-only tool. Batch independent lookups (read/grep/glob/code_graph) into ONE turn, or start editing if you have enough context.');
@@ -303,8 +361,10 @@ export function createSteeringLadder(ctx) {
                 const _next = new Set();
                 for (const c of _grepCalls) {
                     const a = c?.arguments || {};
-                    const _hasCtx = a['-A'] != null || a['-B'] != null || a['-C'] != null;
-                    const _isContent = a.output_mode === 'content' || a.output_mode === 'content_with_context' || _hasCtx;
+                    // Bare output_mode:'content' WITHOUT real context is routed to
+                    // Detector A (which gives the add-`-C` advice); this detector
+                    // only owns greps that actually returned context.
+                    const _isContent = _hasGrepContext(a) || a.output_mode === 'content_with_context';
                     const _pathsOnly = a.output_mode === 'files_with_matches' || a.output_mode === 'count';
                     const _capped = a.head_limit != null;
                     if (_isContent && !_pathsOnly && !_capped) {
@@ -312,6 +372,55 @@ export function createSteeringLadder(ctx) {
                     }
                 }
                 _lastGrepContentPaths = _next.size ? _next : null;
+            }
+            // Detector A (fire): a file-scoped grep WITHOUT context last turn,
+            // then a read of that same file this turn. Fires ahead of the read-
+            // fragmentation / B detectors below; the generic level-1 nudge
+            // already deferred to it via _aWouldFire, while the level-2
+            // escalation above still outranks it. On pre-emption by an
+            // earlier hint, the pending set is kept (not cleared) so A can fire
+            // next turn.
+            let _aPending = false;
+            if (_lastFileScopedGrepNoCtxPaths) {
+                const _rp = [];
+                for (const c of _readCallsThisTurn) { for (const p of _pathsOf(c?.arguments?.path)) _rp.push(p); }
+                const _hit = _rp.find((p) => [..._lastFileScopedGrepNoCtxPaths].some((g) => _pathsMatch(p, g)));
+                if (_hit) {
+                    if (!_hintFiredThisTurn) {
+                        pushSystemReminder(`You grepped ${_baseName(_hit)} last turn then re-opened it — request context with -C on file-scoped grep so the match window is already on screen.`);
+                        try {
+                            appendAgentTrace({
+                                sessionId,
+                                iteration: iterations,
+                                kind: 'steer',
+                                payload: { tag: 'grep_nocontext_reread', file: _baseName(_hit) },
+                                agent: sessionAgent || null,
+                            });
+                        } catch { /* best-effort */ }
+                        _hintFiredThisTurn = true;
+                        _lastFileScopedGrepNoCtxPaths = null;
+                    } else {
+                        _aPending = true; // pre-empted this turn — keep pending for next turn
+                    }
+                }
+            }
+            // Detector A (seed): record this turn's file-scoped greps that ran
+            // WITHOUT context so a same-file read next turn triggers the fire
+            // block above. When A was pre-empted this turn (_aPending) the
+            // existing pending set is kept rather than cleared.
+            if (!_aPending) {
+                const _next = new Set();
+                for (const c of _grepCalls) {
+                    const a = c?.arguments || {};
+                    // Exact complement of the content detector's seed: skip greps
+                    // that carried real context (positive -A/-B/-C) OR ran in
+                    // content_with_context mode — those belong to that detector.
+                    if (_hasGrepContext(a) || a.output_mode === 'content_with_context') continue;
+                    for (const p of _pathsOf(a.path)) {
+                        if (_isFileScopedPath(p)) _next.add(p);
+                    }
+                }
+                _lastFileScopedGrepNoCtxPaths = _next.size ? _next : null;
             }
             // Detector: read fragmentation — 2nd+ single-window read into the
             // SAME file with offsets inside an 800-line span means the model is
@@ -345,6 +454,50 @@ export function createSteeringLadder(ctx) {
                     }
                 }
             }
+            // Detector B: 3rd consecutive turn reading the SAME file (any
+            // window). Per-path streaks in a Map so multi-file turns keep
+            // independent counts ([A,B]->B->B fires on B). rel/abs spellings of
+            // one file collapse onto a single streak key; files not read this
+            // turn are pruned; a path is dropped after it fires.
+            {
+                // Resolve each read path to one streak key, merging rel/abs
+                // spellings against existing keys and keys already seen this turn.
+                const _touched = new Set();
+                for (const c of calls.filter((x) => x?.name === 'read')) {
+                    for (const w of _readWindows(c)) {
+                        let _key = null;
+                        for (const k of _readStreaks.keys()) { if (_pathsMatch(k, w.path)) { _key = k; break; } }
+                        if (!_key) { for (const k of _touched) { if (_pathsMatch(k, w.path)) { _key = k; break; } } }
+                        _touched.add(_key || _canonPath(w.path));
+                    }
+                }
+                // Prune streaks for files not read this turn (breaks consecutiveness).
+                for (const k of [..._readStreaks.keys()]) { if (!_touched.has(k)) _readStreaks.delete(k); }
+                // Increment each file read this turn (once per turn).
+                for (const k of _touched) {
+                    _readStreaks.set(k, (_readStreaks.get(k) || 0) + 1);
+                    if (_readStreaks.size > 32) _readStreaks.delete(_readStreaks.keys().next().value);
+                }
+                if (!_hintFiredThisTurn) {
+                    for (const [k, cnt] of _readStreaks) {
+                        if (cnt >= 3) {
+                            pushSystemReminder(`3rd window into ${_baseName(k)} — take the remaining span in ONE wide read (offset+limit) instead of paging.`);
+                            try {
+                                appendAgentTrace({
+                                    sessionId,
+                                    iteration: iterations,
+                                    kind: 'steer',
+                                    payload: { tag: 'consecutive_same_file_read', file: _baseName(k) },
+                                    agent: sessionAgent || null,
+                                });
+                            } catch { /* best-effort */ }
+                            _readStreaks.delete(k);
+                            _hintFiredThisTurn = true;
+                            break;
+                        }
+                    }
+                }
+            }
             // Detector: read-only shell (git status/log/diff --stat, ls/dir/cat/
             // type/Get-ChildItem) inspects state the dedicated tools cover.
             // Nudge toward them; never blocks execution.
@@ -366,6 +519,8 @@ export function createSteeringLadder(ctx) {
             _lastGrepContentPaths = null;
             _identGrepStreak = 0;
             _identGrepToken = null;
+            _lastFileScopedGrepNoCtxPaths = null;
+            _readStreaks.clear();
         },
     };
 }

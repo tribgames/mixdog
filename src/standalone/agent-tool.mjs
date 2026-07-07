@@ -1587,17 +1587,48 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           if (!fallbackTag || fallbackTag.startsWith('sess_') || !isDeadTarget) throw err;
           const prompt = clean(args.message || args.prompt);
           if (!prompt) throw err;
-          // Inherit the dead session's agent/cwd from the tag registry so the
-          // auto-respawn doesn't die on "agent spawn: agent is required" when
-          // Lead's send (correctly) omitted them. Read BEFORE forgetTag wipes
-          // the registry entries.
-          const inheritedAgent = clean(args.agent) || clean(tagAgents.get(fallbackTag));
-          const inheritedCwd = clean(args.cwd) || clean(tagCwds.get(fallbackTag));
-          if (!inheritedAgent) throw err;
-          // Clear the terminal trace so the fresh spawn isn't rejected by
-          // the lingering-trace guard, then run the normal deferred spawn.
-          try { forgetTag(fallbackTag); } catch {}
-          try { removeWorkerRow({ tag: fallbackTag }); } catch {}
+          // Inherit the dead session's agent/cwd so the auto-respawn doesn't
+          // die on "agent spawn: agent is required" when Lead's send (correctly)
+          // omitted them. Read BEFORE forgetTag wipes the registry entries.
+          //
+          // Root cause of the surfaced "target not found" errors: when a tag is
+          // FULLY reaped (session gone past the 5m grace window), the in-memory
+          // tagAgents/tagCwds maps are cleared, so inheritedAgent came back empty
+          // and this path re-threw instead of respawning. Recover the agent/cwd
+          // from the persisted worker row, then fall back to the default `worker`
+          // agent so an unknown-but-plausible tag still cold-respawns. The guards
+          // above (empty tag / raw sess_ id / non-dead error) keep plainly invalid
+          // targets erroring.
+          // readWorkerRows is already scoped to THIS terminal (clientHostPid,
+          // via rowMatchesContext), so inheritedRow — and every mutation below
+          // keyed on its sessionId — never touches another terminal's same-tag
+          // worker row.
+          let inheritedRow = null;
+          try {
+            inheritedRow = readWorkerRows(scopedContext).find((row) => clean(row.tag) === fallbackTag) || null;
+          } catch { inheritedRow = null; }
+          // Gate the respawn on evidence the tag previously existed IN THIS
+          // terminal: a persisted, clientHostPid-scoped worker row. The
+          // in-memory tags/tagAgents/tagCwds maps are NOT reliable evidence —
+          // closeAll() calls refreshTagsFromSessions() with NO context
+          // (see ~L1501), which populates them from EVERY terminal's rows
+          // (readWorkerRows({}) — rowMatchesContext returns true with no pid),
+          // so they can hold a peer terminal's tag. A typo'd / never-existed
+          // tag has no scoped row and must keep the original "not found" error.
+          if (!inheritedRow) throw err;
+          const inheritedSessionId = clean(inheritedRow.sessionId);
+          const inheritedAgent = clean(args.agent) || clean(inheritedRow.agent) || 'worker';
+          const inheritedCwd = clean(args.cwd) || clean(inheritedRow.cwd) || clean(callerCwd);
+          // Drop this terminal's in-memory trace and remove ONLY the persisted
+          // row matching inheritedRow.sessionId. Do NOT call forgetTag here: it
+          // does a tag-wide removeWorkerRow({tag,sessionId}) (L556) whose OR
+          // match (L395) would delete peer terminals' same-tag rows. The map
+          // deletes are guarded on the tag pointing at OUR sessionId so a peer
+          // cache entry (see above) is left intact (it rebuilds from rows).
+          if (tags.get(fallbackTag) === inheritedSessionId) {
+            try { tags.delete(fallbackTag); tagAgents.delete(fallbackTag); tagCwds.delete(fallbackTag); } catch {}
+          }
+          if (inheritedSessionId) { try { removeWorkerRow({ sessionId: inheritedSessionId }); } catch {} }
           const spawnArgs = {
             ...args,
             type: 'spawn',

@@ -106,3 +106,48 @@ function _restoreCompactedBodies(tcVal, origVal, key) {
     }
     return tcVal;
 }
+
+// Marker prefix emitted by compactStoredToolArgString for every compacted
+// body/long arg (`[mixdog compacted <key>: <N> chars, sha256:…]`). Both the
+// body-only form (marker alone) and the long form (marker + head/tail preview)
+// begin with this exact span.
+const COMPACTED_MARKER_PREFIX = '[mixdog compacted ';
+
+function _isCompactedPlaceholderString(v) {
+    return typeof v === 'string' && v.startsWith(COMPACTED_MARKER_PREFIX);
+}
+
+// Recursively drop every key whose stored value is a compacted-placeholder
+// string, at any depth (batch shapes like edits[].old_string carry nested
+// compacted bodies too). Non-placeholder values are kept verbatim.
+function _dropCompactedPlaceholders(val) {
+    if (Array.isArray(val)) return val.map((item) => _dropCompactedPlaceholders(item));
+    if (val && typeof val === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(val)) {
+            if (_isCompactedPlaceholderString(v)) continue; // drop the key entirely
+            out[k] = _dropCompactedPlaceholders(v);
+        }
+        return out;
+    }
+    return val;
+}
+
+// A SUCCESSFUL tool call's compacted body/long arg (patch / old_string /
+// new_string / content / rewrite / command / script) is never needed again —
+// the edit already applied. compactToolCallsForHistory (run at push time,
+// before the outcome is known) leaves a `[mixdog compacted …]` placeholder in
+// its place. For a success that placeholder persists in the stored assistant
+// tool_use and is transmitted back as a prior apply_patch INPUT, which the
+// model copies verbatim as new patch args — caught by the patch guard, but only
+// after a wasted turn. Drop those placeholder keys so no resubmittable
+// placeholder body survives in history. Failed calls take the opposite path
+// (restoreToolCallBodyForId expands to the full original); success and failure
+// are mutually exclusive per call id, so this never races the restore path.
+// Cache-safe: the caller runs this before the assistant message is transmitted.
+export function dropCompactedBodyArgsForId(assistantMsg, callId) {
+    if (!assistantMsg || !Array.isArray(assistantMsg.toolCalls) || !callId) return;
+    const tc = assistantMsg.toolCalls.find((t) => t && t.id === callId);
+    if (!tc || !tc.arguments || typeof tc.arguments !== 'object') return;
+    tc.arguments = _dropCompactedPlaceholders(tc.arguments);
+}

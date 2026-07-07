@@ -129,15 +129,19 @@ export function wrapPowerShellWithCwdProbe(command, stateFile) {
     // a failing native call $LASTEXITCODE holds its real code (case3 → 7).
     //
     // The `if (-not $?)` check MUST be the first statement after the command;
-    // any intervening statement resets $?. Terminating errors (`throw`) skip to
-    // catch → $__ec = 1. The cwd probe runs in finally regardless, and we exit
+    // any intervening statement resets $?. Terminating errors (`throw`,
+    // `-ErrorAction Stop`, .NET exceptions) skip to catch → $__ec = 1. A
+    // *caught* terminating error is NOT auto-written to the error stream, so
+    // without re-emitting it the caller only sees `[exit code: 1] (no output)`.
+    // Re-surface the ErrorRecord on stderr so the failure cause reaches the
+    // result envelope. The cwd probe runs in finally regardless, and we exit
     // with $__ec so the probe never masks the observed code.
     return '$global:LASTEXITCODE = 0\n'
         + '$__ec = 0\n'
         + 'try {\n'
         + `${command}\n`
         + '  if (-not $?) { $__ec = if ($LASTEXITCODE) { $LASTEXITCODE } else { 1 } }\n'
-        + '} catch { $__ec = 1 }\n'
+        + '} catch { [Console]::Error.WriteLine(($_ | Out-String).Trim()); $__ec = 1 }\n'
         + `finally { (Get-Location).Path | Out-File -Encoding utf8 ${qFile} }\n`
         + 'exit $__ec';
 }
