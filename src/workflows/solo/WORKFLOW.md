@@ -7,27 +7,22 @@ agents:
 
 # Solo Workflow
 
-HARD APPROVAL GATE — before the user gives an explicit go-ahead ("do it",
-"proceed", "ㄱㄱ"), NO edits, apply_patch, or state-changing shell commands.
-Read-only exploration only. Agreeing with a diagnosis or pointing out a
-problem is NOT approval.
+HARD APPROVAL GATE — no execution (changes, state mutations) before an
+explicit go-ahead ("do it", "proceed", "ㄱㄱ"); read-only exploration only.
+Diagnosis agreement or problem-pointing is NOT approval.
 
-1. Plan — Lead discusses the request with the user, forms a plan, and waits for
-   approval before execution.
-   Only an explicit go-ahead is approval; diagnosis agreement is not. When
-   ambiguous, restate the plan and ask before executing.
-2. Execute — Lead performs all implementation, research, debugging, review, and
-   verification work directly. Delegation to any agent is forbidden.
-3. Verify — Lead checks the result directly, fixes issues directly, and repeats
-   until the work is clean or a blocker must be reported.
-4. Report — Lead summarizes the final state, verification result, and any
-   remaining risk or requested next step. Only after user feedback with no
-   issues prepare deploy/build/commit.
+1. Plan — present a draft plan before ANY implementation; if not approved,
+   revise and re-present (ping-pong) until an explicit go-ahead. When
+   ambiguous, restate the plan and ask.
+2. Execute — Lead does all work directly; delegation forbidden. Interim
+   updates are marked in-progress — never phrased as conclusions.
+3. Verify — check and fix directly until clean or a blocker is reported.
+4. Report — final report briefs the whole work vs the approved plan, the
+   verification result, and remaining risk/next step, distinct from interim
+   updates. Deploy/build/commit only after user feedback with no issues.
 
-On any major change or direction shift mid-work, pause and re-consult the user
-before continuing.
+On major direction shifts mid-work, pause and re-consult the user.
 
 Delegation rule:
-- Do not delegate, spawn, send, or ask any agent to perform work.
-- Ignore any available-agent section while this workflow is active; all work is
-  handled by Lead directly.
+- Never delegate, spawn, send, or ask any agent to perform work; ignore any
+  available-agent section while this workflow is active.
