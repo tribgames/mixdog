@@ -6,11 +6,9 @@
  * This module mirrors schedules-db.mjs: a lazy connection keyed per resolved
  * dataDir runs idempotent DDL exactly once per process, serialized across
  * concurrent first-boot processes on the adapter's schema-bootstrap advisory
- * lock. It covers the file-store API surface currently in
- * channels/lib/webhook/deliveries.mjs (loadEndpointConfig, appendDelivery,
- * deliveryExists, _readEndpointSecret) so call sites can migrate off the
- * per-endpoint WEBHOOK.md + deliveries.jsonl files later. No call-site
- * changes are made in this scope.
+ * lock. It is the sole store for endpoints + delivery dedup; the old
+ * per-endpoint WEBHOOK.md + deliveries.jsonl file store is fully retired
+ * (webhook.mjs reads/writes only through here).
  *
  * All queries fully-qualify their tables so they are correct regardless of
  * the connection search_path.
@@ -18,9 +16,6 @@
 
 import { ensurePgInstance, withSchemaBootstrapLock } from '../memory/lib/pg/adapter.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
-import { readdirSync, readFileSync, rmSync, rmdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { readMarkdownDocument } from './markdown-frontmatter.mjs';
 
 const SCHEMA = 'webhooks';
 
@@ -67,7 +62,6 @@ async function getDb(dataDir = resolvePluginData()) {
     // same cluster-global advisory lock the adapter uses for schema bootstrap,
     // so racing first calls can't run the DDL simultaneously.
     await withSchemaBootstrapLock(pool, () => db.exec(DDL));
-    await migrateLegacyWebhooks(db, dataDir);
     return db;
   })();
   _ready.set(dataDir, p);
@@ -77,91 +71,6 @@ async function getDb(dataDir = resolvePluginData()) {
     _ready.delete(dataDir); // let the next call retry DDL after a transient failure
     throw err;
   }
-}
-
-// ---------------------------------------------------------------------------
-// One-time legacy WEBHOOK.md migration (additive; runs once per dataDir on
-// first getDb, right after DDL). Imports every `<dataDir>/webhooks/<name>/
-// WEBHOOK.md` (+ its `secret` side file) not already present in the table (by
-// name), then DELETES the webhooks/ directory. The legacy file reading is
-// inlined here on purpose so this migration never depends on the file-store
-// deliveries.mjs module (which another scope may remove). Old per-endpoint
-// deliveries files are intentionally NOT imported — dedup history resets,
-// which is acceptable. Partial failure keeps the directory in place and logs,
-// so the next boot retries the un-imported entries idempotently.
-// ---------------------------------------------------------------------------
-async function migrateLegacyWebhooks(db, dataDir) {
-  const dir = join(dataDir, 'webhooks');
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return; // no legacy webhooks/ dir -> nothing to migrate
-  }
-  let imported = 0;
-  let skipped = 0;
-  const failed = [];
-  // Per-endpoint dirs safe to delete this run: those imported now, or already
-  // present in the table (a prior run imported them). Anything unrecognized —
-  // a dir with no WEBHOOK.md, a stray file, a failed import — is left in place.
-  const removable = [];
-  for (const ent of entries) {
-    if (!ent.isDirectory()) continue;
-    const name = ent.name;
-    try {
-      const { rows } = await db.query('SELECT 1 FROM webhooks.endpoints WHERE name = $1', [name]);
-      if (rows.length) { skipped++; removable.push(name); continue; }
-      let md;
-      try { md = readFileSync(join(dir, name, 'WEBHOOK.md'), 'utf8'); }
-      catch { skipped++; continue; }
-      const { frontmatter, body } = readMarkdownDocument(md);
-      let secret = null;
-      try { secret = String(readFileSync(join(dir, name, 'secret'), 'utf8')).trim() || null; }
-      catch { secret = null; }
-      const channel = String(frontmatter.channel || '').trim();
-      const enabled = frontmatter.enabled !== 'false' && frontmatter.enabled !== false;
-      await db.query(
-        `INSERT INTO webhooks.endpoints
-           (name, description, channel_id, role, model, parser, secret, instructions, enabled)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         ON CONFLICT (name) DO NOTHING`,
-        [
-          name,
-          String(frontmatter.description || '').trim(),
-          channel || null,
-          'webhook-handler',
-          frontmatter.model ? String(frontmatter.model).trim() : null,
-          frontmatter.parser ? String(frontmatter.parser).trim() : null,
-          secret,
-          String(body || '').trim(),
-          enabled,
-        ],
-      );
-      imported++;
-      removable.push(name);
-    } catch (err) {
-      failed.push(name);
-      console.error(`[webhooks] migration failed for "${name}": ${err?.message || err}`);
-    }
-  }
-  // User chose deletion over a `.migrated` rename. Delete only the recognized
-  // per-endpoint dirs (imported now or already in the table); never blow away
-  // unimported/unrelated entries. Failed imports keep their dir for the next
-  // boot to retry (idempotent via the name check above).
-  for (const name of removable) {
-    try { rmSync(join(dir, name), { recursive: true, force: true }); }
-    catch (err) { console.error(`[webhooks] could not delete migrated dir "${name}": ${err?.message || err}`); }
-  }
-  // Remove the parent webhooks/ only once it is empty — anything unrecognized
-  // (stray files, WEBHOOK.md-less dirs, failed imports) keeps it alive.
-  let parentGone = false;
-  try {
-    if (readdirSync(dir).length === 0) { rmdirSync(dir); parentGone = true; }
-  } catch (err) {
-    console.error(`[webhooks] could not remove empty webhooks/: ${err?.message || err}`);
-  }
-  const tail = failed.length ? `${failed.length} failed (${failed.join(', ')}); ` : '';
-  console.error(`[webhooks] migrated ${imported} legacy webhook(s) (${skipped} skipped); ${tail}${parentGone ? 'removed webhooks/' : 'kept webhooks/ (non-empty)'}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -341,30 +250,6 @@ export async function claimDelivery(endpoint, deliveryId, fields = {}, { dataDir
 }
 
 /**
- * True when a delivery id has already been recorded for the endpoint (any
- * status). Callers wanting terminal-vs-inflight semantics inspect the row via
- * getDelivery; claimDelivery is the race-safe gate.
- */
-export async function deliveryExists(endpoint, deliveryId, { dataDir } = {}) {
-  if (!endpoint || !deliveryId) return false;
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    'SELECT 1 FROM webhooks.deliveries WHERE endpoint = $1 AND delivery_id = $2',
-    [endpoint, deliveryId],
-  );
-  return rows.length > 0;
-}
-
-export async function getDelivery(endpoint, deliveryId, { dataDir } = {}) {
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    `SELECT ${DELIVERY_COLS} FROM webhooks.deliveries WHERE endpoint = $1 AND delivery_id = $2`,
-    [endpoint, deliveryId],
-  );
-  return rowToDelivery(rows[0]);
-}
-
-/**
  * Update the status (and optional event/error) of an existing delivery,
  * keyed by (endpoint, delivery_id). Returns the updated row or null.
  */
@@ -382,24 +267,4 @@ export async function updateDeliveryStatus(endpoint, deliveryId, status, fields 
     [endpoint, deliveryId, status, fields.event ?? null, fields.error ?? null],
   );
   return rowToDelivery(rows[0]);
-}
-
-/**
- * Append a delivery record (claim-or-update convenience covering the old
- * appendDelivery). First write for an id claims it; a later write with the
- * same id updates its status/fields latest-wins.
- *
- * Returns the claim outcome — { claimed, duplicate, row } — NOT a bare row,
- * so a pre-dispatch caller can detect a concurrent duplicate (claimed:false,
- * duplicate:true) and skip re-dispatching an in-flight delivery. `row` is the
- * freshly claimed row when claimed, else the existing row after the
- * latest-wins status/fields update.
- */
-export async function appendDelivery(endpoint, entry = {}, { dataDir } = {}) {
-  const deliveryId = entry.deliveryId ?? entry.id;
-  if (!endpoint || !deliveryId) throw new Error('appendDelivery: endpoint and deliveryId are required');
-  const claim = await claimDelivery(endpoint, deliveryId, entry, { dataDir });
-  if (claim.claimed) return claim;
-  const row = await updateDeliveryStatus(endpoint, deliveryId, entry.status ?? claim.row?.status, entry, { dataDir });
-  return { claimed: false, duplicate: true, row };
 }

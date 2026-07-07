@@ -3,10 +3,8 @@
  * schedules (schema `scheduler`, table `scheduler.schedules`).
  *
  * All schedule readers/writers (scheduler.mjs, config.mjs, channel-admin.mjs)
- * go through this module. Legacy `<dataDir>/schedules/<name>/SCHEDULE.md`
- * files are imported once by the migration hook in getDb and the directory is
- * renamed to `schedules.migrated`; the old file-based schedules-store.mjs has
- * been removed.
+ * go through this module. It is the sole store for schedules; the old
+ * file-based schedules-store.mjs has been retired.
  *
  * DDL is idempotent and runs once on the first call per process. All queries
  * fully-qualify `scheduler.schedules` so they are correct regardless of the
@@ -15,9 +13,6 @@
 
 import { ensurePgInstance, withSchemaBootstrapLock } from '../memory/lib/pg/adapter.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
-import { readdirSync, readFileSync, renameSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { readMarkdownDocument } from './markdown-frontmatter.mjs';
 
 const SCHEMA = 'scheduler';
 
@@ -58,7 +53,6 @@ async function getDb(dataDir = resolvePluginData()) {
     // same cluster-global advisory lock the adapter uses for schema bootstrap,
     // so racing first calls can't run the DDL simultaneously.
     await withSchemaBootstrapLock(pool, () => db.exec(DDL));
-    await migrateLegacySchedules(db, dataDir);
     return db;
   })();
   _ready.set(dataDir, p);
@@ -68,118 +62,6 @@ async function getDb(dataDir = resolvePluginData()) {
     _ready.delete(dataDir); // let the next call retry DDL after a transient failure
     throw err;
   }
-}
-
-// ---------------------------------------------------------------------------
-// One-time legacy SCHEDULE.md migration (additive; runs once per dataDir on
-// first getDb, right after DDL). Imports every `<dataDir>/schedules/<name>/
-// SCHEDULE.md` not already present in the table (by name), using the same
-// days->cron folding as the admin write path, then renames the directory to
-// `schedules.migrated` (never deletes user data). Per-entry failures are
-// isolated and never block store readiness.
-// ---------------------------------------------------------------------------
-
-// Day-name / keyword -> cron day-of-week number (Sun=0 .. Sat=6).
-const MIGRATE_DAY_TO_DOW = {
-  sun: 0, sunday: 0,
-  mon: 1, monday: 1,
-  tue: 2, tues: 2, tuesday: 2,
-  wed: 3, weds: 3, wednesday: 3,
-  thu: 4, thur: 4, thurs: 4, thursday: 4,
-  fri: 5, friday: 5,
-  sat: 6, saturday: 6,
-};
-
-function foldLegacyDaysIntoCron(cron, days) {
-  const parts = String(cron || '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length !== 5 && parts.length !== 6) {
-    throw new Error(`invalid cron "${cron}"`);
-  }
-  const raw = String(days || '').trim().toLowerCase();
-  const dowIndex = parts.length - 1;
-  // days absent -> keep the cron's own day-of-week field ('0 9 * * 1' stays
-  // Monday-only). Only an explicit selector rewrites the dow field.
-  if (!raw) return parts.join(' ');
-  let dow;
-  if (raw === 'daily' || raw === 'everyday' || raw === 'every day') dow = '*';
-  else if (raw === 'weekday' || raw === 'weekdays') dow = '1-5';
-  else if (raw === 'weekend' || raw === 'weekends') dow = '0,6';
-  else {
-    const nums = raw.split(/[\s,]+/).filter(Boolean).map((t) => (
-      /^[0-6]$/.test(t) ? Number(t) : MIGRATE_DAY_TO_DOW[t]
-    ));
-    if (nums.some((n) => n === undefined)) {
-      throw new Error(`days "${days}" is not a recognizable day selector`);
-    }
-    dow = nums.join(',');
-  }
-  parts[dowIndex] = dow;
-  return parts.join(' ');
-}
-
-async function migrateLegacySchedules(db, dataDir) {
-  const dir = join(dataDir, 'schedules');
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return; // no legacy schedules/ dir -> nothing to migrate
-  }
-  let imported = 0;
-  let skipped = 0;
-  const failed = [];
-  for (const ent of entries) {
-    if (!ent.isDirectory()) continue;
-    const name = ent.name;
-    try {
-      const { rows } = await db.query('SELECT 1 FROM scheduler.schedules WHERE name = $1', [name]);
-      if (rows.length) { skipped++; continue; }
-      let md;
-      try { md = readFileSync(join(dir, name, 'SCHEDULE.md'), 'utf8'); }
-      catch { skipped++; continue; }
-      const { frontmatter, body } = readMarkdownDocument(md);
-      const cron = foldLegacyDaysIntoCron(frontmatter.time, frontmatter.days);
-      const channel = String(frontmatter.channel || '').trim();
-      const enabled = frontmatter.enabled !== 'false' && frontmatter.enabled !== false;
-      await db.query(
-        `INSERT INTO scheduler.schedules
-           (name, description, when_cron, timezone, target, channel_id, model, prompt, enabled)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         ON CONFLICT (name) DO NOTHING`,
-        [
-          name,
-          String(frontmatter.description || '').trim(),
-          cron,
-          frontmatter.timezone ? String(frontmatter.timezone).trim() : null,
-          channel ? 'channel' : 'session',
-          channel || null,
-          frontmatter.model ? String(frontmatter.model).trim() : null,
-          String(body || '').trim(),
-          enabled,
-        ],
-      );
-      imported++;
-    } catch (err) {
-      failed.push(name);
-      console.error(`[schedules] migration failed for "${name}": ${err?.message || err}`);
-    }
-  }
-  if (failed.length) {
-    // Some entries failed to import. Leave schedules/ in place (do NOT rename)
-    // so the next boot retries them; already-imported entries are skipped by
-    // the name check above, so retry is idempotent.
-    console.error(`[schedules] migrated ${imported} legacy schedule(s), ${failed.length} failed (${failed.join(', ')}); leaving schedules/ for retry`);
-    return;
-  }
-  try {
-    let target = `${dir}.migrated`;
-    if (existsSync(target)) target = `${dir}.migrated-${Date.now()}`;
-    renameSync(dir, target);
-  } catch (err) {
-    console.error(`[schedules] migrated ${imported} legacy schedule(s) but could not rename schedules/: ${err?.message || err}`);
-    return;
-  }
-  console.error(`[schedules] migrated ${imported} legacy schedule(s) (${skipped} skipped); renamed schedules/ -> schedules.migrated`);
 }
 
 // ---------------------------------------------------------------------------

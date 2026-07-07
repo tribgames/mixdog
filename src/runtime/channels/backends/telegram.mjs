@@ -56,7 +56,7 @@ function defaultAccess() {
 function normalizeAccess(parsed) {
   const defaults = defaultAccess();
   return {
-    dmPolicy: parsed?.dmPolicy === "pairing" ? "allowlist" : (parsed?.dmPolicy ?? defaults.dmPolicy),
+    dmPolicy: parsed?.dmPolicy ?? defaults.dmPolicy,
     allowFrom: parsed?.allowFrom ?? defaults.allowFrom,
     channels: parsed?.channels ?? defaults.channels,
     mentionPatterns: parsed?.mentionPatterns,

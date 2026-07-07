@@ -102,28 +102,11 @@ function seedBackendChannelIds(entry = {}, backend = 'discord') {
   return next;
 }
 
-// Resolve the single-channel entry from the config: prefer the new `channel`
-// object; fall back (read-side only, no on-disk migration) to the legacy
-// channelsConfig[mainChannel ?? 'main'] entry, then the first entry with an id.
+// Resolve the single-channel entry from the config's `channel` object.
 function resolveChannelEntry(cfg = {}) {
   if (cfg.channel && typeof cfg.channel === 'object'
     && (cfg.channel.channelId || cfg.channel.discordChannelId || cfg.channel.telegramChatId)) {
     return cfg.channel;
-  }
-  const legacy = cfg.channelsConfig && typeof cfg.channelsConfig === 'object' ? cfg.channelsConfig : null;
-  if (legacy) {
-    const mainName = cfg.mainChannel ?? 'main';
-    const preferred = legacy[mainName];
-    if (preferred && typeof preferred === 'object'
-      && (preferred.channelId || preferred.discordChannelId || preferred.telegramChatId)) {
-      return preferred;
-    }
-    for (const entry of Object.values(legacy)) {
-      if (entry && typeof entry === 'object'
-        && (entry.channelId || entry.discordChannelId || entry.telegramChatId)) {
-        return entry;
-      }
-    }
   }
   return cfg.channel && typeof cfg.channel === 'object' ? cfg.channel : {};
 }
@@ -131,13 +114,10 @@ function resolveChannelEntry(cfg = {}) {
 function updateChannelsSection(build) {
   let next;
   updateSection('channels', (current) => {
-    // Preserve any legacy channelsConfig/mainChannel that already live on disk
-    // for read-side compat, but never re-emit them from our writers: strip them
-    // out of the returned shape so writes converge on the single `channel`.
+    // Writes converge on the single `channel` object.
     const normalized = normalizeChannelsConfig(current);
     next = build(normalized);
-    const { channelsConfig: _lc, mainChannel: _lm, ...clean } = normalizeChannelsConfig(next);
-    return clean;
+    return normalizeChannelsConfig(next);
   });
   return next;
 }
@@ -151,8 +131,7 @@ async function updateChannelsSectionAsync(build) {
   await updateSectionAsync('channels', (current) => {
     const normalized = normalizeChannelsConfig(current);
     next = build(normalized);
-    const { channelsConfig: _lc, mainChannel: _lm, ...clean } = normalizeChannelsConfig(next);
-    return clean;
+    return normalizeChannelsConfig(next);
   });
   return next;
 }
@@ -168,8 +147,8 @@ function listEntryDirs(dir) {
   }
 }
 
-// Single-channel read: resolves `cfg.channel` (legacy channelsConfig fallback)
-// into the flat shape the settings/TUI layer consumes.
+// Single-channel read: resolves `cfg.channel` into the flat shape the
+// settings/TUI layer consumes.
 export function getChannel(config = {}) {
   const cfg = normalizeChannelsConfig(config);
   const backend = cfg.backend === 'telegram' ? 'telegram' : 'discord';

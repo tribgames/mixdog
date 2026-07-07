@@ -11,9 +11,7 @@ function defaultAccess() {
 function normalizeAccess(parsed) {
   const defaults = defaultAccess();
   return {
-    // Legacy "pairing" policy was removed (its approval flow was never
-    // completable); normalize it to "allowlist" on load.
-    dmPolicy: parsed?.dmPolicy === "pairing" ? "allowlist" : (parsed?.dmPolicy ?? defaults.dmPolicy),
+    dmPolicy: parsed?.dmPolicy ?? defaults.dmPolicy,
     allowFrom: parsed?.allowFrom ?? defaults.allowFrom,
     channels: parsed?.channels ?? defaults.channels,
     mentionPatterns: parsed?.mentionPatterns,

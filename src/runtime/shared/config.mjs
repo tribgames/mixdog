@@ -315,14 +315,9 @@ export function diagnoseDiscordTokenValue(value, config = {}) {
   const discord = config?.discord && typeof config.discord === 'object' ? config.discord : {}
   const appId = String(discord.applicationId || '').trim()
   if (appId && token === appId) return 'Bot token field contains the Application ID, not the bot token.'
-  // Single main channel: check the `channel` object. Legacy `channelsConfig`
-  // is still read here (read-only) so the diagnostic keeps working on configs
-  // that predate the single-channel collapse.
+  // Single main channel: check the `channel` object.
   const candidateEntries = []
   if (config?.channel && typeof config.channel === 'object') candidateEntries.push(config.channel)
-  if (config?.channelsConfig && typeof config.channelsConfig === 'object') {
-    candidateEntries.push(...Object.values(config.channelsConfig))
-  }
   for (const ch of candidateEntries) {
     if (!ch || typeof ch !== 'object') continue
     for (const id of [ch.channelId, ch.discordChannelId, ch.telegramChatId]) {

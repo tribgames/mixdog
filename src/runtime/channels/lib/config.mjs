@@ -39,27 +39,10 @@ function channelIdForBackend(entry = {}, backend = "discord") {
 }
 
 // Resolve the single active-backend channel id from the config's `channel`
-// section. Backward compat (read-side only, no on-disk migration): when
-// `channel` is absent, fall back to the legacy `channelsConfig[mainChannel]`
-// entry (or the first entry that carries an id).
+// section. Disk config carries a single `channel` object only.
 function resolveChannelId(raw = {}, backend = "discord") {
   const channel = raw.channel && typeof raw.channel === "object" ? raw.channel : null;
   if (channel) return channelIdForBackend(channel, backend);
-  const legacy = raw.channelsConfig && typeof raw.channelsConfig === "object" ? raw.channelsConfig : null;
-  if (legacy) {
-    const mainName = raw.mainChannel ?? "main";
-    const preferred = legacy[mainName];
-    if (preferred && typeof preferred === "object") {
-      const id = channelIdForBackend(preferred, backend);
-      if (id) return id;
-    }
-    for (const entry of Object.values(legacy)) {
-      if (entry && typeof entry === "object") {
-        const id = channelIdForBackend(entry, backend);
-        if (id) return id;
-      }
-    }
-  }
   return "";
 }
 
@@ -96,13 +79,11 @@ async function loadConfig() {
     const backend = raw.backend === "telegram" ? "telegram" : "discord";
     const telegramToken = getTelegramToken();
     const channelId = resolveChannelId(raw, backend);
-    // Drop legacy multi-channel keys from the returned shape; the runtime
-    // reads only the resolved `channelId` now (read-side compat lives in
-    // resolveChannelId — no on-disk migration).
-    const { channelsConfig: _legacyChannels, mainChannel: _legacyMain, ...rawRest } = raw;
+    // The runtime reads only the resolved `channelId`; disk carries a single
+    // `channel` object, so spread `raw` directly.
     return applyDefaults({
       ...DEFAULT_CONFIG,
-      ...rawRest,
+      ...raw,
       backend,
       channelId,
       discord: { ...DEFAULT_CONFIG.discord, ...(({ token: _, ...rest }) => rest)(raw.discord || {}), ...(discordToken && !discordTokenProblem ? { token: discordToken } : {}) },
@@ -111,12 +92,7 @@ async function loadConfig() {
       telegram: { ...DEFAULT_CONFIG.telegram, ...(({ token: _t, ...rest }) => rest)(raw.telegram || {}), ...(telegramToken ? { token: telegramToken } : {}) },
       access: {
         ...DEFAULT_ACCESS,
-        // Drop the retired pairing-era keys at the config layer too (the
-        // Discord backend's normalizeAccess() is the runtime belt): legacy
-        // dmPolicy "pairing" → "allowlist", and the `pending` code store is
-        // gone entirely.
-        ...(({ pending: _pending, ...rest }) => rest)(raw.access || {}),
-        ...(raw.access?.dmPolicy === "pairing" ? { dmPolicy: "allowlist" } : {}),
+        ...(raw.access || {}),
         channels: accessChannels,
       },
       voice: { ...(raw.voice || {}), ...voice }
