@@ -1,24 +1,22 @@
-# Single-entry release pipeline. Run manually:
-#   gh workflow run release -f bump=patch   (or minor / major)
+# Tag-triggered release pipeline. The version bump happens LOCALLY (by the
+# maintainer), never in CI — so CI never writes a commit to origin/main and
+# the local clone never diverges from origin. Cut a release locally with:
+#   npm run release:patch      (or release:minor / release:major)
+# which runs smoke, bumps package.json + commits + tags, and pushes the
+# commit and tag. Pushing the `v*` tag triggers THIS workflow, which only
+# verifies and publishes — it does not touch git history.
 #
-# Flow: verify (ci + build + smoke) -> npm version bump + tag ->
-# push commit+tag -> npm publish -> GitHub release. Verification runs
-# BEFORE the bump, so a failed smoke never consumes a version number,
-# and push happens BEFORE publish, so npm never has a version that git
-# doesn't. Local `npm publish` is blocked by the prepublishOnly guard
-# in package.json — this workflow is the only publish path.
+# Flow (CI): checkout tag -> ci + build + smoke -> npm publish -> GitHub
+# release. Local `npm publish` stays blocked by the prepublishOnly guard in
+# package.json — this workflow is the only publish path.
 # Requires the NPM_TOKEN repo secret (npm automation token).
 
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      bump:
-        description: "Version bump"
-        type: choice
-        options: [patch, minor, major]
-        default: patch
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write # version commit, tag push, release creation
@@ -33,8 +31,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: main
 
       - uses: actions/setup-node@v4
         with:
@@ -52,18 +48,6 @@ jobs:
       - name: Smoke
         run: npm run smoke
 
-      - name: Bump version and tag
-        id: bump
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          npm version "${{ inputs.bump }}" -m "mixdog v%s"
-          echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
-      - name: Push commit and tag
-        run: git push --follow-tags origin main
-
       - name: Publish
         run: npm publish --provenance --access public
         env:
@@ -73,6 +57,5 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.bump.outputs.tag }}
           generate_release_notes: true
           make_latest: true

@@ -63,7 +63,10 @@
     "bench:recall": "node scripts/recall-bench.mjs",
     "audit:models": "node scripts/model-catalog-audit.mjs",
     "patch:replay": "node scripts/patch-replay.mjs",
-    "build:tui": "node scripts/build-tui.mjs"
+    "build:tui": "node scripts/build-tui.mjs",
+    "release:patch": "npm run smoke && npm version patch -m \"mixdog v%s\" && git push --follow-tags origin main",
+    "release:minor": "npm run smoke && npm version minor -m \"mixdog v%s\" && git push --follow-tags origin main",
+    "release:major": "npm run smoke && npm version major -m \"mixdog v%s\" && git push --follow-tags origin main"
   },
   "engines": {
     "node": ">=22.0.0"
