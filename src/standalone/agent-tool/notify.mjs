@@ -3,6 +3,7 @@
 // Behavior-preserving: bodies identical to the originals; deps injected.
 import { modelVisibleToolCompletionMessage } from '../../runtime/shared/tool-execution-contract.mjs';
 import { renderBackgroundTask, sanitizeTaskMeta, setBackgroundTaskEnqueueFallback } from '../../runtime/shared/background-tasks.mjs';
+import { markCompletionEntry } from '../../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
 import { clean } from './helpers.mjs';
 
 export function createNotify(mgr) {
@@ -11,7 +12,10 @@ export function createNotify(mgr) {
     if (!target || typeof mgr.enqueuePendingMessage !== 'function') return false;
     try {
       const visible = modelVisibleToolCompletionMessage(text, meta);
-      return Boolean(visible && mgr.enqueuePendingMessage(target, visible) > 0);
+      if (!visible) return false;
+      // Mark this as a deferred completion/task notification so a later session
+      // resume drops it rather than replaying it out-of-order (owner decision).
+      return Boolean(mgr.enqueuePendingMessage(target, markCompletionEntry(visible)) > 0);
     } catch {
       return false;
     }

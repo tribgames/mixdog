@@ -9,7 +9,7 @@ import { executeBashSessionTool } from '../../tools/bash-session.mjs';
 import { executePatchTool } from '../../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../../internal-tools.mjs';
 import { normalizeToolEnvelope, makeToolEnvelope } from '../tool-envelope.mjs';
-import { getSessionAbortSignal, enqueuePendingMessage } from '../manager.mjs';
+import { getSessionAbortSignal, enqueuePendingMessage, markCompletionEntry } from '../manager.mjs';
 import { createScopedCacheOutcome } from '../cache/scoped-cache-outcome.mjs';
 import { modelVisibleToolCompletionMessage } from '../../../../shared/tool-execution-contract.mjs';
 import { _isScopedCacheableTool } from './tool-classify.mjs';
@@ -68,7 +68,9 @@ export async function executeTool(name, args, cwd, callerSessionId, sessionRef, 
             if (!notificationSessionId) return;
             try {
                 const visible = modelVisibleToolCompletionMessage(text, meta);
-                if (visible) enqueuePendingMessage(notificationSessionId, visible);
+                // Inherently a tool-completion notification → tag so a later
+                // resume drops it instead of replaying it as user text.
+                if (visible) enqueuePendingMessage(notificationSessionId, markCompletionEntry(visible));
             } catch { /* best effort */ }
         };
     const completionToolOpts = {

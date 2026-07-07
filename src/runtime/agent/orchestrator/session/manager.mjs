@@ -63,6 +63,8 @@ export {
     _mergePendingMessageEntries,
     enqueuePendingMessage,
     drainPendingMessages,
+    markCompletionEntry,
+    COMPLETION_NOTIFICATION_KIND,
 } from './manager/pending-messages.mjs';
 export { isInternalRuntimeNotificationText as _isInternalRuntimeNotificationText } from './manager/prompt-utils.mjs';
 

@@ -11,8 +11,30 @@ const PENDING_MESSAGES_FILE = 'session-pending-messages.json';
 const PENDING_MESSAGES_MODE = 0o600;
 const PENDING_ORPHAN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PENDING_ORPHAN_GRACE_MS = 60 * 60 * 1000;
+// Marker for deferred agent/tool *completion* notifications. Such entries must
+// never be replayed into a later turn on session resume (out-of-order delivery
+// is worse than loss — owner decision), so drain discards them. Genuine
+// user/steering messages carry no marker and keep full queue + replay behavior.
+export const COMPLETION_NOTIFICATION_KIND = 'completion_notification';
 const _pendingPersistBuffers = new Map();
 let _pendingPersistImmediate = null;
+
+function isCompletionNotificationEntry(entry) {
+    return Boolean(entry) && typeof entry === 'object'
+        && entry.notificationKind === COMPLETION_NOTIFICATION_KIND;
+}
+
+// Canonical completion-enqueue tagger. Every deferred tool/agent completion
+// notification MUST be enqueued through this so drain can discard it on resume
+// (never replay out-of-order). Pass the model-visible completion text (or an
+// existing entry); genuine user/steering messages must NOT be tagged.
+export function markCompletionEntry(text) {
+    const value = typeof text === 'string'
+        ? text
+        : (text && typeof text === 'object' ? (text.text || text.content || '') : '');
+    const content = String(value ?? '');
+    return { content, text: content, notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Date.now() };
+}
 
 function pendingMessagesPath() {
     return join(resolvePluginData(), PENDING_MESSAGES_FILE);
@@ -53,13 +75,7 @@ function normalizePendingStore(raw) {
         if (!isValidPendingSessionId(sid) || !Array.isArray(value)) continue;
         const q = isTuiSteeringPendingKey(sid)
             ? value.map(normalizeTuiSteeringQueueEntry).filter(Boolean)
-            : value
-                .map((entry) => {
-                    if (typeof entry === 'string') return entry;
-                    if (entry && typeof entry === 'object' && typeof entry.message === 'string') return entry.message;
-                    return '';
-                })
-                .filter(Boolean);
+            : value.map(normalizePersistedEntry).filter(Boolean);
         if (q.length > 0) {
             out.sessions[sid] = q;
             const touched = Number(touchedRaw[sid]);
@@ -85,16 +101,22 @@ function normalizePendingMessageEntry(entry) {
         return { content: entry, text };
     }
     if (!entry || typeof entry !== 'object') return null;
+    const marker = entry.notificationKind === COMPLETION_NOTIFICATION_KIND
+        ? { notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Number(entry.enqueuedAt) || Date.now() }
+        : null;
     const content = Object.prototype.hasOwnProperty.call(entry, 'content') ? entry.content : null;
     if (content == null) return null;
     const text = typeof entry.text === 'string' ? entry.text.trim() : promptContentText(content).trim();
-    if (Array.isArray(content)) return content.length > 0 ? { content, text } : null;
-    if (typeof content === 'string') {
+    let out = null;
+    if (Array.isArray(content)) out = content.length > 0 ? { content, text } : null;
+    else if (typeof content === 'string') {
         const value = content.trim();
-        return value ? { content: value, text: text || value } : null;
+        out = value ? { content: value, text: text || value } : null;
+    } else {
+        const fallback = promptContentText(content).trim();
+        out = fallback ? { content: fallback, text: text || fallback } : null;
     }
-    const fallback = promptContentText(content).trim();
-    return fallback ? { content: fallback, text: text || fallback } : null;
+    return out && marker ? { ...out, ...marker } : out;
 }
 
 function pendingMessageText(entry) {
@@ -105,14 +127,39 @@ function pendingMessageText(entry) {
 function pendingMessageQueueEntry(entry) {
     const normalized = normalizePendingMessageEntry(entry);
     if (!normalized) return null;
-    if (typeof normalized.content === 'string' && normalized.content === normalized.text) return normalized.content;
-    return { content: normalized.content, text: normalized.text || promptContentText(normalized.content).trim() };
+    const marker = isCompletionNotificationEntry(normalized)
+        ? { notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: normalized.enqueuedAt }
+        : null;
+    if (typeof normalized.content === 'string' && normalized.content === normalized.text && !marker) return normalized.content;
+    const base = { content: normalized.content, text: normalized.text || promptContentText(normalized.content).trim() };
+    return marker ? { ...base, ...marker } : base;
+}
+
+// Canonical persisted-queue entry: a plain string for user/steering messages,
+// or a { message, notificationKind, enqueuedAt } object for completion/task
+// notifications so the marker survives an on-disk round trip. Accepts either an
+// in-memory queue entry (content/text) or an already-persisted entry
+// (string | { message } legacy | marked object); back-compatible with both.
+function normalizePersistedEntry(entry) {
+    if (typeof entry === 'string') { const t = entry.trim(); return t || null; }
+    if (!entry || typeof entry !== 'object') return null;
+    if (isCompletionNotificationEntry(entry)) {
+        const message = (typeof entry.message === 'string' && entry.message.trim())
+            ? entry.message.trim()
+            : pendingMessageText(entry);
+        return message
+            ? { message, notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Number(entry.enqueuedAt) || Date.now() }
+            : null;
+    }
+    if (typeof entry.message === 'string') { const t = entry.message.trim(); return t || null; }
+    const t = pendingMessageText(entry);
+    return t || null;
 }
 
 function persistPendingMessages(sessionId, messages) {
     if (!isValidPendingSessionId(sessionId)) return 0;
     const persistedMessages = (Array.isArray(messages) ? messages : [messages])
-        .map(pendingMessageText)
+        .map(normalizePersistedEntry)
         .filter(Boolean);
     if (persistedMessages.length === 0) return 0;
     // Async lock wait: this runs on the lead/TUI main process (tool-exec +
@@ -159,7 +206,7 @@ function flushPendingMessagePersistsSync() {
 
 function schedulePendingMessagePersist(sessionId, message) {
     if (!isValidPendingSessionId(sessionId)) return 0;
-    const persistedMessage = pendingMessageText(message);
+    const persistedMessage = normalizePersistedEntry(message);
     if (!persistedMessage) return 0;
     const q = _pendingPersistBuffers.get(sessionId) || [];
     q.push(persistedMessage);
@@ -192,7 +239,7 @@ function drainPersistedPendingMessages(sessionId) {
         updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
             const next = normalizePendingStore(raw);
             const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
-            drained = q.filter((m) => typeof m === 'string' && m.length > 0);
+            drained = q.filter((m) => (typeof m === 'string' && m.length > 0) || isCompletionNotificationEntry(m));
             if (drained.length === 0) return undefined;
             delete next.sessions[sessionId];
             if (next.sessionTouchedAt) delete next.sessionTouchedAt[sessionId];
@@ -335,8 +382,13 @@ export function drainPendingMessages(sessionId) {
     // first. Reversing this order (buffer before disk) delivered newer
     // buffered sends ahead of older persisted ones after a restart.
     const persisted = [...drainPersistedPendingMessages(sessionId), ...takeBufferedPendingMessages(sessionId)];
-    const memoryVisible = modelVisiblePendingMessages(memory);
-    const persistedVisible = modelVisiblePendingMessages(persisted);
+    // Discard deferred completion/task notifications instead of injecting them
+    // out-of-order into a future turn on resume. Genuine user/steering messages
+    // (plain strings / content entries) carry no marker and are kept in order.
+    const memoryKept = memory.filter((m) => !isCompletionNotificationEntry(m));
+    const persistedKept = persisted.filter((m) => !isCompletionNotificationEntry(m));
+    const memoryVisible = modelVisiblePendingMessages(memoryKept);
+    const persistedVisible = modelVisiblePendingMessages(persistedKept);
     if (memoryVisible.length === 0) return persistedVisible;
     if (persistedVisible.length === 0) return memoryVisible;
     const persistedTexts = persistedVisible.map(pendingMessageText);

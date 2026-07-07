@@ -31,6 +31,7 @@ import {
 } from '../runtime/shared/markdown-frontmatter.mjs';
 import { setConfiguredShell } from '../runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+import { markCompletionEntry } from '../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
 import {
   beginOAuthProviderLogin,
   forgetProviderAuth,
@@ -773,7 +774,9 @@ export async function createMixdogSessionRuntime({
         && shouldPersistModelVisibleToolCompletion(text, meta)) {
         try {
           const visible = modelVisibleToolCompletionMessage(text, meta);
-          if (visible) enqueued = mgr.enqueuePendingMessage(callerSessionId, visible) > 0;
+          // Terminal completion (gated by shouldPersistModelVisibleToolCompletion)
+          // → tag so drain discards it on resume rather than replaying out-of-order.
+          if (visible) enqueued = mgr.enqueuePendingMessage(callerSessionId, markCompletionEntry(visible)) > 0;
         } catch {}
       }
       // Headless/API listeners may exist but not consume the event; preserve
@@ -782,7 +785,10 @@ export async function createMixdogSessionRuntime({
         && typeof mgr.enqueuePendingMessage === 'function') {
         try {
           const visible = modelVisibleToolCompletionMessage(text, meta);
-          if (visible) enqueued = mgr.enqueuePendingMessage(callerSessionId, visible) > 0;
+          // modelVisibleToolCompletionMessage only returns non-empty for a
+          // persistable terminal completion, so this fallback is a completion
+          // too → tag it (genuine non-completion notifications yield '' above).
+          if (visible) enqueued = mgr.enqueuePendingMessage(callerSessionId, markCompletionEntry(visible)) > 0;
         } catch {}
       }
       return enqueued || handledByRuntimeListener;
