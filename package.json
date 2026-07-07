@@ -33,6 +33,7 @@
   ],
   "scripts": {
     "prepack": "npm run build:tui",
+    "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled — run the Release workflow: gh workflow run release -f bump=patch');process.exit(1)}\"",
     "start": "node src/cli.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:all": "npm run smoke && npm run smoke:boot && npm run smoke:tools && npm run smoke:output && npm run smoke:tui && npm run smoke:freevars && npm run smoke:logguard",

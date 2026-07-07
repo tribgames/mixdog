@@ -1,0 +1,78 @@
+# Single-entry release pipeline. Run manually:
+#   gh workflow run release -f bump=patch   (or minor / major)
+#
+# Flow: verify (ci + build + smoke) -> npm version bump + tag ->
+# push commit+tag -> npm publish -> GitHub release. Verification runs
+# BEFORE the bump, so a failed smoke never consumes a version number,
+# and push happens BEFORE publish, so npm never has a version that git
+# doesn't. Local `npm publish` is blocked by the prepublishOnly guard
+# in package.json — this workflow is the only publish path.
+# Requires the NPM_TOKEN repo secret (npm automation token).
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write # version commit, tag push, release creation
+  id-token: write # npm --provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install
+        run: npm ci
+
+      # src/tui/dist is gitignored; smoke imports it. prepack rebuilds it
+      # again at publish time, but the smoke gate needs it present first.
+      - name: Build TUI
+        run: npm run build:tui
+
+      - name: Smoke
+        run: npm run smoke
+
+      - name: Bump version and tag
+        id: bump
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          npm version "${{ inputs.bump }}" -m "mixdog v%s"
+          echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Push commit and tag
+        run: git push --follow-tags origin main
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CI: "true"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          generate_release_notes: true
+          make_latest: true
