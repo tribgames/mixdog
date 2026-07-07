@@ -5,6 +5,7 @@
 // strip any trailing/orphaned tool_use|tool_result so provider.send sees a
 // valid transcript instead of leaking the 400 to the user.
 import { sanitizeToolPairs } from '../context-utils.mjs';
+import { scrubCompactedPlaceholderToolCalls } from './stored-tool-args.mjs';
 
 // Transcript pairing guard. Anthropic 400-rejects when an assistant message
 // ends with tool_use blocks and the next message isn't tool results for
@@ -97,5 +98,9 @@ export function repairTranscriptBeforeProviderSend(messages, sessionId = null) {
         messages.push(...sanitized);
     }
     _ensureTranscriptPairing(messages, sessionId);
+    // Pre-send invariant: no provider-visible assistant toolCall may carry a
+    // compacted `[mixdog compacted …]` placeholder body that looks like
+    // submittable patch input. Runs after pairing repair, still before send.
+    scrubCompactedPlaceholderToolCalls(messages);
     return messages;
 }

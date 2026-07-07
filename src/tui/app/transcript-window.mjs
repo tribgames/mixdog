@@ -50,6 +50,16 @@ export const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSC
 // tail of off-screen rows, so lower it to a value that still comfortably covers
 // viewport + overscan on a large terminal. Env-tunable for A/B / revert.
 export const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_ITEMS', 80);
+// When the transcript is anchored to the bottom (live tail / streaming view,
+// effectiveScrollOffset === 0), everything above the viewport is off-screen and
+// cannot be revealed without a scroll action — which sets scrollOffset > 0 and
+// re-renders through the FULL overscan/cap constants above, i.e. scrolled-up
+// history is byte-for-byte unchanged. So in the at-bottom case we mount only
+// viewport + a small overscan, sharply cutting ink's per-frame serialize cost
+// during streaming (bench: 80→20 mounted rows ≈ 4.07ms/render, 109 CPU-ms/s).
+// Env-tunable for A/B / revert.
+export const TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_TAIL_OVERSCAN_ROWS', 4);
+export const TRANSCRIPT_WINDOW_TAIL_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_TAIL_ITEMS', 20);
 export const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
 // Frame-coalesce edge-drag auto-scroll + wheel scroll: both paths accumulate
 // deltas into one pending total and flush via a single scrollTranscriptRows
@@ -904,12 +914,16 @@ export function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight
   }
 
   const minItems = Math.min(TRANSCRIPT_WINDOW_MIN_ITEMS, itemCount);
-  const maxItems = Math.max(minItems, TRANSCRIPT_WINDOW_MAX_ITEMS);
+  // At-bottom (live tail) mounts only viewport + a small overscan; scrolled-up
+  // views keep the full overscan/cap so history renders exactly as before.
+  const atTail = effectiveScrollOffset === 0;
+  const overscanRows = atTail ? TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS : TRANSCRIPT_WINDOW_OVERSCAN_ROWS;
+  const maxItems = Math.max(minItems, atTail ? TRANSCRIPT_WINDOW_TAIL_MAX_ITEMS : TRANSCRIPT_WINDOW_MAX_ITEMS);
   const prefixRows = fallbackIndex.prefixRows;
   const visibleTop = Math.max(0, totalRows - effectiveScrollOffset - viewRows);
   const visibleBottom = Math.min(totalRows, totalRows - effectiveScrollOffset);
-  const desiredTop = Math.max(0, visibleTop - TRANSCRIPT_WINDOW_OVERSCAN_ROWS);
-  const desiredBottom = Math.min(totalRows, visibleBottom + TRANSCRIPT_WINDOW_OVERSCAN_ROWS);
+  const desiredTop = Math.max(0, visibleTop - overscanRows);
+  const desiredBottom = Math.min(totalRows, visibleBottom + overscanRows);
 
   let startIndex = Math.max(0, upperBound(prefixRows, desiredTop) - 1);
   let endIndex = Math.min(itemCount, Math.max(startIndex + 1, lowerBound(prefixRows, Math.max(desiredBottom, desiredTop + 1))));
@@ -920,9 +934,15 @@ export function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight
   if (endIndex - startIndex > maxItems) {
     const visibleStartIndex = Math.max(0, upperBound(prefixRows, visibleTop) - 1);
     const visibleEndIndex = Math.min(itemCount, Math.max(visibleStartIndex + 1, lowerBound(prefixRows, Math.max(visibleBottom, visibleTop + 1))));
-    startIndex = Math.max(0, Math.min(visibleStartIndex, itemCount - maxItems));
-    endIndex = Math.min(itemCount, Math.max(visibleEndIndex, startIndex + maxItems));
-    if (endIndex - startIndex > maxItems) startIndex = Math.max(0, endIndex - maxItems);
+    // The cap must never cut into rows needed to fill the viewport: floor it at
+    // the item span the visible viewport actually covers, so a run of many short
+    // (e.g. one-line) items can't leave the top of the viewport unmounted under
+    // the small tail cap. Full-view (scrolled-up) behavior is unchanged: there
+    // maxItems already exceeds the visible span, so the floor is a no-op.
+    const effectiveMaxItems = Math.max(maxItems, visibleEndIndex - visibleStartIndex);
+    startIndex = Math.max(0, Math.min(visibleStartIndex, itemCount - effectiveMaxItems));
+    endIndex = Math.min(itemCount, Math.max(visibleEndIndex, startIndex + effectiveMaxItems));
+    if (endIndex - startIndex > effectiveMaxItems) startIndex = Math.max(0, endIndex - effectiveMaxItems);
   }
 
   const bottomSpacerRows = Math.max(0, totalRows - (prefixRows[endIndex] || totalRows));

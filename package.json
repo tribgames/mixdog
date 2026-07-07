@@ -48,6 +48,7 @@
     "smoke:freevars": "node scripts/freevar-smoke.mjs",
     "smoke:logguard": "node scripts/log-writer-guard-smoke.mjs",
     "test:toolcall": "node --test scripts/toolcall-args-test.mjs",
+    "test:placeholder": "node --test scripts/compacted-placeholder-scrub-test.mjs",
     "test:providers": "node --test scripts/provider-toolcall-test.mjs",
     "test:atomiclock": "node --test scripts/atomic-lock-tryonce-test.mjs",
     "failures": "node scripts/tool-failures.mjs",

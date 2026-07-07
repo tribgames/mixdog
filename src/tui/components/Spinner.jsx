@@ -18,7 +18,8 @@
  *     'requesting' | 'compacting' | 'resuming' (default 'responding').
  */
 import React, { useRef } from 'react';
-import { Box, Text, useAnimation } from 'ink';
+import { Box, Text } from 'ink';
+import { useSharedTick } from '../hooks/useSharedTick.mjs';
 import { theme } from '../theme.mjs';
 import { SPINNER_FRAMES } from '../spinner-verbs.mjs';
 import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
@@ -170,7 +171,9 @@ function tokenModeGlyph(mode) {
 }
 
 export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens = 0, thinking = false, thinkingActiveSince = 0, mode = 'responding', columns = 80, marginTop = 1 }) {
-  useAnimation({ interval: FRAME_MS });
+  // Re-render at the frame cadence off the shared tick (no dedicated timer).
+  // Glyph/shimmer/token/elapsed values are all derived from Date.now() below.
+  useSharedTick(FRAME_MS);
   const { TEXT_RGB, SHIMMER_RGB, SPINNER_GLYPH_RGB, THINKING_INACTIVE, THINKING_SHIMMER, STALL_RGB } = spinnerRgb();
   const now = Date.now();
   const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;

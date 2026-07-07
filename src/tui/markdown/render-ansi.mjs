@@ -15,7 +15,7 @@
  */
 import { marked } from 'marked';
 import { formatToken } from './format-token.mjs';
-import { trimPartialClosingFences } from './stream-fence.mjs';
+import { trimPartialClosingFences, findOpenFenceStart } from './stream-fence.mjs';
 
 const TOKEN_CACHE_MAX = 500;
 const tokenCache = new Map();
@@ -50,6 +50,29 @@ export function lexMarkdown(content, { trimPartialFences = false } = {}) {
   // are transient per-delta and trimming mutates them in place, so they are NOT
   // cached — caching would corrupt the shared cache for stable text.
   if (trimPartialFences) {
+    // Open-fence fast path: an unclosed fenced code block would make marked
+    // re-scan the whole growing block every delta (its closing-fence regex
+    // never matches and backtracks over the entire body — ~O(n²) per frame).
+    // Build the `code` token directly from the raw fence text instead, and mark
+    // it `plain` so it renders flat (no per-frame highlight.js pass) until the
+    // closing fence arrives; the settled (closed) frame lexes normally.
+    const open = findOpenFenceStart(text);
+    if (open) {
+      const post = text.slice(open.index);
+      const nl = post.indexOf('\n');
+      const codeToken = {
+        type: 'code',
+        raw: post,
+        lang: open.lang,
+        text: nl === -1 ? '' : post.slice(nl + 1),
+        plain: true,
+      };
+      const pre = text.slice(0, open.index);
+      const tokens = pre ? marked.lexer(pre) : [];
+      tokens.push(codeToken);
+      trimPartialClosingFences(tokens);
+      return tokens;
+    }
     const tokens = marked.lexer(text);
     trimPartialClosingFences(tokens);
     return tokens;

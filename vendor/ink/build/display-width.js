@@ -10,8 +10,9 @@
  * overlap gets worse, not better.
  *
  * Policy: widen ONLY U+2460–U+24FF (enclosed alphanumerics / circled digits)
- * and U+2190–U+21FF (arrows) to 2 cells when ON. NEVER widen box-drawing
- * (U+2500–U+257F), block elements, or other ambiguous glyphs. ON by default
+ * and U+2194–U+21FF (arrows) to 2 cells when ON. NEVER widen box-drawing
+ * (U+2500–U+257F), block elements, the four Basic Arrows U+2190–U+2193
+ * (← ↑ → ↓ — figures.mjs 1-cell markers), or other ambiguous glyphs. ON by default
  * on Windows (win32) or under Windows Terminal (WT_SESSION);
  * MIXDOG_TUI_AMBIGUOUS_WIDE='1'/'0' overrides and wins. OFF ⇒ identical to
  * plain string-width.
@@ -23,14 +24,14 @@ import stringWidth from 'string-width';
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 function isProblemCodePoint(cp) {
-    return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2190 && cp <= 0x21ff);
+    return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2194 && cp <= 0x21ff);
 }
 
 // [mixdog fork] Fast precheck for the problem ranges above. Lets the hot path
 // bail before the per-grapheme segmenter loop when a string (the common
 // ASCII/status-text case) contains no widenable glyph. Kept in sync with
 // src/tui/display-width.mjs.
-const PROBLEM_RE = /[\u2190-\u21ff\u2460-\u24ff]/;
+const PROBLEM_RE = /[\u2194-\u21ff\u2460-\u24ff]/;
 
 function resolveAmbiguousWidePolicy(env = process.env, platform = process.platform) {
     const override = env?.MIXDOG_TUI_AMBIGUOUS_WIDE;

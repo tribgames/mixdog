@@ -36,3 +36,6 @@
 - Don't mix `apply_patch` with shell or other state-changing calls in one
   turn; batch independent-file patches in one turn, then verify them all in
   ONE shell call the next.
+- Consecutive single `shell` or `apply_patch` turns are a batching miss
+  unless output-dependent: chain shell commands with `;`/`&&` or call in
+  parallel; put all known edits in ONE patch.

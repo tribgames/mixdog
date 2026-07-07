@@ -4,7 +4,7 @@
  */
 import { marked } from 'marked';
 import { configureMarked, hasMarkdownSyntax } from './render-ansi.mjs';
-import { trimPartialClosingFences } from './stream-fence.mjs';
+import { trimPartialClosingFences, findOpenFenceStart } from './stream-fence.mjs';
 
 const stablePrefixByStreamKey = new Map();
 const STABLE_PREFIX_LRU_MAX = 32;
@@ -127,6 +127,27 @@ export function resolveStreamingMarkdownParts(text, streamKey) {
   let stablePrefix = key ? getStablePrefixKey(key) : '';
   if (!t.startsWith(stablePrefix)) {
     stablePrefix = '';
+  }
+
+  // Open-fence fast path: never run marked.lexer on a growing unclosed code
+  // block (its closing-fence regex never matches and backtracks over the whole
+  // body every delta — the ~56ms/frame cost). Split cheaply at the fence line:
+  // everything before it is settled markdown (lexed + cached once by the stable
+  // <Markdown>), the open block is rendered flat until the closing fence lands.
+  const open = findOpenFenceStart(t);
+  if (open) {
+    let openPrefix = t.substring(0, open.index);
+    if (isWhitespaceOnlyText(openPrefix)) openPrefix = '';
+    if (key && openPrefix) touchStablePrefixKey(key, openPrefix);
+    else if (key) stablePrefixByStreamKey.delete(key);
+    const unstableSuffix = t.substring(openPrefix.length);
+    return {
+      plain: false,
+      openFence: true,
+      stablePrefix: openPrefix,
+      unstableSuffix,
+      unstableForRender: unstableSuffix,
+    };
   }
 
   try {

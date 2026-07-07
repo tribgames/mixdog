@@ -8,8 +8,9 @@
  *   - The result hangs under a single dim `  ⎿  ` gutter — the gutter is placed
  *     once, not repeated per wrapped line.
  */
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
+import { useSharedTick } from '../hooks/useSharedTick.mjs';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER, AGENT_CALL_MARKER, AGENT_RESPONSE_MARKER } from '../theme.mjs';
 import { formatElapsed } from '../time-format.mjs';
@@ -74,6 +75,9 @@ export function displayToolName(name, args) {
 const TOOL_BLINK_MS = 500;
 const TOOL_BLINK_LIMIT_MS = 3000;
 const TOOL_PENDING_SHOW_DELAY_MS = 1000;
+// One shared-tick cadence covers both the 500ms blink and per-second elapsed;
+// finer than either boundary so both stay crisp off a single timer.
+const TOOL_ANIM_TICK_MS = TOOL_BLINK_MS;
 function statusCopy(name, label, count, doneCount, pending, isError, args = {}) {
   // No stableVerbWidth padding: it padded the done verb to the active ("-ing")
   // width, which Ink trims at the line END (vendor output trimEnd) so it never
@@ -85,10 +89,6 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
 }
 export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false }) {
   const rowWidth = Math.max(1, Number(columns || 80));
-  const [blinkOn, setBlinkOn] = useState(true);
-  const [blinkExpired, setBlinkExpired] = useState(false);
-  const [pendingDelayElapsed, setPendingDelayElapsed] = useState(false);
-  const [, setElapsedTick] = useState(0);
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
   const rt = result == null ? null : String(result).replace(/\s+$/, '');
@@ -96,7 +96,15 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const pending = doneCount < groupCount;
   const startedAtMs = Number(startedAt || 0);
   const completedAtMs = Number(completedAt || 0);
-  const pendingAgeMs = pending && startedAtMs ? Math.max(0, Date.now() - startedAtMs) : 0;
+  const nowMs = Date.now();
+  // Single shared tick drives the blink + elapsed re-renders while pending; all
+  // phase/elapsed values below are derived from nowMs, so no per-card timers.
+  useSharedTick(TOOL_ANIM_TICK_MS, pending);
+  const pendingAgeMs = pending && startedAtMs ? Math.max(0, nowMs - startedAtMs) : 0;
+  // Derived (was a per-card setTimeout): the pending-show delay has elapsed.
+  const pendingDelayElapsed = pending
+    ? (!startedAtMs || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS)
+    : false;
   // A card that is still pending but already has something to paint (a result
   // landed, or at least one of an aggregate's parallel calls completed) must
   // SKIP the blank placeholder: it was pushed early (engine ensureVisible on a
@@ -108,6 +116,15 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // land — no empty band.
   const hasVisibleProgress = doneCount > 0 || Boolean(String(rt || '').trim());
   const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS || hasVisibleProgress || deferredDisplayReady;
+  // Derived blink (was two per-card setIntervals + a setTimeout): the dot blinks
+  // at TOOL_BLINK_MS while a display-ready pending card is fresh, then goes solid
+  // once TOOL_BLINK_LIMIT_MS elapses. Phase comes from Date.now() so the cadence
+  // is identical to the old interval without owning a timer.
+  const blinkActive = pending && pendingDisplayReady;
+  const blinkExpired = blinkActive && startedAtMs > 0 && (nowMs - startedAtMs) >= TOOL_BLINK_LIMIT_MS;
+  const blinkOn = !blinkActive || blinkExpired
+    ? true
+    : Math.floor(nowMs / TOOL_BLINK_MS) % 2 === 0;
   // Keep the action verb in its active form until the engine explicitly seals
   // the tool block. Fast tool batches often complete before the next provider
   // iteration decides whether to call more tools or emit assistant text; flipping
@@ -115,7 +132,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const headerPending = pending || headerFinalized === false;
   const hasResult = result != null && Boolean(String(rt || '').trim());
   const hasRawResult = rawResult != null && Boolean(String(rawRt || '').trim());
-  const elapsedMs = startedAtMs ? Math.max(0, (pending ? Date.now() : (completedAtMs || Date.now())) - startedAtMs) : 0;
+  const elapsedMs = startedAtMs ? Math.max(0, (pending ? nowMs : (completedAtMs || nowMs)) - startedAtMs) : 0;
   const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
   const displayGroupCount = groupCount;
@@ -132,57 +149,6 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     (v) => (v && typeof v === 'object' ? Number(v.count || 0) : Number(v || 0)) > 0,
   );
   const displayDoneCategories = hasDoneCounts ? normalizedDoneCategories : displayCategories;
-
-  useEffect(() => {
-    if (!pending) {
-      setPendingDelayElapsed(false);
-      return undefined;
-    }
-    const started = Number(startedAt || 0);
-    if (!started) {
-      setPendingDelayElapsed(true);
-      return undefined;
-    }
-    const remaining = TOOL_PENDING_SHOW_DELAY_MS - Math.max(0, Date.now() - started);
-    if (remaining <= 0) {
-      setPendingDelayElapsed(true);
-      return undefined;
-    }
-    setPendingDelayElapsed(false);
-    const timer = setTimeout(() => setPendingDelayElapsed(true), remaining);
-    return () => clearTimeout(timer);
-  }, [pending, startedAt]);
-
-  useEffect(() => {
-    if (!pending || !pendingDisplayReady || blinkExpired) {
-      setBlinkOn(true);
-      return undefined;
-    }
-    const timer = setInterval(() => setBlinkOn((on) => !on), TOOL_BLINK_MS);
-    return () => clearInterval(timer);
-  }, [pending, pendingDisplayReady, blinkExpired]);
-
-  useEffect(() => {
-    if (!pending || !pendingDisplayReady) {
-      setBlinkExpired(false);
-      return undefined;
-    }
-    const started = Number(startedAt || 0);
-    const remaining = TOOL_BLINK_LIMIT_MS - (started ? Math.max(0, Date.now() - started) : 0);
-    if (remaining <= 0) {
-      setBlinkExpired(true);
-      return undefined;
-    }
-    setBlinkExpired(false);
-    const timer = setTimeout(() => setBlinkExpired(true), remaining);
-    return () => clearTimeout(timer);
-  }, [pending, pendingDisplayReady, startedAt]);
-
-  useEffect(() => {
-    if (!pending || !pendingDisplayReady || !startedAtMs) return undefined;
-    const timer = setInterval(() => setElapsedTick((tick) => (tick + 1) % 1000000), 1000);
-    return () => clearInterval(timer);
-  }, [pending, pendingDisplayReady, startedAtMs]);
 
   // While a freshly-started tool is still inside its pending-show delay we used
   // to `return null` (0 rendered rows). But estimateTranscriptItemRows() in

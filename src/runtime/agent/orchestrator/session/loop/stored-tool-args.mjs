@@ -151,3 +151,33 @@ export function dropCompactedBodyArgsForId(assistantMsg, callId) {
     if (!tc || !tc.arguments || typeof tc.arguments !== 'object') return;
     tc.arguments = _dropCompactedPlaceholders(tc.arguments);
 }
+
+// PRE-SEND INVARIANT. The per-call paths above run during tool-batch
+// processing: a SUCCESS drops its placeholder body (dropCompactedBodyArgsForId),
+// a FAILURE restores the full original (restoreToolCallBodyForId). But those are
+// gated per call id and several loop paths never reach them — dedup /
+// repeat-failure early-continue, the iteration-cap refusal stub, or a call whose
+// id never matched. Any of those can leave a `[mixdog compacted …]` placeholder
+// sitting in a provider-visible assistant toolCall, which the model then copies
+// back verbatim as new apply_patch input. Enforce the invariant once, right
+// before provider.send: sweep EVERY assistant toolCall arguments tree and drop
+// any placeholder-valued key at any depth (batch shapes like edits[].old_string
+// carry nested compacted bodies too).
+//
+// This does NOT re-inline full bodies, so it never raises history token cost. A
+// failed call whose body was restored upstream holds real patch content (it no
+// longer starts with the compacted marker), so the sweep leaves it untouched —
+// the full body stays available exactly where the failed call needs it. The
+// downstream apply_patch guard (isCompactedPlaceholderPatch) remains as a
+// backstop for any placeholder a model synthesizes from prose.
+export function scrubCompactedPlaceholderToolCalls(messages) {
+    if (!Array.isArray(messages)) return messages;
+    for (const msg of messages) {
+        if (!msg || msg.role !== 'assistant' || !Array.isArray(msg.toolCalls)) continue;
+        for (const tc of msg.toolCalls) {
+            if (!tc || !tc.arguments || typeof tc.arguments !== 'object') continue;
+            tc.arguments = _dropCompactedPlaceholders(tc.arguments);
+        }
+    }
+    return messages;
+}

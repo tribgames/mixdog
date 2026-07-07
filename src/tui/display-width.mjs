@@ -32,18 +32,22 @@ const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme
 /**
  * True for code points we treat as wide (2 cells) when the policy is ON:
  *   - U+2460–U+24FF Enclosed Alphanumerics (① ② ③ …)
- *   - U+2190–U+21FF Arrows (→ ← ↑ ↓ …)
- * Deliberately excludes box-drawing / blocks / figures.
+ *   - U+2194–U+21FF Arrows (↔ ⇒ ⇧ …)
+ * Deliberately excludes box-drawing / blocks / figures — including the four
+ * Basic Arrows U+2190–U+2193 (← ↑ → ↓) that figures.mjs uses as 1-cell
+ * markers (agent card ←/→, history ↑/↓): WT draws them 1 cell in
+ * Cascadia, and widening them ate the marker's gutter padding space
+ * ("←Spawn" rendered glued / shifted vs the ● rows).
  */
 export function isProblemCodePoint(cp) {
-  return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2190 && cp <= 0x21ff);
+  return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2194 && cp <= 0x21ff);
 }
 
 // Fast precheck for the problem ranges above. Lets the hot path bail before
 // the per-grapheme segmenter loop when a string (the overwhelmingly common
 // ASCII/status-text case) contains no widenable glyph. Kept identical to
 // vendor/ink/build/display-width.js.
-const PROBLEM_RE = /[\u2190-\u21ff\u2460-\u24ff]/;
+const PROBLEM_RE = /[\u2194-\u21ff\u2460-\u24ff]/;
 
 /**
  * Resolve the wide policy from env. Override wins over the default; the

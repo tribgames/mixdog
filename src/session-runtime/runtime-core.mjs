@@ -15,7 +15,8 @@ import { writeLastSessionCwd } from '../runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
-import { checkLatestVersion, runGlobalUpdate, localPackageVersion, isDevInstall } from '../runtime/shared/update-checker.mjs';
+import { checkLatestVersion, localPackageVersion, isDevInstall } from '../runtime/shared/update-checker.mjs';
+import { spawnStagedInstall, runStagedInstall } from '../runtime/shared/staged-update.mjs';
 import {
   modelVisibleToolCompletionMessage,
   shouldPersistModelVisibleToolCompletion,
@@ -634,12 +635,14 @@ export async function createMixdogSessionRuntime({
   };
   // phase: 'idle' | 'checking' | 'installing' | 'installed' | 'failed'
   let updateProcessState = { phase: 'idle', version: null, error: null };
-  // Boot detects an available update but DEFERS the actual npm install to the
-  // graceful shutdown path (flushPendingUpdate, invoked from close()). Running
-  // `npm install -g` while the process is live overwrites the very .mjs files
-  // node has loaded → Windows TAR_ENTRY_ERROR file-locks. Installing on quit
-  // lets the parent release those handles first.
-  let pendingUpdateInstall = false;
+  // Boot detects an available update and STAGES it in the background (a hidden,
+  // detached npm install into ~/.mixdog/data/staging/<ver>). The staged package
+  // is swapped into the global dir on the next clean launch (cli.mjs
+  // pre-import), never while a session is live — so npm never overwrites the
+  // .mjs files node currently holds (the old shutdown `npm install -g` did, and
+  // caused Windows TAR_ENTRY_ERROR / ENOENT). The live-session refcount that a
+  // concurrent launch consults to defer its swap is registered earlier, in
+  // cli.mjs (pre-import), so this process is visible before any runtime loads.
 
   function autoUpdateEnabled() {
     return config?.update?.auto !== false;
@@ -668,14 +671,23 @@ export async function createMixdogSessionRuntime({
     if (updateProcessState.phase === 'installing') {
       return { ...updateProcessState, alreadyInstalling: true, error: 'update already in progress' };
     }
-    // A manual install consumes the boot-armed deferred install so quitting
-    // afterwards can't spawn a second redundant `npm install -g`.
-    pendingUpdateInstall = false;
-    updateProcessState = { phase: 'installing', version: null, error: null };
+    if (isDevInstall()) {
+      updateProcessState = { phase: 'failed', version: null, error: 'dev install — update skipped' };
+      return updateProcessState;
+    }
+    const ver = updateCheckState.latestVersion;
+    if (!ver || !updateCheckState.updateAvailable) {
+      updateProcessState = { phase: 'idle', version: null, error: null };
+      return { ...updateProcessState, error: 'no update available' };
+    }
+    // "Update now" stages the new version (verified, self-contained) rather than
+    // installing over the live global dir; the swap applies on the next launch.
+    // phase 'installed' here means "staged & ready — restart to apply".
+    updateProcessState = { phase: 'installing', version: ver, error: null };
     try {
-      const result = await runGlobalUpdate();
+      const result = await runStagedInstall(ver);
       if (result?.ok) {
-        updateProcessState = { phase: 'installed', version: result.version || null, error: null };
+        updateProcessState = { phase: 'installed', version: result.version || ver, error: null };
       } else {
         updateProcessState = { phase: 'failed', version: null, error: result?.error || 'update failed' };
       }
@@ -689,42 +701,30 @@ export async function createMixdogSessionRuntime({
   // constructed (setTimeout(0) defers past the synchronous return), so a
   // slow/hanging registry request can never delay session boot. The check
   // ALWAYS runs (populates updateCheckState for the maintenance picker), but
-  // the boot hook only DETECTS + arms a deferred install — the actual
-  // runGlobalUpdate now happens on graceful shutdown (flushPendingUpdate via
-  // close()) so npm never overwrites files the live process holds.
+  // when an update is available it kicks off a hidden BACKGROUND staging
+  // install (spawnStagedInstall) into ~/.mixdog/data/staging/<ver>. The actual
+  // swap into the global dir happens on the next clean launch (cli.mjs
+  // pre-import), so npm never overwrites files this live process holds.
   // force:true — always hit the registry at boot (the 24h disk cache went
   // stale-visible: it kept reporting an older "latest" than the installed
   // version). checkLatestVersion() still falls back to the cache offline.
   // isDevInstall() gate: a git checkout / clone (or non-node_modules install)
-  // must never self-update — `npm install -g` would fight the working tree.
+  // must never self-update — staging + swap would fight the working tree.
   const updateBootTimer = setTimeout(() => {
     void (async () => {
       await checkForUpdateInternal({ force: true });
       if (autoUpdateEnabled() && !isDevInstall() && updateCheckState.updateAvailable) {
-        pendingUpdateInstall = true;
-        const v = updateCheckState.latestVersion ? `v${updateCheckState.latestVersion}` : 'latest';
+        const ver = updateCheckState.latestVersion;
+        try { spawnStagedInstall(ver); } catch { /* best-effort background stage */ }
+        const v = ver ? `v${ver}` : 'latest';
         // UI-only notice (TUI maps meta.kind 'update-notice' to a transcript
         // notice, never a model-visible message). tone 'info': non-urgent,
-        // the install fires quietly on quit.
-        emitRuntimeNotification(`mixdog ${v} available — installs when you quit.`, { kind: 'update-notice', tone: 'info' });
+        // staging runs quietly and applies on the next launch.
+        emitRuntimeNotification(`mixdog ${v} staging in background — applies on next launch.`, { kind: 'update-notice', tone: 'info' });
       }
     })().catch(() => {});
   }, 0);
   updateBootTimer.unref?.();
-
-  // Invoked from the graceful shutdown path (lifecycle close() on exit/quit).
-  // Spawns the deferred npm install fire-and-forget: runGlobalUpdate() detaches
-  // (POSIX) / unrefs its child, so we neither await it nor block teardown —
-  // the parent exits, releasing file handles, while npm installs in the hidden
-  // background child. No-op unless an update was armed at boot.
-  function flushPendingUpdate() {
-    if (!pendingUpdateInstall) return;
-    pendingUpdateInstall = false;
-    // Re-check at flush time: the user may have turned update.auto off after
-    // the boot notice armed the install — respect the current setting.
-    if (!autoUpdateEnabled()) return;
-    try { void runGlobalUpdate(); } catch { /* best-effort: exit must not wedge */ }
-  }
 
   function emitRuntimeNotification(content, meta = {}) {
     const text = String(content || '').trim();
@@ -2003,7 +2003,6 @@ export async function createMixdogSessionRuntime({
     resolveRoute,
     applyDeferredToolSurface,
     standaloneTools,
-    flushPendingUpdate,
   });
   const resourceApi = createResourceApi({
     getConfig: () => config,

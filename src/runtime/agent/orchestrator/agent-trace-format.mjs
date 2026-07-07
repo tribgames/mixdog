@@ -349,7 +349,9 @@ export function traceAgentBatch({ sessionId, toolCallCount }) {
     appendAgentTrace({
         sessionId,
         kind: 'batch',
-        tool_call_count: toolCallCount,
+        // trace_events has no tool_call_count column — top-level unknown
+        // fields are dropped at insert time, so carry it in payload (jsonb).
+        payload: { tool_call_count: toolCallCount },
     });
 }
 

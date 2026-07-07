@@ -550,6 +550,36 @@ function collectFlatBodyLines(text, codeBlock, bandWidth) {
   return lines;
 }
 
+// Streaming open-fence (`token.plain`) fast normalize: strip raw TAB / C0
+// controls (so no stray byte survives to bypass the viewport clip) WITHOUT the
+// per-character displayWidth loop of normalizeCodeText — column-accurate tab
+// stops are cosmetic and are restored when the block settles and re-renders.
+function normalizeCodePlain(text) {
+  return String(text ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\t/g, '  ')
+    // C0 controls + DEL except LF → single space.
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, ' ');
+}
+
+// Flat body for the streaming open block: color each line, wrapping only lines
+// that actually overflow (the common code line fits, so no wrapAnsi call). The
+// displayWidth guard is skipped for over-length lines (they always wrap) and for
+// blanks, keeping the per-frame pass close to O(n) with a small constant.
+function collectPlainBodyLines(text, codeBlock, bandWidth) {
+  const max = Math.max(1, bandWidth);
+  const lines = [];
+  for (const line of String(text ?? '').split(EOL)) {
+    if (!line) { lines.push(''); continue; }
+    if (line.length <= max && displayWidth(line) <= max) {
+      lines.push(codeBlock(line));
+    } else {
+      for (const seg of wrapCodeLine(codeBlock(line), max)) lines.push(seg);
+    }
+  }
+  return lines;
+}
+
 function collectHighlightedBodyLines(text, hljsLang, bandWidth) {
   const highlighted = highlightCodeText(text, hljsLang);
   const { codeBlock } = colorizers();
@@ -576,22 +606,30 @@ function renderCodeBlock(token, width = 0) {
   const { codeBlock } = colorizers();
   const c = extraColorizers();
   const lang = normalizeLang(token.lang);
-  const text = normalizeCodeText(decodeEntities(token.text ?? ''));
   const renderWidth = Math.max(8, Number(width) || 80);
   // Wrap content to the render width minus the left gutter so `gutter + content`
   // never overruns the available width.
   const contentWidth = Math.max(1, renderWidth - CODE_GUTTER.length);
 
   let bodyLines;
-  if (DIFF_LANGS.has(lang) || (!lang && looksLikeUnifiedDiff(text))) {
-    bodyLines = collectDiffBodyLines(text, c, contentWidth);
+  if (token.plain) {
+    // Streaming open fence: flat, un-highlighted body via the cheap normalize +
+    // conditional wrap. Avoids marked's lexer AND highlight.js AND the per-char
+    // width normalize every delta; the settled block re-renders fully below.
+    const text = normalizeCodePlain(decodeEntities(token.text ?? ''));
+    bodyLines = collectPlainBodyLines(text, codeBlock, contentWidth);
   } else {
-    const hljsLang = resolveHljsLanguage(lang);
-    const family = LANG_FAMILY[lang];
-    if (hljsLang && family !== 'md') {
-      bodyLines = collectHighlightedBodyLines(text, hljsLang, contentWidth);
+    const text = normalizeCodeText(decodeEntities(token.text ?? ''));
+    if (DIFF_LANGS.has(lang) || (!lang && looksLikeUnifiedDiff(text))) {
+      bodyLines = collectDiffBodyLines(text, c, contentWidth);
     } else {
-      bodyLines = collectFlatBodyLines(text, codeBlock, contentWidth);
+      const hljsLang = resolveHljsLanguage(lang);
+      const family = LANG_FAMILY[lang];
+      if (hljsLang && family !== 'md') {
+        bodyLines = collectHighlightedBodyLines(text, hljsLang, contentWidth);
+      } else {
+        bodyLines = collectFlatBodyLines(text, codeBlock, contentWidth);
+      }
     }
   }
   // Indent every body row by the gutter (no bg band).

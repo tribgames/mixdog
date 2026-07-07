@@ -9,7 +9,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
       properties: {
         mode: { type: 'string', enum: ['overview', 'imports', 'dependents', 'related', 'impact', 'symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers'], description: 'Repo-local graph operation.' },
         files: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Source file(s); array fans out per file. `file` alias too.' },
-        symbols: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Identifier(s)/keyword(s); array batches in one call. `symbol` alias too.' },
+        symbols: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Identifier(s)/keyword(s); array batches in one call. `symbol` alias too. Required for callers/callees/references/find_symbol/symbol_search.' },
         symbol: { type: 'string', description: 'Singular alias for symbols.' },
         file: { type: 'string', description: 'Singular alias for files.' },
         body: { type: 'boolean', description: 'Include body.' },

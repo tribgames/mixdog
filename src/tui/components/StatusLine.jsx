@@ -15,6 +15,7 @@ import {
   statuslineFooterCacheKey,
   statuslineFooterIdentityChanged,
 } from '../statusline-ansi-bridge.mjs';
+import { useSharedTick } from '../hooks/useSharedTick.mjs';
 
 // Loaded at RUNTIME (not bundled) so its vendored statusline-lib relative
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
@@ -514,13 +515,12 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     scheduleStatuslineModulePrewarm();
   }, []);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setRefreshTick((tick) => (tick + 1) % 1_000_000);
-    }, refreshMs);
-    timer.unref?.();
-    return () => clearInterval(timer);
-  }, [refreshMs]);
+  // Refresh cadence rides the shared animation tick (no dedicated interval).
+  // The callback bumps refreshTick so the async full-render effect below still
+  // re-fires on schedule; the tick timer stops when nothing is subscribed.
+  useSharedTick(refreshMs, true, () => {
+    setRefreshTick((tick) => (tick + 1) % 1_000_000);
+  });
 
   useEffect(() => {
     let alive = true;

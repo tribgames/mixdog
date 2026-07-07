@@ -198,7 +198,7 @@ export async function checkLatestVersion({ force = false, dataDir } = {}) {
  * Windows: no shell process means no console window can appear (and no
  * `-WindowStyle Hidden` style flags that antivirus heuristics flag).
  */
-function npmCliJsPath() {
+export function npmCliJsPath() {
   const execDir = dirname(process.execPath);
   const candidates = [
     // Windows: npm ships beside node.exe.

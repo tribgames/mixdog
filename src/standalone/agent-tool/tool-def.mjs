@@ -40,7 +40,7 @@ export const AGENT_TOOL = {
     type: 'object',
     properties: {
       type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Action. Default spawn.' },
-      task_id: { type: 'string', description: 'Manual recovery task ID.' },
+      task_id: { type: 'string', description: 'Manual recovery task ID. Required for read/status.' },
       agent: { type: 'string', description: 'Workflow agent id.' },
       tag: { type: 'string', description: 'Stable scope handle. Reuse the same tag for follow-up on the same scope; use distinct tags only for independent scopes.' },
       sessionId: { type: 'string', description: 'Raw sess_ id.' },

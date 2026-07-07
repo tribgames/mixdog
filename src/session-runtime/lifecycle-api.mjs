@@ -10,6 +10,7 @@ import {
   hasOwn,
 } from './session-text.mjs';
 import { toolSpecForMode, deferredSurfaceModeForLead } from './effort.mjs';
+import { unregisterLiveSession } from '../runtime/shared/staged-update.mjs';
 
 // Session lifecycle surface: teardown (close/abort), resume/new, and the
 // resumable-session listing. Extracted verbatim from the runtime API object;
@@ -29,20 +30,19 @@ export function createLifecycleApi(deps) {
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, standaloneTools,
     pushTranscriptRebind,
-    flushPendingUpdate,
   } = deps;
   return {
     async close(reason = 'cli-exit', options = {}) {
       const detach = options?.detach === true || options?.wait === false || options?.waitForExit === false;
       setCloseRequested(true);
-      // Deferred self-update: arm-at-boot, install-on-quit. Only a real
-      // process exit (not a /clear session reset) triggers the npm install;
-      // the spawn itself is deferred to AFTER teardown below so npm overwrites
-      // the install once this process has released its file handles.
+      // Self-update now stages in the background and swaps on the next clean
+      // launch (see staged-update.mjs) — nothing installs at shutdown. On a
+      // real process exit we just drop this session's live-refcount pid file so
+      // a pending swap on the next launch is no longer blocked by us.
       const isProcessExit = /exit|quit|shutdown|sighup|sigint|sigterm/.test(String(reason || '').toLowerCase());
-      const flushUpdateOnExit = () => {
+      const onProcessExit = () => {
         if (!isProcessExit) return;
-        try { flushPendingUpdate?.(); } catch { /* exit must never wedge on the update spawn */ }
+        try { unregisterLiveSession(); } catch { /* advisory refcount only */ }
       };
       // SessionEnd: bridge teardown to the standard hook bus. reason mapped to
       // standard values ('clear'/'exit' where applicable, else 'other'). Short
@@ -150,7 +150,7 @@ export function createLifecycleApi(deps) {
         for (const stop of [mcpStop, openaiWsStop, patchStop]) {
           Promise.resolve(stop).catch(() => {});
         }
-        flushUpdateOnExit();
+        onProcessExit();
         return ok;
       }
       await Promise.allSettled([
@@ -162,9 +162,7 @@ export function createLifecycleApi(deps) {
         withTeardownDeadline(shellJobsStop, 1500, false),
         withTeardownDeadline(bashSessionsStop, 1500, false),
       ]);
-      // After teardown: file handles (channels/mcp/memory/shell/patch) are
-      // released, so npm can now overwrite the install without TAR_ENTRY_ERROR.
-      flushUpdateOnExit();
+      onProcessExit();
       return ok;
     },
     abort(reason = 'cli-abort') {

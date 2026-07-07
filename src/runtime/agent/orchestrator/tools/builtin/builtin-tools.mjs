@@ -67,7 +67,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs or change system state. Set shell: powershell or bash. Not for reading, listing, or searching files. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
+        description: `Run programs or change system state. Set shell: powershell or bash. Not for reading, listing, or searching files. Batch independent commands: ;/&& in one call, or parallel calls in the same turn. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
         inputSchema: {
             type: 'object',
             properties: {

@@ -278,9 +278,16 @@ function checkIntInRange(a, field, min, max, opts = {}) {
     if (value < min) {
         return `Error: builtin arg "${field}" must be >= ${min} (got ${value})`;
     }
+    // Over-max is clamped to the cap instead of erroring: an over-large
+    // integer is an unambiguous "as much as allowed" request, not a shape
+    // violation worth a retry turn (mirrors the soft-cap clamp above).
+    // Under-min still errors — a negative where >=0 is required is a real
+    // mistake, not a saturating intent.
     if (value > max) {
-        return `Error: builtin arg "${field}" must be <= ${max} (got ${value})`;
+        a[field] = max;
+        return null;
     }
+    a[field] = value;
     return null;
 }
 
@@ -670,6 +677,8 @@ function guardList(a) {
         return `Error: list arg "pattern" must be string or string[] (got ${describeType(a.pattern)})`;
     }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
+        const coerced = coerceIntegerString(a.head_limit);
+        if (coerced !== null) a.head_limit = coerced;
         if (!isFiniteInt(a.head_limit)) {
             return `Error: list arg "head_limit" must be a finite integer (got ${describeType(a.head_limit)})`;
         }
@@ -695,6 +704,8 @@ function guardFind(a) {
         return `Error: find arg "path" must be a string (got ${describeType(a.path)})`;
     }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
+        const coerced = coerceIntegerString(a.head_limit);
+        if (coerced !== null) a.head_limit = coerced;
         if (!isFiniteInt(a.head_limit)) {
             return `Error: find arg "head_limit" must be a finite integer (got ${describeType(a.head_limit)})`;
         }
@@ -734,6 +745,8 @@ function guardGlob(a) {
         }
     }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
+        const coerced = coerceIntegerString(a.head_limit);
+        if (coerced !== null) a.head_limit = coerced;
         if (!isFiniteInt(a.head_limit)) {
             return `Error: glob arg "head_limit" must be a finite integer (got ${describeType(a.head_limit)})`;
         }
