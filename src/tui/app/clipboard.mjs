@@ -18,8 +18,22 @@ export function osc52ClipboardSequence(text) {
 // helper. ~256KB of clipboard text → ~350KB of base64.
 const OSC52_MAX_BYTES = 256 * 1024;
 
+// On native Windows (ConPTY) a large OSC 52 base64 payload written synchronously
+// to stdout can stall for multiple seconds under terminal backpressure while a
+// mouse selection is active — a debugger-confirmed Ctrl+C copy freeze. clip.exe
+// alone is the reliable local clipboard writer, so skip OSC 52 entirely on
+// win32 UNLESS we're in a remote/multiplexed session (SSH or tmux) where OSC 52
+// is the only way to reach the user's real terminal.
+function shouldSkipOsc52() {
+  if (process.platform !== 'win32') return false;
+  if (process.env.TMUX) return false;
+  if (process.env.SSH_CONNECTION || process.env.SSH_TTY) return false;
+  return true;
+}
+
 export function writeOsc52Clipboard(text) {
   const value = String(text ?? '');
+  if (shouldSkipOsc52()) return false;
   if (Buffer.byteLength(value, 'utf8') > OSC52_MAX_BYTES) return false;
   try {
     process.stdout.write(osc52ClipboardSequence(value));
