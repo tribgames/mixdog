@@ -157,22 +157,18 @@ export function renderEntryLines(rows, { recencyOrder = false } = {}) {
   // this global re-sort a multi-member chunk would emit oldest-first lines and
   // break a strict newest-first contract (bench: recency-today).
   const units = []
-  // Bound total emitted lines (roots x members) so a many-member recall can't
-  // inject unbounded output. Per-line content is already capped at 1000 chars;
-  // this caps the line COUNT. Narrow the query (limit/period/projectScope) for more.
-  const RECALL_LINE_CAP = 200
-  // recencyOrder collects every unit first (so the ts sort sees the full set)
-  // and caps AFTER sorting; the default path keeps the original cap-as-we-go.
-  const COLLECT_CAP = recencyOrder ? Infinity : RECALL_LINE_CAP
-  let _capped = false
-  outer:
+  // No line-count cap here: the orchestrator enforces a global tool-output KB
+  // cap (builtin.mjs tool_output_token_limit), so recall need not self-truncate.
+  // recencyOrder still collects every unit first so the ts sort sees the full
+  // set; the default path emits in row order. Per-line body is bounded by a
+  // loose 8000-char safety cap so one giant pasted-log row can't monopolize
+  // the envelope.
   for (const r of rows) {
     // Collapsed near-duplicate (search path only — set by
     // collapseNearDuplicateRows). Emit a one-line stub carrying its #id so an
     // id-lookup follow-up can still fetch the full body; never rendered for
     // id-lookup output (those rows never carry _dupStub).
     if (r && r._dupStub) {
-      if (units.length >= COLLECT_CAP) { _capped = true; break }
       units.push({ ts: Number(r.ts) || 0, text: `[${formatTs(r.ts)}] (near-duplicate of #${r._dupOf} — collapsed) #${r.id}` })
       continue
     }
@@ -182,14 +178,12 @@ export function renderEntryLines(rows, { recencyOrder = false } = {}) {
       // grouping artifact for retrieval — the caller wants the chunk
       // content (cycle1 raw), not the cycle2-compressed summary.
       for (const m of r.members) {
-        if (units.length >= COLLECT_CAP) { _capped = true; break outer }
         const mTs = formatTs(m.ts)
         const role = m.role === 'user' ? 'u' : m.role === 'assistant' ? 'a' : (m.role || '?')
-        const content = cleanMemoryText(String(m.content ?? '')).slice(0, 1000)
+        const content = cleanMemoryText(String(m.content ?? '')).slice(0, 8000)
         units.push({ ts: Number(m.ts) || 0, text: `[${mTs}] ${role}: ${content} #${m.id}` })
       }
     } else {
-      if (units.length >= COLLECT_CAP) { _capped = true; break }
       // No chunks (root not yet chunked by cycle1, or orphan leaf): emit
       // the row itself in the same shape. element/summary fall back to
       // raw content when both are absent.
@@ -205,28 +199,25 @@ export function renderEntryLines(rows, { recencyOrder = false } = {}) {
         : ''
       const body = element || summary
         ? `${element}${summary ? ' — ' + summary : ''}`
-        : cleanMemoryText(String(r.content ?? '')).slice(0, 1000)
+        : cleanMemoryText(String(r.content ?? '')).slice(0, 8000)
       // Unchunked raw leaf (cycle1 hasn't classified it yet): mark it so
       // callers can tell fresh-but-unprocessed rows from chunked memory.
       const pendingMark = (r.is_root === 0 && r.chunk_root == null) ? ' [pending]' : ''
-      units.push({ ts: Number(r.ts) || 0, text: `[${ts}] ${rolePrefix}${body.slice(0, 1000)}${pendingMark} #${r.id}` })
+      units.push({ ts: Number(r.ts) || 0, text: `[${ts}] ${rolePrefix}${body.slice(0, 8000)}${pendingMark} #${r.id}` })
     }
   }
   if (recencyOrder) {
     // Array.sort is stable in V8, so units sharing the same ts keep their
     // insertion (root/member) order; only cross-unit ts breaks are corrected.
     units.sort((a, b) => b.ts - a.ts)
-    if (units.length > RECALL_LINE_CAP) { units.length = RECALL_LINE_CAP; _capped = true }
   }
-  const lines = units.map((u) => u.text)
-  if (_capped) lines.push(`[recall truncated — showing first ${RECALL_LINE_CAP} lines; narrow the query (limit/period/projectScope) for the rest]`)
-  return lines.join('\n')
+  return units.map((u) => u.text).join('\n')
 }
 
 // Search-result de-duplication. Within a SINGLE formatted result set, hybrid
 // recall frequently returns several long rows that restate the same design in
 // slightly different words (e.g. a root summary plus a chunk that paraphrases
-// it). They each spend the ~1000-char line budget on near-identical text.
+// it). They each spend a large slice of the envelope on near-identical text.
 // Cheap heuristic (no embeddings): normalize each row's body to word tokens,
 // build 3-gram shingle sets, and measure containment overlap = |A∩B| /
 // min(|A|,|B|) against already-kept rows. Rows arrive rank/date-ordered, so the
@@ -308,6 +299,31 @@ function shortSessionLabel(sid) {
   return `…${s.slice(-16)}`
 }
 
+// Collect every ts in a session group (roots + their inline members) so the
+// span header reflects the true activity window, not just the root ts.
+function collectGroupTs(groupRows) {
+  const all = []
+  for (const r of groupRows) {
+    const t = Number(r?.ts)
+    if (Number.isFinite(t)) all.push(t)
+    if (Array.isArray(r?.members)) for (const m of r.members) {
+      const mt = Number(m?.ts)
+      if (Number.isFinite(mt)) all.push(mt)
+    }
+  }
+  return all
+}
+
+// Activity-span header suffix: `(MM-DD HH:mm ~ HH:mm, n건)`; the end keeps the
+// MM-DD prefix only when it falls on a different calendar day than the start.
+function spanHeaderSuffix(minTs, maxTs, n) {
+  const min = formatTs(minTs) // "YYYY-MM-DD HH:mm"
+  const max = formatTs(maxTs)
+  const startPart = min.slice(5) // "MM-DD HH:mm"
+  const endPart = min.slice(0, 10) === max.slice(0, 10) ? max.slice(11) : max.slice(5)
+  return `(${startPart} ~ ${endPart}, ${n}건)`
+}
+
 // Session-grouped rendering for the GLOBAL query-less browse ("what did we
 // work on recently") when the window spans multiple sessions. A flat ts-desc
 // list interleaves sessions into one indistinguishable stream and lets one
@@ -320,7 +336,7 @@ function shortSessionLabel(sid) {
 // group's lines are globally ts-desc: without it a chunk root's members (stored
 // ts-ASC) interleave with raw rows and invert the visible timeline within a
 // session (e.g. 04:33 rendered above 04:41).
-export function renderSessionGroupedLines(rows, { currentSessionId, recencyOrder = false } = {}) {
+export function renderSessionGroupedLines(rows, { currentSessionId, recencyOrder = false, spanHeaders = false } = {}) {
   if (!rows || rows.length === 0) return '(no results)'
   const groups = new Map()
   for (const r of rows) {
@@ -329,8 +345,30 @@ export function renderSessionGroupedLines(rows, { currentSessionId, recencyOrder
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(r)
   }
-  if (groups.size <= 1) return renderEntryLines(rows, { recencyOrder })
+  if (!spanHeaders && groups.size <= 1) return renderEntryLines(rows, { recencyOrder })
   const current = String(currentSessionId || '').trim()
+  // period='last' session-grouped browse: activity-span headers over each
+  // group's body. No line budget — the orchestrator's global tool-output KB
+  // cap bounds total size; each group's body is already row-capped by the
+  // caller.
+  if (spanHeaders) {
+    const parts = []
+    for (const [sid, groupRows] of groups) {
+      const mark = current && sid === current ? ' (current)' : ''
+      const label = sid === '(no session)' ? sid : `session ${shortSessionLabel(sid)}`
+      const tsAll = collectGroupTs(groupRows)
+      const suffix = tsAll.length
+        ? ` ${spanHeaderSuffix(Math.min(...tsAll), Math.max(...tsAll), groupRows.length)}`
+        : ` (${groupRows.length}건)`
+      parts.push(`## ${label}${mark}${suffix}`)
+      const bodyStr = renderEntryLines(groupRows, { recencyOrder })
+      const bodyLines = bodyStr === '(no results)'
+        ? []
+        : bodyStr.split('\n')
+      for (const l of bodyLines) parts.push(l)
+    }
+    return parts.join('\n')
+  }
   const parts = []
   for (const [sid, groupRows] of groups) {
     const mark = current && sid === current ? ' (current)' : ''

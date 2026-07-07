@@ -290,7 +290,12 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
   // so we return the instant pg_isready succeeds rather than waiting on pg_ctl.
   // Only the long-lived child handle is unref'd; poll timers stay ref'd.
   async function startAndWaitReady() {
-    const child = spawn(pgctl, startArgs, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    // detached on win32: give pg_ctl (and the postmaster it spawns) its own
+    // process group / console so an ancestor `taskkill /F /T` cannot enumerate
+    // it via the Node process tree. The orphaned postmaster survives and is
+    // re-adopted next boot via supervisor tryReusePgInstance (postmaster.pid).
+    const detached = process.platform === 'win32'
+    const child = spawn(pgctl, startArgs, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached })
     child.unref?.()
     let stdout = '', stderr = '', closed = false, exitCode = null
     child.stdout?.on('data', d => { stdout += d.toString() })
@@ -373,6 +378,19 @@ export async function stopPg({ runtimeDir, pgdataDir }) {
       __mixdogMemoryLog(`[pg-process] pg_ctl stop warning: ${msg}\n`)
     }
   }
+}
+
+// Synchronous best-effort variant for a process 'exit' hook (only sync work is
+// possible there). One bounded `pg_ctl stop -m fast`; never throws. On Windows
+// a force-kill of the daemon can orphan the postmaster mid-write, so this is
+// the last-ditch graceful attempt before the process goes away.
+export function stopPgSync({ runtimeDir, pgdataDir }) {
+  try {
+    spawnSync(pgBin(runtimeDir, 'pg_ctl'), ['stop', '-m', 'fast', '-D', pgdataDir], {
+      env: libEnv(runtimeDir), stdio: 'ignore', timeout: 8_000, windowsHide: true,
+    })
+    __mixdogMemoryLog('[pg-process] stopPgSync: pg_ctl stop -m fast issued on exit\n')
+  } catch {}
 }
 
 // ---------------------------------------------------------------------------

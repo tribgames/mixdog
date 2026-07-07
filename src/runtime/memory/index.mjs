@@ -37,6 +37,10 @@ import {
 
 import { TOOL_DEFS } from './tool-defs.mjs'
 
+// Static import (not the dynamic one in stop()) so the sync stop is available
+// inside a process 'exit' hook, where dynamic import() cannot run.
+import { stopPgForShutdownSync } from './lib/pg/supervisor.mjs'
+
 import {
   openDatabase,
   closeDatabase,
@@ -127,6 +131,11 @@ import {
   acquireLock as _acquireLock,
   releaseLock as _releaseLock,
 } from './lib/memory-process-lock.mjs'
+
+import {
+  readServiceAdvert as _readServiceAdvert,
+  writeServiceAdvert as _writeServiceAdvert,
+} from '../shared/service-discovery.mjs'
 
 const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
   ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
@@ -271,31 +280,28 @@ function advertiseMemoryPort(boundPort, attempt = 0) {
     }, 30_000)
     _periodicAdvertiseTimer.unref?.()
   }
-  const dir = RUNTIME_ROOT
-  const file = path.join(dir, 'active-instance.json')
   try {
-    fs.mkdirSync(dir, { recursive: true })
-    updateJsonAtomicSync(file, (curRaw) => {
-      const cur = curRaw ?? {}
-      const curMemPort = Number(cur?.memory_port)
-      const curMemPid = parsePositivePid(cur?.memory_server_pid)
-      const portConflict = Number.isFinite(curMemPort) && curMemPort > 0 && curMemPort !== boundPort
-      const otherOwnerAlive =
-        curMemPid != null &&
-        curMemPid !== MEMORY_SERVER_PID &&
-        _isPidAliveLocal(curMemPid)
-      if (portConflict && otherOwnerAlive) {
-        __mixdogMemoryLog(`[memory-service] skip memory_port advertise port=${boundPort} curMemPort=${curMemPort} curMemPid=${curMemPid} memoryServerPid=${MEMORY_SERVER_PID}\n`)
-        return undefined
-      }
-      const next = {
-        ...cur,
-        memory_port: boundPort,
-        ...(MEMORY_SERVER_PID ? { memory_server_pid: MEMORY_SERVER_PID } : {}),
-        updatedAt: Date.now(),
-      }
-      return next
-    }, { compact: true, fsyncDir: true, renameFallback: 'truncate', timeoutMs: 1000 })
+    // Single-writer discovery file (discovery/memory.json), plain atomic rename
+    // with NO .lock: memory_port discovery can never be starved by the shared
+    // active-instance.json lock. Conflict guard preserved: a live OTHER memory
+    // owner advertising a different port is not clobbered.
+    const cur = _readServiceAdvert('memory')
+    const curMemPort = Number(cur?.port)
+    const curMemPid = parsePositivePid(cur?.pid)
+    const portConflict = Number.isFinite(curMemPort) && curMemPort > 0 && curMemPort !== boundPort
+    const otherOwnerAlive =
+      curMemPid != null &&
+      curMemPid !== MEMORY_SERVER_PID &&
+      _isPidAliveLocal(curMemPid)
+    if (portConflict && otherOwnerAlive) {
+      __mixdogMemoryLog(`[memory-service] skip memory_port advertise port=${boundPort} curMemPort=${curMemPort} curMemPid=${curMemPid} memoryServerPid=${MEMORY_SERVER_PID}\n`)
+      if (generation === _advertiseGeneration) _advertiseRetryTimer = null
+      return
+    }
+    _writeServiceAdvert('memory', {
+      port: boundPort,
+      ...(MEMORY_SERVER_PID ? { pid: MEMORY_SERVER_PID } : {}),
+    })
     if (generation === _advertiseGeneration) _advertiseRetryTimer = null
   } catch (e) {
     // Boot path must not serially block on the default 8s lock wait: use a short
@@ -819,8 +825,20 @@ export async function init() {
   let boundPort = null
   if (!memorySecondaryMode()) {
     boundPort = await _startHttpServer()
-    await runtimeReady
     advertiseMemoryPort(boundPort)
+    try {
+      await runtimeReady
+    } catch (e) {
+      // Runtime init failed AFTER we advertised the HTTP port. Leaving the
+      // listener up would answer discovery with a live 503, which
+      // memory-client treats as a delivered (non-buffered) write — silently
+      // dropping entries that would otherwise be buffered when no port is
+      // advertised. stop() withdraws the advert (clears _currentAdvertisedPort
+      // + cancels the periodic re-advertise) and closes the HTTP server, so
+      // clients see conn-refused and buffer/respawn instead.
+      try { await stop() } catch {}
+      throw e
+    }
   } else {
     await runtimeReady
   }
@@ -1016,6 +1034,12 @@ if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
   process.on('SIGTERM', () => _workerSignalHandler('SIGTERM'))
   process.on('SIGINT',  () => _workerSignalHandler('SIGINT'))
 
+  // Windows-safe last resort: SIGTERM may TerminateProcess before the async
+  // stop() path runs, orphaning PG mid-write. Best-effort sync pg_ctl stop on
+  // exit (no-op after a completed graceful stop). Skip in secondary mode — we
+  // do not own the shared PG there.
+  if (!memorySecondaryMode()) process.on('exit', () => { try { stopPgForShutdownSync() } catch {} })
+
   // callId → AbortController for in-flight IPC calls (cancel handler uses this).
   const _inFlightCalls = new Map()
 
@@ -1089,6 +1113,7 @@ if (IS_MEMORY_ENTRY && process.env.MIXDOG_WORKER_MODE !== '1') {
   ;(async () => {
     acquireLock()
     process.on('exit', releaseLock)
+    if (!memorySecondaryMode()) process.on('exit', () => { try { stopPgForShutdownSync() } catch {} })
     process.on('SIGINT', () => { stop().finally(() => process.exit(0)) })
     process.on('SIGTERM', () => { stop().finally(() => process.exit(0)) })
     await init()

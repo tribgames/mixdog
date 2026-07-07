@@ -12,7 +12,9 @@
  *   - Widen ONLY the two problem ranges below. NEVER widen box-drawing
  *     (U+2500–U+257F └ │ ⎿ ─), block elements, or the figures.mjs glyphs —
  *     those are also EAW-ambiguous but must stay 1 cell.
- *   - Enabled by default ONLY under Windows Terminal (WT_SESSION set).
+ *   - Enabled by default on Windows (process.platform === 'win32') or under
+ *     Windows Terminal (WT_SESSION set — covers WT reached via e.g. SSH from
+ *     a non-Windows host).
  *   - MIXDOG_TUI_AMBIGUOUS_WIDE overrides the default: '1' forces on, '0'
  *     forces off; the override always wins.
  *   - When OFF, behaviour is byte-for-byte identical to plain string-width.
@@ -43,12 +45,16 @@ export function isProblemCodePoint(cp) {
 // vendor/ink/build/display-width.js.
 const PROBLEM_RE = /[\u2190-\u21ff\u2460-\u24ff]/;
 
-/** Resolve the wide policy from env. Override wins over the WT_SESSION default. */
-export function resolveAmbiguousWidePolicy(env = process.env) {
+/**
+ * Resolve the wide policy from env. Override wins over the default; the
+ * default is ON on Windows (WT_SESSION does not reliably propagate to child
+ * processes, so gate on the OS itself) or when WT_SESSION is present.
+ */
+export function resolveAmbiguousWidePolicy(env = process.env, platform = process.platform) {
   const override = env?.MIXDOG_TUI_AMBIGUOUS_WIDE;
   if (override === '1') return true;
   if (override === '0') return false;
-  return Boolean(env?.WT_SESSION);
+  return platform === 'win32' || Boolean(env?.WT_SESSION);
 }
 
 /** Resolved once at module load (matches the "computed once" requirement). */

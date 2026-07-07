@@ -43,7 +43,7 @@ export function createSettingsPicker({
   openUpdatePicker,
   openChannelSettingTypePicker,
 }) {
-  const openSettingsPicker = (opts = {}) => {
+  const openSettingsPicker = async (opts = {}) => {
     const light = opts.light === true;
     const overrides = opts.overrides || null;
     const heavyCache = light ? settingsHeavyCacheRef.current : null;
@@ -63,7 +63,7 @@ export function createSettingsPicker({
       channelBackend = heavyCache.channelBackend || 'discord';
     } else {
       try {
-        channelBackend = store.getChannelSetup?.()?.backend || 'discord';
+        channelBackend = (await store.getChannelSetup?.())?.backend || 'discord';
       } catch {
         channelBackend = 'discord';
       }

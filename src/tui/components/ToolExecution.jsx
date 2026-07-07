@@ -198,9 +198,10 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     // Mirror estimateTranscriptItemRows: a non-aggregate skill surface collapses
     // to a single header row; everything else reserves header + one detail row.
     const placeholderNormalizedName = String(formatToolSurface(name, args)?.normalizedName || '').toLowerCase();
-    // Skill surfaces collapse to a single header row; agent surfaces reserve
-    // header + one brief detail row (see estimateTranscriptItemRows).
-    const placeholderSingleRow = !aggregate && SKILL_SURFACE_NAMES.has(placeholderNormalizedName);
+    // Skill AND agent surfaces collapse to a single header row when collapsed
+    // (see estimateTranscriptItemRows); reserve one row for both.
+    const placeholderSingleRow = !aggregate
+      && (SKILL_SURFACE_NAMES.has(placeholderNormalizedName) || isAgentTool(placeholderNormalizedName));
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
         <Text> </Text>
@@ -443,11 +444,18 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   } else if (isBackgroundMetadataResult && backgroundMetadataHeaderFailure && !showRawResult) {
     visibleDetailLines = [];
   } else if (isAgentSurfaceCard && !showRawResult) {
+    // Agent cards collapse to a SINGLE header row like skill surfaces. Keep the
+    // ⎿ detail row ONLY when it carries failure info: the call errored, or the
+    // brief/summary reads as a failure/cancel. A header-failure-only card (no
+    // brief) shows the cause in the header, so it stays a single row too.
+    // Expanded (ctrl+o raw) still flows through the showRawResult path above.
     const agentDetailFallback = collapsedDetail
       || (pending ? (pendingDetailPlaceholder || 'Running') : 'Finished');
     const agentDetailLine = agentSurfaceBrief
       || truncateToWidth(String(agentDetailFallback), Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars));
-    visibleDetailLines = agentHeaderFailure && !agentSurfaceBrief ? [] : [agentDetailLine];
+    const agentFailureText = /\b(Cancelled|Canceled|Failed)\b/i.test(agentSurfaceBrief || collapsedDetail || '');
+    const keepAgentDetail = (isError || agentFailureText) && !(agentHeaderFailure && !agentSurfaceBrief);
+    visibleDetailLines = keepAgentDetail ? [agentDetailLine] : [];
   }
   const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
   const dotColor = finalStatusColor;

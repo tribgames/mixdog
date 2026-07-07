@@ -9,6 +9,7 @@
 // tree (taskkill /T /F on Windows, SIGTERM->SIGKILL of every descendant on
 // POSIX). No external dependencies.
 import { spawn } from 'node:child_process';
+import { detachedSpawnOpts } from '../../../shared/spawn-flags.mjs';
 
 const isWin = process.platform === 'win32';
 
@@ -107,9 +108,8 @@ export function killStdioChildTreeFast(transport) {
     if (isWin) {
         try {
             const cp = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
-                windowsHide: true,
-                detached: true,
                 stdio: 'ignore',
+                ...detachedSpawnOpts,
             });
             cp.unref();
         } catch { /* ignore */ }

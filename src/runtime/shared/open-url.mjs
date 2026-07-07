@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { isWSL } from './wsl.mjs';
+import { detachedSpawnOpts } from './spawn-flags.mjs';
 
 /**
  * Open a URL in the user's default browser. Best-effort and non-blocking.
@@ -29,7 +30,7 @@ function tryOpenCandidates(candidates, index) {
   if (index >= candidates.length) return;
   const [cmd, args] = candidates[index];
   try {
-    const child = spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true });
+    const child = spawn(cmd, args, { stdio: 'ignore', ...detachedSpawnOpts });
     child.on('error', () => { tryOpenCandidates(candidates, index + 1); });
     child.unref();
   } catch {

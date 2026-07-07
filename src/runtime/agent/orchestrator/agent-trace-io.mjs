@@ -3,6 +3,7 @@ import { appendFile } from 'fs/promises';
 import { dirname, join } from 'path';
 import os from 'os';
 import { getPluginData } from './config.mjs';
+import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../shared/service-discovery.mjs';
 
 const WARNED_KEYS = new Set();
 
@@ -15,6 +16,10 @@ const _FLUSH_INTERVAL_MS = 5000;
 const _FLUSH_BATCH_SIZE = 500;
 let _flushTimer = null;
 let _serviceUrl = null;
+// Port of the discovery advert `_serviceUrl` was resolved from (null when it
+// came from legacy active-instance.json). Lets a flush connect-failure distrust
+// a recycled-pid corpse advert so the next resolve falls back to legacy/buffer.
+let _serviceAdvertPort = null;
 let _flushInFlight = false;
 let _localTracePath = null;
 let _localTraceBuffer = [];
@@ -197,6 +202,11 @@ try {
 function _resolveServiceUrl() {
     if (_serviceUrl) return _serviceUrl;
     try {
+        // Prefer the single-writer discovery advert (discovery/memory.json),
+        // pid-validated; fall back to legacy active-instance.json memory_port.
+        const advertPort = readServicePort('memory', { requirePid: false });
+        if (advertPort) { _serviceAdvertPort = advertPort; _serviceUrl = `http://127.0.0.1:${advertPort}`; return _serviceUrl; }
+        _serviceAdvertPort = null;
         const runtimeRoot = process.env.MIXDOG_RUNTIME_ROOT
             ? join(process.env.MIXDOG_RUNTIME_ROOT)
             : join(os.tmpdir(), 'mixdog');
@@ -245,6 +255,13 @@ async function _flush() {
             }
         } catch (err) {
             _serviceUrl = null;
+            // Discovery-first consumer with no health probe: a connect failure
+            // means the pid-validated advert points at a dead (recycled-pid)
+            // port. Distrust it (connection-level errors ONLY — a timeout is a
+            // slow-but-alive daemon, not a corpse) so the next resolve falls back
+            // to legacy/buffer instead of re-trusting the same advert.
+            if (_serviceAdvertPort && isConnRefuseError(err)) markServiceUnreachable('memory', _serviceAdvertPort);
+            _serviceAdvertPort = null;
             warnAgentOnce('agent-trace:flush-fetch', `[agent-trace] flush fetch failed (${err?.message}) — dropping batch`);
         }
         if (_buffer.length >= _FLUSH_BATCH_SIZE) {

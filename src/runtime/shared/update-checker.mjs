@@ -13,11 +13,12 @@
  * the child exits, reporting the resolved version on success.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { resolvePluginData } from './plugin-paths.mjs';
+import { detachedSpawnOpts } from './spawn-flags.mjs';
 
 const PACKAGE_NAME = 'mixdog';
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
@@ -29,6 +30,22 @@ const CACHE_FILE_NAME = 'update-check-cache.json';
 // src/runtime/shared/).
 const _MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const _PACKAGE_JSON_PATH = join(_MODULE_DIR, '..', '..', '..', 'package.json');
+const _PACKAGE_ROOT = dirname(_PACKAGE_JSON_PATH);
+
+/**
+ * isDevInstall() — true when the running mixdog is a git checkout / clone (or
+ * otherwise not a normal npm install), so auto-update must be skipped: an
+ * `npm install -g mixdog@latest` would fight a linked/working-tree package.
+ * Heuristics: a `.git` entry at the package root, OR the package directory not
+ * living under any `node_modules/` path (global & local installs always do).
+ */
+export function isDevInstall() {
+  try {
+    if (existsSync(join(_PACKAGE_ROOT, '.git'))) return true;
+  } catch { /* fall through to path heuristic */ }
+  const norm = _PACKAGE_ROOT.replace(/\\/g, '/').toLowerCase();
+  return !/\/node_modules\//.test(`/${norm}/`);
+}
 
 let _localVersionCache = null;
 export function localPackageVersion() {
@@ -176,22 +193,49 @@ export async function checkLatestVersion({ force = false, dataDir } = {}) {
 }
 
 /**
+ * Resolve npm's JS entrypoint (npm-cli.js) next to the running node binary.
+ * Running `node npm-cli.js …` directly avoids cmd.exe/PowerShell entirely on
+ * Windows: no shell process means no console window can appear (and no
+ * `-WindowStyle Hidden` style flags that antivirus heuristics flag).
+ */
+function npmCliJsPath() {
+  const execDir = dirname(process.execPath);
+  const candidates = [
+    // Windows: npm ships beside node.exe.
+    join(execDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    // Unix layout: <prefix>/bin/node → <prefix>/lib/node_modules/npm.
+    join(execDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  // When launched via npm itself, npm_execpath is authoritative.
+  const envPath = process.env.npm_execpath;
+  if (envPath && /npm-cli\.js$/i.test(envPath)) candidates.unshift(envPath);
+  for (const candidate of candidates) {
+    try { if (existsSync(candidate)) return candidate; } catch { /* keep looking */ }
+  }
+  return null;
+}
+
+/**
  * runGlobalUpdate() — `npm install -g mixdog@latest` in a background child
- * process (windowsHide so no console flash on Windows). Resolves once the
- * child exits; never throws — failures come back as {ok:false, error}.
+ * process. Prefers spawning node.exe with npm-cli.js directly (shell-less, so
+ * Windows never opens a console window); falls back to npm.cmd via shell when
+ * npm-cli.js cannot be located. Resolves once the child exits; never throws —
+ * failures come back as {ok:false, error}.
  */
 export function runGlobalUpdate() {
   return new Promise((resolvePromise) => {
     let child;
     try {
-      const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-      child = spawn(npmCmd, ['install', '-g', `${PACKAGE_NAME}@latest`], {
+      const installArgs = ['install', '-g', `${PACKAGE_NAME}@latest`];
+      const cliJs = npmCliJsPath();
+      const isWin = process.platform === 'win32';
+      const [cmd, args, useShell] = cliJs
+        ? [process.execPath, [cliJs, ...installArgs], false]
+        : [isWin ? 'npm.cmd' : 'npm', installArgs, isWin];
+      child = spawn(cmd, args, {
         stdio: 'ignore',
-        windowsHide: true,
-        // detached: survive parent exit — quitting the TUI mid-install must
-        // not kill npm halfway and leave the global install corrupted.
-        detached: true,
-        shell: process.platform === 'win32',
+        shell: useShell,
+        ...detachedSpawnOpts,
       });
     } catch (err) {
       resolvePromise({ ok: false, error: err?.message || String(err) });

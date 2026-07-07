@@ -272,6 +272,33 @@ function toolArgPathForRows(item) {
   return a?.path ?? a?.file_path ?? a?.file ?? '';
 }
 
+// Mirror ToolExecution's collapsed agent-card rule: an agent surface collapses
+// to a SINGLE header row unless the detail row carries failure info (the call
+// errored, or the brief/status reads as a failure/cancel). Pending agent cards
+// never carry failure info yet, so they collapse to one row. A header-failure-
+// only card is handled earlier by toolHeaderFailureOnlyForRows (also one row).
+function agentCardKeepsCollapsedDetailForRows(item, normalizedName) {
+  if (normalizedName !== 'agent') return false;
+  if (toolItemPendingForRows(item)) return false;
+  const bgArgs = backgroundArgsForRows(item.args);
+  const isError = Boolean(item.isError);
+  const hasDisplayResult = toolHasDisplayResultForRows(item);
+  const displayedResultText = toolDisplayedResultTextForRows(item);
+  const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
+  const isAgentResponse = hasDisplayResult && isAgentResponseResultText(rt);
+  const briefRaw = summarizeAgentSurfaceBrief(item.name, bgArgs, displayedResultText, {
+    isError,
+    isResponse: isAgentResponse,
+  });
+  const brief = String(briefRaw || '').trim();
+  const status = String(bgArgs.status || '').toLowerCase();
+  const failureText = /\b(cancelled|canceled|failed)\b/i.test(brief)
+    || /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status);
+  const agentHeaderFailure = isError && String(bgArgs.error || '').trim() && !hasDisplayResult;
+  if (agentHeaderFailure && !brief) return false;
+  return isError || failureText;
+}
+
 function isShellSurfaceForRows(normalizedName, label = '') {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
@@ -332,6 +359,11 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         if (toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult)) {
           return TOOL_MARGIN_TOP + 1;
         }
+        if (isAgentSurface) {
+          return agentCardKeepsCollapsedDetailForRows(item, normalizedName)
+            ? TOOL_MARGIN_TOP + 1 + 1
+            : TOOL_MARGIN_TOP + 1;
+        }
         return TOOL_MARGIN_TOP + 1 + 1;
       }
       if (hasRawResult) {
@@ -341,7 +373,11 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
           : { pathArg: toolArgPathForRows(item), isShell: isShellSurfaceForToolItem(item, normalizedName) };
         return TOOL_MARGIN_TOP + 1 + estimateToolRenderedResultRows(estimateText, { ...rawOpts, columns });
       }
-      if (isAgentSurface && !hasResult) return TOOL_MARGIN_TOP + 1 + 1;
+      if (isAgentSurface && !hasResult) {
+        return agentCardKeepsCollapsedDetailForRows(item, normalizedName)
+          ? TOOL_MARGIN_TOP + 1 + 1
+          : TOOL_MARGIN_TOP + 1;
+      }
       if (isSkillSurface && !hasResult) return TOOL_MARGIN_TOP + 1;
       if (item.aggregate) {
         if (hasRawResult) {

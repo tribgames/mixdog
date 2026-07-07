@@ -1,19 +1,17 @@
 import * as http from "http";
-import { join } from "path";
 import { spawn, spawnSync } from "child_process";
-import { existsSync, readFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { getWebhookAuthtoken } from "../../shared/config.mjs";
-import { readMarkdownDocument } from "../../shared/markdown-frontmatter.mjs";
 import { logWebhook } from "./webhook/log.mjs";
 import { SIGNATURE_HEADERS, extractSignature, STRIPE_TOLERANCE_MS, verifySignature } from "./webhook/signature.mjs";
+import { detachedSpawnOpts } from "../../shared/spawn-flags.mjs";
 import {
-  WEBHOOKS_DIR,
-  _readEndpointSecret,
-  _closeEndpointWatcher,
   loadEndpointConfig,
-  appendDelivery,
-  deliveryExists,
+  readEndpointSecret,
+  claimDelivery,
+  updateDeliveryStatus,
+} from "../../shared/webhooks-db.mjs";
+import {
   extractDeliveryId,
   buildHeadersSummary,
 } from "./webhook/deliveries.mjs";
@@ -72,12 +70,12 @@ class WebhookServer {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not Found");
   }
-  _handleWebhookPost(req, res) {
+  async _handleWebhookPost(req, res) {
     const rawName = req.url.slice("/webhook/".length).split("?")[0];
     // Strict name sanitize. Invariant: endpoint names are [a-zA-Z0-9_-]
     // up to 64 chars. Anything else (path traversal "..", NUL,
     // encoded slashes, empty) is rejected before any body read or
-    // disk lookup so probes / scans cannot reach later stages.
+    // table lookup so probes / scans cannot reach later stages.
     let name = "";
     try { name = decodeURIComponent(rawName); } catch { name = rawName; }
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
@@ -90,7 +88,19 @@ class WebhookServer {
     // Registration pre-gate. Reject unknown endpoint names before
     // streaming up to MAX_BODY_BYTES of payload. Body-dependent checks
     // (signature verify, JSON parse, dedup) remain inside req.on("end").
-    const _endpointPreCheck = loadEndpointConfig(name) || this.config.endpoints?.[name] || null;
+    // Endpoint defs now come from the PG webhooks.endpoints table. The
+    // request stream stays paused (no 'data' listener attached yet) across
+    // the await, so no body bytes are lost.
+    let _endpointPreCheck = null;
+    try {
+      _endpointPreCheck = (await loadEndpointConfig(name)) || this.config.endpoints?.[name] || null;
+    } catch (err) {
+      logWebhook(`${name}: endpoint lookup failed \u2014 ${err?.message || err}`);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "internal error" }));
+      try { req.destroy(); } catch {}
+      return;
+    }
     if (_endpointPreCheck?.enabled === false) {
       logWebhook(`rejected: disabled endpoint ${name}`);
       res.writeHead(404, { "Content-Type": "application/json" });
@@ -98,11 +108,7 @@ class WebhookServer {
       try { req.destroy(); } catch {}
       return;
     }
-    const _registeredPre = !!(
-      _endpointPreCheck
-      || existsSync(join(WEBHOOKS_DIR, name, "WEBHOOK.md"))
-    );
-    if (!_registeredPre) {
+    if (!_endpointPreCheck) {
       logWebhook(`rejected: unknown endpoint ${name}`);
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "unknown endpoint" }));
@@ -145,67 +151,60 @@ class WebhookServer {
       this._processWebhookBody(req, res, name, rawBody);
     });
   }
-  _processWebhookBody(req, res, name, rawBody) {
-    // Hoisted so the JSON-parse `catch` at the bottom of this method can
-    // emit the terminal `failed` delivery row using the delivery id we
-    // assigned before parsing. Declaring it inside the try would leave
-    // the catch with `typeof deliveryId === "undefined"`, so the recovery
-    // path would skip appendDelivery and leak the `received` claim row
-    // forever (dedup loop on every retry).
+  async _processWebhookBody(req, res, name, rawBody) {
+    // Hoisted so the catch at the bottom can mark the claimed delivery row
+    // `failed` using the id assigned before parsing; declaring it inside the
+    // try would leave the catch with `typeof deliveryId === "undefined"`.
     let deliveryId;
     try {
       const headers = {};
       for (const [k, v] of Object.entries(req.headers)) {
         if (typeof v === "string") headers[k.toLowerCase()] = v;
       }
-      // Secret lookup: per-endpoint (folder config.json) → global (webhook config) → warn+accept.
-      // Parser likewise prefers per-endpoint, falls back to global endpoints map.
-      const endpoint = loadEndpointConfig(name) || this.config.endpoints?.[name] || null;
+      // Endpoint def from the PG webhooks.endpoints table; a global
+      // config.endpoints entry is the fallback for parser-only endpoints.
+      const dbEndpoint = await loadEndpointConfig(name);
+      const endpoint = dbEndpoint || this.config.endpoints?.[name] || null;
       if (endpoint?.enabled === false) {
         logWebhook(`rejected: disabled endpoint ${name}`);
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "disabled endpoint" }));
         return;
       }
-      // Endpoint registration gate. Reject unknown endpoint names
-      // before any disk write — appendDelivery's mkdirSync would
-      // otherwise create WEBHOOKS_DIR/<name>/ for arbitrary probes
-      // (e.g. hostile scans, mistyped paths). Invariant: an endpoint
-      // is registered iff per-endpoint config exists OR an
-      // instructions.md folder handler is present. eventPipeline
+      // Endpoint registration gate. An endpoint is registered iff a table
+      // row exists OR a global config.endpoints entry is present. eventPipeline
       // routing is reachable only through a registered endpoint.
-      const _registered = !!(
-        endpoint
-        || existsSync(join(WEBHOOKS_DIR, name, "WEBHOOK.md"))
-      );
-      if (!_registered) {
+      if (!endpoint) {
         logWebhook(`rejected: unknown endpoint ${name}`);
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "unknown endpoint" }));
         return;
       }
-      if (!this._verifySignatureGate(name, endpoint, rawBody, headers, res)) return;
+      // Raw secret is fetched via the single explicit secret-read path;
+      // loadEndpointConfig only exposes a `secretSet` flag, never the value.
+      const secret = (await readEndpointSecret(name)) || this.config.secret;
+      if (!this._verifySignatureGate(name, endpoint, !!dbEndpoint, secret, rawBody, headers, res)) return;
       // Signature has accepted the raw bytes; decode to a UTF-8 string for
       // content-type / JSON / preview handling below.
       const body = rawBody.length === 0 ? "" : rawBody.toString("utf8");
-      // Delivery ID + dedup. If a prior delivery with status=done
-      // exists for this ID, skip with 200 {status:"dedup"} so the
-      // sender (GitHub etc.) stops retrying the same event.
       deliveryId = extractDeliveryId(headers) || `gen-${randomUUID()}`;
-      // Any existing delivery row (pending / processing / done /
-      // failed) means we have already accepted this event id at least
-      // once. Reject the replay flat so a fast-retrying sender cannot
-      // double-dispatch while the first run is still in flight.
-      if (deliveryExists(name, deliveryId)) {
+      // Atomic claim + dedup in one step: INSERT ... ON CONFLICT DO NOTHING.
+      // A concurrent duplicate POST of the same id loses the race
+      // (claimed:false) and is rejected flat, so the first run is never
+      // double-dispatched. All summary fields are captured on this single
+      // INSERT; later transitions are status-only updates.
+      const claim = await claimDelivery(name, deliveryId, {
+        status: "received",
+        event: headers["x-github-event"] || null,
+        headersSummary: buildHeadersSummary(headers),
+        payloadPreview: String(body || "").slice(0, 512),
+      });
+      if (!claim.claimed) {
         logWebhook(`${name}: dedup ${deliveryId}`);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ status: "dedup", id: deliveryId }));
         return;
       }
-      // Atomic claim: write a `received` row before any further work so
-      // a concurrent duplicate POST that arrives after this point hits
-      // deliveryExists() above and is rejected.
-      appendDelivery(name, { id: deliveryId, endpoint: name, status: "received" });
       // JSON content-type gate. Webhook handlers below assume parsed is
       // a plain object; an x-www-form-urlencoded body would parse to a
       // string and let downstream `parsed?.action` lookups silently miss
@@ -214,12 +213,9 @@ class WebhookServer {
       const looksJson = ctype.includes("application/json") || ctype.includes("+json");
       if (body && !looksJson) {
         logWebhook(`${name}: rejected — non-JSON content-type "${ctype || "<none>"}"`);
-        // Terminal failed row: the `received` claim above must be resolved
-        // by a terminal status. Without it, deliveryExists() keeps the row
-        // visible and dedupes every future retry of the same id forever.
-        appendDelivery(name, {
-          id: deliveryId,
-          status: "failed",
+        // Terminal failed row resolves the `received` claim so retries don't
+        // dedup forever.
+        await updateDeliveryStatus(name, deliveryId, "failed", {
           error: `unsupported content-type: ${ctype || "<none>"}`,
         });
         res.writeHead(415, { "Content-Type": "application/json" });
@@ -228,48 +224,35 @@ class WebhookServer {
       }
       const parsed = body ? JSON.parse(body) : {};
       const eventType = headers["x-github-event"] || null;
-      const eventAction = parsed?.action || null;
       // Invariant: skip self-generated GitHub issue_comment events. All
       // mixdog-authored issue comments are prefixed with "[mixdog "
       // (e.g. "[mixdog reviewer] ..."), so a comment.body starting with
       // that marker is guaranteed to be our own dispatch and forwarding
-      // it would create a self-trigger loop. This is not a user-name
-      // heuristic — it is a marker the dispatcher itself stamps on every
-      // comment it posts.
+      // it would create a self-trigger loop.
       if (
         eventType === "issue_comment" &&
         typeof parsed?.comment?.body === "string" &&
         parsed.comment.body.startsWith("[mixdog ")
       ) {
-        appendDelivery(name, {
-          id: deliveryId,
-          status: "self-comment-skip",
-          event: eventType,
-          headersSummary: buildHeadersSummary(headers),
-        });
+        await updateDeliveryStatus(name, deliveryId, "self-comment-skip");
         logWebhook(`${name}: self-comment-skip ${deliveryId}`);
         res.writeHead(202, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ status: "self-comment-skip", id: deliveryId }));
         return;
       }
-      appendDelivery(name, {
-        id: deliveryId,
-        status: "pending",
-        event: eventType,
-        headersSummary: buildHeadersSummary(headers),
-        payloadPreview: String(body || "").slice(0, 512),
-      });
-      this.handleWebhook(name, parsed, headers, res, deliveryId);
+      await updateDeliveryStatus(name, deliveryId, "pending");
+      await this.handleWebhook(name, parsed, headers, res, deliveryId, dbEndpoint);
     } catch (err) {
       logWebhook(`JSON parse error for ${name}: ${err}`);
-      // Terminal failed row: as with the 415 branch above, a 400 return
-      // must close out the `received` row so retries don't loop on dedup.
+      // Terminal failed row: a 400 return must close out the `received` claim
+      // so retries don't loop on dedup.
       const _id = typeof deliveryId === "string" && deliveryId ? deliveryId : null;
-      if (_id && !appendDelivery(name, { id: _id, status: "failed", error: `invalid JSON: ${err?.message || err}` })) {
-        // The terminal `failed` write failed (appendDelivery swallowed it).
-        // The `received` row now lingers and will dedup this delivery id
-        // forever; surface it so the stuck row is diagnosable.
-        process.stderr.write(`mixdog webhook: stuck received row will dedup this delivery id ${name}/${deliveryId} \u2014 terminal 'failed' row write failed\n`);
+      if (_id) {
+        try {
+          await updateDeliveryStatus(name, _id, "failed", { error: `invalid JSON: ${err?.message || err}` });
+        } catch (e2) {
+          process.stderr.write(`mixdog webhook: failed to mark delivery ${name}/${_id} failed \u2014 ${e2?.message || e2}\n`);
+        }
       }
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "invalid JSON" }));
@@ -277,12 +260,10 @@ class WebhookServer {
   }
   // Returns true when the request may proceed; otherwise writes the
   // appropriate 401/403 response and returns false.
-  _verifySignatureGate(name, endpoint, body, headers, res) {
-    // Per-endpoint secret lives in the side file WEBHOOKS_DIR/<name>/secret
-    // (plaintext, one line) — NOT in WEBHOOK.md frontmatter, so a user
-    // secret containing quotes/colons/newlines round-trips losslessly and
-    // setWebhookEnabled (which only rewrites WEBHOOK.md) cannot corrupt it.
-    const secret = _readEndpointSecret(name) || this.config.secret;
+  _verifySignatureGate(name, endpoint, isTableEndpoint, secret, body, headers, res) {
+    // `secret` is pre-resolved by the caller (readEndpointSecret → global
+    // fallback); the per-endpoint secret now lives in the webhooks.endpoints
+    // row and is never projected through loadEndpointConfig.
     const parser = endpoint?.parser || this.config.endpoints?.[name]?.parser;
     if (secret) {
       const signature = extractSignature(headers, parser);
@@ -308,18 +289,14 @@ class WebhookServer {
       res.end(JSON.stringify({ error: "webhook secret required for signed parser" }));
       return false;
     }
-    // WEBHOOK.md folder endpoint with no resolved signature
-    // mode. handleWebhook's instructions.md branch enqueues the body as
-    // an interactive prompt (or dispatches a delegate) — both are
-    // privileged. With no per-endpoint secret/parser AND no global
-    // secret/parser, there is no signature mode to fall back on, so
-    // accepting the request would inject attacker-controlled input.
-    // Fail closed. (Endpoints that DO carry a WEBHOOK.md with a
-    // secret/parser are handled by the branches above.)
-    if (!secret && !parser && existsSync(join(WEBHOOKS_DIR, name, "WEBHOOK.md"))) {
-      logWebhook(`${name}: rejected (WEBHOOK.md endpoint requires a webhook secret)`);
+    // A registered table endpoint (interactive enqueue / delegate dispatch)
+    // is privileged. With no per-endpoint secret/parser AND no global
+    // secret/parser there is no signature mode to fall back on, so accepting
+    // would inject attacker-controlled input. Fail closed.
+    if (!secret && !parser && isTableEndpoint) {
+      logWebhook(`${name}: rejected (table endpoint requires a webhook secret)`);
       res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "webhook secret required for WEBHOOK.md endpoint" }));
+      res.end(JSON.stringify({ error: "webhook secret required for endpoint" }));
       return false;
     }
     if (!this.noSecretWarned) {
@@ -505,8 +482,7 @@ class WebhookServer {
         // on EADDRINUSE is the guaranteed safety net.
         this.ngrokProcess = spawn(ngrokBin, ["http", String(this.boundPort), "--url=" + domain], {
           stdio: ["ignore", "ignore", "ignore"],
-          windowsHide: true,
-          detached: true
+          ...detachedSpawnOpts,
         });
         this.ngrokProcess.unref();
         if (this.ngrokProcess.pid) {
@@ -549,10 +525,6 @@ class WebhookServer {
     if (this.ngrokProcess) {
       this.ngrokProcess = null;
     }
-    // Close the module-level fs.watch handle so the watcher does not leak
-    // across stop() / restart cycles. The next loadEndpointConfig() will
-    // re-arm it via _ensureEndpointWatcher().
-    _closeEndpointWatcher();
     let closed = Promise.resolve();
     if (this.server) {
       const srv = this.server;
@@ -581,33 +553,6 @@ class WebhookServer {
     if (options.autoStart !== false && config.enabled) this.start();
   }
   // ── Webhook handler ───────────────────────────────────────────────
-  _readFolderHandler(folderPath) {
-    const mdPath = join(folderPath, "WEBHOOK.md");
-    // Routing by channel presence (no `mode` field): an endpoint WITH a
-    // channel dispatches to the hidden webhook-handler role and reports to
-    // that channel; an endpoint WITHOUT a channel injects into the current
-    // (Lead) session. `channel` starts NULL so its absence is detectable;
-    // `role` defaults to the mandatory webhook-handler for the direct path.
-    // The signature gate (below) fails closed on any WEBHOOK.md
-    // endpoint lacking a secret, so dropping `mode` does not weaken auth.
-    // `instructions` carries the markdown body (the prompt) so callers read
-    // one file instead of a config.json + instructions.md pair. Frontmatter
-    // `name`/`description` (SKILL.md convention) are display-only: dir name
-    // stays the canonical identity/URL routing key, so `name` is ignored here.
-    const handler = { channel: null, role: "webhook-handler", model: null, description: "", instructions: "" };
-    if (existsSync(mdPath)) {
-      try {
-        const { frontmatter, body } = readMarkdownDocument(readFileSync(mdPath, "utf8"));
-        if (frontmatter.channel) handler.channel = frontmatter.channel;
-        if (typeof frontmatter.role === "string" && frontmatter.role) handler.role = frontmatter.role;
-        if (typeof frontmatter.model === "string" && frontmatter.model) handler.model = frontmatter.model;
-        handler.description = String(frontmatter.description || "");
-        handler.instructions = String(body || "").trim();
-      } catch {
-      }
-    }
-    return handler;
-  }
   _buildFencedPayload(body, headers) {
     // Trust boundary: webhook body + headers are external, attacker-
     // controllable input and must be treated as DATA, never instructions.
@@ -630,8 +575,8 @@ ${headersSummary}
 ${payload}
 <<<${_UNTRUSTED}_END>>>`;
   }
-  _dispatchDelegate(name, role, model, fullPrompt, headers, deliveryId, res, channel) {
-    appendDelivery(name, { id: deliveryId, status: "processing" });
+  async _dispatchDelegate(name, role, model, fullPrompt, headers, deliveryId, res, channel) {
+    await updateDeliveryStatus(name, deliveryId, "processing");
     // Bridge dispatch must not be allowed to hang forever — without a
     // ceiling a stuck LLM call leaves the delivery in `processing`
     // for the lifetime of the process and dedup keeps re-running
@@ -659,32 +604,35 @@ ${payload}
     });
     Promise.race([dispatchP, timeoutP]).then(() => {
       if (timeoutHandle) clearTimeout(timeoutHandle);
-      appendDelivery(name, { id: deliveryId, status: "done" });
+      void updateDeliveryStatus(name, deliveryId, "done").catch((e) => logWebhook(`${name}: delivery status update failed: ${e?.message || e}`));
       logWebhook(`${name}: delegate dispatched to bridge (role=${role}, id=${deliveryId})`);
     }).catch((err) => {
       if (timeoutHandle) clearTimeout(timeoutHandle);
-      appendDelivery(name, { id: deliveryId, status: "failed", error: String(err?.message || err) });
+      void updateDeliveryStatus(name, deliveryId, "failed", { error: String(err?.message || err) }).catch(() => {});
       logWebhook(`${name}: delegate dispatch failed: ${err?.message || err}`);
     });
     res.writeHead(202, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "accepted", handler: "delegate", id: deliveryId }));
   }
-  handleWebhook(name, body, headers, res, deliveryId) {
-    const folderPath = join(WEBHOOKS_DIR, name);
-    const mdPath = join(folderPath, "WEBHOOK.md");
-    if (existsSync(mdPath)) {
+  async handleWebhook(name, body, headers, res, deliveryId, endpoint) {
+    // A PG endpoint row is the folder-handler equivalent: routing is by
+    // channel_id presence — WITH a channel → delegate dispatch to the row's
+    // role/model and report to that channel; WITHOUT → interactive enqueue
+    // into the current (Lead) session. Parser-only endpoints (no table row)
+    // fall through to the event pipeline below.
+    if (endpoint) {
       try {
-        const { channel, role, model, instructions } = this._readFolderHandler(folderPath);
+        const { channelId, role, model, instructions } = endpoint;
         const payloadContent = this._buildFencedPayload(body, headers);
-        if (channel) {
+        if (channelId) {
           if (!role) {
-            appendDelivery(name, { id: deliveryId, status: "failed", error: "delegate mode requires role in WEBHOOK.md" });
+            await updateDeliveryStatus(name, deliveryId, "failed", { error: "delegate mode requires role" });
             logWebhook(`${name}: delegate mode requires role - rejected`);
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ status: "rejected", error: "delegate mode requires role" }));
             return;
           } else if (!model) {
-            appendDelivery(name, { id: deliveryId, status: "failed", error: "delegate mode requires model in WEBHOOK.md" });
+            await updateDeliveryStatus(name, deliveryId, "failed", { error: "delegate mode requires model" });
             logWebhook(`${name}: delegate mode requires model - rejected`);
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ status: "rejected", error: "delegate mode requires model" }));
@@ -693,32 +641,32 @@ ${payload}
             throw new Error(`[webhook] delegate mode requires bridgeDispatch`);
           } else {
             const fullPrompt = `${instructions}\n\n${payloadContent}`;
-            this._dispatchDelegate(name, role, model, fullPrompt, headers, deliveryId, res, channel);
+            await this._dispatchDelegate(name, role, model, fullPrompt, headers, deliveryId, res, channelId);
             return;
           }
         }
         if (this.eventPipeline) {
-          appendDelivery(name, { id: deliveryId, status: "processing" });
-          this.eventPipeline.enqueueDirect(name, payloadContent, channel, "interactive", instructions);
-          appendDelivery(name, { id: deliveryId, status: "done" });
+          await updateDeliveryStatus(name, deliveryId, "processing");
+          this.eventPipeline.enqueueDirect(name, payloadContent, channelId, "interactive", instructions);
+          await updateDeliveryStatus(name, deliveryId, "done");
           logWebhook(`${name}: interactive enqueued (id=${deliveryId})`);
         }
         res.writeHead(202, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ status: "accepted", handler: "interactive", id: deliveryId }));
         return;
       } catch (err) {
-        appendDelivery(name, { id: deliveryId, status: "failed", error: String(err?.message || err) });
+        await updateDeliveryStatus(name, deliveryId, "failed", { error: String(err?.message || err) });
         logWebhook(`${name}: folder handler error: ${err}`);
       }
     }
     if (this.eventPipeline?.handleWebhook(name, body, headers)) {
-      appendDelivery(name, { id: deliveryId, status: "done" });
+      await updateDeliveryStatus(name, deliveryId, "done");
       logWebhook(`${name}: routed to event pipeline (id=${deliveryId})`);
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "accepted", id: deliveryId }));
       return;
     }
-    appendDelivery(name, { id: deliveryId, status: "failed", error: "unknown endpoint" });
+    await updateDeliveryStatus(name, deliveryId, "failed", { error: "unknown endpoint" });
     logWebhook(`unknown endpoint: ${name}`);
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "unknown endpoint" }));

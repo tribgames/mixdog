@@ -54,7 +54,9 @@ export function titleCaseMcpServer(server) {
   return String(server || '')
     .split(/[_\s-]+/)
     .filter(Boolean)
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .map((part) => (part === part.toLowerCase()
+      ? `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`
+      : part))
     .join(' ');
 }
 

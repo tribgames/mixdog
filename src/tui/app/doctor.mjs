@@ -161,7 +161,7 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
       return;
     }
     const worker = settings.status || runtime.getChannelWorkerStatus?.() || {};
-    const setup = runtime.getChannelSetup?.() || {};
+    const setup = (await runtime.getChannelSetup?.()) || {};
     const tokens = [];
     if (setup.discord?.authenticated) tokens.push('discord');
     if (setup.telegram?.authenticated) tokens.push('telegram');

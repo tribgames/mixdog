@@ -75,7 +75,11 @@ async function _initClient(client, schema) {
   // memory.entries from a trace-schema connection, or recall × trace JOIN
   // analytics) MUST use fully-qualified names (memory.entries / trace.trace_events).
   // Relying on search_path silently in cross-schema code = bug magnet.
-  const sp = schema === 'trace' ? 'trace, public' : 'memory, public'
+  const sp = schema === 'trace'
+    ? 'trace, public'
+    : schema === 'scheduler'
+      ? 'scheduler, public'
+      : 'memory, public'
   await client.query(`SET search_path = ${sp}`)
   // pg_trgm similarity threshold: session-local, must be set per connection.
   await client.query(`SELECT set_limit(0.10)`)
@@ -331,6 +335,7 @@ async function bootstrapInstance(pgPool, dataDirKey) {
       await client.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public`)
       await client.query(`CREATE SCHEMA IF NOT EXISTS memory`)
       await client.query(`CREATE SCHEMA IF NOT EXISTS trace`)
+      await client.query(`CREATE SCHEMA IF NOT EXISTS scheduler`)
     } finally {
       client.release()
     }

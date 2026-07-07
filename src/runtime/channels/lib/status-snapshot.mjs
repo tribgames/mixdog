@@ -127,6 +127,22 @@ async function computeSnapshot(scheduler) {
       }
     }
 
+    // Armed when_at one-shots: next-fire is the entry's whenAt instant. The
+    // timer handle carries no fireAt, so read it from the loaded schedule def.
+    if (scheduler.oneShotTimers && scheduler.oneShotTimers.size > 0) {
+      const defs = [...(scheduler.nonInteractive || []), ...(scheduler.interactive || [])];
+      for (const name of scheduler.oneShotTimers.keys()) {
+        if (scheduler.shouldSkip && scheduler.shouldSkip(name)) continue;
+        const def = defs.find((s) => s.name === name);
+        if (!def || !def.whenAt) continue;
+        const fireAt = new Date(def.whenAt).getTime();
+        if (!isFinite(fireAt)) continue;
+        if (!nextSchedule || fireAt < nextSchedule.fireAt) {
+          nextSchedule = { name, fireAt, kind: 'one-shot' };
+        }
+      }
+    }
+
     // Deferred entries
     if (scheduler.deferred) {
       for (const [name, until] of scheduler.deferred) {

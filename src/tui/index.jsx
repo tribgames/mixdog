@@ -33,7 +33,17 @@ const TERMINAL_MODE_RESET_HIDDEN_CURSOR = TERMINAL_MODE_RESET.replace('\x1b[?25h
 // highlight, native copy); ctrl+click/right-click remain the app-side
 // extend triggers there. Restored via `\x1b[>0s` in TERMINAL_MODE_RESET.
 const XTSHIFTESCAPE_ON = process.env.WT_SESSION ? '' : '\x1b[>1s';
-const MOUSE_TRACKING_ON = `\x1b[?1000h\x1b[?1002h\x1b[?1006h${XTSHIFTESCAPE_ON}`;
+// Trailing `\x1b[?1007l` keeps alternate-scroll OFF for the whole session:
+// while mouse tracking is on it is irrelevant (wheel arrives as SGR events),
+// but if tracking ever drops (failed re-enable after the ctrl+wheel zoom
+// passthrough, terminal hiccup), an enabled 1007 makes the terminal convert
+// wheel input into Up/Down arrows — which lands in PROMPT HISTORY instead of
+// transcript scroll. With 1007 forced off the wheel degrades to a no-op, never
+// to history navigation. Restored to on (`\x1b[?1007h`) at teardown so
+// alt-screen apps that rely on alternate scroll (less/vim under Windows
+// Terminal, whose default is on) keep working after mixdog exits.
+const MOUSE_TRACKING_ON = `\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1007l${XTSHIFTESCAPE_ON}`;
+const ALT_SCROLL_RESTORE = '\x1b[?1007h';
 // Keyboard-protocol teardown. App.jsx enables kitty + modifyOtherKeys
 // synchronously at raw-mode-on (no query); here we just pop/disable them on
 // exit. POP_KITTY / DISABLE_MODIFY_OTHER_KEYS come from keyboard-protocol.mjs.
@@ -434,7 +444,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
       process.stdout.write(
         // Pop kitty + disable modifyOtherKeys BEFORE leaving the alt screen.
         // Both are no-ops if nothing was enabled, so this is always safe.
-        `${TERMINAL_MODE_RESET}\x1b[0 q${POP_KITTY}${DISABLE_MODIFY_OTHER_KEYS}\x1b[?1049l${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`,
+        `${TERMINAL_MODE_RESET}${ALT_SCROLL_RESTORE}\x1b[0 q${POP_KITTY}${DISABLE_MODIFY_OTHER_KEYS}\x1b[?1049l${TERMINAL_MODE_RESET}${TERMINAL_OSC_RESET_BG}`,
       );
     } catch { /* ignore */ }
   };

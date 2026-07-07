@@ -102,7 +102,9 @@ export function createCycleScheduler(deps) {
   }
 
   function markCycleRunning(cycle) {
-    _cycleRunning = { cycle, started_at: Date.now() }
+    // pid lets the statusline drop a phantom "running" marker as soon as
+    // this daemon dies mid-cycle, instead of waiting out the stale guard.
+    _cycleRunning = { cycle, started_at: Date.now(), pid: process.pid }
     _writeCycleStateFile()
   }
 

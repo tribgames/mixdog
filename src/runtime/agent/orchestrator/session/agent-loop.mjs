@@ -202,7 +202,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         if (typeof options.beforeAppend === 'function') {
             try { options.beforeAppend(); } catch { /* best-effort hook */ }
         }
-        messages.push({ role: 'user', content: merged.content });
+        // Tag steering-origin user messages so provider lowering keeps them a
+        // distinct user turn (see anthropic-oauth foldUserTextIntoToolResultTail):
+        // human/TUI steering must stay attributed as user input, never folded
+        // into a preceding tool_result where it reads as tool output.
+        messages.push({ role: 'user', content: merged.content, meta: { source: 'steering' } });
         try { opts.onSteerMessage?.(merged.text || steeringContentText(merged.content)); } catch {}
         if (sessionId) {
             try { process.stderr.write(`[steer] sess=${sessionId} injected ${stage} user message (merged=${merged.count} len=${String(merged.text || '').length})\n`); } catch {}

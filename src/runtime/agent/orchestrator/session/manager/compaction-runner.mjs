@@ -157,6 +157,10 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
             messages,
             cwd: session?.cwd,
             limit: hydrateLimit,
+            // Clear/manual-compact path: these rows are about to be summarized
+            // away, so skip the bounded 15s synchronous embedding-flush wait —
+            // kick the flush fire-and-forget (dense-search immediacy is moot here).
+            embedWait: false,
         }, callerCtx, memoryTimeoutMs);
     } catch (err) {
         // Ingest failed (dead/timed-out memory runtime). The transcript is NOT

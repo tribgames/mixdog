@@ -4,9 +4,10 @@ import { join, isAbsolute } from "path";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
 import { DATA_DIR } from "./config.mjs";
-import { runScript as execScript, ensureNopluginDir } from "./executor.mjs";
+import { ensureNopluginDir } from "./executor.mjs";
 import { withFileLockSync } from "../../shared/atomic-file.mjs";
 import { makeAgentDispatch } from '../../agent/orchestrator/agent-runtime/agent-dispatch.mjs';
+import { markFired, markDone, setDeferred, setSkippedUntil } from "../../shared/schedules-db.mjs";
 
 const schedulerLlm = makeAgentDispatch({ taskType: 'scheduler-task', agent: 'scheduler-task', sourceType: 'scheduler' });
 const SCHEDULE_LOG = join(DATA_DIR, "schedule.log");
@@ -77,29 +78,6 @@ export function validateCronExpression(time) {
   }
   if (!valid) throw new Error(`invalid cron expression "${time}": failed node-cron validation. Legacy formats (HH:MM, everyNm, hourly, daily) are no longer supported — use a cron expression instead.`);
 }
-// Build a {hhmm, dateStr, dow} snapshot in the given IANA TZ. Falls
-// back to local Date math when tz is absent.
-function tzSnapshot(now, tz) {
-  if (!tz) {
-    return {
-      hhmm: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
-      dateStr: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`,
-      dow: now.getDay(),
-    };
-  }
-  const parts = new Intl.DateTimeFormat("en-US", {
-    hour12: false, timeZone: tz,
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", weekday: "short",
-  }).formatToParts(now).reduce((acc, p) => { acc[p.type] = p.value; return acc; }, {});
-  const hour = parts.hour === "24" ? "00" : parts.hour;
-  const dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return {
-    hhmm: `${hour}:${parts.minute}`,
-    dateStr: `${parts.year}-${parts.month}-${parts.day}`,
-    dow: dowMap[parts.weekday] ?? now.getDay(),
-  };
-}
 class Scheduler {
   nonInteractive;
   interactive;
@@ -117,12 +95,10 @@ class Scheduler {
   // timestamp of last inbound message
   deferred = /* @__PURE__ */ new Map();
   // name -> deferred-until timestamp
-  skippedToday = /* @__PURE__ */ new Set();
-  // names skipped for today
-  skippedTodayDate = "";
-  // "YYYY-MM-DD" local date the skippedToday set belongs to
   cronJobs = /* @__PURE__ */ new Map();
   // name -> node-cron ScheduledTask for cron-expression entries
+  oneShotTimers = /* @__PURE__ */ new Map();
+  // name -> setTimeout handle for when_at one-shot entries
   //
   // `channelId` is the single resolved main-channel id used when a schedule's
   // `channel` flag is set (post-to-channel); absent flag → inject into session.
@@ -131,6 +107,7 @@ class Scheduler {
     this.interactive = interactive.filter((s) => s.enabled !== false);
     this.channelId = channelId ?? "";
     this.promptsDir = join(DATA_DIR, "prompts");
+    this.refreshSkipCache();
   }
   setInjectHandler(fn) {
     this.injectFn = fn;
@@ -144,41 +121,69 @@ class Scheduler {
   noteActivity() {
     this.lastActivity = Date.now();
   }
-  /** Defer a schedule by N minutes from now */
-  defer(name, minutes) {
+  /** Find a loaded schedule def by name (either routing bucket). */
+  findSchedule(name) {
+    return [...this.nonInteractive, ...this.interactive].find((s) => s.name === name) ?? null;
+  }
+  /** Rebuild the in-memory deferred cache (used by the status snapshot) from
+   *  the loaded rows' deferred_until values. Called on construct + reload so
+   *  persisted defer/skip state survives a config reload. */
+  refreshSkipCache() {
+    this.deferred.clear();
+    const now = Date.now();
+    for (const s of [...this.nonInteractive, ...this.interactive]) {
+      const until = s.deferredUntil ? new Date(s.deferredUntil).getTime() : 0;
+      if (until > now) this.deferred.set(s.name, until);
+    }
+  }
+  /** Defer a schedule by N minutes from now (persisted to deferred_until). */
+  async defer(name, minutes) {
     const mins = Number(minutes);
     if (!Number.isFinite(mins) || mins <= 0) {
       throw new Error(`defer: minutes must be a positive number, got ${JSON.stringify(minutes)}`);
     }
-    const allSchedules = [...this.nonInteractive, ...this.interactive];
-    const exists = allSchedules.some(s => s.name === name);
-    if (!exists) throw new Error(`defer: unknown schedule "${name}" — use schedule_status to list valid names`);
-    this.deferred.set(name, Date.now() + mins * 6e4);
+    const s = this.findSchedule(name);
+    if (!s) throw new Error(`defer: unknown schedule "${name}" — use schedule_status to list valid names`);
+    const until = new Date(Date.now() + mins * 6e4);
+    await setDeferred(name, until);
+    s.deferredUntil = until.toISOString();
+    this.deferred.set(name, until.getTime());
   }
-  /** Skip a schedule for the rest of today */
-  skipToday(name) {
-    const allSchedules = [...this.nonInteractive, ...this.interactive];
-    const exists = allSchedules.some(s => s.name === name);
-    if (!exists) throw new Error(`skip_today: unknown schedule "${name}" — use schedule_status to list valid names`);
-    this.rolloverSkippedTodayIfNeeded();
-    this.skippedToday.add(name);
+  /** Skip a schedule for the rest of today (persisted to skipped_until = end
+   *  of the local day). */
+  async skipToday(name) {
+    const s = this.findSchedule(name);
+    if (!s) throw new Error(`skip_today: unknown schedule "${name}" — use schedule_status to list valid names`);
+    const eod = new Date();
+    eod.setHours(23, 59, 59, 999);
+    await setSkippedUntil(name, eod);
+    s.skippedUntil = eod.toISOString();
   }
-  /** Roll the skippedToday bucket over when the local date has changed */
-  rolloverSkippedTodayIfNeeded() {
-    const today = new Date().toLocaleDateString('sv-SE');
-    if (this.skippedTodayDate !== today) {
-      this.skippedToday.clear();
-      this.skippedTodayDate = today;
-    }
-  }
-  /** Check if a schedule should be skipped (deferred or skipped today) */
+  /** Check if a schedule should be skipped, reading deferred_until /
+   *  skipped_until from the loaded row (in-memory cache, refreshed on reload). */
   shouldSkip(name) {
-    this.rolloverSkippedTodayIfNeeded();
-    if (this.skippedToday.has(name)) return true;
-    const until = this.deferred.get(name);
-    if (until && Date.now() < until) return true;
-    if (until && Date.now() >= until) this.deferred.delete(name);
+    const s = this.findSchedule(name);
+    if (!s) return false;
+    const now = Date.now();
+    const deferredUntil = s.deferredUntil ? new Date(s.deferredUntil).getTime() : 0;
+    if (deferredUntil && now < deferredUntil) return true;
+    const skippedUntil = s.skippedUntil ? new Date(s.skippedUntil).getTime() : 0;
+    if (skippedUntil && now < skippedUntil) return true;
     return false;
+  }
+  /** Timestamp (ms) until which `name` is currently skipped — the later of a
+   *  still-future deferred_until / skipped_until, or 0 if not skipped. Used to
+   *  re-arm a deferred when_at one-shot for the moment the skip expires. */
+  skipUntil(name) {
+    const s = this.findSchedule(name);
+    if (!s) return 0;
+    const now = Date.now();
+    let until = 0;
+    const deferredUntil = s.deferredUntil ? new Date(s.deferredUntil).getTime() : 0;
+    if (deferredUntil && now < deferredUntil) until = Math.max(until, deferredUntil);
+    const skippedUntil = s.skippedUntil ? new Date(s.skippedUntil).getTime() : 0;
+    if (skippedUntil && now < skippedUntil) until = Math.max(until, skippedUntil);
+    return until;
   }
   /** Get current session activity state.
    *  Returns { lastActivityMs, pendingWork } — callers apply their own
@@ -312,44 +317,48 @@ ${Scheduler.INSTANCE_UUID}`;
     this.tick();
     this.tickTimer = setInterval(() => this.tick(), TICK_INTERVAL);
   }
-  /** Register cron-expression entries with node-cron. All schedule entries
-   *  must use cron expressions. Entries that fail cron validation are skipped
-   *  with a logged error. */
+  /** Register schedule entries. `when_cron` entries bind to node-cron (dow
+   *  field covers the day guard); `when_at` entries arm a one-shot timer. */
   registerCronJobs() {
     const all = [
       ...this.nonInteractive.map((s) => ({ schedule: s, type: "non-interactive" })),
       ...this.interactive.map((s) => ({ schedule: s, type: "interactive" })),
     ];
     for (const { schedule: s, type } of all) {
-      if (!isCronExpression(s.time)) continue;
-      try {
-        const task = cron.schedule(s.time, () => this.onCronFire(s, type), {
-          timezone: s.timezone || undefined,
-          name: s.name,
-        });
-        this.cronJobs.set(s.name, task);
-        logSchedule(`registered cron "${s.name}" = "${s.time}"${s.timezone ? ` tz=${s.timezone}` : ""}\n`);
-      } catch (err) {
-        process.stderr.write(`mixdog scheduler: failed to register cron "${s.name}" (${s.time}): ${err}\n`);
+      if (s.whenCron) {
+        if (!isCronExpression(s.whenCron)) {
+          process.stderr.write(`mixdog scheduler: invalid cron "${s.name}" (${s.whenCron}) — skipped\n`);
+          continue;
+        }
+        try {
+          const task = cron.schedule(s.whenCron, () => this.onCronFire(s, type), {
+            timezone: s.timezone || undefined,
+            name: s.name,
+          });
+          this.cronJobs.set(s.name, task);
+          logSchedule(`registered cron "${s.name}" = "${s.whenCron}"${s.timezone ? ` tz=${s.timezone}` : ""}\n`);
+        } catch (err) {
+          process.stderr.write(`mixdog scheduler: failed to register cron "${s.name}" (${s.whenCron}): ${err}\n`);
+        }
+      } else if (s.whenAt) {
+        this.armOneShot(s, type);
       }
     }
   }
-  /** Fire path for a cron-triggered entry. Applies day guards against
-   *  the schedule's TZ (or local when absent). */
+  /** Fire path for a cron-triggered entry. node-cron's dow field covers the
+   *  day guard, so there is no separate days filter. Persists last_fired_at. */
   async onCronFire(schedule, type) {
     const now = /* @__PURE__ */ new Date();
-    const tz = schedule.timezone || null;
-    const snap = tzSnapshot(now, tz);
-    const isWeekend = snap.dow === 0 || snap.dow === 6;
-    const days = schedule.days ?? "daily";
-    if (!this.matchesDays(days, snap.dow, isWeekend)) return;
     if (this.shouldSkip(schedule.name)) return;
     // Record lastFired only when the fire actually proceeds past
     // fireTimed's running/precondition guards (it resolves truthy on a
     // real fire), so failed/skipped fires no longer display as fired.
-    this.fireTimed(schedule, type).then(
-      (fired) => { if (fired) this.lastFired.set(schedule.name, now.toISOString()); }
-    ).catch(
+    this.fireTimed(schedule, type).then(async (fired) => {
+      if (!fired) return;
+      this.lastFired.set(schedule.name, now.toISOString());
+      try { await markFired(schedule.name, now); }
+      catch (err) { process.stderr.write(`mixdog scheduler: ${schedule.name} markFired failed: ${err}\n`); }
+    }).catch(
       (err) => process.stderr.write(`mixdog scheduler: ${schedule.name} failed: ${err}\n`)
     );
   }
@@ -376,6 +385,96 @@ ${Scheduler.INSTANCE_UUID}`;
       try { task.destroy(); } catch {}
     }
     this.cronJobs.clear();
+    for (const [, timer] of this.oneShotTimers) {
+      try { clearTimeout(timer); } catch {}
+    }
+    this.oneShotTimers.clear();
+  }
+  /** Arm a when_at one-shot: schedule a timer for the instant. Past-due
+   *  entries (misfire recovery at start) fire immediately. setTimeout's
+   *  ~24.8-day (2^31-1 ms) ceiling is handled by re-arming for far-future
+   *  instants instead of firing early. */
+  armOneShot(schedule, type) {
+    const fireAt = new Date(schedule.whenAt).getTime();
+    if (!Number.isFinite(fireAt)) {
+      process.stderr.write(`mixdog scheduler: invalid when_at for "${schedule.name}" (${schedule.whenAt}) — skipped\n`);
+      return;
+    }
+    const delay = fireAt - Date.now();
+    const MAX = 2 ** 31 - 1;
+    if (delay > MAX) {
+      const timer = setTimeout(() => this.armOneShot(schedule, type), MAX);
+      this.oneShotTimers.set(schedule.name, timer);
+      return;
+    }
+    const timer = setTimeout(() => this.fireOneShot(schedule, type), Math.max(0, delay));
+    this.oneShotTimers.set(schedule.name, timer);
+    logSchedule(`armed one-shot "${schedule.name}" at ${new Date(fireAt).toISOString()}${delay <= 0 ? " (misfire → immediate)" : ""}\n`);
+  }
+  /** markDone with bounded retry. A one-shot that fired but failed to persist
+   *  status='done' would otherwise stay 'active' with a past when_at and
+   *  re-arm (duplicate fire) on the next restart/reload, so recovering the
+   *  done-marker matters — retry a few times with a logged failure. */
+  async markDoneWithRetry(name, attempts = 3) {
+    for (let i = 0; i < attempts; i++) {
+      try { await markDone(name); return true; }
+      catch (err) {
+        process.stderr.write(`mixdog scheduler: ${name} markDone failed (attempt ${i + 1}/${attempts}): ${err}\n`);
+        if (i < attempts - 1) await new Promise((r) => setTimeout(r, 250));
+      }
+    }
+    return false;
+  }
+  /** Fire a one-shot exactly once, then mark it done so it never re-arms.
+   *  Idempotent: if last_fired_at is already set (a prior fire whose markDone
+   *  failed left the row 'active'), do NOT fire again — only retry markDone so
+   *  the stuck-active entry stops re-arming/misfiring. */
+  async fireOneShot(schedule, type) {
+    this.oneShotTimers.delete(schedule.name);
+    const now = /* @__PURE__ */ new Date();
+    if (schedule.lastFiredAt) {
+      logSchedule(`one-shot "${schedule.name}" already fired (last_fired_at set) — retrying markDone only\n`);
+      await this.markDoneWithRetry(schedule.name);
+      return;
+    }
+    // when_at one-shots must honor deferred_until / skipped_until just like
+    // cron fires (onCronFire) do. Unlike a recurring cron, a one-shot's timer
+    // already elapsed and tickAsync is a no-op, so simply returning would mean
+    // it never fires until a restart. Re-arm for the deferral expiry (the
+    // later of when_at and deferred/skipped-until) so it fires on its own.
+    if (this.shouldSkip(schedule.name)) {
+      const until = this.skipUntil(schedule.name);
+      const fireAt = new Date(schedule.whenAt).getTime();
+      const target = Math.max(Number.isFinite(fireAt) ? fireAt : 0, until);
+      const MAX = 2 ** 31 - 1;
+      let delay = target - Date.now();
+      delay = delay > MAX ? MAX : Math.max(delay, 1);
+      logSchedule(`one-shot "${schedule.name}" deferred/skipped — re-arming for ${new Date(target).toISOString()}\n`);
+      const timer = setTimeout(() => this.fireOneShot(schedule, type), delay);
+      this.oneShotTimers.set(schedule.name, timer);
+      return;
+    }
+    // Mark done ONLY after a successful fire. A false/throwing fireTimed
+    // (missing prompt/model, running guard, dispatch error) must leave the
+    // one-shot pending so a reload/restart can retry it — never retire it.
+    try {
+      // awaitDispatch: for a one-shot we must wait for the actual LLM/relay
+      // dispatch outcome — a truthy fireTimed alone (cron's fire-and-forget
+      // contract) would retire the entry even when schedulerLlm() later
+      // rejects. Only a resolved dispatch counts as a real fire here.
+      const fired = await this.fireTimed(schedule, type, { awaitDispatch: true });
+      if (!fired) {
+        logSchedule(`one-shot "${schedule.name}" did not fire (skipped/guarded) — leaving pending for retry\n`);
+        return;
+      }
+      this.lastFired.set(schedule.name, now.toISOString());
+      schedule.lastFiredAt = now.toISOString();
+      try { await markFired(schedule.name, now); }
+      catch (err) { process.stderr.write(`mixdog scheduler: ${schedule.name} markFired failed: ${err}\n`); }
+      await this.markDoneWithRetry(schedule.name);
+    } catch (err) {
+      process.stderr.write(`mixdog scheduler: ${schedule.name} one-shot failed: ${err} — leaving pending for retry\n`);
+    }
   }
   restart() {
     if (this.tickTimer) {
@@ -397,12 +496,9 @@ ${Scheduler.INSTANCE_UUID}`;
     this.interactive = interactive.filter((s) => s.enabled !== false);
     this.channelId = channelId ?? "";
     this.promptsDir = join(DATA_DIR, "prompts");
-    if (this.deferred.size > 0 || this.skippedToday.size > 0) {
-      process.stderr.write(`mixdog scheduler: reload clearing ${this.deferred.size} deferred, ${this.skippedToday.size} skipped
-`);
-    }
-    this.deferred.clear();
-    this.skippedToday.clear();
+    // Defer/skip state is persisted (deferred_until / skipped_until) and
+    // re-read from the reloaded rows, so a reload no longer drops it.
+    this.refreshSkipCache();
     if (options.restart === false) {
       // Caller owns lifecycle; still drop stale cron bindings so they don't fire against old config.
       this.destroyCronJobs();
@@ -411,28 +507,17 @@ ${Scheduler.INSTANCE_UUID}`;
     this.restart();
   }
   getStatus() {
-    const result = [];
-    for (const s of this.nonInteractive) {
-      result.push({
-        name: s.name,
-        time: s.time,
-        days: s.days ?? "daily",
-        type: "non-interactive",
-        running: false,
-        lastFired: this.lastFired.get(s.name) ?? null
-      });
-    }
-    for (const s of this.interactive) {
-      result.push({
-        name: s.name,
-        time: s.time,
-        days: s.days ?? "daily",
-        type: "interactive",
-        running: false,
-        lastFired: this.lastFired.get(s.name) ?? null
-      });
-    }
-    return result;
+    const rows = [
+      ...this.nonInteractive.map((s) => ({ s, type: "non-interactive" })),
+      ...this.interactive.map((s) => ({ s, type: "interactive" })),
+    ];
+    return rows.map(({ s, type }) => ({
+      name: s.name,
+      time: s.whenCron ?? s.whenAt ?? null,
+      type,
+      running: false,
+      lastFired: this.lastFired.get(s.name) ?? null,
+    }));
   }
   async triggerManual(name) {
     const timed = [...this.nonInteractive, ...this.interactive].find((e) => e.name === name);
@@ -466,86 +551,24 @@ ${Scheduler.INSTANCE_UUID}`;
     // (registerCronJobs). tick() no longer does any per-day work; the
     // interval is kept for future cadence-driven work and lifecycle parity.
   }
-  /** Day abbreviation → JS day number (0=Sun...6=Sat) */
-  static DAY_ABBRS = {
-    sun: 0,
-    mon: 1,
-    tue: 2,
-    wed: 3,
-    thu: 4,
-    fri: 5,
-    sat: 6
-  };
-  /** Check if today matches the schedule's days setting */
-  matchesDays(days, dow, isWeekend) {
-    if (days === "daily") return true;
-    if (days === "weekday") return !isWeekend;
-    if (days === "weekend") return isWeekend;
-    const dayList = days.split(",").map((d) => d.trim().toLowerCase());
-    return dayList.some((d) => Scheduler.DAY_ABBRS[d] === dow);
-  }
   // ── Fire timed schedule ─────────────────────────────────────────────
-  async fireTimed(schedule, type) {
-    const execMode = schedule.exec ?? "prompt";
-    if (execMode === "script" || execMode === "script+prompt") {
-      if (!schedule.script) {
-        process.stderr.write(`mixdog scheduler: no script specified for "${schedule.name}"
-`);
-        return false;
-      }
-      if (this.running.has(schedule.name)) return false;
-      this.running.add(schedule.name);
-      const channelId2 = this.resolveChannel(schedule.channel);
-      logSchedule(`firing ${schedule.name} (${type}, exec=${execMode})
-`);
-      try {
-        const scriptResult = await this.runScript(schedule.script);
-        if (execMode === "script") {
-          this.running.delete(schedule.name);
-          if (scriptResult && this.sendFn) {
-            await this.sendFn(channelId2, scriptResult).catch(
-              (err) => process.stderr.write(`mixdog scheduler: ${schedule.name} relay failed: ${err}
-`)
-            );
-          }
-          process.stderr.write(`mixdog scheduler: ${schedule.name} script done
-`);
-          return true;
-        }
-        const prompt2 = this.loadPrompt(schedule.prompt ?? `${schedule.name}.md`);
-        if (!prompt2) {
-          this.running.delete(schedule.name);
-          process.stderr.write(`mixdog scheduler: prompt not found for "${schedule.name}"
-`);
-          return false;
-        }
-        const combinedPrompt = `${prompt2}
-
----
-## Script Output
-\`\`\`
-${scriptResult}
-\`\`\``;
-        this.running.delete(schedule.name);
-        return await this.fireTimedPrompt(schedule, type, combinedPrompt, channelId2);
-      } catch (err) {
-        this.running.delete(schedule.name);
-        process.stderr.write(`mixdog scheduler: ${schedule.name} script error: ${err}
-`);
-        return false;
-      }
-    }
+  async fireTimed(schedule, type, opts = {}) {
     const prompt = this.resolvePrompt(schedule);
     if (!prompt) {
       process.stderr.write(`mixdog scheduler: prompt not found for "${schedule.name}"
 `);
       return false;
     }
-    const channelId = this.resolveChannel(schedule.channel);
-    return await this.fireTimedPrompt(schedule, type, prompt, channelId);
+    // target 'channel' (non-interactive) → dispatch to the schedule's
+    // channel_id, falling back to the resolved main channel. target 'session'
+    // (interactive) → inject into the Lead session with no channel id.
+    const channelId = type === "non-interactive"
+      ? this.resolveChannel(schedule.channelId)
+      : "";
+    return await this.fireTimedPrompt(schedule, type, prompt, channelId, opts);
   }
   /** Fire a timed schedule with the given prompt content */
-  async fireTimedPrompt(schedule, type, prompt, channelId) {
+  async fireTimedPrompt(schedule, type, prompt, channelId, { awaitDispatch = false } = {}) {
     logSchedule(`firing ${schedule.name} (${type})
 `);
     if (type === "interactive") {
@@ -566,7 +589,11 @@ ${scriptResult}
       logSchedule(`${schedule.name}: missing required "model" in schedule config — dispatch rejected\n`);
       return false;
     }
-    schedulerLlm({ prompt, preset: presetId, sourceName: schedule.name })
+    // Cron (recurring) keeps the fire-and-forget contract: return truthy now
+    // and swallow async failures. A one-shot (awaitDispatch) instead awaits
+    // the dispatch so a rejected schedulerLlm() propagates and the caller
+    // leaves the entry pending for retry instead of retiring it.
+    const dispatch = schedulerLlm({ prompt, preset: presetId, sourceName: schedule.name })
       .then((result) => {
         this.running.delete(schedule.name);
         if (result && this.sendFn) {
@@ -575,42 +602,20 @@ ${scriptResult}
           );
         }
         logSchedule(`${schedule.name} done\n`);
+        return true;
       })
       .catch((err) => {
         this.running.delete(schedule.name);
         logSchedule(`${schedule.name} LLM error: ${err.message}\n`);
+        if (awaitDispatch) throw err;
+        return false;
       });
+    if (awaitDispatch) return await dispatch;
     return true;
   }
-  // ── Script execution (delegates to shared executor) ────────────────
-  runScript(scriptName) {
-    return new Promise((resolve, reject) => {
-      execScript(`schedule:${scriptName}`, scriptName, (result, code) => {
-        if (code !== 0 && code !== null) {
-          reject(new Error(`script exited with code ${code}`));
-        } else {
-          resolve(result);
-        }
-      });
-    });
-  }
   // ── Helpers ─────────────────────────────────────────────────────────
-  /**
-   * Map a schedule's `channel` flag to a target channel id. The flag is
-   * boolean-ish: any non-empty value except "false" (including legacy labels
-   * like "main") means "post to the main channel"; absent/false → "" (inject
-   * into the Lead session). No label resolution. A pure-digit / snowflake
-   * value is honored verbatim as an explicit id override (matches
-   * resolveWebhookChannelId in index.mjs).
-   */
-  resolveChannel(flag) {
-    if (flag == null) return "";
-    const v = String(flag).trim();
-    if (v === "" || v.toLowerCase() === "false") return "";
-    if (/^-?\d+$/.test(v)) return v;
-    return this.channelId ?? "";
-  }
-  /** Resolve prompt: try file first, fall back to inline text */
+  /** Resolve prompt: inline text from the row, with a prompts-dir file
+   *  fallback for legacy `<name>.md` references. */
   resolvePrompt(schedule) {
     const ref = schedule.prompt ?? `${schedule.name}.md`;
     const fromFile = this.loadPrompt(ref);
@@ -621,6 +626,19 @@ ${scriptResult}
   loadPrompt(nameOrPath) {
     const full = isAbsolute(nameOrPath) ? nameOrPath : join(this.promptsDir, nameOrPath);
     return tryRead(full);
+  }
+  /** Resolve a schedule's channel flag to a channel id (pre-refactor
+   *  semantics): absent/empty/"false" → "" (inject into session); a
+   *  pure-digit / snowflake value is honored verbatim as an explicit id
+   *  override; any other value — including legacy labels like "main" —
+   *  resolves to the configured main channel. */
+  resolveChannel(flag) {
+    if (flag == null) return this.channelId ?? "";
+    const v = String(flag).trim();
+    if (v.toLowerCase() === "false") return "";
+    if (/^-?\d+$/.test(v)) return v;
+    // empty or a legacy label ("main") → configured main channel
+    return this.channelId ?? "";
   }
 }
 export {

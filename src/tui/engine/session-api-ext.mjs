@@ -279,33 +279,33 @@ export function createEngineApiB(bag) {
       pushNotice('webhook config updated', 'info');
       return result;
     },
-    saveSchedule: (entry) => {
-      const result = runtime.saveSchedule(entry);
+    saveSchedule: async (entry) => {
+      const result = await runtime.saveSchedule(entry);
       pushNotice(`schedule saved: ${result.name}`, 'info');
       return result;
     },
-    deleteSchedule: (name) => {
-      const result = runtime.deleteSchedule(name);
+    deleteSchedule: async (name) => {
+      const result = await runtime.deleteSchedule(name);
       pushNotice(`schedule deleted: ${name}`, 'info');
       return result;
     },
-    setScheduleEnabled: (name, enabled) => {
-      const result = runtime.setScheduleEnabled(name, enabled);
+    setScheduleEnabled: async (name, enabled) => {
+      const result = await runtime.setScheduleEnabled(name, enabled);
       pushNotice(`schedule ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
       return result;
     },
-    saveWebhook: (entry) => {
-      const result = runtime.saveWebhook(entry);
+    saveWebhook: async (entry) => {
+      const result = await runtime.saveWebhook(entry);
       pushNotice(`webhook saved: ${result.name}`, 'info');
       return result;
     },
-    deleteWebhook: (name) => {
-      const result = runtime.deleteWebhook(name);
+    deleteWebhook: async (name) => {
+      const result = await runtime.deleteWebhook(name);
       pushNotice(`webhook deleted: ${name}`, 'info');
       return result;
     },
-    setWebhookEnabled: (name, enabled) => {
-      const result = runtime.setWebhookEnabled(name, enabled);
+    setWebhookEnabled: async (name, enabled) => {
+      const result = await runtime.setWebhookEnabled(name, enabled);
       pushNotice(`webhook ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
       return result;
     },

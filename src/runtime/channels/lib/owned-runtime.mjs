@@ -407,7 +407,7 @@ async function refreshBridgeOwnership(options = {}) {
 async function reloadRuntimeConfig() {
   const previousBackend = getBackend();
   const previousBackendName = previousBackend?.name || "";
-  setConfig(loadConfig());
+  setConfig(await loadConfig());
   scheduler.reloadConfig(
     getConfig().nonInteractive ?? [],
     getConfig().interactive ?? [],

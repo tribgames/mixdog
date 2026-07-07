@@ -15,7 +15,7 @@ import { writeLastSessionCwd } from '../runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
-import { checkLatestVersion, runGlobalUpdate, localPackageVersion } from '../runtime/shared/update-checker.mjs';
+import { checkLatestVersion, runGlobalUpdate, localPackageVersion, isDevInstall } from '../runtime/shared/update-checker.mjs';
 import {
   modelVisibleToolCompletionMessage,
   shouldPersistModelVisibleToolCompletion,
@@ -634,6 +634,12 @@ export async function createMixdogSessionRuntime({
   };
   // phase: 'idle' | 'checking' | 'installing' | 'installed' | 'failed'
   let updateProcessState = { phase: 'idle', version: null, error: null };
+  // Boot detects an available update but DEFERS the actual npm install to the
+  // graceful shutdown path (flushPendingUpdate, invoked from close()). Running
+  // `npm install -g` while the process is live overwrites the very .mjs files
+  // node has loaded → Windows TAR_ENTRY_ERROR file-locks. Installing on quit
+  // lets the parent release those handles first.
+  let pendingUpdateInstall = false;
 
   function autoUpdateEnabled() {
     return config?.update?.auto !== false;
@@ -662,6 +668,9 @@ export async function createMixdogSessionRuntime({
     if (updateProcessState.phase === 'installing') {
       return { ...updateProcessState, alreadyInstalling: true, error: 'update already in progress' };
     }
+    // A manual install consumes the boot-armed deferred install so quitting
+    // afterwards can't spawn a second redundant `npm install -g`.
+    pendingUpdateInstall = false;
     updateProcessState = { phase: 'installing', version: null, error: null };
     try {
       const result = await runGlobalUpdate();
@@ -678,35 +687,44 @@ export async function createMixdogSessionRuntime({
 
   // Non-blocking boot hook: fires after the runtime object below is fully
   // constructed (setTimeout(0) defers past the synchronous return), so a
-  // slow/hanging registry request or npm install can never delay session
-  // boot. Auto-update defaults to ON unless config.update.auto is explicitly
-  // false; a failed check or install is
-  // swallowed — getUpdateStatus()/getUpdateSettings() are the only surfaces,
-  // there is no push notice channel from runtime -> TUI today.
+  // slow/hanging registry request can never delay session boot. The check
+  // ALWAYS runs (populates updateCheckState for the maintenance picker), but
+  // the boot hook only DETECTS + arms a deferred install — the actual
+  // runGlobalUpdate now happens on graceful shutdown (flushPendingUpdate via
+  // close()) so npm never overwrites files the live process holds.
   // force:true — always hit the registry at boot (the 24h disk cache went
   // stale-visible: it kept reporting an older "latest" than the installed
   // version). checkLatestVersion() still falls back to the cache offline.
+  // isDevInstall() gate: a git checkout / clone (or non-node_modules install)
+  // must never self-update — `npm install -g` would fight the working tree.
   const updateBootTimer = setTimeout(() => {
     void (async () => {
       await checkForUpdateInternal({ force: true });
-      if (autoUpdateEnabled() && updateCheckState.updateAvailable) {
-        const result = await runUpdateNowInternal();
-        // Surface the boot auto-update outcome as a UI-only notice (TUI maps
-        // meta.kind 'update-notice' to a transcript notice, never a
-        // model-visible message). Silent before: installed-but-needs-restart
-        // and failed installs were invisible unless the user opened the
-        // maintenance picker.
-        if (result?.phase === 'installed') {
-          const v = result.version && result.version !== 'unknown'
-            ? `v${result.version}` : (updateCheckState.latestVersion ? `v${updateCheckState.latestVersion}` : 'latest');
-          emitRuntimeNotification(`mixdog ${v} installed — restart to apply.`, { kind: 'update-notice', tone: 'info' });
-        } else if (result?.phase === 'failed') {
-          emitRuntimeNotification(`mixdog auto-update failed: ${result.error || 'unknown error'}`, { kind: 'update-notice', tone: 'warn' });
-        }
+      if (autoUpdateEnabled() && !isDevInstall() && updateCheckState.updateAvailable) {
+        pendingUpdateInstall = true;
+        const v = updateCheckState.latestVersion ? `v${updateCheckState.latestVersion}` : 'latest';
+        // UI-only notice (TUI maps meta.kind 'update-notice' to a transcript
+        // notice, never a model-visible message). tone 'info': non-urgent,
+        // the install fires quietly on quit.
+        emitRuntimeNotification(`mixdog ${v} available — installs when you quit.`, { kind: 'update-notice', tone: 'info' });
       }
     })().catch(() => {});
   }, 0);
   updateBootTimer.unref?.();
+
+  // Invoked from the graceful shutdown path (lifecycle close() on exit/quit).
+  // Spawns the deferred npm install fire-and-forget: runGlobalUpdate() detaches
+  // (POSIX) / unrefs its child, so we neither await it nor block teardown —
+  // the parent exits, releasing file handles, while npm installs in the hidden
+  // background child. No-op unless an update was armed at boot.
+  function flushPendingUpdate() {
+    if (!pendingUpdateInstall) return;
+    pendingUpdateInstall = false;
+    // Re-check at flush time: the user may have turned update.auto off after
+    // the boot notice armed the install — respect the current setting.
+    if (!autoUpdateEnabled()) return;
+    try { void runGlobalUpdate(); } catch { /* best-effort: exit must not wedge */ }
+  }
 
   function emitRuntimeNotification(content, meta = {}) {
     const text = String(content || '').trim();
@@ -1985,6 +2003,7 @@ export async function createMixdogSessionRuntime({
     resolveRoute,
     applyDeferredToolSurface,
     standaloneTools,
+    flushPendingUpdate,
   });
   const resourceApi = createResourceApi({
     getConfig: () => config,

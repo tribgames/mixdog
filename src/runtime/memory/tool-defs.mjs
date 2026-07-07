@@ -36,7 +36,7 @@ export const TOOL_DEFS = [
       properties: {
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Search text, or array for independent fan-out queries.' },
         id: { anyOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' }, minItems: 1 }], description: 'Exact #id(s) from recall. Do not invent ids.' },
-        period: { type: 'string', description: "last (all history newest-first), Nm/Nh/Nd (rolling), today/yesterday/this_week/last_week, all, YYYY-MM-DD, YYYY-MM-DD~YYYY-MM-DD, HH:MM~HH:MM (today), or 'YYYY-MM-DD HH:MM~HH:MM'." },
+        period: { type: 'string', description: "last (recent sessions grouped, newest-active first; limit=session count [default 5], offset=session paging), Nm/Nh/Nd (rolling), today/yesterday/this_week/last_week, all, YYYY-MM-DD, YYYY-MM-DD~YYYY-MM-DD, HH:MM~HH:MM (today), or 'YYYY-MM-DD HH:MM~HH:MM'." },
         limit: { type: 'number', description: 'Max entries.' },
         offset: { type: 'number', description: 'Skip entries.' },
         sort: { type: 'string', enum: ['importance', 'date'], description: 'importance or date.' },

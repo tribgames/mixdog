@@ -19,6 +19,7 @@ import {
     getBackgroundTask,
 } from '../../../../shared/background-tasks.mjs';
 import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
+import { detachedSpawnOpts } from '../../../../shared/spawn-flags.mjs';
 import {
     getShellJobsDir,
     shellJobStdoutPath,
@@ -828,9 +829,8 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     const child = spawn(shell, [wrappedTempPath], {
         cwd: workDir,
         env: scrubLoaderVars(scrubProviderSecrets({ ...spawnEnv })),
-        detached: true,
         stdio: 'ignore',
-        windowsHide: true,
+        ...detachedSpawnOpts,
     });
     startChildGuardian({
         childPid: child.pid,

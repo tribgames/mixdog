@@ -397,12 +397,25 @@ function toAnthropicMessages(messages) {
         // First-party client parity: fold a user text turn that directly follows a
         // tool_result turn into that tool_result's content (empty end_turn
         // livelock prevention; see foldUserTextIntoToolResultTail).
-        if (m.role === 'user' && foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))) {
+        //   EXCEPTION: steering-origin user messages (human/TUI interjections)
+        //   keep their own user turn so provenance survives — folding them would
+        //   disguise user input as tool output. Anthropic accepts a user text
+        //   message after a tool_result message, so the turn stays request-valid.
+        const isSteering = m.role === 'user' && m.meta?.source === 'steering';
+        if (m.role === 'user' && !isSteering
+            && foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))) {
             continue;
         }
         result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });
     }
     return sanitizeAnthropicContentPairs(result);
+}
+
+// Test-only: expose the lowering so the steering-provenance test can assert
+// the API-key provider keeps steering-tagged user turns distinct (mirrors
+// anthropic-oauth._buildRequestBodyForCacheSmoke coverage).
+export function _toAnthropicMessagesForTest(messages) {
+    return toAnthropicMessages(messages);
 }
 
 // Applies cache_control markers to the FINAL, already-sanitized Anthropic

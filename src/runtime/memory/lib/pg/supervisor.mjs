@@ -28,7 +28,12 @@ import {
 }                                             from 'node:fs';
 import { join, resolve }                      from 'node:path';
 import { tmpdir }                             from 'node:os';
-import { updateJsonAtomicSync }               from '../../../shared/atomic-file.mjs';
+import {
+  discoveryPath as _pgDiscoveryPath,
+  readServiceAdvert as _readPgServiceAdvert,
+  writeServiceAdvert as _writePgServiceAdvert,
+} from '../../../shared/service-discovery.mjs';
+import { withFileLockSync } from '../../../shared/atomic-file.mjs';
 
 // ── pg-process interface (Track A) ───────────────────────────────────────────
 // Dynamic import so this module loads even before Track A's file exists.
@@ -42,6 +47,7 @@ async function _getPgProc() {
     stopPg:           mod.stopPg,
     healthcheckPg:    mod.healthcheckPg,
     reconcileConfV2:  mod.reconcileConfV2,
+    stopPgSync:       mod.stopPgSync,
   };
   return _pgProc;
 }
@@ -181,23 +187,95 @@ const _RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
   ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
   : join(tmpdir(), 'mixdog');
 const _ACTIVE_FILE = join(_RUNTIME_ROOT, 'active-instance.json');
+// Single-writer PG advert. Port discovery (pg_port et al.) moved OUT of the
+// shared, lock-guarded active-instance.json into discovery/pg.json, written by
+// this supervisor via a plain atomic rename (NO .lock) so it can never be
+// starved by active-instance lock contention.
+const _PG_DISCOVERY = 'pg';
 
-// Lock contention codes thrown by withFileLockSync when the active-instance
-// lock cannot be acquired within timeoutMs (or try-once contention).
-const _LOCK_CONTENTION_CODES = new Set(['ELOCKTIMEOUT', 'ELOCKCONTENDED']);
+// Read the PG advert, preferring the single-writer discovery file
+// (discovery/pg.json) and falling back to the legacy active-instance.json pg_*
+// fields for cross-version compat. Field names are identical in both sources.
+function _readPgAdvert() {
+  const advert = _readPgServiceAdvert(_PG_DISCOVERY);
+  if (advert && Number(advert.pg_port) > 0) return advert;
+  try {
+    const ai = JSON.parse(readFileSync(_ACTIVE_FILE, 'utf8'));
+    if (ai && Number(ai.pg_port) > 0) return ai;
+  } catch {}
+  return advert ?? null;
+}
+
+// Transient write-contention codes. ELOCK* survive from the old locked path;
+// EPERM/EBUSY/EACCES cover Windows atomic-rename hiccups on the plain-rename
+// discovery write so it backs off and retries rather than dropping the advert.
+const _LOCK_CONTENTION_CODES = new Set(['ELOCKTIMEOUT', 'ELOCKCONTENDED', 'EPERM', 'EBUSY', 'EACCES']);
+
+// Is the current on-disk advert owned by a DIFFERENT, still-live supervisor?
+// A clear (pg_port → null) must never unlink a NEWER supervisor's fresh advert:
+// re-read under the lock and, if pg_owner_pid names another live process, leave
+// it. Our own pid, a dead owner, or a missing/legacy owner → safe to unlink.
+function _pgAdvertIsForeignLive(adv) {
+  const owner = Number(adv?.pg_owner_pid);
+  if (!Number.isInteger(owner) || owner <= 0) return false;
+  if (owner === process.pid) return false;
+  return isPidAlive(owner);
+}
 
 function _applyActiveInstancePatch(fields, timeoutMs) {
-  updateJsonAtomicSync(_ACTIVE_FILE, (curRaw) => {
-    // Drop stale fields (pid/startedAt) written by older server versions.
-    const { pid: _legacyPid, startedAt: _legacyStartedAt, ...cur } = curRaw ?? {};
-    // Omit null-valued fields (clean removal when pg is stopped).
-    const merged = { ...cur, updatedAt: Date.now() };
+  // pg.json is NOT single-writer: start/attach/stop paths write it across
+  // separate supervisor processes, so the unlocked read-merge-write raced and
+  // lost cross-process updates. Guard it with pg.json's OWN private lock —
+  // supervisor-only contention, so it never recreates the shared
+  // active-instance.json bottleneck (memory.json stays lock-free).
+  const file = _pgDiscoveryPath(_PG_DISCOVERY);
+  withFileLockSync(`${file}.lock`, () => {
+    const cur = _readPgServiceAdvert(_PG_DISCOVERY) ?? {};
+    // Drop stale fields (pid/startedAt/updatedAt) written by older versions.
+    const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...merged } = cur;
     for (const [k, v] of Object.entries(fields)) {
       if (v == null) delete merged[k];
       else merged[k] = v;
     }
-    return merged;
-  }, { compact: true, fsyncDir: true, renameFallback: 'truncate', timeoutMs });
+    const port = Number(merged.pg_port);
+    if (!Number.isInteger(port) || port <= 0) {
+      // No live port left → drop the advert (clean pg shutdown). But a late
+      // clear from an old shutdown/recovery path must NOT delete a fresh advert
+      // a newer supervisor just published — unlink only when it is ours or a
+      // dead corpse, never another live owner's.
+      if (_pgAdvertIsForeignLive(cur)) return;
+      try { unlinkSync(file); } catch {}
+      return;
+    }
+    // Stamp our supervisor pid so a later clear can prove advert ownership.
+    merged.pg_owner_pid = process.pid;
+    _writePgServiceAdvert(_PG_DISCOVERY, merged);
+  }, { timeoutMs });
+}
+
+// Re-stamp advert ownership on REUSE without clobbering a concurrently-updated
+// advert. Unlike patchActiveInstance (which blindly overwrites pg_port/pg_pgdata
+// /pg_runtime_dir from the reuse-time snapshot — already stale by the time the
+// lock is acquired, so a restart or a different live owner that landed meanwhile
+// gets clobbered), this RE-READS under the lock and only stamps our pid when the
+// advert STILL describes the same instance we reused (same pgdata + port) and no
+// DIFFERENT live owner has since taken it. It touches only pg_owner_pid — never
+// rewriting other fields from the stale snapshot.
+function _restampReuseOwner({ pgdata, port }) {
+  const file = _pgDiscoveryPath(_PG_DISCOVERY);
+  try {
+    withFileLockSync(`${file}.lock`, () => {
+      const cur = _readPgServiceAdvert(_PG_DISCOVERY);
+      if (!cur) return;                                   // advert gone — nothing to re-stamp
+      if (Number(cur.pg_port) !== Number(port)) return;   // restarted on a new port
+      if (!cur.pg_pgdata || resolve(cur.pg_pgdata) !== resolve(pgdata)) return; // different instance
+      if (_pgAdvertIsForeignLive(cur)) return;            // a different live owner holds it
+      if (Number(cur.pg_owner_pid) === process.pid) return; // already ours
+      const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...merged } = cur;
+      merged.pg_owner_pid = process.pid;                  // minimal: owner pid only (updatedAt re-stamped on write)
+      _writePgServiceAdvert(_PG_DISCOVERY, merged);
+    }, { timeoutMs: 1000 });
+  } catch { /* best-effort: lock contention → skip re-stamp (guard reverts to prior owner) */ }
 }
 
 // Single module-level background-retry slot: a delayed retry must NEVER replay
@@ -347,7 +425,7 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
   let existingPort = null;
   let existingRtDir = runtimeDir;
   try {
-    ai = JSON.parse(readFileSync(_ACTIVE_FILE, 'utf8'));
+    ai = _readPgAdvert();
     if (ai?.pg_port && ai?.pg_pgdata && resolve(ai.pg_pgdata) === resolve(pgdata)) {
       existingPort = ai.pg_port;
       existingRtDir = ai?.pg_runtime_dir ?? runtimeDir;
@@ -359,6 +437,14 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
       if (await healthcheckPg({ port: existingPort })) {
         __mixdogMemoryLog(`[supervisor-pg] reusing PG on port ${existingPort} (${source}:active-instance)\n`);
         _live = { port: existingPort, pgdata, runtimeDir: existingRtDir, proc: null };
+        // Re-stamp advert ownership: this process is now a live owner of the
+        // reused postmaster. Without it the advert keeps the previous (possibly
+        // dead) owner pid, and a later sync exit hook's _pgAdvertIsForeignLive
+        // guard would judge it "not foreign-live" and wrongly sync-stop a
+        // postmaster this reuser still uses. Use the revalidating re-stamp (not
+        // patchActiveInstance) so a concurrent restart/owner change is not
+        // clobbered by this reuse-time snapshot.
+        _restampReuseOwner({ pgdata, port: existingPort });
         return { host: '127.0.0.1', port: existingPort, runtimeDir: existingRtDir, pgdataDir: pgdata };
       }
     } catch {}
@@ -452,7 +538,7 @@ async function _doEnsure(dataDir) {
     let existingPort = null;
     let ai = null;
     try {
-      ai = JSON.parse(readFileSync(_ACTIVE_FILE, 'utf8'));
+      ai = _readPgAdvert();
       // Only reuse a recorded instance when it was started for THIS pgdata.
       // active-instance.json is process-global; without matching pg_pgdata a
       // healthy PG serving a different data directory would be reused, binding
@@ -536,7 +622,7 @@ export async function stopPgForShutdown() {
     // _live may be null if PG was started by another process or adapter call.
     // Attempt graceful stop via active-instance.json.
     let ai = null;
-    try { ai = JSON.parse(readFileSync(_ACTIVE_FILE, 'utf8')); } catch {}
+    try { ai = _readPgAdvert(); } catch {}
     if (!ai?.pg_port || !ai?.pg_pgdata) return;
     const pgdataDir2  = ai.pg_pgdata;
     const runtimeDir2 = ai.pg_runtime_dir;
@@ -569,4 +655,29 @@ export async function stopPgForShutdown() {
   // Bounded sync clear (<=4s: 2s + one 2s retry). A residual stale pg_port is
   // tolerated — readers healthcheck-verify the port before reuse.
   patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null, pg_runtime_dir: null }, { timeoutMs: 2000, syncRetries: 1 });
+}
+
+/**
+ * Synchronous last-ditch PG stop for a process 'exit' hook. Covers the paths
+ * where the async stopPgForShutdown() above never runs/completes — a Windows
+ * force-kill, or stop() hitting its exit timeout — which otherwise kill the
+ * postmaster mid-write and force WAL crash recovery on next boot. No-op once
+ * the async path has cleared _live + active-instance (its record is gone), so
+ * a graceful shutdown is never double-stopped.
+ */
+export function stopPgForShutdownSync() {
+  // Mirror the async clear's ownership guard (_pgAdvertIsForeignLive) and apply
+  // it UNCONDITIONALLY — even when _live is set. Async shutdown or a
+  // cross-process reuse may have handed this postmaster to a different, still-
+  // live owner that re-stamped pg_owner_pid; that owner will stop it itself, so
+  // the exit hook must never sync-stop it out from under them.
+  let ai = null;
+  try { ai = _readPgAdvert(); } catch {}
+  if (_pgAdvertIsForeignLive(ai)) return;
+  let runtimeDir = _live?.runtimeDir, pgdataDir = _live?.pgdata;
+  if (!runtimeDir || !pgdataDir) {
+    runtimeDir = ai?.pg_runtime_dir; pgdataDir = ai?.pg_pgdata;
+  }
+  if (!runtimeDir || !pgdataDir || !_pgProc?.stopPgSync) return;
+  try { _pgProc.stopPgSync({ runtimeDir, pgdataDir }); } catch {}
 }

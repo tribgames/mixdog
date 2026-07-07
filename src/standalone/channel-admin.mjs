@@ -24,6 +24,20 @@ import {
 } from '../runtime/shared/config.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { readMarkdownDocument, serializeFrontmatterDoc } from '../runtime/shared/markdown-frontmatter.mjs';
+import {
+  listSchedules as dbListSchedules,
+  getSchedule as dbGetSchedule,
+  upsertSchedule,
+  deleteSchedule as dbDeleteSchedule,
+  setEnabled as dbSetEnabled,
+} from '../runtime/shared/schedules-db.mjs';
+import {
+  listEndpoints as dbListEndpoints,
+  loadEndpointConfig as dbLoadEndpoint,
+  upsertEndpoint as dbUpsertEndpoint,
+  deleteEndpoint as dbDeleteEndpoint,
+  setEndpointEnabled as dbSetEndpointEnabled,
+} from '../runtime/shared/webhooks-db.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DEFAULT_CHANNELS = Object.freeze({
@@ -36,10 +50,6 @@ const DEFAULT_CHANNELS = Object.freeze({
 
 function dataDir() {
   return resolvePluginData();
-}
-
-function schedulesDir() {
-  return join(dataDir(), 'schedules');
 }
 
 function webhooksDir() {
@@ -279,34 +289,86 @@ function normalizeCron(time) {
   return value;
 }
 
-export function listSchedules() {
-  return listEntryDirs(schedulesDir()).map((name) => {
-    const dir = join(schedulesDir(), name);
-    const { frontmatter, body } = readMarkdownDocument(readText(join(dir, 'SCHEDULE.md'), ''));
-    const config = { ...frontmatter };
-    if (Object.prototype.hasOwnProperty.call(config, 'enabled')) {
-      config.enabled = config.enabled !== 'false' && config.enabled !== false;
+// Day-name / keyword -> cron day-of-week number (Sun=0 .. Sat=6).
+const DAY_TOKEN_TO_DOW = {
+  sun: 0, sunday: 0,
+  mon: 1, monday: 1,
+  tue: 2, tues: 2, tuesday: 2,
+  wed: 3, weds: 3, wednesday: 3,
+  thu: 4, thur: 4, thurs: 4, thursday: 4,
+  fri: 5, friday: 5,
+  sat: 6, saturday: 6,
+};
+
+// Fold a legacy `days` selector into the day-of-week (last) field of a cron
+// expression: daily -> '*', weekday -> '1-5', weekend -> '0,6', explicit day
+// lists ("mon,wed,fri" | "1,3,5") -> comma-joined numbers. Throws on an
+// unmappable token so bad combos surface instead of silently mis-scheduling.
+export function foldDaysIntoCron(cron, days) {
+  const parts = String(cron).trim().split(/\s+/);
+  const dowIndex = parts.length - 1;
+  const raw = String(days || '').trim().toLowerCase();
+  // days absent -> keep the cron's own day-of-week field ('0 9 * * 1' stays
+  // Monday-only). Only an explicit selector rewrites the dow field.
+  if (!raw) return parts.join(' ');
+  let dow;
+  if (raw === 'daily' || raw === 'everyday' || raw === 'every day') dow = '*';
+  else if (raw === 'weekday' || raw === 'weekdays') dow = '1-5';
+  else if (raw === 'weekend' || raw === 'weekends') dow = '0,6';
+  else {
+    const nums = raw.split(/[\s,]+/).filter(Boolean).map((tok) => (
+      /^[0-6]$/.test(tok) ? Number(tok) : DAY_TOKEN_TO_DOW[tok]
+    ));
+    if (nums.some((n) => n === undefined)) {
+      throw new Error(`days "${days}" is not a recognizable day selector`);
     }
-    // Dir name is canonical identity; frontmatter `name` is display-only and
-    // must never override the slug used for routing/deletion. `description`
-    // defaults to '' for old files with no such key (backward compat).
-    const description = String(config.description || '');
-    delete config.name;
-    delete config.description;
-    return {
-      name,
-      description,
-      ...config,
-      instructions: body,
-      route: config.channel ? `channel:${config.channel}` : 'session',
-    };
-  });
+    dow = nums.join(',');
+  }
+  parts[dowIndex] = dow;
+  return parts.join(' ');
 }
 
-export function saveSchedule({
+function parseAtDatetime(at) {
+  const raw = String(at || '').trim();
+  if (!raw) throw new Error('at must be a datetime');
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) throw new Error(`at "${at}" is not a valid datetime`);
+  return d;
+}
+
+// Map the store's def shape onto the flat display shape every schedule reader
+// (channelSetup, renderChannelStatus, TUI pickers) consumes: `.time` renders
+// the cron or the one-shot datetime, `.route` the channel/session target.
+function scheduleToDisplay(s) {
+  return {
+    name: s.name,
+    description: s.description || '',
+    time: s.whenCron || (s.whenAt ? `at ${new Date(s.whenAt).toISOString()}` : ''),
+    whenAt: s.whenAt || undefined,
+    whenCron: s.whenCron || undefined,
+    timezone: s.timezone || undefined,
+    channel: s.channelId || undefined,
+    model: s.model || undefined,
+    enabled: s.enabled !== false,
+    instructions: s.prompt,
+    route: s.target === 'channel' ? `channel:${s.channelId}` : 'session',
+  };
+}
+
+export async function listSchedules() {
+  const rows = await dbListSchedules();
+  return rows.map(scheduleToDisplay);
+}
+
+// Register or update a schedule in the PG store. Recurring input maps `time`
+// (+ optional `days`) to a cron; one-shot input maps an `at` datetime; the two
+// are mutually exclusive (also enforced by the store's when_at/when_cron XOR).
+// `channel` selects a channel target (model required); otherwise session.
+export async function saveSchedule({
   name,
   description = '',
   time,
+  at,
   timezone,
   days,
   channel,
@@ -316,78 +378,69 @@ export function saveSchedule({
   overwrite = false,
 } = {}) {
   const id = assertName(name, 'schedule name');
-  const cron = normalizeCron(time);
   const body = String(instructions || '').trim();
   if (!body) throw new Error('schedule instructions are required');
   if (channel && !model) throw new Error('model is required when channel is set');
-  const dir = join(schedulesDir(), id);
-  if (existsSync(dir) && overwrite !== true) throw new Error(`schedule "${id}" already exists`);
-  mkdirSync(dir, { recursive: true });
-  // name (== dir slug) and description lead the frontmatter per the SKILL.md
-  // convention; operational keys follow.
-  const config = { name: id, description: String(description || '').trim(), time: cron };
-  if (timezone) config.timezone = String(timezone).trim();
-  if (days && days !== 'daily') config.days = String(days).trim();
-  if (channel) config.channel = String(channel).trim();
-  if (model) config.model = String(model).trim();
-  if (enabled === false) config.enabled = false;
-  writeTextAtomic(join(dir, 'SCHEDULE.md'), serializeFrontmatterDoc(config, body));
-  return { name: id, ...config, instructions: body };
+  const hasTime = time != null && String(time).trim() !== '';
+  const hasAt = at != null && String(at).trim() !== '';
+  if (hasTime && hasAt) throw new Error('provide either `time` (recurring) or `at` (one-shot), not both');
+  if (!hasTime && !hasAt) throw new Error('either `time` (recurring cron) or `at` (one-shot datetime) is required');
+  if (overwrite !== true && (await dbGetSchedule(id))) {
+    throw new Error(`schedule "${id}" already exists`);
+  }
+  const whenCron = hasTime ? foldDaysIntoCron(normalizeCron(time), days) : null;
+  const whenAt = hasAt ? parseAtDatetime(at) : null;
+  const saved = await upsertSchedule({
+    name: id,
+    description: String(description || '').trim(),
+    whenCron,
+    whenAt,
+    timezone: timezone ? String(timezone).trim() : null,
+    target: channel ? 'channel' : 'session',
+    channelId: channel ? String(channel).trim() : null,
+    model: model ? String(model).trim() : null,
+    prompt: body,
+    enabled: enabled !== false,
+  });
+  return scheduleToDisplay(saved);
 }
 
-export function deleteSchedule(name) {
+export async function deleteSchedule(name) {
   const id = assertName(name, 'schedule name');
-  rmSync(join(schedulesDir(), id), { recursive: true, force: true });
+  await dbDeleteSchedule(id);
   return { name: id, deleted: true };
 }
 
-export function setScheduleEnabled(name, enabled) {
+export async function setScheduleEnabled(name, enabled) {
   const id = assertName(name, 'schedule name');
-  const dir = join(schedulesDir(), id);
-  const mdPath = join(dir, 'SCHEDULE.md');
-  if (!existsSync(mdPath)) throw new Error(`schedule "${id}" does not exist`);
-  const { frontmatter, body } = readMarkdownDocument(readText(mdPath, ''));
-  // Re-spread with name/description first so the round-trip keeps SKILL.md
-  // key order; name stays the dir slug regardless of stale frontmatter.
-  const { name: _staleName, description = '', ...rest } = frontmatter;
-  writeTextAtomic(mdPath, serializeFrontmatterDoc(
-    { name: id, description, ...rest, enabled: enabled !== false },
-    body,
-  ));
+  const updated = await dbSetEnabled(id, enabled !== false);
+  if (!updated) throw new Error(`schedule "${id}" does not exist`);
   return { name: id, enabled: enabled !== false };
 }
 
-export function listWebhooks() {
-  return listEntryDirs(webhooksDir()).map((name) => {
-    const dir = join(webhooksDir(), name);
-    const { frontmatter, body } = readMarkdownDocument(readText(join(dir, 'WEBHOOK.md'), ''));
-    const config = { ...frontmatter };
-    if (Object.prototype.hasOwnProperty.call(config, 'enabled')) {
-      config.enabled = config.enabled !== 'false' && config.enabled !== false;
-    }
-    // Dir name is canonical identity/URL routing key; frontmatter `name` is
-    // display-only and must not override the slug. `description` defaults to
-    // '' for old files with no such key (backward compat).
-    const description = String(config.description || '');
-    delete config.name;
-    delete config.description;
-    // Secret lives in a side file (<name>/secret), never in frontmatter, so
-    // an arbitrary user-supplied secret (quotes/colon/newline) round-trips
-    // losslessly and setWebhookEnabled cannot corrupt it.
-    const hasSecret = Boolean(readText(join(dir, 'secret'), '').trim());
-    return {
-      name,
-      description,
-      ...config,
-      secretSet: hasSecret,
-      secret: undefined,
-      instructions: body,
-      route: config.channel ? `channel:${config.channel}` : 'session',
-    };
-  });
+// Webhook endpoints are stored in the PG table `webhooks.endpoints`
+// (webhooks-db.mjs) — the single source of truth. Legacy per-endpoint
+// WEBHOOK.md + secret folders are imported once at boot and deleted by the
+// store's migration hook.
+export async function listWebhooks() {
+  const endpoints = await dbListEndpoints();
+  return endpoints.map((ep) => ({
+    name: ep.name,
+    description: ep.description || '',
+    parser: ep.parser || 'github',
+    ...(ep.channelId ? { channel: ep.channelId } : {}),
+    ...(ep.model ? { model: ep.model } : {}),
+    enabled: ep.enabled,
+    // The store never projects the plaintext secret through list paths; it
+    // exposes a presence flag (secretSet) instead.
+    secretSet: ep.secretSet === true,
+    secret: undefined,
+    instructions: ep.instructions,
+    route: ep.channelId ? `channel:${ep.channelId}` : 'session',
+  }));
 }
 
-export function saveWebhook({
+export async function saveWebhook({
   name,
   description = '',
   parser = 'github',
@@ -406,47 +459,46 @@ export function saveWebhook({
   const body = String(instructions || '').trim();
   if (!body) throw new Error('webhook instructions are required');
   if (channel && !model) throw new Error('model is required when channel is set');
-  const dir = join(webhooksDir(), id);
-  if (existsSync(dir) && overwrite !== true) throw new Error(`webhook "${id}" already exists`);
-  mkdirSync(dir, { recursive: true });
+  if (overwrite !== true && (await dbLoadEndpoint(id))) {
+    throw new Error(`webhook "${id}" already exists`);
+  }
   const secretValue = String(secret || randomBytes(24).toString('hex')).trim();
-  // name (== dir slug) and description lead the frontmatter per the SKILL.md
-  // convention; operational keys (parser/channel/model/enabled) follow.
-  const config = { name: id, description: String(description || '').trim(), parser: nextParser };
-  if (channel) config.channel = String(channel).trim();
-  if (model) config.model = String(model).trim();
-  if (enabled === false) config.enabled = false;
-  // Secret to a side file (plaintext, same exposure level as the former
-  // config.json), kept OUT of the frontmatter to avoid unquote round-trip
-  // corruption. deleteWebhook rmSync's the whole dir, so this is removed too.
-  writeTextAtomic(join(dir, 'secret'), secretValue + '\n');
-  writeTextAtomic(join(dir, 'WEBHOOK.md'), serializeFrontmatterDoc(config, body));
-  return { name: id, ...config, secret: secretValue, instructions: body };
+  const saved = await dbUpsertEndpoint({
+    name: id,
+    description: String(description || '').trim(),
+    parser: nextParser,
+    channelId: channel ? String(channel).trim() : null,
+    model: model ? String(model).trim() : null,
+    secret: secretValue,
+    instructions: body,
+    enabled: enabled !== false,
+  });
+  return {
+    name: id,
+    description: saved.description,
+    parser: saved.parser,
+    ...(saved.channelId ? { channel: saved.channelId } : {}),
+    ...(saved.model ? { model: saved.model } : {}),
+    ...(enabled === false ? { enabled: false } : {}),
+    secret: secretValue,
+    instructions: body,
+  };
 }
 
-export function deleteWebhook(name) {
+export async function deleteWebhook(name) {
   const id = assertName(name, 'webhook name');
-  rmSync(join(webhooksDir(), id), { recursive: true, force: true });
+  await dbDeleteEndpoint(id);
   return { name: id, deleted: true };
 }
 
-export function setWebhookEnabled(name, enabled) {
+export async function setWebhookEnabled(name, enabled) {
   const id = assertName(name, 'webhook name');
-  const dir = join(webhooksDir(), id);
-  const mdPath = join(dir, 'WEBHOOK.md');
-  if (!existsSync(mdPath)) throw new Error(`webhook "${id}" does not exist`);
-  const { frontmatter, body } = readMarkdownDocument(readText(mdPath, ''));
-  // Re-spread with name/description first so the round-trip keeps SKILL.md
-  // key order; name stays the dir slug regardless of stale frontmatter.
-  const { name: _staleName, description = '', ...rest } = frontmatter;
-  writeTextAtomic(mdPath, serializeFrontmatterDoc(
-    { name: id, description, ...rest, enabled: enabled !== false },
-    body,
-  ));
+  const updated = await dbSetEndpointEnabled(id, enabled !== false);
+  if (!updated) throw new Error(`webhook "${id}" does not exist`);
   return { name: id, enabled: enabled !== false };
 }
 
-export function channelSetup(config = null) {
+export async function channelSetup(config = null) {
   const cfg = normalizeChannelsConfig(config || readSection('channels'));
   const discordToken = getDiscordToken();
   const discordProblem = diagnoseDiscordTokenValue(discordToken, cfg);
@@ -475,13 +527,13 @@ export function channelSetup(config = null) {
       status: webhookAuth ? 'Set' : 'Off',
     },
     channel: getChannel(cfg),
-    schedules: listSchedules(),
-    webhooks: listWebhooks(),
+    schedules: await listSchedules(),
+    webhooks: await listWebhooks(),
   };
 }
 
-export function renderChannelStatus(config = null) {
-  const setup = channelSetup(config);
+export async function renderChannelStatus(config = null) {
+  const setup = await channelSetup(config);
   const lines = [];
   lines.push(`discord  ${setup.discord.status}${setup.discord.problem ? ` (${setup.discord.problem})` : ''}`);
   lines.push(`webhook  ${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · auth ${setup.webhook.status} · port ${setup.webhook.port || 3333}`);

@@ -261,7 +261,12 @@ TUI 피커 없음 (settings-api `setSystemShell`만 존재).
 ### 스케줄 / 웹훅 ("스케줄 추가", "웹훅")
 
 1. **확인**: `/schedules` / `/webhooks` (둘 다 `/channels` 허브의 섹션 딥링크).  
-2. **변경**: 해당 피커에서 추가/편집 — 채널 모듈 설정에 저장.  
+2. **변경**: 해당 피커에서 추가/편집.  
+   - **스케줄 저장소 = PG 테이블 `scheduler.schedules`** (더 이상 `<mixdogData>/schedules/<n>/SCHEDULE.md` 파일 아님). 관리 API `saveSchedule/deleteSchedule/setScheduleEnabled/listSchedules` (`channel-admin.mjs`) → 스토어 `schedules-db.mjs`.  
+   - **필드**: 반복형은 `time`(5·6필드 cron) + 선택 `days`(cron 요일필드로 접힘: daily→`*`, weekday→`1-5`, weekend→`0,6`, `mon,wed,fri`/`1,3,5`→숫자; 못 매핑하면 에러) → `when_cron`. 1회성은 `at`(datetime) → `when_at`. `time`·`at`은 **택1**(스토어 XOR). `channel` 지정 시 `target=channel`+`channel_id`(이때 `model` 필수), 없으면 `target=session`. 본문(instructions)=`prompt`.  
+   - **레거시 마이그레이션**: 기존 `schedules/` 디렉터리는 스토어 첫 init 시 SCHEDULE.md들을 테이블로 1회 자동 임포트(같은 days→cron 접힘) 후 디렉터리를 `schedules.migrated`로 rename(삭제 안 함). 한 줄 요약 로그.  
+   - **웹훅 저장소 = PG 테이블 `webhooks.endpoints`** (더 이상 `<mixdogData>/webhooks/<n>/WEBHOOK.md` + `secret` 파일 아님). 관리 API `saveWebhook/deleteWebhook/setWebhookEnabled/listWebhooks` (`channel-admin.mjs`) → 스토어 `webhooks-db.mjs`(`upsertEndpoint/deleteEndpoint/setEndpointEnabled/listEndpoints`). 필드: `parser`(github·generic·stripe·sentry), 선택 `channel`(지정 시 `model` 필수)→`channel_id`, `secret`(미지정 시 랜덤 생성, 컬럼에 저장), 본문(instructions), `enabled`.  
+   - **웹훅 레거시 마이그레이션**: 기존 `webhooks/` 디렉터리는 스토어 첫 init 시 각 `WEBHOOK.md`+`secret`을 `upsertEndpoint`로 1회 자동 임포트 후 디렉터리를 **삭제**(rename 아님 — 사용자 선택). 부분 실패 시 디렉터리 보존·로그·다음 부팅 재시도. 옛 per-endpoint deliveries(중복제거 이력)는 임포트 안 함(리셋 허용).  
 3. **검증**: 피커 목록 반영; 스케줄은 다음 발동 시각 표시.
 
 ### 원격 세션 ("리모트 가져와")

@@ -1,6 +1,7 @@
 'use strict';
 
 import { spawn, spawnSync } from 'node:child_process';
+import { detachedSpawnOpts } from './spawn-flags.mjs';
 
 function positiveInt(value) {
   const n = Number(value);
@@ -141,14 +142,13 @@ export function startChildGuardian({
         forceGraceMs: Math.max(100, Math.floor(Number(forceGraceMs) || Number(graceMs) || 3000)),
       }),
     ], {
-      detached: true,
       stdio: 'ignore',
-      windowsHide: true,
       env: {
         PATH: process.env.PATH || '',
         SystemRoot: process.env.SystemRoot || process.env.WINDIR || '',
         WINDIR: process.env.WINDIR || process.env.SystemRoot || '',
       },
+      ...detachedSpawnOpts,
     });
     guardian.unref?.();
     return { pid: guardian.pid || null, label, childPid: child };

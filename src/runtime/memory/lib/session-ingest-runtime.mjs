@@ -371,17 +371,31 @@ export function createSessionIngestRuntime({
     //     cap). Serialized on _rawEmbedFlushChain so bursts don't stack full
     //     backlog scans; the ~60s tick still sweeps whatever this misses.
     if (insertedIds.length > 0) {
-      const run = flushRawEmbeddings(db, { limit: 200, ids: insertedIds })
+      const runOwnFlush = () => flushRawEmbeddings(db, { limit: 200, ids: insertedIds })
         .then((r) => {
           if (r.attempted > 0) log(`[embed] post-ingest raw flush (own) attempted=${r.attempted} embedded=${r.embedded}\n`)
           return r
         })
         .catch((err) => log(`[embed] post-ingest raw flush failed: ${err?.message || err}\n`))
-      let timer
-      await Promise.race([
-        run,
-        new Promise((resolve) => { timer = setTimeout(resolve, INGEST_EMBED_WAIT_MS) }),
-      ]).finally(() => clearTimeout(timer))
+      // Clear/manual-compact path opts out (embedWait:false): those rows are
+      // about to be summarized away, so dense-search immediacy is pointless and
+      // the bounded wait would only delay compaction. Enqueue the flush onto
+      // _rawEmbedFlushChain (append, don't await) so clear-path ingest bursts
+      // stay serialized like the backlog sweep — never running concurrent raw
+      // flushes. All other callers keep the awaited (bounded) wait so a
+      // following recall sees the rows.
+      if (args.embedWait === false) {
+        _rawEmbedFlushChain = _rawEmbedFlushChain
+          .catch(() => {})
+          .then(runOwnFlush)
+          .catch(() => {})
+      } else {
+        let timer
+        await Promise.race([
+          runOwnFlush(),
+          new Promise((resolve) => { timer = setTimeout(resolve, INGEST_EMBED_WAIT_MS) }),
+        ]).finally(() => clearTimeout(timer))
+      }
     }
     // Background backlog sweep — kicked, never awaited. Runs even when THIS
     // call inserted 0 rows, so pre-existing backlog is not left waiting for

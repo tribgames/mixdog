@@ -18,8 +18,11 @@ const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 // conversion WINS over WT's native ctrl+wheel font zoom. During the zoom
 // passthrough window we must turn BOTH mouse tracking and alternate scroll
 // off, or ctrl+wheel lands as Up/Down (prompt history) instead of zooming.
+// 1007 is kept OFF for the entire session (index.jsx boots with ?1007l and
+// the restore below re-asserts it): if mouse tracking ever drops while 1007
+// is on, every wheel notch turns into prompt-history Up/Down. Off means a
+// degraded wheel is a no-op, never history navigation.
 const ALT_SCROLL_OFF = '\x1b[?1007l';
-const ALT_SCROLL_ON = '\x1b[?1007h';
 const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
 // Bit 2 (4) of the SGR button byte = shift held during the click. Wheel/ctrl
@@ -76,15 +79,25 @@ export function useMouseInput({
     } catch {
       return;
     }
-    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
-    zoomTimerRef.current = setTimeout(() => {
+    // Re-enable with RETRIES: a single swallowed write failure (EAGAIN
+    // backpressure is real on Windows console streams) used to leave mouse
+    // tracking off for the rest of the session — wheel scroll dead, and with
+    // alternate scroll enabled the wheel then typed into prompt history.
+    const restore = (attempt) => {
       zoomTimerRef.current = null;
       try {
-        stdout.write(ALT_SCROLL_ON + MOUSE_TRACKING_ON);
+        stdout.write(MOUSE_TRACKING_ON + ALT_SCROLL_OFF);
       } catch {
-        // The terminal may already be closing.
+        // The terminal may be closing — but it may also be transient
+        // backpressure; retry a few times before giving up.
+        if (attempt < 5) {
+          zoomTimerRef.current = setTimeout(() => restore(attempt + 1), 200);
+          zoomTimerRef.current.unref?.();
+        }
       }
-    }, 700);
+    };
+    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+    zoomTimerRef.current = setTimeout(() => restore(0), 700);
     zoomTimerRef.current.unref?.();
   }, [stdout, zoomTimerRef]);
 

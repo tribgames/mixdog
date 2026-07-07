@@ -1,23 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as crypto from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readMarkdownDocument } from '../src/runtime/shared/markdown-frontmatter.mjs';
 
 // DATA_DIR resolves from MIXDOG_DATA_DIR at module import time (via
 // ./config.mjs -> resolvePluginData), so the env var MUST be set before
-// the first dynamic import of webhook.mjs.
+// the first dynamic import of webhook.mjs. Endpoint defs + delivery dedup now
+// live in PG; this smoke suite deliberately exercises ONLY the pure,
+// PG-free surface (signature verify + header helpers) so it needs no live DB.
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-webhook-test-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const {
   extractSignature,
   verifySignature,
-  loadEndpointConfig,
   STRIPE_TOLERANCE_MS,
 } = await import('../src/runtime/channels/lib/webhook.mjs');
+const { extractDeliveryId, buildHeadersSummary } = await import(
+  '../src/runtime/channels/lib/webhook/deliveries.mjs'
+);
 
 function hmacHex(secret, payload) {
   return crypto.createHmac('sha256', secret).update(payload).digest('hex');
@@ -141,56 +145,45 @@ test('extractSignature: returns null when no known signature header is present',
   assert.equal(extractSignature(headers, 'github'), null);
 });
 
-// ── endpoint config loader: WEBHOOK.md frontmatter + secret side file ─
+// ── delivery-id extraction: header precedence + null fallback ─────────
 
-test('loadEndpointConfig: loads frontmatter + reads secret from side file', () => {
-  const name = 'my-endpoint';
-  const dir = join(dataDir, 'webhooks', name);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(dir, 'WEBHOOK.md'),
-    [
-      '---',
-      'channel: main',
-      'parser: github',
-      'enabled: true',
-      '---',
-      '',
-      'Handle this webhook by summarizing the payload.',
-      '',
-    ].join('\n'),
-    'utf8',
-  );
-  writeFileSync(join(dir, 'secret'), 'my-webhook-secret\n', 'utf8');
-
-  const cfg = loadEndpointConfig(name);
-  assert.equal(cfg.channel, 'main');
-  assert.equal(cfg.parser, 'github');
-  assert.equal(cfg.enabled, true);
+test('extractDeliveryId: prefers x-github-delivery over other id headers', () => {
+  const headers = { 'x-github-delivery': 'gh-1', 'x-delivery-id': 'dl-1', 'x-request-id': 'rq-1' };
+  assert.equal(extractDeliveryId(headers), 'gh-1');
 });
 
-test('loadEndpointConfig: enabled: false frontmatter casts to boolean false', () => {
-  const name = 'disabled-endpoint';
-  const dir = join(dataDir, 'webhooks', name);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(dir, 'WEBHOOK.md'),
-    ['---', 'channel: main', 'enabled: false', '---', '', 'body text', ''].join('\n'),
-    'utf8',
-  );
-  const cfg = loadEndpointConfig(name);
-  assert.equal(cfg.enabled, false);
+test('extractDeliveryId: falls back to x-delivery-id then x-request-id', () => {
+  assert.equal(extractDeliveryId({ 'x-delivery-id': 'dl-1', 'x-request-id': 'rq-1' }), 'dl-1');
+  assert.equal(extractDeliveryId({ 'x-request-id': 'rq-1' }), 'rq-1');
 });
 
-test('loadEndpointConfig: returns null for a name with no WEBHOOK.md', () => {
-  assert.equal(loadEndpointConfig('never-registered'), null);
+test('extractDeliveryId: returns null when no id header is present', () => {
+  assert.equal(extractDeliveryId({ 'content-type': 'application/json' }), null);
 });
 
-// loadEndpointConfig only surfaces the frontmatter (by design — see
-// webhook.mjs comment above loadEndpointConfig); confirm the underlying
-// shared parser it delegates to also recovers the markdown body, since
-// the loader's frontmatter/body split is not independently exercised
-// through the exported loadEndpointConfig surface.
+// ── headers summary: event/delivery/content-type + signature presence ─
+
+test('buildHeadersSummary: captures event, delivery, content-type and signature presence', () => {
+  const summary = buildHeadersSummary({
+    'x-github-event': 'issues',
+    'x-github-delivery': 'gh-1',
+    'x-hub-signature-256': 'sha256=abc',
+    'content-type': 'application/json',
+  });
+  assert.equal(summary.event_type, 'issues');
+  assert.equal(summary.delivery_id, 'gh-1');
+  assert.equal(summary.signature_present, true);
+  assert.equal(summary.content_type, 'application/json');
+});
+
+test('buildHeadersSummary: signature_present is false when no signature header is present', () => {
+  const summary = buildHeadersSummary({ 'x-github-event': 'push' });
+  assert.equal(summary.signature_present, false);
+  assert.equal(summary.event_type, 'push');
+});
+
+// The webhook body/instructions still round-trip through the shared markdown
+// parser (frontmatter + body split); confirm that pure surface directly.
 test('readMarkdownDocument: WEBHOOK.md-shaped input yields frontmatter + body', () => {
   const raw = [
     '---',

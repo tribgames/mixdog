@@ -16,7 +16,7 @@ import {
 // worker handle, soft reload).
 export function createChannelConfigApi({ flushBackendSave, channels, reloadChannelsSoon }) {
   return {
-    getChannelSetup() {
+    async getChannelSetup() {
       // Flush a pending debounced backend switch first so setup readers
       // (Settings → Channel Setting, remote toggles) never observe the
       // previous backend during the 150ms debounce window.
@@ -36,33 +36,33 @@ export function createChannelConfigApi({ flushBackendSave, channels, reloadChann
       reloadChannelsSoon();
       return result;
     },
-    saveSchedule(entry) {
-      const result = saveSchedule(entry);
+    async saveSchedule(entry) {
+      const result = await saveSchedule(entry);
       reloadChannelsSoon();
       return result;
     },
-    deleteSchedule(name) {
-      const result = deleteSchedule(name);
+    async deleteSchedule(name) {
+      const result = await deleteSchedule(name);
       reloadChannelsSoon();
       return result;
     },
-    setScheduleEnabled(name, enabled) {
-      const result = setScheduleEnabled(name, enabled);
+    async setScheduleEnabled(name, enabled) {
+      const result = await setScheduleEnabled(name, enabled);
       reloadChannelsSoon();
       return result;
     },
-    saveWebhook(entry) {
-      const result = saveWebhook(entry);
+    async saveWebhook(entry) {
+      const result = await saveWebhook(entry);
       reloadChannelsSoon();
       return result;
     },
-    deleteWebhook(name) {
-      const result = deleteWebhook(name);
+    async deleteWebhook(name) {
+      const result = await deleteWebhook(name);
       reloadChannelsSoon();
       return result;
     },
-    setWebhookEnabled(name, enabled) {
-      const result = setWebhookEnabled(name, enabled);
+    async setWebhookEnabled(name, enabled) {
+      const result = await setWebhookEnabled(name, enabled);
       reloadChannelsSoon();
       return result;
     },

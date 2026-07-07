@@ -31,6 +31,10 @@ export function createMaintenancePickers({
       const upd = readSettings();
       const status = readStatus();
       const current = upd.currentVersion || 'unknown';
+      // After a successful in-place install the running process is still the
+      // old version; surface the pending version so "Current" doesn't look
+      // stale/broken until restart.
+      const installedVersion = status.phase === 'installed' ? (status.version || upd.latestVersion || null) : null;
       const latestMeta = checking || status.phase === 'checking'
         ? 'checking…'
         : (upd.latestVersion || 'unknown');
@@ -38,8 +42,10 @@ export function createMaintenancePickers({
         {
           value: 'current',
           label: 'Current version',
-          meta: current,
-          description: 'Installed mixdog version.',
+          meta: installedVersion ? `${current} → ${installedVersion}` : current,
+          description: installedVersion
+            ? `v${installedVersion} installed — restart mixdog to apply.`
+            : 'Installed mixdog version.',
           _action: 'current',
         },
         {
@@ -73,13 +79,17 @@ export function createMaintenancePickers({
           buttons: [
             {
               value: 'update-now',
-              label: upd.updateAvailable
-                ? `Update to v${upd.latestVersion || 'latest'}`
-                : 'Update now',
+              label: installedVersion
+                ? `v${installedVersion} installed — restart to apply`
+                : (status.phase === 'installing'
+                  ? 'Installing…'
+                  : (upd.updateAvailable
+                    ? `Update to v${upd.latestVersion || 'latest'}`
+                    : 'Update now')),
             },
           ],
           onConfirm: (button) => {
-            if (button?.value === 'update-now') runUpdate();
+            if (button?.value === 'update-now' && !installedVersion && status.phase !== 'installing') runUpdate();
           },
         },
         onSelect: (_value, item) => {
@@ -118,7 +128,7 @@ export function createMaintenancePickers({
       void Promise.resolve(store.runUpdateNow?.())
         .then((result) => {
           if (result?.ok) {
-            store.pushNotice(`v${result.version} installed — restart to apply`, 'info');
+            store.pushNotice(`v${result.version} installed — restart to apply`, 'warn');
           } else {
             store.pushNotice(`Update failed: ${result?.error || 'unknown error'}`, 'error');
           }

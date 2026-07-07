@@ -492,8 +492,14 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'web_search_call':
       return unitDescriptor('Web Research', { count: queryCount(a, 'query', 'queries', 'keywords') || 1, noun: 'query', pluralNoun: 'queries' });
     case 'web_fetch':
-    case 'fetch':
       return unitDescriptor('Web Research', { count: queryCount(a, 'url', 'urls', 'uri', 'uris') || 1, active: 'Fetching', done: 'Fetched', noun: 'URL', pluralNoun: 'URLs' });
+    case 'fetch': {
+      const fetchLimit = Number(a.limit ?? a.messages);
+      const fetchCount = Number.isFinite(fetchLimit) && fetchLimit > 0
+        ? Math.floor(fetchLimit)
+        : queryCount(a, 'messages') || 1;
+      return unitDescriptor('Web Research', { count: fetchCount, active: 'Fetching', done: 'Fetched', noun: 'message' });
+    }
     case 'recall':
     case 'recall_memory':
     case 'search_memories':
@@ -501,8 +507,15 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'remember':
     case 'save_memory':
     case 'update_memory':
-    case 'memory':
       return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Writing', done: 'Wrote', noun: 'memory item' });
+    case 'memory': {
+      const action = String(a.action || '').toLowerCase();
+      const op = String(a.op || '').toLowerCase();
+      const isMutation = op === 'add' || op === 'edit' || op === 'delete' || op === 'promote' || op === 'dismiss'
+        || (action === 'core' && !op);
+      if (isMutation) return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Writing', done: 'Wrote', noun: 'memory item' });
+      return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Checking', done: 'Checked', noun: 'memory item' });
+    }
     case 'explore':
       return unitDescriptor('Explore', { count: queryCount(a, 'query', 'queries', 'prompt', 'task', 'goal') || 1, noun: 'query', pluralNoun: 'queries' });
     case 'shell':
@@ -514,8 +527,11 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'agent':
     case 'bridge':
       return unitDescriptor('Agent', { count: queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1, noun: 'agent' });
-    case 'task':
+    case 'task': {
+      const action = String(a.action || '').toLowerCase();
+      if (action === 'cancel') return unitDescriptor('Task', { count: queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1, active: 'Cancelling', done: 'Cancelled', noun: 'task' });
       return unitDescriptor('Task', { count: queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1, noun: 'task' });
+    }
     case 'skill':
     case 'skill_execute':
     case 'skill_view':

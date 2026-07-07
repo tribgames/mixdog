@@ -23,6 +23,7 @@ import {
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
 import { fetchEntriesByIdsScoped } from './memory-recall-id-patch.mjs'
 import { retrieveEntries } from './memory-retrievers.mjs'
+import { buildPromotedExclusionClauses } from './memory-recall-scope-filter.mjs'
 import { cleanMemoryText } from './memory.mjs'
 import { insertTraceEvents } from './trace-store.mjs'
 import {
@@ -659,6 +660,107 @@ export function createQueryHandlers({
         log(`[search-time] render+trace=${Date.now() - _t2}ms total=${Date.now() - _t0}ms textLen=${out.text.length}\n`)
       }
       return out
+    }
+
+    // period='last': session-grouped browse. Pick the N most-recently-active
+    // sessions (limit = session count, default 5; offset = session-level
+    // paging) ranked by MAX(ts) DESC, then fill each with its newest rows
+    // under a per-session row cap. Session selection and per-session fetch
+    // reuse the same projectScope / excludeStatuses filters as the generic
+    // browse below; the grouped renderer adds activity-span headers. Output
+    // size is bounded by session count x per-session row cap plus the
+    // orchestrator-level tool-output KB cap — no recall-local line budget.
+    if (temporal?.mode === 'last') {
+      const sessionCount = Number.isFinite(requestedLimit) ? limit : 5
+      const PER_SESSION_ROW_CAP = 10
+      const excludeStatuses = includeArchived ? [] : ['archived']
+      const VALID_LAST_CATS = new Set(['rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue'])
+      const catList = category == null
+        ? []
+        : (Array.isArray(category) ? category : [category])
+            .map((c) => String(c).trim().toLowerCase())
+            .filter((c) => VALID_LAST_CATS.has(c))
+      // 1) rank sessions by most-recent activity (MAX(ts)) over the SAME pool
+      //    the fill draws from — roots (status-filtered) + unchunked raw
+      //    leaves, member rows excluded — so a session ranked here can never
+      //    fill empty (e.g. an archived-root session whose only surviving rows
+      //    are members). projectScope + excludeStatuses + category + promoted
+      //    exclusion all match the fill filters below.
+      const selWhere = [
+        'session_id IS NOT NULL',
+        "btrim(session_id) <> ''",
+        '(is_root = 1 OR chunk_root IS NULL OR chunk_root = id)',
+      ]
+      const selParams = []
+      if (projectScope === 'common') {
+        selWhere.push('project_id IS NULL')
+      } else if (typeof projectScope === 'string' && projectScope && projectScope !== 'all') {
+        selParams.push(projectScope)
+        selWhere.push(`(project_id IS NULL OR project_id = $${selParams.length})`)
+      }
+      if (excludeStatuses.length > 0) {
+        const ph = excludeStatuses.map((s) => { selParams.push(s); return `$${selParams.length}` }).join(',')
+        selWhere.push(`(status IS NULL OR status NOT IN (${ph}))`)
+      }
+      if (catList.length > 0) {
+        const ph = catList.map((c) => { selParams.push(c); return `$${selParams.length}` }).join(',')
+        selWhere.push(`category IN (${ph})`)
+      }
+      for (const c of buildPromotedExclusionClauses()) selWhere.push(c)
+      selParams.push(sessionCount, offset)
+      // Deterministic tie-breaker: equal MAX(ts) across sessions would let the
+      // LIMIT/OFFSET window skip or duplicate a session between offset pages
+      // without a stable secondary sort.
+      const sessSql = `SELECT session_id, MAX(ts) AS last_ts
+                       FROM entries
+                       WHERE ${selWhere.join(' AND ')}
+                       GROUP BY session_id
+                       ORDER BY last_ts DESC, session_id DESC
+                       LIMIT $${selParams.length - 1} OFFSET $${selParams.length}`
+      const sessRows = (await db.query(sessSql, selParams)).rows
+      // 2) per selected session, fetch its newest rows (roots+members, sort by
+      //    date) plus the fresh raw window, capped at PER_SESSION_ROW_CAP.
+      const allRows = []
+      for (const s of sessRows) {
+        const sid = String(s?.session_id || '').trim()
+        if (!sid) continue
+        const sf = { limit: PER_SESSION_ROW_CAP, session_id: sid, projectScope, sort: 'date' }
+        if (includeMembers) sf.includeMembers = true
+        if (excludeStatuses.length > 0) sf.excludeStatuses = excludeStatuses
+        if (catList.length > 0) sf.category = catList
+        const sRows = await retrieveEntries(db, sf)
+        let merged = sRows
+        if (includeRaw) {
+          const rawRows = await readRawRowsInWindow(db, null, Date.now(), PER_SESSION_ROW_CAP, { projectScope, sessionId: sid })
+          const seenIds = new Set(sRows.map((r) => Number(r.id)))
+          for (const r of sRows) if (Array.isArray(r.members)) for (const m of r.members) seenIds.add(Number(m.id))
+          // readRawRowsInWindow carries no category filter, so a category-
+          // scoped last must gate raw rows here to match the ranking/fill
+          // category predicate (unclassified raw rows have no category and
+          // are correctly dropped when a category is requested).
+          let newRaw = rawRows.filter((r) => !seenIds.has(Number(r.id)))
+          if (catList.length > 0) {
+            newRaw = newRaw.filter((r) => catList.includes(String(r.category || '').trim().toLowerCase()))
+          }
+          // readRawRowsInWindow carries no status filter either, so an
+          // includeArchived:false browse must drop archived raw rows here to
+          // match the ranking/root-fill excludeStatuses predicate.
+          if (excludeStatuses.length > 0) {
+            newRaw = newRaw.filter((r) => {
+              const st = String(r.status || '').trim().toLowerCase()
+              return !st || !excludeStatuses.includes(st)
+            })
+          }
+          if (newRaw.length > 0) {
+            merged = [...sRows, ...newRaw]
+            merged.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0) || (Number(b.id) || 0) - (Number(a.id) || 0))
+            merged = merged.slice(0, PER_SESSION_ROW_CAP)
+          }
+        }
+        for (const r of merged) allRows.push(r)
+      }
+      const _currentSessionHint = String(args?.currentSessionId || '').trim()
+      return { text: recallCapPrefix + renderSessionGroupedLines(allRows, { currentSessionId: _currentSessionHint, recencyOrder: true, spanHeaders: true }) }
     }
 
     const filters = { limit: limit + offset }

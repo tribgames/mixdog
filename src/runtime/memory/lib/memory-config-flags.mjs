@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
 import { readSection } from '../../shared/config.mjs'
+import { readServiceAdvert } from '../../shared/service-discovery.mjs'
 
 export function readMainConfig() {
   return readSection('memory')
@@ -74,8 +75,19 @@ export function secondaryPgAdvertised(dataDir) {
   const runtimeRoot = process.env.MIXDOG_RUNTIME_ROOT
     ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
     : path.join(os.tmpdir(), 'mixdog')
+  // Prefer the single-writer PG discovery advert (discovery/pg.json); fall back
+  // to the legacy active-instance.json pg_* fields for cross-version compat.
+  const readAdvert = () => {
+    const advert = readServiceAdvert('pg')
+    if (advert && Number(advert.pg_port) > 0) return advert
+    try {
+      return JSON.parse(fs.readFileSync(path.join(runtimeRoot, 'active-instance.json'), 'utf8'))
+    } catch {
+      return advert
+    }
+  }
   try {
-    const cur = JSON.parse(fs.readFileSync(path.join(runtimeRoot, 'active-instance.json'), 'utf8'))
+    const cur = readAdvert()
     const port = Number(cur?.pg_port)
     const pgdata = cur?.pg_pgdata ? path.resolve(String(cur.pg_pgdata)) : ''
     return Number.isInteger(port) && port > 0 && pgdata === path.resolve(path.join(dataDir, 'pgdata'))

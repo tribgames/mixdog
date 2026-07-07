@@ -1,10 +1,12 @@
 import { fork } from 'node:child_process';
+import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { claimSingletonOwner, handoffSingletonOwner, readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { readLiveServiceAdvert } from '../runtime/shared/service-discovery.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 
@@ -253,10 +255,14 @@ export function createStandaloneMemoryRuntime({
   }
 
   async function findLivePort({ allowStarting = false } = {}) {
-    const active = readActiveInstance();
-    const port = parsePort(active?.memory_port);
+    // Prefer the single-writer discovery advert (discovery/memory.json); the
+    // legacy active-instance.json memory_port/memory_server_pid fields remain a
+    // cross-version fallback when no discovery advert is present.
+    const advert = readLiveServiceAdvert('memory', { requirePid: false });
+    const active = advert ? null : readActiveInstance();
+    const port = advert ? parsePort(advert.port) : parsePort(active?.memory_port);
     if (!port) return null;
-    const ownerPid = parsePid(active?.memory_server_pid);
+    const ownerPid = advert ? parsePid(advert.pid) : parsePid(active?.memory_server_pid);
     // A dead server pid means the published memory_port is stale — the daemon
     // that owned it is gone. Clearing portCache here (and letting the caller
     // re-claim + respawn) prevents the stale port from wedging recovery.
@@ -384,7 +390,6 @@ export function createStandaloneMemoryRuntime({
         cwd,
         execArgv: [],
         stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-        detached: true,
         env: {
           ...daemonEnv,
           MIXDOG_DATA_DIR: dataDir,
@@ -407,7 +412,7 @@ export function createStandaloneMemoryRuntime({
           MIXDOG_MEMORY_DAEMON: '1',
           MIXDOG_MEMORY_IDLE_TTL_MS: String(idleTtlMs),
         },
-        windowsHide: true,
+        ...detachedSpawnOpts,
       });
       const childPid = child.pid;
       if (singletonEnabled && childPid) {

@@ -134,7 +134,7 @@ if (isMixdogDebug()) {
 `);
 }
 const _bootLog = path.join(DATA_DIR, "boot.log");
-let config = loadConfig();
+let config = await loadConfig();
 let backend = createBackend(config);
 const INSTANCE_ID = makeInstanceId();
 const TERMINAL_LEAD_PID = getTerminalLeadPid();

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createStandaloneMemoryRuntime } from '../../../standalone/memory-runtime-proxy.mjs'
+import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../shared/service-discovery.mjs'
 
 const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
   ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
@@ -60,9 +61,28 @@ function isConnRefusedLike(err) {
     || /ECONNREFUSED|missing memory_port|memory-service timeout/i.test(msg)
 }
 
+// A discovery advert validates only the owner pid, which can be a recycled pid
+// living on an unrelated process while its advertised port is dead. This client
+// has no separate /health probe, so on a connect-level failure we distrust the
+// port: mark it unreachable (readServicePort then skips it → legacy fallback)
+// and drop the port cache so the next getMemoryPort re-resolves.
+function _distrustMemoryPort(port, err) {
+  // Connection-level failures ONLY. A 'memory-service timeout' means the daemon
+  // is slow-but-alive — distrusting it would false-route to legacy/buffer.
+  if (port && isConnRefuseError(err)) {
+    markServiceUnreachable('memory', port)
+    _portCache = null
+  }
+}
+
 async function getMemoryPort() {
   const now = Date.now()
   if (_portCache && (now - _portCache.ts) < 5_000) return _portCache.port
+  // Prefer the single-writer discovery advert (discovery/memory.json), which
+  // validates the owner pid is alive. Fall back to the legacy
+  // active-instance.json memory_port field for cross-version compat.
+  const advertPort = readServicePort('memory', { requirePid: false })
+  if (advertPort) { _portCache = { port: advertPort, mtime: 0, ts: now }; return advertPort }
   try {
     const stat = await fs.promises.stat(ACTIVE_INSTANCE_FILE)
     const mtime = stat.mtimeMs
@@ -115,8 +135,8 @@ async function memoryFetch(method, endpoint, body = null, timeoutMs = 10_000, { 
         resolve(parsed)
       })
     })
-    req.on('error', reject)
-    req.on('timeout', () => { req.destroy(); reject(new Error('memory-service timeout')) })
+    req.on('error', err => { _distrustMemoryPort(port, err); reject(err) })
+    req.on('timeout', () => { req.destroy(); const err = new Error('memory-service timeout'); _distrustMemoryPort(port, err); reject(err) })
     if (payload) req.write(payload)
     req.end()
   })

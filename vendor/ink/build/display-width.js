@@ -12,8 +12,9 @@
  * Policy: widen ONLY U+2460–U+24FF (enclosed alphanumerics / circled digits)
  * and U+2190–U+21FF (arrows) to 2 cells when ON. NEVER widen box-drawing
  * (U+2500–U+257F), block elements, or other ambiguous glyphs. ON by default
- * only under Windows Terminal (WT_SESSION); MIXDOG_TUI_AMBIGUOUS_WIDE='1'/'0'
- * overrides and wins. OFF ⇒ identical to plain string-width.
+ * on Windows (win32) or under Windows Terminal (WT_SESSION);
+ * MIXDOG_TUI_AMBIGUOUS_WIDE='1'/'0' overrides and wins. OFF ⇒ identical to
+ * plain string-width.
  */
 import stringWidth from 'string-width';
 // [mixdog fork] Grapheme segmenter for cluster-aware width math (e.g. `↔️` =
@@ -31,13 +32,13 @@ function isProblemCodePoint(cp) {
 // src/tui/display-width.mjs.
 const PROBLEM_RE = /[\u2190-\u21ff\u2460-\u24ff]/;
 
-function resolveAmbiguousWidePolicy(env = process.env) {
+function resolveAmbiguousWidePolicy(env = process.env, platform = process.platform) {
     const override = env?.MIXDOG_TUI_AMBIGUOUS_WIDE;
     if (override === '1')
         return true;
     if (override === '0')
         return false;
-    return Boolean(env?.WT_SESSION);
+    return platform === 'win32' || Boolean(env?.WT_SESSION);
 }
 
 // Resolved once at module load (matches src/tui/display-width.mjs).

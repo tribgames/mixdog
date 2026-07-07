@@ -1338,7 +1338,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         copySelection();
         return;
       }
-      showSelectionCopyHint('select text to copy · Esc interrupts', 'plain');
+      // No app-owned selection. On Windows Terminal the same Ctrl+C is also the
+      // native terminal's copy shortcut for a mouse selection we can't see — so
+      // rendering a hint here fights that copy and flashes a spurious message.
+      // Suppress the hint on win32 (interrupt routing is unchanged: Esc still
+      // interrupts). Other platforms keep the guidance.
+      if (process.platform !== 'win32') {
+        showSelectionCopyHint('select text to copy · Esc interrupts', 'plain');
+      }
       return;
     }
     if (key.ctrl && (input === 'o' || input === 'O')) {
@@ -1855,19 +1862,34 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         }
         if (channelPrompt.kind === 'schedule-add') {
           const [name, time, instructions, channel, model] = parts;
-          store.saveSchedule({ name, time, instructions, channel, model });
-          setChannelPrompt(null);
-          void openChannelSetupPicker('schedules');
+          // saveSchedule is async (PG-backed). Only close the prompt / open the
+          // list on success; surface a failure notice and keep the prompt open
+          // so the input is not lost and the user can retry.
+          Promise.resolve(store.saveSchedule({ name, time, instructions, channel, model }))
+            .then(() => {
+              setChannelPrompt(null);
+              void openChannelSetupPicker('schedules');
+            })
+            .catch((e) => {
+              store.pushNotice(`schedule save failed: ${e?.message || e}`, 'error');
+            });
           return true;
         }
         if (channelPrompt.kind === 'webhook-add') {
           const [name, instructions, channel, model, parser] = parts;
-          const result = store.saveWebhook({ name, instructions, channel, model, parser });
-          if (result?.secret) {
-            store.pushNotice(`webhook secret for ${result.name}: ${result.secret}`, 'info');
-          }
-          setChannelPrompt(null);
-          void openChannelSetupPicker('webhooks');
+          // saveWebhook is async (PG-backed). Only close the prompt / open the
+          // list on success; surface a failure notice and keep the prompt open.
+          Promise.resolve(store.saveWebhook({ name, instructions, channel, model, parser }))
+            .then((result) => {
+              if (result?.secret) {
+                store.pushNotice(`webhook secret for ${result.name}: ${result.secret}`, 'info');
+              }
+              setChannelPrompt(null);
+              void openChannelSetupPicker('webhooks');
+            })
+            .catch((e) => {
+              store.pushNotice(`webhook save failed: ${e?.message || e}`, 'error');
+            });
           return true;
         }
       } catch (e) {

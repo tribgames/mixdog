@@ -27,7 +27,7 @@ export function createChannelPickers({
   // a long first-time install finishing later must not hijack whatever
   // screen/picker the user has since navigated to.
   let pickerGen = 0;
-  const openChannelTypeActionsPicker = (backend, options = {}) => {
+  const openChannelTypeActionsPicker = async (backend, options = {}) => {
     pickerGen += 1;
     const parentReturn = typeof options.returnTo === 'function'
       ? options.returnTo
@@ -38,7 +38,7 @@ export function createChannelPickers({
     setContextPanel(null);
     let setup;
     try {
-      setup = store.getChannelSetup();
+      setup = await store.getChannelSetup();
     } catch (e) {
       store.pushNotice(`channels failed: ${e?.message || e}`, 'error');
       return;
@@ -125,7 +125,7 @@ export function createChannelPickers({
     });
   };
 
-  const openChannelSettingTypePicker = (options = {}) => {
+  const openChannelSettingTypePicker = async (options = {}) => {
     pickerGen += 1;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : () => {};
     setProviderPrompt(null);
@@ -135,7 +135,7 @@ export function createChannelPickers({
     setContextPanel(null);
     let setup;
     try {
-      setup = store.getChannelSetup();
+      setup = await store.getChannelSetup();
     } catch (e) {
       store.pushNotice(`channels failed: ${e?.message || e}`, 'error');
       return;
@@ -203,7 +203,7 @@ export function createChannelPickers({
     setContextPanel(null);
     let setup;
     try {
-      setup = store.getChannelSetup();
+      setup = await store.getChannelSetup();
     } catch (e) {
       store.pushNotice(`channels failed: ${e?.message || e}`, 'error');
       return;
@@ -239,14 +239,14 @@ export function createChannelPickers({
           _action: 'noop',
         }]),
       ];
-      const toggleSchedule = (item) => {
+      const toggleSchedule = async (item) => {
         if (item._action !== 'schedule-toggle') return;
         if (!channelRemoteEnabled) {
           store.pushNotice('enable channel first', 'warn');
           return;
         }
         try {
-          store.setScheduleEnabled?.(item._name, !item._enabled);
+          await store.setScheduleEnabled?.(item._name, !item._enabled);
           void openChannelSetupPicker('schedules', { highlightValue: `schedule:${item._name}` });
         } catch (e) {
           store.pushNotice(`schedule toggle failed: ${e?.message || e}`, 'error');
@@ -346,14 +346,14 @@ export function createChannelPickers({
           _action: 'noop',
         }]),
       ];
-      const toggleWebhook = (item) => {
+      const toggleWebhook = async (item) => {
         if (item._action !== 'webhook-toggle') return;
         if (!channelRemoteEnabled) {
           store.pushNotice('enable channel first', 'warn');
           return;
         }
         try {
-          store.setWebhookEnabled?.(item._name, !item._enabled);
+          await store.setWebhookEnabled?.(item._name, !item._enabled);
           void openChannelSetupPicker('webhooks', { highlightValue: `webhook:${item._name}` });
         } catch (e) {
           store.pushNotice(`webhook toggle failed: ${e?.message || e}`, 'error');

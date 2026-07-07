@@ -396,7 +396,14 @@ function toAnthropicMessages(messages) {
         // turn after tool_result renders as `</function_results>\n\nHuman:`
         // on the wire and trains the model toward 3-token empty end_turn
         // completions (see foldUserTextIntoToolResultTail).
-        if (m.role === 'user' && foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))) {
+        //   EXCEPTION: steering-origin user messages (human/TUI interjections)
+        //   must keep their own user turn so their provenance survives — folding
+        //   them into the preceding tool_result would disguise user input as
+        //   tool output. Anthropic accepts a user text message after a
+        //   tool_result message, so the distinct turn stays request-valid.
+        const isSteering = m.role === 'user' && m.meta?.source === 'steering';
+        if (m.role === 'user' && !isSteering
+            && foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))) {
             continue;
         }
         result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });

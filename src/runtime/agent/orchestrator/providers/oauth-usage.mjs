@@ -242,10 +242,15 @@ function windowFromPercent(label, value, source) {
 }
 
 // Grok Build billing periods are migrating from monthly to a shared weekly
-// pool (xAI rollout is per-account). Derive the window cadence from the
-// actual billing period length instead of hardcoding monthly: <=10 days
-// means a weekly cycle, anything longer (or unknown) stays monthly.
+// pool (xAI rollout is per-account). Unified-billing accounts state the
+// cadence explicitly via currentPeriod.type (USAGE_PERIOD_TYPE_WEEKLY);
+// otherwise derive it from the actual billing period length instead of
+// hardcoding monthly: <=10 days means a weekly cycle, anything longer (or
+// unknown) stays monthly.
 function grokBillingCadence(config) {
+  const periodType = cleanString(config?.currentPeriod?.type ?? config?.current_period?.type ?? '').toUpperCase();
+  if (periodType.includes('WEEKLY')) return { label: 'W', period: 'weekly' };
+  if (periodType.includes('MONTHLY')) return { label: 'M', period: 'monthly' };
   if (config?.weeklyLimit !== undefined || config?.weekly_limit !== undefined) {
     return { label: 'W', period: 'weekly' };
   }
@@ -259,6 +264,11 @@ function grokBillingCadence(config) {
 
 function creditWindowFromBilling(config) {
   if (!config || typeof config !== 'object') return null;
+  const cadence = grokBillingCadence(config);
+  const resetAt = resetAtMs(
+    config.currentPeriod?.end ?? config.current_period?.end
+      ?? config.billingPeriodEnd ?? config.billing_period_end,
+  );
   const limit = num(
     config.weeklyLimit?.val ?? config.weeklyLimit
       ?? config.monthlyLimit?.val ?? config.monthlyLimit
@@ -266,10 +276,27 @@ function creditWindowFromBilling(config) {
     null,
   );
   const used = num(config.used?.val ?? config.includedUsed?.val ?? config.used, null);
-  if (limit === null || used === null || !(limit > 0)) return null;
-  const resetAt = resetAtMs(config.billingPeriodEnd ?? config.billing_period_end);
+  if (limit === null || used === null || !(limit > 0)) {
+    // Unified-billing accounts (shared weekly pool) report utilization as a
+    // percentage instead of credit totals; absent means 0% used.
+    const unified = config.isUnifiedBillingUser === true
+      || config.is_unified_billing_user === true
+      || config.currentPeriod || config.current_period;
+    if (!unified) return null;
+    const usedPct = num(
+      config.creditUsagePercent?.val ?? config.creditUsagePercent
+        ?? config.credit_usage_percent,
+      0,
+    );
+    return {
+      label: cadence.label,
+      source: 'grok-build-billing',
+      usedPct: round(Math.min(100, Math.max(0, usedPct)), 2),
+      ...(resetAt ? { resetAt } : {}),
+    };
+  }
   return {
-    label: grokBillingCadence(config).label,
+    label: cadence.label,
     source: 'grok-build-billing',
     usedPct: round(Math.min(100, used * 100 / limit), 2),
     usedCredits: round(used, 2),
@@ -495,29 +522,38 @@ async function fetchGrokUsage(providerObj, routeInfo) {
     Authorization: `Bearer ${token}`,
     'X-XAI-Token-Auth': 'xai-grok-cli',
     'x-userid': userId,
+    'x-grok-client-version': '0.2.87',
     Accept: 'application/json',
-    'User-Agent': 'xai-grok-build/0.2.16',
+    'User-Agent': 'xai-grok-build/0.2.87',
   };
 
-  try {
-    const res = await fetch('https://cli-chat-proxy.grok.com/v1/billing', fetchOptions(cliHeaders));
-    if (res.ok) {
+  // format=credits is what the official grok CLI requests; unified-billing
+  // (shared weekly pool) accounts only report their real cadence and reset
+  // there. The legacy /v1/billing shape keeps serving a stale monthly cycle
+  // for migrated accounts, so it is only a fallback.
+  for (const url of [
+    'https://cli-chat-proxy.grok.com/v1/billing?format=credits',
+    'https://cli-chat-proxy.grok.com/v1/billing',
+  ]) {
+    try {
+      const res = await fetch(url, fetchOptions(cliHeaders));
+      if (!res.ok) continue;
       const data = await res.json();
       const config = data?.config && typeof data.config === 'object' ? data.config : data;
-      const monthly = creditWindowFromBilling(config);
-      if (monthly) {
+      const window = creditWindowFromBilling(config);
+      if (window) {
         return {
           provider: routeInfo?.provider || 'grok-oauth',
           model: routeInfo?.model || null,
           source: 'grok-build-billing',
-          quotaWindows: [monthly],
+          quotaWindows: [window],
           balance: balanceFromGrokBilling(config),
           rawKeys: Object.keys(data || {}).sort(),
         };
       }
+    } catch {
+      // Fall through to the next candidate / generic probes below.
     }
-  } catch {
-    // Fall through to generic probes below.
   }
 
   // xAI documents per-request cost tracking and console rate-limit pages, but

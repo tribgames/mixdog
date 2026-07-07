@@ -3,7 +3,7 @@ import { join } from "path";
 import { DiscordBackend } from "../backends/discord.mjs";
 import { TelegramBackend } from "../backends/telegram.mjs";
 import { readSection, updateSection, CONFIG_PATH as MIXDOG_CONFIG_PATH, getDiscordToken, getTelegramToken, diagnoseDiscordTokenValue } from "../../shared/config.mjs";
-import { listSchedules } from "../../shared/schedules-store.mjs";
+import { listSchedules } from "../../shared/schedules-db.mjs";
 import { resolvePluginData } from "../../shared/plugin-paths.mjs";
 const DATA_DIR = resolvePluginData();
 const CONFIG_FILE = MIXDOG_CONFIG_PATH;
@@ -63,19 +63,21 @@ function resolveChannelId(raw = {}, backend = "discord") {
   return "";
 }
 
-function loadConfig() {
+async function loadConfig() {
   try {
     let raw = readSection("channels");
     raw = raw && typeof raw === "object" ? raw : {};
-    // Schedules live in the Mixdog data dir under `schedules/<name>/` (single
-    // source of truth). The legacy `raw.schedules.items` / `raw.nonInteractive`
-    // / `raw.interactive` arrays in mixdog-config.json are no longer read.
-    const scheduleEntries = listSchedules().filter((s) => s.enabled !== false);
-    // Channel-presence routing (no `type` field): an entry WITH a channel is
-    // dispatched directly to that channel; an entry WITHOUT a channel is
-    // injected into the current (Lead) session. Mirrors the webhook model.
-    raw.nonInteractive = scheduleEntries.filter((i) => !!i.channel);
-    raw.interactive = scheduleEntries.filter((i) => !i.channel);
+    // Schedules are the PG `scheduler.schedules` table (single source of
+    // truth). The legacy SCHEDULE.md store and the `raw.schedules.items` /
+    // `raw.nonInteractive` / `raw.interactive` arrays in mixdog-config.json
+    // are no longer read. Done one-shots are dropped so they never re-arm.
+    const scheduleEntries = (await listSchedules())
+      .filter((s) => s.enabled !== false && s.status !== "done");
+    // `target` drives routing: 'channel' → non-interactive dispatch to the
+    // schedule's channel_id; 'session' → inject into the current (Lead)
+    // session. Mirrors the webhook model.
+    raw.nonInteractive = scheduleEntries.filter((s) => s.target === "channel");
+    raw.interactive = scheduleEntries.filter((s) => s.target === "session");
     const accessChannels = { ...raw.access?.channels ?? {} };
     // voice config lives at the top level of mixdog-config.json (peer of
     // channels), so readSection("channels") never sees it. Pull it explicitly.

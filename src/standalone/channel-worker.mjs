@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startChildGuardian } from '../runtime/shared/child-guardian.mjs';
+import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
 import { appendBuffered } from '../runtime/shared/buffered-appender.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
@@ -441,9 +442,8 @@ export function createStandaloneChannelWorker({
           cwd,
           execArgv: ['--require', WORKER_PRELOAD],
           stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-          detached: true,
           env: daemonEnv(),
-          windowsHide: true,
+          ...detachedSpawnOpts,
         });
       } catch (err) {
         logLine(logPath, `daemon spawn failed: ${err?.message || err}`);

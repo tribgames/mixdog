@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
 import { shutdownStdioChild, killStdioChildTreeFast } from './child-tree.mjs';
+import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../../shared/service-discovery.mjs';
 // --- Types ---
 /** Known auto-detect targets: port file path relative to tmpdir.
  *  Note: `mixdog` used to self-loopback via active-instance.json's
@@ -13,7 +14,7 @@ import { shutdownStdioChild, killStdioChildTreeFast } from './child-tree.mjs';
  *  in-process through agent's toolExecutor (see orchestrator/internal-tools),
  *  so this registry is for genuinely external port-based MCP targets only. */
 const AUTO_DETECT_PORTS = {
-    'mixdog-memory': { dir: 'mixdog', file: 'active-instance.json', portField: 'memory_port', endpoint: '/mcp' },
+    'mixdog-memory': { discovery: 'memory', dir: 'mixdog', file: 'active-instance.json', portField: 'memory_port', endpoint: '/mcp' },
 };
 const DEFAULT_MCP_CALL_TIMEOUT_MS = 0;
 // Per-server STARTUP handshake budget (connect + listTools). Codex parity: 10s.
@@ -452,20 +453,31 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
     const client = new Client({ name: `mixdog-agent/${name}`, version: '1.0.0' });
     let transport;
     const kind = resolveMcpTransportKind(cfg);
+    // When the autoDetect port comes from a discovery advert (not the legacy
+    // port file), remember { service, port } so a connect/handshake failure can
+    // distrust it — a pid-live advert can point at a recycled-pid corpse port,
+    // and this transport has no other health probe of its own.
+    let _autoDetectAdvert = null;
     // Auto-detect: read port from a running service's port file
     if (kind === 'autoDetect') {
         const spec = AUTO_DETECT_PORTS[cfg.autoDetect];
         if (!spec)
             throw new Error(`Unknown autoDetect target: "${cfg.autoDetect}"`);
-        const portFile = spec.dir === 'mixdog' && process.env.MIXDOG_RUNTIME_ROOT
+        // Prefer the single-writer discovery advert (discovery/<service>.json),
+        // pid-validated. Fall back to the legacy active-instance.json portField
+        // when no live advert is present (cross-version compat).
+        let port = spec.discovery ? readServicePort(spec.discovery, { requirePid: false }) : null;
+        if (port && spec.discovery) _autoDetectAdvert = { service: spec.discovery, port };
+        let portFile = null;
+        if (!port) {
+          portFile = spec.dir === 'mixdog' && process.env.MIXDOG_RUNTIME_ROOT
             ? join(process.env.MIXDOG_RUNTIME_ROOT, spec.file)
             : join(tmpdir(), spec.dir, spec.file);
-        if (!existsSync(portFile)) {
+          if (!existsSync(portFile)) {
             throw new Error(`autoDetect server "${name}": port file missing (${portFile})`);
-        }
-        let port;
-        const raw = readFileSync(portFile, 'utf-8').trim();
-        if (spec.portField) {
+          }
+          const raw = readFileSync(portFile, 'utf-8').trim();
+          if (spec.portField) {
             try {
                 const json = JSON.parse(raw);
                 const v = json[spec.portField];
@@ -477,12 +489,13 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
                 if (jsonErr instanceof Error && jsonErr.message.startsWith('autoDetect server')) throw jsonErr;
                 throw new Error(`autoDetect server "${name}": invalid JSON in port file ${portFile}`);
             }
-        }
-        else {
+          }
+          else {
             port = parseInt(raw, 10);
+          }
         }
         if (!Number.isFinite(port) || port < 1 || port > 65535) {
-            throw new Error(`autoDetect server "${name}": invalid port value in ${portFile}`);
+            throw new Error(`autoDetect server "${name}": invalid port value${portFile ? ` in ${portFile}` : ''}`);
         }
         const url = `http://127.0.0.1:${port}${spec.endpoint}`;
         transport = new StreamableHTTPClientTransport(new URL(url));
@@ -568,6 +581,11 @@ async function connectServer(name, cfg, genAtStart = _connectAbortGeneration) {
                 ({ instructions, toolsResult } = await handshake);
             }
         } catch (err) {
+            // A discovery-advert port that fails to connect is a corpse (recycled
+            // pid): distrust it so the next connect falls back to the legacy port
+            // file instead of re-trusting the same advert. Connection-level errors
+            // ONLY — a startup/handshake timeout is a slow-but-alive server.
+            if (_autoDetectAdvert && isConnRefuseError(err)) markServiceUnreachable(_autoDetectAdvert.service, _autoDetectAdvert.port);
             if (startupTimedOut) {
                 // Tear down the pending transport/child so a hung handshake never
                 // leaks a stdio process or socket — fire-and-forget (like the
