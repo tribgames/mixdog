@@ -23,6 +23,20 @@ import {
   notificationQueueKey,
   resolveTuiRuntimeNotificationDelivery,
 } from './notification-plan.mjs';
+import { readImageAttachmentFromPath } from '../paste-attachments.mjs';
+
+// Channel inbound images arrive as a JSON-array-of-paths meta value (stringified
+// across the notify IPC boundary). Parse defensively; a malformed value simply
+// yields no images and the notification degrades to its text body.
+function parseInboundImagePaths(raw) {
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((p) => typeof p === 'string' && p.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function createAgentJobFeed({
   runtime,
@@ -117,13 +131,38 @@ export function createAgentJobFeed({
         set(agentStatusState({ force: true }));
       }
       const modelContent = String(delivery.modelContent ?? delivery.displayText ?? text).trim();
-      if (!modelContent) return true;
-      enqueue(modelContent, {
+      const imagePaths = parseInboundImagePaths(event?.meta?.image_paths);
+      if (!modelContent && imagePaths.length === 0) return true;
+      const enqueueOpts = {
         mode: 'task-notification',
         priority: 'next',
         key: notificationKey || undefined,
         displayText: delivery.displayText || text,
-      });
+      };
+      if (imagePaths.length > 0) {
+        // Read each downloaded image into a real image content block so the
+        // channel turn is vision-visible. Async, but the notification is
+        // already "handled" (return true) — the enqueue lands on resolve.
+        // Any unreadable path is skipped; if none load, fall back to text.
+        void (async () => {
+          if (getDisposed()) return;
+          const parts = [];
+          if (modelContent) parts.push({ type: 'text', text: modelContent });
+          for (const p of imagePaths) {
+            let att = null;
+            try { att = await readImageAttachmentFromPath(p); } catch { att = null; }
+            if (!att) continue;
+            if (att.metadataText) parts.push({ type: 'text', text: att.metadataText });
+            parts.push({ type: 'image', data: att.content, mimeType: att.mediaType || 'image/png' });
+          }
+          if (getDisposed()) return;
+          const hasImage = parts.some((part) => part.type === 'image');
+          if (!hasImage && !modelContent) return;
+          enqueue(hasImage ? parts : modelContent, enqueueOpts);
+        })();
+        return true;
+      }
+      enqueue(modelContent, enqueueOpts);
       return true;
     });
   }
