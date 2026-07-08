@@ -47,6 +47,9 @@ import {
     createGeminiTextLeakGuard,
     parseToolCalls as geminiParseToolCalls,
 } from '../src/runtime/agent/orchestrator/providers/gemini.mjs';
+import {
+    _resolveGeminiCacheUsage,
+} from '../src/runtime/agent/orchestrator/providers/gemini-cache.mjs';
 import { parseSSEStream as anthropicParseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { _buildRequestBodyForCacheSmoke } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import {
@@ -305,6 +308,52 @@ test('gemini leak guard: unknown tool name → text flushed, no synthetic call',
     assert.equal(guard.getLeakedToolCalls().length, 0);
     assert.equal(captured.length, 0);
     assert.ok(content.includes('nonexistent_tool'));
+});
+
+test('gemini cache usage: official cached token fields are subsets of prompt tokens', () => {
+    const direct = _resolveGeminiCacheUsage({
+        usageMetadata: { promptTokenCount: 1000, cachedContentTokenCount: 400 },
+    });
+    assert.deepEqual({
+        inputTokens: direct.inputTokens,
+        reportedCachedTokens: direct.reportedCachedTokens,
+        cachedTokens: direct.cachedTokens,
+        cacheTokenSource: direct.cacheTokenSource,
+    }, {
+        inputTokens: 1000,
+        reportedCachedTokens: 400,
+        cachedTokens: 400,
+        cacheTokenSource: 'usage_metadata',
+    });
+
+    const sdkAlias = _resolveGeminiCacheUsage({
+        usageMetadata: { prompt_token_count: 1200, total_cached_tokens: 500 },
+    });
+    assert.equal(sdkAlias.inputTokens, 1200);
+    assert.equal(sdkAlias.reportedCachedTokens, 500);
+    assert.equal(sdkAlias.cachedTokens, 500);
+});
+
+test('gemini cache usage: clamps over-reported cache and falls back only for attached cachedContent', () => {
+    const clamped = _resolveGeminiCacheUsage({
+        usageMetadata: { promptTokenCount: 100, cachedContentTokenCount: 150 },
+    });
+    assert.equal(clamped.cachedTokens, 100);
+
+    const fallback = _resolveGeminiCacheUsage({
+        usageMetadata: { promptTokenCount: 1000 },
+        cachedContent: 'cachedContents/abc',
+        providerState: { gemini: { cacheTokenSize: 250 } },
+    });
+    assert.equal(fallback.cachedTokens, 250);
+    assert.equal(fallback.cacheTokenSource, 'cache_create_fallback');
+
+    const noFallbackWithoutAttachment = _resolveGeminiCacheUsage({
+        usageMetadata: { promptTokenCount: 1000 },
+        providerState: { gemini: { cacheTokenSize: 250 } },
+    });
+    assert.equal(noFallbackWithoutAttachment.cachedTokens, 0);
+    assert.equal(noFallbackWithoutAttachment.cacheTokenSource, 'none');
 });
 
 // === 3. anthropic / anthropic-oauth ========================================

@@ -177,8 +177,27 @@ export function _attachGeminiCacheState(opts, entry, currentIter) {
 }
 
 export function _resolveGeminiCacheUsage({ usageMetadata, cachedContent, providerState }) {
-    const inputTokens = Number(usageMetadata?.promptTokenCount || usageMetadata?.totalTokenCount || 0) || 0;
-    const reportedCachedTokens = Number(usageMetadata?.cachedContentTokenCount || 0) || 0;
+    const firstFinite = (...values) => {
+        for (const value of values) {
+            const n = Number(value);
+            if (Number.isFinite(n) && n > 0) return n;
+        }
+        return 0;
+    };
+    const inputTokens = firstFinite(
+        usageMetadata?.promptTokenCount,
+        usageMetadata?.prompt_token_count,
+        usageMetadata?.totalTokenCount,
+        usageMetadata?.total_token_count,
+    );
+    const reportedCachedTokens = firstFinite(
+        // generateContent UsageMetadata field.
+        usageMetadata?.cachedContentTokenCount,
+        usageMetadata?.cached_content_token_count,
+        // Newer SDK convenience alias documented for implicit cache hits.
+        usageMetadata?.totalCachedTokens,
+        usageMetadata?.total_cached_tokens,
+    );
     const cachedFallbackTokens = cachedContent
         ? Number(providerState?.gemini?.cacheTokenSize || 0) || 0
         : 0;

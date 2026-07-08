@@ -782,7 +782,8 @@ export class GeminiProvider {
         const um = response.usageMetadata || null;
         // Hoist cachedTokens so the returned usage block can reuse the
         // exact value the trace already recorded (including the
-        // cachedFallback when cachedContentTokenCount under-reports).
+        // cachedFallback when cachedContentTokenCount / total_cached_tokens
+        // under-reports).
         let cachedTokens = 0;
         if (um) {
             const {
