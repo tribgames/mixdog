@@ -399,6 +399,10 @@ function guardGrep(a) {
         if (err) return err;
     }
     for (const k of ['-A', '-B', '-C', 'context']) {
+        if (hasOwn(a, k) && a[k] === '') {
+            delete a[k];
+            continue;
+        }
         const err = checkIntInRange(a, k, 0, GREP_CONTEXT_MAX, { clamp: true });
         if (err) return err;
     }

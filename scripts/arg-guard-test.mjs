@@ -28,6 +28,15 @@ test('grep head_limit/offset/-C as numeric strings coerce', () => {
     assert.equal(a['-C'], 2);
 });
 
+test('grep empty context strings are treated as omitted', () => {
+    const a = { pattern: 'x', output_mode: 'content_with_context', '-A': '', '-B': '', '-C': '', context: '' };
+    assert.equal(validateBuiltinArgs('grep', a), null);
+    assert.equal(Object.prototype.hasOwnProperty.call(a, '-A'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(a, '-B'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(a, '-C'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(a, 'context'), false);
+});
+
 test('list/find/glob head_limit as numeric string coerces', () => {
     const l = { path: '.', head_limit: '5' };
     assert.equal(validateBuiltinArgs('list', l), null);
