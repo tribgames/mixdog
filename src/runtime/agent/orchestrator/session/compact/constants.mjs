@@ -27,6 +27,9 @@ export const SUMMARY_OUTPUT_TOKENS = 4_096;
 //   - recall-fasttrack injection cap (loop.mjs recallTokenCap)
 // Keep them in lockstep; do not fork per-consumer ratios without a decision.
 export const CONTEXT_SHARE_RATIO = 0.10;
+export const DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 90;
+export const COMPACT_TARGET_MIN_TOKENS = 4_000;
+export const COMPACT_SAFETY_PERCENT = 1.00;
 // Floor for the recall-injection cap so small-context models still get a
 // usable recall slice (cap = max(floor, contextWindow * CONTEXT_SHARE_RATIO)).
 export const RECALL_TOKEN_CAP_FLOOR_TOKENS = 2_048;

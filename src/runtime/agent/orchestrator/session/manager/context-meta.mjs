@@ -1,8 +1,14 @@
 // Context-window sizing, compaction target math, and session context-meta
 // resolution. Extracted verbatim from manager.mjs (behavior-preserving).
 import { getModelMetadataSync } from '../../providers/model-catalog.mjs';
-import { resolveCompactTriggerTokens } from '../context-utils.mjs';
-import { COMPACT_TYPE_SEMANTIC, COMPACT_TYPE_RECALL_FASTTRACK, CONTEXT_SHARE_RATIO } from '../compact.mjs';
+import { resolveSessionCompactPolicy } from '../context-utils.mjs';
+import {
+    COMPACT_TYPE_SEMANTIC,
+    COMPACT_TYPE_RECALL_FASTTRACK,
+    CONTEXT_SHARE_RATIO,
+    DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
+    COMPACT_TARGET_MIN_TOKENS,
+} from '../compact.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 
 // Known context windows for the current-generation models this plugin
@@ -89,14 +95,12 @@ export function preserveBufferConfigFields(cfg = {}) {
     }
     return out;
 }
-const COMPACT_TARGET_RATIO = CONTEXT_SHARE_RATIO;
-const COMPACT_TARGET_MIN_TOKENS = 4_000;
 function compactTargetRatio() {
     const raw = process.env.MIXDOG_AGENT_COMPACT_TARGET_PERCENT
         ?? process.env.MIXDOG_COMPACT_TARGET_PERCENT
-        ?? COMPACT_TARGET_RATIO;
+        ?? CONTEXT_SHARE_RATIO;
     const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return COMPACT_TARGET_RATIO;
+    if (!Number.isFinite(n) || n <= 0) return CONTEXT_SHARE_RATIO;
     return n > 1 ? n / 100 : n;
 }
 function compactTargetTokensForBoundary(boundaryTokens) {
@@ -115,7 +119,8 @@ function defaultEffectiveContextWindowPercent(provider) {
     // Gateway/statusline route metadata reserves a universal 10% headroom from
     // the raw catalog window. Keep session compaction on the same effective
     // capacity so /context, the TUI statusline, and gateway telemetry agree.
-    return 90;
+    void provider;
+    return DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
 }
 const PROVIDER_SYNTHETIC_CONTEXT_DEFAULT = 1_000_000;
 function providerRawContextWindow(info, catalogInfo) {
@@ -201,7 +206,10 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
     };
 }
 export function compactTriggerForSession(session, boundaryTokens) {
-    return resolveCompactTriggerTokens(session, boundaryTokens);
+    // Delegates to the shared session-compaction policy (context-utils):
+    // agent semantic -> 90% (default buffer), main/user -> 100% (boundary),
+    // truly-explicit sub-boundary limit wins.
+    return resolveSessionCompactPolicy(session, boundaryTokens).triggerTokens;
 }
 export function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens = null, _ratio = null) {
     const boundary = positiveContextWindow(boundaryTokens);

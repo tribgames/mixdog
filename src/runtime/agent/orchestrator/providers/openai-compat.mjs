@@ -19,6 +19,10 @@ import {
 } from '../stall-policy.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 import {
+    resolveResponsesTransportPolicy,
+    RESPONSES_TRANSPORT_CAPABILITIES,
+} from './openai-transport-policy.mjs';
+import {
     summarizeTraceMessages,
     extractCompatCachedTokens,
 } from './openai-compat-trace.mjs';
@@ -191,11 +195,27 @@ export class OpenAICompatProvider {
         // TLS handshake after an idle gap. Fire-and-forget; never awaited.
         preconnect(this.baseURL);
         if (this.name === 'xai' && useXaiResponsesApi(opts, this.config)) {
-            if (useXaiResponsesWebSocket(opts, this.config)) {
+            // Shared Responses transport switch (MIXDOG_OAI_TRANSPORT), capability-
+            // gated for xAI/Grok. Provider-local HTTP pins still win: Grok
+            // proxy-only models set responsesTransport:'http' because the WS
+            // connector targets api.x.ai, not cli-chat-proxy.grok.com.
+            const xaiTransportPolicy = resolveResponsesTransportPolicy(
+                process.env,
+                RESPONSES_TRANSPORT_CAPABILITIES.xai,
+            );
+            const configuredPreferWebSocket = useXaiResponsesWebSocket(opts, this.config);
+            const preferWebSocket = configuredPreferWebSocket === false
+                ? false
+                : xaiTransportPolicy.mode === 'http-sse'
+                ? false
+                : xaiTransportPolicy.transport === 'ws'
+                    ? true
+                    : configuredPreferWebSocket;
+            if (preferWebSocket) {
                 try {
                     return await this._doSendXaiResponsesWebSocket(messages, useModel, tools, opts);
                 } catch (err) {
-                    if (_shouldFallbackXaiWsToHttp(err, opts.signal)) {
+                    if (xaiTransportPolicy.allowHttpFallback && _shouldFallbackXaiWsToHttp(err, opts.signal)) {
                         const reason = err?.midstreamClassifier || err?.retryClassifier || err?.code || err?.message || 'ws_failed';
                         process.stderr.write(`[xai:responses] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
                         try {
@@ -659,6 +679,16 @@ export class OpenAICompatProvider {
             : null;
         const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
         let cacheLane = null;
+        // Fast-fallback only shortens the WS handshake retry budget when the
+        // HTTP/SSE fallback is actually enabled for this call. With no-fallback
+        // (allowHttpFallback=false) the WS path must keep its FULL retry budget,
+        // mirroring openai-oauth's httpFallbackEnabled gate.
+        const xaiTransportPolicy = resolveResponsesTransportPolicy(
+            process.env,
+            RESPONSES_TRANSPORT_CAPABILITIES.xai,
+        );
+        const httpFallbackEnabled = xaiTransportPolicy.allowHttpFallback
+            && _envFlag('MIXDOG_XAI_WS_HTTP_FALLBACK', true);
         const scheduled = await withXaiResponsesCacheLane({
             opts,
             config: this.config,
@@ -692,8 +722,9 @@ export class OpenAICompatProvider {
                 // enabled (outer catch → _shouldFallbackXaiWsToHttp), a first
                 // acquire/first-byte failure should skip remaining WS
                 // handshake retries instead of burning the retry budget
-                // before HTTP starts.
-                fastFallback: _envFlag('MIXDOG_XAI_WS_HTTP_FALLBACK', true),
+                // before HTTP starts. Gated on httpFallbackEnabled so a
+                // no-fallback config keeps the full WS retry budget.
+                fastFallback: httpFallbackEnabled,
             });
         });
         const result = scheduled.value;

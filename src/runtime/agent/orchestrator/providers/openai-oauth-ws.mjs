@@ -63,6 +63,8 @@ import {
     parseToolSearchArgs,
     _streamResponse,
 } from './openai-ws-stream.mjs';
+import { _buildResponseCreateFrame } from './openai-ws-delta.mjs';
+import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 
 // Legacy import paths for scripts/tool-smoke.mjs, mixdog-session-runtime.mjs
 // (drainOpenaiWsPool), scripts/provider-toolcall-test.mjs (parseToolSearchArgs,
@@ -74,6 +76,7 @@ export {
     parseToolSearchArgs,
     _streamResponse,
     _cacheObservation as _cacheObservationForTest,
+    _warmupContinuityTrace as _warmupContinuityTraceForTest,
 };
 
 globalThis.__mixdogOpenaiWsRuntimeLoaded = true;
@@ -234,33 +237,53 @@ function _codexInstallationId(sendOpts) {
         || `mixdog-${_hashText(`${process.env.USERPROFILE || process.env.HOME || ''}:${process.cwd()}`, 32)}`;
 }
 
-function _codexMetadataBase(entry, { poolKey, cacheKey, sendOpts } = {}) {
+function _codexMetadataBase(entry, { poolKey, cacheKey, sendOpts, handshake = false } = {}) {
     const sessionId = _cleanMetaString(sendOpts?.codexSessionId || sendOpts?.session?.codexSessionId || poolKey || cacheKey)
         || 'mixdog-session';
     const threadId = _cleanMetaString(sendOpts?.threadId || sendOpts?.codexThreadId || sendOpts?.session?.threadId || cacheKey || sessionId)
         || sessionId;
-    const turnId = _cleanMetaString(sendOpts?.turnId || sendOpts?.codexTurnId || sendOpts?.session?.turnId || sessionId)
-        || sessionId;
-    const windowId = _cleanMetaString(sendOpts?.windowId || sendOpts?.codexWindowId || sendOpts?.session?.windowId)
-        || `${threadId}:1`;
     const installationId = _codexInstallationId(sendOpts);
     const startedAt = Number.isFinite(Number(sendOpts?.turnStartedAtUnixMs))
         ? Math.floor(Number(sendOpts.turnStartedAtUnixMs))
         : _sessionStartedAtUnixMs(sessionId);
     const requestKind = _codexRequestKind(sendOpts, sessionId);
+    const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
+    // codex opens the WS with a prewarm (empty turn_id) BEFORE issuing the
+    // real turn (client.rs). Our handshake headers are built once, up-front,
+    // and were carrying a turn_id (= sessionId) — i.e. presenting the
+    // handshake as a live turn. Under wire parity, treat the handshake as the
+    // prewarm so its turn_id is empty, matching codex. Default (parity off) is
+    // unchanged: the wireParity gate below leaves turnId as before.
+    const isPrewarm = requestKind === 'prewarm' || handshake === true;
+    const explicitTurnId = _cleanMetaString(sendOpts?.turnId || sendOpts?.codexTurnId || sendOpts?.session?.turnId);
+    const explicitWindowId = _cleanMetaString(sendOpts?.windowId || sendOpts?.codexWindowId || sendOpts?.session?.windowId);
+    const turnId = wireParity && isPrewarm
+        ? ''
+        : (explicitTurnId || sessionId);
+    // Under wire parity the handshake IS the prewarm (empty turn_id above), so
+    // its request_kind must be 'prewarm' too — codex tags the prewarm request
+    // as prewarm, not turn (client.rs). Previously we emptied turn_id but left
+    // request_kind='turn', presenting the prewarm as a live turn. Default
+    // (parity off) is unchanged: requestKind passes through untouched.
+    const effectiveRequestKind = wireParity && isPrewarm ? 'prewarm' : requestKind;
+    const windowId = explicitWindowId
+        || `${threadId}:${wireParity ? 0 : 1}`;
     const turnMetadata = {
         installation_id: installationId,
         session_id: sessionId,
         thread_id: threadId,
         turn_id: turnId,
         window_id: windowId,
-        request_kind: requestKind,
+        request_kind: effectiveRequestKind,
         // Richer codex turn-metadata fields (responses_metadata.rs:264-280:
         // thread_source "user" per protocol.rs:2751-2765, sandbox label).
         // A/B 2026-07-04 (rvA/rvB interleaved, 24 sessions/arm): no effect
         // (it2 full 3 vs 2, miss 2 vs 3 — noise). Default OFF; keep the knob
         // for future probes if the backend starts gating on payload richness.
-        ...(process.env.MIXDOG_OAI_TURN_METADATA_RICH === '1' ? {
+        // Codex WS metadata parity (opt-in): the richer turn-metadata fields
+        // codex emits (responses_metadata.rs:264-280) also go on the wire under
+        // MIXDOG_OAI_CODEX_WIRE_PARITY. Default (both flags off) is unchanged.
+        ...((process.env.MIXDOG_OAI_TURN_METADATA_RICH === '1' || wireParity) ? {
             thread_source: 'user',
             sandbox: 'read-only',
         } : {}),
@@ -332,10 +355,22 @@ function _codexWsCompatibilityHeaders(context = {}) {
         delete headers['x-codex-turn-metadata'];
     }
     // probe === '1' | 'true' | 'yes' | 'on' | 'turn-metadata' => full set as built above.
+    // Turn-state gate experiment bundle (MIXDOG_OAI_CODEX_TURN_STATE_GATE): the
+    // debugger's hypothesis is that x-codex-turn-state issuance also wants the
+    // parent-thread header present, independent of MIXDOG_OAI_TURN_METADATA.
+    // Attach it (= thread_id) when the gate is explicitly enabled and the probe
+    // above didn't already set it. Default OFF; composes with the probe.
+    const gate = String(process.env.MIXDOG_OAI_CODEX_TURN_STATE_GATE || '').trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(gate) && !headers['x-codex-parent-thread-id']) {
+        const parentThreadId = _cleanMetaString(context?.sendOpts?.parentThreadId
+            || context?.sendOpts?.codexParentThreadId
+            || metadata.thread_id);
+        if (parentThreadId) headers['x-codex-parent-thread-id'] = parentThreadId;
+    }
     return headers;
 }
 
-function _withCodexWsClientMetadata(frame, entry, enabled, context = {}) {
+export function _withCodexWsClientMetadata(frame, entry, enabled, context = {}) {
     if (!enabled || !frame || typeof frame !== 'object') return frame;
     const base = _codexMetadataBase(entry, context);
     const metadata = {
@@ -347,10 +382,24 @@ function _withCodexWsClientMetadata(frame, entry, enabled, context = {}) {
         // codex scopes x-codex-turn-state to ONE turn (client.rs:263-279 —
         // "must not send it between different turns"). Pooled sockets span
         // turns, so key the stored token by the turn that captured it and
-        // drop it when the turn changes.
-        if (entry.turnState && entry.turnStateTurnId && entry.turnStateTurnId !== base.turn_id) {
-            entry.turnState = null;
-            entry.turnStateTurnId = null;
+        // drop it when the turn changes. turnState is captured at handshake
+        // (pool) / mid-stream (ws-stream) without knowing the owning turn, so
+        // attribute it to the FIRST turn that observes it here; once turn_id
+        // moves off that owner, drop the stale token. (Previously
+        // turnStateTurnId was checked but never assigned, so this guard was
+        // dead and stale turn-state could leak across turns under parity.)
+        if (entry.turnState) {
+            // An empty turn_id (parity prewarm) is a VALID owner attribution, not
+            // "unassigned". Test against null/undefined so a prewarm-owned token
+            // (turn_id '') is retired once turn_id advances to the real turn,
+            // instead of being reattributed onto it. Default (parity off) never
+            // produces an empty turn_id, so this is unchanged there.
+            if (entry.turnStateTurnId == null) {
+                entry.turnStateTurnId = base.turn_id;
+            } else if (entry.turnStateTurnId !== base.turn_id) {
+                entry.turnState = null;
+                entry.turnStateTurnId = null;
+            }
         }
         entry.currentTurnId = base.turn_id;
     }
@@ -399,6 +448,33 @@ function _cacheObservation({ entry, result }) {
             : partialDrop
                 ? 'warm_session_cached_tokens_dropped'
                 : null,
+    };
+}
+
+// Warmup→first-real continuity trace (Codex prewarm_websocket parity
+// observability). Pure/deterministic so it unit-tests without a live socket.
+// The R23 finding forbids the post-warmup request rewrite, so parity is
+// asserted via metrics instead of behavior: does the warmup's response_id
+// become the anchor the FIRST real request chains from, and what is the
+// hit/miss outcome of the first up-to-3 real requests on the socket.
+export function _warmupContinuityTrace({
+    warmupUsed,
+    warmupResponseId,
+    priorEntryResponseId,
+    sentPrevResponseId,
+    earlyCacheMisses,
+} = {}) {
+    const misses = Array.isArray(earlyCacheMisses) ? earlyCacheMisses.slice(0, 3) : [];
+    // The first real request is a full frame (no prev_id, per R23), so its
+    // anchor is what the entry held at build time — which the warmup wrote.
+    const firstRealPrevId = sentPrevResponseId || priorEntryResponseId || null;
+    return {
+        warmup_first_real_prev_id: firstRealPrevId,
+        warmup_chain_continuous: !!warmupUsed
+            && !!warmupResponseId
+            && firstRealPrevId === warmupResponseId,
+        early_cache_misses: misses,
+        early_cache_miss_count: misses.filter(Boolean).length,
     };
 }
 
@@ -600,7 +676,7 @@ export async function sendViaWebSocket({
     const useCodexWsClientMetadata = traceProvider === 'openai-oauth';
     const codexMetadataContext = { poolKey, cacheKey, sendOpts };
     const codexHandshakeHeaders = useCodexWsClientMetadata
-        ? _codexWsCompatibilityHeaders(codexMetadataContext)
+        ? _codexWsCompatibilityHeaders({ ...codexMetadataContext, handshake: true })
         : null;
 
     for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
@@ -725,8 +801,27 @@ export async function sendViaWebSocket({
             // has no prior request state. A reused pooled socket with a live
             // chain must go straight to the real request.
             if (warmupBody && typeof warmupBody === 'object' && attemptIndex === 0 && !entry.lastResponseId) {
-                const warmupFrame = { type: 'response.create', ...warmupBody };
-                const wireWarmupFrame = _withCodexWsClientMetadata(warmupFrame, entry, useCodexWsClientMetadata, codexMetadataContext);
+                // Codex WS prewarm parity (opt-in): codex's prewarm frame is a
+                // minimal generate:false request that omits transport-only
+                // fields (stream/background) on the wire (prewarm_websocket,
+                // client.rs:1673-1705). Under MIXDOG_OAI_CODEX_WIRE_PARITY force
+                // that omission for the warmup frame too; default is unchanged.
+                const warmupWireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
+                const parityWarmupBody = warmupWireParity
+                    ? { ...warmupBody, input: [], generate: false }
+                    : warmupBody;
+                const warmupFrame = _buildResponseCreateFrame(parityWarmupBody, { omitTransportFields: warmupWireParity });
+                const warmupMetadataContext = warmupWireParity
+                    ? {
+                        ...codexMetadataContext,
+                        sendOpts: {
+                            ...(codexMetadataContext?.sendOpts || {}),
+                            requestKind: 'prewarm',
+                            codexRequestKind: 'prewarm',
+                        },
+                    }
+                    : codexMetadataContext;
+                const wireWarmupFrame = _withCodexWsClientMetadata(warmupFrame, entry, useCodexWsClientMetadata, warmupMetadataContext);
                 wireFrameHadTurnState = !!wireWarmupFrame?.client_metadata?.['x-codex-turn-state'];
                 wireFrameMetadataTrace = _metadataTrace(wireWarmupFrame?.client_metadata);
                 await _sendFrameFn(entry, wireWarmupFrame);
@@ -761,8 +856,8 @@ export async function sendViaWebSocket({
                     throw new Error('Responses WS warmup completed without response id');
                 }
                 entry.lastResponseId = warmupResult.responseId;
-                entry.lastRequestSansInput = _stableStringify(_sansInput(warmupBody));
-                const warmupInputArr = Array.isArray(warmupBody.input) ? warmupBody.input : [];
+                entry.lastRequestSansInput = _stableStringify(_sansInput(parityWarmupBody));
+                const warmupInputArr = Array.isArray(parityWarmupBody.input) ? parityWarmupBody.input : [];
                 entry.lastRequestInput = _cloneJson(warmupInputArr);
                 entry.lastResponseItems = _cloneJson(Array.isArray(warmupResult.responseItems) ? warmupResult.responseItems : []);
                 entry.lastInputLen = warmupInputArr.length;
@@ -800,7 +895,7 @@ export async function sendViaWebSocket({
                 // Delta opt-in still chains via entry.lastResponseId above.
             }
 
-            const delta = _computeDelta({ entry, body: requestBody });
+            const delta = _computeDelta({ entry, body: requestBody, traceProvider });
             ({ mode, frame } = delta);
             deltaReason = delta.reason || null;
             strippedResponseItems = delta.strippedResponseItems || 0;
@@ -1093,6 +1188,22 @@ export async function sendViaWebSocket({
             _num(entry.promptCacheMaxCachedTokens, 0),
             cacheObservation.cachedTokens,
         );
+        // Early-session cache-miss ledger (first up-to-3 real requests on this
+        // socket) for the warmup→first-real continuity trace below. Warmup
+        // itself is excluded — this block only runs on the real send.
+        if (!Array.isArray(entry.earlyCacheMisses)) entry.earlyCacheMisses = [];
+        if (entry.earlyCacheMisses.length < 3) {
+            entry.earlyCacheMisses.push(
+                cacheObservation.actualMiss ? (cacheObservation.missReason || 'miss') : false,
+            );
+        }
+        const warmupContinuity = _warmupContinuityTrace({
+            warmupUsed: !!warmupResult,
+            warmupResponseId: warmupResult?.responseId || null,
+            priorEntryResponseId,
+            sentPrevResponseId,
+            earlyCacheMisses: entry.earlyCacheMisses,
+        });
         // Extra WS-specific observability: transport + per-iteration delta bytes.
         try {
             const transportPayload = {
@@ -1140,6 +1251,7 @@ export async function sendViaWebSocket({
                 frame_has_instructions: typeof frame.instructions === 'string' && frame.instructions.length > 0,
                 warmup_used: !!warmupResult,
                 warmup_response_id: warmupResult?.responseId || null,
+                ...warmupContinuity,
                 tool_call_count: resultToolCallCount,
                 keep_socket: keepSocket,
                 keep_response_chain: keepResponseChain,

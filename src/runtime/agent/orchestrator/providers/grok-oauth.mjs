@@ -88,17 +88,24 @@ function proxyHeaders() {
     };
 }
 
-function resolveGrokOAuthResponsesTransport(config, proxy) {
-    // Proxy-only models route through cli-chat-proxy.grok.com; the shared xAI
-    // WebSocket connector targets api.x.ai, so keep proxy models on HTTP.
-    if (proxy) return 'http';
+function resolveGrokOAuthResponsesTransport(config) {
+    // An explicit Grok-specific transport setting is the escape hatch and wins
+    // for EVERY Grok model, api.x.ai and proxy-only alike — e.g. pin 'http' to
+    // force proxy-only models back onto cli-chat-proxy.grok.com over HTTP.
     const raw = config?.responsesTransport
         ?? config?.transport
         ?? process.env.MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT
         ?? process.env.MIXDOG_GROK_OAUTH_TRANSPORT
         ?? '';
     const mode = String(raw).trim().toLowerCase();
-    return mode || 'http';
+    if (mode) return mode;
+    // No Grok-specific override: leave the field unset so ALL api.x.ai-capable
+    // Grok models honor the shared MIXDOG_OAI_TRANSPORT switch. Proxy-only
+    // grok-build is included: the shared xAI WebSocket connector targets the
+    // fixed wss://api.x.ai/v1/responses endpoint (not the proxy baseURL), and a
+    // live probe confirmed grok-build serves there with the OAuth token. No
+    // implicit HTTP pin — the proxy baseURL is only used when HTTP is selected.
+    return undefined;
 }
 
 // Retired model aliases xAI no longer exposes by their old ids. The live
@@ -639,10 +646,9 @@ export class GrokOAuthProvider {
             ...this.config,
             apiKey: token,
             baseURL: proxy ? PROXY_BASE_URL : INFERENCE_BASE_URL,
-            // Default to the proven HTTP Responses transport for Grok OAuth.
-            // Non-proxy api.x.ai models can opt into the shared xAI WebSocket
-            // connector via config/env; proxy-only models stay HTTP because
-            // the WS connector targets api.x.ai, not the Grok CLI proxy.
+            // All Grok models — proxy-only grok-build included — inherit the
+            // shared xAI transport switch (WS→api.x.ai by default). An explicit
+            // Grok-specific http setting is the escape hatch back to the proxy.
             responsesTransport: resolveGrokOAuthResponsesTransport(this.config, proxy),
             // Proxy-only models additionally need the Grok CLI client headers to
             // clear the proxy version gate (HTTP 426 otherwise).

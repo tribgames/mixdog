@@ -128,6 +128,11 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
             messages,
             cwd: sessionRef?.cwd,
             limit: hydrateLimit,
+            // Pre-send fast-track compaction: these rows are about to be
+            // summarized away, so skip the bounded synchronous embedding-flush
+            // wait — kick the flush fire-and-forget. Mirrors the manual/auto-clear
+            // runner (manager/compaction-runner.mjs) embedWait:false policy.
+            embedWait: false,
         }, callerCtx);
     } catch (err) {
         ingestFailed = true;

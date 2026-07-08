@@ -9,8 +9,9 @@
 import WebSocket from 'ws';
 import { errText } from '../../../shared/err-text.mjs';
 import { createHash, randomBytes } from 'crypto';
-import { appendFileSync } from 'node:fs';
-import { codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
 import {
     PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
     PROVIDER_WS_HANDSHAKE_TIMEOUT_MS,
@@ -26,7 +27,6 @@ export function _wsErrLabel(p) {
 }
 
 const CODEX_WS_URL = 'wss://chatgpt.com/backend-api/codex/responses';
-const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
 const OPENAI_WS_URL = 'wss://api.openai.com/v1/responses';
 const XAI_WS_URL = 'wss://api.x.ai/v1/responses';
 export const WS_IDLE_MS = resolveTimeoutMs(
@@ -71,6 +71,158 @@ const _CF_COOKIE_ALLOWLIST = new Set(['__cf_bm', '_cfuvid']);
 function _envOn(name) {
     const v = String(process.env[name] || '').trim().toLowerCase();
     return ['1', 'true', 'yes', 'on'].includes(v);
+}
+
+// --- Opt-in Codex fingerprint/id parity knobs ------------------------------
+// All default OFF; unset envs leave the winning combo
+// (MIXDOG_OAI_CODEX_WIRE_PARITY=1 + ws-delta + underscore session_id) exactly
+// as-is. These add EXTRA parity dimensions for backend fingerprint probes.
+
+// codex sends dashed RFC-4122 UUIDs as session-id/thread-id (client.rs:1033-
+// 1057); we key those dashed handshake headers off the underscore cacheKey by
+// default. Opt in with MIXDOG_OAI_CODEX_WIRE_PARITY_UUID_IDS to reshape ONLY
+// the dashed pair (session-id/thread-id/x-client-request-id) into codex's UUID
+// format. The value is derived deterministically from the id so it stays
+// stable per cache key (prefix-cache continuity preserved), and the underscore
+// `session_id` header (the backend prefix-dedupe key) is left untouched.
+function _codexUuidIdParity() {
+    const v = String(process.env.MIXDOG_OAI_CODEX_WIRE_PARITY_UUID_IDS || '').trim().toLowerCase();
+    return ['1', 'true', 'yes', 'on', 'uuid', 'dashed'].includes(v);
+}
+
+function _codexDashedId(value) {
+    const h = createHash('sha256').update(String(value)).digest();
+    const b = Buffer.from(h.subarray(0, 16));
+    b[6] = (b[6] & 0x0f) | 0x50; // version 5 nibble
+    b[8] = (b[8] & 0x3f) | 0x80; // RFC-4122 variant
+    const hex = b.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+// Opt-in turn-state gate experiment bundle (MIXDOG_OAI_CODEX_TURN_STATE_GATE).
+// The debugger's working hypothesis for what gates x-codex-turn-state issuance
+// is a specific wire shape: Codex-shaped UUIDv7 session/thread ids + dashed-only
+// handshake headers (drop the underscore session_id) + NO duplicated
+// x-client-request-id + a parent-thread header (added in openai-oauth-ws.mjs).
+// This env ties those dimensions together as ONE experiment so operators can
+// A/B the whole gate shape without hand-composing four flags. Default OFF; it
+// leaves MIXDOG_OAI_CODEX_WIRE_PARITY_UUID_IDS / _SESSION_ID and every existing
+// flag intact and only reshapes the wire when explicitly enabled.
+function _codexTurnStateGate() {
+    const v = String(process.env.MIXDOG_OAI_CODEX_TURN_STATE_GATE || '').trim().toLowerCase();
+    return ['1', 'true', 'yes', 'on'].includes(v);
+}
+
+// Same derivation as _codexDashedId but stamps the version-7 nibble so the
+// dashed pair reads as a Codex-shaped UUIDv7. Deterministic per id (prefix
+// cache continuity preserved); only used under the turn-state gate bundle.
+function _codexDashedIdV7(value) {
+    const h = createHash('sha256').update(String(value)).digest();
+    const b = Buffer.from(h.subarray(0, 16));
+    b[6] = (b[6] & 0x0f) | 0x70; // version 7 nibble
+    b[8] = (b[8] & 0x3f) | 0x80; // RFC-4122 variant
+    const hex = b.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+// codex advertises enabled beta features on the WS handshake; the backend
+// plausibly gates x-codex-turn-state issuance on that list (see the
+// x-codex-beta-features comment below). MIXDOG_CODEX_BETA_FEATURES replaces the
+// whole list; MIXDOG_OAI_CODEX_TURN_STATE_FEATURES is a safe ADD-ONLY opt-in
+// that appends turn-state-gating feature token(s) (comma-separated, de-duped)
+// without dropping the default `remote_compaction_v2`. Unset = default list.
+function _codexBetaFeatures() {
+    const base = process.env.MIXDOG_CODEX_BETA_FEATURES || 'remote_compaction_v2';
+    const extra = String(process.env.MIXDOG_OAI_CODEX_TURN_STATE_FEATURES || '').trim();
+    if (!extra) return base;
+    const seen = new Set();
+    const out = [];
+    for (const tok of `${base},${extra}`.split(',').map((s) => s.trim()).filter(Boolean)) {
+        if (seen.has(tok)) continue;
+        seen.add(tok);
+        out.push(tok);
+    }
+    return out.join(',');
+}
+
+// --- Opt-in raw WS capture for byte-diff against codex-rs -------------------
+// Enabled ONLY when MIXDOG_OAI_WS_DUMP_DIR names a directory. Persists the
+// (redacted) handshake header metadata and the exact serialized
+// response.create frame bytes so our wire format can be byte-diffed against
+// codex. Secrets (Authorization / Cookie / account-id / routing tokens) are
+// hashed, never written in clear. When the env is unset both helpers are
+// no-ops, so there is no default behavior change.
+const _WS_DUMP_SECRET_RE = /^(authorization|proxy-authorization|cookie|set-cookie|chatgpt-account-id|x-codex-turn-state|session_id|session-id|thread-id|x-codex-parent-thread-id|x-client-request-id|x-session-affinity)$/i;
+
+function _wsDumpDir() {
+    const dir = String(process.env.MIXDOG_OAI_WS_DUMP_DIR || '').trim();
+    return dir || null;
+}
+
+function _redactHeaderValue(key, value) {
+    const v = String(value ?? '');
+    if (_WS_DUMP_SECRET_RE.test(String(key))) {
+        if (!v) return '';
+        return `<redacted:sha256:${createHash('sha256').update(v).digest('hex').slice(0, 12)}:len${v.length}>`;
+    }
+    return v;
+}
+
+function _redactDumpUrl(url) {
+    try {
+        const parsed = new URL(String(url));
+        for (const [key, value] of parsed.searchParams.entries()) {
+            if (_WS_DUMP_SECRET_RE.test(String(key))) {
+                parsed.searchParams.set(key, _redactHeaderValue(key, value));
+            }
+        }
+        return parsed.toString();
+    } catch {
+        return String(url || '');
+    }
+}
+
+function _dumpHandshakeHeaders(url, headers) {
+    const dir = _wsDumpDir();
+    if (!dir) return;
+    try {
+        mkdirSync(dir, { recursive: true });
+        const redacted = {};
+        for (const [k, v] of Object.entries(headers || {})) redacted[k] = _redactHeaderValue(k, v);
+        const rec = {
+            ts: new Date().toISOString(),
+            kind: 'ws_handshake',
+            url: _redactDumpUrl(url),
+            // Header order matters for the codex byte-diff; keep it explicit.
+            headerOrder: Object.keys(headers || {}),
+            headers: redacted,
+        };
+        const stamp = `${Date.now()}-${randomBytes(4).toString('hex')}`;
+        writeFileSync(join(dir, `handshake-${stamp}.json`), JSON.stringify(rec, null, 2));
+    } catch {}
+}
+
+function _dumpFrame(payload) {
+    const dir = _wsDumpDir();
+    if (!dir) return;
+    try {
+        mkdirSync(dir, { recursive: true });
+        const stamp = `${Date.now()}-${randomBytes(4).toString('hex')}`;
+        // Persist the serialized response.create bytes for codex byte-diff,
+        // but never dump x-codex-turn-state in clear. That token is a
+        // per-turn credential-like routing secret; header dumps already hash
+        // it, so frame dumps must do the same when client_metadata carries it.
+        let out = payload;
+        try {
+            const frame = JSON.parse(String(payload));
+            const meta = frame?.client_metadata;
+            if (meta && typeof meta === 'object' && typeof meta['x-codex-turn-state'] === 'string') {
+                meta['x-codex-turn-state'] = _redactHeaderValue('x-codex-turn-state', meta['x-codex-turn-state']);
+                out = JSON.stringify(frame);
+            }
+        } catch {}
+        writeFileSync(join(dir, `frame-${stamp}.json`), out);
+    } catch {}
 }
 
 function _cfCookieAccountKey(auth) {
@@ -166,6 +318,7 @@ export function _sendFrame(entry, frame) {
             reject(err);
             return;
         }
+        _dumpFrame(payload);
         try {
             // Do NOT await the send callback: on a wedged-but-OPEN socket the
             // ws write callback may never fire, which would hang this Promise
@@ -199,7 +352,7 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
         : {
             'Authorization': `Bearer ${auth.access_token}`,
             'chatgpt-account-id': auth.account_id || '',
-            'originator': CODEX_OAUTH_ORIGINATOR,
+            'originator': codexOriginator(),
             'OpenAI-Beta': 'responses_websockets=2026-02-06',
             // codex-rs merges provider http_headers ("version") plus
             // default_headers (User-Agent) into the WS handshake
@@ -215,7 +368,7 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
             // exactly "remote_compaction_v2" (features/src/lib.rs: the only
             // always-advertised Stable default-on feature). Servers gate
             // behavior (plausibly incl. x-codex-turn-state issuance) on it.
-            'x-codex-beta-features': process.env.MIXDOG_CODEX_BETA_FEATURES || 'remote_compaction_v2',
+            'x-codex-beta-features': _codexBetaFeatures(),
         };
     const isOpenAiOauth = auth.type !== 'xai' && auth.type !== 'openai-direct';
     // codex-rs sends only the dashed session-id/thread-id pair
@@ -224,21 +377,52 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
     // its in-memory prefix state by the underscore session_id handshake
     // header, and the only 0.0%-miss full-frame rounds (R7/R8, R15 regressed
     // to 13% after this header was dropped) all had it present. Send both.
-    if (sessionToken) {
+    // The underscore session_id is the backend prefix-dedupe key (2026-04-19
+    // probes; R15 regressed to 13% miss when it was dropped). Codex parity
+    // (client.rs:1033-1057) sends ONLY the dashed pair, but dropping this
+    // header is a KNOWN cache-unsafe change — so the general parity flag no
+    // longer silently drops it. Keep it unless an operator EXPLICITLY opts
+    // into the codex-exact dashed-only wire via
+    // MIXDOG_OAI_CODEX_WIRE_PARITY_SESSION_ID=dashed.
+    // The gate bundle implies the dashed-only wire (drop the underscore
+    // session_id) on top of the standalone opt-in.
+    const gate = _codexTurnStateGate();
+    const dropUnderscoreSessionId = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY_SESSION_ID === 'dashed' || gate;
+    if (sessionToken && !dropUnderscoreSessionId) {
         headers['session_id'] = String(sessionToken);
     }
     if (isOpenAiOauth && (sessionToken || _cacheKey)) {
-        const threadId = String(_cacheKey || sessionToken);
-        const sessionId = String(sessionToken || _cacheKey);
+        // Gate bundle forces Codex-shaped UUIDv7 ids; the standalone parity flag
+        // keeps its v5-derived shape.
+        const uuidIds = _codexUuidIdParity() || gate;
+        const shapeId = gate ? _codexDashedIdV7 : _codexDashedId;
+        // Underscore `session_id` above is left as-is (backend prefix-dedupe
+        // key); only the dashed codex pair is reshaped under the opt-in.
+        const threadId = uuidIds ? shapeId(String(_cacheKey || sessionToken)) : String(_cacheKey || sessionToken);
+        const sessionId = uuidIds ? shapeId(String(sessionToken || _cacheKey)) : String(sessionToken || _cacheKey);
         headers['session-id'] = sessionId;
         headers['thread-id'] = threadId;
-        headers['x-client-request-id'] = threadId;
+        // Default/parity wire duplicates the dashed thread-id here. The gate
+        // hypothesis is that a duplicated x-client-request-id suppresses
+        // turn-state issuance, so omit it entirely under the bundle.
+        if (!gate) headers['x-client-request-id'] = threadId;
         if (codexHeaders && typeof codexHeaders === 'object') {
             for (const [key, value] of Object.entries(codexHeaders)) {
                 if (typeof key === 'string' && typeof value === 'string' && value) {
                     headers[key] = value;
                 }
             }
+        }
+        // Gate-only: the wire thread-id above is reshaped to a Codex UUIDv7
+        // (shapeId), but _codexWsCompatibilityHeaders derives
+        // x-codex-parent-thread-id from the RAW dashed thread_id, so the merged
+        // codexHeaders carry a parent-thread id that no longer matches the
+        // thread-id on the same handshake. Realign it to the reshaped thread-id
+        // (single source of truth: the pool owns the wire id shape) so the
+        // gate handshake is internally consistent. Non-gate / standalone
+        // parity paths keep codex's raw value untouched.
+        if (gate && headers['x-codex-parent-thread-id']) {
+            headers['x-codex-parent-thread-id'] = threadId;
         }
     } else {
         // xAI/direct keep a per-request value so their server-side traces stay
@@ -290,6 +474,7 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
     const url = baseUrl + (sessionToken && process.env.MIXDOG_OAI_WS_URL_SESSION === '1'
         ? `?session_id=${encodeURIComponent(String(sessionToken))}`
         : '');
+    _dumpHandshakeHeaders(url, headers);
     return new Promise((resolve, reject) => {
         let settled = false;
         let abortListener = null;

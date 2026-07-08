@@ -156,8 +156,11 @@ async function selfHealOwnedRuntime(options = {}) {
         process.stderr.write(`mixdog: self-heal getBackend() reset failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
       });
     }
-    // Nudge the forwarder to drain anything the rebind/reconnect surfaced.
-    void forwarder.forwardNewText().catch(() => {});
+    // Do NOT nudge forwardNewText() here. bindPersistedTranscriptIfAny() above
+    // already forwards the same-session catch-up from the persisted cursor; an
+    // extra drain risks surfacing the old tail of a freshly (re)bound transcript
+    // on connect/change/rebind. Only outputs created after the new binding
+    // should be forwarded, and the normal watch/poll path handles those.
   } finally {
     _ownedRuntimeSelfHealing = false;
   }

@@ -17,6 +17,7 @@ import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { makeModelCache } from './model-cache.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
+import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import {
     buildStableProviderPromptCacheKey,
     resolveProviderPromptCacheLane,
@@ -398,9 +399,13 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
     const out = [];
     const pendingToolMedia = [];
     const customToolCallNameById = new Map();
+    const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
+    const wireMessage = (role, content) => (wireParity
+        ? { type: 'message', role, content, internal_chat_message_metadata_passthrough: {} }
+        : { role, content });
     const flushToolMedia = () => {
         if (!pendingToolMedia.length) return;
-        out.push({ role: 'user', content: pendingToolMedia.splice(0) });
+        out.push(wireMessage('user', pendingToolMedia.splice(0)));
     };
     for (const m of messages) {
         if (!m || m.role === 'system') continue;
@@ -442,7 +447,7 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
             // for the WS_IDLE_MS window even after a socket close).
             // Server-side state already preserves the prefix; sending
             // reasoning in `input` triggers "Duplicate item".
-            if (m.content) out.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
+            if (m.content) out.push(wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, { role: 'assistant' })));
             for (const tc of m.toolCalls) {
                 if (tc.nativeType === 'tool_search_call' || tc.name === 'load_tool' || tc.name === 'tool_search') {
                     out.push({
@@ -470,10 +475,10 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
             }
             continue;
         }
-        out.push({
-            role: m.role === 'assistant' ? 'assistant' : 'user',
-            content: normalizeContentForOpenAIResponses(m.content, { role: m.role }),
-        });
+        out.push(wireMessage(
+            m.role === 'assistant' ? 'assistant' : 'user',
+            normalizeContentForOpenAIResponses(m.content, { role: m.role }),
+        ));
     }
     flushToolMedia();
     return out;
@@ -812,7 +817,9 @@ export class OpenAIOAuthProvider {
         // Fast-fallback is only meaningful when HTTP/SSE fallback is actually
         // configured for this provider; WS-only paths keep the full handshake
         // retry budget. This mirrors _shouldUseOpenAIHttpFallback's `enabled`.
-        const httpFallbackEnabled = _envFlag('MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK', true);
+        const transportPolicy = resolveOpenAiTransportPolicy();
+        const httpFallbackEnabled = transportPolicy.allowHttpFallback
+            && _envFlag('MIXDOG_OPENAI_HTTP_FALLBACK', true);
         const _t1 = Date.now();
         const recordLiveModel = (result) => {
             if (result?.model && !_codexCatalogHas(result.model)) {
@@ -936,9 +943,12 @@ export class OpenAIOAuthProvider {
                 ? { ...body, generate: false }
                 : null,
         });
-        if (opts.forceHttpFallback === true
-            || httpFallbackActive()
-            || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) {
+        if (transportPolicy.transport === 'http'
+            || (transportPolicy.allowHttpFallback && (
+                opts.forceHttpFallback === true
+                || httpFallbackActive()
+                || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)
+            ))) {
             return dispatchHttp('forced');
         }
 
@@ -970,7 +980,7 @@ export class OpenAIOAuthProvider {
                     return recordLiveModel(result);
                 } catch (retryErr) {
                     traceWsError(retryErr, 'auth_retry');
-                    if (_shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {
+                    if (httpFallbackEnabled && _shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {
                         try {
                             return await dispatchHttp(
                                 retryErr?.retryClassifier || retryErr?.code || retryErr?.message || 'ws_auth_retry_failed',
@@ -997,7 +1007,7 @@ export class OpenAIOAuthProvider {
                 await this._refreshModelCache();
                 return this.send(messages, model, tools, { ...opts, _modelRetry: true });
             }
-            if (_shouldUseOpenAIHttpFallback(err, externalSignal)) {
+            if (httpFallbackEnabled && _shouldUseOpenAIHttpFallback(err, externalSignal)) {
                 // Fast-path trace: the WS handshake acquire/first-byte failed on
                 // its FIRST attempt while fast-fallback was armed, so the
                 // remaining backoff retries were skipped and HTTP starts now.

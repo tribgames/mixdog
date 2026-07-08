@@ -2,8 +2,7 @@ import {
   estimateRequestReserveTokens,
   estimateToolSchemaTokens,
   estimateTranscriptContextUsage,
-  resolveCompactBufferTokens,
-  resolveCompactTriggerTokens,
+  resolveSessionCompactPolicy,
   summarizeContextMessages,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import { estimateToolSchemaBreakdown } from './tool-catalog.mjs';
@@ -122,10 +121,12 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     // Use the same shared compact-policy math as manager/loop. Do not trust
     // persisted trigger telemetry as an independent policy input: it is an
     // output snapshot and was the source of repeated /context false positives.
-    const compactTriggerTokens = resolveCompactTriggerTokens(session || {}, compactBoundaryTokens) || 0;
-    const compactBufferTokens = compactBoundaryTokens
-      ? Math.max(0, compactBoundaryTokens - compactTriggerTokens)
-      : resolveCompactBufferTokens(compactBoundaryTokens, session?.compaction || {});
+    // Shared session-compaction policy (same math as manager/loop): agent-owned
+    // semantic sessions report/fire at 90% of the boundary; main/user
+    // recall-fasttrack report/fire on the boundary itself (100%).
+    const compactPolicy = resolveSessionCompactPolicy(session || {}, compactBoundaryTokens);
+    const compactTriggerTokens = compactPolicy.triggerTokens || 0;
+    const compactBufferTokens = compactPolicy.bufferTokens || 0;
     const value = {
       sessionId: session?.id || null,
       provider: route.provider,

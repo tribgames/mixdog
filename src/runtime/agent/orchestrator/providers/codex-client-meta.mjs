@@ -69,13 +69,35 @@ function _arch() {
     return a;
 }
 
+/**
+ * Originator token codex sends on every request (`codex_cli_rs`).
+ *
+ * Opt-in parity override: an operator can pin the exact originator a known-good
+ * codex build reports via MIXDOG_CODEX_ORIGINATOR when the backend fingerprints
+ * on it. Unset (default) keeps `codex_cli_rs`, so wire behavior is unchanged.
+ */
+export function codexOriginator() {
+    const override = String(process.env.MIXDOG_CODEX_ORIGINATOR || '').trim();
+    return override || 'codex_cli_rs';
+}
+
 /** codex_cli_rs/<version> (<os> <ver>; <arch>) <terminal> */
 export function codexUserAgent() {
+    // Opt-in parity override: pin an exact codex User-Agent string
+    // (MIXDOG_CODEX_USER_AGENT) when the auto-derived os/arch/terminal tuple
+    // drifts from the real codex build the backend expects. Unset = default.
+    const override = String(process.env.MIXDOG_CODEX_USER_AGENT || '').trim();
+    if (override) return override;
     const terminal = String(process.env.TERM_PROGRAM || 'unknown').trim() || 'unknown';
     return `codex_cli_rs/${codexClientVersionSync()} (${_osType()} ${os.release()}; ${_arch()}) ${terminal}`;
 }
 
 /** Bare version header value — codex built-in provider http_headers "version". */
 export function codexVersionHeader() {
+    // Opt-in parity override: pin an exact `version` header
+    // (MIXDOG_CODEX_VERSION) instead of the npm-derived value. Unset = default
+    // (live npm version, floor fallback), so behavior is unchanged.
+    const override = String(process.env.MIXDOG_CODEX_VERSION || '').trim();
+    if (override) return override;
     return codexClientVersionSync();
 }

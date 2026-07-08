@@ -11,7 +11,10 @@ import {
   readLatestGatewayHostRoute,
   readGatewaySessionRoute,
 } from '../src/gateway/session-routes.mjs';
-import { compactBoundaryDenominator } from '../src/gateway/route-meta.mjs';
+import {
+  compactBoundaryDenominator,
+  defaultEffectiveContextWindowPercent,
+} from '../src/gateway/route-meta.mjs';
 
 function positiveInt(value) {
   const n = parseInt(String(value || ''), 10);
@@ -187,10 +190,6 @@ function boundedPercent(value, fallback = null) {
   const n = Number(value);
   if (Number.isFinite(n) && n > 0 && n <= 100) return n;
   return fallback;
-}
-
-function defaultEffectiveContextWindowPercent(_provider) {
-  return 90;
 }
 
 function routeContextMeta(provider, info = {}, inherited = {}) {

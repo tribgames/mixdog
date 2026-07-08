@@ -161,6 +161,11 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
       let streamedText = '';
       let printedAny = false;
       let printedToolCard = false;
+      // After the blank line emitted above, the cursor sits at a fresh line
+      // start. Track this so tool cards don't insert extra blank-line "pops":
+      // a leading newline is only needed to break away from un-terminated
+      // streamed text, never between consecutive cards.
+      let atLineStart = true;
       try {
         const runtime = await ensureRuntime();
         const { result } = await runtime.ask(
@@ -169,13 +174,16 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
             onToolCall: async (_iter, calls) => {
               for (const c of calls || []) {
                 printedToolCard = true;
-                stdout.write('\n' + (await renderToolCardLazy(c)) + '\n');
+                const lead = atLineStart ? '' : '\n';
+                stdout.write(lead + (await renderToolCardLazy(c)) + '\n');
+                atLineStart = true;
               }
           },
             onTextDelta: (chunk) => {
               printedAny = true;
               streamedText += chunk;
               stdout.write(chunk);
+              atLineStart = chunk.endsWith('\n');
             },
             onUsageDelta: (delta) => applyUsageDelta(stats, delta),
           },

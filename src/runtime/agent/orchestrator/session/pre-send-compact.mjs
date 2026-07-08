@@ -26,6 +26,8 @@ import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
 import { messagesArrayChanged } from './loop/tool-helpers.mjs';
 import { normalizeUsage, addUsage } from './loop/usage.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
+import { agentCompactFailedError } from './loop/context-overflow.mjs';
+import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../agent-trace.mjs';
 import { bumpUsageMetricsEpoch } from './manager.mjs';
 
@@ -252,6 +254,31 @@ export async function runPreSendCompactPass(state) {
                             );
                         } catch { /* best-effort */ }
                     } else {
+                    // A genuine cancellation/abort surfaced from the compact
+                    // pipeline is NOT a context overflow. The recall-fasttrack
+                    // pipeline (loop/recall-fasttrack.mjs) deliberately rethrows
+                    // the original abort error unchanged so the session records a
+                    // clean cancellation — and the manual/auto-clear runner
+                    // (manager/compaction-runner.mjs) likewise never fabricates an
+                    // AGENT_CONTEXT_OVERFLOW for an aborted compact. Mirror that
+                    // here: preserve the real error (code/name/cause intact)
+                    // instead of masking it as overflow. Detection is narrow on
+                    // purpose — signal.aborted or a true AbortError — so the
+                    // recall pipeline's SYNTHETIC "…aborted: memory … ; head
+                    // preserved" failure (a real compact failure, message text
+                    // aside) still escalates to overflow below.
+                    if (signal?.aborted === true
+                        || compactErr?.name === 'AbortError'
+                        || compactErr?.code === 'ABORT_ERR'
+                        || compactErr?.code === 'ABORT') {
+                        try {
+                            process.stderr.write(
+                                `[loop] pre-send compact cancelled (sess=${sessionId || 'unknown'}): ` +
+                                `${compactErr?.message || compactErr}\n`,
+                            );
+                        } catch { /* best-effort */ }
+                        throw compactErr;
+                    }
                     const compactFailMsg = compactErr && compactErr.message ? compactErr.message : String(compactErr);
                     const semanticFailMsg = semanticCompactError?.message || null;
                     const recallFailMsg = recallFastTrackError?.message || null;
@@ -324,14 +351,33 @@ export async function runPreSendCompactPass(state) {
                         durationMs: Date.now() - compactStartedAt,
                         error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
                     });
-                    throw agentContextOverflowError({
+                    // Only a GENUINE provider context-overflow surfaced from the
+                    // compact pipeline (e.g. the semantic-summary send itself
+                    // overflowed the model window) deserves AGENT_CONTEXT_OVERFLOW.
+                    // Every other compact-stage failure (dead memory runtime,
+                    // recall-fasttrack bail, semantic summary error) is a compact
+                    // failure, not "latest turn cannot fit" — mislabeling it as
+                    // overflow hides the real cause and misroutes downstream
+                    // overflow handling. Surface an explicit compact-failed error.
+                    const genuineOverflow = compactErr?.code === 'AGENT_CONTEXT_OVERFLOW'
+                        || compactErr?.name === 'AgentContextOverflowError'
+                        || isContextOverflowError(compactErr);
+                    if (genuineOverflow) {
+                        throw agentContextOverflowError({
+                            stage: 'pre_send',
+                            sessionId,
+                            sessionRef,
+                            model,
+                            budgetTokens: compactBudgetTokens,
+                            reserveTokens: compactPolicy.reserveTokens,
+                            messageTokensEst,
+                        }, compactErr);
+                    }
+                    throw agentCompactFailedError({
                         stage: 'pre_send',
                         sessionId,
                         sessionRef,
                         model,
-                        budgetTokens: compactBudgetTokens,
-                        reserveTokens: compactPolicy.reserveTokens,
-                        messageTokensEst,
                     }, compactErr);
                     }
                 }

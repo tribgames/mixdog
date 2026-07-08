@@ -567,6 +567,16 @@ async function waitForGenericTask(taskId, { timeoutMs = 30_000, pollMs = 250, co
     };
 }
 
+function renderTaskCancelSuccess(taskId, task) {
+    const surface = task?.surface || 'task';
+    const operation = task?.operation || 'run';
+    return [
+        'status: completed',
+        `task_id: ${taskId}`,
+        `cancelled: ${surface}/${operation}`,
+    ].join('\n');
+}
+
 export async function executeTaskTool(args, options = {}) {
     const action = typeof args.action === 'string' ? args.action.toLowerCase() : (args.task_id ? 'wait' : 'list');
     if (action === 'list') return renderBackgroundTaskList({ context: options });
@@ -597,10 +607,10 @@ export async function executeTaskTool(args, options = {}) {
             cancelBackgroundShellJobWatch(taskId);
             clearShellJobNotifyCtx(taskId);
             cancelBackgroundTask(taskId, 'cancelled by task control');
-            return job ? renderBackgroundTask(getBackgroundTask(taskId, { context: options }) || task, { includeResult: true }) : buildJobNotFoundMessage(taskId);
+            return job ? renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task) : buildJobNotFoundMessage(taskId);
         }
         cancelBackgroundTask(taskId, 'cancelled by task control');
-        return renderBackgroundTask(getBackgroundTask(taskId, { context: options }) || task, { includeResult: true });
+        return renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task);
     }
 
     if (action !== 'wait') {

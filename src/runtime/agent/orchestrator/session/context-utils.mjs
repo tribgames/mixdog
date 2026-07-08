@@ -1,5 +1,6 @@
 import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
+import { isAgentOwner } from '../agent-owner.mjs';
 
 // ---------------------------------------------------------------------------
 // Conservative, Unicode-aware token estimator.
@@ -225,13 +226,45 @@ export function resolveCompactBufferTokens(boundaryTokens, cfg = {}, opts = {}) 
 }
 
 export function resolveCompactTriggerTokens(sessionOrConfig = {}, boundaryTokens = 0) {
-    const boundary = positiveTokenInt(boundaryTokens);
-    if (!boundary) return null;
+    return resolveSessionCompactPolicy(sessionOrConfig, boundaryTokens).triggerTokens;
+}
+
+// Single source of truth for per-session compaction policy math. Manager
+// (compactTriggerForSession), the turn loop (resolveWorkerCompactPolicy), and
+// the /context gauge all derive their trigger/buffer from here so the numbers
+// never diverge. Rules:
+//   - a truly-explicit sub-boundary auto-compact limit always wins
+//     (trigger = limit) for every session type;
+//   - agent-owned semantic sessions otherwise keep the default early-trigger
+//     buffer (config-driven, default 10% -> compact at 90% of the boundary);
+//   - main/user recall-fasttrack sessions have NO default buffer and compact on
+//     the boundary itself (100%).
+// Returns the sanitized explicit limit (null when absent/legacy full-window)
+// plus triggerTokens / bufferTokens / bufferRatio for the given boundary.
+export function resolveSessionCompactPolicy(sessionOrConfig = {}, boundaryTokens = 0) {
     const cfg = sessionOrConfig?.compaction || sessionOrConfig || {};
-    const autoLimit = positiveTokenInt(sessionOrConfig?.autoCompactTokenLimit ?? cfg?.autoCompactTokenLimit);
-    if (autoLimit && autoLimit < boundary) return Math.max(1, autoLimit);
-    const buffer = resolveCompactBufferTokens(boundary, cfg);
-    return Math.max(1, boundary - buffer);
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) {
+        return {
+            autoCompactTokenLimit: null,
+            triggerTokens: null,
+            bufferTokens: 0,
+            bufferRatio: resolveCompactBufferRatio(cfg),
+        };
+    }
+    const rawLimit = positiveTokenInt(sessionOrConfig?.autoCompactTokenLimit ?? cfg?.autoCompactTokenLimit);
+    const explicitLimit = rawLimit && rawLimit < boundary ? rawLimit : null;
+    let triggerTokens;
+    if (explicitLimit) {
+        triggerTokens = explicitLimit;
+    } else if (isAgentOwner(sessionOrConfig)) {
+        triggerTokens = Math.max(1, boundary - resolveCompactBufferTokens(boundary, cfg));
+    } else {
+        triggerTokens = boundary;
+    }
+    const bufferTokens = Math.max(0, boundary - triggerTokens);
+    const bufferRatio = bufferTokens / boundary;
+    return { autoCompactTokenLimit: explicitLimit, triggerTokens, bufferTokens, bufferRatio };
 }
 
 function stripSystemReminder(text) {

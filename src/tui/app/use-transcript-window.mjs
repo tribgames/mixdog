@@ -595,7 +595,19 @@ export function useTranscriptWindow({
         toolExpanded: toolExpandedFlag,
         variantKey,
       });
-      if (!isStreamingAssistant) changed = true;
+      if (!isStreamingAssistant) {
+        // First mount (no prior entry): this frame's row index already used the
+        // ESTIMATE for this item (measuredTranscriptRows returned null). If Yoga
+        // measured exactly what the estimate predicted, the geometry is already
+        // correct — bumping measuredRowsVersion would re-run the row-index/window
+        // memos for a no-op and repaint the card one frame later (the "settle"
+        // jump). Only bump when the measurement actually corrects the estimate.
+        // A CHANGED height (prev existed but differs) always bumps.
+        const estimateRows = prev
+          ? -1
+          : estimateTranscriptItemRowsCached(item, frameColumns, toolOutputExpanded);
+        if (prev || measured !== estimateRows) changed = true;
+      }
     }
     if (changed) {
       // `changed` only flips true when a height actually differs from the

@@ -18,6 +18,7 @@ import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
+import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import { loadConfig } from '../config.mjs';
 import {
     resolveProviderCacheKey,
@@ -146,19 +147,35 @@ export class OpenAIDirectProvider {
             auth: a,
             sendOpts: opts,
             displayModel: (id) => id,
+            // Public direct WS must not inherit the openai-oauth trace provider:
+            // that key drives the Codex WS client-metadata path
+            // (useCodexWsClientMetadata = traceProvider === 'openai-oauth') and
+            // the OAuth/Codex handshake headers. Direct API-key auth pins its own
+            // provider so it stays on the public (non-Codex) envelope.
+            traceProvider: 'openai-direct',
         });
         // WS→HTTP/SSE fallback mirrors the openai-oauth wrapper: the shared
         // HTTP transport now accepts auth.type==='openai-direct' (public
         // Responses endpoint + Bearer <apiKey>), so the api-key provider gets
         // the same envelope. Gate via shouldFallbackTransport (denies
         // 401/403/404/429 + liveTextEmitted/emittedToolCall/unsafeToRetry).
-        const httpFallbackEnabled = _envFlag('MIXDOG_OPENAI_HTTP_FALLBACK', true);
+        const transportPolicy = resolveOpenAiTransportPolicy();
+        const httpFallbackEnabled = transportPolicy.allowHttpFallback
+            && _envFlag('MIXDOG_OPENAI_HTTP_FALLBACK', true);
         const dispatchHttp = (a) => {
             if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) {
                 process.stderr.write('[openai-ws] WebSocket unhealthy; falling back to HTTP/SSE\n');
             }
             return sendViaHttpSse({ ...common, auth: a, opts, fetchFn: opts._fetchFn });
         };
+        // Transport-policy switch (MIXDOG_OAI_TRANSPORT). 'http-sse' forces the
+        // HTTP/SSE transport directly — no WS attempt, so skip the fallback log
+        // that dispatchHttp emits (it is not a fallback here). All other modes
+        // ('auto'/'ws-full'/'ws-delta') keep the WS-first path below; ws-full vs
+        // ws-delta only affects the delta gate inside openai-ws-delta.mjs.
+        if (transportPolicy.transport === 'http') {
+            return await sendViaHttpSse({ ...common, auth, opts, fetchFn: opts._fetchFn });
+        }
         try {
             return await dispatchWs(auth);
         } catch (err) {

@@ -50,6 +50,21 @@ const MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')
 const _envIdleMs = Number(process.env.MIXDOG_EMBED_IDLE_TIMEOUT_MS)
 const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdleMs : 0
 
+// Defensive belt against giant model inputs. Callers should already bound text
+// (see memory-embed truncateForEmbed), but the worker is the last line before
+// ORT: an unbounded string builds a [batch, seq] tensor large enough to trigger
+// multi-GB allocations and an input-tensor dump in the ORT error path. Cap each
+// text to a char budget and ask the tokenizer to truncate to the model window.
+const _envWorkerMaxChars = Number(process.env.MIXDOG_EMBED_MAX_CHARS)
+const WORKER_MAX_CHARS = (Number.isFinite(_envWorkerMaxChars) && _envWorkerMaxChars > 0)
+  ? Math.floor(_envWorkerMaxChars)
+  : 8000
+const EXTRACT_OPTS = { pooling: 'mean', normalize: true, truncation: true }
+function capEmbedText(text) {
+  if (typeof text !== 'string') return ''
+  return text.length > WORKER_MAX_CHARS ? text.slice(0, WORKER_MAX_CHARS) : text
+}
+
 let extractorPromise = null
 let configuredDtype = DEFAULT_DTYPE
 let _device = 'cpu'
@@ -262,7 +277,7 @@ async function processMessage(msg) {
           break
         }
         const t0 = Date.now()
-        const output = await extractor(texts, { pooling: 'mean', normalize: true })
+        const output = await extractor(texts.map(capEmbedText), EXTRACT_OPTS)
         const wallMs = Date.now() - t0
         if (!output.data?.length) throw new Error(`embed-batch output missing data (model=${MODEL_ID})`)
         const total = output.data.length
@@ -284,7 +299,7 @@ async function processMessage(msg) {
         resetIdleTimer()
         const extractor = await loadExtractor()
         const t0 = Date.now()
-        const output = await extractor(msg.text, { pooling: 'mean', normalize: true })
+        const output = await extractor(capEmbedText(msg.text), EXTRACT_OPTS)
         const wallMs = Date.now() - t0
         if (!output.data?.length) throw new Error(`embed output missing data (model=${MODEL_ID})`)
         const dims = output.data.length
@@ -302,7 +317,7 @@ async function processMessage(msg) {
         resetIdleTimer()
         const extractor = await loadExtractor()
         const t0 = Date.now()
-        const warmupOutput = await extractor('warmup', { pooling: 'mean', normalize: true })
+        const warmupOutput = await extractor('warmup', EXTRACT_OPTS)
         const wallMs = Date.now() - t0
         if (!warmupOutput.data?.length) throw new Error(`warmup output missing data (model=${MODEL_ID})`)
         const measuredDims = warmupOutput.data.length

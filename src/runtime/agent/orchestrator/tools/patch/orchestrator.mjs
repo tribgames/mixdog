@@ -11,7 +11,7 @@ import { withBuiltinPathLocks } from '../builtin.mjs';
 import { withAdvisoryLocks } from '../builtin/advisory-lock.mjs';
 import { wrapMutationRouteOutput } from '../mutation-planner.mjs';
 import { getPluginData } from '../../config.mjs';
-import { prepareInput, isV4APatchInput, hasUnifiedBareV4AHunk, canFallbackCountedUnified, parseV4APatch, isCompactedPlaceholderPatch, salvageV4AOpening } from './parsing.mjs';
+import { prepareInput, isV4APatchInput, hasUnifiedBareV4AHunk, canFallbackCountedUnified, parseV4APatch, parseUnifiedBareV4APatch, parseUnifiedCountedAsV4APatch, isCompactedPlaceholderPatch, salvageV4AOpening } from './parsing.mjs';
 import {
   resolveBasePath,
   resolveV4AEntryPath,
@@ -21,6 +21,8 @@ import {
   renderParsedUnifiedPatch,
   rewriteHeaderPaths,
   preValidateNativeBatch,
+  classifyEntry,
+  stripDiffPrefix,
 } from './paths.mjs';
 import { ensureNativePatchBinaryAvailable } from './native-server.mjs';
 import { assertPathReachable } from '../builtin/fs-reachability.mjs';
@@ -33,10 +35,262 @@ import {
   convertV4ASectionsToUnifiedPatch,
   convertUnifiedBareV4AToUnifiedPatch,
   convertUnifiedCountedToUnifiedPatchViaV4A,
+  isV4ARenameSection,
 } from './v4a-convert.mjs';
 
 function isPatchErrorText(text) {
   return /^Error:/i.test(String(text ?? '').trimStart());
+}
+
+// Apply one "wave" (a set of unique-target parsed entries) via the native
+// (+ JS out-of-base) split. Returns { backend, text } on success or
+// { backend, error } so the caller decides whether earlier waves already
+// committed to disk. Extracted verbatim from the inline applyWave closure so
+// both the default wave loop and sequence mode share identical apply
+// semantics.
+async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewrites: whr }, basePath, opts) {
+  const { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal } = opts;
+  const insideEntries = wentries.filter((entry) => !isResolvedPathOutsideBase(entry.fullPath, basePath));
+  const outsideEntries = wentries.filter((entry) => isResolvedPathOutsideBase(entry.fullPath, basePath));
+  const parsedInside = (wparsed || []).filter(
+    (entry) => !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
+  );
+  const backend = outsideEntries.length > 0
+    ? (insideEntries.length > 0 ? 'native+js-patch' : 'js-patch')
+    : 'native-patch';
+  const resultParts = [];
+  if (insideEntries.length > 0) {
+    const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), whr);
+    const nativeResult = await dispatchNativePatch({
+      entries: insideEntries,
+      basePath,
+      nativePatchStr,
+      fuzz,
+      rejectPartial,
+      dryRun,
+      readStateScope,
+      signal: abortSignal,
+      parsed: parsedInside,
+    });
+    if (isPatchErrorText(nativeResult)) return { backend, error: nativeResult };
+    resultParts.push(nativeResult);
+  }
+  if (outsideEntries.length > 0) {
+    // Out-of-base targets are applied via the JS dispatcher (no base-path
+    // confinement); write permission is enforced at the hook layer.
+    const jsResult = await dispatchJsPatchEntries({
+      rows: outsideEntries,
+      parsed: wparsed,
+      basePath,
+      dryRun,
+      fuzzy,
+      readStateScope,
+    });
+    if (isPatchErrorText(jsResult)) return { backend, error: jsResult };
+    resultParts.push(jsResult);
+  }
+  return { backend, text: resultParts.join('\n') };
+}
+
+// Default ordered section mode. Apply each file section in listed order,
+// converting every V4A section against the CURRENT on-disk state (i.e. after
+// all earlier sections have committed), and stop at the first section that
+// fails. Reports applied / failed / skipped reflecting true disk state.
+async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
+  const {
+    v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
+    readStateScope, abortSignal, mutationPlan,
+  } = ctx;
+
+  // Build the ordered section "units". Each unit resolves its own parsed
+  // unified entry lazily via buildParsed(), so a V4A section is converted
+  // only when it is its turn — against disk mutated by the earlier sections.
+  const units = [];
+  // Build a per-section unit from a V4A-style section. Conversion is deferred
+  // into buildParsed() so each section is resolved against the disk state the
+  // earlier sections left behind — a later section that fails to convert/apply
+  // never blocks the earlier ones from committing (ordered-stop). This is
+  // shared by the V4A path AND the bare-@@/counted-unified fallbacks, so those
+  // salvageable formats keep ordered-stop instead of aborting whole-patch.
+  const pushSectionUnit = (section) => {
+    const displayPath = normalizeOutputPath(section.path);
+    const fullPath = resolveV4AEntryPath(basePath, section.path);
+    // A V4A rename cannot be sequenced, but ordered-stop requires we still
+    // apply every section BEFORE it and surface the rename as the failed
+    // section — never abort before earlier sections commit. Defer the
+    // rejection into buildParsed() so the loop marks it failed and keeps
+    // earlier commits.
+    if (isV4ARenameSection(section)) {
+      units.push({
+        displayPath,
+        fullPath,
+        buildParsed: async () => {
+          throw new Error('sequence mode does not support V4A rename (*** Move to:) sections; apply the rename in a separate non-sequence patch');
+        },
+      });
+      return;
+    }
+    units.push({
+      displayPath,
+      fullPath,
+      // Honor reject_partial via v4aConvertOpts: a bad hunk throws under
+      // reject_partial=true (section fails → sequence stops) but is recorded in
+      // rejectedHunks and skipped under reject_partial=false.
+      buildParsed: async () => {
+        const unified = await convertV4ASectionsToUnifiedPatch([section], basePath, v4aConvertOpts);
+        return parsePatch(prepareInput(unified));
+      },
+    });
+  };
+  if (isV4APatchInput(patchStr, requestedFormat)) {
+    let allSections;
+    try {
+      allSections = parseV4APatch(patchStr);
+    } catch (err) {
+      throw new Error(`apply_patch: V4A parse failed — ${err?.message || String(err)}`);
+    }
+    for (const section of allSections) pushSectionUnit(section);
+  } else if (requestedFormat !== 'unified' && hasUnifiedBareV4AHunk(patchStr)) {
+    // Bare `@@` V4A hunks in a unified body: parse to sections and defer each
+    // section's conversion into its own unit (ordered-stop preserved) rather
+    // than converting the whole patch up front.
+    let sections;
+    try {
+      sections = parseUnifiedBareV4APatch(patchStr);
+    } catch (err) {
+      throw new Error(`apply_patch: bare @@ parse failed — ${err?.message || String(err)}`);
+    }
+    for (const section of sections) pushSectionUnit(section);
+  } else {
+    let parsed = null;
+    let countedSections = null;
+    try {
+      parsed = parsePatch(prepareInput(patchStr));
+    } catch (err) {
+      if (!canFallbackCountedUnified(patchStr, requestedFormat, err)) {
+        throw new Error(`apply_patch: parse failed — ${err?.message || String(err)}; prefer V4A envelope for multi-hunk edits (no @@ line counts)`);
+      }
+      // Counted-unified (`@@ -a,b +c,d @@`) that parsePatch rejects: parse to
+      // V4A-style sections and defer per-section conversion — same ordered-stop
+      // guarantee as the V4A path (no whole-patch up-front convert).
+      try {
+        countedSections = parseUnifiedCountedAsV4APatch(patchStr);
+      } catch (fallbackErr) {
+        throw new Error(`apply_patch: parse failed — ${err?.message || String(err)}; V4A fallback failed — ${fallbackErr?.message || String(fallbackErr)}`);
+      }
+    }
+    if (countedSections) {
+      for (const section of countedSections) pushSectionUnit(section);
+    } else {
+      for (const entry of parsed || []) {
+        const kind = classifyEntry(entry);
+        const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
+        units.push({
+          displayPath: normalizeOutputPath(stripDiffPrefix(headerName || '')),
+          fullPath: parsedEntryResolvedPath(entry, basePath),
+          buildParsed: async () => [entry],
+        });
+      }
+    }
+  }
+  if (units.length === 0) return 'Error: patch contained no file sections';
+
+  try {
+    await ensureNativePatchBinaryAvailable();
+  } catch (err) {
+    return `Error: ${err?.message || String(err)}`;
+  }
+
+  const lockPaths = [...new Set(units.map((u) => u.fullPath))];
+  const waveOpts = { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal };
+
+  return withBuiltinPathLocks(lockPaths, () =>
+    withAdvisoryLocks(lockPaths, async () => {
+      const applied = [];
+      const skipped = [];
+      let failed = null;
+      let failedIndex = -1;
+      let backend = 'native-patch';
+      for (let i = 0; i < units.length; i++) {
+        const unit = units[i];
+        if (failed) { skipped.push(unit.displayPath); continue; }
+        if (abortSignal?.aborted) {
+          failed = { displayPath: unit.displayPath, error: 'Error: apply_patch aborted' };
+          failedIndex = i;
+          continue;
+        }
+        let parsed;
+        try {
+          parsed = await unit.buildParsed();
+        } catch (err) {
+          failed = { displayPath: unit.displayPath, error: `Error: ${err?.message || String(err)}` };
+          failedIndex = i;
+          continue;
+        }
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          // Section produced no applicable hunks (all skipped / no-op). Nothing
+          // to commit; record and continue.
+          applied.push({ displayPath: unit.displayPath, text: `(no changes) ${unit.displayPath}` });
+          continue;
+        }
+        let wave;
+        try {
+          const { entries, headerRewrites } = await preValidateNativeBatch(parsed, basePath);
+          wave = { parsed, entries, headerRewrites };
+        } catch (err) {
+          failed = { displayPath: unit.displayPath, error: `Error: ${err?.message || String(err)}` };
+          failedIndex = i;
+          continue;
+        }
+        const res = await applyParsedWave(wave, basePath, waveOpts);
+        backend = res.backend;
+        if (res.error) {
+          failed = { displayPath: unit.displayPath, error: res.error };
+          failedIndex = i;
+          continue;
+        }
+        applied.push({ displayPath: unit.displayPath, text: res.text });
+      }
+
+      const verb = dryRun ? 'validated' : 'applied';
+      const dryNote = (dryRun && units.length > 1)
+        ? '\n(dry_run: each section validated against unchanged disk; a section depending on an earlier section\'s edits may report a false failure)'
+        : '';
+      const appliedTexts = applied.map((a) => a.text).filter(Boolean).join('\n');
+      // reject_partial=false may have skipped individual V4A hunks in ANY
+      // already-processed section; surface them in BOTH the success and failure
+      // reports so the reported disk state stays complete even when a later
+      // section fails.
+      const rejected = Array.isArray(v4aConvertOpts?.rejectedHunks) ? v4aConvertOpts.rejectedHunks : [];
+      const rejectedTail = rejected.length > 0
+        ? '\n' + [
+          '',
+          `hunk-level rejected (rejectPartial=false, V4A): ${rejected.length}`,
+          ...rejected.map((r) => `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '').split(';')[0].trim()}`),
+        ].join('\n')
+        : '';
+      if (!failed) {
+        const head = `apply_patch sequence: ${verb} ${units.length} section(s) in listed order`;
+        const body = (appliedTexts ? `${head}\n${appliedTexts}` : head) + dryNote + rejectedTail;
+        return wrapPatchMutationOutput(body, mutationPlan, { backend });
+      }
+      const failMsg = failed.error.replace(/^Error:\s*/, '');
+      const committedPhrase = dryRun
+        ? `${applied.length} earlier section(s) were validated`
+        : `${applied.length} earlier section(s) were applied to disk (committed) and left in place`;
+      const lines = [
+        `Error: apply_patch sequence stopped at section ${failedIndex + 1}/${units.length} (${failed.displayPath}); `
+          + `${committedPhrase}; ${skipped.length} later section(s) were skipped (not attempted).`,
+      ];
+      if (appliedTexts) {
+        lines.push(`--- ${dryRun ? 'validated' : 'applied (committed to disk)'} ---`, appliedTexts);
+      }
+      lines.push(`--- failed section: ${failed.displayPath} ---`, failMsg);
+      if (skipped.length > 0) {
+        lines.push(`--- skipped (not attempted): ${skipped.join(', ')} ---`);
+      }
+      return wrapPatchMutationOutput(lines.join('\n') + dryNote + rejectedTail, mutationPlan, { backend });
+    }));
 }
 
 const APPLY_PATCH_UI_DIFF_MAX_CHARS = 64 * 1024;
@@ -82,7 +336,7 @@ function wrapPatchMutationOutput(text, plan, extras = {}) {
   return wrapMutationRouteOutput(text, plan, extras);
 }
 
-const APPLY_PATCH_SCHEMA_KEYS = new Set(['patch', 'format', 'base_path', 'dry_run', 'reject_partial', 'fuzzy']);
+const APPLY_PATCH_SCHEMA_KEYS = new Set(['patch', 'format', 'base_path', 'dry_run', 'reject_partial', 'fuzzy', 'sequence', 'mode']);
 function salvageShatteredV4APatchArgs(args) {
   if (!args || typeof args !== 'object') return args;
   const rawPatch = typeof args.patch === 'string' ? args.patch : '';
@@ -142,6 +396,17 @@ async function apply_patch(args, cwd, options = {}) {
   let inputPatchStr = patchStr;
   const rejectedV4AHunks = [];
   const v4aConvertOpts = { rejectPartial, rejectedHunks: rejectedV4AHunks, fuzzy, dryRun, readStateScope };
+  // Default internal ordered mode: apply sections in listed order, stop at the
+  // first failure, and report applied/failed/skipped with true disk state.
+  // The legacy bulk/atomic path remains available as an explicit escape hatch.
+  const legacyBulkMode = args?.sequence === false
+    || ['atomic', 'bulk'].includes(String(args?.mode || '').toLowerCase());
+  if (!legacyBulkMode) {
+    return applyPatchSequence(patchStr, requestedFormat, basePath, {
+      v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
+      readStateScope, abortSignal, mutationPlan,
+    });
+  }
   let v4aRenamePlan = null;
   if (isV4APatchInput(patchStr, requestedFormat)) {
     try {
@@ -243,51 +508,9 @@ async function apply_patch(args, cwd, options = {}) {
       if (lines.length === 0) return 'Error: patch contained no applicable file sections';
       return wrapPatchMutationOutput(`${lines.join('\n')}\n`, mutationPlan, { backend: 'v4a-rename' });
     }
-    // Apply one wave (a set of unique targets) via the existing native(+js)
-    // split. Returns { backend, text } on success or { backend, error } so the
-    // caller can decide whether earlier waves already committed to disk.
-    const applyWave = async ({ parsed: wparsed, entries: wentries, headerRewrites: whr }) => {
-      const insideEntries = wentries.filter((entry) => !isResolvedPathOutsideBase(entry.fullPath, basePath));
-      const outsideEntries = wentries.filter((entry) => isResolvedPathOutsideBase(entry.fullPath, basePath));
-      const parsedInside = (wparsed || []).filter(
-        (entry) => !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
-      );
-      const backend = outsideEntries.length > 0
-        ? (insideEntries.length > 0 ? 'native+js-patch' : 'js-patch')
-        : 'native-patch';
-      const resultParts = [];
-      if (insideEntries.length > 0) {
-        const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), whr);
-        const nativeResult = await dispatchNativePatch({
-          entries: insideEntries,
-          basePath,
-          nativePatchStr,
-          fuzz,
-          rejectPartial,
-          dryRun,
-          readStateScope,
-          signal: abortSignal,
-          parsed: parsedInside,
-        });
-        if (isPatchErrorText(nativeResult)) return { backend, error: nativeResult };
-        resultParts.push(nativeResult);
-      }
-      if (outsideEntries.length > 0) {
-        // Out-of-base targets are applied via the JS dispatcher (no base-path
-        // confinement); write permission is enforced at the hook layer.
-        const jsResult = await dispatchJsPatchEntries({
-          rows: outsideEntries,
-          parsed: wparsed,
-          basePath,
-          dryRun,
-          fuzzy,
-          readStateScope,
-        });
-        if (isPatchErrorText(jsResult)) return { backend, error: jsResult };
-        resultParts.push(jsResult);
-      }
-      return { backend, text: resultParts.join('\n') };
-    };
+    // Apply one wave (a set of unique targets) via applyParsedWave (native +
+    // JS split). Returns { backend, text } on success or { backend, error }.
+    const applyWave = (wave) => applyParsedWave(wave, basePath, { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal });
 
     // Duplicate-target blocks were split into contiguous sequential groups
     // (listed order preserved); apply them in order, each against the prior

@@ -75,6 +75,64 @@ const _rawTimeout = Number(process.env.MIXDOG_EMBED_FLUSH_TIMEOUT_MS)
 const EMBED_FLUSH_TIMEOUT_MS = (Number.isFinite(_rawTimeout) && _rawTimeout > 0) ? _rawTimeout : 30_000
 
 const BATCH_SIZE = 32
+const RAW_EMBEDDING_ENABLED = process.env.MIXDOG_ENABLE_RAW_EMBEDDINGS === '1'
+let _rawEmbeddingDisabledLogged = false
+
+// Conservative per-text length cap applied before any text reaches the
+// embedding provider. Raw transcript rows and tool-output content can be
+// arbitrarily large; feeding a 14k-token string to the transformer builds a
+// giant [batch, seq] tensor (observed: dims [8,14363] → ORT attempting a 79GB
+// allocation before dumping the input BigInt64Array). The model only attends to
+// its first ~512 tokens anyway, so truncating to a bounded char budget preserves
+// recall while capping tensor size and worker RSS. ~4 chars/token → 8000 chars
+// ≈ 2000 tokens, comfortably above the model window yet far below the blowup.
+const _envEmbedMaxChars = Number(process.env.MIXDOG_EMBED_MAX_CHARS)
+const EMBED_MAX_CHARS = (Number.isFinite(_envEmbedMaxChars) && _envEmbedMaxChars > 0)
+  ? Math.floor(_envEmbedMaxChars)
+  : 8000
+
+export function truncateForEmbed(text) {
+  if (typeof text !== 'string') return ''
+  return text.length > EMBED_MAX_CHARS ? text.slice(0, EMBED_MAX_CHARS) : text
+}
+
+// Raw-row dense-embed eligibility. Storage/recall rows are NEVER deleted or
+// unindexed here — but the dense embedding leg should only cover useful
+// CONVERSATIONAL text. Tool call/result traces and runtime/log/offload/debug/
+// system notifications carry no recall value as dense vectors and pollute the
+// shared embedding cache with mechanical noise, so they are excluded before
+// embedding AND before batch vector mapping. An excluded row keeps its row +
+// embedding-NULL storage state untouched (no delete, no schema change).
+const RAW_EMBED_EXCLUDE_ROLES = new Set(['tool', 'tool_result', 'tool-result', 'function', 'system', 'log', 'offload', 'debug'])
+const RAW_EMBED_EXCLUDE_CONTENT_RES = [
+  /^\s*\[tool_call\b/i,
+  /^\s*\[tool_result\b/i,
+  /^\s*\[mixdog-runtime\]/i,
+  /^\s*The async (?:shell task|agent task|\S+ execution|\S+) .*has finished\b.*review this result in your next step/i,
+  /^\s*background task\b/i,
+]
+const RAW_EMBED_EXCLUDE_NON_CONVERSATION_CONTENT_RES = [
+  /^\s*\[(?:system|log|offload|debug|trace|info|warn|warning|error|fatal)\]/i,
+]
+const RAW_EMBED_CONVERSATION_ROLES = new Set(['user', 'assistant'])
+
+export function isRawEmbeddable(role, content) {
+  const normRole = String(role ?? '').trim().toLowerCase()
+  if (RAW_EMBED_EXCLUDE_ROLES.has(normRole)) return false
+  const text = typeof content === 'string' ? content : ''
+  if (!text.trim()) return false
+  for (const re of RAW_EMBED_EXCLUDE_CONTENT_RES) if (re.test(text)) return false
+  if (!RAW_EMBED_CONVERSATION_ROLES.has(normRole)) {
+    for (const re of RAW_EMBED_EXCLUDE_NON_CONVERSATION_CONTENT_RES) if (re.test(text)) return false
+  }
+  return true
+}
+
+const RAW_EMBED_SQL_EXCLUDE_ROLE_VALUES = [...RAW_EMBED_EXCLUDE_ROLES]
+const RAW_EMBED_SQL_ALWAYS_EXCLUDE_CONTENT_RE =
+  '^\\s*(\\[tool_call\\b|\\[tool_result\\b|\\[mixdog-runtime\\]|The async (shell task|agent task|\\S+ execution|\\S+) .*has finished\\b.*review this result in your next step|background task\\b)'
+const RAW_EMBED_SQL_NON_CONVERSATION_EXCLUDE_CONTENT_RE =
+  '^\\s*\\[(system|log|offload|debug|trace|info|warn|warning|error|fatal)\\]'
 
 function throwIfAborted(signal) {
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
@@ -106,10 +164,13 @@ export async function cachedEmbedTextBatch(db, texts, options = {}) {
   // env value that doesn't match the provider would tag vectors with a
   // stale/wrong label across model/env changes.
   const modelId = getEmbeddingModelId() || process.env.MIXDOG_EMBED_MODEL || 'default'
-  const entries = texts.map(t => ({
-    text: t,
-    hash: Buffer.from(createHash('sha256').update(t).digest()),
-  }))
+  // Bound each text before hashing/embedding: the cache key and the provider
+  // input are both the truncated string, so oversized rows can never build a
+  // giant tensor and identical truncations dedup in-cache.
+  const entries = texts.map(t => {
+    const text = truncateForEmbed(t)
+    return { text, hash: Buffer.from(createHash('sha256').update(text).digest()) }
+  })
 
   // Single SELECT for all hashes
   const hashBufs = entries.map(e => e.hash)
@@ -285,6 +346,14 @@ export async function flushEmbeddingDirty(db, options = {}) {
 // dense matching, not staleness.
 export async function flushRawEmbeddings(db, options = {}) {
   const { limit = 200, signal } = options ?? {}
+  throwIfAborted(signal)
+  if (!RAW_EMBEDDING_ENABLED) {
+    if (!_rawEmbeddingDisabledLogged) {
+      __mixdogMemoryLog('[embed] raw transcript embedding disabled; only root/summary entries are embedded\n')
+      _rawEmbeddingDisabledLogged = true
+    }
+    return { attempted: 0, embedded: 0, skipped: 'raw-embedding-disabled' }
+  }
   // Optional id allow-list: restrict the SKIP LOCKED claim to a specific set of
   // rows (e.g. exactly the rows a single ingest_session call inserted) so a
   // caller can flush ONLY its own rows instead of inheriting the whole raw
@@ -294,7 +363,6 @@ export async function flushRawEmbeddings(db, options = {}) {
     ? options.ids.map(Number).filter(Number.isFinite)
     : null
   if (idFilter && idFilter.length === 0) return { attempted: 0, embedded: 0 }
-  throwIfAborted(signal)
   await ensureEmbCacheTable(db)
   throwIfAborted(signal)
 
@@ -310,7 +378,14 @@ export async function flushRawEmbeddings(db, options = {}) {
     try {
       throwIfAborted(signal)
       await client.query('BEGIN')
-      const params = [batchCap, cursor]
+      const params = [
+        batchCap,
+        cursor,
+        RAW_EMBED_SQL_EXCLUDE_ROLE_VALUES,
+        [...RAW_EMBED_CONVERSATION_ROLES],
+        RAW_EMBED_SQL_ALWAYS_EXCLUDE_CONTENT_RE,
+        RAW_EMBED_SQL_NON_CONVERSATION_EXCLUDE_CONTENT_RE,
+      ]
       let idClause = ''
       if (idFilter) {
         params.push(idFilter)
@@ -322,6 +397,9 @@ export async function flushRawEmbeddings(db, options = {}) {
            AND NULLIF(btrim(session_id), '') IS NOT NULL
            AND content IS NOT NULL
            AND id > $2${idClause}
+           AND lower(COALESCE(role, '')) <> ALL($3::text[])
+           AND content !~* $5
+           AND (lower(COALESCE(role, '')) = ANY($4::text[]) OR content !~* $6)
          ORDER BY id
          LIMIT $1
          FOR UPDATE SKIP LOCKED`,
@@ -374,7 +452,7 @@ async function syncRawBatchEmbeddings(db, ids, options = {}) {
   const signal = options?.signal
   throwIfAborted(signal)
   const rows = (await db.query(
-    `SELECT id, content FROM memory.entries
+    `SELECT id, role, content FROM memory.entries
      WHERE id = ANY($1::bigint[]) AND is_root = 0 AND chunk_root IS NULL`,
     [ids],
   )).rows
@@ -385,7 +463,10 @@ async function syncRawBatchEmbeddings(db, ids, options = {}) {
   throwIfAborted(signal)
   const expected = Number(dimsRow?.value ?? 0)
 
-  const texts = rows.map(row => (typeof row.content === 'string' ? row.content.trim() : ''))
+  // Exclude tool/tool_result/log/offload/debug/system-like rows from the dense
+  // embed leg (empty text ⇒ dropped below and never vector-mapped). The length
+  // cap still applies to survivors via cachedEmbedTextBatch → truncateForEmbed.
+  const texts = rows.map(row => (isRawEmbeddable(row.role, row.content) ? row.content.trim() : ''))
   const vectors = await cachedEmbedTextBatch(db, texts.filter(Boolean), { signal })
   throwIfAborted(signal)
   let vecIdx = 0

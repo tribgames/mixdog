@@ -38,6 +38,7 @@ import {
     _stripResponseItemsFromHead,
     _computeDelta,
     _estimateFrameTokens,
+    _buildResponseCreateFrame,
 } from './openai-ws-delta.mjs';
 import {
     _combineUsageWithWarmup,
@@ -59,6 +60,7 @@ export {
     _stripResponseItemsFromHead,
     _computeDelta,
     _estimateFrameTokens,
+    _buildResponseCreateFrame,
     _combineUsageWithWarmup,
 };
 
@@ -126,13 +128,22 @@ function _hasHeaderKey(headers, name) {
     return _headerKeys(headers).includes(wanted);
 }
 
-function _captureTurnStateFromEvent(entry, event) {
+export function _captureTurnStateFromEvent(entry, event) {
     if (!entry || entry.turnState || !event || typeof event !== 'object') return;
     const turnState = _headerString(event.headers, X_CODEX_TURN_STATE_HEADER)
         || _headerString(event.response?.headers, X_CODEX_TURN_STATE_HEADER)
         || _headerString(event.response?.metadata?.headers, X_CODEX_TURN_STATE_HEADER)
         || _headerString(event.metadata?.headers, X_CODEX_TURN_STATE_HEADER);
-    if (turnState) entry.turnState = turnState;
+    if (turnState) {
+        entry.turnState = turnState;
+        // Attribute the captured token to the turn currently on the wire so
+        // the per-turn drop guard (_withCodexWsClientMetadata) can retire it
+        // once turn_id advances; null falls back to first-use attribution. An
+        // empty turn_id (parity prewarm) is a valid owner — preserve '' rather
+        // than collapsing it to null, so a prewarm-captured token is retired on
+        // the next real turn instead of leaking onto it.
+        entry.turnStateTurnId = entry.currentTurnId != null ? entry.currentTurnId : null;
+    }
 }
 
 function _traceWsHeaderKeys(entry, event, midState, traceProvider, model) {

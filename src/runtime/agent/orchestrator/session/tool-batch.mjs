@@ -24,7 +24,7 @@ import {
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 import {
     _stripMcpPrefix, _isReadTool, _isMutationTool, _isScopedCacheableTool,
-    _isShellTool, _intraTurnSig,
+    _isShellTool, _isOrderedGateSkippable, _intraTurnSig,
 } from './loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
@@ -80,6 +80,17 @@ export async function processToolBatch(ctx) {
         // between two tool results of the same multi-tool turn (which would put a
         // user message between tool(A) and tool(B) and break provider pairing).
         const _batchNewMessages = [];
+        // Ordered-mutation batch gate. apply_patch is a mutation tool (never
+        // eager-dispatchable), so multiple apply_patch calls in ONE assistant
+        // turn already execute serially in call-index order via this loop.
+        // This flag records the FIRST ordered mutation whose execution failed
+        // in this batch; every LATER apply_patch in the same batch is then
+        // skipped (not executed) because its edits may depend on the failed
+        // one and applying them against unchanged/partially-changed files
+        // risks corrupt or misplaced writes. Only apply_patch is gated —
+        // non-mutation tools (reads/grep/shell/...) keep their normal
+        // parallelism and behavior. Reset per batch (per assistant turn).
+        let _orderedMutationFailed = null;
         for (let callIndex = 0; callIndex < calls.length; callIndex += 1) {
             const call = calls[callIndex];
             if (isBuiltinTool(call.name)) {
@@ -150,6 +161,22 @@ export async function processToolBatch(ctx) {
                     });
                     continue;
                 }
+            }
+            // Ordered-mutation skip: an earlier apply_patch in THIS batch failed,
+            // so this later apply_patch is skipped rather than executed. Restore
+            // its full patch body first (this call never ran) so the model can
+            // re-issue it cleanly in a new turn instead of copying back a
+            // `[mixdog compacted …]` placeholder. Emits a matching is_error
+            // tool_result so the assistant tool_use is not orphaned.
+            if (_orderedMutationFailed && _isOrderedGateSkippable(call.name)) {
+                if (call?.id) restoreToolCallBodyForId(assistantTurnMsg, calls, call.id);
+                pushToolResultMessage({
+                    role: 'tool',
+                    content: `Error: [ordered-mutation-skip] an earlier apply_patch in this same tool batch (call index ${_orderedMutationFailed.index + 1}) failed; ordered mutations in one batch are all-or-nothing after a failure, so this later \`${call.name}\` was NOT executed — it may depend on the failed mutation and running it now against unchanged/partially-changed state could corrupt files. Re-issue it in a new turn after resolving the earlier failure.`,
+                    toolCallId: call.id,
+                    toolKind: 'error',
+                });
+                continue;
             }
             if (sessionId) markSessionToolCall(sessionId, call.name, resolveToolSelfDeadlineMs(call.name, call.arguments));
             let result;
@@ -416,9 +443,34 @@ export async function processToolBatch(ctx) {
             // This block runs unconditionally (not gated on _executeOk or _resultKind).
             if (sessionId && (!_executeOk || _resultKind === 'error') && _stripMcpPrefix(call.name) === 'apply_patch') {
                 clearReadDedupSession(sessionId);
+                // Scoped caches (grep/glob/list/code_graph) are refreshed only in
+                // the success-gated block above, so a FAILED/errored patch would
+                // otherwise leave later non-mutation tools in this batch reading
+                // stale scoped-cache entries for the (possibly partially-written)
+                // files. Invalidate targeted paths when the diff parses, else full
+                // wipe — file state is unknown after an error exit.
+                const _failBaseArg = call.arguments?.base_path;
+                const _failBase = (typeof _failBaseArg === 'string' && _failBaseArg.length > 0)
+                    ? (isAbsolute(_failBaseArg) ? _failBaseArg : resolvePath(cwd || process.cwd(), _failBaseArg))
+                    : (cwd || process.cwd());
+                const _failTouched = extractTouchedPathsFromPatch(call.arguments?.patch);
+                if (_failTouched.length > 0) {
+                    clearScopedToolsForSessionPaths(sessionId, _failTouched, _failBase);
+                    for (const _p of _failTouched) invalidatePrefetchCache(_p, _failBase);
+                } else {
+                    clearScopedToolsForSession(sessionId);
+                }
             }
             if (_isMutationTool(call.name)) {
                 epoch.mutation += 1;
+                // Record the first failed ordered mutation in this batch so any
+                // LATER apply_patch is skipped by the gate at the top of the
+                // loop. Keyed on exec outcome (not post-processing): a mutation
+                // whose write succeeded but post-processing threw still landed
+                // on disk, so it must NOT block subsequent ordered patches.
+                if ((!_executeOk || _resultKind === 'error') && !_orderedMutationFailed) {
+                    _orderedMutationFailed = { index: callIndex, callId: call.id, name: call.name };
+                }
             }
             // Bash always clears scoped cache UNCONDITIONALLY — a mutating bash
             // that throws or fails partway can still leave stale find_symbol / grep entries.

@@ -9,6 +9,7 @@ import {
   estimateMessagesTokens,
   estimateRequestReserveTokens,
 } from '../../../../runtime/agent/orchestrator/session/context-utils.mjs';
+import { DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT } from '../../../../runtime/agent/orchestrator/session/compact/constants.mjs';
 import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 
 const GATEWAY_USAGE_FILE = 'gateway-usage.local.json';
@@ -98,12 +99,12 @@ function boundedPercent(value, fallback = null) {
   return fallback;
 }
 
-function defaultEffectiveContextWindowPercent(_provider) {
+export function defaultEffectiveContextWindowPercent(_provider) {
   // Gateway-routed models use catalog/provider context metadata (LiteLLM,
   // models.dev, or native provider catalogs). Reserve a small universal
   // headroom for output/tool/system tokens while keeping the raw model window
   // visible separately.
-  return 90;
+  return DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
 }
 
 function effectiveContextWindowPercent(provider, info = {}, seed = {}) {

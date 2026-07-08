@@ -157,7 +157,13 @@ class OutputForwarder {
         const noSendEvidence = (!Number.isFinite(sentCount) || sentCount <= 0)
           && (!Number.isFinite(lastSentTime) || lastSentTime <= 0)
           && !hasSentHash;
-        if (!sameTranscript || noSendEvidence) {
+        // Recover a genuinely-unsynced tail ONLY for the SAME transcript we are
+        // resuming (a reply this session generated but never delivered — crash
+        // recovery). NEVER pull the cursor back for a DIFFERENT transcript: on
+        // connect/change/rebind that would forward the newly-bound (possibly
+        // prior/unrelated) transcript's old tail. A fresh binding must only
+        // forward outputs created after the binding, so leave the cursor at EOF.
+        if (sameTranscript && noSendEvidence) {
           const tailOffset = this.findLastAssistantTextOffset(currentSize);
           if (tailOffset >= 0 && tailOffset < currentSize) {
             fileSize = tailOffset;

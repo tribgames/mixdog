@@ -210,16 +210,10 @@ function resolveContextUsedPct({
     autoCompactTokenLimit,
     compact,
   });
-  // Trigger-as-denominator: when a sub-boundary compaction trigger
-  // (boundary - buffer) is known, context % is measured against IT so the
-  // gauge reads 100% exactly when auto-compact fires instead of stalling at
-  // ~90% of the boundary window. The gateway's own pct is computed against
-  // the boundary denominator, so it is bypassed in that case.
-  const trigger = num(autoCompactTokenLimit);
-  const triggerDenominator = trigger > 0 && (!(boundary > 0) || trigger < boundary);
-  if (triggerDenominator && numerator > 0) {
-    return (numerator / trigger) * 100;
-  }
+  // Boundary-only denominator: context % is always measured against the single
+  // compaction boundary value (shared with the gateway), never against a
+  // separate auto-compact trigger. This keeps the statusline and gateway
+  // display on the same denominator with no before/after trigger semantics.
   const gatewayRawPct = gatewayStatus?.contextUsedPct;
   if (
     gatewayStatus

@@ -39,5 +39,7 @@
   `apply_patch` and the `shell` that checks it in separate turns — not for
   ordering (same-turn calls run in emit order), but because you must SEE the
   patch result before verifying: a same-turn shell is already emitted and
-  can't react to a failed or partial patch. Batch the patches this turn,
-  verify them all in ONE shell call the next. Anything else stays parallel.
+  can't react to a failed or partial patch. Put all known edits in ONE patch
+  this turn, in the order they should apply; later mutations skip after an
+  earlier patch failure. Verify all edits in ONE shell call next turn. Anything
+  else stays parallel.

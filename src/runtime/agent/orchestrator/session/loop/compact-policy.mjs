@@ -4,8 +4,7 @@
 // against live session state).
 import {
     estimateRequestReserveTokens,
-    resolveCompactBufferRatio,
-    resolveCompactBufferTokens,
+    resolveSessionCompactPolicy,
 } from '../context-utils.mjs';
 import {
     compactTypeIsRecallFastTrack,
@@ -13,18 +12,17 @@ import {
     DEFAULT_COMPACT_TYPE,
     DEFAULT_COMPACTION_KEEP_TOKENS,
     CONTEXT_SHARE_RATIO,
+    COMPACT_TARGET_MIN_TOKENS,
+    COMPACT_SAFETY_PERCENT,
     COMPACT_TYPE_RECALL_FASTTRACK,
 } from '../compact.mjs';
 import { positiveTokenInt, envFlag, envTokenInt } from './env.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 
-const COMPACT_SAFETY_PERCENT = 1.00;
 // Unified context-share rule (compact/constants.mjs CONTEXT_SHARE_RATIO): the
 // post-compaction target is 10% of the boundary/context window — the same 10%
 // the recall-fasttrack injection cap uses (loop.mjs recallTokenCap). One
 // number governs every "share of model context" budget.
-const COMPACT_TARGET_RATIO = CONTEXT_SHARE_RATIO;
-const COMPACT_TARGET_MIN_TOKENS = 4_000;
 
 function resolveSemanticCompactSetting(sessionRef, cfg = {}) {
     // Types are hard-locked (agent -> semantic, main/user -> recall-fasttrack).
@@ -55,9 +53,9 @@ function resolveCompactTargetRatio(cfg = {}) {
         ?? cfg.targetFraction
         ?? process.env.MIXDOG_AGENT_COMPACT_TARGET_PERCENT
         ?? process.env.MIXDOG_COMPACT_TARGET_PERCENT
-        ?? COMPACT_TARGET_RATIO;
+        ?? CONTEXT_SHARE_RATIO;
     const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return COMPACT_TARGET_RATIO;
+    if (!Number.isFinite(n) || n <= 0) return CONTEXT_SHARE_RATIO;
     return n > 1 ? n / 100 : n;
 }
 function resolveCompactTargetTokens(boundaryTokens, cfg = {}) {
@@ -92,22 +90,16 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         : (explicitBoundary || contextWindow || autoLimit);
     if (!boundaryTokens) return null;
     const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
-    // Only an explicit auto-compact limit STRICTLY BELOW the boundary acts as
-    // the trigger. A persisted value == boundary (legacy derived full-window
-    // autoCompactTokenLimit) would set autoTriggerTokens == boundary and
-    // collapse/override the default trigger, so it is ignored in favor of the
-    // default boundary trigger.
-    const autoTriggerTokens = autoLimit && autoLimit < compactBoundaryTokens ? Math.max(1, autoLimit) : null;
-    // Sanitized explicit limit: only a sub-boundary value is a real auto-compact
-    // limit. Anything >= boundary is a legacy derived full-window artifact and
-    // is reported as null so rememberCompactTelemetry does not re-persist it
-    // back onto the session and re-collapse the buffer on the next turn.
-    const explicitAutoCompactTokenLimit = autoTriggerTokens;
-    const bufferTokens = autoTriggerTokens
-        ? Math.max(0, compactBoundaryTokens - autoTriggerTokens)
-        : resolveCompactBufferTokens(compactBoundaryTokens, cfg);
-    const bufferRatio = compactBoundaryTokens ? (bufferTokens / compactBoundaryTokens) : resolveCompactBufferRatio(cfg);
-    const triggerTokens = autoTriggerTokens || Math.max(1, compactBoundaryTokens - bufferTokens);
+    // Shared session-compaction policy (context-utils): agent semantic keeps the
+    // default early-trigger buffer (90%); main/user compact on the boundary
+    // (100%); a truly-explicit sub-boundary limit wins. explicitAutoCompactTokenLimit
+    // is the sanitized (null when legacy full-window) value so telemetry never
+    // re-persists a boundary-collapsing limit.
+    const policy = resolveSessionCompactPolicy(sessionRef, compactBoundaryTokens);
+    const explicitAutoCompactTokenLimit = policy.autoCompactTokenLimit;
+    const bufferTokens = policy.bufferTokens;
+    const bufferRatio = policy.bufferRatio;
+    const triggerTokens = policy.triggerTokens;
     const configuredReserve = positiveTokenInt(cfg.reservedTokens)
         || envTokenInt('MIXDOG_AGENT_COMPACT_RESERVED_TOKENS')
         || 0;

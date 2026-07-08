@@ -10,11 +10,25 @@
  * (openai-oauth-ws.mjs et al) resolve unchanged.
  */
 
+import {
+    resolveResponsesTransportPolicy,
+    RESPONSES_TRANSPORT_CAPABILITIES,
+    FULL_RESPONSES_TRANSPORT_CAPS,
+} from './openai-transport-policy.mjs';
+
 // If the cached request (sans input) matches the current one and the current
 // input starts with the cached input, return only the tail. Otherwise return
 // the full input (fresh turn).
 export function _sansInput(body) {
-    const { input: _ignored, previous_response_id: _prevIgnored, ...rest } = body;
+    const { input: _ignored, previous_response_id: _prevIgnored, generate, ...rest } = body;
+    // Warmup/prewarm frames carry generate:false on the wire (codex prewarm
+    // marker, openai-oauth.mjs warmupBody). That flag must NOT count as a
+    // request-property change on the warmup->first-real comparison, or the
+    // first real turn always retreats to a full frame. Normalize away ONLY the
+    // warmup-only generate:false; any other generate value stays in the
+    // comparison snapshot so genuine differences still break the delta. The
+    // wire body is untouched — frames are built from the raw body, not this.
+    if (generate !== false && generate !== undefined) rest.generate = generate;
     return rest;
 }
 
@@ -170,59 +184,121 @@ export function _stripResponseItemsFromHead(items, responseItems) {
     return { ok: true, reason: null, tail: tail.slice(cursor), stripped, skipped };
 }
 
-export function _computeDelta({ entry, body }) {
+// Official OpenAI Responses WebSocket guide: response.create WS frames mirror
+// the Responses body EXCEPT the transport-only fields `stream`/`background`,
+// which the socket carries implicitly and the guide says to omit. This set is
+// stripped from a frame (any build shape) only when omitTransportFields is on.
+const TRANSPORT_ONLY_FRAME_FIELDS = new Set(['stream', 'background']);
+
+// Canonical response.create frame builder. Every WS send (warmup, main
+// full-frame, and delta) routes through this so the serialized key order is
+// identical byte-for-byte: `type` always leads, then the body's codex
+// struct-order keys follow verbatim. A delta send passes previousResponseId
+// (inserted immediately before `input`, matching codex's refs position) and
+// inputOverride (the stripped tail); an empty instructions string is dropped
+// in that case because the server resolves it from previous_response_id.
+// Full/warmup frames pass the body unchanged and keep every key in place.
+// omitTransportFields is used by wire-parity/prewarm helpers to drop stream/background.
+export function _buildResponseCreateFrame(body, { previousResponseId = null, inputOverride, omitTransportFields = false } = {}) {
+    const src = body && typeof body === 'object' ? body : {};
+    if (previousResponseId == null && inputOverride === undefined) {
+        if (!omitTransportFields) return { type: 'response.create', ...src };
+        const frame = { type: 'response.create' };
+        for (const key of Object.keys(src)) {
+            if (TRANSPORT_ONLY_FRAME_FIELDS.has(key)) continue;
+            frame[key] = src[key];
+        }
+        return frame;
+    }
+    const frame = { type: 'response.create' };
+    for (const key of Object.keys(src)) {
+        if (omitTransportFields && TRANSPORT_ONLY_FRAME_FIELDS.has(key)) continue;
+        if (key === 'instructions') {
+            const instr = src.instructions;
+            if (typeof instr === 'string' && instr.length) frame.instructions = instr;
+            continue;
+        }
+        if (key === 'input') {
+            if (previousResponseId != null) frame.previous_response_id = previousResponseId;
+            frame.input = inputOverride === undefined ? src.input : inputOverride;
+            continue;
+        }
+        frame[key] = src[key];
+    }
+    if (!('input' in frame) && inputOverride !== undefined) {
+        if (previousResponseId != null) frame.previous_response_id = previousResponseId;
+        frame.input = inputOverride;
+    }
+    return frame;
+}
+
+export function _computeDelta({ entry, body, traceProvider }) {
     // DEFAULT: full-frame sends. codex's delta path is only cache-safe with
     // the x-codex-turn-state sticky-routing token, which the backend issues to
     // codex but never to us (R11-R14 2026-07-03: zero turn-state events across
     // 200+ calls despite UA/version/beta-features/client_metadata parity;
     // delta measured 18-28% warm miss vs full-frame 0.0%). Without the sticky
     // token, previous_response_id requests hop cache nodes and only the first
-    // prefix blocks hit. Re-enable delta explicitly via MIXDOG_OAI_WS_DELTA=1
-    // for future probes if the backend starts issuing turn-state.
-    const deltaMode = String(process.env.MIXDOG_OAI_WS_DELTA || '').trim().toLowerCase();
-    const deltaForce = ['force', 'unsafe', 'always'].includes(deltaMode);
-    const deltaOptIn = deltaForce || ['1', 'true', 'yes', 'on'].includes(deltaMode);
+    // prefix blocks hit. Re-enable delta explicitly via
+    // Delta gating flows through the single transport-policy switch
+    // (MIXDOG_OAI_TRANSPORT: ws-full | ws-delta | http-sse). Default ws-delta
+    // selects the refs-compatible safe delta; 'ws-full'/'http-sse' force full
+    // frames.
+    // refs-compatible mode actively uses previous_response_id without demanding
+    // the x-codex-turn-state token, but KEEPS every structural safety check
+    // (anchor present, request-props unchanged, input-prefix match, response
+    // items strip clean). Any of those failing still retreats to a full frame.
+    // Resolve the transport policy under the caller's provider capabilities so
+    // the delta gate honors per-provider limits instead of always assuming full
+    // OpenAI caps. xAI's WS path now carries delta capability (caps.delta=true),
+    // so 'ws-delta' builds the OFFICIAL xAI continuation frame
+    // (previous_response_id + incremental input tail) documented by the xAI
+    // Responses WebSocket guide — NOT the codex prefix-strip hack: no
+    // x-codex-turn-state token is required or fabricated for xAI, and the
+    // structural refs guards below still bound any prefix mismatch. openai-oauth/
+    // direct keep full capabilities, so their resolution stays byte-identical.
+    const caps = traceProvider === 'xai'
+        ? RESPONSES_TRANSPORT_CAPABILITIES.xai
+        : FULL_RESPONSES_TRANSPORT_CAPS;
+    const { delta } = resolveResponsesTransportPolicy(process.env, caps);
+    const deltaForce = delta.force;
+    const deltaRefs = delta.refs;
+    const deltaOptIn = delta.optIn;
+    const buildFrame = (b, opts) => _buildResponseCreateFrame(b, opts || {});
     if (!deltaOptIn) {
-        return { mode: 'full', reason: 'full_default', frame: { type: 'response.create', ...body } };
+        return { mode: 'full', reason: 'full_default', frame: buildFrame(body) };
     }
     if (!entry || !entry.lastRequestSansInput || !entry.lastResponseId) {
-        return { mode: 'full', reason: 'no_anchor', frame: { type: 'response.create', ...body } };
+        return { mode: 'full', reason: 'no_anchor', frame: buildFrame(body) };
     }
-    if (!deltaForce && !entry.turnState) {
-        return { mode: 'full', reason: 'delta_missing_turn_state', frame: { type: 'response.create', ...body } };
+    if (!deltaForce && !deltaRefs && !entry.turnState) {
+        return { mode: 'full', reason: 'delta_missing_turn_state', frame: buildFrame(body) };
     }
     if (!Array.isArray(entry.lastRequestInput)) {
-        return { mode: 'full', reason: 'no_input_snapshot', frame: { type: 'response.create', ...body } };
+        return { mode: 'full', reason: 'no_input_snapshot', frame: buildFrame(body) };
     }
     const curSans = _stableStringify(_sansInput(body));
     if (curSans !== entry.lastRequestSansInput) {
-        return { mode: 'full', reason: 'request_properties_changed', frame: { type: 'response.create', ...body } };
+        return { mode: 'full', reason: 'request_properties_changed', frame: buildFrame(body) };
     }
     const curInput = Array.isArray(body.input) ? body.input : [];
     const afterPreviousInput = _stripRequestPrefix(curInput, entry.lastRequestInput);
     if (!afterPreviousInput) {
-        return { mode: 'full', reason: 'input_prefix_mismatch', frame: { type: 'response.create', ...body } };
+        return { mode: 'full', reason: 'input_prefix_mismatch', frame: buildFrame(body) };
     }
     const stripped = _stripResponseItemsFromHead(afterPreviousInput, entry.lastResponseItems);
     if (!stripped.ok) {
-        return { mode: 'full', reason: stripped.reason, frame: { type: 'response.create', ...body } };
+        return { mode: 'full', reason: stripped.reason, frame: buildFrame(body) };
     }
     return {
         mode: 'delta',
         reason: null,
         strippedResponseItems: stripped.stripped,
         skippedResponseItems: stripped.skipped,
-        frame: (() => {
-            const { model, instructions, input: _input, ...rest } = body;
-            return {
-                type: 'response.create',
-                model,
-                ...(typeof instructions === 'string' && instructions.length ? { instructions } : {}),
-                previous_response_id: entry.lastResponseId,
-                input: stripped.tail,
-                ...rest,
-            };
-        })(),
+        frame: buildFrame(body, {
+            previousResponseId: entry.lastResponseId,
+            inputOverride: stripped.tail,
+        }),
     };
 }
 
