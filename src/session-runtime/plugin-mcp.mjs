@@ -1,5 +1,5 @@
 // Plugin/project MCP server discovery + normalization, and skill-file counting.
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
@@ -43,6 +43,41 @@ export function readProjectMcpServers(cwd) {
     }
   }
   return out;
+}
+
+// Persist an enable/disable flag for a project-local `.mcp.json` server, in
+// place, preserving the file's shape. Accepts both the standard
+// `{ mcpServers: {...} }` wrapper and a bare name->cfg map. Writes pretty JSON
+// (2-space indent + trailing newline) so the file stays valid + diff-friendly.
+// Throws if the file is missing/unparseable or the server isn't defined there.
+export function setProjectMcpServerEnabled(cwd, name, enabled) {
+  const path = join(cwd || '.', '.mcp.json');
+  const key = clean(name);
+  if (!key) throw new Error('MCP server name is required');
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    throw new Error(`cannot update ${path}: ${error?.message || String(error)}`);
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`unexpected .mcp.json shape at ${path}`);
+  }
+  const usesWrapper = raw.mcpServers && typeof raw.mcpServers === 'object' && !Array.isArray(raw.mcpServers);
+  const map = usesWrapper ? raw.mcpServers : raw;
+  const entryKey = Object.prototype.hasOwnProperty.call(map, key)
+    ? key
+    : Object.keys(map).reverse().find((candidate) => clean(candidate) === key);
+  if (!map || typeof map !== 'object' || Array.isArray(map) || !entryKey) {
+    throw new Error(`MCP server not defined in ${path}: ${key}`);
+  }
+  const entry = map[entryKey];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    throw new Error(`MCP server is not an object in ${path}: ${key}`);
+  }
+  map[entryKey] = { ...entry, enabled: enabled !== false };
+  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+  return raw;
 }
 
 function isPlainObject(value) {

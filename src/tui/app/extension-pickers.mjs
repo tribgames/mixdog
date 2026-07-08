@@ -64,7 +64,7 @@ export function createExtensionPickers({
         markerColor: enabled ? theme.success : theme.inactive,
         description: pending
           ? `${optimistic.enabled ? 'enabling' : 'disabling'}… · ${server.transport || 'unknown'}`
-          : `${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
+          : `${server.source || 'config'} · ${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
         _action: 'server',
         _server: server,
         _enabled: enabled,

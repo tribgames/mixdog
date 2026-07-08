@@ -100,11 +100,11 @@ export function createMcpGlue({
   async function applyMcpServerConnection(name, enabled) {
     const target = clean(name);
     if (!target) return;
-    const { servers, sources } = resolveEffectiveMcpServers();
-    // A project-local `.mcp.json` entry WINS over config for this name, so the
-    // config enable/disable flag doesn't change what's actually connected.
-    // Only act when the effective entry is config-sourced (or absent).
-    if (sources[target] && sources[target] !== 'config') return;
+    const { servers } = resolveEffectiveMcpServers();
+    // The toggle is applied to whichever source drives this name: project
+    // `.mcp.json` entries persist their `enabled` flag in that file (project >
+    // config precedence) and config entries in mixdog-config, so acting on the
+    // effective entry here keeps live state in sync with the durable flag.
     // Changing this server's state clears any stale failure record for it.
     if (Array.isArray(state.mcpFailures)) {
       state.mcpFailures = state.mcpFailures.filter((row) => row.name !== target);

@@ -17,6 +17,7 @@ import {
   pluginRawMcpServers,
   pluginMcpEnableScript,
   resolveContainedPluginPath,
+  setProjectMcpServerEnabled,
 } from './plugin-mcp.mjs';
 
 // MCP servers, skills, plugins, hooks, and memory/recall surfaces. Extracted
@@ -129,6 +130,17 @@ export function createResourceApi(deps) {
     setMcpServerEnabled(name, enabled) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
+      const want = enabled !== false;
+      // A project-local `.mcp.json` entry WINS over config for this name, so the
+      // durable toggle must land in whichever file actually drives the server.
+      // For project-sourced servers, persist the `enabled` flag into `.mcp.json`
+      // (the mtime bump invalidates the project cache), then run the same
+      // background connect/recreate chain used for config servers.
+      const shadowRow = mcpStatus().servers.find((s) => s.name === serverName);
+      if (shadowRow && shadowRow.source === 'project') {
+        setProjectMcpServerEnabled(getCurrentCwd(), serverName, want);
+        return scheduleMcpToggle(serverName, want);
+      }
       const nextConfig = { ...getConfig() };
       const current = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
         ? { ...nextConfig.mcpServers }
@@ -136,20 +148,13 @@ export function createResourceApi(deps) {
       if (!Object.prototype.hasOwnProperty.call(current, serverName)) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
-      // A project-local `.mcp.json` entry WINS over config for this name, so a
-      // config enable/disable flag would persist but never change live state.
-      // Surface that to the caller instead of reporting a silent success.
-      const shadowRow = mcpStatus().servers.find((s) => s.name === serverName);
-      if (shadowRow && shadowRow.source === 'project') {
-        throw new Error(`'${serverName}' is defined by project .mcp.json — config toggle has no effect`);
-      }
       // Adopt + persist config synchronously (fast) so intent is durable, then
       // hand the heavy connect/close/recreate to the per-server background
       // chain. Return that chain's promise so callers can settle the picker on
       // completion, but the store no longer blocks on it.
-      current[serverName] = { ...(current[serverName] || {}), enabled: enabled !== false };
+      current[serverName] = { ...(current[serverName] || {}), enabled: want };
       saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
-      return scheduleMcpToggle(serverName, enabled !== false);
+      return scheduleMcpToggle(serverName, want);
     },
     skillsStatus() {
       return skillsStatus();

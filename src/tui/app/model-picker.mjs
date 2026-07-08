@@ -20,6 +20,12 @@ import {
   buildProviderModelItems,
 } from './model-options.mjs';
 
+// Cached picker opens stay instant, but a catalog older than this is treated as
+// stale: cached rows render immediately and a background force refresh updates
+// the picker in place. Avoids the "stale /model & /agents catalog" without
+// paying a remote provider-list round-trip on every open.
+const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export function createModelPicker({
   store,
   getState,
@@ -35,6 +41,7 @@ export function createModelPicker({
   modelSwitchNotice,
   openProviderSetupPicker,
 }) {
+  let providerModelsTtlRefreshPromise = null;
   const openModelPicker = async (options = {}) => {
     const state = getState();
     setProviderPrompt(null);
@@ -61,6 +68,7 @@ export function createModelPicker({
       : [];
     let refreshModelsPromise = null;
     let renderedQuickModels = false;
+    let renderActiveProviderModels = null;
     if (!providerModels.length || options.refreshModels === true) {
       setPicker({
         title: options.title || 'Model',
@@ -88,6 +96,17 @@ export function createModelPicker({
       }
     }
 
+    // Served straight from a non-empty UI cache: if that cache is older than the
+    // TTL, render the cached rows now and quietly force a background refresh so
+    // the catalog can't drift stale. Never applies to the search cache (its own
+    // quick paths refresh differently) or explicit refreshModels opens.
+    const cacheAt = Number(cacheRef.current.at) || 0;
+    const cacheIsStale = providerModels.length > 0
+      && options.refreshModels !== true
+      && options.cacheRef !== 'search'
+      && !refreshModelsPromise
+      && (Date.now() - cacheAt) > MODEL_CACHE_TTL_MS;
+
     if (!providerModels || providerModels.length === 0) {
       store.pushNotice(options.emptyNotice || 'no provider models available; open /providers to sign in', 'warn');
       void openProviderSetupPicker({
@@ -112,9 +131,11 @@ export function createModelPicker({
       }
       const highlightProvider = renderOptions.highlightProvider || providerListHighlightProvider || null;
       activeModelProvider = null;
+      renderActiveProviderModels = null;
       const openProviderModelsPicker = (provider) => {
         if (!provider) return;
         activeModelProvider = provider;
+        renderActiveProviderModels = () => openProviderModelsPicker(provider);
         const providerModels = models.filter((model) => model.provider === provider);
         const preferredEffort = (values = []) => {
           const allowed = values.filter(Boolean);
@@ -345,19 +366,34 @@ export function createModelPicker({
     };
 
     renderModelPicker();
+    const applyFreshModels = (freshModels) => {
+      if (!isActiveModelPicker()) return;
+      if (!Array.isArray(freshModels) || freshModels.length === 0) return;
+      providerModels = freshModels;
+      models = normalizeModelOptions(providerModels);
+      cacheRef.current = { models: providerModels, at: Date.now() };
+      if (activeModelProvider === null) {
+        renderModelPicker();
+      } else if (typeof renderActiveProviderModels === 'function') {
+        renderActiveProviderModels();
+      }
+    };
     if (renderedQuickModels && refreshModelsPromise) {
-      void refreshModelsPromise
-        .then((freshModels) => {
-          if (!isActiveModelPicker()) return;
-          if (!Array.isArray(freshModels) || freshModels.length === 0) return;
-          providerModels = freshModels;
-          models = normalizeModelOptions(providerModels);
-          cacheRef.current = { models: providerModels, at: Date.now() };
-          if (activeModelProvider === null) {
-            renderModelPicker();
-          }
-        })
-        .catch(() => {});
+      void refreshModelsPromise.then(applyFreshModels).catch(() => {});
+    } else if (cacheIsStale) {
+      if (!providerModelsTtlRefreshPromise) {
+        providerModelsTtlRefreshPromise = Promise.resolve(loadModels({ force: true }))
+          .then((freshModels) => {
+            if (Array.isArray(freshModels) && freshModels.length > 0) {
+              cacheRef.current = { models: freshModels, at: Date.now() };
+            }
+            return freshModels;
+          })
+          .finally(() => {
+            providerModelsTtlRefreshPromise = null;
+          });
+      }
+      void providerModelsTtlRefreshPromise.then(applyFreshModels).catch(() => {});
     }
   };
 

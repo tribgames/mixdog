@@ -74,6 +74,9 @@ export function createRoutePickers({
       store.pushNotice(`could not list agents: ${e?.message || e}`, 'error');
       return;
     }
+    // /agents refresh: force the nested model picker to reload the provider
+    // catalog on the next agent open (the agents list itself is always fresh).
+    const refreshModels = options.refreshModels === true;
     const routeOverrides = options.routeOverrides && typeof options.routeOverrides === 'object' ? options.routeOverrides : {};
     const initialAgentId = clean(options.initialAgentId || '');
     const items = agents.map((agent) => ({
@@ -104,6 +107,7 @@ export function createRoutePickers({
         void openModelPicker({
           title: `${agent.label} Model`,
           providerDescription: 'Choose a provider for this agent.',
+          refreshModels,
           currentRoute: agent.route || null,
           returnTo: () => openAgentsPicker(),
           onImmediateSelect: (routeInput) => {

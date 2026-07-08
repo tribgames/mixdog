@@ -71,6 +71,11 @@ export function createSlashDispatch({
           openModelPicker();
           return true;
         }
+        if (arg.trim().toLowerCase() === 'refresh') {
+          // Explicit catalog reload: force a fresh remote provider list.
+          openModelPicker({ refreshModels: true });
+          return true;
+        }
         void store.setModel(arg)
           .then(ok => store.pushNotice(ok ? modelSwitchNotice() : 'Model switch is already running.', ok ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
@@ -92,7 +97,7 @@ export function createSlashDispatch({
         openSearchPicker();
         return true;
       case 'agents':
-        openAgentsPicker();
+        openAgentsPicker(arg.trim().toLowerCase() === 'refresh' ? { refreshModels: true } : {});
         return true;
       case 'workflow':
         if (!arg) {
