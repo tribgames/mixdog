@@ -84,6 +84,10 @@ export function createRunTurn(bag) {
         flags.activePromptRestore = null;
         if (flags.draining) flags.draining = false;
         if (pending.length > 0) void drain();
+        // busy→false here bypasses both the normal turn-end flush and the
+        // drain-finally flush, so a deferred completion kick would never re-arm.
+        // Fire it explicitly (idempotent: guarded by deferred flag + !busy).
+        flushDeferredExecutionPendingResumeKick();
       }, 5_000);
       watchdogGraceTimer.unref?.();
     }, LEAD_TURN_TIMEOUT_MS);
@@ -1048,6 +1052,10 @@ export function createRunTurn(bag) {
         // deferred cards (turn-local teardown) but writes no other shared getState().
         if (closingItems.length) appendItemsBatch(closingItems);
         tuiDebug(`runTurn STALE UNWIND turn=${turnIndex} — force-released; skipping shared-getState() writes`);
+        // A stale unwind settles busy→false (via the watchdog release) without
+        // the normal turn-end flush, so re-arm any deferred completion kick here
+        // too (idempotent: no-ops unless a kick is deferred and nothing is busy).
+        flushDeferredExecutionPendingResumeKick();
       } else {
       if (!isNoOpTurn) {
         getState().stats.turns = (getState().stats.turns || 0) + 1;

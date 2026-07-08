@@ -56,7 +56,14 @@ export function createAgentJobFeed({
 }) {
   let executionResumeKickDeferred = false;
 
-  function kickExecutionPendingResume() {
+  // FIFO accumulation of model-visible bodies from completions that arrived
+  // while busy (or while a pending-resume entry was already queued). A single
+  // string slot dropped all-but-the-last body when parallel completions landed;
+  // the queue preserves every body and merges them into the resume turn.
+  const executionResumeKickBodies = [];
+
+  function kickExecutionPendingResume(body = '') {
+    if (body) executionResumeKickBodies.push(body);
     if (getDisposed()) return;
     if (getState().busy) {
       executionResumeKickDeferred = true;
@@ -68,7 +75,10 @@ export function createAgentJobFeed({
       return;
     }
     executionResumeKickDeferred = false;
-    pending.push(makeQueueEntry('', { mode: 'pending-resume', priority: 'next' }));
+    // Drain every accumulated body into ONE resume turn so no completion body
+    // is lost when several deferred while busy.
+    const resumeBody = executionResumeKickBodies.splice(0).filter(Boolean).join('\n\n');
+    pending.push(makeQueueEntry(resumeBody, { mode: 'pending-resume', priority: 'next' }));
     void drain();
   }
 
@@ -77,10 +87,11 @@ export function createAgentJobFeed({
     kickExecutionPendingResume();
   }
 
-  function scheduleExecutionPendingResumeKick() {
-    // notifyFnForSession enqueues the model-visible body after onNotification
-    // returns; defer the kick so askSession pre-drain sees session pending.
-    queueMicrotask(() => kickExecutionPendingResume());
+  function scheduleExecutionPendingResumeKick(body = '') {
+    // Carry the model-visible body directly into the pending-resume entry so
+    // the resumed turn sends it, instead of relying on the session-pending
+    // completion marker (dropped by askSession pre-drain).
+    queueMicrotask(() => kickExecutionPendingResume(body));
   }
 
   function updateAgentJobCard(itemId, text, isError = false) {
@@ -122,8 +133,9 @@ export function createAgentJobFeed({
           pushUserOrSyntheticItem(delivery.displayText, nextId());
         }
         if (parsed?.taskId) set(agentStatusState({ force: true }));
-        if (String(delivery.modelContent || '').trim()) {
-          scheduleExecutionPendingResumeKick();
+        const resumeBody = String(delivery.modelContent || '').trim();
+        if (resumeBody) {
+          scheduleExecutionPendingResumeKick(resumeBody);
         }
         return true;
       }
