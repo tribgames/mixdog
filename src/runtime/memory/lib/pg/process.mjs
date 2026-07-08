@@ -290,12 +290,15 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
   // so we return the instant pg_isready succeeds rather than waiting on pg_ctl.
   // Only the long-lived child handle is unref'd; poll timers stay ref'd.
   async function startAndWaitReady() {
-    // detached on win32: give pg_ctl (and the postmaster it spawns) its own
-    // process group / console so an ancestor `taskkill /F /T` cannot enumerate
-    // it via the Node process tree. The orphaned postmaster survives and is
-    // re-adopted next boot via supervisor tryReusePgInstance (postmaster.pid).
-    const detached = process.platform === 'win32'
-    const child = spawn(pgctl, startArgs, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached })
+    // NEVER set `detached` on win32: DETACHED_PROCESS makes the OS ignore
+    // `windowsHide`, so pg_ctl + the postmaster it launches allocate a VISIBLE
+    // console (see shared/spawn-flags.mjs). Detachment gave no real isolation
+    // here anyway: `pg_ctl start` daemonizes the postmaster and exits at once,
+    // so the postmaster is already reparented OUT of the Node process tree —
+    // detached only isolated the short-lived pg_ctl. Shutdown/reuse target
+    // pgdata/postmaster.pid (pg_ctl stop -D, tryReusePgInstance), not a
+    // Node-tree taskkill, so `windowsHide` alone is correct on all platforms.
+    const child = spawn(pgctl, startArgs, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     child.unref?.()
     let stdout = '', stderr = '', closed = false, exitCode = null
     child.stdout?.on('data', d => { stdout += d.toString() })
