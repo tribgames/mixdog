@@ -212,10 +212,10 @@ export async function addCore(dataDir, { element, summary, category }, projectId
   const sm = trimOrNull(summary) ?? el
   if (!el || !sm) throw new Error('add requires element and summary')
   if (el.length > CORE_ELEMENT_MAX) {
-    throw new Error(`core element too long (${el.length} chars, max ${CORE_ELEMENT_MAX}) — element is a short key/title, not content.`)
+    throw new Error(`core element too long (${el.length}/${CORE_ELEMENT_MAX} chars, remove ${el.length - CORE_ELEMENT_MAX}) — element is a short key/title, not content.`)
   }
   if (sm.length > CORE_SUMMARY_MAX) {
-    throw new Error(`core summary too long (${sm.length} chars, max ${CORE_SUMMARY_MAX}) — core memory must be 1 fact in 1-2 sentences; procedures, multi-step, or code belong in recap or docs. Compress and retry.`)
+    throw new Error(`core summary too long (${sm.length}/${CORE_SUMMARY_MAX} chars, remove ${sm.length - CORE_SUMMARY_MAX}) — 1 fact in 1-2 sentences; move procedures/multi-step/code to recap or docs.`)
   }
   const cat = (trimOrNull(category) ?? 'fact').toLowerCase()
   if (!VALID_CAT.has(cat)) {
@@ -310,7 +310,7 @@ export async function editCore(dataDir, id, patch) {
     throw new Error('no change')
   }
   if (newSummary && newSummary.length > CORE_SUMMARY_MAX) {
-    throw new Error(`core summary too long (${newSummary.length} chars, max ${CORE_SUMMARY_MAX}) — core memory must be 1 fact in 1-2 sentences; procedures, multi-step, or code belong in recap or docs. Compress and retry.`)
+    throw new Error(`core summary too long (${newSummary.length}/${CORE_SUMMARY_MAX} chars, remove ${newSummary.length - CORE_SUMMARY_MAX}) — 1 fact in 1-2 sentences; move procedures/multi-step/code to recap or docs.`)
   }
   const now = Date.now()
   const textChanged = newElement !== cur.element || newSummary !== cur.summary
