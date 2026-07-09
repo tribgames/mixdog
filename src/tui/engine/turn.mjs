@@ -10,7 +10,7 @@ import { toolResultStatus, isErrorToolStatus } from './agent-envelope.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { memoryCoreResultErrorText } from '../app/input-parsers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
-import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, assignAggregateSummaryOrder } from './tool-result-status.mjs';
+import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, assignAggregateSummaryOrder, failureDetailText, shellCommandExitCode } from './tool-result-status.mjs';
 
 export function createRunTurn(bag) {
   const {
@@ -130,6 +130,15 @@ export function createRunTurn(bag) {
     };
     armWatchdog();
     let currentAssistantText = '';
+    // Segments sealed as their own assistant item(s) this turn via
+    // commitAssistantSegment (e.g. a tool preamble, then a no-newline tail
+    // committed by onSteerMessage before an injected steering row). Kept as an
+    // ordered list — NOT one concatenated string — so finalization can strip
+    // each committed segment out of the provider's final content individually.
+    // A single concatenation breaks when the provider omits an earlier segment
+    // (e.g. a tool preamble) from result.content: the combined prefix no longer
+    // matches and the tail would duplicate after the steering row.
+    const committedSegments = [];
     let thinkingText = '';
     let thinkingStartedAt = 0;
     let thinkingSegmentStartedAt = 0;
@@ -328,13 +337,15 @@ export function createRunTurn(bag) {
         aggregate.ensureVisible?.();
         const errors = allCalls.filter((r) => r.isError).length;
         const callErrors = allCalls.filter((r) => r.isCallError).length;
+        const exitErrors = allCalls.filter((r) => r.isExitError).length;
         const completed = allCalls.filter((r) => r.resolved).length;
         const succeeded = completed - errors;
         const rawResult = aggregateRawResult(allCalls);
-        // Merged count summary (see patchToolCardResult); failures keep
-        // 'N Ok · N Failed'. Raw preserved for ctrl+o expansion.
+        // Merged count summary (see patchToolCardResult); real failures keep
+        // 'N Failed', shell command-exits render 'Exit N'/'Y Exit'. Raw
+        // preserved for ctrl+o expansion.
         const displayDetail = errors > 0
-          ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+          ? failureDetailText({ succeeded, realErrors: errors - exitErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
           : formatAggregateDetail(aggregateSummaries(aggregate));
         patchItem(aggregate.itemId, {
           result: displayDetail,
@@ -343,6 +354,7 @@ export function createRunTurn(bag) {
           isError: errors > 0,
           errorCount: errors,
           callErrorCount: callErrors,
+          exitErrorCount: exitErrors,
           count: allCalls.length,
           completedCount: allCalls.length,
           doneCategories: aggregateDoneCategories(allCalls),
@@ -463,6 +475,7 @@ export function createRunTurn(bag) {
       if (sealToolBlock) clearAggregateContinuation();
       const id = currentAssistantId || ensureAssistant(text);
       patchItem(id, { text, streaming: false });
+      committedSegments.push(text);
       closeAssistantSegment();
       return true;
     };
@@ -664,8 +677,12 @@ export function createRunTurn(bag) {
         // would otherwise misflag legitimate non-memory success output.
         const isMemoryCall = classifyToolCategory(callRec.name, callRec.args) === 'Memory';
         // Same split as tool-card-results.mjs: a REAL tool-call error drives the
-        // red ● dot; command/result failures only mark the card Failed in L2.
-        const isCallError = message?.isError === true || message?.toolKind === 'error';
+        // red ● dot; command/result failures only mark the card Failed in L2. A
+        // shell command that RAN but exited non-zero is a command-exit — never a
+        // call error — and renders as the neutral "Exit N" state.
+        const exitCode = shellCommandExitCode(rawText);
+        const isExitError = exitCode != null;
+        const isCallError = !isExitError && (message?.isError === true || message?.toolKind === 'error');
         const isResultError = /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText)) || (isMemoryCall && memoryCoreResultErrorText(rawText) != null);
         const isError = isCallError || isResultError;
         const text = isError ? toolErrorDisplay(rawText, callRec.name || 'tool') : rawText;
@@ -673,12 +690,15 @@ export function createRunTurn(bag) {
         assignAggregateSummaryOrder(aggregate, callRec);
         callRec.isError = isError;
         callRec.isCallError = isCallError;
+        callRec.isExitError = isExitError;
+        callRec.exitCode = exitCode;
         callRec.resultText = text;
         callRec.completedEarly = true;
         const allCalls = [...aggregate.calls.values()];
         const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
         const errors = allCalls.filter((r) => r.isError).length;
         const callErrors = allCalls.filter((r) => r.isCallError).length;
+        const exitErrors = allCalls.filter((r) => r.isExitError).length;
         const succeeded = completedCount - errors;
         const rawResult = aggregateRawResult(allCalls);
         // Collapsed detail carries the merged per-call count summary even on
@@ -686,7 +706,7 @@ export function createRunTurn(bag) {
         // to the 'Running' placeholder between count updates (the visible
         // jitter). Failures keep 'N Failed'. Raw preserved for ctrl+o expansion.
         const displayDetail = errors > 0
-          ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+          ? failureDetailText({ succeeded, realErrors: errors - exitErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
           : formatAggregateDetail(aggregateSummaries(aggregate));
         const currentItem = getState().items.find((it) => it.id === card.itemId);
         const visualCompleted = Math.max(
@@ -699,6 +719,7 @@ export function createRunTurn(bag) {
           isError: errors > 0,
           errorCount: errors,
           callErrorCount: callErrors,
+          exitErrorCount: exitErrors,
           count: allCalls.length,
           completedCount: visualCompleted,
         };
@@ -737,10 +758,12 @@ export function createRunTurn(bag) {
           // assistant segment first so the steered user turn and the next
           // assistant response do not get visually merged into one bubble.
           flushStreamBatch();
-          if (currentAssistantId) {
-            patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
-            closeAssistantSegment();
-          }
+          // Commit any pending assistant segment — including a streamed tail
+          // that never got a trailing '\n' (no row/currentAssistantId created
+          // yet). Using the shared segment-commit helper ensures that tail is
+          // materialized as an assistant item instead of being dropped when a
+          // steering/agent-completion injection races turn finalization.
+          commitAssistantSegment({ sealToolBlock: true });
           assistantText = '';
           const value = String(text || '').trim();
           if (value) {
@@ -859,7 +882,7 @@ export function createRunTurn(bag) {
               ...categoryEntry,
               count: Number(prevCategory?.count || 0) + Number(categoryEntry.count || 1),
             });
-            aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, isCallError: false, resultText: null, resolved: false, completedEarly: false });
+            aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, isCallError: false, isExitError: false, exitCode: null, resultText: null, resolved: false, completedEarly: false });
             touchedAggregates.add(aggregateCard);
             const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
             if (callId) {
@@ -1043,16 +1066,37 @@ export function createRunTurn(bag) {
         syncContextStats({ allowEstimated: true });
 
         const finalText = result?.content != null ? String(result.content) : '';
-        if (finalText.trim()) {
+        // Strip text already sealed as its own item(s) this turn (a tool
+        // preamble, then a no-newline tail committed by onSteerMessage before an
+        // injected steering row) so finalization reconciles only the uncommitted
+        // remainder — never re-creating a committed segment as a duplicate item
+        // that also reorders after the steering row. Walk the segments IN ORDER,
+        // peeling each off the front of the remaining content; skip leading
+        // whitespace/newlines between segments. A segment that does not match at
+        // the current position (provider omitted it from result.content, e.g. a
+        // tool preamble) is left in place and the walk moves on.
+        let finalRemainder = finalText;
+        for (const seg of committedSegments) {
+          // Compare against the whitespace-skipped remainder AND a
+          // whitespace-trimmed segment: a segment sealed with its own leading
+          // newline ('\nTAIL') would otherwise never match the skipped remainder
+          // ('TAIL') and duplicate after the steering row.
+          const skipped = finalRemainder.replace(/^\s+/, '');
+          const trimmedSeg = seg ? seg.replace(/^\s+/, '') : '';
+          if (trimmedSeg && skipped.startsWith(trimmedSeg)) {
+            finalRemainder = skipped.slice(trimmedSeg.length);
+          }
+        }
+        if (finalRemainder.trim()) {
           // The persisted transcript is written from the provider's final content,
           // while the live TUI row is fed by streaming deltas. If a provider/parser
           // misses or suppresses an early delta, keeping the streamed buffer here
           // leaves the final on-screen assistant row missing leading characters even
           // though the transcript is correct. Always reconcile the active segment to
           // the final provider text when it is available.
-          const id = currentAssistantId || ensureAssistant(finalText);
-          currentAssistantText = finalText;
-          patchItem(id, { text: finalText, streaming: false });
+          const id = currentAssistantId || ensureAssistant(finalRemainder);
+          currentAssistantText = finalRemainder;
+          patchItem(id, { text: finalRemainder, streaming: false });
         } else if (currentAssistantId && (currentAssistantText.trim() || assistantText.trim())) {
           const streamedText = currentAssistantText || assistantText;
           patchItem(currentAssistantId, { text: streamedText, streaming: false });

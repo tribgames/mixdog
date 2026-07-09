@@ -11,6 +11,44 @@ import { toolErrorDisplay } from './tool-result-text.mjs';
 
 export const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
+// Detect a shell command that RAN but exited non-zero (a process exit code)
+// as opposed to a real tool-call failure (`[shell-tool-failed]`) or a
+// timeout/abort. bash-tool.mjs emits `Error: [shell-run-failed] [exit code: N]`
+// for a plain non-zero exit; timeout/signal cases carry `[timeout: …]`/
+// `[signal: …]` instead of an `[exit code: …]` marker. Returns the numeric
+// exit code (>= 0) for a command-exit, or null otherwise.
+export function shellCommandExitCode(text) {
+  const body = String(text || '');
+  // Anchor to the START of the result so a success/non-shell body that merely
+  // QUOTES the marker mid-output is never misclassified. bash-tool emits
+  // `Error: [shell-run-failed] [exit code: N]` as the leading marker header.
+  if (!/^\s*(?:Error:\s*)?\[shell-run-failed\]/i.test(body)) return null;
+  // Restrict marker parsing to the header region (first line) so only the
+  // engine-emitted status header — not quoted command output below — counts.
+  const header = body.split('\n', 1)[0] || '';
+  // Timeout / signal / abort are NOT a plain command exit — keep them "Failed".
+  if (/\[timeout:|\[signal:|timed out|aborted|interrupted/i.test(header)) return null;
+  const m = header.match(/\[exit code:\s*(\d+)\]/i);
+  if (!m) return null;
+  const code = Number(m[1]);
+  return Number.isFinite(code) ? code : null;
+}
+
+// Build the collapsed failure/exit detail string. Real tool-call/result
+// failures keep the red-adjacent "Failed" wording; shell command-exits render
+// as the distinct neutral "Exit" state ("Exit N" for a single exit, "Y Exit"
+// grouped). A mixed group surfaces both ("1 Ok · 1 Failed · 1 Exit").
+export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 0, exitCode } = {}) {
+  const parts = [];
+  if (succeeded > 0) parts.push(`${succeeded} Ok`);
+  if (realErrors > 0) parts.push(`${realErrors} Failed`);
+  if (exitErrors > 0) {
+    const solo = exitErrors === 1 && realErrors === 0 && succeeded === 0;
+    parts.push(solo && Number.isFinite(exitCode) ? `Exit ${exitCode}` : `${exitErrors} Exit`);
+  }
+  return parts.join(' · ');
+}
+
 export function normalizedResultStatusToken(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
@@ -58,15 +96,17 @@ export function groupedToolResultText(group) {
   const completed = Math.min(group.count, group.completed);
   if (group.count <= 1) return group.results.at(-1)?.text ?? '';
   if (group.errors > 0) {
+    const exitErrors = Number(group.exitErrors || 0);
+    const realErrors = Math.max(0, group.errors - exitErrors);
     const succeeded = Math.max(0, completed - group.errors);
+    const exitCode = group.results.find((result) => result?.isExitError)?.exitCode;
+    // Command-exits carry no failure reason line; only real failures do.
     const reasons = group.results
-      .filter((result) => result?.isError)
+      .filter((result) => result?.isError && !result?.isExitError)
       .map((result) => firstErrorLine(result?.text))
       .filter(Boolean);
     const uniqueReasons = [...new Set(reasons)].slice(0, 2);
-    const base = succeeded > 0
-      ? `${succeeded} Ok · ${group.errors} Failed`
-      : `${group.errors} Failed`;
+    const base = failureDetailText({ succeeded, realErrors, exitErrors, exitCode });
     return [
       `${base}${uniqueReasons[0] ? ` · ${uniqueReasons[0]}` : ''}`,
       ...uniqueReasons.slice(1),

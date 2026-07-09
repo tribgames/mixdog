@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSessionFlow } from '../src/tui/engine/session-flow.mjs';
+import { createRunTurn } from '../src/tui/engine/turn.mjs';
 
 // Minimal bag: drainPendingSteering only touches pending, the queue helpers,
 // and commitSteeringQueueEntries (which no-ops on disk when runtime.id is not
@@ -117,4 +118,182 @@ test('post-turn drain does not send queued slash command to model', async () => 
   assert.equal(getRunTurns(), 0, 'slash command must not be runTurn model text');
   assert.equal(bag.pending.length, 1, 'slash command remains for command dispatcher');
   assert.equal(bag.pending[0].content, '/clear');
+});
+
+// Minimal store bag for createRunTurn: only the surface the streaming/steering
+// finalize path touches. runtime.ask is a caller-supplied mock that drives the
+// text-delta / steer-message callbacks.
+function makeTurnBag(ask) {
+  let seq = 0;
+  const state = {
+    items: [],
+    stats: { turns: 0, inputTokens: 0, outputTokens: 0 },
+    busy: false,
+    spinner: null,
+    thinking: null,
+  };
+  const itemIndexById = new Map();
+  const findIndexById = (id) => state.items.findIndex((it) => it.id === id);
+  const bag = {
+    runtime: { id: null, toolMode: 'auto', ask, abort: () => {} },
+    nextId: () => `id_${++seq}`,
+    tuiDebug: () => {},
+    LEAD_TURN_TIMEOUT_MS: 300000,
+    flags: { leadTurnEpoch: 0 },
+    pending: [],
+    itemIndexById,
+    getState: () => state,
+    set: (patch) => Object.assign(state, patch),
+    pushItem: (spec) => {
+      state.items = [...state.items, spec];
+      if (spec?.id != null) itemIndexById.set(spec.id, state.items.length - 1);
+    },
+    patchItem: (id, patch) => {
+      const idx = findIndexById(id);
+      if (idx < 0) return;
+      const items = state.items.slice();
+      items[idx] = { ...items[idx], ...patch };
+      state.items = items;
+    },
+    pushNotice: () => {},
+    pushUserOrSyntheticItem: (text) => {
+      state.items = [...state.items, { kind: 'user', id: `u_${++seq}`, text }];
+    },
+    markToolCallActive: () => {},
+    markToolCallDone: () => {},
+    clearActiveToolSummary: () => {},
+    agentStatusState: () => ({}),
+    routeState: () => ({}),
+    syncContextStats: () => {},
+    denyAllToolApprovals: () => {},
+    requestToolApproval: async () => ({ approved: false }),
+    patchToolCardResult: () => {},
+    flushToolResults: () => {},
+    flushDeferredExecutionPendingResumeKick: () => {},
+    drain: async () => {},
+    drainPendingSteering: () => [],
+  };
+  return { bag, getState: () => state };
+}
+
+test('onSteerMessage commits a streamed no-newline assistant tail into items', async () => {
+  // A terminal no-tool response streams a single line WITHOUT a trailing '\n',
+  // so no assistant row/currentAssistantId exists yet. A steering injection
+  // races finalization and must seal the pending tail instead of dropping it.
+  const TAIL = 'partial answer with no trailing newline';
+  const ask = async (_userText, opts) => {
+    opts.onTextDelta(TAIL);
+    opts.onSteerMessage('steer now');
+    return { result: { content: '' }, session: { messages: [] } };
+  };
+  const { bag, getState } = makeTurnBag(ask);
+  const runTurn = createRunTurn(bag);
+
+  await runTurn('do a thing');
+
+  const assistant = getState().items.find((it) => it.kind === 'assistant');
+  assert.ok(assistant, 'streamed no-newline tail must be committed as an assistant item');
+  assert.equal(assistant.text, TAIL);
+  assert.equal(assistant.streaming, false);
+});
+
+test('finalization does not duplicate a steer-committed tail when result.content repeats it', async () => {
+  // Same steer race, but the provider's final content equals the already-
+  // committed tail. Finalization must NOT re-emit it as a second item.
+  const TAIL = 'partial answer with no trailing newline';
+  const ask = async (_userText, opts) => {
+    opts.onTextDelta(TAIL);
+    opts.onSteerMessage('steer now');
+    return { result: { content: TAIL }, session: { messages: [] } };
+  };
+  const { bag, getState } = makeTurnBag(ask);
+  const runTurn = createRunTurn(bag);
+
+  await runTurn('do a thing');
+
+  const assistants = getState().items.filter((it) => it.kind === 'assistant');
+  assert.equal(assistants.length, 1, 'the committed tail must not be duplicated at finalize');
+  assert.equal(assistants[0].text, TAIL);
+  assert.equal(assistants[0].streaming, false);
+});
+
+test('finalization appends only the uncommitted remainder past a steer-committed tail', async () => {
+  // Provider content extends past the committed tail: only the new remainder
+  // becomes a fresh item, ordered after the committed segment (+ steering row).
+  const TAIL = 'partial answer with no trailing newline';
+  const REMAINDER = '\nmore text arriving after the steer';
+  const ask = async (_userText, opts) => {
+    opts.onTextDelta(TAIL);
+    opts.onSteerMessage('steer now');
+    return { result: { content: TAIL + REMAINDER }, session: { messages: [] } };
+  };
+  const { bag, getState } = makeTurnBag(ask);
+  const runTurn = createRunTurn(bag);
+
+  await runTurn('do a thing');
+
+  const assistants = getState().items.filter((it) => it.kind === 'assistant');
+  assert.equal(assistants.length, 2, 'committed tail + remainder are two distinct items');
+  assert.equal(assistants[0].text, TAIL, 'committed tail stays first, unchanged');
+  assert.equal(assistants[1].text, REMAINDER, 'only the uncommitted remainder is appended');
+  assert.equal(assistants[1].streaming, false);
+  const steerIdx = getState().items.findIndex((it) => it.kind === 'user' && it.text === 'steer now');
+  const remainderIdx = getState().items.findIndex((it) => it.kind === 'assistant' && it.text === REMAINDER);
+  assert.ok(steerIdx >= 0 && remainderIdx > steerIdx, 'remainder appends after the injected steering row');
+});
+
+// Two committed segments this turn: a prior preamble P, then a no-newline TAIL
+// sealed by the steer race. The provider's final content may OMIT P — the
+// per-segment strip must still peel BOTH out (a single concatenated 'P+TAIL'
+// prefix would fail to match and duplicate TAIL after the steering row).
+const P = 'preamble sealed before the tail';
+const TAIL2 = 'terminal tail with no trailing newline';
+function makeTwoSegmentAsk(finalContent) {
+  return async (_userText, opts) => {
+    opts.onTextDelta(P);
+    opts.onSteerMessage('steer one'); // seals P as its own item
+    opts.onTextDelta(TAIL2);
+    opts.onSteerMessage('steer two'); // seals TAIL2 as its own item
+    return { result: { content: finalContent }, session: { messages: [] } };
+  };
+}
+
+test('per-segment strip: final content = TAIL only (P omitted) → no new item', async () => {
+  const { bag, getState } = makeTurnBag(makeTwoSegmentAsk(TAIL2));
+  await createRunTurn(bag)('do a thing');
+  const assistants = getState().items.filter((it) => it.kind === 'assistant');
+  assert.deepEqual(assistants.map((it) => it.text), [P, TAIL2], 'only the two committed segments exist');
+});
+
+test('per-segment strip: final content = P + newline + TAIL → no new item', async () => {
+  const { bag, getState } = makeTurnBag(makeTwoSegmentAsk(`${P}\n${TAIL2}`));
+  await createRunTurn(bag)('do a thing');
+  const assistants = getState().items.filter((it) => it.kind === 'assistant');
+  assert.deepEqual(assistants.map((it) => it.text), [P, TAIL2], 'both segments stripped; nothing re-emitted');
+});
+
+test('per-segment strip: final content extends past both committed segments → only remainder', async () => {
+  const { bag, getState } = makeTurnBag(makeTwoSegmentAsk(`${P}\n${TAIL2}\nmore`));
+  await createRunTurn(bag)('do a thing');
+  const assistants = getState().items.filter((it) => it.kind === 'assistant');
+  assert.equal(assistants.length, 3, 'committed P + TAIL + the new remainder');
+  assert.equal(assistants[2].text, '\nmore', 'only the uncommitted remainder is appended');
+  assert.equal(assistants[2].streaming, false);
+});
+
+test('per-segment strip: segment sealed WITH a leading newline still peels', async () => {
+  // The committed segment carries its own leading '\n' ('\nTAIL'); the provider
+  // returns the trimmed 'TAIL'. Trimming the segment before the compare lets it
+  // peel so it is not duplicated after the steering row.
+  const LEAD_TAIL = '\nterminal tail sealed with a leading newline';
+  const ask = async (_userText, opts) => {
+    opts.onTextDelta(LEAD_TAIL);
+    opts.onSteerMessage('steer now');
+    return { result: { content: LEAD_TAIL.replace(/^\s+/, '') }, session: { messages: [] } };
+  };
+  const { bag, getState } = makeTurnBag(ask);
+  await createRunTurn(bag)('do a thing');
+  const assistants = getState().items.filter((it) => it.kind === 'assistant');
+  assert.equal(assistants.length, 1, 'leading-newline segment must not be duplicated at finalize');
+  assert.equal(assistants[0].text, LEAD_TAIL);
 });

@@ -21,6 +21,8 @@ import {
   aggregateRawResult,
   aggregateSummaries,
   assignAggregateSummaryOrder,
+  failureDetailText,
+  shellCommandExitCode,
 } from './tool-result-status.mjs';
 import { formatAggregateDetail } from '../../runtime/shared/tool-surface.mjs';
 import { carryTranscriptMeasuredRowsCache } from '../app/transcript-window.mjs';
@@ -73,7 +75,13 @@ export function createToolCardResults({
     //                  text, failed status text, flattened core memory-op
     //                  failure). These still mark the card Failed in the L2
     //                  detail but must NOT turn the dot red.
-    const isCallError = message?.isError === true || message?.toolKind === 'error';
+    // A shell command that RAN but exited non-zero is a command-exit, NOT a
+    // real tool-call failure: it must not paint the ● dot red and renders as
+    // the distinct neutral "Exit N" state. Timeout/abort and shell-tool-failed
+    // are excluded by shellCommandExitCode and stay Failed.
+    const exitCode = shellCommandExitCode(rawText);
+    const isExitError = exitCode != null;
+    const isCallError = !isExitError && (message?.isError === true || message?.toolKind === 'error');
     const isResultError = /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText)) || (isMemoryCall && memoryCoreResultErrorText(rawText) != null);
     const isError = isCallError || isResultError;
     const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
@@ -89,19 +97,22 @@ export function createToolCardResults({
       assignAggregateSummaryOrder(aggregate, callRec);
       callRec.isError = isError;
       callRec.isCallError = isCallError;
+      callRec.isExitError = isExitError;
+      callRec.exitCode = exitCode;
       callRec.resultText = text;
       callRec.resolved = true;
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
       const errors = allCalls.filter((r) => r.isError).length;
       const callErrors = allCalls.filter((r) => r.isCallError).length;
+      const exitErrors = allCalls.filter((r) => r.isExitError).length;
       // Collapsed detail carries the merged per-call count summary
       // ("512 lines, 6 matches, 3 files") so the finished card answers "how
       // much" without ctrl+o. Failures keep a bare 'N Ok · N Failed' status so
       // an error stays visible while collapsed.
       const succeeded = completed - errors;
       const detailText = errors > 0
-        ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+        ? failureDetailText({ succeeded, realErrors: errors - exitErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
         : formatAggregateDetail(aggregateSummaries(aggregate));
       const currentItem = getState().items.find((it) => it.id === card.itemId);
       const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
@@ -116,6 +127,7 @@ export function createToolCardResults({
         isError: errors > 0,
         errorCount: errors,
         callErrorCount: callErrors,
+        exitErrorCount: exitErrors,
         count: allCalls.length,
         completedCount: visualCompleted,
         doneCategories: aggregateDoneCategories(allCalls),
@@ -127,11 +139,12 @@ export function createToolCardResults({
     }
 
     // Non-aggregate (legacy agent-job cards, etc.)
-    const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, callErrors: 0, results: [] };
+    const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, callErrors: 0, exitErrors: 0, results: [] };
     group.completed = Math.min(group.count, group.completed + 1);
     group.errors += isError ? 1 : 0;
     group.callErrors = (group.callErrors || 0) + (isCallError ? 1 : 0);
-    group.results.push({ text, isError });
+    group.exitErrors = (group.exitErrors || 0) + (isExitError ? 1 : 0);
+    group.results.push({ text, isError, isExitError, exitCode });
     toolGroups.set(card.itemId, group);
     const resultText = groupedToolResultText(group);
     const displayResult = toolGroupedDisplayFallback(resultText, text, rawText);
@@ -141,6 +154,7 @@ export function createToolCardResults({
       isError: group.errors > 0,
       errorCount: group.errors,
       callErrorCount: group.callErrors || 0,
+      exitErrorCount: group.exitErrors || 0,
       count: group.count,
       completedCount: group.completed,
       completedAt: Date.now(),
@@ -223,12 +237,14 @@ export function createToolCardResults({
         const totalCompleted = completed;
         const errors = allCalls.filter((r) => r.isError).length;
         const callErrors = allCalls.filter((r) => r.isCallError).length;
+        const exitErrors = allCalls.filter((r) => r.isExitError).length;
         const succeeded = completed - errors;
         const rawResult = aggregateRawResult(allCalls);
-        // Collapsed detail carries the merged per-call count summary; failures
-        // keep a bare 'N Ok · N Failed' status. Raw is kept for ctrl+o.
+        // Collapsed detail carries the merged per-call count summary; real
+        // failures keep 'N Failed', shell command-exits show 'Exit N'/'Y Exit'.
+        // Raw is kept for ctrl+o.
         let displayDetail = errors > 0
-          ? (succeeded > 0 ? `${succeeded} Ok · ${errors} Failed` : `${errors} Failed`)
+          ? failureDetailText({ succeeded, realErrors: errors - exitErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
           : formatAggregateDetail(aggregateSummaries(aggregate));
         if (cancelled) {
           // Cancelled aggregates MUST keep the [status: cancelled] marker on the
@@ -244,6 +260,7 @@ export function createToolCardResults({
           isError: errors > 0,
           errorCount: errors,
           callErrorCount: callErrors,
+          exitErrorCount: exitErrors,
           count: allCalls.length,
           completedCount: totalCompleted,
           doneCategories: aggregateDoneCategories(allCalls),
@@ -257,7 +274,7 @@ export function createToolCardResults({
         continue;
       }
       // Non-aggregate finalize
-      const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, results: [] };
+      const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, exitErrors: 0, results: [] };
       group.completed = Math.min(group.count, group.completed + 1);
       toolGroups.set(card.itemId, group);
       let resultText = groupedToolResultText(group);
@@ -265,7 +282,7 @@ export function createToolCardResults({
         const currentItem = getState().items.find((it) => it.id === card.itemId);
         resultText = withCancelledResultMarker(resultText, currentItem);
       }
-      patchToolItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, callErrorCount: group.callErrors || 0, count: group.count, completedCount: group.completed, completedAt: Date.now() });
+      patchToolItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, callErrorCount: group.callErrors || 0, exitErrorCount: group.exitErrors || 0, count: group.count, completedCount: group.completed, completedAt: Date.now() });
       card.done = true;
       if (card.callId) done.add(card.callId);
     }

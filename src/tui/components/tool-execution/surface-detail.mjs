@@ -21,11 +21,18 @@ export function isShellTool(normalizedName, label = '') {
   return n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait' || l === 'run';
 }
 
-export function shellDisplayStatus({ pending = false, failedCount = 0, isError = false, result = '' } = {}) {
+export function shellDisplayStatus({ pending = false, failedCount = 0, exitFailedCount = 0, isError = false, result = '' } = {}) {
   const status = shellResultStatus(result);
   if (pending || /^(running|pending|queued)$/.test(status)) return 'running';
   if (/^cancel/.test(status)) return 'cancelled';
-  if (/^(failed|error|killed|timeout)$/.test(status) || isError || failedCount > 0) return 'failed';
+  if (/^(failed|error|killed|timeout)$/.test(status)) return 'failed';
+  // A command that RAN but exited non-zero is a command-exit, not a real
+  // failure: render the neutral "Exit" state unless there is ALSO a real
+  // tool-call/result failure in the group.
+  const realFailed = Math.max(0, Number(failedCount) - Number(exitFailedCount));
+  if (realFailed > 0) return 'failed';
+  if (Number(exitFailedCount) > 0) return 'exit';
+  if (isError || failedCount > 0) return 'failed';
   return 'completed';
 }
 
@@ -392,14 +399,18 @@ export function clampFailureCount(errorCount, groupCount, isError) {
 //   cancelled        -> theme.warning
 // The RED/orange failure color is driven ONLY by real tool-call errors
 // (`callFailedCount` — backend isError / error toolKind), NOT by command/result
-// failures like a shell non-zero exit or a `[status: failed]` result. Those
-// keep the card's L2 detail showing "Failed" but leave the dot on the success
-// color. `terminalStatus` is still consulted so a cancelled card stays warning.
-export function toolStatusColor({ pending, groupCount, callFailedCount = 0, terminalStatus = '' }) {
+// failures like a `[status: failed]` result. A shell command-exit
+// (`exitFailedCount`) is its own distinct neutral state: warning color, never
+// red. `terminalStatus` is still consulted so a cancelled card stays warning.
+export function toolStatusColor({ pending, groupCount, callFailedCount = 0, exitFailedCount = 0, terminalStatus = '' }) {
   if (pending) return theme.text;
   const status = normalizeTerminalStatus(terminalStatus);
   if (status === 'cancelled') return theme.warning;
-  if (callFailedCount <= 0) return theme.success;
-  if (groupCount > 1 && callFailedCount < groupCount) return theme.mixdogOrange || theme.warning;
-  return theme.error;
+  if (callFailedCount > 0) {
+    if (groupCount > 1 && callFailedCount < groupCount) return theme.mixdogOrange || theme.warning;
+    return theme.error;
+  }
+  // Command-exit(s) with no real tool-call failure: distinct warning state.
+  if (exitFailedCount > 0) return theme.warning;
+  return theme.success;
 }

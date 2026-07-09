@@ -86,7 +86,7 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
   // dropping the pad just normalizes the spacing.
   return formatToolActionHeader(name, args, { pending, count });
 }
-export function ToolExecution({ name, args, result, rawResult, isError, errorCount, callErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false }) {
+export function ToolExecution({ name, args, result, rawResult, isError, errorCount, callErrorCount, exitErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false }) {
   const rowWidth = Math.max(1, Number(columns || 80));
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
@@ -138,6 +138,9 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // paint the dot red. Fall back to 0 (never `isError`) when the engine did not
   // supply a call-error count so a result failure can't leak into the dot.
   const callFailedCount = clampFailureCount(callErrorCount, groupCount, false);
+  // Shell command-exits (ran, non-zero exit). Counted separately so the dot
+  // paints the neutral warning "Exit" color instead of red or green success.
+  const exitFailedCount = clampFailureCount(exitErrorCount, groupCount, false);
   const displayGroupCount = groupCount;
   const displayCategories = normalizeCountMap(categories || {});
   // In the DONE state, count only successful calls: error-terminated calls are
@@ -212,7 +215,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const aggregateTerminalStatus = pending
       ? 'running'
       : (resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed'));
-    const dotColor = toolStatusColor({ pending, groupCount, callFailedCount, terminalStatus: aggregateTerminalStatus });
+    const dotColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus: aggregateTerminalStatus });
     const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
@@ -310,7 +313,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const firstResultLine = hasDisplayResult ? String(lines[0] ?? '') : '';
   const firstResultLineClipped = hasDisplayBody && stringWidth(firstResultLine) > maxResultChars;
   const hasHiddenDetail = !pending && hasDisplayBody && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
-  const shellStatus = isShellSurface ? shellDisplayStatus({ pending, failedCount, isError, result: displayedResultText }) : '';
+  const shellStatus = isShellSurface ? shellDisplayStatus({ pending, failedCount, exitFailedCount, isError, result: displayedResultText }) : '';
   const shellElapsed = isShellSurface ? (shellResultElapsed(displayedResultText) || elapsed) : '';
   const backgroundElapsed = backgroundMeta
     ? backgroundTaskElapsed(backgroundMeta, elapsed)
@@ -426,7 +429,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const keepAgentDetail = (isError || agentFailureText) && !(agentHeaderFailure && !agentSurfaceBrief);
     visibleDetailLines = keepAgentDetail ? [agentDetailLine] : [];
   }
-  const finalStatusColor = toolStatusColor({ pending, groupCount, callFailedCount, terminalStatus });
+  const finalStatusColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus });
   const dotColor = finalStatusColor;
   // Agent surface cards use directional markers: `←` for requests going OUT
   // (spawn/send/etc.) and `→` for the response coming back IN. Background
