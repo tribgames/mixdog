@@ -24,7 +24,7 @@ import { _closeBashSessionLazy } from './runtime-loaders.mjs';
  * and recreates the session in its pre-close state.
  *
  * Long-term cleanup: `sweepTombstones()` below unlinks tombstones older than
- * TOMBSTONE_MAX_AGE_MS (24h — vastly longer than any realistic in-flight race).
+ * TOMBSTONE_MAX_AGE_MS (1h — vastly longer than the microsecond in-flight race).
  */
 export function closeSession(id, reason = 'manual', opts = {}) {
     // tombstone=false: detach runtime resources (heartbeat, bash shells,

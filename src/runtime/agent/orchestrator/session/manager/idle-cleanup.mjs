@@ -13,9 +13,21 @@ import { nonNegativeIntEnv } from './env-utils.mjs';
 const CLEANUP_INTERVAL_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INTERVAL_MS', 5 * 60 * 1000); // check every 5 minutes
 const CLEANUP_INITIAL_DELAY_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INITIAL_DELAY_MS', CLEANUP_INTERVAL_MS > 0 ? CLEANUP_INTERVAL_MS : 0);
 const CLEANUP_SLOW_LOG_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_SLOW_LOG_MS', 250);
-const TOMBSTONE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h — far longer than any realistic ask race window
+// Tombstone unlink TTL. The guarded resurrection race (temp-write→rename inside
+// _doSave) resolves in microseconds, so 1h is still vastly longer than any
+// realistic in-flight ask race — while short enough that matured tombstones are
+// reclaimed promptly instead of accumulating for a full day.
+const TOMBSTONE_MAX_AGE_MS = 60 * 60 * 1000; // 1h
 let _cleanupTimer = null;
 let _cleanupInitialTimer = null;
+
+// A session is "live" when it still owns a non-closed runtime entry. Passed to
+// the retention cap so the active/current and any in-flight session is never
+// pruned by the open-session max-age/max-count bounds.
+function _isSessionLive(id) {
+    const entry = _getRuntimeEntry(id);
+    return !!(entry && entry.closed !== true);
+}
 
 function _previewIds(items, limit = 5) {
     const ids = (items || []).slice(0, limit).map((item) => item.id).filter(Boolean);
@@ -29,6 +41,7 @@ function sweepIdleSessions({ includeTombstones = true } = {}) {
     try {
         const result = sweepStaleSessions({
             tombstoneMaxAgeMs: includeTombstones ? TOMBSTONE_MAX_AGE_MS : 0,
+            isSessionLive: _isSessionLive,
         });
         const {
             cleaned,
@@ -81,7 +94,7 @@ function sweepIdleSessions({ includeTombstones = true } = {}) {
  * Rationale: closeSession() leaves the tombstone on disk as the authoritative
  * resurrection-blocker for racing saveSession() calls. That race resolves in
  * microseconds (the window inside _doSave between temp write and rename), so
- * 24h is vastly safe. After the TTL expires we reclaim the disk slot.
+ * 1h is vastly safe. After the TTL expires we reclaim the disk slot.
  *
  * Uses `getStoredSessionsRaw()` rather than `listStoredSessions()` because the
  * latter's inline 30-min idle cleanup would race-unlink tombstones before we

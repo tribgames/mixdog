@@ -600,8 +600,37 @@ export function markSessionClosed(id, reason = 'manual') {
     _clearDebounce(id);
     const existing = loadSession(id);
     if (!existing) return null;
-    const newGen = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
-    const tombstone = { ...existing, closed: true, closedReason: reason, status: 'closed', generation: newGen, updatedAt: Date.now() };
+    // Re-close idempotence: a session that is ALREADY tombstoned keeps its
+    // ORIGINAL close time (updatedAt) and generation. The old code refreshed
+    // updatedAt=Date.now() on every call, so the 5-min idle sweep re-closing a
+    // stale summary row reset the tombstone age each cycle — tombstones never
+    // matured past the sweep threshold (immortality loop). Preserving the
+    // original close time lets the age accumulate so the tombstone sweep can
+    // reclaim it.
+    //
+    // The alreadyClosed / original-close-time / generation decision MUST come
+    // from the ON-DISK JSON, read cache-bypassing — NOT from loadSession(),
+    // which can serve a stale in-memory OPEN payload (a pending debounced save
+    // or a _liveSessions entry) after a late save. Deciding off that stale open
+    // copy would make a re-close of an already-tombstoned session look like a
+    // FIRST close and reset updatedAt+generation, resurrecting the exact
+    // immortality refresh this guard prevents. The disk file is the
+    // authoritative tombstone state.
+    let onDisk = null;
+    try { onDisk = JSON.parse(readFileSync(sessionPath(id), 'utf-8')); }
+    catch { onDisk = null; }
+    const alreadyClosed = onDisk
+        ? (onDisk.closed === true || onDisk.status === 'closed')
+        : (existing.closed === true);
+    // When the on-disk copy is already closed, base the (idempotent) tombstone
+    // rewrite on IT rather than on `existing`, so a stale open in-memory
+    // payload can never clobber the persisted tombstone's content/fields.
+    const base = (alreadyClosed && onDisk) ? onDisk : existing;
+    const closeTime = (alreadyClosed && typeof base.updatedAt === 'number' && base.updatedAt > 0)
+        ? base.updatedAt
+        : Date.now();
+    const newGen = (typeof base.generation === 'number' ? base.generation : 0) + (alreadyClosed ? 0 : 1);
+    const tombstone = { ...base, closed: true, closedReason: alreadyClosed ? (base.closedReason || reason) : reason, status: 'closed', generation: newGen, updatedAt: closeTime };
     // Bypass the queue + guard — this IS the tombstone write.
     const target = sessionPath(id);
     const tmp = target + '.' + randomBytes(6).toString('hex') + '.tmp';
@@ -622,7 +651,10 @@ export function markSessionClosed(id, reason = 'manual') {
     // it reflects the session's full lifetime including the close turn.
     try {
         const _dataDir = getPluginData();
-        if (_dataDir) {
+        // Emit the close metric only on the FIRST close — a re-close of an
+        // already-tombstoned session is a no-op idempotent write and must not
+        // spam the close log or double-count lifetimes.
+        if (_dataDir && !alreadyClosed) {
             const _ts = new Date().toISOString();
             const _lifeMs = (typeof existing.createdAt === 'number' && existing.createdAt > 0)
                 ? (tombstone.updatedAt - existing.createdAt)
@@ -732,6 +764,18 @@ const AGENT_TERMINAL_STATUSES = new Set(['idle', 'done', 'error']);
 // one (process crash, watchdog not started, provider never returned), this
 // backstop reclaims the file so the sweep doesn't leak zombies indefinitely.
 const RUNNING_STALL_MS = 10 * 60 * 1000;
+// Retention cap for resumable OPEN (non-tombstone) sessions. Lead/user resume
+// closes sessions with { tombstone:false } — the runtime detaches but the
+// session JSON stays open/resumable and is never lifecycle-closed, so without
+// a cap the sessions/ dir grows without bound (observed 782 open files). The
+// sweep prunes open sessions past EITHER bound: older than 14d, or beyond the
+// newest 300 (oldest first). The cap targets ONLY ephemeral agent/ownerless
+// sessions — explicit USER-owned conversations are never auto-pruned (deleting
+// a user's history, including the current foreground session which is idle
+// during a gated sweep, is unacceptable). A session with a live runtime entry
+// (options.isSessionLive) is additionally protected as defense-in-depth.
+const RESUMABLE_OPEN_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const RESUMABLE_OPEN_MAX_COUNT = 300;
 
 export function listStoredSessions() {
     const dir = getStoreDir();
@@ -802,6 +846,15 @@ export function sweepStaleSessions(ttlMs, options = {}) {
     const sweepIdle = options.sweepIdle !== false;
     const tombstoneMaxAgeMs = Number(options.tombstoneMaxAgeMs);
     const sweepTombstones = Number.isFinite(tombstoneMaxAgeMs) && tombstoneMaxAgeMs > 0;
+    // Retention cap for resumable open sessions runs only on the idle sweep
+    // (never on a tombstone-only pass). isSessionLive protects the current /
+    // actively-running sessions from being pruned by the retention cap.
+    const isSessionLive = typeof options.isSessionLive === 'function' ? options.isSessionLive : null;
+    const retainOpen = sweepIdle && options.retainOpenSessions !== false;
+    const _optAge = Number(options.openMaxAgeMs);
+    const _optCount = Number(options.openMaxCount);
+    const openMaxAgeMs = Number.isFinite(_optAge) && _optAge > 0 ? _optAge : RESUMABLE_OPEN_MAX_AGE_MS;
+    const openMaxCount = Number.isFinite(_optCount) && _optCount >= 0 ? _optCount : RESUMABLE_OPEN_MAX_COUNT;
     const dir = getStoreDir();
     if (!existsSync(dir))
         return { cleaned: 0, remaining: 0, details: [], tombstonesCleaned: 0, tombstoneDetails: [], tombstoneErrors: [] };
@@ -813,6 +866,11 @@ export function sweepStaleSessions(ttlMs, options = {}) {
     const details = [];
     const tombstoneDetails = [];
     const tombstoneErrors = [];
+    // Retention-cap bookkeeping: collect surviving open (non-tombstone)
+    // sessions here, then prune oldest-first after the main loop.
+    const openCandidates = [];
+    let openPruned = 0;
+    const openPrunedDetails = [];
     for (const row of summaries) {
         try {
             if (!row?.id) continue;
@@ -828,38 +886,95 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 const hbPath = join(dir, `${row.id}.hb`);
                 if (existsSync(hbPath)) heartbeatMtime = statSync(hbPath).mtimeMs || 0;
             } catch { /* .hb unavailable — fall back to JSON fields */ }
+            // Truth source: the summary index is a deferred/best-effort sidecar,
+            // so a row can still claim status='idle'/open while the session JSON
+            // was already tombstoned. Read the real session JSON BEFORE the
+            // freshness gate so closed-ness is decided from AUTHORITATIVE on-disk
+            // state — otherwise idle-sweep re-closes an already-closed session via
+            // markSessionClosed (which, pre-fix, reset the tombstone age every
+            // 5-min cycle → immortality loop).
+            let raw = null;
+            try { raw = readFileSync(jsonPath, 'utf-8'); }
+            catch { /* racing unlink / transient read failure */ }
+            let actual = null;
+            let diskClosed;
+            if (raw == null) {
+                diskClosed = (row.closed === true || row.status === 'closed');
+            } else {
+                // Cheap top-level scan avoids allocating the whole messages array
+                // just to read the closed flag for the (common) fresh open
+                // session the gate will skip; full-parse only when the scan can't
+                // resolve the top-level flag.
+                const scan = scanTopLevelLifecycle(raw);
+                if (scan && typeof scan.closed === 'boolean') {
+                    diskClosed = scan.closed;
+                } else {
+                    try { actual = JSON.parse(raw); } catch { actual = null; }
+                    diskClosed = actual
+                        ? (actual.closed === true || actual.status === 'closed')
+                        : (row.closed === true || row.status === 'closed');
+                }
+            }
+            if (diskClosed) {
+                // Closed sessions are EXEMPT from the freshness gate: a tombstone
+                // whose file/hb mtime keeps getting bumped would otherwise stay
+                // perpetually "fresh" and never mature. Maturity is governed ONLY
+                // by the ORIGINAL close time (disk updatedAt, not row.updatedAt
+                // which a stale row may carry from before the close).
+                if (!actual && raw != null) { try { actual = JSON.parse(raw); } catch { actual = null; } }
+                const closedAt = Number(actual?.updatedAt ?? row.updatedAt);
+                const age = now - closedAt;
+                if (sweepTombstones && Number.isFinite(closedAt) && age >= tombstoneMaxAgeMs) {
+                    try {
+                        if (deleteSession(row.id, { deferSummaryUpdate: true })) {
+                            tombstonesCleaned++;
+                            tombstoneDetails.push({ id: row.id, ageSeconds: Math.floor(age / 1000) });
+                            continue;
+                        }
+                    } catch (err) {
+                        tombstoneErrors.push({ id: row.id, message: err?.message || String(err) });
+                        remaining++;
+                        continue;
+                    }
+                }
+                // Repair a stale summary row that still claimed the session was
+                // open: reflect the real closed state so the next sweep sees the
+                // correct closed=true/updatedAt and never re-closes it.
+                if (actual && !(row.closed === true || row.status === 'closed')) {
+                    try { _upsertSessionSummary(actual); } catch { /* best-effort */ }
+                }
+                remaining++;
+                continue;
+            }
+            // Freshness gate — OPEN sessions only (closed sessions handled and
+            // `continue`d above). Recently-touched open sessions are skipped
+            // cheaply here.
             const freshnessGateMs = sweepIdle ? maxAge : (sweepTombstones ? tombstoneMaxAgeMs : 0);
             const newestKnown = Math.max(row.updatedAt || 0, row.lastHeartbeatAt || 0, row.createdAt || 0, jsonMtime, heartbeatMtime);
             if (freshnessGateMs > 0 && newestKnown > 0 && now - newestKnown <= freshnessGateMs) {
                 remaining++;
                 continue;
             }
-            // Already-closed tombstones are handled here before heartbeat
-            // sidecar checks; they do not need liveness probing.
-            if (row.closed === true || row.status === 'closed') {
-                if (sweepTombstones) {
-                    const updated = Number(row.updatedAt);
-                    const age = now - updated;
-                    if (Number.isFinite(updated) && age >= tombstoneMaxAgeMs) {
-                        try {
-                            if (deleteSession(row.id, { deferSummaryUpdate: true })) {
-                                tombstonesCleaned++;
-                                tombstoneDetails.push({ id: row.id, ageSeconds: Math.floor(age / 1000) });
-                                continue;
-                            }
-                        } catch (err) {
-                            tombstoneErrors.push({ id: row.id, message: err?.message || String(err) });
-                            remaining++;
-                            continue;
-                        }
-                    }
-                }
-                remaining++;
-                continue;
-            }
+            // Prefer the AUTHORITATIVE on-disk JSON over the best-effort (and
+            // possibly stale) summary row for every open/idle liveness and
+            // ownership decision below — a stale row must not close or prune the
+            // wrong session. Full-parse here if the cheap scan skipped it.
+            if (!actual && raw != null) { try { actual = JSON.parse(raw); } catch { actual = null; } }
+            const effOwner = (actual && typeof actual.owner === 'string' && actual.owner.length > 0)
+                ? actual.owner : row.owner;
+            const ownerRef = { owner: effOwner };
+            const effStatus = (actual && typeof actual.status === 'string') ? actual.status : row.status;
+            const effUpdatedAt = Number(actual?.updatedAt) > 0 ? Number(actual.updatedAt) : (row.updatedAt || 0);
+            const effLastHb = Number(actual?.lastHeartbeatAt) > 0 ? Number(actual.lastHeartbeatAt) : (row.lastHeartbeatAt || 0);
+            const effCreatedAt = Number(actual?.createdAt) > 0 ? Number(actual.createdAt) : (row.createdAt || 0);
+            const effBashId = (actual && actual.implicitBashSessionId) || row.implicitBashSessionId || null;
             // Sweep agent-owned and ownerless (legacy) sessions; skip explicit
-            // user sessions before touching heartbeat sidecars.
-            if (typeof row.owner === 'string' && row.owner.length > 0 && !isAgentOwner(row)) {
+            // user sessions before touching heartbeat sidecars. USER-owned
+            // conversations are NEVER added to the retention-cap candidate set —
+            // the cap must not auto-delete user history (nor the current
+            // foreground session, which is idle during a gated sweep). Only the
+            // ephemeral agent/ownerless sessions below feed the cap.
+            if (typeof effOwner === 'string' && effOwner.length > 0 && !isAgentOwner(ownerRef)) {
                 remaining++;
                 continue;
             }
@@ -870,17 +985,17 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             // Prefer .hb sidecar mtime — updated at tight cadence (≤5s) without
             // serialising the full JSON, so it reflects true liveness more
             // accurately than the JSON timestamp fields.
-            let lastActive = row.lastHeartbeatAt || row.updatedAt || row.createdAt || 0;
+            let lastActive = effLastHb || effUpdatedAt || effCreatedAt || 0;
             if (heartbeatMtime) lastActive = Math.max(lastActive, heartbeatMtime);
             // Running sessions are normally reaped by the stream-watchdog
             // within ~120s. Skip them here unless they've been silent past
             // RUNNING_STALL_MS, at which point they are treated as zombies.
-            if (row.status === 'running' && now - lastActive <= RUNNING_STALL_MS) {
+            if (effStatus === 'running' && now - lastActive <= RUNNING_STALL_MS) {
                 remaining++;
                 continue;
             }
-            const isCompletedAgent = isAgentOwner(row)
-                && AGENT_TERMINAL_STATUSES.has(row.status);
+            const isCompletedAgent = isAgentOwner(ownerRef)
+                && AGENT_TERMINAL_STATUSES.has(effStatus);
             const sessionMaxAge = isCompletedAgent ? AGENT_TERMINAL_TTL_MS : maxAge;
             if (now - lastActive > sessionMaxAge) {
                 try { markSessionClosed(row.id, 'idle-sweep'); }
@@ -891,15 +1006,39 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 cleaned++;
                 details.push({
                     id: row.id,
-                    owner: row.owner || 'unknown',
+                    owner: effOwner || 'unknown',
                     idleMinutes: Math.round((now - lastActive) / 60000),
-                    bashSessionId: row.implicitBashSessionId || null,
+                    bashSessionId: effBashId,
                 });
             } else {
+                if (retainOpen) openCandidates.push({ id: row.id, lastActive });
                 remaining++;
             }
         }
         catch { /* skip corrupt */ }
+    }
+    // ── Retention cap: prune resumable open (non-tombstone) sessions ──────────
+    // Newest-first: keep the most recent openMaxCount, prune anything older than
+    // openMaxAgeMs OR beyond the count. Live/current sessions (isSessionLive)
+    // are never pruned but still occupy a kept slot.
+    if (retainOpen && openCandidates.length > 0) {
+        openCandidates.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
+        let kept = 0;
+        for (const c of openCandidates) {
+            if (isSessionLive && isSessionLive(c.id)) { kept++; continue; }
+            const tooOld = openMaxAgeMs > 0 && now - (c.lastActive || 0) > openMaxAgeMs;
+            const overCount = kept >= openMaxCount;
+            if (!tooOld && !overCount) { kept++; continue; }
+            try {
+                if (deleteSession(c.id, { deferSummaryUpdate: true })) {
+                    openPruned++;
+                    openPrunedDetails.push({ id: c.id, ageSeconds: Math.floor((now - (c.lastActive || 0)) / 1000) });
+                    if (remaining > 0) remaining--;
+                } else {
+                    kept++;
+                }
+            } catch { kept++; }
+        }
     }
     // Orphan .hb reap: a heartbeat sidecar whose .json no longer exists is dead
     // weight once it is also stale (older than maxAge) — the session JSON was
@@ -920,11 +1059,11 @@ export function sweepStaleSessions(ttlMs, options = {}) {
     // read-modify-write for the whole sweep instead of one per deleted id
     // (the index is multi-MB at scale; per-id rewrites made large sweeps
     // quadratic and stalled boot for seconds).
-    if (tombstoneDetails.length > 0) {
+    if (tombstoneDetails.length > 0 || openPrunedDetails.length > 0) {
         try {
-            const deletedIds = new Set(tombstoneDetails.map((d) => d.id));
+            const deletedIds = new Set([...tombstoneDetails, ...openPrunedDetails].map((d) => d.id));
             _pruneSummaryIndexIds(deletedIds);
         } catch { /* summary index is best-effort */ }
     }
-    return { cleaned, remaining, details, tombstonesCleaned, tombstoneDetails, tombstoneErrors };
+    return { cleaned, remaining, details, tombstonesCleaned, tombstoneDetails, tombstoneErrors, openPruned, openPrunedDetails };
 }
