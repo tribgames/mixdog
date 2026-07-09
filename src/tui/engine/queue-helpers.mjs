@@ -12,6 +12,14 @@ import {
 
 const QUEUE_PRIORITY = { now: 0, next: 1, later: 2 };
 
+// Sentinel display text for a steering entry that is model-visible only: its
+// immediate transcript ("Response …") card was already pushed at delivery time
+// (live execution completion), so the mid-turn steering drain must NOT render a
+// second card for it. drainPendingSteering emits this as the entry's display
+// text; turn.mjs's onSteerMessage recognizes it and skips the push while the
+// model still receives the entry's content.
+export const STEERING_SUPPRESSED_DISPLAY = '\u0000mixdog:suppress-steer-display\u0000';
+
 export function queuePriorityValue(value) {
   return QUEUE_PRIORITY[String(value || 'next')] ?? QUEUE_PRIORITY.next;
 }

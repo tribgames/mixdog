@@ -16,9 +16,13 @@
   error origin, ...) and send them as ONE `query[]` call — facets run in
   parallel. Never fan out rephrasings of the same target; on
   EXPLORATION_FAILED, retry once with changed tokens.
-- Verified paths = user-provided or tool-returned. Guessed/unknown path →
-  `find`/`glob`/`explore` first; ENOENT → `find` basename, never retry a guess
-  or invent absolute paths outside the project.
+- Verified = user-provided, tool-returned, or the session project cwd itself.
+  Unscoped grep/glob/list from the project root needs NO find hop; find only
+  resolves a genuinely guessed path-name fragment, and it rides the SAME turn
+  as independent probes (unscoped grep, code_graph) — never a solo
+  path-verification turn. ENOENT → `find` basename, never retry a guess; don't
+  mask a miss with a guessed glob scope (path "." + `src/**`) or an invented
+  absolute path, but plain project-root searches are fine.
 - Retrieval stops when evidence covers the deliverable: single-answer tasks
   end at the first sufficient anchor; enumeration tasks (review, audit) end
   when the stated scope is covered. Never re-verify a hit already on screen;

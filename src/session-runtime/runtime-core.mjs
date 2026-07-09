@@ -306,6 +306,26 @@ export function __saveModelSettingsForTest(cfgMod, route, options = {}) {
   return saveModelSettings(cfgMod, route, options);
 }
 
+// Decide whether notifyFnForSession should mirror a terminal tool completion
+// into the pending-message queue. Only the TUI execution-ui path actually
+// injects the model-visible twin of the completion into the active loop, and it
+// signals that with an EXPLICIT ack (modelVisibleDelivered) — never a generic
+// truthy onNotification return. Skipping the mirror on a bare `handled===true`
+// would let a display-only / API listener suppress the sole model-visible copy,
+// so the model would never see the completion body. Mirror UNLESS the body was
+// explicitly delivered; unknown/generic-handled → keep the mirror.
+export function shouldMirrorCompletionToPendingQueue({
+  callerSessionId,
+  modelVisibleDelivered,
+  hasEnqueue,
+  text,
+  meta = {},
+} = {}) {
+  if (!callerSessionId || !hasEnqueue) return false;
+  if (modelVisibleDelivered) return false;
+  return shouldPersistModelVisibleToolCompletion(text, meta);
+}
+
 export async function createMixdogSessionRuntime({
   provider,
   model,
@@ -742,7 +762,7 @@ export async function createMixdogSessionRuntime({
 
   function emitRuntimeNotification(content, meta = {}) {
     const text = String(content || '').trim();
-    if (!text) return false;
+    if (!text) return { handled: false, modelVisibleDelivered: false };
     const event = { content: text, meta: meta && typeof meta === 'object' ? meta : {} };
     let handled = false;
     for (const listener of [...notificationListeners]) {
@@ -750,19 +770,34 @@ export async function createMixdogSessionRuntime({
         if (listener(event) === true) handled = true;
       } catch {}
     }
-    return handled;
+    // EXPLICIT model-visible-delivery ack: only the TUI execution-ui path sets
+    // event.modelVisibleDelivered when it enqueues the model-visible completion
+    // body into the active loop. A generic display-only / API listener that
+    // returns true does NOT set it, so `handled` alone must never be read as
+    // "the model saw the body".
+    const modelVisibleDelivered = event.modelVisibleDelivered === true;
+    return { handled, modelVisibleDelivered };
   }
 
   function notifyFnForSession(callerSessionId) {
     return (text, meta = {}) => {
-      const handledByRuntimeListener = emitRuntimeNotification(text, meta);
+      const { handled: handledByRuntimeListener, modelVisibleDelivered } = emitRuntimeNotification(text, meta);
       let enqueued = false;
       // TUI sessions consume raw execution notifications for UI/task cards via
       // onNotification, but those raw envelopes are internal-only in pending
-      // drain. Always mirror terminal completions with a model-visible wrapper
-      // while keeping the raw text for UI display.
-      if (callerSessionId && typeof mgr.enqueuePendingMessage === 'function'
-        && shouldPersistModelVisibleToolCompletion(text, meta)) {
+      // drain. The TUI execution-ui path injects the model-visible twin of a
+      // terminal completion into the active loop and acks with
+      // modelVisibleDelivered, so mirroring it into the pending queue would
+      // double-inject the same completion — skip only on that EXPLICIT ack. A
+      // generic display-only / API listener returning true is NOT an ack: the
+      // mirror stays as the sole model-visible delivery.
+      if (shouldMirrorCompletionToPendingQueue({
+        callerSessionId,
+        modelVisibleDelivered,
+        hasEnqueue: typeof mgr.enqueuePendingMessage === 'function',
+        text,
+        meta,
+      })) {
         try {
           const visible = modelVisibleToolCompletionMessage(text, meta);
           // Terminal completion (gated by shouldPersistModelVisibleToolCompletion)
@@ -973,7 +1008,7 @@ export async function createMixdogSessionRuntime({
       const meta = params.meta && typeof params.meta === 'object' ? params.meta : {};
       const content = channelNotificationModelContent(params);
       if (!content) return;
-      const handled = emitRuntimeNotification(content, meta);
+      const { handled } = emitRuntimeNotification(content, meta);
       if (!handled && session?.id && shouldMirrorChannelNotificationToPending(meta)) {
         try { mgr.enqueuePendingMessage(session.id, content); } catch {}
       }

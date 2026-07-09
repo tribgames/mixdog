@@ -3,7 +3,7 @@
  */
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';
 import { createSessionStats } from './session-stats.mjs';
-import { queuePriorityValue, defaultQueuePriority, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks } from './queue-helpers.mjs';
+import { queuePriorityValue, defaultQueuePriority, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersist } from './tui-steering-persist.mjs';
 
 export function createSessionFlow(bag) {
@@ -53,6 +53,7 @@ export function createSessionFlow(bag) {
       key: options.key || null,
       skipSlashCommands: options.skipSlashCommands === true,
       displayText: mode === 'task-notification' ? notificationDisplayText(displayText) : String(displayText || ''),
+      suppressDisplay: options.suppressDisplay === true,
       steeringPersistId: options.steeringPersistId || null,
       steeringPersistRestored: options.steeringPersistRestored === true,
     };
@@ -186,6 +187,10 @@ export function createSessionFlow(bag) {
         const merged = mergePromptContents(batch);
         for (const entry of batch) {
           if (entry.mode === 'pending-resume') continue;
+          // Live execution completions push their own immediate Response card
+          // at delivery time; the queued twin is model-visible only and must
+          // NOT render a second transcript card here (no fall-back to content).
+          if (entry.suppressDisplay) continue;
           pushUserOrSyntheticItem(entry.text, entry.id, isQueuedEntryEditable(entry) ? 'user' : 'injected');
         }
         const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
@@ -274,6 +279,15 @@ export function createSessionFlow(bag) {
       if (batch.length === 0) break;
       for (const entry of batch) {
         const content = entry.content;
+        if (entry.suppressDisplay) {
+          // Model-visible twin of an already-rendered live completion: deliver
+          // content to the model but flag onSteerMessage to skip the duplicate
+          // transcript card (no fall-back to content-derived display text).
+          if (Array.isArray(content) ? content.length > 0 : String(content ?? '').trim().length > 0) {
+            out.push({ text: STEERING_SUPPRESSED_DISPLAY, content });
+          }
+          continue;
+        }
         const value = typeof content === 'string'
           ? content.trim()
           : { text: String(entry.text || '').trim(), content };

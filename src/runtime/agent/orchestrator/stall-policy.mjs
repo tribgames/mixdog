@@ -191,6 +191,43 @@ export const PROVIDER_WS_ACQUIRE_TIMEOUT_MS = resolveTimeoutMs(
     { minMs: 5_000, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
 );
 
+// WS pool liveness (ping/pong) — closes the gap between a socket going
+// half-open (peer gone / TLS wedge) and the semantic-idle watchdog noticing
+// (120s). Node `ws` send() is fire-and-forget, so a dead pooled socket
+// silently blackholes response.create frames until a downstream timeout. An
+// idle pooled socket is pinged on this cadence; a reused socket that has been
+// quiet longer than the stale window is ping-probed before hand-out.
+// Gated OFF by default for codex/opencode parity — neither pings model
+// sockets. Enable with MIXDOG_PROVIDER_WS_PING_ENABLED=1. When disabled, no
+// liveness interval is armed and the acquire-reuse ping probe is skipped (the
+// non-OPEN eviction scan still runs); lastAliveAt stamping is harmless.
+const _wsPingRaw = process.env.MIXDOG_PROVIDER_WS_PING_ENABLED;
+export const PROVIDER_WS_PING_ENABLED = _wsPingRaw === '1' || _wsPingRaw === 'true' || _wsPingRaw === 'yes';
+
+export const PROVIDER_WS_PING_INTERVAL_MS = resolveTimeoutMs(
+    'MIXDOG_PROVIDER_WS_PING_INTERVAL_MS',
+    30_000,
+    { minMs: 5_000, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
+);
+
+// Missed-pong grace: after a ping, the pong must land within this bound or the
+// socket is treated as dead (closed + evicted). Doubles as the short probe
+// bound on the acquire-reuse path so a busy caller is never handed a wedged
+// socket.
+export const PROVIDER_WS_PONG_TIMEOUT_MS = resolveTimeoutMs(
+    'MIXDOG_PROVIDER_WS_PONG_TIMEOUT_MS',
+    5_000,
+    { minMs: 1_000, maxMs: 60_000 },
+);
+
+// Activity freshness window: a pooled socket with observed activity (pong /
+// release) newer than this is assumed live and skips the acquire-reuse probe.
+export const PROVIDER_WS_LIVENESS_STALE_MS = resolveTimeoutMs(
+    'MIXDOG_PROVIDER_WS_LIVENESS_STALE_MS',
+    30_000,
+    { minMs: 5_000, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
+);
+
 // Single inter-chunk idle timer (300s), matching the upstream WS provider's
 // default stream idle timeout. Mixdog resets one idle timer on every received
 // WS frame (openai-oauth-ws messageHandler resets on every parsed event). There

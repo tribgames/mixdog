@@ -152,7 +152,17 @@ export function createAgentJobFeed({
             priority: 'next',
             key: notificationKey || undefined,
             displayText: delivery.displayText || text,
+            // The immediate Response card was already pushed above
+            // (pushUserOrSyntheticItem). Keep this queued twin model-visible
+            // but suppress its drain-time transcript card to avoid a duplicate.
+            suppressDisplay: true,
           });
+          // EXPLICIT ack to the emitting runtime: the model-visible completion
+          // body was injected into the active loop here, so notifyFnForSession
+          // must NOT also mirror it into the pending queue (double injection).
+          // A bare truthy return below is display/status handling only — this
+          // flag is the sole model-visible-delivery signal.
+          if (event && typeof event === 'object') event.modelVisibleDelivered = true;
         }
         return true;
       }

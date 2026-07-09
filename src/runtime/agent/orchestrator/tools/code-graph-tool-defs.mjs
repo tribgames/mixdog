@@ -3,7 +3,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
     name: 'code_graph',
     title: 'Code Graph',
     annotations: { title: 'Code Graph', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false, compressibleLossless: true },
-    description: 'Repo-local code structure/flow lookup (not web): symbols/references/calls/deps. Known symbols or verified files only. Batch symbols[]/files[].',
+    description: 'Repo-local code structure/flow lookup (not web): symbols/references/calls/deps. Symbols by name need no pre-verification; files[] must be verified paths. Batch symbols[]/files[].',
     inputSchema: {
       type: 'object',
       properties: {

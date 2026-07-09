@@ -15,6 +15,10 @@ import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-cli
 import {
     PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
     PROVIDER_WS_HANDSHAKE_TIMEOUT_MS,
+    PROVIDER_WS_PING_ENABLED,
+    PROVIDER_WS_PING_INTERVAL_MS,
+    PROVIDER_WS_PONG_TIMEOUT_MS,
+    PROVIDER_WS_LIVENESS_STALE_MS,
     resolveTimeoutMs,
 } from '../stall-policy.mjs';
 
@@ -36,6 +40,10 @@ export const WS_IDLE_MS = resolveTimeoutMs(
 );
 const WS_HANDSHAKE_TIMEOUT_MS = PROVIDER_WS_HANDSHAKE_TIMEOUT_MS;
 const WS_ACQUIRE_TIMEOUT_MS = PROVIDER_WS_ACQUIRE_TIMEOUT_MS;
+const WS_PING_INTERVAL_MS = PROVIDER_WS_PING_INTERVAL_MS;
+const WS_PONG_TIMEOUT_MS = PROVIDER_WS_PONG_TIMEOUT_MS;
+const WS_LIVENESS_STALE_MS = PROVIDER_WS_LIVENESS_STALE_MS;
+const WS_PING_ENABLED = PROVIDER_WS_PING_ENABLED;
 
 // WS socket pool buckets are keyed by `poolKey` (the per-call sessionId)
 // to isolate parallel agent invocations — each gets its own socket so
@@ -263,6 +271,10 @@ function _getPoolArr(poolKey) {
 }
 
 function _removeFromPool(poolKey, entry) {
+    // Always tear down per-entry timers so evicting a socket never leaks an
+    // idle-close or liveness-ping interval.
+    _clearIdle(entry);
+    _clearLiveness(entry);
     if (!poolKey) return;
     const arr = _wsPool.get(poolKey);
     if (!arr) return;
@@ -291,6 +303,70 @@ function _clearIdle(entry) {
 
 function _isOpen(entry) {
     return entry?.socket?.readyState === WebSocket.OPEN;
+}
+
+function _clearLiveness(entry) {
+    if (entry?.pingTimer) {
+        clearInterval(entry.pingTimer);
+        entry.pingTimer = null;
+    }
+}
+
+// Force a dead/half-open socket out of the pool. close() alone can hang on a
+// wedged socket, so follow with terminate() to guarantee FD release.
+function _evictDead(poolKey, entry) {
+    try { entry.socket.close(1000, 'ws_liveness_dead'); } catch {}
+    try { entry.socket.terminate?.(); } catch {}
+    _removeFromPool(poolKey, entry);
+}
+
+// Send one ws-level ping and resolve true iff a pong lands within timeoutMs.
+// Never rejects. On any success it refreshes lastAliveAt so the caller/loop
+// treats the socket as fresh.
+function _pingProbe(entry, timeoutMs) {
+    return new Promise((resolve) => {
+        const socket = entry?.socket;
+        if (!socket || socket.readyState !== WebSocket.OPEN) { resolve(false); return; }
+        let done = false;
+        const finish = (alive) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            try { socket.removeListener('pong', onPong); } catch {}
+            resolve(alive);
+        };
+        const onPong = () => { entry.lastAliveAt = Date.now(); finish(true); };
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        try { timer.unref?.(); } catch {}
+        try {
+            socket.on('pong', onPong);
+            socket.ping();
+        } catch {
+            finish(false);
+        }
+    });
+}
+
+// While an entry sits idle in the pool, ping it every WS_PING_INTERVAL_MS.
+// A missed pong (or a socket that is no longer OPEN) evicts the entry so it can
+// never be handed out dead. Busy entries are skipped — an in-flight turn has
+// its own inter-chunk/semantic-idle watchdogs.
+function _armLiveness(poolKey, entry) {
+    _clearLiveness(entry);
+    entry.pingTimer = setInterval(async () => {
+        if (entry.busy || entry.closing || entry.probing) return;
+        if (!_isOpen(entry)) { _evictDead(poolKey, entry); return; }
+        // Recent activity ⇒ assume live, skip the probe this tick.
+        if (Date.now() - (entry.lastAliveAt || 0) < WS_LIVENESS_STALE_MS) return;
+        entry.probing = true;
+        try {
+            const alive = await _pingProbe(entry, WS_PONG_TIMEOUT_MS);
+            if (!alive && !entry.busy) _evictDead(poolKey, entry);
+        } finally {
+            entry.probing = false;
+        }
+    }, WS_PING_INTERVAL_MS);
+    try { entry.pingTimer.unref?.(); } catch {}
 }
 
 // Awaited frame send. Asserts the socket is OPEN and resolves only after
@@ -596,15 +672,36 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
         for (let i = arr.length - 1; i >= 0; i--) {
             if (!_isOpen(arr[i]) || arr[i].closing) {
                 _clearIdle(arr[i]);
+                _clearLiveness(arr[i]);
                 arr.splice(i, 1);
             }
         }
         if (arr.length === 0) _wsPool.delete(poolKey);
-        // Reuse any idle open entry (cache-warm path).
-        const idle = arr.find(e => !e.busy);
-        if (idle) {
+        // Reuse an idle open entry (cache-warm path). An entry with no observed
+        // activity within the freshness window is ping-probed under a short
+        // bound before hand-out; a dead one is evicted and the scan retries the
+        // next idle entry so a busy caller is never handed a wedged socket.
+        let idle;
+        while ((idle = arr.find(e => !e.busy))) {
             _clearIdle(idle);
+            _clearLiveness(idle);
+            // Reserve the entry BEFORE awaiting the probe: _pingProbe yields the
+            // event loop, so without this a second concurrent acquire could scan
+            // the same still-idle entry and both would take it. Marking busy up
+            // front makes the find() above skip it; on probe failure it is
+            // evicted (removed from arr) so the loop continues cleanly.
             idle.busy = true;
+            if (WS_PING_ENABLED && Date.now() - (idle.lastAliveAt || 0) >= WS_LIVENESS_STALE_MS) {
+                const alive = await _pingProbe(idle, WS_PONG_TIMEOUT_MS);
+                if (!alive) {
+                    if (process.env.MIXDOG_DEBUG_AGENT) {
+                        process.stderr.write(`[agent-trace] acquire-evict-dead poolKey=${poolKey} reason=missed_pong elapsed=${Date.now() - _acqStart}ms\n`);
+                    }
+                    _evictDead(poolKey, idle);
+                    continue;
+                }
+            }
+            idle.lastAliveAt = Date.now();
             // Defensive: pre-existing pooled entries created before the
             // prefix-hash field was introduced may not have it set. Normalize
             // to null so the first delta check reads a deterministic value
@@ -646,6 +743,11 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
                 ephemeral: true,
                 sessionToken: ephSessionToken,
             };
+            entry.lastAliveAt = Date.now();
+            entry.pingTimer = null;
+            entry.probing = false;
+            socket.on('pong', () => { entry.lastAliveAt = Date.now(); });
+            socket.on('message', () => { entry.lastAliveAt = Date.now(); });
             socket.on('close', () => { entry.closing = true; });
             return { entry, reused: false };
         }
@@ -674,6 +776,11 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
         ephemeral: false,
         sessionToken,
     };
+    entry.lastAliveAt = Date.now();
+    entry.pingTimer = null;
+    entry.probing = false;
+    socket.on('pong', () => { entry.lastAliveAt = Date.now(); });
+    socket.on('message', () => { entry.lastAliveAt = Date.now(); });
     if (poolKey && !forceFresh) _getPoolArr(poolKey).push(entry);
     socket.on('close', () => {
         entry.closing = true;
@@ -690,7 +797,12 @@ export function releaseWebSocket({ entry, poolKey, keep }) {
         _removeFromPool(poolKey, entry);
         return;
     }
+    // Mark activity at release, then arm both the idle-close timer and the
+    // periodic liveness ping so a socket that dies while pooled is evicted
+    // before the next acquire can hand it out.
+    entry.lastAliveAt = Date.now();
     _scheduleIdleClose(poolKey, entry);
+    if (WS_PING_ENABLED) _armLiveness(poolKey, entry);
 }
 
 // Drain-complete fence — set true once _closeAllPooledSockets runs so any
@@ -706,6 +818,10 @@ export function _closeAllPooledSockets(reason = 'shutdown') {
     _drainComplete = true;
     for (const arr of _wsPool.values()) {
         for (const entry of arr) {
+            // Tear down per-entry timers before dropping the map, otherwise the
+            // idle-close and liveness-ping intervals outlive the drained pool.
+            _clearIdle(entry);
+            _clearLiveness(entry);
             try { entry.socket.close(1000, reason); } catch {}
         }
     }

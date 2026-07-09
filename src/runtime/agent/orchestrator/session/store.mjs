@@ -256,7 +256,16 @@ function _flushScheduled(id) {
 // Single long-lived Worker serializes all saveSessionAsync calls.
 // The worker's message queue preserves generation-race ordering.
 let _saveWorker = null;
-let _saveWorkerPending = new Map(); // reqId → { resolve, reject, session, opts }
+// In-flight writes, keyed by reqId. Value: { id, session, opts, waiters:[{resolve,reject}] }.
+// At most ONE entry per session id at a time (single-in-flight-per-id).
+let _saveWorkerPending = new Map();
+// Latest-wins queued payload per session, keyed by id. Value: { session, opts, waiters:[] }.
+// At most ONE queued write per id: a newer saveSessionAsync while a write is in
+// flight overwrites session/opts here and appends its resolver to waiters, so
+// every superseded caller resolves when this single queued write finally lands.
+let _saveAsyncQueued = new Map();
+// id → reqId of the in-flight write for that id (enforces one-in-flight-per-id).
+let _saveAsyncInflight = new Map();
 let _saveWorkerReqId = 0;
 let _saveWorkerRefCount = 0;
 
@@ -273,12 +282,37 @@ function _getOrSpawnWorker() {
         // becomes unref'd again once all in-flight writes settle. _saveWorker
         // null-check covers the error/exit race where the worker died first.
         if (--_saveWorkerRefCount === 0 && _saveWorker) _saveWorker.unref();
-        if (ok) p.resolve();
-        else p.reject(new Error(`[session-store] worker save failed: ${error}`));
+        const { id, waiters } = p;
+        _saveAsyncInflight.delete(id);
+        // Resolve/reject every caller whose payload this write represents
+        // (the originating call plus any that coalesced onto it before it was
+        // posted). A supersede never lands here as a rejection — only a real
+        // worker failure does.
+        if (ok) { for (const w of waiters) w.resolve(); }
+        else {
+            const e = new Error(`[session-store] worker save failed: ${error}`);
+            for (const w of waiters) w.reject(e);
+        }
+        // Promote the latest-wins queued payload (if any) into the now-free
+        // in-flight slot for this id. Runs regardless of ok: the queued write
+        // is a newer, independent payload and must still be attempted so its
+        // (possibly superseded) waiters resolve when it lands.
+        const q = _saveAsyncQueued.get(id);
+        if (q) {
+            _saveAsyncQueued.delete(id);
+            try {
+                _postAsyncWrite(id, q.session, q.opts, q.waiters);
+            } catch (err) {
+                for (const w of q.waiters) w.reject(err);
+            }
+        }
     });
     _saveWorker.on('error', (err) => {
-        for (const [, p] of _saveWorkerPending) p.reject(err);
+        for (const [, p] of _saveWorkerPending) for (const w of p.waiters) w.reject(err);
         _saveWorkerPending.clear();
+        for (const [, q] of _saveAsyncQueued) for (const w of q.waiters) w.reject(err);
+        _saveAsyncQueued.clear();
+        _saveAsyncInflight.clear();
         _saveWorkerRefCount = 0;
         _saveWorker = null;
     });
@@ -290,8 +324,11 @@ function _getOrSpawnWorker() {
         // saveSessionAsync registered a resolver but before the worker
         // received the message.
         const err = new Error(`[session-store] save worker exited with code ${code}`);
-        for (const [, p] of _saveWorkerPending) p.reject(err);
+        for (const [, p] of _saveWorkerPending) for (const w of p.waiters) w.reject(err);
         _saveWorkerPending.clear();
+        for (const [, q] of _saveAsyncQueued) for (const w of q.waiters) w.reject(err);
+        _saveAsyncQueued.clear();
+        _saveAsyncInflight.clear();
         _saveWorkerRefCount = 0;
         _saveWorker = null;
     });
@@ -300,13 +337,44 @@ function _getOrSpawnWorker() {
 }
 
 /**
+ * Post one in-flight write for `id` to the worker and register it as the
+ * single in-flight entry for that id. Callers guarantee no write is already
+ * in flight for `id`. Throws (after cleaning its own map entries) if the
+ * worker postMessage fails so the caller can reject the affected waiters.
+ */
+function _postAsyncWrite(id, session, opts, waiters) {
+    const reqId = ++_saveWorkerReqId;
+    _saveWorkerPending.set(reqId, { id, session, opts, waiters });
+    _saveAsyncInflight.set(id, reqId);
+    try {
+        const w = _getOrSpawnWorker();
+        w.postMessage({ session, opts, reqId });
+        // Ref AFTER successful postMessage so a queue/throw failure path does
+        // not leave the worker held alive with no pending message. Paired with
+        // the unref in the message handler when count hits 0.
+        if (++_saveWorkerRefCount === 1) w.ref();
+    } catch (err) {
+        _saveWorkerPending.delete(reqId);
+        _saveAsyncInflight.delete(id);
+        throw err;
+    }
+}
+
+/**
  * Async save via a dedicated Worker thread.
  * Errors surface as thrown Errors — callers must not silently swallow them.
+ *
+ * Per-session latest-wins coalescing: for a given id there is at most one
+ * write in flight plus one queued follow-up. N rapid saves for the same id in
+ * a turn collapse to (in-flight + one queued-latest), keeping the single
+ * worker's backlog bounded. Per-id write ORDERING is preserved (a queued write
+ * is only posted once the prior in-flight write for that id settles); different
+ * ids interleave freely as before.
  */
 export function saveSessionAsync(session, opts) {
     _ensureLifecycleFields(session);
     setLiveSession(session);
-    const reqId = ++_saveWorkerReqId;
+    const id = session.id;
     const safeOpts = opts || null;
     // The Worker `postMessage` below structured-clones the whole session on the
     // main thread. `session.liveTurnMessages` (live working transcript) and
@@ -322,18 +390,28 @@ export function saveSessionAsync(session, opts) {
         ? (() => { const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session; return rest; })()
         : session;
     return new Promise((resolve, reject) => {
-        // Persist {session, opts} so drainSessionStore can sync-flush
-        // outstanding writes if process exit interrupts the worker queue.
-        _saveWorkerPending.set(reqId, { resolve, reject, session: clonePayload, opts: safeOpts });
+        const waiter = { resolve, reject };
+        if (_saveAsyncInflight.has(id)) {
+            // A write is already on disk for this id — coalesce into the single
+            // latest-wins queued slot. Existing queued waiters carry over so a
+            // superseded caller resolves when THIS newer write lands (never
+            // hang, never reject on supersede).
+            const q = _saveAsyncQueued.get(id);
+            if (q) {
+                q.session = clonePayload;
+                q.opts = safeOpts;
+                q.waiters.push(waiter);
+            } else {
+                _saveAsyncQueued.set(id, { session: clonePayload, opts: safeOpts, waiters: [waiter] });
+            }
+            return;
+        }
+        // Idle for this id — post immediately as the in-flight write. The
+        // in-flight entry persists {session, opts} so drainSessionStore can
+        // sync-flush outstanding writes if process exit interrupts the queue.
         try {
-            const w = _getOrSpawnWorker();
-            w.postMessage({ session: clonePayload, opts: safeOpts, reqId });
-            // Ref AFTER successful postMessage so a queue/throw failure path
-            // does not leave the worker held alive with no pending message.
-            // Paired with the unref in the message handler when count hits 0.
-            if (++_saveWorkerRefCount === 1) w.ref();
+            _postAsyncWrite(id, clonePayload, safeOpts, [waiter]);
         } catch (err) {
-            _saveWorkerPending.delete(reqId);
             reject(err);
         }
     });
@@ -431,18 +509,35 @@ export function drainSessionStore() {
     // is sync-flushed directly here. The Promise is then rejected so the
     // caller's await site does not leak unresolved (caller is at process
     // exit so the rejection is informational, not actionable).
+    const _drainErr = new Error('[session-store] drain: worker-queue interrupted by process exit');
+    // Flush in-flight writes FIRST, then the latest-wins queued payloads, so
+    // for any id with both an in-flight and a queued write the queued (newest)
+    // state is written LAST and wins on disk — no lost last write.
     for (const [, pending] of _saveWorkerPending) {
-        if (!pending.session) continue;
+        if (pending.session) {
+            try {
+                _saveSessionSync(pending.session, pending.opts);
+            } catch (err) {
+                process.stderr.write(`[session-store] drain worker-queue save failed: ${err?.message}\n`);
+            }
+        }
+        for (const w of pending.waiters) {
+            try { w.reject(_drainErr); } catch { /* best-effort */ }
+        }
+    }
+    for (const [, q] of _saveAsyncQueued) {
         try {
-            _saveSessionSync(pending.session, pending.opts);
+            _saveSessionSync(q.session, q.opts);
         } catch (err) {
             process.stderr.write(`[session-store] drain worker-queue save failed: ${err?.message}\n`);
         }
-        try {
-            pending.reject(new Error('[session-store] drain: worker-queue interrupted by process exit'));
-        } catch { /* best-effort */ }
+        for (const w of q.waiters) {
+            try { w.reject(_drainErr); } catch { /* best-effort */ }
+        }
     }
     _saveWorkerPending.clear();
+    _saveAsyncQueued.clear();
+    _saveAsyncInflight.clear();
     _saveWorkerRefCount = 0;
 }
 

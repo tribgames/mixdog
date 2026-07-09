@@ -102,7 +102,13 @@ export function createWarmupSchedulers({
         scheduleProviderModelWarmup(backgroundBusyRetryMs);
         return;
       }
-      warmProviderModelCache();
+      if (!isFirstTurnCompleted() && !envFlag('MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN')) {
+        bootProfile('provider-models:warm-deferred', { reason: 'first-turn-pending' });
+        warmProviderModelCache();
+        scheduleProviderModelWarmup(backgroundBusyRetryMs);
+        return;
+      }
+      warmProviderModelCache({ loadSecrets: true });
     }, delayMs);
     timers.providerModelWarmupTimer.unref?.();
   }

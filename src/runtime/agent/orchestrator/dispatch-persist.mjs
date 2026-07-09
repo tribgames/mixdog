@@ -372,6 +372,27 @@ export function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, c
         const entry = map[handle] || {};
         const tool = entry.tool || 'dispatch';
         const queries = Array.isArray(entry.queries) ? entry.queries : [];
+        // Determine the true owner session for this entry. A scoped recovery
+        // may have matched purely on clientHostPid (not on the owner session
+        // id); in that case we must NOT stamp the reconnecting filter session's
+        // id onto another session's abort — that injects an old-session abort
+        // into the wrong resumed session. Deliver to the true owner session, or
+        // leave the entry persisted when it carries no owner session to target.
+        const cid = entry.callerSessionId != null && String(entry.callerSessionId)
+          ? String(entry.callerSessionId)
+          : null;
+        const ownerMatch = cid != null && (cid === filterSid || (priorSid != null && cid === priorSid));
+        if (scoped && !ownerMatch && cid == null) {
+          // hostPid-only match with no owner session id — cannot target a
+          // session safely. Leave persisted for a correctly-scoped recovery.
+          continue;
+        }
+        // Owner match → prefer the reconnecting filter session id (the owner's
+        // new session). When only priorSessionId matched and no current
+        // sessionId was supplied, filterSid is null — keep the entry's known
+        // owner `cid` for stamping/ack scoping rather than dropping it.
+        // Non-owner matches (hostPid-only) always stamp the entry's true owner.
+        const stampSid = (ownerMatch && filterSid) ? filterSid : cid;
         // Single recovery mode: the worker was in flight at restart. Emit the
         // Aborted boilerplate so the Lead can retry. Completed result bodies are
         // never persisted, so there is nothing to replay here.
@@ -383,21 +404,23 @@ export function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, c
           dispatch_id: handle,
           tool,
           error: String(isError),
-          ...(filterSid
-            ? { caller_session_id: filterSid }
-            : (entry.callerSessionId ? { caller_session_id: entry.callerSessionId } : {})),
+          ...(stampSid ? { caller_session_id: stampSid } : {}),
           ...(filterHostPid > 0
             ? { client_host_pid: String(filterHostPid) }
             : (entry.clientHostPid > 0 ? { client_host_pid: String(entry.clientHostPid) } : {})),
           instruction: `Earlier ${tool} dispatch (${handle}) was aborted by a plugin restart. Retry if the answer is still needed.`,
         };
         try { process.stderr.write(`[dispatch-persist] recover handle=${handle} tool=${tool} kind=abort\n`); } catch { /* best-effort */ }
-        // Entry remains on disk until notifyFn resolves.  A crash between
-        // fire and ack is safe: the entry survives and recoverPending re-fires
-        // it on the next restart.  Only clear AFTER ack to prevent silent loss.
+        // Entry remains on disk until notifyFn settles as DELIVERED. Matching
+        // notifyToolCompletion settlement semantics (tool-execution-contract),
+        // only an explicit `false`/`0` resolve counts as undelivered and keeps
+        // the entry for retry; any other resolve (including `undefined`/void
+        // from a delivered notifyFn) removes it — otherwise it re-fires until
+        // TTL. A crash between fire and ack is likewise safe: the entry survives
+        // and recoverPending re-fires it on the next restart.
         try {
-          Promise.resolve(notifyFn(content, meta)).then(() => {
-            removePending(dataDir, handle);
+          Promise.resolve(notifyFn(content, meta)).then((ok) => {
+            if (ok !== false && ok !== 0) removePending(dataDir, handle);
           }).catch(() => { /* best-effort — entry stays for next recoverPending */ });
         } catch { /* best-effort */ }
       }

@@ -897,12 +897,12 @@ export async function sendViaWebSocket({
 
             // Warmup writes the same prefix with generate:false, but the first
             // real response must still be a FULL generating frame. Reusing the
-            // warmup response_id here causes _buildResponseCreateFrame() to drop
-            // `instructions` (previous_response_id frames cannot carry them) and
-            // can also reduce the frame input to [] when the warmup input matches.
-            // That made first-turn lead/system rules effectively disappear
-            // ("who are you?" answered as a generic OpenAI assistant). Keep the
-            // warmup state for cache/trace, but compute the main frame as cold.
+            // warmup response_id here would make _computeDelta reduce the frame
+            // input to [] when the warmup input matches, and a generate:false
+            // warmup is not a chainable response to continue from — so the first
+            // real turn would generate from an empty frame. Keep the warmup state
+            // for cache/trace, but compute the main frame as cold (full input +
+            // instructions).
             const deltaEntry = warmupResult
                 ? {
                     ...entry,

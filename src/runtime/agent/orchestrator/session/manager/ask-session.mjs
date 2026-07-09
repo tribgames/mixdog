@@ -44,14 +44,6 @@ import { _tryBridgeExplicitPrefetch } from './prefetch-bridge.mjs';
 import { sanitizeSessionMessagesForModel, persistCompactedOutgoingAfterAskFailure } from './message-sanitize.mjs';
 import { _getAgentLoop } from './runtime-loaders.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
-import { nonNegativeIntEnv } from './env-utils.mjs';
-
-// Cap how long the terminal unwind blocks on the post-result session save.
-// The result is already produced (and relayed for agent surfaces) before this
-// save, so a stalled disk write must not hold askSession() open — otherwise the
-// owning background task is stranded in `running` and its completion
-// notification never fires. A slow write finishes in the background.
-const TERMINAL_SAVE_TIMEOUT_MS = nonNegativeIntEnv('MIXDOG_TERMINAL_SAVE_TIMEOUT_MS', 5_000);
 
 /**
  * Wrap an async call so that if the session's controller aborts mid-flight,
@@ -567,37 +559,17 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // query/provider send (agentLoop pre-send), not after the previous
             // answer. This lets queued follow-up prompts resume immediately;
             // if they need compaction, their own spinner shows compacting first.
-            // Bounded, best-effort terminal save. The result is already produced
-            // and (for agent surfaces) relayed via onTerminalResult above. If the
-            // disk write stalls, blocking the terminal unwind here would strand the
-            // owning background task in `running` and suppress its completion
-            // notification. Cap the wait; let a slow write finish in the
-            // background instead of holding askSession() open indefinitely.
-            let terminalSaveTimedOut = false;
-            {
-                const savePromise = saveSessionAsync(session, { expectedGeneration: askGeneration });
-                let saveTimer = null;
-                const saveTimeout = new Promise((resolveTimeout) => {
-                    saveTimer = setTimeout(() => resolveTimeout('__save_timeout__'), TERMINAL_SAVE_TIMEOUT_MS);
-                    saveTimer.unref?.();
-                });
-                try {
-                    const outcome = await Promise.race([
-                        savePromise.then(() => '__save_ok__', (err) => { throw err; }),
-                        saveTimeout,
-                    ]);
-                    if (outcome === '__save_timeout__') {
-                        terminalSaveTimedOut = true;
-                        try { process.stderr.write(`[session] terminal save exceeded ${TERMINAL_SAVE_TIMEOUT_MS}ms; continuing best-effort (${sessionId})\n`); } catch {}
-                        // Don't drop the write — let it settle in the background.
-                        savePromise.catch((err) => {
-                            try { process.stderr.write(`[session] deferred terminal save failed: ${err?.message || err}\n`); } catch {}
-                        });
-                    }
-                } finally {
-                    if (saveTimer) { try { clearTimeout(saveTimer); } catch {} }
-                }
-            }
+            // Fire-and-forget terminal save. The result is already produced and
+            // (for agent surfaces) relayed via onTerminalResult above, and
+            // saveSessionAsync() has already published the in-memory snapshot via
+            // setLiveSession(), so read-your-writes holds in-process without
+            // awaiting disk. Never block the terminal unwind on the write — that
+            // would strand the owning background task in `running` and suppress
+            // its completion notification. A slow write finishes in the
+            // background.
+            saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
+                try { process.stderr.write(`[session] terminal save failed: ${err?.message || err}\n`); } catch {}
+            });
             activeSession = session;
             runtime.session = session;
             // Tag empty-synthesis BEFORE markSessionDone so the watchdog
@@ -675,19 +647,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             const _mergedTail = _mergePendingMessageEntries(_drained);
             if (_mergedTail?.content) {
                 _pendingTail.push(_mergedTail.content);
-                if (terminalSaveTimedOut) {
-                    // The disk snapshot may still be stale; carry the just-
-                    // committed in-memory session into the follow-up turn so
-                    // the queued tail sees the preceding assistant/tool context.
-                    activeSession = session;
-                    runtime.session = session;
-                } else {
-                    const refreshed = loadSession(sessionId);
-                    if (refreshed && refreshed.closed !== true) {
-                        activeSession = refreshed;
-                        runtime.session = refreshed;
-                    }
-                }
+                // Carry the just-committed in-memory session into the follow-up
+                // turn so the queued tail sees the preceding assistant/tool
+                // context. loadSession() would return this same live snapshot
+                // (setLiveSession published it), so skip the disk round-trip.
+                // NOTE: `session` (try-block const, :179) is out of scope here —
+                // `activeSession` already holds the committed session.
+                runtime.session = activeSession;
                 continue;
             }
         }

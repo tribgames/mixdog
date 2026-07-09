@@ -13,9 +13,13 @@ test('explore per-query prompt leaves path policy to tool schemas', () => {
 
 test('grep glob find tool schemas carry unverified path policy', () => {
   const byName = Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, tool]));
-  assert.match(byName.grep.description, /Unknown path\/name → find first/i);
+  // Conditional find-first: only genuinely guessed fragments route through
+  // find, and in the SAME turn — project root itself is a verified scope.
+  assert.match(byName.grep.description, /project root counts as verified/i);
+  assert.match(byName.grep.description, /guessed path fragment → find first, same turn/i);
   assert.match(byName.grep.description, /no path "\." \+ guessed src\/\*\*/i);
-  assert.match(byName.glob.description, /Unknown root\/name → find first/i);
+  assert.match(byName.glob.description, /project root is verified/i);
+  assert.match(byName.glob.description, /Guessed root\/name → find first, same turn/i);
   assert.match(byName.find.description, /verify roots before grep\/glob/i);
 });
 

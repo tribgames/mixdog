@@ -277,13 +277,13 @@ export function createProviderModels({
     return providerModelsFromCacheRows(await caches.providerModelsPromise);
   }
 
-  function warmProviderModelCache() {
+  function warmProviderModelCache({ loadSecrets = false } = {}) {
     if (Array.isArray(caches.providerModelsCache.models) || caches.providerModelsPromise) return caches.providerModelsPromise;
     profile('warm:start');
     const seq = ++caches.providerModelsLoadSeq;
-    caches.providerModelsPromise = loadProviderModelsFresh({ loadSecrets: false })
+    caches.providerModelsPromise = loadProviderModelsFresh({ loadSecrets })
       .then((models) => {
-        if (seq === caches.providerModelsLoadSeq && shouldAdoptProviderModelCache(models, { loadSecrets: false })) {
+        if (seq === caches.providerModelsLoadSeq && shouldAdoptProviderModelCache(models, { loadSecrets })) {
           caches.providerModelsCache = { models, at: Date.now() };
         }
         bootProfile('provider-models:warm-ready', { count: models.length });

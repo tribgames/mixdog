@@ -7,7 +7,7 @@ import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from '.
 import { toolResultText, toolErrorDisplay } from './tool-result-text.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
 import { toolResultStatus, isErrorToolStatus } from './agent-envelope.mjs';
-import { promptDisplayText } from './queue-helpers.mjs';
+import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { memoryCoreResultErrorText } from '../app/input-parsers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
 import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, assignAggregateSummaryOrder } from './tool-result-status.mjs';
@@ -727,6 +727,11 @@ export function createRunTurn(bag) {
         drainSteering: (_sessionId, drainOptions) => (isCurrentTurn() ? drainPendingSteering(drainOptions) : []),
         onSteerMessage: (text) => {
           if (!markTurnProgress('steer-message')) return;
+          // A suppressed live-completion twin is model-visible only; its
+          // Response card was already pushed at delivery time. Skip the
+          // duplicate transcript item (progress is still marked above since
+          // the content WAS injected into the model turn).
+          if (text === STEERING_SUPPRESSED_DISPLAY) return;
           // Steering can be injected after a terminal no-tool response has
           // already streamed but before runTurn finalizes. Seal the current
           // assistant segment first so the steered user turn and the next

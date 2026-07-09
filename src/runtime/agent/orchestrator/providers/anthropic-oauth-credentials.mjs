@@ -411,6 +411,14 @@ export async function beginOAuthLogin() {
     };
     const url = buildUrl(OAUTH_REDIRECT_URI);
     const manualUrl = buildUrl(OAUTH_MANUAL_REDIRECT_URI);
+    const openLoginUrl = async (targetUrl, label = 'login') => {
+        try {
+            const { openInBrowser } = await import('../../../shared/open-url.mjs');
+            openInBrowser(targetUrl.toString());
+        } catch (err) {
+            process.stderr.write(`[anthropic-oauth] browser open failed for ${label} URL: ${String(err?.message || err).slice(0, 200)}\n`);
+        }
+    };
 
     let server = null;
     let timeout = null;
@@ -454,14 +462,12 @@ export async function beginOAuthLogin() {
         timeout = setTimeout(() => finish(null), OAUTH_LOGIN_TIMEOUT_MS);
         server.listen(OAUTH_CALLBACK_PORT, OAUTH_CALLBACK_HOST, async () => {
             process.stderr.write(`\n[anthropic-oauth] Open this URL to log in with Claude:\n${url.toString()}\n\nIf the localhost callback cannot complete, open this manual URL and paste the shown code#state:\n${manualUrl.toString()}\n\n`);
-            try {
-                const { openInBrowser } = await import('../../../shared/open-url.mjs');
-                openInBrowser(url.toString());
-            } catch (err) {
-                process.stderr.write(`[anthropic-oauth] browser open failed: ${String(err?.message || err).slice(0, 200)}\n`);
-            }
+            await openLoginUrl(url, 'callback');
         });
-        server.on('error', (err) => finish(null, new Error(`[anthropic-oauth] callback server failed on ${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}: ${err?.message || err}`)));
+        server.on('error', async (err) => {
+            process.stderr.write(`\n[anthropic-oauth] localhost callback unavailable on ${OAUTH_CALLBACK_HOST}:${OAUTH_CALLBACK_PORT}: ${err?.message || err}\n[anthropic-oauth] Opening manual login URL instead. Paste the shown code#state:\n${manualUrl.toString()}\n\n`);
+            await openLoginUrl(manualUrl, 'manual');
+        });
     });
 
     return {

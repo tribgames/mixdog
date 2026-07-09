@@ -195,9 +195,11 @@ const TRANSPORT_ONLY_FRAME_FIELDS = new Set(['stream', 'background']);
 // identical byte-for-byte: `type` always leads, then the body's codex
 // struct-order keys follow verbatim. A delta send passes previousResponseId
 // (inserted immediately before `input`, matching codex's refs position) and
-// inputOverride (the stripped tail); instructions are dropped whenever
-// previous_response_id is present because the server resolves them from the
-// chained response and rejects sending both fields together.
+// inputOverride (the stripped tail). `instructions` MUST still be resent on
+// previous_response_id frames: per the OpenAI Responses API, the previous
+// response's top-level instructions are NOT carried over to the chained
+// response, so dropping them here strips the system/lead prompt from every
+// continuation turn. Only an empty instructions string is omitted.
 // Full/warmup frames pass the body unchanged and keep every key in place.
 // omitTransportFields is used by wire-parity/prewarm helpers to drop stream/background.
 export function _buildResponseCreateFrame(body, { previousResponseId = null, inputOverride, omitTransportFields = false } = {}) {
@@ -215,7 +217,6 @@ export function _buildResponseCreateFrame(body, { previousResponseId = null, inp
     for (const key of Object.keys(src)) {
         if (omitTransportFields && TRANSPORT_ONLY_FRAME_FIELDS.has(key)) continue;
         if (key === 'instructions') {
-            if (previousResponseId != null) continue;
             const instr = src.instructions;
             if (typeof instr === 'string' && instr.length) frame.instructions = instr;
             continue;

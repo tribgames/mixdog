@@ -39,7 +39,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read verified file path(s). Unknown path → find first. Batch paths/regions as real arrays in one call. Not for directory listing.',
+        description: 'Read verified file path(s); guessed path → find first (same turn as other probes). Batch paths/regions as real arrays in one call. Not for directory listing.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -109,7 +109,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Exact text/regex in verified scope. Unknown path/name → find first; no path "." + guessed src/**. Broad: files_with_matches/count; narrow: content_with_context.',
+        description: 'Exact text/regex in verified scope (project root counts as verified — unscoped search needs no find). Only a guessed path fragment → find first, same turn. No path "." + guessed src/**. Broad: files_with_matches/count; narrow: content_with_context.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -125,7 +125,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Verified file/dir only; unknown → find first.',
+                    description: 'Verified file/dir, or project root; guessed → find first.',
                 },
                 glob: {
                     anyOf: [
@@ -148,7 +148,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Exact glob from verified roots. Unknown root/name → find first; no path "." + guessed src/**. Batch arrays.',
+        description: 'Exact glob from verified roots (project root is verified). Guessed root/name → find first, same turn. No path "." + guessed src/**. Batch arrays.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -164,7 +164,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Verified base dir(s); unknown → find first. Batch path[].',
+                    description: 'Verified base dir(s) or project root; guessed → find first. Batch path[].',
                 },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip entries.' },
@@ -197,7 +197,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'List verified directories. Unknown dir → find first. Batch dirs as path[].',
+        description: 'List verified directories (project root included). Guessed dir → find first. Batch dirs as path[].',
         inputSchema: {
             type: 'object',
             properties: {

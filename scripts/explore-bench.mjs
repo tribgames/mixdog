@@ -6,12 +6,40 @@
 //   node scripts/explore-bench.mjs [roundLabel]
 // Fresh process per run = no in-memory result cache carryover.
 import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { runExplore } from '../src/standalone/explore-tool.mjs';
 
 const ROUND = process.argv[2] || 'r0';
 const CWD = 'C:/Project/mixdog';
+
+// Anchor helpers: an anchor line carries a `path:line`. Strict quality =
+// expected token must land ON such a line (not merely somewhere in the text),
+// and anchors===0 is always a miss (except expectFail). Spot-accuracy verifies
+// the referenced file exists and the line number is within the file length.
+function anchorLinesOf(text) {
+  return text.split('\n').filter((l) => /:\d+/.test(l));
+}
+function checkAnchorLine(line, ctxTokens = []) {
+  const m = line.match(/([A-Za-z0-9_.\/\\-]+):(\d+)/);
+  if (!m) return null; // no parseable path:line
+  const p = m[1];
+  const ln = Number(m[2]);
+  const full = isAbsolute(p) ? p : join(CWD, p);
+  if (!existsSync(full)) return false;
+  try {
+    const fileLines = readFileSync(full, 'utf8').split('\n');
+    if (!(ln >= 1 && ln <= fileLines.length)) return false;
+    // Fabricated-line guard: the cited line's ±2 window must contain a
+    // query/expected token, so a plausible-but-wrong line number fails.
+    if (ctxTokens.length) {
+      // ±2 lines around the 1-based cited line (indices ln-3 .. ln+1 inclusive).
+      const win = fileLines.slice(Math.max(0, ln - 3), ln + 2).join('\n').toLowerCase();
+      if (!ctxTokens.some((t) => win.includes(t))) return false;
+    }
+    return true;
+  } catch { return false; }
+}
 
 // High-fanout timing attribution: emit lightweight per-iteration send_ms
 // loop rows (no verbose payload estimate) so we can split LLM send time
@@ -69,6 +97,13 @@ const QUERIES = [
     expect: ['config', 'plugin-paths'],
   },
   {
+    // path-only class: the correct answer is a verified file/dir location on
+    // disk; a bare path (no :line) is an allowed HIT for this query.
+    q: 'where does mixdog store background shell job stdout logs on disk',
+    expect: ['shell-jobs', 'shell-job-paths', 'getShellJobsDir', 'shellJobStdout'],
+    pathOnly: true,
+  },
+  {
     q: 'GraphQL schema stitching resolver implementation', // not in this repo
     expectFail: true,
   },
@@ -98,17 +133,38 @@ function readTraceSince(ts) {
 const t0 = Date.now();
 // Parallel round: all queries fire at once. Per-session trace attribution is
 // by session_id so counts stay correct; per-query ms includes queueing.
-const results = await Promise.all(QUERIES.map(async ({ q, expect, expectFail }) => {
+const results = await Promise.all(QUERIES.map(async ({ q, expect, expectFail, pathOnly }) => {
   const qt0 = Date.now();
   const res = await runExplore({ query: q, cwd: CWD }, { callerCwd: CWD });
   const text = res?.content?.[0]?.text || '';
-  const anchors = text.split('\n').filter((l) => /:\d+/.test(l)).length;
+  const aLines = anchorLinesOf(text);
+  const anchors = aLines.length;
   const failed = /EXPLORATION_FAILED/.test(text);
-  const lower = text.toLowerCase();
+  // Context tokens for the fabricated-line guard: expanded expected + query
+  // words, length>=4 to drop filler.
+  const ctxTokens = [
+    ...(expect || []).flatMap((e) => e.toLowerCase().split(/[^a-z0-9]+/)),
+    ...q.toLowerCase().split(/[^a-z0-9]+/),
+  ].filter((t) => t.length >= 4);
+  // Spot-check up to 2 anchors per query for file/line validity + line context.
+  let badAnchors = 0;
+  for (const l of aLines.slice(0, 2)) {
+    if (checkAnchorLine(l, ctxTokens) === false) badAnchors++;
+  }
+  const allLines = text.split('\n').filter((l) => l.trim());
+  // Strict hit: expected token must appear ON an anchor line (>=1 anchor). For
+  // the path-only class, an expected token on any verified path line HITs even
+  // without :line. expectFail wants EXPLORATION_FAILED with zero anchors.
   const hit = expectFail
     ? (failed && anchors === 0)
-    : (!failed && (expect || []).some((e) => lower.includes(e.toLowerCase())));
-  return { q: q.slice(0, 48), ms: Date.now() - qt0, anchors, failed, hit, bytes: text.length };
+    : pathOnly
+      ? (!failed && (expect || []).some(
+          (e) => allLines.some((l) => l.toLowerCase().includes(e.toLowerCase())),
+        ))
+      : (!failed && anchors > 0 && (expect || []).some(
+          (e) => aLines.some((l) => l.toLowerCase().includes(e.toLowerCase())),
+        ));
+  return { q: q.slice(0, 48), ms: Date.now() - qt0, anchors, failed, hit, badAnchors, bytes: text.length };
 }));
 
 // Identify explorer sessions from trace rows, then attribute both tool calls
@@ -145,9 +201,10 @@ const sendCount = [...sendBySession.values()].reduce((a, s) => a + s.sends, 0);
 
 console.log(`\n=== explore-bench round=${ROUND} ===`);
 for (const r of results) {
-  console.log(`  [${String(r.ms).padStart(6)}ms] ${r.hit ? 'HIT ' : 'MISS'} anchors=${r.anchors} failed=${r.failed} bytes=${r.bytes}  ${r.q}`);
+  console.log(`  [${String(r.ms).padStart(6)}ms] ${r.hit ? 'HIT ' : 'MISS'} anchors=${r.anchors} bad=${r.badAnchors} failed=${r.failed} bytes=${r.bytes}  ${r.q}`);
 }
-console.log(`  quality: ${results.filter((r) => r.hit).length}/${results.length} hits`);
+const badTotal = results.reduce((a, r) => a + r.badAnchors, 0);
+console.log(`  quality: ${results.filter((r) => r.hit).length}/${results.length} hits (strict)  bad-anchors=${badTotal}`);
 console.log(`  sessions=${bySession.size} toolcalls p50=${p50} max=${callCounts[callCounts.length - 1] ?? 0} total=${callCounts.reduce((a, b) => a + b, 0)}`);
 for (const [id, s] of bySession) console.log(`    ${id.slice(-8)}: ${s.tools.join(',')}`);
 const wallMs = Date.now() - t0;
