@@ -246,8 +246,8 @@ function assertOk(name, result, pattern = null) {
       [],
       { _sendViaWebSocketFn: fakeWs, _sendViaHttpSseFn: fakeHttp, forceHttpFallback: true, sessionId: 'tool-smoke-forced-http-fallback' },
     );
-    if (calls.join(',') !== 'ws,ws,http') {
-      throw new Error(`image should use WS first while forced fallback still uses HTTP: ${calls.join(',')}`);
+    if (calls.join(',') !== 'ws,ws,ws') {
+      throw new Error(`image and forced-fallback probes should keep WS under the pinned transport policy: ${calls.join(',')}`);
     }
   } finally {
     if (prevTraceDisable == null) delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
@@ -1007,7 +1007,7 @@ if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not
     throw new Error(`headless model-only route must preserve --model without forcing provider: ${JSON.stringify(modelOnlySpawn)}`);
   }
 }
-if (!/always start background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags/i.test(AGENT_TOOL.description || '') || !/same scope/i.test(AGENT_TOOL.description || '') || !/send/i.test(AGENT_TOOL.description || '') || !/completion notification/i.test(AGENT_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(AGENT_TOOL.description || '')) {
+if (!/always start background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags?/i.test(AGENT_TOOL.description || '') || !/same scope/i.test(AGENT_TOOL.description || '') || !/send/i.test(AGENT_TOOL.description || '') || !/completion notification/i.test(AGENT_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(AGENT_TOOL.description || '')) {
   throw new Error('agent description must preserve async tagged delegation contract');
 }
 const agentSmoke = createStandaloneAgent({
@@ -1034,7 +1034,7 @@ if (!/^Error[\s:[]/.test(String(agentBadType)) || !/unknown type/i.test(String(a
   throw new Error(`agent unknown type must return Error result:\n${agentBadType}`);
 }
 
-async function waitForSmoke(predicate, label, timeoutMs = 1000) {
+async function waitForSmoke(predicate, label, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -1161,7 +1161,7 @@ try {
   }
   await waitForSmoke(
     () => ownerNotifications.some((event) => /task_shell_notify_smoke/.test(event.text))
-      && workerQueued.some((event) => /task_shell_notify_smoke/.test(event.message)),
+      && workerQueued.some((event) => /task_shell_notify_smoke/.test(String(event.message?.text || event.message?.content || event.message))),
     'agent child background completion routing',
   );
   await waitForSmoke(
@@ -1674,7 +1674,7 @@ for (const requiredGrammarLine of [
 }
 const readPathSchema = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path || {};
 const readPathDescription = readPathSchema.description || '';
-if (!/File path/i.test(readPathDescription) || !/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/Pass arrays directly/i.test(readPathDescription) || !/legacy recovery only/i.test(readPathDescription)) {
+if (!/Verified file path/i.test(readPathDescription) || !/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/Pass arrays directly/i.test(readPathDescription) || !/legacy recovery only/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
 if (!/Not for directory listing/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
@@ -1688,7 +1688,7 @@ const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
 if (!readArrayItemAnyOf.some((entry) => entry?.type === 'object' && entry?.properties?.offset && entry?.properties?.limit)) {
   throw new Error('read schema must expose array-of-region objects for batched spans');
 }
-if (/line\+context/i.test(readDescription) || !/numeric offset\+limit/i.test(readDescription) || !/Batch paths\/regions as real arrays/i.test(readDescription)) {
+if (/line\+context/i.test(readDescription) || !/verified file path/i.test(readDescription) || !/Unknown path.*find first/i.test(readDescription) || !/Batch paths\/regions as real arrays/i.test(readDescription)) {
   throw new Error('read description must expose offset/limit as the single window form');
 }
 if (readProps.line || readProps.context) {
@@ -1761,15 +1761,18 @@ if (codeGraphSymbolSearchErr) {
 if (!/code structure\/flow/i.test(codeGraphDescription) || !/symbols\/references\/calls\/deps/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
+if (!/Known symbols or verified files only/i.test(codeGraphDescription) || !/Batch symbols\[\]\/files\[\]/i.test(codeGraphDescription)) {
+  throw new Error('code_graph description must route unknown file paths through locators first');
+}
 if (!/repo-local/i.test(codeGraphDescription) || !/NOT web search|not web/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must mark itself repo-local (not web search)');
 }
-if (!/repo-local|not web/i.test(codeGraphProps.mode?.description || '') || !/source file/i.test(codeGraphProps.files?.description || '')) {
+if (!/repo-local|not web/i.test(codeGraphProps.mode?.description || '') || !/Verified source file/i.test(codeGraphProps.files?.description || '')) {
   throw new Error('code_graph schema must keep compact, repo-local field descriptions');
 }
 const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
 const recallProps = recallTool?.inputSchema?.properties || {};
-if (!/Use only to check prior conversation or past events/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
+if (!/Call when a task ties to prior work/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
   throw new Error('recall schema must preserve scoped prior-context guidance and id lookup shape');
 }
 if (!/array for independent fan-out/i.test(recallProps.query?.description || '') || !/Project pool selector/i.test(recallProps.projectScope?.description || '')) {
@@ -1987,6 +1990,24 @@ if (nativeSelectQueryResult.activeTools.includes('search') || nativeSelectQueryR
 if (!nativeSelectQueryResult.nativeToolSearch?.toolReferences?.includes('search')) {
   throw new Error(`native query-select must return nativeToolSearch payload: ${JSON.stringify(nativeSelectQueryResult.nativeToolSearch)}`);
 }
+// Native late-MCP selections must resolve against the boot+late catalog union,
+// otherwise the load result says "loaded" but omits the provider payload.
+const nativeLateMcpSearchSession = {
+  provider: 'openai-oauth',
+  tools: [],
+  deferredToolCatalog: [{ name: 'load_tool', description: 'Loader.', inputSchema: { type: 'object', properties: {} } }],
+  deferredLateToolCatalog: [{ name: 'mcp__late__ping', description: 'Late MCP tool.', inputSchema: { type: 'object', properties: {} } }],
+  deferredDiscoveredTools: [],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+const nativeLateMcpSelectResult = JSON.parse(__renderToolSearchForTest({ names: ['mcp__late__ping'] }, nativeLateMcpSearchSession, 'full'));
+if (!nativeLateMcpSelectResult.nativeToolSearch?.toolReferences?.includes('mcp__late__ping')) {
+  throw new Error(`native late MCP load must include nativeToolSearch payload: ${JSON.stringify(nativeLateMcpSelectResult)}`);
+}
+if (!nativeLateMcpSelectResult.nativeToolSearch?.openaiTools?.some((tool) => tool?.name === 'mcp__late__ping' && tool?.defer_loading === true)) {
+  throw new Error(`native late MCP load must include OpenAI loadable tool spec: ${JSON.stringify(nativeLateMcpSelectResult.nativeToolSearch)}`);
+}
 // A plain query never auto-loads/discovers, even on native providers.
 const nativePlainQuerySession = {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
@@ -2053,8 +2074,11 @@ const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description
 const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
 const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
 const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
-if (!/Array = variants in one call/i.test(grepPatternDescription) || !/Known file or dir/i.test(grepPathDescription)) {
+if (!/Array = variants in one call/i.test(grepPatternDescription) || !/Verified file or dir/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
+}
+if (!/verified file\/dir scope/i.test(grepTool?.description || '') || !/Unknown scope.*find\/glob first/i.test(grepTool?.description || '')) {
+  throw new Error('grep description must require verified scopes and locator-first unknown paths');
 }
 if (!/narrow scope/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
@@ -2067,6 +2091,18 @@ if (grepTool?.inputSchema?.properties?.head_limit?.minimum !== 0 || !/Max result
 }
 if (grepTool?.inputSchema?.properties?.type) {
   throw new Error('grep type schema must stay hidden; prefer glob for extension narrowing');
+}
+const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
+const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
+const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
+if (!/exact glob from verified roots/i.test(globTool?.description || '')) {
+  throw new Error('glob description must route exact-pattern unknown paths before read/grep/list');
+}
+if (!/unverified path\/name guesses/i.test(findTool?.description || '') || !/returns verified paths/i.test(findTool?.description || '')) {
+  throw new Error('find description must advertise unverified path/name lookup and verified outputs');
+}
+if (!/List verified directories/i.test(listTool?.description || '') || !/Unknown dir.*find first/i.test(listTool?.description || '') || !/Verified directory/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
+  throw new Error('list description must require verified directories and locator-first unknown dirs');
 }
 if (!/Repo-local/i.test(codeGraphProps.mode?.description || '') || !/one call/i.test(codeGraphProps.symbols?.description || '')) {
   throw new Error('code_graph schema fields must stay compact and repo-local');

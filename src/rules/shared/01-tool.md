@@ -7,20 +7,18 @@
   solo call. Merge variants/scopes into ONE call wherever the schema takes
   arrays (`pattern[]`, `path[]`, `symbols[]`, `query[]`), chain shell with
   `;`/`&&` or run them in parallel, and put every known edit in ONE patch.
-- Route by what is already known: known symbol/relation → `code_graph`;
-  exact text in a known scope → `grep`; unknown location, machine-wide/
-  out-of-repo whereabouts, or concept-level question → `explore` (which uses
-  the hardened `find` internally); name fragment → `find`; exact name pattern
-  → `glob`; known directory → `list`; known file/region → `read`.
+- Route by verified inputs: symbol/relation → `code_graph`; exact text in a
+  verified scope → `grep`; unknown/out-of-repo/machine-wide location or concept
+  → `explore`; name fragment → `find`; exact pattern → `glob`; verified dir →
+  `list`; verified file/span → `read`.
 - `explore` fan-out: at task start, decompose what the task needs to know
   into independent facets (implementation site, config/load path, tests,
   error origin, ...) and send them as ONE `query[]` call — facets run in
   parallel. Never fan out rephrasings of the same target; on
   EXPLORATION_FAILED, retry once with changed tokens.
-- Valid anchors come from user input or tool output in this session; locate
-  anything else with `find` before `grep`/`read`. On ENOENT the next call is
-  `find` on the basename — never a retried guess; and never guess an absolute
-  path outside the project — `find` from a verified broad root instead.
+- Verified paths = user-provided or tool-returned. Guessed/unknown path →
+  `find`/`glob`/`explore` first; ENOENT → `find` basename, never retry a guess
+  or invent absolute paths outside the project.
 - Retrieval stops when evidence covers the deliverable: single-answer tasks
   end at the first sufficient anchor; enumeration tasks (review, audit) end
   when the stated scope is covered. Never re-verify a hit already on screen;

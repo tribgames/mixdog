@@ -358,6 +358,17 @@ export function notifyTaskCompletion(task, instruction) {
     context: task.notifyContext,
     enqueueFallback: _enqueueFallback || undefined,
     logPrefix: `background-${task.surface}`,
+    // Async notifyFn: `sent` is reported optimistically while the delivery
+    // promise is still in flight, so mark delivered now but let settlement
+    // confirm it. If the notifyFn rejects/declines AND the fallback rescue also
+    // fails, un-mark so a later reconcile can retry rather than leaving the
+    // completion silently unsent. A successful/rescued async delivery keeps the
+    // marks, preserving exact-once.
+    onSettled: (delivered) => {
+      if (delivered) return;
+      task.notified = false;
+      task.notifiedWithBody = false;
+    },
   });
   if (sent) {
     task.notified = true;
@@ -382,7 +393,16 @@ export function reconcileBackgroundTask(taskId, {
 } = {}) {
   const task = getBackgroundTask(taskId);
   if (!task) return null;
-  if (TERMINAL_STATUSES.has(task.status)) return task;
+  if (TERMINAL_STATUSES.has(task.status)) {
+    // Already terminal, but a prior async completion notify may have un-marked
+    // itself after a reject/decline whose fallback rescue also missed
+    // (notifyTaskCompletion's onSettled clears notified/notifiedWithBody). The
+    // task never leaves its terminal status, so without retrying here the
+    // body-carrying completion stays silently unsent. Re-fire the notification;
+    // it is idempotent once notifiedWithBody is set, preserving exact-once.
+    if (task.notifiedWithBody !== true) notifyTaskCompletion(task, instruction);
+    return task;
+  }
   return completeBackgroundTask(task.taskId, {
     status,
     result,

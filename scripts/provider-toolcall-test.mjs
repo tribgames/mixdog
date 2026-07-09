@@ -332,6 +332,7 @@ test('gemini cache usage: official cached token fields are subsets of prompt tok
     assert.equal(sdkAlias.inputTokens, 1200);
     assert.equal(sdkAlias.reportedCachedTokens, 500);
     assert.equal(sdkAlias.cachedTokens, 500);
+    assert.notEqual(sdkAlias.inputTokens, 0, 'snake_case SDK aliases must remain visible to provider return usage');
 });
 
 test('gemini cache usage: clamps over-reported cache and falls back only for attached cachedContent', () => {

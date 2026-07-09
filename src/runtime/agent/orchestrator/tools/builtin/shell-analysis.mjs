@@ -21,7 +21,7 @@ const SHELL_MUTATION_PATTERN = /(?:^|[;&|\n]\s*)(?:touch|mkdir|mktemp|rm|rmdir|m
 const SHELL_READ_ONLY_SEGMENT_RE = /^(?:cd|pwd|echo|printf|env|printenv|set|unset|export|alias|unalias|type|which|whereis|ls|dir|cat|head|tail|wc|grep|rg|find|git\s+(?:status|diff|show|log|rev-parse|branch|remote|ls-files)|stat|readlink|realpath|basename|dirname|sort|uniq|cut|sed\s+-n|awk|ps|whoami|uname|date|true|false|test|\[)\b/i;
 const SHELL_GLOBAL_MUTATORS = new Set(['npm', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'python', 'python3', 'git', 'cargo', 'go', 'make', 'cmake', 'dd']);
 
-function shellSplitSegments(command) {
+export function shellSplitSegments(command) {
     const parts = [];
     let current = '';
     let quote = null;
@@ -65,7 +65,7 @@ function shellSplitSegments(command) {
     return parts;
 }
 
-function shellTokenize(segment) {
+export function shellTokenize(segment) {
     const tokens = [];
     let current = '';
     let quote = null;
@@ -206,7 +206,7 @@ function hasDynamicShellBits(value) {
     return hasShellVariableExpansion(value) || hasShellGlobMeta(value);
 }
 
-function shellSplitPipelineSegments(segment) {
+export function shellSplitPipelineSegments(segment) {
     const parts = [];
     let current = '';
     let quote = null;
@@ -245,7 +245,7 @@ function shellSplitPipelineSegments(segment) {
     return parts;
 }
 
-function stripShellProbeWrappers(tokens) {
+export function stripShellProbeWrappers(tokens) {
     const out = stripShellAssignments(tokens || []);
     let idx = 0;
     while (idx < out.length) {
@@ -466,6 +466,129 @@ function buildLargeShellFileProbeMessage(fullPath, sizeBytes, cmd, cwd) {
     const kb = Math.round(sizeBytes / 1024);
     const display = normalizeOutputPath(cwdRelativePath(fullPath, cwd));
     return `large-file shell probe blocked: \`${cmd}\` is targeting \`${display}\` (${kb} KB).`;
+}
+
+// ---------------------------------------------------------------------------
+// PowerShell hygiene preflight (Windows PS host only). Two behaviors:
+//   (1) LOSSLESS auto-substitution: MSYS/Git-Bash `/x/…` absolute paths (x is a
+//       single drive letter) are impossible on Windows, so they are rewritten
+//       to `X:\…` and execution continues.
+//   (2) HARD BLOCK + hint: Unix-only commands used as the first token of any
+//       pipeline stage (grep/egrep/fgrep, tail, head, sed, awk), `$PID`
+//       reassignment, and `&&` on Windows PowerShell 5.1 are rejected with a
+//       PowerShell-native correction hint so the agent retries valid syntax.
+// POSIX shells are a strict no-op.
+// ---------------------------------------------------------------------------
+const MSYS_ABS_PATH_RE = /(^|[\s"'=,(])\/([A-Za-z])\/([^\s"'`|&;<>()]*)/g;
+
+// Replace every character that lives inside a single/double-quoted string with a
+// filler ('\0'), keeping the string length 1:1 so match offsets stay aligned.
+// Quote delimiters are preserved (they never match /x/, &&, or $PID=), and a
+// backtick inside double quotes escapes the next char (PS escape). Callers run
+// the drive-rewrite and bash-ism regexes against the mask so quoted literals /
+// regex patterns are never treated as real path tokens or connectors.
+function maskQuotedRegions(command) {
+    const FILL = '\0';
+    let out = '';
+    let quote = null;
+    let escaped = false;
+    for (let i = 0; i < command.length; i++) {
+        const ch = command[i];
+        if (escaped) { out += FILL; escaped = false; continue; }
+        if (quote) {
+            if (quote === '"' && ch === '`') { out += FILL; escaped = true; continue; }
+            if (ch === quote) { out += ch; quote = null; continue; }
+            out += FILL;
+            continue;
+        }
+        if (ch === '\'' || ch === '"') { quote = ch; out += ch; continue; }
+        out += ch;
+    }
+    return out;
+}
+
+function rewriteMsysDrivePaths(command) {
+    const src = String(command);
+    const mask = maskQuotedRegions(src);
+    const re = new RegExp(MSYS_ABS_PATH_RE.source, 'g');
+    let changed = false;
+    let out = '';
+    let last = 0;
+    let m;
+    // Matches occur only in unquoted regions (quoted chars are '\0' in `mask`),
+    // so the captured groups hold the real, unmasked path text.
+    while ((m = re.exec(mask)) !== null) {
+        const [full, pre, drive, rest] = m;
+        out += src.slice(last, m.index);
+        out += `${pre}${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`;
+        last = m.index + full.length;
+        changed = true;
+    }
+    out += src.slice(last);
+    return { command: changed ? out : src, changed };
+}
+
+// Unix-only command → PowerShell-native replacement hint. Keyed by the bare
+// first token of a pipeline stage (path prefix stripped), so `Select-String`
+// and other real cmdlets never match, and a filename/arg that merely contains
+// "grep" is ignored (only the command token is judged).
+const POWERSHELL_BASHISM_HINTS = {
+    grep: 'grep → Select-String  (e.g. `Select-String -Pattern foo -Path file`)',
+    egrep: 'egrep → Select-String -Pattern <regex>',
+    fgrep: 'fgrep → Select-String -SimpleMatch',
+    tail: 'tail → Get-Content -Tail N',
+    head: 'head → Get-Content -TotalCount N',
+    sed: 'sed → Select-String / ForEach-Object { $_ -replace \'a\',\'b\' }',
+    awk: 'awk → Select-String / ForEach-Object { ($_ -split \'\\s+\')[N] }',
+};
+
+export function preflightPowerShellHygiene(command, { shellType, shellName } = {}) {
+    const original = String(command || '');
+    if (shellType !== 'powershell' || !original.trim()) {
+        return { command: original, block: null, note: null };
+    }
+    // (1) lossless MSYS `/x/…` → `X:\…` rewrite; execution continues.
+    const { command: rewritten, changed } = rewriteMsysDrivePaths(original);
+    const note = changed
+        ? 'note: rewrote MSYS-style `/x/…` absolute path(s) to Windows `X:\\…`.'
+        : null;
+
+    // (2) hard-block bash-isms. `powershell.exe` (Windows PS 5.1) lacks `&&`;
+    // `pwsh` (PS 7+) supports it, so only legacy PS blocks `&&`.
+    const name = String(shellName || '').toLowerCase();
+    const isLegacyPS = /powershell/.test(name) && !/pwsh/.test(name);
+    const violations = [];
+    // `$PID=` reassignment and `&&` connectors are judged on a quote-masked
+    // copy so quoted literals (`echo "a && b"`, `Write-Output '$PID=1'`) and
+    // regex/search args are never mistaken for real syntax.
+    const masked = maskQuotedRegions(rewritten);
+
+    for (const segment of shellSplitSegments(rewritten)) {
+        for (const stage of shellSplitPipelineSegments(segment)) {
+            const tokens = stripShellProbeWrappers(shellTokenize(stage) || []);
+            if (tokens.length === 0) continue;
+            const first = String(tokens[0] || '').toLowerCase().replace(/^.*[\\/]/, '');
+            if (POWERSHELL_BASHISM_HINTS[first]) {
+                violations.push(`\`${first}\` is a Unix command: ${POWERSHELL_BASHISM_HINTS[first]}`);
+            }
+        }
+    }
+    if (/\$PID\s*=(?!=)/i.test(masked)) {
+        violations.push('`$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name).');
+    }
+    if (isLegacyPS && /(?:^|[^&])&&(?:[^&]|$)/.test(masked)) {
+        violations.push('`&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls.');
+    }
+
+    if (violations.length > 0) {
+        const hints = [...new Set(violations)];
+        return {
+            command: rewritten,
+            note,
+            block: `PowerShell preflight blocked this command (bash syntax on a PowerShell host). Fix and retry:\n- ${hints.join('\n- ')}`,
+        };
+    }
+    return { command: rewritten, note, block: null };
 }
 
 export async function preflightShellLargeFileProbe(command, cwd) {

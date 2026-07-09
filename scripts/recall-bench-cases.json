@@ -1,5 +1,6 @@
 [
   { "id": "browse-last", "label": "query-less recent browse (period=last)", "args": { "period": "last", "limit": 10 }, "expect": "browse" },
+  { "id": "last-query-topic", "label": "topic inside recent sessions (period=last + query)", "args": { "query": "last", "period": "last", "limit": 5 }, "expect": { "kind": "results", "topNContains": ["last"], "topN": 10, "recencyOrdered": true } },
   { "id": "period-24h", "label": "period window 24h", "args": { "period": "24h", "limit": 10 }, "expect": "browse" },
   { "id": "period-7d", "label": "period window 7d", "args": { "period": "7d", "limit": 10 }, "expect": "browse" },
   { "id": "scope-all", "label": "all-scope query", "args": { "query": "recall", "projectScope": "all", "limit": 10 }, "expect": "results" },

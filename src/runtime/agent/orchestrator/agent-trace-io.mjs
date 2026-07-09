@@ -4,6 +4,7 @@ import { dirname, join } from 'path';
 import os from 'os';
 import { getPluginData } from './config.mjs';
 import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../shared/service-discovery.mjs';
+import { isDiagnosticIOEnabled } from '../../../lib/mixdog-debug.cjs';
 
 const WARNED_KEYS = new Set();
 
@@ -94,8 +95,13 @@ function _rotateLocalTraceIfNeeded(path) {
 function _resolveLocalTracePath() {
     if (process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE === '1') return null;
     if (_localTracePath) return _localTracePath;
+    const explicit = process.env.MIXDOG_AGENT_TRACE_PATH;
+    // Ship-mode default: skip diagnostic local trace file IO unless dev/debug,
+    // MIXDOG_DIAGNOSTICS, or an explicit trace path opts back in. In-memory
+    // buffer + memory-service flush (session metrics) are unaffected.
+    if (!explicit && !isDiagnosticIOEnabled()) return null;
     try {
-        _localTracePath = process.env.MIXDOG_AGENT_TRACE_PATH
+        _localTracePath = explicit
             || join(getPluginData(), 'history', 'agent-trace.jsonl');
         // R4 data-at-rest: trace rows may carry tool payloads / prompts;
         // clamp dir to owner-only on POSIX (advisory on Windows).
@@ -332,8 +338,12 @@ function appendAgentTrace(record = {}) {
 function _resolveToolFailurePath() {
     if (process.env.MIXDOG_TOOL_FAILURE_LOG_DISABLE === '1') return null;
     if (_toolFailurePath) return _toolFailurePath;
+    const explicit = process.env.MIXDOG_TOOL_FAILURE_LOG_PATH;
+    // Ship-mode default: skip diagnostic tool-failure log file IO unless
+    // dev/debug, MIXDOG_DIAGNOSTICS, or an explicit path opts back in.
+    if (!explicit && !isDiagnosticIOEnabled()) return null;
     try {
-        _toolFailurePath = process.env.MIXDOG_TOOL_FAILURE_LOG_PATH
+        _toolFailurePath = explicit
             || join(getPluginData(), 'history', 'tool-failures.jsonl');
         mkdirSync(dirname(_toolFailurePath), { recursive: true, mode: 0o700 });
         return _toolFailurePath;
@@ -422,6 +432,7 @@ export {
     drainAgentTrace,
     normalizeSessionId,
     warnAgentOnce,
+    _resolveLocalTracePath,
     _resolveToolFailurePath,
     _appendToolFailureRow,
 };

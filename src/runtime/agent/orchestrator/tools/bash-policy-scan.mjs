@@ -41,21 +41,17 @@ export function injectionBlockTargets(cmd) {
   return targets;
 }
 
-const _unquoteSpansForPolicy = (s) => s.replace(/"([^"\\]|\\.)*"|'([^'\\]|\\.)*'/g, (m) => m.slice(1, -1));
-
 export function buildBashPolicyScanTargets(command) {
   const cmd = String(command || '');
   if (!cmd) return [];
   const targets = [
     cmd,
     stripQuotedAndHeredoc(cmd),
-    _unquoteSpansForPolicy(cmd),
     ...extractShellCInner(cmd).map(stripQuotedAndHeredoc),
-    ...extractShellCInner(cmd).map(_unquoteSpansForPolicy),
     ...injectionBlockTargets(cmd),
   ];
   for (const inner of extractPowerShellCommandInner(cmd)) {
-    targets.push(inner, stripQuotedAndHeredoc(inner), _unquoteSpansForPolicy(inner));
+    targets.push(inner, stripQuotedAndHeredoc(inner));
   }
   const psDecoded = decodePowerShellEncodedCommand(cmd);
   if (psDecoded) targets.push(psDecoded);

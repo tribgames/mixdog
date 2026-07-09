@@ -581,7 +581,8 @@ export async function createMixdogSessionRuntime({
     providerSetupQuickCache: { setup: null, at: 0 },
     providerSetupPromise: null,
   };
-  let providerInitPromise = null;
+  const providerInitPromises = new Map();
+  let startupProviderCatalogRefreshStarted = false;
   let lastProjectMcpKey = null;
   // MCP connect state, owned here so teardown/reconnect paths still observe it;
   // the mcp-glue factory mutates this object in place (see createMcpGlue).
@@ -1150,7 +1151,7 @@ export async function createMixdogSessionRuntime({
     providerUsageCaches.providerSetupCache = { setup: null, at: 0 };
     providerUsageCaches.providerSetupQuickCache = { setup: null, at: 0 };
     providerUsageCaches.providerSetupPromise = null;
-    providerInitPromise = null;
+    providerInitPromises.clear();
     modelMetaByRoute.clear();
   }
 
@@ -1197,13 +1198,43 @@ export async function createMixdogSessionRuntime({
     STANDALONE_DATA_DIR,
   });
 
+  function providerInitCacheKey(value) {
+    function sortKeysDeep(v) {
+      if (Array.isArray(v)) return v.map(sortKeysDeep);
+      if (v && typeof v === 'object') {
+        const out = {};
+        for (const key of Object.keys(v).sort()) out[key] = sortKeysDeep(v[key]);
+        return out;
+      }
+      return v;
+    }
+    try {
+      return JSON.stringify(sortKeysDeep(value));
+    } catch {
+      return `uncacheable:${Date.now()}:${Math.random()}`;
+    }
+  }
+
   async function ensureProvidersReady(providerConfig = config.providers || {}) {
-    if (providerInitPromise) return await providerInitPromise;
-    providerInitPromise = reg.initProviders(providerConfig)
+    const initKey = providerInitCacheKey(providerConfig);
+    const existing = providerInitPromises.get(initKey);
+    if (existing) return await existing;
+    const providerInitPromise = reg.initProviders(providerConfig)
       .finally(() => {
-        providerInitPromise = null;
+        if (providerInitPromises.get(initKey) === providerInitPromise) providerInitPromises.delete(initKey);
       });
-    return await providerInitPromise;
+    providerInitPromises.set(initKey, providerInitPromise);
+    const result = await providerInitPromise;
+    if (!startupProviderCatalogRefreshStarted && !closeRequested) {
+      startupProviderCatalogRefreshStarted = true;
+      try {
+        reg.refreshProviderCatalogsOnStartup();
+        bootProfile('provider-catalogs:refresh-started');
+      } catch (error) {
+        bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
+      }
+    }
+    return result;
   }
 
   const {
@@ -1982,6 +2013,7 @@ export async function createMixdogSessionRuntime({
     reloadFullConfig,
     invalidateProviderCaches,
     warmProviderModelCache,
+    refreshProviderCatalogs: () => ensureProvidersReady(config.providers || {}).then(() => reg.refreshCatalogs()),
     cachedProviderSetup,
     getUsageDashboard,
     collectProviderModels,
@@ -2063,6 +2095,7 @@ export async function createMixdogSessionRuntime({
     adoptConfig,
     saveConfigAndAdopt,
     ensureFullConfig,
+    ensureProvidersReady,
     persistLeadRoute,
     refreshRouteEffort,
     refreshStatuslineUsageSnapshot,
@@ -2086,6 +2119,7 @@ export async function createMixdogSessionRuntime({
     lookupModelMeta,
     adoptConfig,
     saveConfigAndAdopt,
+    ensureProvidersReady,
     displayConfig,
     agentRouteFromConfig,
     loadAgentDefinition,

@@ -210,20 +210,33 @@ export function createSessionFlow(bag) {
     // through the normal command processor after the turn, not be sent as plain
     // text. Consumed entries are spliced out of `pending` here, so the post-turn
     // drain() loop will not re-execute them.
-    const batch = dequeueQueueBatch('next', { predicate: (entry) => !isSlashQueuedEntry(entry) });
-    if (batch.length === 0) return [];
-    const out = batch
-      .map((entry) => {
+    //
+    // dequeueQueueBatch drains ONE priority/mode bucket per call, capped at a
+    // max priority. A concurrent user steering prompt (`next`) and a task
+    // notification (`later`) sit in different buckets, so a single `next`-capped
+    // dequeue would leave the notification pending and the post-turn drain()
+    // loop would spawn an unintended follow-up turn/reply. Loop up to `later`
+    // so EVERY non-slash bucket is consumed by the current turn.
+    const predicate = (entry) => !isSlashQueuedEntry(entry);
+    const out = [];
+    for (;;) {
+      const batch = dequeueQueueBatch('later', { predicate });
+      if (batch.length === 0) break;
+      for (const entry of batch) {
         const content = entry.content;
-        if (typeof content === 'string') return content.trim();
-        return { text: String(entry.text || '').trim(), content };
-      })
-      .filter((entry) => {
-        if (typeof entry === 'string') return entry.length > 0;
-        if (Array.isArray(entry?.content)) return entry.content.length > 0;
-        return String(entry?.content ?? '').trim().length > 0;
-      });
-    commitSteeringQueueEntries(batch);
+        const value = typeof content === 'string'
+          ? content.trim()
+          : { text: String(entry.text || '').trim(), content };
+        if (typeof value === 'string') {
+          if (value.length > 0) out.push(value);
+        } else if (Array.isArray(value.content)) {
+          if (value.content.length > 0) out.push(value);
+        } else if (String(value.content ?? '').trim().length > 0) {
+          out.push(value);
+        }
+      }
+      commitSteeringQueueEntries(batch);
+    }
     return out;
   }
 

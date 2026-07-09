@@ -253,6 +253,7 @@ export function notifyToolCompletion({
   context,
   enqueueFallback,
   logPrefix = 'tool-execution',
+  onSettled,
 } = {}) {
   const ctx = normalizeToolNotifyContext(context);
   const message = String(text || '');
@@ -275,22 +276,34 @@ export function notifyToolCompletion({
     try {
       const notifyResult = ctx.notifyFn(message, meta);
       if (notifyResult !== false) {
-        // Optimistically report delivered (keeps this fn synchronous). But a
-        // notifyFn that returns a Promise can still reject — or resolve to an
-        // explicit false/0 (declined/failed) — *after* we returned. In that
-        // case rescue the completion via enqueueFallback so the owner isn't
-        // left without a notification. The normal success path (truthy
-        // resolve) never enqueues, preserving exact-once delivery.
-        Promise.resolve(notifyResult).then((settled) => {
-          if (settled === false || settled === 0) {
-            tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
-          }
-        }).catch((err) => {
-          try {
-            process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
-          } catch {}
-          tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
-        });
+        const isThenable = notifyResult && typeof notifyResult.then === 'function';
+        if (isThenable) {
+          // A Promise notifyFn has NOT delivered yet — settlement decides the
+          // real outcome. Return `true` synchronously so the caller does not
+          // double-deliver through the sync fallback, but signal the FINAL
+          // delivered state via onSettled so the caller only *marks* the
+          // completion delivered after settlement. On a reject or explicit
+          // false/0 resolve, rescue via enqueueFallback; onSettled then reports
+          // whether that rescue (or the notifyFn itself) actually delivered, so
+          // a caller can un-mark and retry when nothing landed. The truthy
+          // resolve path never enqueues, preserving exact-once delivery.
+          Promise.resolve(notifyResult).then((settled) => {
+            if (settled === false || settled === 0) {
+              const rescued = tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
+              if (typeof onSettled === 'function') onSettled(rescued);
+            } else if (typeof onSettled === 'function') {
+              onSettled(true);
+            }
+          }).catch((err) => {
+            try {
+              process.stderr.write(`[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`);
+            } catch {}
+            const rescued = tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
+            if (typeof onSettled === 'function') onSettled(rescued);
+          });
+          return true;
+        }
+        // Synchronous non-false result → confirmed delivered now.
         return true;
       }
     } catch (err) {

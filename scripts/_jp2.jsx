@@ -1,0 +1,16 @@
+import React from 'react';
+import { Box } from 'ink';
+import { render } from 'ink';
+import stripAnsi from 'strip-ansi';
+import { ToolExecution } from '../src/tui/components/ToolExecution.jsx';
+const COLUMNS=80;
+let buf='';
+const stdout={columns:COLUMNS,rows:200,write:(s)=>{buf+=s;return true;},on(){},off(){},removeListener(){}};
+const item={ name:'read', args:{path:'a.js'}, result:'Read 40 lines', count:1, completedCount:1, startedAt:Date.now()-2000, completedAt:Date.now(), deferredDisplayReady:true, headerFinalized:true };
+const node=React.createElement(Box,{flexDirection:'column',flexShrink:0,width:COLUMNS},React.createElement(ToolExecution,{name:item.name,args:item.args,result:item.result,columns:COLUMNS,count:1,completedCount:1,startedAt:item.startedAt,completedAt:item.completedAt,headerFinalized:true,deferredDisplayReady:true}));
+const inst=render(node,{stdout,patchConsole:false});
+await new Promise(r=>setTimeout(r,60));
+console.log('RAW len',buf.length);
+console.log(JSON.stringify(buf));
+inst.unmount();
+process.exit(0);

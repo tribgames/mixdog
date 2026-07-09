@@ -114,10 +114,12 @@ const TOOL_APPROVAL_TIMEOUT_MS = (() => {
 // runTurn holding busy=true with no unwind, so submit() only ever queues and
 // the UI is permanently input-dead. On trip we abort the in-flight run through
 // the SAME interrupt path Esc uses, force busy=false, and drain the queue.
-// Generous default (30min); env-overridable for tuning/tests.
+// Default is intentionally finite (5min): 30min made a stuck provider/worker
+// look like the Lead session had frozen mid-turn. Env-overridable for long
+// local experiments.
 const LEAD_TURN_TIMEOUT_MS = (() => {
   const value = Number(process.env.MIXDOG_LEAD_TURN_TIMEOUT_MS);
-  return Number.isFinite(value) && value > 0 ? Math.max(10_000, Math.round(value)) : 30 * 60_000;
+  return Number.isFinite(value) && value > 0 ? Math.max(10_000, Math.round(value)) : 5 * 60_000;
 })();
 
 // Opt-in diagnostic trace for the hang chain (runTurn start/end, busy-queue

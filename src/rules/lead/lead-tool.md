@@ -1,8 +1,6 @@
 # Lead Tool Use
 
-- Write-role agents run their own build/test verification via `shell`; Lead
-  runs cross-scope verification, benches, and everything git via `shell`
-  directly.
-- Use the session's current project/workspace. Change the work project only
-  when the user asks for another project or a tool call needs another root.
+- Write-role agents self-verify via `shell`; Lead runs cross-scope verification,
+  benches, and all git via `shell`.
+- Use the current project/workspace; change it only on user request or tool need.
 - Use `agent` for scoped implementation, research, review, and debugging.

@@ -9,7 +9,6 @@ import {
   estimateMessagesTokens,
   estimateRequestReserveTokens,
 } from '../../../../runtime/agent/orchestrator/session/context-utils.mjs';
-import { DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT } from '../../../../runtime/agent/orchestrator/session/compact/constants.mjs';
 import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 
 const GATEWAY_USAGE_FILE = 'gateway-usage.local.json';
@@ -100,11 +99,11 @@ function boundedPercent(value, fallback = null) {
 }
 
 export function defaultEffectiveContextWindowPercent(_provider) {
-  // Gateway-routed models use catalog/provider context metadata (LiteLLM,
-  // models.dev, or native provider catalogs). Reserve a small universal
-  // headroom for output/tool/system tokens while keeping the raw model window
-  // visible separately.
-  return DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
+  // Gateway/statusline should report the full model boundary. The 10% safety
+  // headroom belongs to semantic-agent compact triggers, not to the main
+  // recall-fasttrack denominator.
+  void _provider;
+  return 100;
 }
 
 function effectiveContextWindowPercent(provider, info = {}, seed = {}) {
@@ -265,11 +264,34 @@ function mergeModelInfo(provider, model, providerObj) {
   const fromProvider = modelInfoFromProvider(providerObj, model);
   const fromCache = loadCachedModel(provider, model);
   const fromCatalog = getModelMetadataSync(model, provider);
-  return {
+  const merged = {
     ...(fromCatalog || {}),
     ...(fromCache || {}),
     ...(fromProvider || {}),
   };
+  // Catalog/known metadata is authoritative for the context window. Spreading
+  // fromCache after fromCatalog otherwise lets a STALE cached window (e.g. Opus
+  // 4.8 cached at 272k after its window grew to the catalog's 1M) override the
+  // catalog. Only a live provider API window (context_window / max_context_window)
+  // outranks the catalog; when the provider info supplies no such window and the
+  // catalog disagrees with the merged (cached) window, prefer the catalog.
+  const providerApiWindow = num(
+    fromProvider?.context_window ?? fromProvider?.max_context_window,
+    0,
+  );
+  const catalogWindow = num(
+    fromCatalog?.contextWindow
+      ?? fromCatalog?.maxContextWindow
+      ?? fromCatalog?.context_window
+      ?? fromCatalog?.max_context_window,
+    0,
+  );
+  const mergedWindow = num(merged?.contextWindow ?? merged?.maxContextWindow, 0);
+  if (!providerApiWindow && catalogWindow > 0 && mergedWindow !== catalogWindow) {
+    merged.contextWindow = catalogWindow;
+    merged.maxContextWindow = catalogWindow;
+  }
+  return merged;
 }
 
 export function readGatewayRouteInfo(seed = {}, providerObj = null) {
@@ -312,7 +334,14 @@ export function readGatewayRouteInfo(seed = {}, providerObj = null) {
     ?? cleanBool(preset?.fast)
     ?? false;
   const info = mergeModelInfo(provider, model, providerObj);
-  const rawContextWindow = num(info?.contextWindow ?? info?.maxContextWindow ?? info?.max_input_tokens, 0)
+  const rawContextWindow = num(
+    info?.context_window
+      ?? info?.max_context_window
+      ?? info?.contextWindow
+      ?? info?.maxContextWindow
+      ?? info?.max_input_tokens,
+    0,
+  )
     || num(seed.contextWindow, 0);
   const effectivePercent = effectiveContextWindowPercent(provider, info, seed);
   const contextWindow = effectiveContextWindow(rawContextWindow, effectivePercent);

@@ -137,16 +137,15 @@ export function createRunTurn(bag) {
     const deferredEntries = []; // creation-order list; each is pushed at most once
     // Push this entry AND every earlier-created still-deferred entry, in order,
     // so transcript order always matches call order even when a later card's
-    // result/timer fires before an earlier one's.
+    // result/timer fires before an earlier one's. Commit the collected cards in
+    // ONE state update: emitting one pushItem() per deferred card made a tool
+    // batch climb into view one row/card at a time ("툭툭" upward row jitter).
     const flushDeferredUpTo = (entry) => {
       if (!entry) return;
-      for (const e of deferredEntries) {
-        if (e.seq > entry.seq) break;
-        if (e.pushed) continue;
-        e.pushed = true;
-        if (e.timer) { clearTimeout(e.timer); e.timer = null; }
-        try { e.push(); } catch {}
-      }
+      const specs = collectDeferredUpTo(entry);
+      if (!specs.length) return;
+      flags.pushingFromDeferredEntry = true;
+      try { appendItemsBatch(specs); } finally { flags.pushingFromDeferredEntry = false; }
     };
     flags.flushDeferredBeforeImmediatePush = () => {
       if (!deferredEntries.length) return;

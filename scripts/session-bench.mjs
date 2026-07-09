@@ -831,6 +831,39 @@ function buildToolDiagnostics(rows, failureRows = []) {
   }
   identicalCallRepeats.sort((a, b) => b.count - a.count);
 
+  const editFragmentation = [];
+  for (const [sid, srows] of groupBy(tools.filter((r) => sessionId(r)), sessionId).entries()) {
+    const patches = srows
+      .filter((r) => String(field(r, 'tool_name') || '') === 'apply_patch')
+      .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+    if (patches.length < 2) continue;
+    const byIter = countBy(patches, (r) => num(r, 'iteration'));
+    const multiPatchTurns = byIter.filter(([, c]) => c > 1).length;
+    let crossTurnPatch = 0;
+    for (let i = 1; i < patches.length; i++) {
+      const earlier = patches[i - 1];
+      const later = patches[i];
+      const ei = num(earlier, 'iteration');
+      const li = num(later, 'iteration');
+      if (ei == null || li == null || ei === li) continue;
+      const dt = Number(later.ts || 0) - Number(earlier.ts || 0);
+      if (li === ei + 1 || dt < 60_000) crossTurnPatch++;
+    }
+    const fragScore = multiPatchTurns + crossTurnPatch;
+    if (fragScore < 2) continue;
+    editFragmentation.push({
+      session_id: sid,
+      agent: field(patches[0], 'agent'),
+      patch_calls: patches.length,
+      multi_patch_turns: multiPatchTurns,
+      cross_turn_patch: crossTurnPatch,
+      frag_score: fragScore,
+      start_it: num(patches[0], 'iteration'),
+      end_it: num(patches[patches.length - 1], 'iteration'),
+    });
+  }
+  editFragmentation.sort((a, b) => b.frag_score - a.frag_score);
+
   return {
     total_tool_calls: tools.length,
     total_tool_ms: sum(tools.map((r) => num(r, 'tool_ms'))),
@@ -850,6 +883,7 @@ function buildToolDiagnostics(rows, failureRows = []) {
     sequential_tool_clusters: sequentialToolClusters,
     readonly_stalls: readonlyStalls.slice(0, 20),
     identical_call_repeats: identicalCallRepeats.slice(0, 20),
+    edit_fragmentation: editFragmentation.slice(0, 20),
   };
 }
 
@@ -1246,6 +1280,10 @@ function buildIssues(routeGroups, cache, tools) {
     const toolSummary = c.tools.map((x) => `${x.tool}×${x.count}`).join(', ');
     issues.push({ severity: 'low', type: 'tool_churn_cluster', message: `sequential single-tool cluster x${c.count} over ${fmtMs(c.span_ms)}: ${toolSummary}` });
   }
+  for (const e of (tools.edit_fragmentation || []).slice(0, 5)) {
+    if (e.frag_score < 2) continue;
+    issues.push({ severity: 'low', type: 'edit_fragmentation', message: `edit fragmentation x${e.frag_score} (multi-patch turns ${e.multi_patch_turns}, cross-turn ${e.cross_turn_patch}): ${e.agent || '-'}`, session_id: e.session_id });
+  }
   const rank = { high: 0, medium: 1, low: 2 };
   return issues.sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
 }
@@ -1627,6 +1665,12 @@ function renderText(report) {
         const toolSummary = c.tools.map((x) => `${x.tool}×${x.count}`).join(', ');
         lines.push(`- ${c.agent || '-'} it=${c.start_it ?? '-'}→${c.end_it ?? '-'} x${c.count} span=${fmtMs(c.span_ms)} tool_ms=${fmtMs(c.tool_ms)} errors=${c.errors}: ${toolSummary}`);
         if (c.examples?.length) lines.push(`  e.g. ${c.examples.join(' | ')}`);
+      }
+    }
+    if (report.tools.edit_fragmentation?.length) {
+      lines.push('edit fragmentation:');
+      for (const e of report.tools.edit_fragmentation.slice(0, 8)) {
+        lines.push(`- ${e.agent || '-'} it=${e.start_it}→${e.end_it} score=${e.frag_score} multi=${e.multi_patch_turns} cross=${e.cross_turn_patch}`);
       }
     }
     lines.push(`missed parallelism heuristic: ${report.tools.missed_parallelism_heuristic.consecutive_single_tool_batches} close single-tool batches`);

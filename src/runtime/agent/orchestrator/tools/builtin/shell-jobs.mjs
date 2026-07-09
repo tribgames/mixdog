@@ -412,6 +412,11 @@ const TIMER_MAX_MS = 2_147_483_647;
 // and `kill` actions already hold the completed outcome, so they cancel the
 // armed watcher here to prevent a double-notify when its next poll fires.
 const backgroundShellJobWatchers = new Map();
+// Registry-level safety net keyed by jobId. It is intentionally independent of
+// the fs.watch watcher below: if the watcher is cancelled, misses an event, or
+// cannot be armed because the direct notifyFn is unavailable, this poller still
+// reconciles the shell job into the shared background-task row.
+const shellTaskSafetyPollers = new Map();
 // Persistent notify ctx per jobId, set at FIRST arm and surviving cancel — so a
 // re-arm after a task wait timeout can reconstruct the notify wiring without the
 // caller threading the ctx back in. Deleted only in the watcher's cleanup() on
@@ -422,6 +427,93 @@ const jobNotifyCtxByJobId = new Map();
 // consuming the outcome, so the watcher must stay cancelled; the last waiter to
 // leave (count===0) owns the decision to re-arm a still-running job.
 const jobWaitWaiterCountByJobId = new Map();
+const SHELL_TASK_SAFETY_POLL_MS = 5_000;
+function shellJobTaskStatus(status) {
+    if (status === 'completed') return 'completed';
+    if (status === 'cancelled') return 'cancelled';
+    return 'failed';
+}
+function buildShellCompletion(jobId, detail, reason) {
+    const startedAtMs = Date.parse(detail?.startedAt || '');
+    const finishedAtMs = Date.parse(detail?.finishedAt || '') || Date.now();
+    const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(0, finishedAtMs - startedAtMs) : null;
+    const exitCode = (typeof detail?.exitCode === 'number') ? detail.exitCode : null;
+    const status = detail?.status || (reason === 'timeout' ? 'running' : 'unknown');
+    const body = renderShellCompletionEnvelope({
+        jobId,
+        status,
+        exitCode,
+        elapsedMs,
+        command: detail?.command,
+        summary: detail?.summary,
+        stdoutPreview: detail?.stdoutPreview,
+        stderrPreview: detail?.stderrPreview,
+        mergeStderr: detail?.mergeStderr,
+    });
+    const taskStatus = shellJobTaskStatus(status);
+    return {
+        status,
+        taskStatus,
+        exitCode,
+        body,
+        instruction: shellCompletionInstruction({ jobId, status, exitCode }),
+        result: shellJobPublicTaskResult(detail),
+        error: taskStatus === 'failed'
+            ? (detail?.error || (status === 'running' ? 'background shell watcher deadline reached' : null))
+            : null,
+    };
+}
+function clearShellTaskSafetyNet(jobId) {
+    const timer = shellTaskSafetyPollers.get(jobId);
+    if (!timer) return;
+    try { clearInterval(timer); } catch { /* ignore */ }
+    shellTaskSafetyPollers.delete(jobId);
+}
+function armShellTaskSafetyNet(jobId) {
+    if (!jobId || shellTaskSafetyPollers.has(jobId)) return;
+    const tick = () => {
+        try {
+            const task = getBackgroundTask(jobId);
+            if (!task || task.status !== 'running') {
+                clearShellTaskSafetyNet(jobId);
+                return;
+            }
+            const detail = attachJobInsights(refreshShellJob(jobId)) || readShellJobDetail(jobId);
+            if (!detail) {
+                completeBackgroundTask(jobId, {
+                    status: 'failed',
+                    error: 'shell job detail missing during safety reconciliation',
+                    resultType: 'shell_task_result',
+                    terminalReason: 'shell-safety-missing-detail',
+                });
+                clearShellTaskSafetyNet(jobId);
+                return;
+            }
+            if (detail.status === 'running') return;
+            // While a manual `task wait` caller is consuming the result
+            // synchronously, do not send the async completion. The wait path
+            // marks the task terminal with notify:false, and this poller will
+            // stop on its next tick.
+            if ((jobWaitWaiterCountByJobId.get(jobId) || 0) > 0) return;
+            const completion = buildShellCompletion(jobId, detail, 'safety');
+            completeBackgroundTask(jobId, {
+                status: completion.taskStatus,
+                result: completion.result,
+                resultText: completion.body,
+                error: completion.error,
+                resultType: 'shell_task_result',
+                instruction: completion.instruction,
+                terminalReason: 'shell-safety-reconcile',
+            });
+            clearShellTaskSafetyNet(jobId);
+        } catch (err) {
+            try { process.stderr.write(`[shell-jobs] shell task safety poll failed: jobId=${jobId} err=${err?.message ?? String(err)}\n`); } catch { /* ignore */ }
+        }
+    };
+    const timer = setInterval(tick, SHELL_TASK_SAFETY_POLL_MS);
+    if (typeof timer.unref === 'function') timer.unref();
+    shellTaskSafetyPollers.set(jobId, timer);
+}
 function markShellJobCancelledByShutdown(jobId, reason = 'shutdown') {
     const detail = readShellJobDetail(jobId);
     if (!detail || detail.status !== 'running') return false;
@@ -470,6 +562,7 @@ export function shutdownShellJobs(reason = 'runtime-close', { sync = false } = {
         try { if (markShellJobCancelledByShutdown(jobId, reason)) marked += 1; } catch { /* ignore */ }
     }
     backgroundShellJobWatchers.clear();
+    for (const jobId of [...shellTaskSafetyPollers.keys()]) clearShellTaskSafetyNet(jobId);
     jobNotifyCtxByJobId.clear();
     jobWaitWaiterCountByJobId.clear();
     return { killed: livePids.length, cancelledJobs: marked, cancelledWatchers: watcherJobIds.length };
@@ -488,6 +581,7 @@ export function cancelBackgroundShellJobWatch(jobId) {
 // notifyCtx may be omitted on RE-ARM — it then falls back to the persistent
 // ctx captured at first arm (jobNotifyCtxByJobId).
 export function watchBackgroundShellJob(jobId, notifyCtx) {
+    armShellTaskSafetyNet(jobId);
     const ctx = (notifyCtx && typeof notifyCtx.notifyFn === 'function')
         ? normalizeToolNotifyContext(notifyCtx)
         : (jobId ? jobNotifyCtxByJobId.get(jobId) : null);
@@ -539,42 +633,25 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         try {
             const detail = attachJobInsights(refreshShellJob(jobId)) || readShellJobDetail(jobId);
             if (!detail) return;
-            const startedAtMs = Date.parse(detail.startedAt || '');
-            const finishedAtMs = Date.parse(detail.finishedAt || '') || Date.now();
-            const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(0, finishedAtMs - startedAtMs) : null;
-            const exitCode = (typeof detail.exitCode === 'number') ? detail.exitCode : null;
-            const status = detail.status || (reason === 'timeout' ? 'running' : 'unknown');
-            const body = renderShellCompletionEnvelope({
-                jobId,
-                status,
-                exitCode,
-                elapsedMs,
-                command: detail.command,
-                summary: detail.summary,
-                stdoutPreview: detail.stdoutPreview,
-                stderrPreview: detail.stderrPreview,
-                mergeStderr: detail.mergeStderr,
-            });
-            const taskStatus = status === 'completed'
-                ? 'completed'
-                : (status === 'cancelled' ? 'cancelled' : 'failed');
-            const instruction = shellCompletionInstruction({ jobId, status, exitCode });
+            const completion = buildShellCompletion(jobId, detail, reason);
             const completedTask = completeBackgroundTask(jobId, {
-                status: taskStatus,
-                result: shellJobPublicTaskResult(detail),
-                resultText: body,
-                error: taskStatus === 'failed' ? (detail.error || (status === 'running' ? 'background shell watcher deadline reached' : null)) : null,
+                status: completion.taskStatus,
+                result: completion.result,
+                resultText: completion.body,
+                error: completion.error,
                 resultType: 'shell_task_result',
-                instruction,
+                instruction: completion.instruction,
+                terminalReason: `shell-watcher-${reason || 'done'}`,
             });
+            clearShellTaskSafetyNet(jobId);
             if (completedTask) return;
             notifyToolCompletion({
                 surface: 'shell',
                 id: jobId,
-                status: taskStatus,
-                text: body,
+                status: completion.taskStatus,
+                text: completion.body,
                 resultType: 'shell_task_result',
-                instruction,
+                instruction: completion.instruction,
                 context: ctx,
                 logPrefix: 'shell-jobs',
             });

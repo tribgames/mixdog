@@ -29,7 +29,7 @@ export function createModelRouteApi(deps) {
     getConfigHasSecrets, getSearchRouteState, setSearchRouteState,
     cfgMod, reg, mgr, statusRoutes,
     resolveRoute, searchCapableFor, lookupModelMeta,
-    adoptConfig, saveConfigAndAdopt, ensureFullConfig,
+    adoptConfig, saveConfigAndAdopt, ensureFullConfig, ensureProvidersReady,
     persistLeadRoute, refreshRouteEffort,
     refreshStatuslineUsageSnapshot, scheduleStatuslineUsageRefresh,
     invalidateContextStatusCache, invalidateProviderCaches,
@@ -70,7 +70,7 @@ export function createModelRouteApi(deps) {
         throw new Error(`provider "${selectedRoute.provider}" does not support Mixdog native search`);
       }
       ensureFullConfig();
-      await reg.initProviders(ensureProviderEnabled(getConfig(), selectedRoute.provider));
+      await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
       if (!searchCapableFor(selectedRoute.provider, modelMeta)) {
         throw new Error(`model "${selectedRoute.model}" is not marked as web-search capable`);
@@ -107,7 +107,7 @@ export function createModelRouteApi(deps) {
         requested.provider = getRoute().provider;
       }
       let selectedRoute = resolveRoute(getConfig(), requested);
-      await reg.initProviders(ensureProviderEnabled(getConfig(), selectedRoute.provider));
+      await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
       if (!providerExplicitlyRequested
         && !selectedRoute.preset

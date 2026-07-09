@@ -405,16 +405,32 @@ export function getModelMetadataSync(id, provider) {
     //    id, and add fields LiteLLM lacks, such as opencode-go reasoning_options.
     if (mappedProvider) {
         const md = _modelsDevMetadataSync(id, provider);
-        if (md) meta = mergeModelMetadata(meta, md, { preserveBaseCosts: metaFromPricingOverride });
+        if (md) meta = mergeModelMetadata(meta, md, {
+            preserveBaseCosts: metaFromPricingOverride,
+            preserveBaseLimits: metaFromPricingOverride,
+        });
     }
-    if (providerUsesEndpointScopedLimits(provider) && !providerNative && meta) {
+    if (providerUsesEndpointScopedLimits(provider) && !providerNative && meta && !metaFromPricingOverride) {
         // OAuth/backend routes can expose smaller account/backend windows than
         // the public API SKU. External catalogs remain useful for costs and
         // capabilities, but their limits are not authoritative for these routes.
         meta = { ...meta, contextWindow: null, outputTokens: null };
     }
     if (providerNative) {
-        meta = mergeModelMetadata(meta, providerNative, { preserveBaseCosts: true });
+        // Provider cache limits are only authoritative for endpoint-scoped
+        // routes (OAuth/backend), where the cached row reflects the live
+        // account/backend window. For every other provider the cache is a
+        // best-effort snapshot that can go stale, so it must NOT override the
+        // catalog/known limits — otherwise this function returns cache limits
+        // labelled as catalog data and downstream catalog-vs-cache staleness
+        // checks (context-meta, statusline route-meta) compare stale-vs-stale
+        // and can never correct an outdated cached window. Capabilities and
+        // gap-filling (base limit null) still flow through the merge.
+        const nativeLimitsAuthoritative = providerUsesEndpointScopedLimits(provider);
+        meta = mergeModelMetadata(meta, providerNative, {
+            preserveBaseCosts: true,
+            preserveBaseLimits: metaFromPricingOverride || !nativeLimitsAuthoritative,
+        });
     }
     return meta;
 }
@@ -444,8 +460,8 @@ function mergeModelMetadata(base, overlay, opts = {}) {
     if (!overlay) return base;
     return {
         ...base,
-        contextWindow: overlay.contextWindow || base.contextWindow || null,
-        outputTokens: overlay.outputTokens || base.outputTokens || null,
+        contextWindow: opts.preserveBaseLimits ? (base.contextWindow || overlay.contextWindow || null) : (overlay.contextWindow || base.contextWindow || null),
+        outputTokens: opts.preserveBaseLimits ? (base.outputTokens || overlay.outputTokens || null) : (overlay.outputTokens || base.outputTokens || null),
         // Provider-scoped models.dev rates beat generic base (LiteLLM) rates
         // when present — the overlay is the provider-scoped source, so a
         // non-null overlay value always wins over the generic fallback —

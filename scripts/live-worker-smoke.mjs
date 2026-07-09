@@ -37,7 +37,7 @@ async function main() {
   const workflowRules = readFileSync('src/workflows/default/WORKFLOW.md', 'utf8');
   assert(/Use `agent` for scoped implementation/i.test(leadToolRules), 'lead rules must direct scoped work to agents');
   assert(/PARALLEL across independent scopes/i.test(workflowRules), 'workflow rules must keep independent work parallel');
-  assert(/always start background tasks/i.test(AGENT_TOOL.description || '') && /distinct tags/i.test(AGENT_TOOL.description || '') && /completion notification/i.test(AGENT_TOOL.description || ''), 'agent tool description must expose async parallel tags');
+  assert(/always start background tasks/i.test(AGENT_TOOL.description || '') && /distinct tags?/i.test(AGENT_TOOL.description || '') && /completion notification/i.test(AGENT_TOOL.description || ''), 'agent tool description must expose async parallel tags');
 
   mkdirSync(dataDir, { recursive: true });
   await initProviders({ 'openai-oauth': { enabled: true } });

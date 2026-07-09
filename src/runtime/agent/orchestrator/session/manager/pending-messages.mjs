@@ -382,10 +382,18 @@ export function drainPendingMessages(sessionId) {
     // first. Reversing this order (buffer before disk) delivered newer
     // buffered sends ahead of older persisted ones after a restart.
     const persisted = [...drainPersistedPendingMessages(sessionId), ...takeBufferedPendingMessages(sessionId)];
-    // Discard deferred completion/task notifications instead of injecting them
-    // out-of-order into a future turn on resume. Genuine user/steering messages
-    // (plain strings / content entries) carry no marker and are kept in order.
-    const memoryKept = memory.filter((m) => !isCompletionNotificationEntry(m));
+    // Deferred completion/task notifications are dropped ONLY from the persisted
+    // (disk/buffer) path. Those are the entries a later session resume/restart
+    // would replay out-of-order into a future turn, once the in-memory queue is
+    // gone — discarding them there is the deliberate owner decision.
+    // Live in-memory completions (fallback/headless enqueues delivered within
+    // THIS process, e.g. the idle-resume kick that surfaces the model-visible
+    // body) are the intended payload and MUST survive the drain — filtering
+    // them here dropped the notification entirely. On a genuine resume the
+    // in-memory queue is empty, so keeping it only ever delivers live entries.
+    // Genuine user/steering messages carry no marker and are kept in order in
+    // both paths.
+    const memoryKept = memory;
     const persistedKept = persisted.filter((m) => !isCompletionNotificationEntry(m));
     const memoryVisible = modelVisiblePendingMessages(memoryKept);
     const persistedVisible = modelVisiblePendingMessages(persistedKept);
@@ -394,9 +402,15 @@ export function drainPendingMessages(sessionId) {
     const persistedTexts = persistedVisible.map(pendingMessageText);
     const prefixMatches = memoryVisible.every((m, i) => persistedTexts[i] === pendingMessageText(m));
     if (prefixMatches) return [...memoryVisible, ...persistedVisible.slice(memoryVisible.length)];
-    const out = persistedVisible.slice();
-    const seen = new Set(persistedTexts);
-    for (const m of memoryVisible) {
+    // The live in-memory queue holds the authoritative order — including the
+    // completion entries that were filtered out of the persisted path — so an
+    // interleaved [user, completion, user] must stay in that order and never be
+    // flattened to [user, user, completion] by rebuilding from persisted first.
+    // Start from the memory order and append only genuinely persisted-only
+    // entries; buffered duplicates of live sends are skipped by text.
+    const out = memoryVisible.slice();
+    const seen = new Set(out.map(pendingMessageText).filter(Boolean));
+    for (const m of persistedVisible) {
         const text = pendingMessageText(m);
         if (!text || seen.has(text)) continue;
         out.push(m);

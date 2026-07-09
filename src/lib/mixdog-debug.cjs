@@ -21,6 +21,71 @@ function isMixdogDebugEnabled() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Ship / dev mode
+// ---------------------------------------------------------------------------
+// Shipping (a published install) disables best-effort diagnostic trace/log IO
+// by default; a dev/debug run opts back in. This keeps a shipped process from
+// silently spooling agent-trace.jsonl / tool-failures.jsonl to disk while
+// leaving critical bounded logs and in-memory session metrics untouched.
+let _cachedFromSource = null;
+
+/** True when running from a git checkout (dev), not a published npm install. */
+function _detectFromSourceCheckout() {
+  if (_cachedFromSource !== null) return _cachedFromSource;
+  try {
+    // src/lib/mixdog-debug.cjs → repo root two levels up. Use module.filename
+    // instead of __dirname so esbuild's ESM TUI bundle does not emit a free
+    // __dirname identifier (ReferenceError in node ESM).
+    const moduleDir = module && module.filename
+      ? path.dirname(module.filename)
+      : process.cwd();
+    const roots = [
+      path.resolve(moduleDir, '..', '..'),
+      process.cwd(),
+    ];
+    _cachedFromSource = roots.some((root) => fs.existsSync(path.join(root, '.git')));
+  } catch {
+    _cachedFromSource = false;
+  }
+  return _cachedFromSource;
+}
+
+/**
+ * Resolve explicit ship/dev mode. Precedence:
+ *   1. MIXDOG_MODE=dev|development|debug            → 'dev'
+ *   2. MIXDOG_MODE=ship|shipping|prod|production    → 'ship'
+ *   3. MIXDOG_SHIP truthy                           → 'ship'
+ *   4. any debug flag (isMixdogDebugEnabled)        → 'dev'
+ *   5. default: from-source checkout → 'dev', else  → 'ship'
+ */
+function resolveMixdogMode() {
+  const raw = String(process.env.MIXDOG_MODE || '').trim().toLowerCase();
+  if (raw === 'dev' || raw === 'development' || raw === 'debug') return 'dev';
+  if (raw === 'ship' || raw === 'shipping' || raw === 'prod' || raw === 'production') return 'ship';
+  if (isTruthyEnv(process.env.MIXDOG_SHIP)) return 'ship';
+  if (isMixdogDebugEnabled()) return 'dev';
+  return _detectFromSourceCheckout() ? 'dev' : 'ship';
+}
+
+function isShippingMode() {
+  return resolveMixdogMode() === 'ship';
+}
+
+function isDevMode() {
+  return resolveMixdogMode() === 'dev';
+}
+
+/**
+ * Whether best-effort diagnostic (non-critical) trace/log file IO should run.
+ * Shipping default OFF; dev/debug ON. MIXDOG_DIAGNOSTICS truthy force-enables
+ * even under shipping. Per-writer *_DISABLE envs still force OFF at the writer.
+ */
+function isDiagnosticIOEnabled() {
+  if (isTruthyEnv(process.env.MIXDOG_DIAGNOSTICS)) return true;
+  return !isShippingMode();
+}
+
 /** Canonical / live logs — never subject to sibling GC. */
 const CANONICAL_PLUGIN_LOG_NAMES = new Set([
   'boot.log',
@@ -138,6 +203,10 @@ function appendSessionStartCriticalLog(dataDir, line) {
 
 module.exports = {
   isMixdogDebugEnabled,
+  resolveMixdogMode,
+  isShippingMode,
+  isDevMode,
+  isDiagnosticIOEnabled,
   pruneStalePluginDataLogSiblings,
   appendSessionStartCriticalLog,
   DEFAULT_STALE_LOG_SIBLING_MAX,

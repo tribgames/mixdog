@@ -25,7 +25,7 @@ export function createWorkflowAgentsApi(deps) {
   const {
     getConfig, getRoute, setRouteState, getSession, setSession, getConfigHasSecrets,
     cfgMod, reg, mgr, STANDALONE_DATA_DIR,
-    resolveRoute, lookupModelMeta, adoptConfig, saveConfigAndAdopt, displayConfig,
+    resolveRoute, lookupModelMeta, adoptConfig, saveConfigAndAdopt, displayConfig, ensureProvidersReady,
     agentRouteFromConfig, loadAgentDefinition, activeWorkflowId, listWorkflowPacks,
     loadWorkflowPack, workflowSummary,
     getOutputStyleStatusCached, seedOutputStyleStatusCache, scheduleOutputStyleSave,
@@ -204,7 +204,7 @@ export function createWorkflowAgentsApi(deps) {
       const id = normalizeAgentId(agentId);
       if (!id) throw new Error(`unknown agent "${agentId}"`);
       let selectedRoute = resolveRoute(getConfig(), { ...(next || {}) });
-      await reg.initProviders(ensureProviderEnabled(getConfig(), selectedRoute.provider));
+      await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
       const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta);
       selectedRoute = { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false };

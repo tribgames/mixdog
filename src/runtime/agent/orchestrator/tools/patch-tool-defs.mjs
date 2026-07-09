@@ -36,7 +36,7 @@ export const PATCH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        patch: { type: 'string', description: 'Patch text. V4A preferred; include all known edits in listed order.' },
+        patch: { type: 'string', description: 'Patch text. V4A preferred; use one file block per target file with exact current context; include all known edits in listed order.' },
         format: { type: 'string', enum: ['unified', 'v4a'], description: 'Auto-detected.' },
         base_path: { type: 'string', description: 'Repo root.' },
         dry_run: { type: 'boolean', description: 'Default false. true = validate only, no write.' },

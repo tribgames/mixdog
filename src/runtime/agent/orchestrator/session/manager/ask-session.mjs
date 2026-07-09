@@ -275,7 +275,22 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // so the statusline context gauge climbs as the turn accumulates
             // tool output instead of freezing at the pre-turn snapshot. Cleared
             // on turn commit (below) and in the ask finally.
+            //
+            // Also commit the user turn to the live session BEFORE the provider
+            // call. Previously the prompt only reached session.messages after
+            // agentLoop returned. If a worker/lead session was closed or aborted
+            // before first response, closeSession() wrote a tombstone from the
+            // still-system-only session and the handoff brief vanished forever
+            // (agent row showed messages=2). Pre-committing makes cancellation,
+            // close, and post-mortem files retain the exact user task; completion
+            // below overwrites this provisional transcript with the fully mutated
+            // outgoing history and appends the assistant result, so no duplicate
+            // user turn is introduced.
+            session.messages = sanitizeSessionMessagesForModel(outgoing);
             session.liveTurnMessages = outgoing;
+            saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
+                try { process.stderr.write(`[session] preflight user-turn save failed: ${err?.message || err}\n`); } catch {}
+            });
             // Per-turn injected-context trace row (complements kind:"usage").
             // Cheap byte-length accounting — no hashing, no payload bodies.
             // Honors the same MIXDOG_AGENT_TRACE_DISABLE gate as usage rows;

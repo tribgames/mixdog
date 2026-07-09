@@ -53,6 +53,9 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           CI: "true"
+          # Shipping intent, explicit at the publish boundary. Runtime default
+          # already ships (no .git in a published install); this documents it.
+          MIXDOG_MODE: "ship"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

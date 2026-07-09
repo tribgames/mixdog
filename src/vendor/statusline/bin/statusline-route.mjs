@@ -15,6 +15,7 @@ import {
   compactBoundaryDenominator,
   defaultEffectiveContextWindowPercent,
 } from '../src/gateway/route-meta.mjs';
+import { getModelMetadataSync } from '../../../runtime/agent/orchestrator/providers/model-catalog.mjs';
 
 function positiveInt(value) {
   const n = parseInt(String(value || ''), 10);
@@ -196,6 +197,8 @@ function routeContextMeta(provider, info = {}, inherited = {}) {
   const rawContextWindow = firstPositiveWindow(
     inherited.rawContextWindow,
     inherited.raw_context_window,
+    info.context_window,
+    info.max_context_window,
     info.contextWindow,
     info.maxContextWindow,
     info.max_input_tokens,
@@ -463,6 +466,26 @@ function configuredGatewayStatus(options = {}) {
     ? presets.find(p => p?.provider === provider && p?.model === model)
     : null);
   const info = loadCachedModel(provider, model) || {};
+  // Catalog/known metadata is authoritative for the context window. The cached
+  // model file can hold a STALE window (e.g. Opus 4.8 cached at 272k after its
+  // window grew to the catalog's 1M); routeContextMeta reads info.contextWindow,
+  // so reconcile it against the catalog before deriving the boundary. A live
+  // provider API window on the cached row (context_window / max_context_window)
+  // still outranks the catalog.
+  const _catalog = getModelMetadataSync(model, provider);
+  const _catalogWindow = num(
+    _catalog?.contextWindow
+      ?? _catalog?.maxContextWindow
+      ?? _catalog?.context_window
+      ?? _catalog?.max_context_window,
+    0,
+  );
+  const _apiWindow = num(info?.context_window ?? info?.max_context_window, 0);
+  const _cachedWindow = num(info?.contextWindow ?? info?.maxContextWindow, 0);
+  if (!_apiWindow && _catalogWindow > 0 && _cachedWindow !== _catalogWindow) {
+    info.contextWindow = _catalogWindow;
+    info.maxContextWindow = _catalogWindow;
+  }
   const effort = aliasTarget
     ? cleanString(aliasTarget.effort || gateway.effort || gateway.displayEffort || preset?.effort)
     : inherit
@@ -546,8 +569,18 @@ export function loadGatewayStatus(options = {}) {
   const routeMatchesConfigured = configured
     ? configured.provider === active.gateway_provider && configured.model === active.gateway_model
     : true;
+  const activeRouteBoundary = compactBoundaryForStatus({
+    autoCompactTokenLimit: active.gateway_auto_compact_token_limit,
+    contextWindow: active.gateway_context_window,
+    rawContextWindow: active.gateway_raw_context_window,
+  });
+  const configuredRouteBoundary = configured ? compactBoundaryForStatus(configured) : null;
+  const routeBoundaryMatchesConfigured = !configured
+    || !configuredRouteBoundary
+    || !activeRouteBoundary
+    || configuredRouteBoundary === activeRouteBoundary;
   const metricsOwnCurrentSession = !!(sessionStatus || gatewayCcSessionMatch || gatewayTranscriptMatch || activeTranscriptMatch);
-  const metricsMatch = gatewayClientHostMatch && metricsOwnCurrentSession && routeMatchesConfigured;
+  const metricsMatch = gatewayClientHostMatch && metricsOwnCurrentSession && routeMatchesConfigured && routeBoundaryMatchesConfigured;
   // Strong ownership = this session's own status file or an explicit session/
   // transcript id match from the gateway advert. `activeTranscriptMatch` (the
   // global active-instance transcript merely naming the current session) is NOT
@@ -555,11 +588,34 @@ export function loadGatewayStatus(options = {}) {
   // session while its stored gateway metrics (context pct, last usage) still
   // belong to the previous one.
   const strongSessionOwnership = !!(sessionStatus || gatewayCcSessionMatch || gatewayTranscriptMatch);
-  const lastUsage = gatewayClientHostMatch && strongSessionOwnership && active.gateway_last_usage && typeof active.gateway_last_usage === 'object'
+  // A model switch can keep strong session ownership while the active gateway
+  // advert still contains the previous route's lastUsage.compact. Do not let
+  // that stale compact boundary override the configured/current route window.
+  const lastUsage = gatewayClientHostMatch && strongSessionOwnership && routeMatchesConfigured && routeBoundaryMatchesConfigured && active.gateway_last_usage && typeof active.gateway_last_usage === 'object'
     ? active.gateway_last_usage
     : null;
-  const lastCompact = lastUsage?.compact && typeof lastUsage.compact === 'object'
+  const rawLastCompact = lastUsage?.compact && typeof lastUsage.compact === 'object'
     ? lastUsage.compact
+    : null;
+  // A model/window switch updates the active route fields (context/raw window)
+  // but can leave the PREVIOUS route's boundary inside gateway_last_usage.compact.
+  // routeBoundaryMatchesConfigured only checks the active route fields, so that
+  // stale compact telemetry would otherwise survive and, via compactBoundaryTokens,
+  // resurrect the previous boundary in compactBoundaryForStatus below. Drop the
+  // compact telemetry when its own implied boundary contradicts the active route
+  // window.
+  const lastCompactBoundary = rawLastCompact
+    ? compactBoundaryForStatus({}, rawLastCompact)
+    : null;
+  const lastCompact = rawLastCompact
+    && (!activeRouteBoundary || !lastCompactBoundary || lastCompactBoundary === activeRouteBoundary)
+    ? rawLastCompact
+    : null;
+  const statusLastUsage = lastUsage
+    ? {
+      ...lastUsage,
+      compact: lastCompact,
+    }
     : null;
   const contextBoundary = compactBoundaryForStatus({
     autoCompactTokenLimit: active.gateway_auto_compact_token_limit,
@@ -616,7 +672,7 @@ export function loadGatewayStatus(options = {}) {
     contextUsedPct: metricsMatch
       ? recomputedContextUsedPct ?? (strongSessionOwnership ? num(active.gateway_context_used_pct, null) : null)
       : null,
-    lastUsage,
+    lastUsage: statusLastUsage,
     quotaWindows: activeQuotaWindows.length ? activeQuotaWindows : (configuredStatus?.quotaWindows || []),
     // Provenance for monotonic hysteresis: live active-instance windows are
     // own-instance data timestamped by the advert's updatedAt; otherwise inherit

@@ -757,8 +757,9 @@ function pendingAndFailedMcpServers(mcpStatus) {
 // tools PLUS pending/failed MCP servers. No listing, no ranking, no substring
 // filter. `options.mcpStatus` is the runtime getter for per-server status.
 export function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
-  const catalog = Array.isArray(session?.deferredToolCatalog)
-    ? session.deferredToolCatalog
+  const unionCatalog = deferredCatalogUnion(session);
+  const catalog = unionCatalog.length
+    ? unionCatalog
     : (Array.isArray(session?.tools) ? session.tools : []);
   const requestedNames = parseLoadToolNames(args);
   const { pending: pendingMcpServers, failed: failedMcpServers } = pendingAndFailedMcpServers(options?.mcpStatus);

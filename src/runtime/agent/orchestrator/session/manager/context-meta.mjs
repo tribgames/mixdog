@@ -6,7 +6,6 @@ import {
     COMPACT_TYPE_SEMANTIC,
     COMPACT_TYPE_RECALL_FASTTRACK,
     CONTEXT_SHARE_RATIO,
-    DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT,
     COMPACT_TARGET_MIN_TOKENS,
 } from '../compact.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
@@ -116,13 +115,13 @@ function compactTargetTokensForBoundary(boundaryTokens) {
     return Math.max(1, Math.min(boundary, Math.max(minTarget, byRatio)));
 }
 function defaultEffectiveContextWindowPercent(provider) {
-    // Gateway/statusline route metadata reserves a universal 10% headroom from
-    // the raw catalog window. Keep session compaction on the same effective
-    // capacity so /context, the TUI statusline, and gateway telemetry agree.
+    // The session boundary is the model's full raw window. Headroom is applied
+    // by resolveSessionCompactPolicy instead: agent semantic sessions compact at
+    // the buffered trigger (default 90%), while main/user recall-fasttrack
+    // sessions compact on the boundary itself (100%).
     void provider;
-    return DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
+    return 100;
 }
-const PROVIDER_SYNTHETIC_CONTEXT_DEFAULT = 1_000_000;
 function providerRawContextWindow(info, catalogInfo) {
     if (!info || typeof info !== 'object') return null;
     const fromApiFields = positiveContextWindow(info.context_window)
@@ -130,17 +129,18 @@ function providerRawContextWindow(info, catalogInfo) {
     if (fromApiFields) return fromApiFields;
     const fromCache = positiveContextWindow(info.contextWindow)
         || positiveContextWindow(info.maxContextWindow);
-    if (!fromCache) return null;
     const catalogWindow = positiveContextWindow(catalogInfo?.contextWindow)
         || positiveContextWindow(catalogInfo?.maxContextWindow)
         || positiveContextWindow(catalogInfo?.context_window)
         || positiveContextWindow(catalogInfo?.max_context_window);
-    if (fromCache === PROVIDER_SYNTHETIC_CONTEXT_DEFAULT
-        && catalogWindow
-        && fromCache !== catalogWindow) {
-        return null;
-    }
-    return fromCache;
+    // Catalog/known metadata is authoritative for models present in the
+    // catalog. A stale provider cache can hold an outdated window (e.g. Opus
+    // 4.8 cached at 272k after its window grew to the catalog's 1M, or a
+    // synthetic 1M placeholder for a smaller real model); whenever the catalog
+    // disagrees with the cached snapshot, trust the catalog value rather than
+    // the cache. Only live API fields (handled above) outrank the catalog.
+    if (catalogWindow && fromCache !== catalogWindow) return catalogWindow;
+    return fromCache || null;
 }
 export function resolveSessionContextMeta(provider, model, seed = {}) {
     const info = typeof provider?.getCachedModelInfo === 'function'

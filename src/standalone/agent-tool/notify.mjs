@@ -37,7 +37,20 @@ export function createNotify(mgr) {
         try {
           const result = upstream(text, meta);
           ownerDelivered = result !== false;
-          if (ownerDelivered) Promise.resolve(result).catch(() => {});
+          if (ownerDelivered && result && typeof result.then === 'function') {
+            // Async notifyFn: `ownerDelivered` is optimistic while the delivery
+            // promise is in flight — settlement decides the real outcome. On a
+            // reject or explicit false/0 resolve, rescue via the owner-session
+            // enqueue fallback so the completion is not silently swallowed. A
+            // truthy resolve never enqueues, preserving exact-once delivery.
+            Promise.resolve(result).then((settled) => {
+              if ((settled === false || settled === 0) && ownerSessionId) {
+                enqueueCompletionMessage(ownerSessionId, text, meta);
+              }
+            }).catch(() => {
+              if (ownerSessionId) enqueueCompletionMessage(ownerSessionId, text, meta);
+            });
+          }
         } catch {
           ownerDelivered = false;
         }

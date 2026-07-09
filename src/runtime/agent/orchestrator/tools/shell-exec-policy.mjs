@@ -1,6 +1,6 @@
 'use strict';
 
-import { getDestructiveCommandWarning } from './destructive-warning.mjs';
+import { getDestructiveCommandWarning, stripQuotedAndHeredoc } from './destructive-warning.mjs';
 import { isBlockedCommand, WRAPPER_NAMES } from './shell-policy.mjs';
 
 /** @typedef {'allow'|'warn-prompt'|'deny'} ExecPolicyDecision */
@@ -11,7 +11,7 @@ const EXEC_POLICY_DENY_PATTERNS = [
   /\b(?:sh|bash|zsh|dash|pwsh|powershell)(?:\.exe)?\s+<\s*\(/i,
   /\bInvoke-Expression\b/i,
   /\biex\s+/i,
-  /\bStart-Process\b[^\n]*\b-Verb\s+RunAs\b/i,
+  /\bStart-Process\b[^\n]*\s-Verb\s+RunAs\b/i,
 ];
 
 const EXEC_POLICY_DENY_COMMANDS = new Set([
@@ -45,8 +45,12 @@ export function classifyExecPolicy(command) {
   if (isBlockedCommand(text)) {
     return { decision: 'deny', reason: 'destructive or system-destabilising pattern (hard block)' };
   }
+  // Hard-deny only real executable syntax. The policy scanner also sees user
+  // search strings / regex literals (e.g. `-match 'powershell|bash|grep'`), so
+  // high-risk pipe-to-shell / IEX / RunAs patterns must ignore quoted spans.
+  const executableText = stripQuotedAndHeredoc(text);
   for (const pat of EXEC_POLICY_DENY_PATTERNS) {
-    if (pat.test(text)) {
+    if (pat.test(executableText)) {
       return { decision: 'deny', reason: 'high-risk shell invocation (pipe-to-shell, elevated launcher, or remote-exec pattern)' };
     }
   }

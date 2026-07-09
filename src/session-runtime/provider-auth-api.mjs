@@ -24,10 +24,16 @@ export function createProviderAuthApi({
   reloadFullConfig,
   invalidateProviderCaches,
   warmProviderModelCache,
+  refreshProviderCatalogs,
   cachedProviderSetup,
   getUsageDashboard,
   collectProviderModels,
 }) {
+  function refreshProviderCatalogsSoon() {
+    if (typeof refreshProviderCatalogs !== 'function') return;
+    try { void Promise.resolve(refreshProviderCatalogs()).catch(() => {}); } catch { /* best-effort */ }
+  }
+
   return {
     listProviders() {
       return renderProviderStatus(displayConfig());
@@ -44,6 +50,7 @@ export function createProviderAuthApi({
         : await loginOAuthProvider(cfgMod, providerId);
       reloadFullConfig();
       invalidateProviderCaches();
+      refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
     },
@@ -51,6 +58,7 @@ export function createProviderAuthApi({
       const result = await loginOAuthProvider(cfgMod, providerId);
       reloadFullConfig();
       invalidateProviderCaches();
+      refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
     },
@@ -63,6 +71,7 @@ export function createProviderAuthApi({
           reloadFullConfig();
           if (completed) {
             invalidateProviderCaches();
+            refreshProviderCatalogsSoon();
             warmProviderModelCache();
           }
           return completed;
@@ -71,6 +80,7 @@ export function createProviderAuthApi({
           const completed = await result.completeCode(code);
           reloadFullConfig();
           invalidateProviderCaches();
+          refreshProviderCatalogsSoon();
           warmProviderModelCache();
           return completed;
         },
@@ -80,6 +90,7 @@ export function createProviderAuthApi({
       const result = saveProviderApiKey(cfgMod, providerId, secret);
       reloadFullConfig();
       invalidateProviderCaches();
+      refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
     },
@@ -105,6 +116,7 @@ export function createProviderAuthApi({
       const result = setLocalProvider(cfgMod, providerId, opts);
       reloadFullConfig();
       invalidateProviderCaches();
+      refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
     },
@@ -112,6 +124,7 @@ export function createProviderAuthApi({
       const result = forgetProviderAuth(cfgMod, providerId);
       reloadFullConfig();
       invalidateProviderCaches();
+      refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
     },

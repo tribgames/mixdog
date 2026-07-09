@@ -784,21 +784,29 @@ export class GeminiProvider {
         // exact value the trace already recorded (including the
         // cachedFallback when cachedContentTokenCount / total_cached_tokens
         // under-reports).
-        let cachedTokens = 0;
+        let resolvedUsage = null;
         if (um) {
             const {
                 inputTokens,
                 reportedCachedTokens,
                 cachedFallbackTokens,
-                cachedTokens: resolvedCachedTokens,
+                cachedTokens,
                 cacheTokenSource,
             } = _resolveGeminiCacheUsage({
                 usageMetadata: um,
                 cachedContent,
                 providerState: opts.providerState,
             });
-            cachedTokens = resolvedCachedTokens;
-            const outputTokens = (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0);
+            const outputTokens = (um.candidatesTokenCount || um.candidates_token_count || 0)
+                + (um.thoughtsTokenCount || um.thoughts_token_count || 0);
+            resolvedUsage = {
+                inputTokens,
+                outputTokens,
+                cachedTokens,
+                // Gemini promptTokenCount is total (cachedContentTokenCount is
+                // a subset). Alias the resolver's normalized total directly.
+                promptTokens: inputTokens,
+            };
             if (cachedContent && inputTokens > 0 && cachedTokens <= 0) {
                 try {
                     appendAgentTrace({
@@ -820,11 +828,11 @@ export class GeminiProvider {
             traceAgentUsage({
                 sessionId: opts.sessionId || opts.session?.id || null,
                 iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,
-                inputTokens,
-                outputTokens,
-                cachedTokens,
+                inputTokens: resolvedUsage.inputTokens,
+                outputTokens: resolvedUsage.outputTokens,
+                cachedTokens: resolvedUsage.cachedTokens,
                 cacheWriteTokens: 0,
-                promptTokens: inputTokens,
+                promptTokens: resolvedUsage.promptTokens,
                 model: useModel,
                 modelDisplay: useModel,
                 rawUsage: um,
@@ -837,21 +845,9 @@ export class GeminiProvider {
             toolCalls,
             citations: citations.length ? citations : undefined,
             providerState: opts.providerState,
-            usage: um ? (() => {
-                const input = um.promptTokenCount || um.totalTokenCount || 0;
-                return {
-                    inputTokens: input,
-                    outputTokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0),
-                    // Use the already-computed cachedTokens (with
-                    // cache-create fallback applied) rather than the raw
-                    // metadata field, so the returned usage matches what
-                    // traceAgentUsage recorded for this same call.
-                    cachedTokens,
-                    // Gemini promptTokenCount is total (cachedContentTokenCount
-                    // is a subset). Alias directly into promptTokens.
-                    promptTokens: input,
-                };
-            })() : undefined,
+            // Use the same normalized usage object traceAgentUsage recorded,
+            // including snake_case SDK aliases and cache-create fallback.
+            usage: resolvedUsage || undefined,
         };
     }
 

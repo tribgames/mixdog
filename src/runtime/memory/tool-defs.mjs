@@ -30,13 +30,13 @@ export const TOOL_DEFS = [
     name: 'recall',
     title: 'Recall',
     annotations: { title: 'Recall', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    description: 'Retrieve stored memory/session history. Call when a task ties to prior work — resumes, continuations, or references to earlier decisions/messages. Do not call as a reflexive pre-step, to verify a just-made decision, or before storing memory. Query is topic/semantic search, not regex. Patterns: period:"last" for previous conversation; sessionId without query for current session; period:"3h"/"30m"/"24h" for recent; YYYY-MM-DD, date ranges, or HH:MM~HH:MM for time windows; id for exact follow-up.',
+    description: 'Retrieve stored memory/session history. Call when a task ties to prior work — resumes, continuations, or references to earlier decisions/messages. Do not call as a reflexive pre-step, to verify a just-made decision, or before storing memory. Query is topic/semantic search, not regex. Patterns: period:"last" browses recent sessions; +query narrows topic; sessionId without query for current session; period:"3h"/"30m"/"24h" for recent; YYYY-MM-DD, date ranges, or HH:MM~HH:MM for time windows; id for exact follow-up.',
     inputSchema: {
       type: 'object',
       properties: {
         query: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Search text, or array for independent fan-out queries.' },
         id: { anyOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' }, minItems: 1 }], description: 'Exact #id(s) from recall. Do not invent ids.' },
-        period: { type: 'string', description: "last (recent sessions grouped, newest-active first; limit=session count [default 5], offset=session paging), Nm/Nh/Nd (rolling), today/yesterday/this_week/last_week, all, YYYY-MM-DD, YYYY-MM-DD~YYYY-MM-DD, HH:MM~HH:MM (today), or 'YYYY-MM-DD HH:MM~HH:MM'." },
+        period: { type: 'string', description: "last (recent sessions; +query topic-filter; limit=session count [default 5], offset=session paging), Nm/Nh/Nd (rolling), today/yesterday/this_week/last_week, all, YYYY-MM-DD, YYYY-MM-DD~YYYY-MM-DD, HH:MM~HH:MM (today), or 'YYYY-MM-DD HH:MM~HH:MM'." },
         limit: { type: 'number', description: 'Max entries.' },
         offset: { type: 'number', description: 'Skip entries.' },
         sort: { type: 'string', enum: ['importance', 'date'], description: 'importance or date.' },
@@ -63,7 +63,7 @@ export const TOOL_DEFS = [
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Search text.' },
-        period: { type: 'string', description: "last, Nm/Nh/Nd, today/yesterday/this_week/last_week, all, YYYY-MM-DD, date range, HH:MM~HH:MM (today), or 'YYYY-MM-DD HH:MM~HH:MM'." },
+        period: { type: 'string', description: "last (recent sessions; +query topic-filter), Nm/Nh/Nd, today/yesterday/this_week/last_week, all, YYYY-MM-DD, date range, HH:MM~HH:MM (today), or 'YYYY-MM-DD HH:MM~HH:MM'." },
         sort: { type: 'string', enum: ['date', 'importance'], description: 'date or importance.' },
         category: { anyOf: [{ type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'] }, { type: 'array', items: { type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'] }, minItems: 1 }], description: 'Category filter.' },
         limit: { type: 'number', default: 30, description: 'Max entries.' },

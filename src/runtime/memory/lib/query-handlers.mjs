@@ -477,13 +477,14 @@ export function createQueryHandlers({
     const applyFreshness = !isCalendarPeriod
 
     // period='last': no time window and no session exclusion — 'last' is a
-    // plain "walk back through ALL prior conversation, newest first" browse.
+    // recent-session browse; with a query, filter those recent sessions by
+    // topic instead of falling through to the unbounded semantic search path.
     // No boot-timestamp cap (the old cap hid every session that ran while a
     // long-lived daemon stayed up), no gap-bounded burst, no current-session
     // filter: limit/offset page through history and the grouped renderer
     // separates sessions. temporal stays unbounded (mode marker only).
 
-    if (query) {
+    if (query && temporal?.mode !== 'last') {
       const _t0 = Date.now()
       if (signal?.aborted) throw signal.reason ?? new Error('aborted')
       let queryVector = null
@@ -673,6 +674,20 @@ export function createQueryHandlers({
     if (temporal?.mode === 'last') {
       const sessionCount = Number.isFinite(requestedLimit) ? limit : 5
       const PER_SESSION_ROW_CAP = 10
+      const PER_SESSION_SEARCH_CAP = 50
+      const queryTerms = sessionRecallTerms(query)
+      const matchesQueryTerms = (row) => {
+        if (queryTerms.length === 0) return true
+        const rowText = `${row?.content ?? ''} ${row?.element ?? ''} ${row?.summary ?? ''}`.toLowerCase()
+        if (queryTerms.some((term) => rowText.includes(term))) return true
+        if (Array.isArray(row?.members)) {
+          return row.members.some((member) => {
+            const memberText = `${member?.content ?? ''} ${member?.element ?? ''} ${member?.summary ?? ''}`.toLowerCase()
+            return queryTerms.some((term) => memberText.includes(term))
+          })
+        }
+        return false
+      }
       const excludeStatuses = includeArchived ? [] : ['archived']
       const VALID_LAST_CATS = new Set(['rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue'])
       const catList = category == null
@@ -684,7 +699,7 @@ export function createQueryHandlers({
       //    the fill draws from — roots (status-filtered) + unchunked raw
       //    leaves, member rows excluded — so a session ranked here can never
       //    fill empty (e.g. an archived-root session whose only surviving rows
-      //    are members). projectScope + excludeStatuses + category + promoted
+      //    are members). projectScope + excludeStatuses + promoted
       //    exclusion all match the fill filters below.
       const selWhere = [
         'session_id IS NOT NULL',
@@ -701,10 +716,6 @@ export function createQueryHandlers({
       if (excludeStatuses.length > 0) {
         const ph = excludeStatuses.map((s) => { selParams.push(s); return `$${selParams.length}` }).join(',')
         selWhere.push(`(status IS NULL OR status NOT IN (${ph}))`)
-      }
-      if (catList.length > 0) {
-        const ph = catList.map((c) => { selParams.push(c); return `$${selParams.length}` }).join(',')
-        selWhere.push(`category IN (${ph})`)
       }
       for (const c of buildPromotedExclusionClauses()) selWhere.push(c)
       selParams.push(sessionCount, offset)
@@ -724,14 +735,15 @@ export function createQueryHandlers({
       for (const s of sessRows) {
         const sid = String(s?.session_id || '').trim()
         if (!sid) continue
-        const sf = { limit: PER_SESSION_ROW_CAP, session_id: sid, projectScope, sort: 'date' }
+        const perSessionFetchCap = queryTerms.length > 0 ? PER_SESSION_SEARCH_CAP : PER_SESSION_ROW_CAP
+        const sf = { limit: perSessionFetchCap, session_id: sid, projectScope, sort: 'date' }
         if (includeMembers) sf.includeMembers = true
         if (excludeStatuses.length > 0) sf.excludeStatuses = excludeStatuses
         if (catList.length > 0) sf.category = catList
         const sRows = await retrieveEntries(db, sf)
         let merged = sRows
         if (includeRaw) {
-          const rawRows = await readRawRowsInWindow(db, null, Date.now(), PER_SESSION_ROW_CAP, { projectScope, sessionId: sid })
+          const rawRows = await readRawRowsInWindow(db, null, Date.now(), perSessionFetchCap, { projectScope, sessionId: sid, terms: queryTerms })
           const seenIds = new Set(sRows.map((r) => Number(r.id)))
           for (const r of sRows) if (Array.isArray(r.members)) for (const m of r.members) seenIds.add(Number(m.id))
           // readRawRowsInWindow carries no category filter, so a category-
@@ -754,9 +766,12 @@ export function createQueryHandlers({
           if (newRaw.length > 0) {
             merged = [...sRows, ...newRaw]
             merged.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0) || (Number(b.id) || 0) - (Number(a.id) || 0))
-            merged = merged.slice(0, PER_SESSION_ROW_CAP)
           }
         }
+        if (queryTerms.length > 0) {
+          merged = merged.filter(matchesQueryTerms)
+        }
+        merged = merged.slice(0, PER_SESSION_ROW_CAP)
         for (const r of merged) allRows.push(r)
       }
       const _currentSessionHint = String(args?.currentSessionId || '').trim()

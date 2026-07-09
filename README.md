@@ -179,6 +179,12 @@ Useful environment toggles:
 - `MIXDOG_DISABLE_MODEL_PREFETCH=1` — disable background provider model prefetch.
 - `MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS=<ms>` — tune model-catalog warmup delay.
 - `MIXDOG_MODEL_STALE_MONTHS=<months>` — tune catalog staleness filtering.
+- `MIXDOG_MODE=ship|dev` — explicit shipping/dev mode. Shipping disables
+  best-effort diagnostic trace/log file IO (agent-trace.jsonl,
+  tool-failures.jsonl) by default; dev/debug opts back in. Default is `dev`
+  from a git checkout and `ship` for a published install.
+- `MIXDOG_DIAGNOSTICS=1` — force diagnostic trace/log file IO on even under
+  shipping mode.
 
 ## Project layout
 

@@ -26,12 +26,20 @@ function _shellMaxTimeoutMs() {
     return Math.max(parsed > 0 ? parsed : 600_000, _shellDefaultTimeoutMs());
 }
 
+// PowerShell-only syntax cheat, injected into the shell tool description when
+// the host default shell is PowerShell (win32). process.platform is fixed for
+// the process lifetime, so this is evaluated once at module load.
+const _shellSyntaxCheat =
+    process.platform === 'win32'
+        ? ' PowerShell: grep→Select-String, tail→Get-Content -Tail, head→Get-Content -TotalCount, /c/→C:\\, && 미지원 시 ; 사용, $PID 예약.'
+        : '';
+
 export const BUILTIN_TOOLS = [
     {
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read known file path(s) with optional numeric offset+limit windows. Batch paths/regions as real arrays in one call. Not for directory listing.',
+        description: 'Read verified file path(s). Unknown path → find first. Batch paths/regions as real arrays in one call. Not for directory listing.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -56,7 +64,7 @@ export const BUILTIN_TOOLS = [
                             minItems: 1,
                         },
                     ],
-                    description: 'File path. Batch spans via path[] or {path,offset,limit}[] regions. Pass arrays directly; JSON strings are legacy recovery only.',
+                    description: 'Verified file path. Batch spans via path[] or {path,offset,limit}[] regions. Pass arrays directly; JSON strings are legacy recovery only.',
                 },
                 offset: { type: 'number', minimum: 0, description: 'Numeric lines to skip before reading; 0 starts at line 1. Continue with offset:N.' },
                 limit: { type: 'number', minimum: 1, description: 'Numeric max lines to return after offset.' },
@@ -67,7 +75,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs or change system state. Set shell: powershell or bash. Not for reading, listing, or searching files. Batch independent commands: ;/&& in one call, or parallel calls in the same turn. ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
+        description: `Run programs or change system state. Set shell: powershell or bash. Not for reading, listing, or searching files. Batch independent commands: ;/&& in one call, or parallel calls in the same turn.${_shellSyntaxCheat} ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -101,7 +109,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Exact text/regex in a KNOWN scope. files_with_matches/count for broad anchors, content_with_context for narrow answers.',
+        description: 'Exact text/regex in a verified file/dir scope. Unknown scope → find/glob first. files_with_matches/count for broad anchors, content_with_context for narrow answers.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -117,7 +125,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Known file or dir. Array = several scopes.',
+                    description: 'Verified file or dir. Array = several scopes.',
                 },
                 glob: {
                     anyOf: [
@@ -140,7 +148,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by exact glob. Batch patterns and roots as arrays in one call.',
+        description: 'Find files by exact glob from verified roots. Batch patterns and roots as arrays in one call.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -168,7 +176,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by partial path/name, searching dot-directories (e.g. .git-adjacent, .mixdog) too. The right tool for locating a file at an unknown, possibly machine-wide path — run it from a verified broad root. Returns verified paths. Batch names as query[].',
+        description: 'Find files by partial path/name, including dot-directories. Use for unverified path/name guesses; returns verified paths. Batch query[].',
         inputSchema: {
             type: 'object',
             properties: {
@@ -189,7 +197,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'List known directory entries. Batch dirs as path[].',
+        description: 'List verified directories. Unknown dir → find first. Batch dirs as path[].',
         inputSchema: {
             type: 'object',
             properties: {
@@ -198,7 +206,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Directory, or path[] to list several directories in one call.',
+                    description: 'Verified directory, or path[] to list several directories in one call.',
                 },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip N entries for paging.' },
