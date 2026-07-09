@@ -36,6 +36,17 @@ export function createToolCardResults({
   buildAgentJobCardPatch,
   agentStatusState,
 }) {
+  // A finalized/failed non-aggregate card must never carry an empty body:
+  // an empty-body error card is classified fully-failed-with-no-body upstream
+  // (transcript-tool-failures) and null-renders (card disappears). Stamp a
+  // minimal non-empty fallback, preferring meaningful text, then Exit N, then
+  // a bare Failed status.
+  function finalizedErrorFallbackBody(body, text, exitCode) {
+    if (String(body || '').trim()) return body;
+    if (String(text || '').trim()) return text;
+    if (exitCode != null) return `Exit ${exitCode}`;
+    return 'Failed';
+  }
   function patchToolItem(id, patch) {
     const prev = getState().items.find((it) => it.id === id);
     const ok = patchItem(id, patch);
@@ -147,7 +158,10 @@ export function createToolCardResults({
     group.results.push({ text, isError, isExitError, exitCode });
     toolGroups.set(card.itemId, group);
     const resultText = groupedToolResultText(group);
-    const displayResult = toolGroupedDisplayFallback(resultText, text, rawText);
+    let displayResult = toolGroupedDisplayFallback(resultText, text, rawText);
+    if (group.errors > 0 && !String(displayResult || '').trim()) {
+      displayResult = finalizedErrorFallbackBody(displayResult, text, exitCode);
+    }
     const patch = {
       result: displayResult,
       text: displayResult,
@@ -173,6 +187,11 @@ export function createToolCardResults({
       // The agent fields win (final display) while patch keeps the completion
       // metadata (count/completedCount/completedAt/rawResult) for expand.
       Object.assign(patch, buildAgentJobCardPatch(card.itemId, rawText, isError));
+      // Re-apply the empty-body guard: buildAgentJobCardPatch may overwrite the
+      // stamped fallback with an empty agent-job body, letting the card vanish.
+      if (group.errors > 0 && !String(patch.result || '').trim()) {
+        patch.result = patch.text = finalizedErrorFallbackBody(patch.result, text, exitCode);
+      }
     }
     patchToolItem(card.itemId, patch);
     card.done = true;
@@ -278,6 +297,10 @@ export function createToolCardResults({
       group.completed = Math.min(group.count, group.completed + 1);
       toolGroups.set(card.itemId, group);
       let resultText = groupedToolResultText(group);
+      if (group.errors > 0 && !String(resultText || '').trim()) {
+        const exitRec = (group.results || []).find((r) => r && r.isExitError);
+        resultText = finalizedErrorFallbackBody(resultText, exitRec?.text, exitRec?.exitCode);
+      }
       if (cancelled) {
         const currentItem = getState().items.find((it) => it.id === card.itemId);
         resultText = withCancelledResultMarker(resultText, currentItem);

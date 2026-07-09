@@ -47,6 +47,22 @@ export function notificationQueueKey(event, text, parsed) {
   return [id, type || fallbackKind, status, hasBody].filter(Boolean).join(':');
 }
 
+/**
+ * Stable dedup key for the execution transcript CARD. Unlike notificationQueueKey
+ * it drops the volatile type/status dimensions so a duplicate completion re-arriving
+ * with a different type/status (same execution_id) cannot push a second card. The
+ * hasBody dimension is preserved so a bodyless preview (b0) and the real result (b1)
+ * remain distinct cards (intentional preview→result upgrade). Falls back to
+ * notificationQueueKey when no execution_id is present.
+ */
+export function executionCardKey(event, text, parsed) {
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const executionId = String(meta.execution_id || '').trim();
+  if (!executionId) return notificationQueueKey(event, text, parsed);
+  const hasBody = /\n\s*\n[\s\S]*\S/.test(String(text || '')) ? 'b1' : 'b0';
+  return `card:${executionId}:${hasBody}`;
+}
+
 export function isExecutionNotification(event, text, parsed) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
   if (meta.execution_id || meta.execution_surface) return true;

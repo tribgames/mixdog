@@ -21,9 +21,14 @@ import {
 import { toolErrorDisplay } from './tool-result-text.mjs';
 import {
   notificationQueueKey,
+  executionCardKey,
   resolveTuiRuntimeNotificationDelivery,
 } from './notification-plan.mjs';
 import { readImageAttachmentFromPath } from '../paste-attachments.mjs';
+import {
+  isDeliveredCompletion,
+  recordDeliveredCompletion,
+} from '../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
 
 // Channel inbound images arrive as a JSON-array-of-paths meta value (stringified
 // across the notify IPC boundary). Parse defensively; a malformed value simply
@@ -136,15 +141,29 @@ export function createAgentJobFeed({
         return true;
       }
       if (delivery.action === 'execution-ui') {
-        const firstDelivery = !notificationKey || !displayedExecutionNotificationKeys.has(notificationKey);
+        const cardKey = executionCardKey(event, text, parsed);
+        const firstDelivery = !cardKey || !displayedExecutionNotificationKeys.has(cardKey);
         if (firstDelivery) {
-          if (notificationKey) displayedExecutionNotificationKeys.add(notificationKey);
+          if (cardKey) displayedExecutionNotificationKeys.add(cardKey);
           pushUserOrSyntheticItem(delivery.displayText, nextId());
         }
         if (parsed?.taskId) set(agentStatusState({ force: true }));
         const resumeBody = String(delivery.modelContent || '').trim();
         if (resumeBody) {
-          enqueue(resumeBody, {
+          // Consolidated completion dedup keyed off execution_id (+ text hash):
+          // if this exact execution completion was already delivered — either by
+          // an earlier TUI enqueue here or by runtime-core's ack — do NOT enqueue
+          // a duplicate model-visible twin. A re-arriving completion while IDLE
+          // would otherwise re-enqueue and let post-turn drain() spawn a fresh
+          // turn. Still ack (modelVisibleDelivered) so runtime-core's
+          // mirror/fallback stays suppressed; the card first-delivery push and
+          // status refresh above already ran.
+          const executionId = event?.meta?.execution_id;
+          if (isDeliveredCompletion({ executionId, text: resumeBody })) {
+            if (event && typeof event === 'object') event.modelVisibleDelivered = true;
+            return true;
+          }
+          const enqueued = enqueue(resumeBody, {
             mode: 'task-notification',
             // Claude Code parity: live execution completions are queued as
             // task notifications so the active loop can attach them after the
@@ -157,11 +176,23 @@ export function createAgentJobFeed({
             // but suppress its drain-time transcript card to avoid a duplicate.
             suppressDisplay: true,
           });
+          // Self-sufficient TUI dedup: mark delivered right here (mark-once at
+          // delivery, keyed by execution_id) so a re-arriving completion is
+          // skipped above without depending solely on the runtime-core ack
+          // roundtrip — removes the split-brain asymmetry. Gated on a CONFIRMED
+          // enqueue: enqueue() returns false only when an identical-key
+          // task-notification twin is already queued (session-flow.mjs
+          // pendingNotificationKeys.has(key)), in which case the completion is
+          // already pending delivery and must not be double-recorded.
+          if (enqueued) recordDeliveredCompletion({ executionId, text: resumeBody });
           // EXPLICIT ack to the emitting runtime: the model-visible completion
           // body was injected into the active loop here, so notifyFnForSession
           // must NOT also mirror it into the pending queue (double injection).
           // A bare truthy return below is display/status handling only — this
-          // flag is the sole model-visible-delivery signal.
+          // flag is the sole model-visible-delivery signal. Set for BOTH the
+          // real-enqueue and the enqueue===false (already-queued twin) cases:
+          // either way the completion is pending delivery on the TUI path, so
+          // runtime-core must still not mirror it.
           if (event && typeof event === 'object') event.modelVisibleDelivered = true;
         }
         return true;
