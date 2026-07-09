@@ -20,6 +20,27 @@ const CWD = 'C:/Project/mixdog';
 function anchorLinesOf(text) {
   return text.split('\n').filter((l) => /:\d+/.test(l));
 }
+// Variant-aware token matching for the fabricated-line guard. Split
+// camelCase and snake_case/kebab joins into atomic sub-tokens, then compare
+// on a light stem so plural/verb forms unify (importance/importanceScore/
+// chunk_importance -> {importance,score,chunk}; scoring~score, memories~memory).
+// Matching is exact stem-equality of sub-tokens (never substring), so it does
+// not loosen into generic-word overlap.
+function splitSubtokens(s) {
+  return String(s)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2') // camelCase boundary
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2') // ACRONYMWord boundary
+    .split(/[^A-Za-z0-9]+/) // snake_case / kebab / punctuation
+    .map((t) => t.toLowerCase())
+    .filter(Boolean);
+}
+function stemToken(t) {
+  if (t.length <= 4) return t;
+  return t
+    .replace(/ies$/, 'y')
+    .replace(/(ings|ing|edly|ed|es|ly|s)$/, '')
+    .replace(/e$/, '');
+}
 function checkAnchorLine(line, ctxTokens = []) {
   const m = line.match(/([A-Za-z0-9_.\/\\-]+):(\d+)/);
   if (!m) return null; // no parseable path:line
@@ -34,8 +55,23 @@ function checkAnchorLine(line, ctxTokens = []) {
     // query/expected token, so a plausible-but-wrong line number fails.
     if (ctxTokens.length) {
       // ±2 lines around the 1-based cited line (indices ln-3 .. ln+1 inclusive).
-      const win = fileLines.slice(Math.max(0, ln - 3), ln + 2).join('\n').toLowerCase();
-      if (!ctxTokens.some((t) => win.includes(t))) return false;
+      const win = fileLines.slice(Math.max(0, ln - 3), ln + 2).join('\n');
+      const winStems = [...new Set(splitSubtokens(win).map(stemToken))];
+      const wantStems = ctxTokens.map((t) => stemToken(t.toLowerCase()));
+      // Exact stem-equality unifies plural/verb variants; a prefix relation
+      // additionally bridges derivational forms (compact/compaction) without
+      // matching generic filler. Guard the bridge so a short generic line
+      // token can't satisfy a longer wanted token (impl~implementation,
+      // clas~classifier): require the shorter stem >=5 chars AND a
+      // shorter/longer length ratio >=0.6.
+      const prefixBridge = (s, w) => {
+        if (!(s.startsWith(w) || w.startsWith(s))) return false;
+        const short = Math.min(s.length, w.length);
+        const long = Math.max(s.length, w.length);
+        return short >= 5 && short / long >= 0.6;
+      };
+      const hitStem = (w) => winStems.some((s) => s === w || prefixBridge(s, w));
+      if (!wantStems.some(hitStem)) return false;
     }
     return true;
   } catch { return false; }
