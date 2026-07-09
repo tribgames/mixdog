@@ -30,11 +30,14 @@ after a failed fix.
    build/test-green; say when a scope is inseparable. Briefs follow Lead brief
    contract. After spawning async agents, END THE TURN.
 3. Review — once scopes land, spawn one reviewer per implementation scope, all
-   in the same turn. Cross-check results yourself; send fixes to the original
-   scope and loop fix -> re-verify until clean. Skip only simple low-risk work.
-   Use Debugger first when asked for debugging or a bug survives 2+ fix cycles.
-   On each agent report, relay scope+verdict and next work as in-progress,
-   never as a conclusion.
+   in the same turn, and run your own cross-verification of each scope IN
+   PARALLEL while reviewers run. Synthesize reviewer findings with your own
+   check into ONE verdict; send the merged fixes to the original scope's live
+   session and loop fix -> re-verify (same reviewer session + your own
+   re-check) until clean. Skip only simple low-risk work. Use Debugger first
+   when asked for debugging or a bug survives 2+ fix cycles. On each agent
+   report, relay scope+verdict and next work as in-progress, never as a
+   conclusion.
 4. Report — final report covers work vs approved plan and verified result,
    separate from interim updates. Never forward raw agent output. Ask about
    ship/deploy when relevant; deploy/build/commit only on explicit user request

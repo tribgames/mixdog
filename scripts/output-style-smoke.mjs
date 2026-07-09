@@ -13,7 +13,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const DEFAULT_REPORT_LABELS = new Set(['\uBC14\uB010 \uC810', '\uD655\uC778\uD55C \uAC83', '\uB0A8\uC740 \uB9AC\uC2A4\uD06C/\uB2E4\uC74C \uB2E8\uACC4', '\uB2E4\uC74C \uB2E8\uACC4']);
+const DEFAULT_REPORT_LABELS = new Set(['Changes', 'Verification', 'Risks / next steps', '\uBC14\uB010 \uC810', '\uD655\uC778\uD55C \uAC83', '\uB0A8\uC740 \uB9AC\uC2A4\uD06C/\uB2E4\uC74C \uB2E8\uACC4', '\uB2E4\uC74C \uB2E8\uACC4']);
 
 function assertCleanOutput(name, value, { maxLines = 3, maxBullets = 3, allowedLabels = new Set() } = {}) {
   const text = String(value || '').trim();
@@ -52,7 +52,7 @@ for (const required of [
   'Mixdog default — the most detailed style',
   'State conclusions, not reasoning',
   'Use labels such as',
-  '`\uBC14\uB010 \uC810`, `\uD655\uC778\uD55C \uAC83`,',
+  '`Changes`, `Verification`,',
   'Synthesize agent or retrieval results',
   'Do not hide blockers',
 ]) {

@@ -1358,7 +1358,7 @@ setInternalToolsProvider({
     if (!/Read-only retrieval role/i.test(visible) || /# environment/i.test(visible) || /git operations deferred to Lead/i.test(visible)) {
       throw new Error(`explorer hidden retrieval context should stay slim: ${visible.slice(0, 1200)}`);
     }
-    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/Coordinate locator/i.test(systemVisible)) {
+    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/deliver WHERE/i.test(systemVisible)) {
       throw new Error(`explorer role md must ride BP2 system, not BP3 user reminder: system=${systemVisible.slice(0, 600)} user=${userReminderVisible.slice(0, 600)}`);
     }
     // System layers (BP1 tool policy + BP2 role md) are shared/frozen and sized
@@ -1734,7 +1734,7 @@ const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
 if (!readArrayItemAnyOf.some((entry) => entry?.type === 'object' && entry?.properties?.offset && entry?.properties?.limit)) {
   throw new Error('read schema must expose array-of-region objects for batched spans');
 }
-if (/line\+context/i.test(readDescription) || !/verified file path/i.test(readDescription) || !/Unknown path.*find first/i.test(readDescription) || !/Batch paths\/regions as real arrays/i.test(readDescription)) {
+if (/line\+context/i.test(readDescription) || !/verified file path/i.test(readDescription) || !/guessed path.*find first/i.test(readDescription) || !/Batch paths\/regions as real arrays/i.test(readDescription)) {
   throw new Error('read description must expose offset/limit as the single window form');
 }
 if (readProps.line || readProps.context) {
@@ -1834,7 +1834,7 @@ if (codeGraphSymbolSearchErr) {
 if (!/code structure\/flow/i.test(codeGraphDescription) || !/symbols\/references\/calls\/deps/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
-if (!/Known symbols or verified files only/i.test(codeGraphDescription) || !/Batch symbols\[\]\/files\[\]/i.test(codeGraphDescription)) {
+if (!/files\[\] must be verified paths/i.test(codeGraphDescription) || !/Batch symbols\[\]\/files\[\]/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must route unknown file paths through locators first');
 }
 if (!/repo-local/i.test(codeGraphDescription) || !/NOT web search|not web/i.test(codeGraphDescription)) {
@@ -2150,7 +2150,7 @@ const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.
 if (!/Array = variants in one call/i.test(grepPatternDescription) || !/Verified file\/dir/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
-if (!/verified scope/i.test(grepTool?.description || '') || !/Unknown path\/name.*find first/i.test(grepTool?.description || '')) {
+if (!/verified scope/i.test(grepTool?.description || '') || !/guessed path fragment.*find first/i.test(grepTool?.description || '')) {
   throw new Error('grep description must require verified scopes and locator-first unknown paths');
 }
 if (!/Glob filter/i.test(grepGlobDescription) || !/no guessed src\/\*\*/i.test(grepGlobDescription)) {
@@ -2174,7 +2174,7 @@ if (!/exact glob from verified roots/i.test(globTool?.description || '')) {
 if (!/Partial path\/name lookup/i.test(findTool?.description || '') || !/verify roots before grep\/glob/i.test(findTool?.description || '')) {
   throw new Error('find description must advertise unverified path/name lookup and verified outputs');
 }
-if (!/List verified directories/i.test(listTool?.description || '') || !/Unknown dir.*find first/i.test(listTool?.description || '') || !/Verified directory/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
+if (!/List verified directories/i.test(listTool?.description || '') || !/Guessed dir.*find first/i.test(listTool?.description || '') || !/Verified directory/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
   throw new Error('list description must require verified directories and locator-first unknown dirs');
 }
 if (!/Repo-local/i.test(codeGraphProps.mode?.description || '') || !/one call/i.test(codeGraphProps.symbols?.description || '')) {
