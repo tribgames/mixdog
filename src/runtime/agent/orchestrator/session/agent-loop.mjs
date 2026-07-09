@@ -305,11 +305,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // cut off early. Other runaway protection is behavior-based (steering
     // ladder hints, REPEAT_FAIL_LIMIT), never a lower iteration count.
     let _iterWarnStage = 0;
-    const _iterWarnAt = [
-        Math.floor(maxLoopIterations * 0.5),
-        Math.floor(maxLoopIterations * 0.75),
-        Math.floor(maxLoopIterations * 0.9),
-    ];
+    // Tiny-cap loops (e.g. explorer cap=3) can't afford staged 50/75/90%
+    // steers — the 50% stage lands on iteration 1 in every session, spamming
+    // the normal batch→answer path. For caps < 10 emit ONE wrap-up warning at
+    // the penultimate iteration instead; caps >= 10 keep staged behavior.
+    const _singleWarn = maxLoopIterations < 10;
+    const _iterWarnAt = _singleWarn
+        ? [Math.max(1, maxLoopIterations - 1)]
+        : [
+            Math.floor(maxLoopIterations * 0.5),
+            Math.floor(maxLoopIterations * 0.75),
+            Math.floor(maxLoopIterations * 0.9),
+        ];
     while (true) {
         throwIfAborted();
         if (iterations >= maxLoopIterations) {
@@ -341,9 +348,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         if (_iterWarnStage < _iterWarnAt.length && iterations >= _iterWarnAt[_iterWarnStage]) {
             _iterWarnStage += 1;
             const warnAt = _iterWarnAt[_iterWarnStage - 1];
-            const stageMsg = _iterWarnStage === 1
-                ? `Iteration budget notice: ${warnAt} of ${maxLoopIterations} iterations used. Converge on a conclusion: prefer finishing the current objective over opening new exploration.`
-                : `Iteration budget warning (stage ${_iterWarnStage}): ${warnAt} of ${maxLoopIterations} iterations used — the loop hard-stops at ${maxLoopIterations}. Wrap up now: summarize progress, state what remains, and finish with your best current result.`;
+            const stageMsg = _singleWarn
+                ? `Iteration budget nearly spent: ${warnAt} of ${maxLoopIterations} iterations used — answer NOW with the best anchors you already hold.`
+                : _iterWarnStage === 1
+                    ? `Iteration budget notice: ${warnAt} of ${maxLoopIterations} iterations used. Converge on a conclusion: prefer finishing the current objective over opening new exploration.`
+                    : `Iteration budget warning (stage ${_iterWarnStage}): ${warnAt} of ${maxLoopIterations} iterations used — the loop hard-stops at ${maxLoopIterations}. Wrap up now: summarize progress, state what remains, and finish with your best current result.`;
             messages.push({ role: 'user', content: `<system-reminder>\n${stageMsg}\n</system-reminder>`, meta: 'hook' });
             process.stderr.write(`[loop] iteration warning stage ${_iterWarnStage} at ${iterations} (sess=${sessionId || 'unknown'}); continuing with steer.\n`);
             try {

@@ -25,7 +25,16 @@ Broad grep must use `output_mode:"files_with_matches"`. Use
 `head_limit`.
 
 Translate natural/non-English queries to probable English identifiers first;
-grep non-ASCII only for quoted literal strings.
+grep non-ASCII only for quoted literal strings. Spend part of the batch on
+code synonyms of the concept nouns (importance → score/weight/rank; limit →
+cap/max/budget): implementations often name the concept differently from the
+query, and an all-literal batch misses them.
+
+Every grep pattern is ONE code token: a single identifier or its
+camelCase/snake_case variants (importance, importanceScore, chunk_importance).
+Multi-word prose phrases ("importance scoring", "recall memory") match nothing
+in code and waste the batch — spaces belong ONLY in quoted literal strings
+(error messages, log text) copied verbatim from the query.
 
 Scope = session working directory. Omitting `path` (project cwd default scope)
 is always allowed. When the query or plan names an unverified path/name fragment
@@ -42,18 +51,26 @@ synonym is an anchor; generic-only words (schema/handler/config/resolver…)
 without a specific token are zero. code_graph `path:line` hits are anchors —
 never re-locate them with grep.
 
+A bare path with no `:line` (files_with_matches, find) is a PRE-anchor, not an
+anchor. For a code-location query, when a turn returned only pre-anchors, the
+next turn runs ONE scoped `content_with_context` grep (`head_limit`, only those
+returned paths) to mint the `:line` — that anchor-minting hop is the expected
+path and never a defect; fabricating or estimating the line number instead is
+the defect.
+
 Rule zero after every tool result: any specific-token anchor → STOP and answer
 NOW (mark weak anchors `?`), this is your final turn; zero → one more batch if
 budget remains. Turns 2-3 exist SOLELY as zero-hit recovery (previous turn
-matched zero specific tokens); a turn spent to confirm, refine, or upgrade an
-anchor you already hold is a defect.
+matched zero specific-token ANCHORS — pre-anchor-only counts as zero); a turn
+spent to confirm, refine, or upgrade an anchor you already hold is a defect.
 
 Turns: max 3, expected 1; start tool messages with `turn N/3`. Turns 2-3 are
 miss recovery only and must change tokens or scope. BUDGET = TWO MESSAGES
 normally: message 1 = the multi-tool batch, message 2 = your answer text. A 3rd
 message (any extra tool call) is a defect unless message 1 returned zero
-specific-token lines — extra code_graph/grep calls to confirm or upgrade an
-anchor you already hold are the biggest source of overspend.
+specific-token ANCHOR lines (pre-anchor-only included) — extra code_graph/grep
+calls to confirm or upgrade an anchor you already hold are the biggest source
+of overspend.
 
 Flow/how and compound queries: first matching entry/definition anchors answer
 the concept/value/default; do not trace chains or launch extra value searches —
@@ -72,3 +89,7 @@ the valid answer; do not force a line number or fail. Emit `EXPLORATION_FAILED`
 only after budget is spent with zero specific-token anchors; before failing,
 re-scan prior results and prefer any weak specific-token anchor over a false
 miss.
+
+Line numbers: every `path:line` you cite MUST be copied VERBATIM from a
+tool-result line of THIS session — never estimated, adjusted, or recalled from
+memory. If no tool line carries the number, don't cite one.
