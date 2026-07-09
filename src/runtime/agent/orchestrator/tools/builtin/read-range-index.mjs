@@ -101,7 +101,9 @@ function ensureReadRangeIndexDiskSwept() {
 function loadReadRangeIndexFromDisk(fullPath, st) {
     ensureReadRangeIndexDiskSwept();
     const file = readRangeIndexFilePath(fullPath);
-    if (!file || !st || !existsSync(file)) return null;
+    // No existsSync preflight: a missing file surfaces as an ENOENT from
+    // readFileSync below, caught by the same try/catch — one FS pass, not two.
+    if (!file || !st) return null;
     try {
         const row = JSON.parse(readFileSync(file, 'utf-8'));
         if (!readRangeIndexMatches(row, fullPath, st)) return null;

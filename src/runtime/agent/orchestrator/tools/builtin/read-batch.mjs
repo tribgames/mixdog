@@ -89,7 +89,7 @@ export function readEntryLineWindow(entry) {
     };
 }
 
-export function coalesceObjectReadEntries(rawEntries) {
+export function coalesceObjectReadEntries(rawEntries, resolvePath = null) {
     const out = new Array(rawEntries.length);
     const groups = new Map();
     for (let i = 0; i < rawEntries.length; i++) {
@@ -99,7 +99,9 @@ export function coalesceObjectReadEntries(rawEntries) {
             continue;
         }
         const win = readEntryLineWindow(entry);
-        const key = entry.path || '';
+        // Group by RESOLVED path so two path strings that point at the same
+        // file share one coalesced disk window instead of each opening it.
+        const key = (typeof resolvePath === 'function' ? resolvePath(entry.path || '') : (entry.path || ''));
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push({ index: i, entry, offset: win.offset, end: win.end });
     }

@@ -2,6 +2,7 @@ import { homedir } from 'os';
 import { isAbsolute, relative, resolve } from 'path';
 import { realpathSync, statSync } from 'node:fs';
 import { isWSL } from '../../../../shared/wsl.mjs';
+import { statCacheSet } from './cache-layers.mjs';
 
 // Restore the on-disk casing of a path (win32 only). rg relativizes candidate
 // paths against its process cwd with a CASE-SENSITIVE prefix strip before
@@ -248,7 +249,13 @@ export function coerceReadFamilyPathArg(path, workDir = null) {
         if (/\s/.test(trimmed)) {
             let fullPathExists = false;
             try {
-                statSync(resolveAgainstCwd(normalizeInputPath(trimmed), workDir));
+                // Seed the stat cache with this existence probe so the caller's
+                // immediate getCachedReadOnlyStat on the same resolved path
+                // reuses it instead of re-stat'ing. Pure de-dup: a cache miss
+                // just falls back to the caller's own stat.
+                const _full = resolveAgainstCwd(normalizeInputPath(trimmed), workDir);
+                const _st = statSync(_full);
+                statCacheSet(_full, _st);
                 fullPathExists = true;
             } catch { /* split only when the literal path is missing */ }
             if (!fullPathExists) {

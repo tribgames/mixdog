@@ -61,7 +61,6 @@ import {
     runResultCacheInFlight,
     statPathsForMtime,
 } from './cache-layers.mjs';
-import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from './arg-guard.mjs';
 
 // Default surrounding-lines window applied by output_mode:'content_with_context'
@@ -866,17 +865,12 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         // (or a differently-capped one) in the internal result cache.
         patternCapTotal,
     });
-    // Single-file grep registers a whole-file read snapshot (parity with
-    // apply_patch), satisfying the read-before-edit guard while keeping drift
-    // detection intact via the auto-computed contentHash. Directory/glob greps
-    // do NOT record.
-    const recordGrepReadSnapshot = (st) => {
-        try {
-            if (st && st.isFile()) {
-                recordReadSnapshot(grepResolvedPath, st, readStateScope, { source: 'grep' });
-            }
-        } catch {}
-    };
+    // Read-only search: grep no longer records a whole-file read snapshot.
+    // That snapshot existed only to satisfy the apply_patch read-before-edit
+    // guard, and computing it turned a single-file grep into rg PLUS a full
+    // whole-file read+hash (recordReadSnapshot hashes the whole file when the
+    // range covers it). Edit-safety is unaffected: the read and apply_patch
+    // paths still record their own snapshots.
 
     const cached = cacheGet(cacheKey);
     // Cache-hit returns a PRIOR grep's output; the file may have changed since
@@ -889,12 +883,14 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     let grepStat;
     try { grepStat = statSync(grepResolvedPath); }
     catch (err) {
+        const enoentCache = {};
         const redirected = await tryReadFamilyEnoentRedirect({
             workDir,
             resolvedPath: grepResolvedPath,
             requestedPath: searchPath,
             errCode: err?.code,
             options,
+            cache: enoentCache,
             rerun: (target, opts) => executeGrepTool(
                 { ...args, path: target },
                 workDir,
@@ -905,7 +901,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         });
         if (redirected) return redirected;
         const msg = `Error: path does not exist: ${normalizeOutputPath(grepResolvedPath)} (${err?.code || 'ENOENT'})`;
-        let hint = buildNotFoundHint(workDir, grepResolvedPath, 'Search', err?.code);
+        let hint = buildNotFoundHint(workDir, grepResolvedPath, 'Search', err?.code, enoentCache);
         if (!hint) hint = await _suggestIndexedPaths(grepResolvedPath, executeChildBuiltinTool, workDir);
         return msg + finalizeReadFamilyEnoentTail(hint, searchPath, err?.code);
     }
@@ -995,7 +991,6 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             if (options?.scopedCacheOutcome && (!ctxTotalKnown || ctx.omitted > 0)) {
                 markScopedCacheIncomplete(options.scopedCacheOutcome);
             }
-            recordGrepReadSnapshot(grepStat);
             if (ctxTotalKnown && ctx.omitted === 0) {
                 cacheSet(cacheKey, ctxOut, { scopes: [grepResolvedPath] });
             }
@@ -1107,7 +1102,6 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         if (options?.scopedCacheOutcome && (!totalKnown || remaining > 0)) {
             markScopedCacheIncomplete(options.scopedCacheOutcome);
         }
-        recordGrepReadSnapshot(grepStat);
         if (totalKnown && remaining === 0) {
             cacheSet(cacheKey, out, { scopes: [grepResolvedPath] });
         }
@@ -1207,7 +1201,6 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                         filenameOmitted,
                         prefix: patternCapNote + '[regex parse fallback: fixed-string terms]\n',
                     }) || `(no matches) fixed_terms=${JSON.stringify(fixedPatterns)} path=${searchPath}`;
-                    recordGrepReadSnapshot(grepStat);
                     return body + rgPartialSuffix;
                 } catch { /* fall through to the original rg error */ }
             }
@@ -1294,16 +1287,28 @@ export async function executeGlobTool(args, workDir, options = {}) {
     const basePaths = (Array.isArray(args.path) && args.path.length > 0)
         ? args.path
         : [args.path || '.'];
+    // Call-scoped stat cache: the preflight below stats each root, the per-group
+    // rg runs re-stat the same resolved cwd, and the empty-result diagnostic
+    // stats it a third time. Memoize by resolved path so each root is stat'd once.
+    const statCache = new Map();
+    const statCached = (resolvedPath) => {
+        if (statCache.has(resolvedPath)) return statCache.get(resolvedPath);
+        let entry;
+        try { entry = { st: statSync(resolvedPath), err: null }; }
+        catch (err) { entry = { st: null, err }; }
+        statCache.set(resolvedPath, entry);
+        return entry;
+    };
     if (!options._enoentRedirectFrom) {
         for (const only of basePaths) {
             const resolvedOnly = resolveSearchScope(only, workDir);
-            try { statSync(resolvedOnly); }
-            catch (err) {
+            const pre = statCached(resolvedOnly);
+            if (pre.err) {
                 const redirected = await tryReadFamilyEnoentRedirect({
                     workDir,
                     resolvedPath: resolvedOnly,
                     requestedPath: only,
-                    errCode: err?.code,
+                    errCode: pre.err?.code,
                     options,
                     rerun: (target, opts) => executeGlobTool({ ...args, path: target }, workDir, opts),
                 });
@@ -1407,14 +1412,19 @@ export async function executeGlobTool(args, workDir, options = {}) {
         for (const rel of rels) rgArgs.push('--glob', rel);
         const rgCwd = resolvedForSearchRoot(root);
         rgArgs.push('.');
-        try { statSync(rgCwd); }
-        catch (err) {
+        const cwdStat = statCached(rgCwd);
+        if (cwdStat.err) {
+            const err = cwdStat.err;
+            // One shared ENOENT scan cache for the redirect probe + not-found
+            // hint (both resolve the same missing rgCwd).
+            const groupEnoentCache = {};
             const redirected = await tryReadFamilyEnoentRedirect({
                 workDir,
                 resolvedPath: rgCwd,
                 requestedPath: root,
                 errCode: err?.code,
                 options,
+                cache: groupEnoentCache,
                 rerun: (target, opts) => executeGlobTool({ ...args, path: target }, workDir, opts),
             });
             if (redirected) {
@@ -1425,7 +1435,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
                     redirected,
                 };
             }
-            const hint = buildNotFoundHint(workDir, rgCwd, 'Search', err?.code);
+            const hint = buildNotFoundHint(workDir, rgCwd, 'Search', err?.code, groupEnoentCache);
             return {
                 error: `path does not exist: ${normalizeOutputPath(rgCwd)} (${err?.code || 'ENOENT'})${finalizeReadFamilyEnoentTail(hint, root, err?.code)}`,
                 paths: [],
@@ -1508,7 +1518,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         if (totalBeforeOffset > 0 && offset >= totalBeforeOffset) {
             emptyDiag = `(no entries after offset=${offset}; total=${totalBeforeOffset}) pattern=${patternStr} path=${baseLabel}`;
         } else {
-            emptyDiag = `(no files found) pattern=${patternStr} path=${baseLabel}; ${basePathDiagnostic(baseEntries.map((e) => e.root), workDir)}`;
+            emptyDiag = `(no files found) pattern=${patternStr} path=${baseLabel}; ${basePathDiagnostic(baseEntries.map((e) => e.root), workDir, statCache)}`;
         }
     }
     const body = capped.length > 0

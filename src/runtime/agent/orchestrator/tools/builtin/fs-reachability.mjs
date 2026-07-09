@@ -19,10 +19,13 @@ export const FS_REACHABILITY_DEADLINE_MS = 5000;
 // error). Reject with EFSUNREACHABLE only when the stat itself exceeds the
 // deadline, which is the dead-mount / hung-FS signature.
 export async function assertPathReachable(path, deadlineMs = FS_REACHABILITY_DEADLINE_MS) {
-    if (typeof path !== 'string' || path.length === 0) return;
+    if (typeof path !== 'string' || path.length === 0) return null;
     const ms = Number(deadlineMs) > 0 ? Number(deadlineMs) : FS_REACHABILITY_DEADLINE_MS;
     let timer = null;
-    const probe = stat(path).then(() => true, () => true); // any answer = reachable
+    // Resolve to the Stats on success so a caller can seed its stat cache and
+    // avoid an immediate redundant synchronous re-stat of the same path; a
+    // clean FS rejection (ENOENT/EACCES) resolves to null (still "reachable").
+    const probe = stat(path).then((s) => s, () => null);
     const deadline = new Promise((resolve) => {
         timer = setTimeout(() => resolve('TIMEOUT'), ms);
     });
@@ -37,6 +40,7 @@ export async function assertPathReachable(path, deadlineMs = FS_REACHABILITY_DEA
         err.code = 'EFSUNREACHABLE';
         throw err;
     }
+    return result; // Stats on success, null on a clean FS rejection
 }
 
 // Batch variant: reject if ANY path is unreachable. Runs probes concurrently so

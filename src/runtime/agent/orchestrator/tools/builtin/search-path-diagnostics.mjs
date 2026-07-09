@@ -67,6 +67,24 @@ const NOT_FOUND_CODES = new Set(['ENOENT', 'ENOTDIR']);
 
 export const ENOENT_FIND_NUDGE = 'Locate with find on the basename before retrying.';
 
+// Per-invocation memo for the ENOENT recovery fs scans. A single grep/glob
+// ENOENT surfaces the SAME missing path through tryReadFamilyEnoentRedirect
+// (resolveUniqueEnoentRedirect) AND buildNotFoundHint (which re-runs
+// resolveUniqueEnoentRedirect plus its own findFileByBasename). Threading an
+// optional cache object keyed on that single path collapses the repeated
+// suffix-strip / basename BFS into one scan. Absent cache → scan fresh
+// (unchanged behavior for callers that don't pass one).
+function cachedSuffixStrip(workDir, missingPath, cache) {
+    if (!cache) return findBySuffixStrip(workDir, missingPath);
+    if (!('suffixHit' in cache)) cache.suffixHit = findBySuffixStrip(workDir, missingPath);
+    return cache.suffixHit;
+}
+function cachedFileByBasename(workDir, missingPath, cache) {
+    if (!cache) return findFileByBasename(workDir, missingPath);
+    if (!('fileHits' in cache)) cache.fileHits = findFileByBasename(workDir, missingPath);
+    return cache.fileHits;
+}
+
 function isDirectoryPathGuess(missingPath) {
     const base = basename(String(missingPath || '').replace(/\\/g, '/'));
     if (!base || /[*?[\]{}]/.test(base)) return false;
@@ -112,11 +130,11 @@ export function finalizeReadFamilyEnoentTail(hint, requestedPath, errCode = 'ENO
     return appendEnoentFindNudge(String(hint || '') + spaceJoinedPathHint(requestedPath));
 }
 
-export function resolveUniqueEnoentRedirect(workDir, missingPath, errCode = 'ENOENT') {
+export function resolveUniqueEnoentRedirect(workDir, missingPath, errCode = 'ENOENT', cache = null) {
     if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return null;
-    const suffixHit = findBySuffixStrip(workDir, missingPath);
+    const suffixHit = cachedSuffixStrip(workDir, missingPath, cache);
     if (suffixHit) return suffixHit;
-    const elsewhere = findFileByBasename(workDir, missingPath);
+    const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
     if (elsewhere.length === 1) return elsewhere[0];
     if (isDirectoryPathGuess(missingPath)) {
         const dirHits = findDirectoryByBasename(workDir, missingPath, { limit: 3 });
@@ -136,19 +154,20 @@ export async function tryReadFamilyEnoentRedirect({
     errCode,
     options,
     rerun,
+    cache = null,
 }) {
     if (options?._enoentRedirectFrom) return null;
-    const target = resolveUniqueEnoentRedirect(workDir, resolvedPath, errCode);
+    const target = resolveUniqueEnoentRedirect(workDir, resolvedPath, errCode, cache);
     if (!target) return null;
     const body = await rerun(target, { ...options, _enoentRedirectFrom: resolvedPath });
     const shown = requestedPath ?? resolvedPath;
     return redirectedFromPrefix(shown) + body;
 }
 
-export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT') {
+export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'ENOENT', cache = null) {
     if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return '';
-    if (resolveUniqueEnoentRedirect(workDir, missingPath, errCode)) return '';
-    const elsewhere = findFileByBasename(workDir, missingPath);
+    if (resolveUniqueEnoentRedirect(workDir, missingPath, errCode, cache)) return '';
+    const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
     if (elsewhere.length) {
         return ` Not found at this path; the same filename exists at: ${elsewhere.map((p) => `"${normalizeOutputPath(p)}"`).join(', ')}. ${actionVerb} that path directly.`;
     }
@@ -211,15 +230,20 @@ export function uncRefusalMessage(toolName, original, resolved) {
     return `Error: ${toolName} refuses UNC/SMB path ${JSON.stringify(shown)}; remote share access is blocked to prevent NTLM credential leaks`;
 }
 
-export function basePathDiagnostic(basePaths, workDir) {
+export function basePathDiagnostic(basePaths, workDir, statCache = null) {
     return basePaths.map((basePath) => {
         const resolved = resolveSearchScope(basePath, workDir);
-        try {
-            const st = statSync(resolved);
+        // Reuse the caller's call-scoped stat cache (glob preflight + per-group
+        // rg runs already stat'd this same resolved root) instead of re-stating.
+        let st = null;
+        let err = null;
+        const cached = statCache && statCache.get(resolved);
+        if (cached) { st = cached.st; err = cached.err; }
+        else { try { st = statSync(resolved); } catch (e) { err = e; } }
+        if (!err) {
             return `${normalizeOutputPath(basePath)}: ${st.isDirectory() ? 'path exists (dir)' : 'path exists (file)'}`;
-        } catch (err) {
-            return `${normalizeOutputPath(basePath)}: path does not exist (${err?.code || 'ENOENT'})`
-                + finalizeReadFamilyEnoentTail(buildNotFoundHint(workDir, resolved, 'Search', err?.code), basePath, err?.code);
         }
+        return `${normalizeOutputPath(basePath)}: path does not exist (${err?.code || 'ENOENT'})`
+            + finalizeReadFamilyEnoentTail(buildNotFoundHint(workDir, resolved, 'Search', err?.code), basePath, err?.code);
     }).join('; ');
 }

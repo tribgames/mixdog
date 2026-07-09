@@ -124,7 +124,10 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
     }
     if (!next.contentHash && snapshotCoversFullFile(next)) {
         try {
-            const content = decodeRawBufferForSnapshotCheck(readFileSync(fullPath));
+            // Reuse the raw-content cache (populated by the read that produced
+            // this snapshot) instead of a fresh readFileSync + decode purely to
+            // hash. Decodes via the same helper, so the hash is byte-identical.
+            const content = readTextForSnapshotCheck(fullPath, null, st);
             next.contentHash = hashText(content);
         } catch {}
     }

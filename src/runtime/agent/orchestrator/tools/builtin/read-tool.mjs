@@ -225,7 +225,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         // range into one huge window. Far-apart reads stay separate,
         // which avoids scanning and then slicing thousands of lines
         // just to return two tiny windows.
-        const entries = coalesceObjectReadEntries(rawEntries);
+        const entries = coalesceObjectReadEntries(rawEntries, (p) => resolveAgainstCwd(p, workDir));
         // Deduplicate so the same union-range is read only once per path.
         const _seen = new Map(); // cacheKey → dedupedEntries index
         const dedupedEntries = [];
@@ -282,11 +282,31 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         // re-order results to match the caller's original entry order.
         const _origEntries2 = Array.isArray(args._readsOrigEntries) ? args._readsOrigEntries : null;
         const _entryMap2 = Array.isArray(args._readsEntryToDeduped) ? args._readsEntryToDeduped : null;
+        // Dedup string-batch entries by RESOLVED path + window so a file that
+        // appears twice (incl. two path strings that resolve to the same file)
+        // is stat/opened/read ONCE, not per duplicate. Duplicates copy the
+        // primary's body, keeping the per-index render byte-identical. Skipped
+        // when `overrides` (reads[] coalesce path) is set — those entries were
+        // already deduped upstream and carry the union-slice bookkeeping.
+        const _readIndexFor = new Array(entries.length);
+        if (!overrides) {
+            const _dedup = new Map();
+            for (let i = 0; i < entries.length; i++) {
+                const e = entries[i];
+                if (!e || !e.path) { _readIndexFor[i] = i; continue; }
+                const rp = resolveAgainstCwd(e.path, workDir);
+                const k = `${rp}|${e.mode ?? ''}|${e.offset ?? ''}|${e.limit ?? ''}|${e.n ?? ''}|${e.full ?? ''}`;
+                if (_dedup.has(k)) { _readIndexFor[i] = _dedup.get(k); }
+                else { _dedup.set(k, i); _readIndexFor[i] = i; }
+            }
+        } else {
+            for (let i = 0; i < entries.length; i++) _readIndexFor[i] = i;
+        }
         const tasks = entries.map((entry, index) => ({
             entry,
             index,
             offset: _isFullModeReadEntry(entry) ? _readEntryLineWindow(entry).offset : 0,
-        })).sort((a, b) => {
+        })).filter((t) => _readIndexFor[t.index] === t.index).sort((a, b) => {
             const ap = a.entry?.path || '';
             const bp = b.entry?.path || '';
             if (ap !== bp) return ap < bp ? -1 : 1;
@@ -320,6 +340,17 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             readChains.set(key, next.catch(() => {}));
             return next;
         }));
+        // Fan the primary read's result out to its duplicate indices so every
+        // caller slot is populated without a second disk window.
+        for (let i = 0; i < entries.length; i++) {
+            const src = _readIndexFor[i];
+            if (src === i) continue;
+            const e = entries[i];
+            const s = results[src];
+            results[i] = s
+                ? { path: e.path, mode: e.mode || 'full', n: e.n, body: s.body }
+                : { path: e.path, mode: e.mode || 'full', n: e.n, body: 'Error: dedup mapping failed' };
+        }
         const orderedResults = _origEntries2
             ? _origEntries2.map((orig, i) => {
                 const r = results[_entryMap2 ? _entryMap2[i] : i] || { path: orig.path, mode: orig.mode || 'full', body: 'Error: dedup mapping failed' };

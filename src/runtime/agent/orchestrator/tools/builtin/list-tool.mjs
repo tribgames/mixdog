@@ -20,6 +20,7 @@ import {
     cacheGet,
     cacheSet,
     getCachedReadOnlyStat,
+    statCacheSet,
     statPathsForMtime,
     lstatPathsForMtime,
     registerCacheInvalidationListener,
@@ -92,23 +93,41 @@ export async function executeListTool(args, workDir, options = {}) {
             // wall-clock cost changes. Concurrency is capped so a 10-path batch
             // cannot exhaust the child-spawn / FS-handle budget.
             const LIST_FANOUT_CONCURRENCY = 4;
-            const bodies = new Array(targets.length);
+            // Collapse semantic-duplicate targets: two spellings that resolve to
+            // the same directory (e.g. `foo` and `./foo`) are stat'd/walked ONCE.
+            // Each caller label keeps its own `# list <p>` section reusing the
+            // shared body, so output stays byte-identical — only the duplicate
+            // concurrent walk is eliminated.
+            const resolveKey = (p) => {
+                try { return normalizeOutputPath(resolveAgainstCwd(normalizeInputPath(p), workDir)); }
+                catch { return p; }
+            };
+            const keyByIndex = new Array(targets.length);
+            const uniqueKeys = [];
+            const repByKey = new Map();
+            for (let i = 0; i < targets.length; i++) {
+                const k = resolveKey(targets[i]);
+                keyByIndex[i] = k;
+                if (!repByKey.has(k)) { repByKey.set(k, targets[i]); uniqueKeys.push(k); }
+            }
+            const bodyByKey = new Map();
             let cursor = 0;
             const runWorker = async () => {
                 for (;;) {
                     const i = cursor++;
-                    if (i >= targets.length) return;
+                    if (i >= uniqueKeys.length) return;
+                    const k = uniqueKeys[i];
                     try {
-                        bodies[i] = await executeListTool({ ...args, path: targets[i] }, workDir, options);
+                        bodyByKey.set(k, await executeListTool({ ...args, path: repByKey.get(k) }, workDir, options));
                     } catch (err) {
-                        bodies[i] = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+                        bodyByKey.set(k, `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`);
                     }
                 }
             };
             await Promise.all(
-                Array.from({ length: Math.min(LIST_FANOUT_CONCURRENCY, targets.length) }, runWorker),
+                Array.from({ length: Math.min(LIST_FANOUT_CONCURRENCY, uniqueKeys.length) }, runWorker),
             );
-            const sections = targets.map((p, i) => `# list ${p}\n${bodies[i]}`);
+            const sections = targets.map((p, i) => `# list ${p}\n${bodyByKey.get(keyByIndex[i])}`);
             if (capped) sections.push(`... [capped at 10 of ${list.length} paths]`);
             return sections.join('\n\n');
         }
@@ -150,8 +169,12 @@ export async function executeListTool(args, workDir, options = {}) {
     });
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
-    try { await assertPathReachable(fullPath); }
+    let _preStat;
+    try { _preStat = await assertPathReachable(fullPath); }
     catch (err) { return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`; }
+    // Feed the reachability preflight's stat into the cache so the root is
+    // stat'd once instead of immediately re-stat'd by getCachedReadOnlyStat.
+    if (_preStat) statCacheSet(fullPath, _preStat);
     let st;
     try { st = getCachedReadOnlyStat(fullPath); }
     catch (err) {
@@ -283,8 +306,10 @@ export async function executeTreeTool(args, workDir, options = {}) {
     });
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
-    try { await assertPathReachable(fullPath); }
+    let _preStat;
+    try { _preStat = await assertPathReachable(fullPath); }
     catch (err) { return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`; }
+    if (_preStat) statCacheSet(fullPath, _preStat);
     let st;
     try { st = getCachedReadOnlyStat(fullPath); }
     catch (err) {
@@ -602,7 +627,12 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     // regardless of whether the broad pass was cut at the cap. Best-effort:
     // failures here never fail the tool — the broad pass still stands.
     let narrowPaths = [];
-    try {
+    // Only spawn the per-query narrowed rg pass when the broad enumeration was
+    // cut (cap/exit-2): an untruncated broad pass already contains every file,
+    // so every narrowed substring hit is a broad-set duplicate that the
+    // dedup below drops — running it would add zero items. Skipping it there
+    // removes a redundant full-tree walk per query with identical output.
+    if (rgTruncated || rgPartial) try {
         // A positive --iglob whitelist makes ripgrep re-admit paths its own
         // `!**/<noise>/**` negations would otherwise exclude (the whitelist
         // wins regardless of glob order), so noise dirs are pruned in JS here
@@ -753,8 +783,10 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
         return subject.toLowerCase().includes(nameLower);
     };
 
-    try { await assertPathReachable(fullPath); }
+    let _preStat;
+    try { _preStat = await assertPathReachable(fullPath); }
     catch (err) { return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`; }
+    if (_preStat) statCacheSet(fullPath, _preStat);
     let rootStat;
     try { rootStat = getCachedReadOnlyStat(fullPath); }
     catch (err) {

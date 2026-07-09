@@ -79,6 +79,11 @@ function clearGrepContextKeys(args, keys) {
 /** Lead-facing grep context: canonicalize aliases and clamp explicit values (overrides still apply). */
 export function applyGrepContextLeadPolicy(args) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) return;
+    // Idempotent guard: the outer builtin guard (validateBuiltinArgs) and the
+    // executor (executeGrepTool) both call this on the SAME args object. The
+    // first pass folds aliases onto -A/-B/-C and clamps; a second pass would
+    // recompute the same folding for no effect. Skip once applied.
+    if (args._grepContextPolicyApplied) return;
     for (const [canonical, keys] of GREP_CONTEXT_KEY_GROUPS) {
         const found = firstNonZeroGrepContextArg(args, keys) || firstGrepContextArg(args, keys);
         if (!found) continue;
@@ -87,6 +92,12 @@ export function applyGrepContextLeadPolicy(args) {
         clearGrepContextKeys(args, keys);
         args[canonical] = shaped;
     }
+    // Non-enumerable so it never leaks into arg spreads, cache keys, or output.
+    try {
+        Object.defineProperty(args, '_grepContextPolicyApplied', {
+            value: true, enumerable: false, configurable: true, writable: true,
+        });
+    } catch { args._grepContextPolicyApplied = true; }
 }
 
 function isString(v) {
