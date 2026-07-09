@@ -16,7 +16,7 @@ import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../.
 const AUTO_DETECT_PORTS = {
     'mixdog-memory': { discovery: 'memory', dir: 'mixdog', file: 'active-instance.json', portField: 'memory_port', endpoint: '/mcp' },
 };
-const DEFAULT_MCP_CALL_TIMEOUT_MS = 0;
+const DEFAULT_MCP_CALL_TIMEOUT_MS = 120000;
 // Per-server STARTUP handshake budget (connect + listTools). Codex parity: 10s.
 export const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
 // --- State ---
@@ -227,12 +227,12 @@ export async function executeMcpTool(name, args) {
     return capMcpOutput(text);
 }
 
-// MCP per-tool-call timeout. Disabled by default: external MCP tools can be
-// long-running, and replaying an arbitrary tool after a timeout can duplicate
-// side effects. Operators may opt in with MIXDOG_MCP_CALL_TIMEOUT_MS or a
-// per-server timeoutMs/callTimeoutMs config value. On expiry we close the
-// transport so the next dispatch reconnects fresh, but we do not retry the
-// timed-out call automatically.
+// MCP per-tool-call timeout. Default 2min: a hung/unresponsive MCP server
+// (e.g. a busy editor) must not stall a tool call indefinitely. Genuinely
+// long-running tools can raise/disable it via MIXDOG_MCP_CALL_TIMEOUT_MS or a
+// per-server timeoutMs/callTimeoutMs config value (0/off/none/false disables).
+// On expiry we close the transport so the next dispatch reconnects fresh, but
+// we do not retry the timed-out call automatically (avoids side-effect dupes).
 export function resolveMcpCallTimeoutMs(cfg = {}, env = process.env) {
     const raw = cfg?.timeoutMs ?? cfg?.timeout_ms ?? cfg?.callTimeoutMs ?? cfg?.call_timeout_ms
         ?? env?.MIXDOG_MCP_CALL_TIMEOUT_MS;

@@ -48,11 +48,20 @@ export function createContextState({ runtime, getState, getPendingSessionReset }
 
   const routeState = () => {
     const state = getState();
+    const base = baseRouteState();
+    const sameContextRoute = state.sessionId === base.sessionId
+      && state.clientHostPid === base.clientHostPid
+      && state.provider === base.provider
+      && state.model === base.model
+      && state.effort === base.effort
+      && state.fast === base.fast
+      && state.contextWindow === base.contextWindow
+      && state.rawContextWindow === base.rawContextWindow;
     return {
-      ...baseRouteState(),
-      displayContextWindow: state.displayContextWindow || 0,
-      compactBoundaryTokens: state.compactBoundaryTokens || 0,
-      autoCompactTokenLimit: state.autoCompactTokenLimit || 0,
+      ...base,
+      displayContextWindow: sameContextRoute ? (state.displayContextWindow || 0) : 0,
+      compactBoundaryTokens: sameContextRoute ? (state.compactBoundaryTokens || 0) : 0,
+      autoCompactTokenLimit: sameContextRoute ? (state.autoCompactTokenLimit || 0) : 0,
     };
   };
 
