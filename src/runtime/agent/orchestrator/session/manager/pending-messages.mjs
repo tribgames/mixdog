@@ -5,6 +5,7 @@ import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync, updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
 import { promptContentText, isInternalRuntimeNotificationText } from './prompt-utils.mjs';
 import { loadSession } from '../store.mjs';
+import { isDeliveredCompletion, logDuplicateSkip } from './delivered-completions.mjs';
 
 const _sessionPendingMessages = new Map();
 const PENDING_MESSAGES_FILE = 'session-pending-messages.json';
@@ -22,6 +23,31 @@ let _pendingPersistImmediate = null;
 function isCompletionNotificationEntry(entry) {
     return Boolean(entry) && typeof entry === 'object'
         && entry.notificationKind === COMPLETION_NOTIFICATION_KIND;
+}
+
+// Pre-marker completion notifications were persisted as plain strings,
+// indistinguishable from genuine user/steering messages except by their
+// model-visible wrapper shape. Such stale strings must never replay into a
+// resumed session, but they carry no notificationKind marker, so the marker
+// check alone leaves them behind. Because this is a SILENT-drop path, the
+// shared lenient wrapper detector is too broad (a user message quoting a
+// completion card could be dropped), so this uses its OWN strict recognizer:
+// the string must be a verbatim full-card paste and nothing else —
+//   (1) start with the exact instruction preamble + "\n\nResult:\n",
+//   (2) have EVERY non-empty body line quoted with "> " (100%),
+//   (3) carry no extra leading/trailing prose (whitespace-trim only).
+// Conservative by design: a false negative just keeps a legacy string, but a
+// false positive on genuine user text would silently drop a real message.
+const LEGACY_COMPLETION_CARD_PREAMBLE_RE = /^The async \S+ task \S+ has finished \([^)]*\) - review this result in your next step\.\n\nResult:\n/;
+function isLegacyUnmarkedCompletionNotification(entry) {
+    if (typeof entry !== 'string') return false;
+    const value = entry.trim();
+    const match = LEGACY_COMPLETION_CARD_PREAMBLE_RE.exec(value);
+    if (!match) return false;
+    const body = value.slice(match[0].length);
+    const lines = body.split(/\r?\n/).filter((line) => line.length > 0);
+    if (lines.length === 0) return false;
+    return lines.every((line) => line.startsWith('> '));
 }
 
 // Canonical completion-enqueue tagger. Every deferred tool/agent completion
@@ -393,8 +419,21 @@ export function drainPendingMessages(sessionId) {
     // in-memory queue is empty, so keeping it only ever delivers live entries.
     // Genuine user/steering messages carry no marker and are kept in order in
     // both paths.
-    const memoryKept = memory;
-    const persistedKept = persisted.filter((m) => !isCompletionNotificationEntry(m));
+    // Drain-time belt: drop MARKED in-memory completion entries whose text hash
+    // was already delivered+ACKed (TUI execution-ui) this process — those would
+    // double-inject next turn. Only marked completion entries are eligible;
+    // genuine user/steering entries carry no marker and are always kept.
+    const memoryKept = memory.filter((m) => {
+        if (!isCompletionNotificationEntry(m)) return true;
+        const text = pendingMessageText(m);
+        if (text && isDeliveredCompletion({ text })) {
+            logDuplicateSkip('drain', { text });
+            return false;
+        }
+        return true;
+    });
+    const persistedKept = persisted.filter((m) => !isCompletionNotificationEntry(m)
+        && !isLegacyUnmarkedCompletionNotification(m));
     const memoryVisible = modelVisiblePendingMessages(memoryKept);
     const persistedVisible = modelVisiblePendingMessages(persistedKept);
     if (memoryVisible.length === 0) return persistedVisible;

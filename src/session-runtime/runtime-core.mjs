@@ -33,6 +33,11 @@ import { setConfiguredShell } from '../runtime/agent/orchestrator/tools/builtin/
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { markCompletionEntry } from '../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
 import {
+  recordDeliveredCompletion,
+  isDeliveredCompletion,
+  logDuplicateSkip,
+} from '../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
+import {
   beginOAuthProviderLogin,
   forgetProviderAuth,
   isKnownProvider,
@@ -783,6 +788,16 @@ export async function createMixdogSessionRuntime({
     return (text, meta = {}) => {
       const { handled: handledByRuntimeListener, modelVisibleDelivered } = emitRuntimeNotification(text, meta);
       let enqueued = false;
+      // Model-visible delivery ack (TUI execution-ui only): register this
+      // completion in the process-local delivered registry so a racing enqueue
+      // on another path (background reconcile/fallback/notify) within THIS
+      // process is skipped instead of double-injecting the same body next turn.
+      if (modelVisibleDelivered) {
+        try {
+          const deliveredVisible = modelVisibleToolCompletionMessage(text, meta);
+          recordDeliveredCompletion({ executionId: meta?.execution_id, text: deliveredVisible });
+        } catch {}
+      }
       // TUI sessions consume raw execution notifications for UI/task cards via
       // onNotification, but those raw envelopes are internal-only in pending
       // drain. The TUI execution-ui path injects the model-visible twin of a
@@ -802,7 +817,16 @@ export async function createMixdogSessionRuntime({
           const visible = modelVisibleToolCompletionMessage(text, meta);
           // Terminal completion (gated by shouldPersistModelVisibleToolCompletion)
           // → tag so drain discards it on resume rather than replaying out-of-order.
-          if (visible) enqueued = mgr.enqueuePendingMessage(callerSessionId, markCompletionEntry(visible)) > 0;
+          if (visible) {
+            if (isDeliveredCompletion({ executionId: meta?.execution_id, text: visible })) {
+              // Already delivered+ACKed on the TUI path → suppress the mirror but
+              // report DELIVERED so the caller marks it notified and never retries.
+              logDuplicateSkip('mirror', { executionId: meta?.execution_id, text: visible });
+              enqueued = true;
+            } else {
+              enqueued = mgr.enqueuePendingMessage(callerSessionId, markCompletionEntry(visible)) > 0;
+            }
+          }
         } catch {}
       }
       // Headless/API listeners may exist but not consume the event; preserve
@@ -814,7 +838,16 @@ export async function createMixdogSessionRuntime({
           // modelVisibleToolCompletionMessage only returns non-empty for a
           // persistable terminal completion, so this fallback is a completion
           // too → tag it (genuine non-completion notifications yield '' above).
-          if (visible) enqueued = mgr.enqueuePendingMessage(callerSessionId, markCompletionEntry(visible)) > 0;
+          if (visible) {
+            if (isDeliveredCompletion({ executionId: meta?.execution_id, text: visible })) {
+              // Already delivered+ACKed on the TUI path → suppress the fallback
+              // enqueue but report DELIVERED so the caller stops retrying.
+              logDuplicateSkip('fallback', { executionId: meta?.execution_id, text: visible });
+              enqueued = true;
+            } else {
+              enqueued = mgr.enqueuePendingMessage(callerSessionId, markCompletionEntry(visible)) > 0;
+            }
+          }
         } catch {}
       }
       return enqueued || handledByRuntimeListener;

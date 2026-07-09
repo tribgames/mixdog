@@ -4,6 +4,7 @@
 import { modelVisibleToolCompletionMessage } from '../../runtime/shared/tool-execution-contract.mjs';
 import { renderBackgroundTask, sanitizeTaskMeta, setBackgroundTaskEnqueueFallback } from '../../runtime/shared/background-tasks.mjs';
 import { markCompletionEntry } from '../../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
+import { isDeliveredCompletion, logDuplicateSkip } from '../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
 import { clean } from './helpers.mjs';
 
 export function createNotify(mgr) {
@@ -13,6 +14,18 @@ export function createNotify(mgr) {
     try {
       const visible = modelVisibleToolCompletionMessage(text, meta);
       if (!visible) return false;
+      // Skip-if-delivered: the TUI already injected + ACKed this completion
+      // body into the active loop, so this racing enqueue (fallback/reconcile
+      // or the async reject/false-resolve rescue) would double-inject it.
+      // Report DELIVERED (truthy), not false — a false return propagates through
+      // tryEnqueueFallback→onSettled(false), which un-marks notified/
+      // notifiedWithBody (background-tasks.mjs) and makes reconcile refire
+      // forever, eventually enqueuing a post-eviction duplicate. Suppressed here
+      // == already delivered, so the caller must mark it notified and stop.
+      if (isDeliveredCompletion({ executionId: meta?.execution_id, text: visible })) {
+        logDuplicateSkip('notify-enqueue', { executionId: meta?.execution_id, text: visible });
+        return true;
+      }
       // Mark this as a deferred completion/task notification so a later session
       // resume drops it rather than replaying it out-of-order (owner decision).
       return Boolean(mgr.enqueuePendingMessage(target, markCompletionEntry(visible)) > 0);
