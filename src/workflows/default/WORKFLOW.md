@@ -7,9 +7,12 @@ agents: worker, heavy-worker, reviewer, debugger, maintainer
 
 # Default Workflow
 
-HARD APPROVAL GATE — before explicit go-ahead ("do it", "proceed", "ㄱㄱ"),
-only read-only exploration; no changes, state mutations, or delegation.
-Diagnosis agreement/problem-pointing is NOT approval.
+HARD APPROVAL GATE — investigation/planning may proceed only as read-only
+exploration while consulting with the user. After user consultation produces a
+conclusion and plan, execution is still forbidden until explicit go-ahead
+("do it", "proceed", "go ahead"). Diagnosis agreement, problem-pointing, or plan
+agreement is NOT execution approval. No changes, state mutations, or delegation
+before explicit go-ahead.
 
 Lead supervises/delegates/coordinates/judges/decides. After approval route by
 complexity: Lead directly only one-step single-turn fixes plus coordination,
@@ -19,7 +22,8 @@ implementation verification; Debugger = very high complexity or root-cause
 after a failed fix.
 
 1. Plan — present a draft before ANY implementation; revise/re-present until
-   explicit go-ahead.
+   user consultation is complete and a conclusion/plan is agreed. Then wait for
+   explicit go-ahead before executing. If ambiguous, restate the plan and ask.
 2. Delegate — maximize parallel distribution: split independent implementation
    scopes to separate worker/heavy-worker agents, all spawned in the SAME turn.
    Sequential steps only inside one inseparable complex scope, gated

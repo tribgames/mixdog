@@ -94,18 +94,27 @@ export function createAgentJobFeed({
     queueMicrotask(() => kickExecutionPendingResume(body));
   }
 
-  function updateAgentJobCard(itemId, text, isError = false) {
+  // Pure builder for the agent-job card patch. Split out so callers that are
+  // already patching the same card in the same tick (see tool-card-results
+  // non-aggregate path) can MERGE these fields into their single patchItem
+  // instead of issuing a second set() — collapsing the L1/L2 double-update
+  // jitter into one visible item update.
+  function buildAgentJobCardPatch(itemId, text, isError = false) {
     const parsed = parseAgentJob(text);
     const current = getState().items.find((it) => it.id === itemId);
     const rawDisplayText = agentJobResultText(text, parsed) || String(text ?? '').trim();
     const displayText = isError ? toolErrorDisplay(rawDisplayText, 'agent') : rawDisplayText;
-    patchItem(itemId, {
+    return {
       result: displayText,
       text: displayText,
       isError,
       errorCount: isError ? 1 : 0,
       ...(parsed ? { args: agentArgsWithResultMetadata(current?.args, parsed) } : {}),
-    });
+    };
+  }
+
+  function updateAgentJobCard(itemId, text, isError = false) {
+    patchItem(itemId, buildAgentJobCardPatch(itemId, text, isError));
   }
 
   function subscribeRuntimeNotifications() {
@@ -119,7 +128,7 @@ export function createAgentJobFeed({
       const delivery = resolveTuiRuntimeNotificationDelivery(event, text);
       if (delivery.action === 'ignore') return;
       if (delivery.action === 'notice') {
-        pushNotice?.(delivery.displayText, delivery.tone || 'info', { transcript: true });
+        pushNotice?.(delivery.displayText, delivery.tone || 'info', { transcript: delivery.transcript === true });
         return true;
       }
       if (delivery.action === 'status-only') {
@@ -135,7 +144,15 @@ export function createAgentJobFeed({
         if (parsed?.taskId) set(agentStatusState({ force: true }));
         const resumeBody = String(delivery.modelContent || '').trim();
         if (resumeBody) {
-          scheduleExecutionPendingResumeKick(resumeBody);
+          enqueue(resumeBody, {
+            mode: 'task-notification',
+            // Claude Code parity: live execution completions are queued as
+            // task notifications so the active loop can attach them after the
+            // next tool batch; no special pending-resume bypass.
+            priority: 'next',
+            key: notificationKey || undefined,
+            displayText: delivery.displayText || text,
+          });
         }
         return true;
       }
@@ -147,7 +164,9 @@ export function createAgentJobFeed({
       if (!modelContent && imagePaths.length === 0) return true;
       const enqueueOpts = {
         mode: 'task-notification',
-        priority: 'next',
+        // Claude Code parity: task/schedule notifications are lower-priority
+        // queue items and drain between turns, behind direct user input.
+        priority: 'later',
         key: notificationKey || undefined,
         displayText: delivery.displayText || text,
       };
@@ -184,6 +203,7 @@ export function createAgentJobFeed({
     flushDeferredExecutionPendingResumeKick,
     scheduleExecutionPendingResumeKick,
     updateAgentJobCard,
+    buildAgentJobCardPatch,
     subscribeRuntimeNotifications,
   };
 }

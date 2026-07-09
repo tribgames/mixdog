@@ -51,6 +51,14 @@ or inconclusive, keep the CORE entry.
 - `keep` — durable and already one short clause.
 - `update` — durable but verbose or multi-sentence → rewrite as one ≤120-char clause.
 - `merge` — duplicates another entry → fold into the survivor (same project pool).
+- `reclassify` — the entry is filed under the WRONG project pool. Its subject
+  clearly belongs to a different pool shown among the entries under review: a
+  project-specific fact stored in COMMON belongs under that project, or a generic
+  cross-project rule mis-filed under one project belongs in COMMON. Name the
+  correct destination: `<id>|reclassify|<project_slug|common>`. The target must
+  be COMMON or a project pool that already appears on another entry above — never
+  invent a new pool. Reclassify only MOVES the entry (its text is unchanged and
+  nothing is deleted); use it only when the mis-scoping is unambiguous, else `keep`.
 - `superseded` — a NEWER active core entry directly CONTRADICTS the value/state
   this older entry asserts (same
   subject, changed fact: a renamed thing, a moved location, a reversed
@@ -103,6 +111,7 @@ One line per entry id, any order:
 <id>|keep
 <id>|update|<element>|<summary>
 <id>|merge|<target_id>|<source_ids_csv>
+<id>|reclassify|<project_slug|common>
 <id>|superseded|<newer_id>
 <id>|delete|<reason>
 ```

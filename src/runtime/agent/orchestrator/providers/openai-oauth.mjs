@@ -410,16 +410,6 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
     for (const m of messages) {
         if (!m || m.role === 'system') continue;
         if (m.role === 'tool') {
-            if (Array.isArray(m.nativeToolSearch?.openaiTools)) {
-                out.push({
-                    type: 'tool_search_output',
-                    call_id: m.toolCallId || '',
-                    status: 'completed',
-                    execution: 'client',
-                    tools: m.nativeToolSearch.openaiTools,
-                });
-                continue;
-            }
             const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
             if (customToolCallNameById.has(m.toolCallId || '')) {
                 out.push({
@@ -449,14 +439,7 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
             // reasoning in `input` triggers "Duplicate item".
             if (m.content) out.push(wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, { role: 'assistant' })));
             for (const tc of m.toolCalls) {
-                if (tc.nativeType === 'tool_search_call' || tc.name === 'load_tool' || tc.name === 'tool_search') {
-                    out.push({
-                        type: 'tool_search_call',
-                        call_id: tc.id,
-                        execution: 'client',
-                        arguments: tc.arguments || {},
-                    });
-                } else if (isCustomToolCallRecord(tc)) {
+                if (isCustomToolCallRecord(tc)) {
                     if (tc.id) customToolCallNameById.set(tc.id, tc.name || '');
                     out.push({
                         type: 'custom_tool_call',
@@ -468,7 +451,7 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
                     out.push({
                         type: 'function_call',
                         call_id: tc.id,
-                        name: tc.name,
+                        name: tc.name === 'tool_search' ? 'load_tool' : tc.name,
                         arguments: JSON.stringify(tc.arguments),
                     });
                 }
@@ -487,8 +470,8 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
 function toOpenAIResponsesTool(t) {
     if (t?.name === 'load_tool' || t?.name === 'tool_search') {
         return {
-            type: 'tool_search',
-            execution: 'client',
+            type: 'function',
+            name: 'load_tool',
             description: t.description,
             parameters: t.inputSchema,
         };
@@ -923,13 +906,14 @@ export class OpenAIOAuthProvider {
             useModel,
             displayModel: _displayCodexModel,
             forceFresh,
-            // Fast-fallback: when HTTP/SSE fallback is enabled, cap the WS
-            // handshake acquire loop at ONE attempt so a first
-            // acquire/first-byte failure aborts the remaining backoff retries
-            // and lets HTTP start immediately (skip-retries, no concurrent race
-            // → no double token spend). WS-only paths (fallback disabled) keep
-            // the full retry budget.
-            fastFallback: httpFallbackEnabled,
+            // Default refs-style recovery: keep using WS first. A transient
+            // first-byte / mid-stream stall closes the bad socket and retries on
+            // a fresh WS entry; only after the bounded WS retry budget is
+            // exhausted does openai-oauth fall back to HTTP/SSE. This preserves
+            // the hot WS/cache path for temporary blips while still preventing
+            // TUI-level hangs. Operators can opt into immediate HTTP fallback
+            // for diagnostics with MIXDOG_OPENAI_OAUTH_FAST_HTTP_FALLBACK=1.
+            fastFallback: httpFallbackEnabled && _envFlag('MIXDOG_OPENAI_OAUTH_FAST_HTTP_FALLBACK', false),
             // codex-parity prewarm (generate:false full frame on a fresh
             // socket, wire-verified 2026-07-03). DEFAULT ON: R19(off) vs
             // R20(on) A/B shows prewarm removes ALL early-session zero-cache

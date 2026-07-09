@@ -340,25 +340,24 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     onToolResult: typeof askOpts?.onToolResult === 'function' ? askOpts.onToolResult : undefined,
                     onToolApproval: typeof askOpts?.onToolApproval === 'function' ? askOpts.onToolApproval : undefined,
                     onCompactEvent: typeof askOpts?.onCompactEvent === 'function' ? askOpts.onCompactEvent : undefined,
-                    // Mid-turn steering drain. agentLoop calls this at every
-                    // tool-batch boundary (before the next provider.send) and
-                    // injects any returned strings as user turns — so input
-                    // (user typing, `agent type=send`) that arrives WHILE a
-                    // long multi-tool turn is in flight is picked up on the
-                    // model's very next iteration instead of waiting for the
-                    // whole task to finish. The post-turn _pendingTail drain
-                    // below still handles "followUp" input that lands after the
-                    // agent would otherwise stop. Same queue, two drain points.
-                    drainSteering: (sid) => {
+                    // Claude Code parity: mid-chain queued prompt/notification
+                    // drain is owned by agentLoop at provider-continuation
+                    // boundaries (after a tool batch, before the next send).
+                    // The post-loop _pendingTail drain below still handles
+                    // items that arrive after the model would otherwise stop.
+                    drainSteering: (sid, drainOptions = {}) => {
                         const out = [];
                         if (typeof askOpts?.drainSteering === 'function') {
                             try {
-                                const drained = askOpts.drainSteering(sid || sessionId);
+                                const drained = askOpts.drainSteering(sid || sessionId, drainOptions);
                                 if (Array.isArray(drained)) out.push(...drained);
                             } catch { /* best-effort steering drain */ }
                         }
-                        try { out.push(...drainPendingMessages(sid || sessionId)); }
-                        catch { /* best-effort pending drain */ }
+                        // Do NOT drain manager/pending-messages here: those
+                        // entries have no mode/priority/slash metadata, so
+                        // draining them mid-chain would bypass Claude Code's
+                        // queued_command filters. They are consumed by the
+                        // post-loop _pendingTail drain below.
                         return out;
                     },
                     onSteerMessage: typeof askOpts?.onSteerMessage === 'function' ? askOpts.onSteerMessage : undefined,
@@ -574,6 +573,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // owning background task in `running` and suppress its completion
             // notification. Cap the wait; let a slow write finish in the
             // background instead of holding askSession() open indefinitely.
+            let terminalSaveTimedOut = false;
             {
                 const savePromise = saveSessionAsync(session, { expectedGeneration: askGeneration });
                 let saveTimer = null;
@@ -587,6 +587,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         saveTimeout,
                     ]);
                     if (outcome === '__save_timeout__') {
+                        terminalSaveTimedOut = true;
                         try { process.stderr.write(`[session] terminal save exceeded ${TERMINAL_SAVE_TIMEOUT_MS}ms; continuing best-effort (${sessionId})\n`); } catch {}
                         // Don't drop the write — let it settle in the background.
                         savePromise.catch((err) => {
@@ -674,10 +675,18 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             const _mergedTail = _mergePendingMessageEntries(_drained);
             if (_mergedTail?.content) {
                 _pendingTail.push(_mergedTail.content);
-                const refreshed = loadSession(sessionId);
-                if (refreshed && refreshed.closed !== true) {
-                    activeSession = refreshed;
-                    runtime.session = refreshed;
+                if (terminalSaveTimedOut) {
+                    // The disk snapshot may still be stale; carry the just-
+                    // committed in-memory session into the follow-up turn so
+                    // the queued tail sees the preceding assistant/tool context.
+                    activeSession = session;
+                    runtime.session = session;
+                } else {
+                    const refreshed = loadSession(sessionId);
+                    if (refreshed && refreshed.closed !== true) {
+                        activeSession = refreshed;
+                        runtime.session = refreshed;
+                    }
                 }
                 continue;
             }

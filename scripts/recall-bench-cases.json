@@ -4,8 +4,8 @@
   { "id": "period-24h", "label": "period window 24h", "args": { "period": "24h", "limit": 10 }, "expect": "browse" },
   { "id": "period-7d", "label": "period window 7d", "args": { "period": "7d", "limit": 10 }, "expect": "browse" },
   { "id": "scope-all", "label": "all-scope query", "args": { "query": "recall", "projectScope": "all", "limit": 10 }, "expect": "results" },
-  { "id": "recent-dryrun-delta", "label": "recent-work topical: dryrun delta sum", "args": { "query": "드라이런 델타 합산", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["드라이런"], "topN": 5 } },
-  { "id": "recent-remote-singleton", "label": "recent-work topical: remote singleton seat", "args": { "query": "remote 싱글톤 좌석", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["싱글톤"], "topN": 5 } },
-  { "id": "recency-today", "label": "query+period recency: today's work (24h)", "args": { "query": "오늘 진행한 작업", "period": "24h", "limit": 10 }, "expect": { "kind": "results", "recencyOrdered": true } },
+  { "id": "recent-dryrun-delta", "label": "recent-work topical: dryrun delta sum", "args": { "query": "\uB4DC\uB77C\uC774\uB7F0 \uB378\uD0C0 \uD569\uC0B0", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["\uB4DC\uB77C\uC774\uB7F0"], "topN": 5 } },
+  { "id": "recent-remote-singleton", "label": "recent-work topical: remote singleton seat", "args": { "query": "remote \uC2F1\uAE00\uD1A4 \uC88C\uC11D", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["\uC2F1\uAE00\uD1A4"], "topN": 5 } },
+  { "id": "recency-today", "label": "query+period recency: today's work (24h)", "args": { "query": "\uC624\uB298 \uC9C4\uD589\uD55C \uC791\uC5C5", "period": "24h", "limit": 10 }, "expect": { "kind": "results", "recencyOrdered": true } },
   { "id": "xlang-embedding-crash", "label": "cross-language: embedding worker crash (strict topN)", "args": { "query": "embedding worker crash", "limit": 10 }, "expect": { "kind": "results", "topNContains": ["embedding"], "topN": 3 } }
 ]

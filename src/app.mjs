@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
+import { ensureProcessListenerHeadroom } from './runtime/shared/process-listener-headroom.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // --workflow is consumed (with its value) but ignored on the headless role
@@ -35,7 +36,7 @@ const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__
 // which legitimately exceeds Node's default 10-listener warning threshold in a
 // fully-loaded runtime. Raise the cap once at the CLI entry so a benign
 // MaxListenersExceededWarning never leaks into the user's terminal.
-try { process.setMaxListeners(Math.max(process.getMaxListeners(), 64)); } catch { /* ignore */ }
+ensureProcessListenerHeadroom(64);
 
 function bootProfile(event, fields = {}) {
   if (!BOOT_PROFILE_ENABLED) return;

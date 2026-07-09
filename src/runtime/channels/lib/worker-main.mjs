@@ -52,6 +52,7 @@ import {
   RUNTIME_ROOT
 } from "./runtime-paths.mjs";
 import { getDiscordToken } from "./config.mjs";
+import { invalidateConfigReadCache } from "../../shared/config.mjs";
 import { bootProfile, localTimestamp } from "./boot-profile.mjs";
 import {
   isChannelsDegraded,
@@ -720,6 +721,10 @@ async function start() {
   if (!_configWatcher) {
     try {
       _configWatcher = fs.watch(path.join(DATA_DIR, "mixdog-config.json"), () => {
+        // Cross-process edit landed on disk; drop this process's short-TTL raw
+        // config cache synchronously so the debounced reload (and any readAll
+        // in between) sees the fresh file immediately, not up to TTL stale.
+        invalidateConfigReadCache();
         if (_reloadDebounce) clearTimeout(_reloadDebounce);
         _reloadDebounce = setTimeout(() => { reloadRuntimeConfig().catch(() => {}); }, 500);
       });

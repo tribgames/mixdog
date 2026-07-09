@@ -26,6 +26,7 @@ export function createRunTurn(bag) {
     // it is stale and skip all shared-getState() writes (busy, flags.activePromptRestore,
     // turndone, drain kick). Neutralizes the stale unwind without touching the mutex.
     const turnEpoch = ++flags.leadTurnEpoch;
+    const isCurrentTurn = () => !flags.disposed && flags.leadTurnEpoch === turnEpoch;
     const inputBaseline = getState().stats.inputTokens;
     const outputBaseline = getState().stats.outputTokens;
     const submittedIds = Array.isArray(options.submittedIds) ? options.submittedIds : [];
@@ -48,50 +49,86 @@ export function createRunTurn(bag) {
     let currentAssistantId = null;
 
     tuiDebug(`runTurn start turn=${turnIndex} pending=${pending.length} timeoutMs=${LEAD_TURN_TIMEOUT_MS}`);
-    // ── Wall-clock watchdog ───────────────────────────────────────────────
-    // If this turn never unwinds (provider call stuck), trip after the cap:
-    // abort the in-flight run via the existing interrupt path (runtime.abort,
-    // the same one Esc uses), which rejects the pending runtime.ask() with a
-    // SessionClosedError so the normal cancelled-turn teardown runs. If even
-    // that unwind is starved, forceReleaseTurn() in the timer hard-clears busy
-    // and kicks the drain so input is never permanently dead.
+    // ── Idle watchdog ─────────────────────────────────────────────────────
+    // If this turn stops making observable progress (provider call stuck),
+    // trip after the cap: abort the in-flight run via the existing interrupt
+    // path (runtime.abort, the same one Esc uses), which rejects the pending
+    // runtime.ask() with a SessionClosedError so the normal cancelled-turn
+    // teardown runs. Keep this progress-based rather than total wall-clock:
+    // long multi-tool turns can legitimately exceed 5m while still producing
+    // model/tool events.
     let watchdogTripped = false;
     let watchdogTimer = null;
     let watchdogGraceTimer = null;
+    let lastProgressAt = startedAt;
+    let lastProgressLabel = 'start';
     const clearWatchdog = () => {
       if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
       if (watchdogGraceTimer) { clearTimeout(watchdogGraceTimer); watchdogGraceTimer = null; }
     };
-    watchdogTimer = setTimeout(() => {
-      if (flags.disposed) return;
-      watchdogTripped = true;
-      const elapsed = Date.now() - startedAt;
-      tuiDebug(`runTurn WATCHDOG TRIP turn=${turnIndex} elapsedMs=${elapsed} — aborting stuck turn`);
-      pushNotice(`Turn timed out after ${Math.round(elapsed / 1000)}s — aborting stuck request. Input is available again.`, 'warn', { transcript: true });
-      try { runtime.abort('cli-react-abort-watchdog'); } catch {}
-      // Belt-and-suspenders: if runtime.abort() did not reject runtime.ask()
-      // (unwind starved), hard-release the turn after a short grace so the
-      // React store is never left with busy=true and no drain in flight.
-      watchdogGraceTimer = setTimeout(() => {
-        if (flags.disposed) return;
-        if (!getState().busy) return;
-        if (flags.leadTurnEpoch !== turnEpoch) return; // a newer turn already owns the store
-        tuiDebug(`runTurn WATCHDOG FORCE-RELEASE turn=${turnIndex} — abort unwind starved`);
-        // Bump the epoch FIRST so this (still-stuck) turn's later finally becomes
-        // a no-op for shared getState() and cannot corrupt the turn we hand off to.
-        flags.leadTurnEpoch++;
-        set({ busy: false, spinner: null, thinking: null, lastTurn: null });
-        flags.activePromptRestore = null;
-        if (flags.draining) flags.draining = false;
-        if (pending.length > 0) void drain();
-        // busy→false here bypasses both the normal turn-end flush and the
-        // drain-finally flush, so a deferred completion kick would never re-arm.
-        // Fire it explicitly (idempotent: guarded by deferred flag + !busy).
-        flushDeferredExecutionPendingResumeKick();
-      }, 5_000);
-      watchdogGraceTimer.unref?.();
-    }, LEAD_TURN_TIMEOUT_MS);
-    watchdogTimer.unref?.();
+    const armWatchdog = () => {
+      if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
+      if (watchdogTripped) return;
+      const remaining = Math.max(1, LEAD_TURN_TIMEOUT_MS - Math.max(0, Date.now() - lastProgressAt));
+      watchdogTimer = setTimeout(() => {
+        if (!isCurrentTurn()) return;
+        if (watchdogTripped) return;
+        const idleMs = Date.now() - lastProgressAt;
+        if (idleMs < LEAD_TURN_TIMEOUT_MS) {
+          armWatchdog();
+          return;
+        }
+        watchdogTripped = true;
+        if (_batchTimer !== null) {
+          clearTimeout(_batchTimer);
+          _batchTimer = null;
+        }
+        _pendingTextFlush = false;
+        _pendingThinkFlush = false;
+        _pendingThinkingLastEndedAt = 0;
+        const elapsed = Date.now() - startedAt;
+        tuiDebug(`runTurn WATCHDOG TRIP turn=${turnIndex} elapsedMs=${elapsed} idleMs=${idleMs} lastProgress=${lastProgressLabel} — aborting stuck turn`);
+        pushNotice(`Turn timed out after ${Math.round(idleMs / 1000)}s idle — aborting stuck request. Input will be released shortly if abort does not unwind.`, 'warn', { transcript: true });
+        try { runtime.abort('cli-react-abort-watchdog'); } catch {}
+        // Belt-and-suspenders: if runtime.abort() did not reject runtime.ask()
+        // (unwind starved), hard-release the turn after a short grace so the
+        // React store is never left with busy=true and no drain in flight.
+        watchdogGraceTimer = setTimeout(() => {
+          if (flags.disposed) return;
+          if (!getState().busy) return;
+          if (flags.leadTurnEpoch !== turnEpoch) return; // a newer turn already owns the store
+          tuiDebug(`runTurn WATCHDOG FORCE-RELEASE turn=${turnIndex} — abort unwind starved`);
+          denyAllToolApprovals('turn timed out');
+          clearActiveToolSummary();
+          flushToolResults([], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true, cancelled: true });
+          finalizeToolHeaders();
+          clearDeferredTimers();
+          flags.flushDeferredBeforeImmediatePush = null;
+          // Bump the epoch FIRST so this (still-stuck) turn's later finally becomes
+          // a no-op for shared getState() and cannot corrupt the turn we hand off to.
+          flags.leadTurnEpoch++;
+          set({ busy: false, spinner: null, thinking: null, lastTurn: null });
+          flags.activePromptRestore = null;
+          if (flags.draining) flags.draining = false;
+          if (pending.length > 0) void drain();
+          // busy→false here bypasses both the normal turn-end flush and the
+          // drain-finally flush, so a deferred completion kick would never re-arm.
+          // Fire it explicitly (idempotent: guarded by deferred flag + !busy).
+          flushDeferredExecutionPendingResumeKick();
+        }, 5_000);
+        watchdogGraceTimer.unref?.();
+      }, remaining);
+      watchdogTimer.unref?.();
+    };
+    const markTurnProgress = (label) => {
+      if (!isCurrentTurn()) return false;
+      if (watchdogTripped) return;
+      lastProgressAt = Date.now();
+      lastProgressLabel = String(label || 'progress');
+      armWatchdog();
+      return true;
+    };
+    armWatchdog();
     let currentAssistantText = '';
     let thinkingText = '';
     let thinkingStartedAt = 0;
@@ -139,8 +176,9 @@ export function createRunTurn(bag) {
     // so transcript order always matches call order even when a later card's
     // result/timer fires before an earlier one's. Commit the collected cards in
     // ONE state update: emitting one pushItem() per deferred card made a tool
-    // batch climb into view one row/card at a time ("툭툭" upward row jitter).
+    // batch climb into view one row/card at a time (stepwise upward row jitter).
     const flushDeferredUpTo = (entry) => {
+      if (!isCurrentTurn()) return;
       if (!entry) return;
       const specs = collectDeferredUpTo(entry);
       if (!specs.length) return;
@@ -177,7 +215,7 @@ export function createRunTurn(bag) {
       deferredEntries.push(entry);
       entry.timer = setTimeout(() => {
         entry.timer = null;
-        if (flags.disposed) return;
+        if (!isCurrentTurn()) return;
         flushDeferredUpTo(entry);
       }, TOOL_CARD_PUSH_DELAY_MS);
       entry.timer.unref?.();
@@ -205,7 +243,7 @@ export function createRunTurn(bag) {
       deferredEntries.push(entry);
       entry.timer = setTimeout(() => {
         entry.timer = null;
-        if (flags.disposed) return;
+        if (!isCurrentTurn()) return;
         flushDeferredUpTo(entry);
       }, TOOL_CARD_PUSH_DELAY_MS);
       entry.timer.unref?.();
@@ -235,6 +273,7 @@ export function createRunTurn(bag) {
     // Append pre-built items (deferred cards + turndone) in ONE set(). None are
     // 'user' kind, so no promptHistory rebuild is needed.
     const appendItemsBatch = (newItems, extra = {}) => {
+      if (!isCurrentTurn()) return;
       if (!newItems || !newItems.length) { set(extra); return; }
       const base = getState().items.length;
       const items = [...getState().items, ...newItems];
@@ -288,6 +327,7 @@ export function createRunTurn(bag) {
         if (allCalls.length === 0) continue;
         aggregate.ensureVisible?.();
         const errors = allCalls.filter((r) => r.isError).length;
+        const callErrors = allCalls.filter((r) => r.isCallError).length;
         const completed = allCalls.filter((r) => r.resolved).length;
         const succeeded = completed - errors;
         const rawResult = aggregateRawResult(allCalls);
@@ -301,6 +341,8 @@ export function createRunTurn(bag) {
           text: displayDetail,
           rawResult: rawResult || null,
           isError: errors > 0,
+          errorCount: errors,
+          callErrorCount: callErrors,
           count: allCalls.length,
           completedCount: allCalls.length,
           doneCategories: aggregateDoneCategories(allCalls),
@@ -481,6 +523,12 @@ export function createRunTurn(bag) {
         clearTimeout(_batchTimer);
         _batchTimer = null;
       }
+      if (!isCurrentTurn()) {
+        _pendingTextFlush = false;
+        _pendingThinkFlush = false;
+        _pendingThinkingLastEndedAt = 0;
+        return;
+      }
       if (_pendingTextFlush) {
         _pendingTextFlush = false;
         // Show only COMPLETED lines while streaming. The in-progress trailing
@@ -615,16 +663,22 @@ export function createRunTurn(bag) {
         // Gated to Memory calls: the text-matcher's ^(error|failed) catch-all
         // would otherwise misflag legitimate non-memory success output.
         const isMemoryCall = classifyToolCategory(callRec.name, callRec.args) === 'Memory';
-        const isError = message?.isError === true || message?.toolKind === 'error' || /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText)) || (isMemoryCall && memoryCoreResultErrorText(rawText) != null);
+        // Same split as tool-card-results.mjs: a REAL tool-call error drives the
+        // red ● dot; command/result failures only mark the card Failed in L2.
+        const isCallError = message?.isError === true || message?.toolKind === 'error';
+        const isResultError = /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText)) || (isMemoryCall && memoryCoreResultErrorText(rawText) != null);
+        const isError = isCallError || isResultError;
         const text = isError ? toolErrorDisplay(rawText, callRec.name || 'tool') : rawText;
         callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
         assignAggregateSummaryOrder(aggregate, callRec);
         callRec.isError = isError;
+        callRec.isCallError = isCallError;
         callRec.resultText = text;
         callRec.completedEarly = true;
         const allCalls = [...aggregate.calls.values()];
         const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
         const errors = allCalls.filter((r) => r.isError).length;
+        const callErrors = allCalls.filter((r) => r.isCallError).length;
         const succeeded = completedCount - errors;
         const rawResult = aggregateRawResult(allCalls);
         // Collapsed detail carries the merged per-call count summary even on
@@ -644,6 +698,7 @@ export function createRunTurn(bag) {
           text: displayDetail,
           isError: errors > 0,
           errorCount: errors,
+          callErrorCount: callErrors,
           count: allCalls.length,
           completedCount: visualCompleted,
         };
@@ -669,8 +724,9 @@ export function createRunTurn(bag) {
 
     try {
       const { result, session } = await runtime.ask(userText, {
-        drainSteering: () => drainPendingSteering(),
+        drainSteering: (_sessionId, drainOptions) => (isCurrentTurn() ? drainPendingSteering(drainOptions) : []),
         onSteerMessage: (text) => {
+          if (!markTurnProgress('steer-message')) return;
           // Steering can be injected after a terminal no-tool response has
           // already streamed but before runTurn finalizes. Seal the current
           // assistant segment first so the steered user turn and the next
@@ -692,6 +748,7 @@ export function createRunTurn(bag) {
           }
         },
         onToolCall: async (_iter, calls) => {
+          if (!markTurnProgress('tool-call')) return;
           markPromptCommitted();
           // Always flush any buffered mid-turn assistant text before the tool
           // card appears. Without this, when neither a thinking panel nor a
@@ -709,11 +766,13 @@ export function createRunTurn(bag) {
           if (batchCalls.length === 0) return;
           const committedAssistantSegment = commitAssistantSegment({ sealToolBlock: true });
           if (committedAssistantSegment) {
-            // Let the pre-tool assistant preamble paint as its own frame before
-            // the tool card reserves/pushes rows. When both enter the transcript
-            // in the same render, the bottom-pinned viewport can appear to jump
-            // upward by the combined height ("preamble + tool card" at once).
-            await yieldToRenderer();
+            // Let the pre-tool assistant preamble paint and settle before the
+            // tool card reserves/pushes rows. The first frame emits the sealed
+            // preamble; the second gives measured-height harvest a chance to
+            // publish any Markdown/streaming→final correction. If the settle
+            // frame is unnecessary, yieldToRenderer's fallback releases quickly.
+            await yieldToRenderer({ frames: 2 });
+            if (!isCurrentTurn()) return;
           }
 
           const touchedAggregates = new Set();
@@ -795,7 +854,7 @@ export function createRunTurn(bag) {
               ...categoryEntry,
               count: Number(prevCategory?.count || 0) + Number(categoryEntry.count || 1),
             });
-            aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, resultText: null, resolved: false, completedEarly: false });
+            aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, isCallError: false, resultText: null, resolved: false, completedEarly: false });
             touchedAggregates.add(aggregateCard);
             const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
             if (callId) {
@@ -831,6 +890,7 @@ export function createRunTurn(bag) {
           await yieldToRenderer();
         },
         onToolResult: (message) => {
+          if (!markTurnProgress('tool-result')) return;
           const callId = toolResultCallId(message);
           if (callId && !cardByCallId.has(callId) && !resultsDone.has(callId)) {
             earlyResultBuffer.set(callId, message);
@@ -839,12 +899,16 @@ export function createRunTurn(bag) {
           deliverToolResultMessage(message);
         },
         onToolApproval: async (request) => {
+          if (!markTurnProgress('tool-approval')) return { approved: false, reason: 'turn no longer active' };
           markPromptCommitted();
           flushStreamBatch();
           if (getState().spinner) set({ spinner: { ...getState().spinner, mode: 'tool-approval' } });
-          return await requestToolApproval(request);
+          const approval = await requestToolApproval(request);
+          if (!isCurrentTurn()) return { approved: false, reason: 'turn no longer active' };
+          return approval;
         },
         onCompactEvent: (event) => {
+          if (!markTurnProgress('compact-event')) return;
           flushStreamBatch();
           // Non-tool transcript item — same block-boundary rule as the
           // steered user item above: seal any live aggregate first so a
@@ -859,6 +923,7 @@ export function createRunTurn(bag) {
           });
         },
         onStageChange: async (stage) => {
+          if (!markTurnProgress(`stage:${String(stage || '')}`)) return;
           if (!getState().spinner) return;
           const value = String(stage || '');
           if (value === 'compacting') {
@@ -892,6 +957,7 @@ export function createRunTurn(bag) {
         onTextDelta: (chunk) => {
           const textChunk = String(chunk ?? '');
           if (!textChunk) return;
+          if (!markTurnProgress('text-delta')) return;
           markPromptCommitted();
           const thinkingLastEndedAt = closeThinkingSegment();
           // Drop any queued think-flush too: it would otherwise re-publish
@@ -918,6 +984,7 @@ export function createRunTurn(bag) {
           // streaming path is unaffected.
           const full = String(text ?? '');
           if (!full.trim()) return;
+          if (!markTurnProgress('assistant-text')) return;
           // If the streaming path already produced text for THIS segment,
           // onTextDelta owns the render — content is the same accumulated text
           // (or a superset), so skip to avoid double-printing the preamble.
@@ -935,7 +1002,11 @@ export function createRunTurn(bag) {
           flushStreamBatch();
         },
         onReasoningDelta: (chunk) => {
-          if (String(chunk ?? '')) markPromptCommitted();
+          if (!isCurrentTurn() || watchdogTripped) return;
+          if (String(chunk ?? '')) {
+            if (!markTurnProgress('reasoning-delta')) return;
+            markPromptCommitted();
+          }
           startThinkingSegment();
           thinkingText += String(chunk ?? '');
           // Accumulate reasoning text; fire at most one render per STREAM_BATCH_INTERVAL_MS.
@@ -943,6 +1014,7 @@ export function createRunTurn(bag) {
           scheduleStreamFlush();
         },
         onUsageDelta: (delta) => {
+          if (!markTurnProgress('usage-delta')) return;
           applyUsageDelta(getState().stats, delta);
           syncContextStats({ allowEstimated: true });
           const currentTurnInput = Math.max(0, getState().stats.inputTokens - inputBaseline);
@@ -954,130 +1026,134 @@ export function createRunTurn(bag) {
           }
         },
       });
-      askResult = result;
-      markPromptCommitted();
-
-      flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
-      finalizeToolHeaders();
-      flushStreamBatch(); // force-flush any batched streaming text before finalization writes
-      syncContextStats({ allowEstimated: true });
-
-      const finalText = result?.content != null ? String(result.content) : '';
-      if (finalText.trim()) {
-        // The persisted transcript is written from the provider's final content,
-        // while the live TUI row is fed by streaming deltas. If a provider/parser
-        // misses or suppresses an early delta, keeping the streamed buffer here
-        // leaves the final on-screen assistant row missing leading characters even
-        // though the transcript is correct. Always reconcile the active segment to
-        // the final provider text when it is available.
-        const id = currentAssistantId || ensureAssistant(finalText);
-        currentAssistantText = finalText;
-        patchItem(id, { text: finalText, streaming: false });
-      } else if (currentAssistantId && (currentAssistantText.trim() || assistantText.trim())) {
-        const streamedText = currentAssistantText || assistantText;
-        patchItem(currentAssistantId, { text: streamedText, streaming: false });
-      }
-      turnFinishedNormally = true;
-    } catch (error) {
-      flushStreamBatch(); // ensure any batched text lands before the error notice
-      if (error?.name === 'SessionClosedError') {
+      if (!isCurrentTurn()) {
         cancelled = true;
-        if (assistantText.trim() && currentAssistantId) {
-          patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
-        }
-        // Finalize pending tool cards so they don't stay "Running..." forever
-        // after cancellation. Without this, the spinner vanishes and TurnDone
-        // shows "cancelled", but in-flight tool cards remain in a perpetual
-        // pending/blinking getState() because the normal finalize path (line 992)
-        // was skipped when the error interrupted the try block.
-        flushToolResults([], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true, cancelled: true });
-        finalizeToolHeaders();
       } else {
+        askResult = result;
+        markPromptCommitted();
+
+        flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
         finalizeToolHeaders();
-        pushNotice(toolErrorDisplay(error, 'turn'), 'error');
+        flushStreamBatch(); // force-flush any batched streaming text before finalization writes
+        syncContextStats({ allowEstimated: true });
+
+        const finalText = result?.content != null ? String(result.content) : '';
+        if (finalText.trim()) {
+          // The persisted transcript is written from the provider's final content,
+          // while the live TUI row is fed by streaming deltas. If a provider/parser
+          // misses or suppresses an early delta, keeping the streamed buffer here
+          // leaves the final on-screen assistant row missing leading characters even
+          // though the transcript is correct. Always reconcile the active segment to
+          // the final provider text when it is available.
+          const id = currentAssistantId || ensureAssistant(finalText);
+          currentAssistantText = finalText;
+          patchItem(id, { text: finalText, streaming: false });
+        } else if (currentAssistantId && (currentAssistantText.trim() || assistantText.trim())) {
+          const streamedText = currentAssistantText || assistantText;
+          patchItem(currentAssistantId, { text: streamedText, streaming: false });
+        }
+        turnFinishedNormally = true;
+      }
+    } catch (error) {
+      const staleCatch = !isCurrentTurn();
+      if (staleCatch) {
+        cancelled = true;
+      } else {
+        flushStreamBatch(); // ensure any batched text lands before the error notice
+        if (error?.name === 'SessionClosedError') {
+          cancelled = true;
+          if (assistantText.trim() && currentAssistantId) {
+            patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
+          }
+          // Finalize pending tool cards so they don't stay "Running..." forever
+          // after cancellation. Without this, the spinner vanishes and TurnDone
+          // shows "cancelled", but in-flight tool cards remain in a perpetual
+          // pending/blinking getState() because the normal finalize path (line 992)
+          // was skipped when the error interrupted the try block.
+          flushToolResults([], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true, cancelled: true });
+          finalizeToolHeaders();
+        } else {
+          finalizeToolHeaders();
+          pushNotice(toolErrorDisplay(error, 'turn'), 'error');
+        }
       }
     } finally {
-      denyAllToolApprovals(cancelled ? 'turn cancelled' : 'turn finished');
-      // Turn is unwinding normally (or via abort) — cancel the wall-clock
-      // watchdog + its force-release grace so they never fire on a live turn.
+      const isStaleUnwind = !isCurrentTurn();
+      if (!isStaleUnwind) denyAllToolApprovals(cancelled ? 'turn cancelled' : 'turn finished');
+      // Turn is unwinding normally (or via abort) — cancel the idle watchdog and
+      // its force-release grace so they never fire on a live turn.
       clearWatchdog();
       // If the watchdog force-release already fired, a NEWER turn now owns the
       // shared store (busy, flags.activePromptRestore, turndone, drain). This stale
-      // unwind must NOT write shared getState() or it corrupts that turn. It still
-      // runs its own turn-local teardown (approvals, deferred cards) below.
-      const isStaleUnwind = flags.leadTurnEpoch !== turnEpoch;
-      // Flush any still-deferred tool cards into the transcript and cancel their
-      // pending push timers so nothing fires (or leaks) after the turn ends. The
-      // finalize path above already patches results onto visible cards; this just
-      // guarantees every registered card is materialized before the turn closes.
-      // Collect (don't emit) the still-deferred cards so the turn-close flush and
-      // the turndone item append in ONE set() below instead of one render bounce
-      // per row. Order/ids are preserved (creation order, then turndone last).
+      // unwind must NOT write shared getState() or it corrupts that turn.
       let closingItems = [];
       if (deferredEntries.length) {
-        const last = deferredEntries[deferredEntries.length - 1];
-        closingItems = collectDeferredUpTo(last);
+        if (!isStaleUnwind) {
+          // Flush any still-deferred tool cards into the transcript and cancel
+          // their pending push timers so nothing fires (or leaks) after the turn
+          // ends. The finalize path above already patches results onto visible
+          // cards; this just guarantees every registered card is materialized
+          // before the turn closes. Collect (don't emit) the still-deferred cards
+          // so the turn-close flush and the turndone item append in ONE set()
+          // below instead of one render bounce per row. Order/ids are preserved
+          // (creation order, then turndone last).
+          const last = deferredEntries[deferredEntries.length - 1];
+          closingItems = collectDeferredUpTo(last);
+        }
         clearDeferredTimers();
       }
-      flags.flushDeferredBeforeImmediatePush = null;
-      const producedTranscriptItem =
-        getState().items.length + closingItems.length > itemsAtTurnStart;
-      const reclaimed = cancelled && flags.activePromptRestore?.reclaimed === true;
-      if (!isStaleUnwind) flags.activePromptRestore = null;
+      if (!isStaleUnwind) flags.flushDeferredBeforeImmediatePush = null;
       closeThinkingSegment();
-      const elapsedMs = Date.now() - startedAt;
-      const thinkingElapsedMs = thinkingStartedAt ? accumulatedThinkingMs : 0;
-      // responseLength is engine-local now (not pushed per-token), so compute the
-      // fallback from the live accumulator instead of the possibly-stale
-      // getState().spinner.responseLength. Final-only / non-streaming turns never
-      // accumulate `assistantText` (only currentAssistantText is set at the
-      // finalize reconcile above), so take the larger of the two text sources so
-      // a no-usage turn still estimates tokens from the final content.
-      const finalAssistantLen = Math.max(assistantText.length, currentAssistantText.length);
-      const finalResponseLength = finalAssistantLen + thinkingText.length;
-      const finalOutputTokens = Math.max(0, Number(getState().spinner?.outputTokens || 0), Math.round(finalResponseLength / 4));
-      const turnStatus = cancelled ? 'cancelled' : 'done';
-      const resultContent = askResult?.content != null ? String(askResult.content).trim() : '';
-      const assistantOutput = (currentAssistantText || assistantText || '').trim();
-      // Suppress only true pending-resume no-ops: no transcript items added and no model output; cancelled/error turns and any visible turn stay marked.
-      const isNoOpTurn = turnFinishedNormally
-        && !cancelled
-        && toolCards.length === 0
-        && !resultContent
-        && !assistantOutput
-        && !producedTranscriptItem;
       if (isStaleUnwind) {
-        // Preserve prior behavior: a stale unwind still materializes its own
-        // deferred cards (turn-local teardown) but writes no other shared getState().
-        if (closingItems.length) appendItemsBatch(closingItems);
-        tuiDebug(`runTurn STALE UNWIND turn=${turnIndex} — force-released; skipping shared-getState() writes`);
-        // A stale unwind settles busy→false (via the watchdog release) without
-        // the normal turn-end flush, so re-arm any deferred completion kick here
-        // too (idempotent: no-ops unless a kick is deferred and nothing is busy).
-        flushDeferredExecutionPendingResumeKick();
+        tuiDebug(`runTurn STALE UNWIND turn=${turnIndex} — force-released; skipping shared UI/state writes`);
       } else {
-      if (!isNoOpTurn) {
-        getState().stats.turns = (getState().stats.turns || 0) + 1;
-      }
-      // Pin the post-think summary into the transcript right after this turn's
-      // output so it scrolls up with the answer and stays in the scrollback,
-      // in scrollback. (Previously TurnDone rendered only in the
-      // bottom-fixed live-status slot and vanished on the next turn.)
-      if (!reclaimed && !isNoOpTurn) {
-        closingItems.push({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
-      }
-      // Deferred cards + turndone + status all land in ONE set() (one commit).
-      appendItemsBatch(closingItems, {
-        busy: false,
-        spinner: null,
-        thinking: null,
-        lastTurn: null,
-        stats: { ...getState().stats },
-        ...routeState(),
-        toolMode: runtime.toolMode,
-        ...agentStatusState({ force: true }),
-      });
-      flushDeferredExecutionPendingResumeKick();
+        const producedTranscriptItem =
+          getState().items.length + closingItems.length > itemsAtTurnStart;
+        const reclaimed = cancelled && flags.activePromptRestore?.reclaimed === true;
+        flags.activePromptRestore = null;
+        const elapsedMs = Date.now() - startedAt;
+        const thinkingElapsedMs = thinkingStartedAt ? accumulatedThinkingMs : 0;
+        // responseLength is engine-local now (not pushed per-token), so compute the
+        // fallback from the live accumulator instead of the possibly-stale
+        // getState().spinner.responseLength. Final-only / non-streaming turns never
+        // accumulate `assistantText` (only currentAssistantText is set at the
+        // finalize reconcile above), so take the larger of the two text sources so
+        // a no-usage turn still estimates tokens from the final content.
+        const finalAssistantLen = Math.max(assistantText.length, currentAssistantText.length);
+        const finalResponseLength = finalAssistantLen + thinkingText.length;
+        const finalOutputTokens = Math.max(0, Number(getState().spinner?.outputTokens || 0), Math.round(finalResponseLength / 4));
+        const turnStatus = cancelled ? 'cancelled' : 'done';
+        const resultContent = askResult?.content != null ? String(askResult.content).trim() : '';
+        const assistantOutput = (currentAssistantText || assistantText || '').trim();
+        // Suppress only true pending-resume no-ops: no transcript items added and no model output; cancelled/error turns and any visible turn stay marked.
+        const isNoOpTurn = turnFinishedNormally
+          && !cancelled
+          && toolCards.length === 0
+          && !resultContent
+          && !assistantOutput
+          && !producedTranscriptItem;
+        if (!isNoOpTurn) {
+          getState().stats.turns = (getState().stats.turns || 0) + 1;
+        }
+        // Pin the post-think summary into the transcript right after this turn's
+        // output so it scrolls up with the answer and stays in the scrollback,
+        // in scrollback. (Previously TurnDone rendered only in the
+        // bottom-fixed live-status slot and vanished on the next turn.)
+        if (!reclaimed && !isNoOpTurn) {
+          closingItems.push({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
+        }
+        // Deferred cards + turndone + status all land in ONE set() (one commit).
+        appendItemsBatch(closingItems, {
+          busy: false,
+          spinner: null,
+          thinking: null,
+          lastTurn: null,
+          stats: { ...getState().stats },
+          ...routeState(),
+          toolMode: runtime.toolMode,
+          ...agentStatusState({ force: true }),
+        });
+        flushDeferredExecutionPendingResumeKick();
       }
     }
     // Shared UI getState(): a stale unwind must not wipe a newer turn's live

@@ -537,6 +537,7 @@ function computeTranscriptItemVariantKey(item) {
     const count = Number(item.count ?? 0);
     const completed = item.completedCount === undefined ? 'u' : Number(item.completedCount);
     const errors = item.errorCount === undefined ? 'u' : Number(item.errorCount);
+    const callErrors = item.callErrorCount === undefined ? 'u' : Number(item.callErrorCount);
     const isError = item.isError ? 1 : 0;
     const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
     const aggregate = item.aggregate ? 1 : 0;
@@ -547,7 +548,7 @@ function computeTranscriptItemVariantKey(item) {
     const bgPrompt = textShapeFingerprint(bgArgs.prompt);
     const bgMessage = textShapeFingerprint(bgArgs.message);
     const bgError = textShapeFingerprint(bgArgs.error);
-    return `x${expanded}:n${normalizedName}:g${aggregate}:r${resultShape}:R${rawShape}:c${count}:d${completed}:e${errors}:E${isError}:bt${bgType}:bs${bgStatus}:bk${bgTaskId}:bp${bgPrompt}:bm${bgMessage}:be${bgError}`;
+    return `x${expanded}:n${normalizedName}:g${aggregate}:r${resultShape}:R${rawShape}:c${count}:d${completed}:e${errors}:ce${callErrors}:E${isError}:bt${bgType}:bs${bgStatus}:bk${bgTaskId}:bp${bgPrompt}:bm${bgMessage}:be${bgError}`;
   }
   return `x${expanded}:s${textShapeFingerprint(item.text ?? item.result ?? '')}`;
 }
@@ -568,13 +569,43 @@ export const transcriptMeasuredRowsCache = new WeakMap();
 // (its final settled height is then captured by the normal WeakMap path).
 export const streamingMeasuredRowsById = new Map();
 
+// High-water clamp for the STREAMING row ESTIMATE, keyed by stream item id.
+// measureStreamingMarkdownRenderedRows (measure-rendered-rows.mjs) adds a +1
+// gap row only while childCount===2 (stablePrefix box + unstableSuffix box).
+// As the stable/unstable split moves per token — and when the suffix is
+// momentarily whitespace-only, stablePrefix empties — childCount flips 1↔2
+// frame-to-frame, so the estimate oscillates ±1. Streaming text only ever
+// GROWS, so any per-frame DECREASE is spurious. Hold the max estimate seen this
+// streaming run so streamingEstimateRows is NON-DECREASING, killing the -1 dip
+// that shifts the transcript when a newline settles. Entry stores columns/
+// toolExpanded so a real layout-basis change resets the water line (row count
+// legitimately changes with width). Lifecycle mirrors streamingMeasuredRowsById
+// exactly: pruned by pruneStreamingMeasuredRowsById and cleared at the same
+// settle / invalidate delete sites in estimateTranscriptItemRowsCached.
+const streamingEstimateHighWaterById = new Map();
+
+/** True when either streaming id-keyed store holds entries, so the mount-prune
+ * call site fires even when only the estimate high-water map is populated (an
+ * item that never got a Yoga measurement but reached an estimate high-water,
+ * then was bulk-replaced, must still be pruned). */
+export function hasStreamingRowStateToPrune() {
+  return streamingMeasuredRowsById.size > 0 || streamingEstimateHighWaterById.size > 0;
+}
+
 /** Drop streamingMeasuredRowsById entries for ids no longer mounted, so the
  * store does not grow unbounded over a long session (mirrors the id→item /
  * id→callback map pruning already done for the mounted set). */
 export function pruneStreamingMeasuredRowsById(liveIds) {
-  if (!liveIds || streamingMeasuredRowsById.size === 0) return;
-  for (const id of streamingMeasuredRowsById.keys()) {
-    if (!liveIds.has(id)) streamingMeasuredRowsById.delete(id);
+  if (!liveIds) return;
+  if (streamingMeasuredRowsById.size > 0) {
+    for (const id of streamingMeasuredRowsById.keys()) {
+      if (!liveIds.has(id)) streamingMeasuredRowsById.delete(id);
+    }
+  }
+  if (streamingEstimateHighWaterById.size > 0) {
+    for (const id of streamingEstimateHighWaterById.keys()) {
+      if (!liveIds.has(id)) streamingEstimateHighWaterById.delete(id);
+    }
   }
 }
 
@@ -627,7 +658,21 @@ export function streamingEstimateRows(item, columns, toolOutputExpanded) {
   const trimmedText = assistantTextForStreamingRowEstimate(item.text);
   const estimateItem = trimmedText === item.text ? item : { ...item, text: trimmedText };
   const raw = Math.max(1, Math.ceil(estimateTranscriptItemRows(estimateItem, columns, toolOutputExpanded)));
-  return Math.ceil(raw / STREAMING_ROW_QUANTUM) * STREAMING_ROW_QUANTUM;
+  const quantized = Math.ceil(raw / STREAMING_ROW_QUANTUM) * STREAMING_ROW_QUANTUM;
+  // High-water clamp: streaming text only grows, so never report fewer rows than
+  // this id already reached this run — absorbs the childCount 1↔2 gap flip that
+  // otherwise dips the estimate ±1 frame-to-frame. A columns/expanded change
+  // resets the water line (new width → legitimately new row count).
+  const id = item?.id;
+  if (id == null) return quantized;
+  const toolExpanded = toolOutputExpanded ? 1 : 0;
+  const prev = streamingEstimateHighWaterById.get(id);
+  if (!prev || prev.columns !== columns || prev.toolExpanded !== toolExpanded) {
+    streamingEstimateHighWaterById.set(id, { rows: quantized, columns, toolExpanded });
+    return quantized;
+  }
+  if (quantized > prev.rows) prev.rows = quantized;
+  return prev.rows;
 }
 
 // ── Same-frame streaming-tail growth compensation (scrolled-up only) ────────
@@ -705,15 +750,20 @@ export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpand
       // estimate frame.
       return idEntry.rows;
     }
-    if (idEntry) streamingMeasuredRowsById.delete(item.id);
+    if (idEntry) {
+      streamingMeasuredRowsById.delete(item.id);
+      streamingEstimateHighWaterById.delete(item.id);
+    }
     // No confirmed measurement yet for this id (item just started streaming):
     // nothing to defer against, so the first frame falls back to the estimate.
     return streamingEstimateRows(item, columns, toolOutputExpanded);
   }
-  if (item.kind === 'assistant' && streamingMeasuredRowsById.has(item.id)) {
-    // Item settled (no longer streaming): the id-keyed floor is no longer
-    // relevant, the normal WeakMap-measured path now owns its height.
-    streamingMeasuredRowsById.delete(item.id);
+  if (item.kind === 'assistant') {
+    // Item settled (no longer streaming): the id-keyed floor and the estimate
+    // high-water are no longer relevant — the normal WeakMap-measured path now
+    // owns its height. Clear both so a later id reuse / this run cannot leak.
+    if (streamingMeasuredRowsById.has(item.id)) streamingMeasuredRowsById.delete(item.id);
+    if (streamingEstimateHighWaterById.has(item.id)) streamingEstimateHighWaterById.delete(item.id);
   }
   const variantKey = transcriptItemVariantKey(item);
   const toolExpanded = toolOutputExpanded ? 1 : 0;

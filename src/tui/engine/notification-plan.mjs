@@ -61,14 +61,14 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
   if (!trimmed) return { action: 'ignore' };
   const parsed = parseAgentJob(trimmed);
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
-  // UI-only notices (e.g. boot auto-update outcome): render as a transcript
-  // notice, never enqueue anything model-visible.
+  // UI-only notices (e.g. boot auto-update outcome): render as a transient
+  // notice, never enqueue anything model-visible or transcript-persistent.
   if (meta.kind === 'update-notice') {
     // Wording lives here (the notice surface), not in the emitting runtime:
     // the emitter only supplies meta.version; the sentence is composed here.
     const ver = String(meta.version || '').trim();
     const displayText = ver ? `mixdog v${ver} ready — restart to apply.` : trimmed;
-    return { action: 'notice', displayText, tone: meta.tone === 'warn' ? 'warn' : 'info' };
+    return { action: 'notice', displayText, tone: meta.tone === 'warn' ? 'warn' : 'info', transcript: false };
   }
   if (!isExecutionNotification(event, trimmed, parsed)) {
     return { action: 'enqueue', displayText: trimmed, modelContent: trimmed };

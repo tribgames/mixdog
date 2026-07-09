@@ -46,7 +46,7 @@ const prefixedUser = {
     `${sessionBlock}\n\n` +
     '# Additional context\nsome context body line one\nline two\n\n' +
     '# Prefetch\nprefetched file snippet\n\n' +
-    '# Task\n실제 질문',
+    '# Task\n\uC2E4\uC81C \uC9C8\uBB38',
 }
 // (iii) Reference files synthetic row.
 const referenceRow = { role: 'user', content: 'Reference files:\n- a.mjs\n- b.mjs' }
@@ -76,8 +76,8 @@ const unquotedCompletionRow = {
     'Result:\nbackground task\ntask_id: task_456\nstatus: completed',
 }
 // (vii) normal human + normal assistant.
-const normalUser = { role: 'user', content: '안녕' }
-const normalAsst = { role: 'assistant', content: '네 안녕하세요' }
+const normalUser = { role: 'user', content: '\uC548\uB155' }
+const normalAsst = { role: 'assistant', content: '\uB124 \uC548\uB155\uD558\uC138\uC694' }
 
 const before = {
   asstWithTool: sessionMessageContent(asstWithTool),
@@ -111,7 +111,7 @@ assert(after.asstWithTool && !after.asstWithTool.includes('[tool_call'), 'ingest
 assert(after.asstWithTool.includes('Here is my plan for the refactor.'), 'assistant prose must survive')
 
 // (ii) prefixed user collapses to exactly the human prompt.
-assert(after.prefixedUser === '실제 질문', `prefixed user must shape to "실제 질문" (got: ${JSON.stringify(after.prefixedUser)})`)
+assert(after.prefixedUser === '\uC2E4\uC81C \uC9C8\uBB38', `prefixed user must shape to "\uC2E4\uC81C \uC9C8\uBB38" (got: ${JSON.stringify(after.prefixedUser)})`)
 assert(!/# Session|Cwd:|Model:|Additional context|Prefetch|# Task/.test(after.prefixedUser), 'no prefix residue may remain')
 
 // (iii)-(vi) synthetic rows excluded.
@@ -123,8 +123,8 @@ assert(after.completionWrapperRow === null, 'model-visible tool-completion wrapp
 assert(after.unquotedCompletionRow === null, 'unquoted tool-completion wrapper row (real DB shape) must be excluded')
 
 // (vii) normal conversation survives intact.
-assert(after.normalUser === '안녕', 'normal human text must survive intact')
-assert(after.normalAsst === '네 안녕하세요', 'normal assistant text must survive intact')
+assert(after.normalUser === '\uC548\uB155', 'normal human text must survive intact')
+assert(after.normalAsst === '\uB124 \uC548\uB155\uD558\uC138\uC694', 'normal assistant text must survive intact')
 
 // Zero-loss guard: a human message that merely MENTIONS the markers mid-text is
 // NOT stripped (anchors only fire on the leading manager-produced prefix).
@@ -137,18 +137,18 @@ assert(ingestRow(humanMentionsMarkers) === 'please write a # Task section and a 
 // buildSessionStartBlock emits (`# Session` then only Cwd/Model/Workflow lines).
 // Assert on the SHAPER directly so the check isolates the strip rule from
 // cleanMemoryText's normal markdown-header cleaning.
-const humanSessionDoc = { role: 'user', content: '# Session\n프로젝트 회의록입니다\n다음 안건' }
+const humanSessionDoc = { role: 'user', content: '# Session\n\uD504\uB85C\uC81D\uD2B8 \uD68C\uC758\uB85D\uC785\uB2C8\uB2E4\n\uB2E4\uC74C \uC548\uAC74' }
 assert(
-  sessionMessageContentForIngest(humanSessionDoc) === '# Session\n프로젝트 회의록입니다\n다음 안건',
+  sessionMessageContentForIngest(humanSessionDoc) === '# Session\n\uD504\uB85C\uC81D\uD2B8 \uD68C\uC758\uB85D\uC785\uB2C8\uB2E4\n\uB2E4\uC74C \uC548\uAC74',
   'human doc starting with `# Session` heading must be preserved verbatim (not wiped)',
 )
 // And through the full ingest row it must still carry the human words (the lone
 // `# ` heading marker is stripped by normal markdown cleaning — not data loss).
-assert(/프로젝트 회의록입니다/.test(ingestRow(humanSessionDoc) || ''), 'human session-doc words must survive ingest')
+assert(/\uD504\uB85C\uC81D\uD2B8 \uD68C\uC758\uB85D\uC785\uB2C8\uB2E4/.test(ingestRow(humanSessionDoc) || ''), 'human session-doc words must survive ingest')
 
 // Injected real session block (Cwd/Model) still strips to the human prompt.
-const injectedCwdModel = { role: 'user', content: '# Session\nCwd: /x\nModel: Y\n\n실제질문' }
-assert(sessionMessageContentForIngest(injectedCwdModel) === '실제질문', 'injected Cwd/Model session block must strip to the human prompt')
+const injectedCwdModel = { role: 'user', content: '# Session\nCwd: /x\nModel: Y\n\n\uC2E4\uC81C\uC9C8\uBB38' }
+assert(sessionMessageContentForIngest(injectedCwdModel) === '\uC2E4\uC81C\uC9C8\uBB38', 'injected Cwd/Model session block must strip to the human prompt')
 
 // Injected real session block incl. Workflow line still strips.
 const injectedWorkflow = { role: 'user', content: '# Session\nCwd: /x\nModel: Y\nWorkflow: Default\n\nq' }

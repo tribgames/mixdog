@@ -80,6 +80,24 @@ export function createResourceApi(deps) {
     }
     return chain.running;
   }
+  function configuredProfileIdentityLine() {
+    try {
+      const config = getConfig();
+      const stored = config?.profile ?? config?.agent?.profile;
+      const profile = cfgMod.normalizeProfileConfig(stored);
+      const title = clean(profile?.title);
+      if (!title) return '';
+      return `[profile] Current configured user name/identity: ${title}. This profile value is authoritative; ignore stale memory rows that say the user's identity is unknown.`;
+    } catch {
+      return '';
+    }
+  }
+  function isIdentityRecallQuery(query) {
+    const q = clean(query).toLowerCase().replace(/\s+/g, '');
+    if (!q) return false;
+    return /(?:\uB0B4\uAC00|\uB098\uB294|\uB098|\uC0AC\uC6A9\uC790|\uC720\uC800|user|my|me).*(?:\uB204\uAD6C|\uB204\uAD70|\uC815\uCCB4|\uC774\uB984|name|identity)|(?:whoami|whoami\?|whoami？)|who(?:am)?i|whoami/.test(q)
+      || /^(?:\uB098\uB204\uAD6C\uB0D0|\uB098\uB294\uB204\uAD6C\uB0D0|\uB0B4\uAC00\uB204\uAD6C\uB0D0|\uB0B4\uC774\uB984\uBB50|\uB0B4\uC774\uB984\uBB50\uC57C|whoami)$/i.test(q);
+  }
   return {
     mcpStatus() {
       return mcpStatus();
@@ -300,6 +318,10 @@ export function createResourceApi(deps) {
       const session = getSession();
       const currentCwd = getCurrentCwd();
       const baseQuery = query || args?.query || '';
+      if (isIdentityRecallQuery(baseQuery)) {
+        const profileLine = configuredProfileIdentityLine();
+        if (profileLine) return profileLine;
+      }
       if (args?.currentSession !== false && session?.id) {
         const currentText = currentSessionRecallRows(session, baseQuery, { limit: args?.limit });
         if (!isEmptyRecallText(currentText)) return currentText;

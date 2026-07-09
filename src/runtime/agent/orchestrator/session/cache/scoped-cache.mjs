@@ -179,22 +179,24 @@ function _bumpCounter(sessionId, field) {
  * null on miss. On hit returns the full entry
  * { content, firstToolUseId, ts }.
  */
-export function tryScopedToolCached({ sessionId, toolName, args, cwd }) {
+export function tryScopedToolCached({ sessionId, toolName, args, cwd, countStats = true, touch = true } = {}) {
     if (!sessionId || !toolName) return null;
     const map = _scopedBySession.get(sessionId);
     if (!map) {
-        _bumpCounter(sessionId, 'misses');
+        if (countStats) _bumpCounter(sessionId, 'misses');
         return null;
     }
     const key = _scopedKey(toolName, args, cwd);
     const entry = map.get(key);
     if (!entry) {
-        _bumpCounter(sessionId, 'misses');
+        if (countStats) _bumpCounter(sessionId, 'misses');
         return null;
     }
-    map.delete(key);
-    map.set(key, entry);
-    _bumpCounter(sessionId, 'hits');
+    if (touch) {
+        map.delete(key);
+        map.set(key, entry);
+    }
+    if (countStats) _bumpCounter(sessionId, 'hits');
     return { content: entry.content, firstToolUseId: entry.firstToolUseId || null, ts: entry.ts };
 }
 

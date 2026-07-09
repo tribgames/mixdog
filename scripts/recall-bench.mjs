@@ -31,7 +31,7 @@ function hasFlag(name) { return process.argv.includes(`--${name}`); }
 const WARN_LATENCY_MS = 3000;
 
 const DEFAULT_CASES = [
-  { id: 'kw-ko', label: 'keyword query (ko)', args: { query: '메모리 재현' }, expect: 'results' },
+  { id: 'kw-ko', label: 'keyword query (ko)', args: { query: '\uBA54\uBAA8\uB9AC \uC7AC\uD604' }, expect: 'results' },
   { id: 'kw-en', label: 'keyword query (en)', args: { query: 'memory recall pipeline' }, expect: 'results' },
   { id: 'short-1tok', label: 'short 1-token query', args: { query: 'recall' }, expect: 'results' },
   { id: 'short-2tok', label: 'short 2-token query', args: { query: 'cycle1 drain' }, expect: 'results' },

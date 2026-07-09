@@ -105,11 +105,26 @@ export function toOpenAITools(tools) {
     }));
 }
 
-export function toResponsesTools(tools) {
+function functionToolFromSessionTool(t, name = t?.name) {
+    return {
+        type: 'function',
+        name,
+        description: t.description,
+        parameters: t.inputSchema || { type: 'object', additionalProperties: true },
+    };
+}
+
+export function toResponsesTools(tools, options = {}) {
+    const provider = String(options?.provider || '').toLowerCase();
+    const allowNativeToolSearch = options?.nativeToolSearch === true
+        || (options?.nativeToolSearch !== false && provider !== 'xai');
     return tools.map((t) => {
         // load_tool advertises as the OpenAI-native `tool_search` wire type
-        // (legacy 'tool_search' name still accepted for back-compat).
+        // (legacy 'tool_search' name still accepted for back-compat). xAI/Grok
+        // Responses rejects that OpenAI-only variant ("unknown variant
+        // 'tool_search'"), so serialize it as an ordinary function there.
         if (t?.name === 'load_tool' || t?.name === 'tool_search') {
+            if (!allowNativeToolSearch) return functionToolFromSessionTool(t, 'load_tool');
             return {
                 type: 'tool_search',
                 execution: 'client',
@@ -122,12 +137,7 @@ export function toResponsesTools(tools) {
         // tools (e.g. apply_patch) as ordinary function tools instead. Grammar
         // tools may carry no usable inputSchema, so fall back to a permissive
         // object schema so grok still registers a valid function tool.
-        return {
-            type: 'function',
-            name: t.name,
-            description: t.description,
-            parameters: t.inputSchema || { type: 'object', additionalProperties: true },
-        };
+        return functionToolFromSessionTool(t);
     });
 }
 
@@ -271,18 +281,10 @@ export function collectCompatResponseSearchSources(response) {
 
 export function toResponsesInputMessage(m, pendingToolMedia = null, customToolCallNameById = null) {
     if (m.role === 'tool') {
-        if (Array.isArray(m.nativeToolSearch?.openaiTools)) {
-            return {
-                type: 'tool_search_output',
-                call_id: m.toolCallId || '',
-                status: 'completed',
-                execution: 'client',
-                tools: m.nativeToolSearch.openaiTools,
-            };
-        }
         const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
         // xai path: never emit `custom_tool_call_output` (the `custom` variant
-        // is rejected by grok). Replay prior tool outputs as the standard
+        // is rejected by grok). Replay prior tool outputs — including old
+        // native tool_search outputs after /model switches — as the standard
         // `function_call_output` item regardless of original native type.
         const item = {
             type: 'function_call_output',
@@ -296,25 +298,16 @@ export function toResponsesInputMessage(m, pendingToolMedia = null, customToolCa
         const items = [];
         if (m.content) items.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
         for (const tc of m.toolCalls) {
-            if (tc.nativeType === 'tool_search_call' || tc.name === 'load_tool' || tc.name === 'tool_search') {
-                items.push({
-                    type: 'tool_search_call',
-                    call_id: tc.id,
-                    execution: 'client',
-                    arguments: tc.arguments || {},
-                });
-            } else {
-                // xai path: prior native `custom_tool_call` history is replayed
-                // as a standard `function_call` (grok rejects the `custom`
-                // variant). tc.arguments already holds the recovered object
-                // form, so the same stringify path as regular calls applies.
-                items.push({
-                    type: 'function_call',
-                    call_id: tc.id,
-                    name: tc.name,
-                    arguments: JSON.stringify(tc.arguments || {}),
-                });
-            }
+            // xAI/Grok rejects OpenAI-only Responses variants such as
+            // `custom_tool_call` and `tool_search_call`, including when they
+            // appear in replayed history after a model switch. Replay all prior
+            // client tools as plain function calls.
+            items.push({
+                type: 'function_call',
+                call_id: tc.id,
+                name: tc.name === 'tool_search' ? 'load_tool' : tc.name,
+                arguments: JSON.stringify(tc.arguments || {}),
+            });
         }
         return items;
     }
@@ -351,6 +344,7 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
         startIndex = Math.max(0, Math.min(seen, messages.length));
         if (messages[startIndex]?.role === 'assistant') startIndex += 1;
     }
+    const dropToolHistory = !previousResponseId && (resetReason !== null || !state?.previousResponseId);
     const input = [];
     const pendingToolMedia = [];
     const customToolCallNameById = new Map();
@@ -361,6 +355,11 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
     for (const m of messages.slice(startIndex)) {
         if (!includeSystem && m.role === 'system') continue;
         if (m.role !== 'tool') flushToolMedia();
+        if (dropToolHistory && m.role === 'tool') continue;
+        if (dropToolHistory && m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
+            if (m.content) input.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
+            continue;
+        }
         const converted = toResponsesInputMessage(m, pendingToolMedia, customToolCallNameById);
         if (Array.isArray(converted)) input.push(...converted);
         else input.push(converted);

@@ -26,6 +26,7 @@ import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from './openai-oauth.mjs';
+import { createActiveToolItemTracker } from './tool-stream-state.mjs';
 
 // Public OpenAI Responses API endpoint for the api-key `openai` provider.
 // The openai-direct WS transport hits the same origin (openai-ws-pool
@@ -297,7 +298,15 @@ export async function sendViaHttpSse({
             try {
                 _streamAbortReason.partialContent = content;
                 _streamAbortReason.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
-                _streamAbortReason.pendingToolUse = pendingCalls.size > 0 || emittedToolCallIds.size > 0;
+                // Shared active tool-item tracker (tool-stream-state.mjs) closes
+                // the custom-tool gap: a stall mid custom_tool_call_input.delta
+                // never lands in pendingCalls, so without activeToolItems/_toolInFlight
+                // a tool-bearing turn would look text-only and be wrongly accepted
+                // as a partial-final.
+                _streamAbortReason.pendingToolUse = pendingCalls.size > 0
+                    || emittedToolCallIds.size > 0
+                    || activeToolItems.size > 0
+                    || _toolInFlight === true;
                 _streamAbortReason.partialModel = model || undefined;
             } catch { /* best-effort enrichment */ }
             try { reader.cancel(_streamAbortReason).catch(() => {}); } catch {}
@@ -313,6 +322,15 @@ export async function sendViaHttpSse({
     let ttftMs = null;
     const toolCalls = [];
     const pendingCalls = new Map();
+    // Active tool-item / alias tracking shared with the WS + compat Responses
+    // streams (tool-stream-state.mjs). Mark on output_item.added / arg-input
+    // deltas, clear on output_item.done; _toolInFlight latches tool work the
+    // moment a call's input starts streaming (before it lands in pendingCalls).
+    const _toolTracker = createActiveToolItemTracker();
+    const activeToolItems = _toolTracker.items;
+    const markActiveToolItem = _toolTracker.mark;
+    const clearActiveToolItem = _toolTracker.clear;
+    let _toolInFlight = false;
     const reasoningItems = [];
     const citations = [];
     const citationKeys = new Set();
@@ -486,10 +504,12 @@ export async function sendViaHttpSse({
                 break;
             case 'response.output_item.added':
                 if (event.item?.type === 'function_call') {
+                    markActiveToolItem(event.item);
                     pendingCalls.set(event.item.id || '', {
                         name: event.item.name || '',
                         callId: event.item.call_id || '',
                     });
+                    _toolInFlight = true;
                 } else if (event.item?.type === 'tool_search_call') {
                     // Mark tool_search as in-flight the moment the item is
                     // added, mirroring function_call above, so the semantic
@@ -506,9 +526,21 @@ export async function sendViaHttpSse({
                             kind: 'tool_search',
                         });
                     }
+                    markActiveToolItem(event.item);
+                    _toolInFlight = true;
+                } else if (event.item?.type === 'custom_tool_call') {
+                    // Custom tool calls surface no pendingCalls entry, so mark
+                    // the item active at added-time (mirroring function_call /
+                    // tool_search_call above). The later custom_tool_call_input.delta
+                    // still marks too, but a stall between added and the first
+                    // input delta must already read as pendingToolUse.
+                    markActiveToolItem(event.item);
+                    _toolInFlight = true;
                 }
                 break;
             case 'response.function_call_arguments.delta':
+                markActiveToolItem(null, event.item_id);
+                _toolInFlight = true;
                 meaningful();
                 break;
             case 'response.function_call_arguments.done': {
@@ -530,6 +562,8 @@ export async function sendViaHttpSse({
                 break;
             }
             case 'response.custom_tool_call_input.delta':
+                markActiveToolItem(null, event.item_id);
+                _toolInFlight = true;
                 meaningful();
                 break;
             case 'response.output_item.done': {
@@ -546,11 +580,23 @@ export async function sendViaHttpSse({
                             emitToolCall(tc);
                         }
                     }
+                    // Drop the resolved function item from pendingCalls before
+                    // recomputing _toolInFlight (mirrors tool_search_call below
+                    // and the compat path) — otherwise a completed call keeps
+                    // pendingCalls.size > 0 and the latch never clears, so a
+                    // later max-output cutoff is misread as a tool in flight.
+                    pendingCalls.delete(item.id || '');
+                    clearActiveToolItem(item, item.id || '');
+                    _toolInFlight = pendingCalls.size > 0 || activeToolItems.size > 0;
                 } else if (item.type === 'tool_search_call') {
                     pendingCalls.delete(item.id || '');
                     pushToolSearchCall(item);
+                    clearActiveToolItem(item, item.id || '');
+                    _toolInFlight = pendingCalls.size > 0 || activeToolItems.size > 0;
                 } else if (item.type === 'custom_tool_call') {
                     pushCustomToolCall(item);
+                    clearActiveToolItem(item, item.id || '');
+                    _toolInFlight = pendingCalls.size > 0 || activeToolItems.size > 0;
                     meaningful();
                 }
                 break;
@@ -636,6 +682,20 @@ export async function sendViaHttpSse({
                 } else if (event.response.status === 'incomplete') {
                     const reason = _incompleteReasonFromEvent(event);
                     if (_isMaxOutputIncompleteReason(reason)) {
+                        // Max-output cutoff with a function/custom/tool_search
+                        // still in flight means the tool arguments were
+                        // truncated — do NOT mark a clean completion (mirrors
+                        // the compat Responses path), or partial args surface as
+                        // a successful tool call. Throw a stream-stalled
+                        // pendingToolUse error so the loop gates/retries.
+                        if (pendingCalls.size > 0 || activeToolItems.size > 0 || _toolInFlight === true) {
+                            const err = _stampToolSafety(new Error('OpenAI OAuth HTTP fallback response.done incomplete (max_output_tokens) with tool call in flight'));
+                            err.streamStalled = true;
+                            err.pendingToolUse = true;
+                            err.partialContent = content;
+                            err.partialModel = model || undefined;
+                            throw err;
+                        }
                         completed = true;
                         stopReason = 'length';
                         break;
@@ -652,6 +712,17 @@ export async function sendViaHttpSse({
             case 'response.incomplete': {
                 const reason = _incompleteReasonFromEvent(event);
                 if (_isMaxOutputIncompleteReason(reason)) {
+                    // See response.done incomplete above: a max-output cutoff
+                    // while a tool is in flight is a truncated tool call, not a
+                    // clean length completion.
+                    if (pendingCalls.size > 0 || activeToolItems.size > 0 || _toolInFlight === true) {
+                        const err = _stampToolSafety(new Error('OpenAI OAuth HTTP fallback response.incomplete (max_output_tokens) with tool call in flight'));
+                        err.streamStalled = true;
+                        err.pendingToolUse = true;
+                        err.partialContent = content;
+                        err.partialModel = model || undefined;
+                        throw err;
+                    }
                     completed = true;
                     stopReason = 'length';
                     break;

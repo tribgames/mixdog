@@ -109,14 +109,13 @@ const TOOL_APPROVAL_TIMEOUT_MS = (() => {
   return Number.isFinite(value) && value > 0 ? Math.max(1000, Math.round(value)) : 120_000;
 })();
 
-// Wall-clock cap for a single lead TUI turn. A provider call that never
-// resolves (e.g. a rate-limit retry loop that spins forever) otherwise leaves
-// runTurn holding busy=true with no unwind, so submit() only ever queues and
-// the UI is permanently input-dead. On trip we abort the in-flight run through
-// the SAME interrupt path Esc uses, force busy=false, and drain the queue.
-// Default is intentionally finite (5min): 30min made a stuck provider/worker
-// look like the Lead session had frozen mid-turn. Env-overridable for long
-// local experiments.
+// Idle cap for a single lead TUI turn: the timer is reset by observable model,
+// tool, usage, stage, compact, or steering progress. A provider call that stops
+// producing progress otherwise leaves runTurn holding busy=true with no unwind,
+// so submit() only ever queues and the UI is permanently input-dead. On trip we
+// abort through the SAME interrupt path Esc uses; if that does not unwind, a
+// short grace path force-releases busy=false and drains the queue. Default is
+// intentionally finite (5min). Env-overridable for long local experiments.
 const LEAD_TURN_TIMEOUT_MS = (() => {
   const value = Number(process.env.MIXDOG_LEAD_TURN_TIMEOUT_MS);
   return Number.isFinite(value) && value > 0 ? Math.max(10_000, Math.round(value)) : 5 * 60_000;
@@ -269,8 +268,16 @@ export async function createEngineSession({
       }
     }
     if (!changed) return false;
+    // Detect commandBusy releasing (true -> false). Submits that arrived while a
+    // session command was in flight were queued and drain bailed on commandBusy;
+    // re-kick drain here — one central point covers every command releaser
+    // (setModel/newSession/resume/clear/...) so queued prompts are never stranded.
+    const commandBusyReleased = state.commandBusy === true
+      && Object.prototype.hasOwnProperty.call(patch, 'commandBusy')
+      && patch.commandBusy === false;
     state = { ...state, ...patch };
     emit();
+    if (commandBusyReleased) queueMicrotask(() => { void bag.drain?.(); });
     return true;
   };
 
@@ -518,6 +525,7 @@ export async function createEngineSession({
     flushDeferredExecutionPendingResumeKick,
     scheduleExecutionPendingResumeKick,
     updateAgentJobCard,
+    buildAgentJobCardPatch,
     subscribeRuntimeNotifications,
   } = createAgentJobFeed({
     runtime,
@@ -556,6 +564,7 @@ export async function createEngineSession({
     patchItem,
     markToolCallDone,
     updateAgentJobCard,
+    buildAgentJobCardPatch,
     agentStatusState,
   });
 

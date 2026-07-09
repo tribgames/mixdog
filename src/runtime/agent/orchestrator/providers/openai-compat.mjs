@@ -467,7 +467,7 @@ export class OpenAICompatProvider {
         };
         if (previousResponseId) params.previous_response_id = previousResponseId;
         const nativeTools = nativeResponsesTools(opts);
-        if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [])];
+        if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [], { provider: 'xai' })];
         // SSE transport: report 'requesting' until the stream opens, then
         // per-chunk onStreamDelta feeds the agent stall watchdog.
         try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
@@ -664,7 +664,7 @@ export class OpenAICompatProvider {
         // first response already anchors instructions for the continuation.
         else if (instructions) params.instructions = instructions;
         const nativeTools = nativeResponsesTools(opts);
-        if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [])];
+        if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [], { provider: 'xai' })];
         const reasoningEffort = normalizeXaiReasoningEffort(opts.xaiReasoningEffort
             ?? opts.effort
             ?? this.config?.reasoningEffort

@@ -24,11 +24,20 @@ function _stripLineCoordForReach(s) {
         .replace(/:\d+(?:-\d+)?(?::.*)?$/, '');
 }
 
+// Batch fan-out cap: array/object read shapes read only the first N entries
+// (the >N slice below truncates the rest with a `_batchCapNote`). The
+// reachability preflight must honour the SAME cap so a path that will be
+// capped away is never stat-probed and can never reject the batch via a guard.
+const READ_BATCH_PATH_CAP = 10;
+
 function _collectReachCandidates(p) {
     const out = [];
     const push = (s) => { if (typeof s === 'string' && s) out.push(s); };
     if (typeof p === 'string') push(p);
-    else if (Array.isArray(p)) for (const e of p) push((e && typeof e === 'object') ? (e.path ?? e.file_path) : e);
+    // Only the first READ_BATCH_PATH_CAP entries survive the fan-out cap, so
+    // preflight only the paths that will actually be read. Capped-away paths
+    // (incl. UNC/device) must NOT be probed or allowed to fail the batch.
+    else if (Array.isArray(p)) for (const e of p.slice(0, READ_BATCH_PATH_CAP)) push((e && typeof e === 'object') ? (e.path ?? e.file_path) : e);
     return out;
 }
 
@@ -66,11 +75,17 @@ async function _readReachPreflight(rawPath, workDir, helpers) {
     // line-coordinate strip only needs to land in the right directory — exact
     // suffix parsing is not required for the stat to be representative.
     const candidates = [];
+    const seenFull = new Set();
     for (const raw of _collectReachCandidates(rawPath)) {
         const stripped = _stripLineCoordForReach(normalizeInputPath(raw));
         const full = resolveAgainstCwd(stripped, workDir);
         const guardMsg = _guardedReadError(stripped, helpers) || _guardedReadError(full, helpers);
         if (guardMsg) return guardMsg;
+        // Dedup by resolved path so a batch repeating the same file (or the
+        // same union window) issues one stat probe, not one per entry —
+        // bounding the preflight's FS work to the distinct target set.
+        if (seenFull.has(full)) continue;
+        seenFull.add(full);
         candidates.push(full);
     }
     if (candidates.length === 0) return null;
@@ -113,7 +128,14 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
     args.path = coerceReadFamilyPathArg(args.path, workDir);
     // Reachability preflight up front (all shapes) — before readPathStringGuardError /
     // image stat, all of which can touch sync FS.
-    {
+    // options._skipReachPreflight: set only by the batch dispatcher on its
+    // child reads (below). The parent batch call already ran this exact
+    // preflight over EVERY candidate path in the array (_collectReachCandidates
+    // covers array/object shapes), so re-running it per child re-stats the same
+    // mounts N times. The UNC/device/ADS string guards still run inside the
+    // child (readPathStringGuardError / image fast-path) — only the async
+    // reachability stat is skipped, never the security guards.
+    if (options?._skipReachPreflight !== true) {
         const _reErr = await _readReachPreflight(args.path, workDir, helpers);
         if (_reErr) return _reErr;
     }
@@ -289,7 +311,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                 // document/image content-block object that would stringify to
                 // "[object Object]" and drop the payload. Scalar reads (the
                 // single-file path below) keep the rich block shapes.
-                const body = await executeChildBuiltinTool('read', readEntry, workDir, { suppressReadUnchangedStub: true, mediaTextOnly: true });
+                const body = await executeChildBuiltinTool('read', readEntry, workDir, { suppressReadUnchangedStub: true, mediaTextOnly: true, _skipReachPreflight: true });
                 results[index] = { path: entry.path, mode: entry.mode || 'full', n: entry.n, body };
             };
             const key = entry.path || `#missing-${index}`;

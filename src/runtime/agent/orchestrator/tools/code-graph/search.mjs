@@ -255,7 +255,11 @@ export function _formatCalleeRow(row) {
 }
 export async function _prewarmReferenceSourceText(graph, symbol, language) {
   const candidateNodes = _lookupCandidateNodes(graph, symbol, language);
-  if (!candidateNodes.length) return;
+  // Return the resolved candidate set so the immediately-following
+  // _cheapReferenceSearch (references/callers dispatch) can reuse it instead
+  // of recomputing _lookupCandidateNodes for the same (symbol, language) —
+  // which on a token-index miss is a full-graph scan run twice per symbol.
+  if (!candidateNodes.length) return candidateNodes;
   const uncached = [];
   for (const node of candidateNodes) {
     const cached = graph._sourceTextCache?.get(node.rel);
@@ -263,7 +267,7 @@ export async function _prewarmReferenceSourceText(graph, symbol, language) {
       uncached.push(node);
     }
   }
-  if (uncached.length === 0) return;
+  if (uncached.length === 0) return candidateNodes;
   const { readFile } = await import('fs/promises');
   const concurrency = 64;
   let next = 0;
@@ -280,9 +284,10 @@ export async function _prewarmReferenceSourceText(graph, symbol, language) {
   }
   const workerCount = Math.min(Math.max(1, concurrency), uncached.length);
   await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return candidateNodes;
 }
 
-export function _cheapReferenceSearch(graph, symbol, cwd, { language = null, limit = null, fileRel = null, scopeRelPrefix = null } = {}) {
+export function _cheapReferenceSearch(graph, symbol, cwd, { language = null, limit = null, fileRel = null, scopeRelPrefix = null, nodes = null } = {}) {
   const escaped = String(symbol || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!escaped) return '(no references)';
   const cacheKey = `${language || '*'}|${symbol}|${Number.isFinite(limit) && limit > 0 ? String(Math.floor(limit)) : 'd'}|${fileRel || '*'}|${scopeRelPrefix || '*'}`;
@@ -291,7 +296,11 @@ export function _cheapReferenceSearch(graph, symbol, cwd, { language = null, lim
     return cached;
   }
   const lines = [];
-  let candidateNodes = _lookupCandidateNodes(graph, symbol, language);
+  // Reuse the caller's precomputed candidate set (from
+  // _prewarmReferenceSourceText) when provided — same (symbol, language) so
+  // the node set is identical; the fileRel/scopeRelPrefix filters below still
+  // apply, keeping the result byte-for-byte unchanged.
+  let candidateNodes = Array.isArray(nodes) ? nodes : _lookupCandidateNodes(graph, symbol, language);
   if (fileRel) candidateNodes = candidateNodes.filter((node) => node.rel === fileRel);
   if (scopeRelPrefix) candidateNodes = candidateNodes.filter((node) => node.rel === scopeRelPrefix.slice(0, -1) || node.rel.startsWith(scopeRelPrefix));
   const ENV_CAP = Math.max(1, Number(process.env.REFERENCE_HIT_CAP) || 200);
@@ -629,16 +638,57 @@ function _formatSearchSymbolRow(name, hit) {
   return `${name}\t${loc}\t${next}`;
 }
 
+const KEYWORD_SEARCH_CACHE_MAX_ENTRIES = Math.max(
+  16,
+  Math.floor(Number(process.env.CODE_GRAPH_KEYWORD_SEARCH_CACHE_MAX_ENTRIES) || 128),
+);
+const KEYWORD_SEARCH_CACHE_MAX_BYTES = Math.max(
+  64 * 1024,
+  Math.floor(Number(process.env.CODE_GRAPH_KEYWORD_SEARCH_CACHE_MAX_BYTES) || (1024 * 1024)),
+);
+
+function _keywordSearchLanguageCacheKey(language) {
+  return language == null ? '<none>' : `lang:${String(language)}`;
+}
+
+function _setKeywordSearchCache(graph, cacheKey, value) {
+  const cache = graph?._keywordSearchCache;
+  if (!(cache instanceof Map)) return value;
+  const valueBytes = Buffer.byteLength(String(value || ''), 'utf8');
+  if (valueBytes > KEYWORD_SEARCH_CACHE_MAX_BYTES) return value;
+  if (cache.has(cacheKey)) cache.delete(cacheKey);
+  cache.set(cacheKey, value);
+  let totalBytes = 0;
+  for (const memo of cache.values()) totalBytes += Buffer.byteLength(String(memo || ''), 'utf8');
+  while (cache.size > KEYWORD_SEARCH_CACHE_MAX_ENTRIES || totalBytes > KEYWORD_SEARCH_CACHE_MAX_BYTES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    const oldValue = cache.get(oldest);
+    totalBytes -= Buffer.byteLength(String(oldValue || ''), 'utf8');
+    cache.delete(oldest);
+  }
+  return value;
+}
+
 export function _searchSymbolsByKeyword(graph, keyword, cwd, { language = null, limit = 30 } = {}) {
   const clean = String(keyword || '').trim();
   if (!clean) return '(no keyword)';
   const cap = Math.max(1, Math.min(100, Math.floor(Number(limit) || 30)));
+  // Memoize the full formatted output per (language, keyword, cap). Repeated
+  // symbol_search scans (e.g. batched keywords) otherwise re-walk every graph
+  // node — native + cheap symbol collection — for each keyword. The cached
+  // string already embeds the truncated WARN line, so truncated/incomplete
+  // semantics are preserved byte-for-byte on a cache hit.
+  const cacheKey = JSON.stringify([_keywordSearchLanguageCacheKey(language), clean, cap]);
+  const cached = graph?._keywordSearchCache?.get(cacheKey);
+  if (typeof cached === 'string') return cached;
+  const _memo = (s) => _setKeywordSearchCache(graph, cacheKey, s);
   const nativeEntries = _collectNativeKeywordSymbolEntries(graph, clean, { language });
   const cheapEntries = _collectCheapKeywordSymbolEntries(graph, clean, { language });
   const entries = [...nativeEntries, ...cheapEntries];
   if (!entries.length) {
     const nodeCount = graph?.nodes?.size ?? 0;
-    return `(no symbol keyword matches in cwd=${cwd})\ngraph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`;
+    return _memo(`(no symbol keyword matches in cwd=${cwd})\ngraph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`);
   }
   entries.sort((a, b) => {
     const rank = Number(b.resolved) - Number(a.resolved);
@@ -669,7 +719,7 @@ export function _searchSymbolsByKeyword(graph, keyword, cwd, { language = null, 
   if (graph?.truncated) {
     lines.push(`WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — matches may be incomplete. Re-run with a narrower cwd.`);
   }
-  return lines.join('\n');
+  return _memo(lines.join('\n'));
 }
 
 function _parseReferenceEntries(referenceText) {

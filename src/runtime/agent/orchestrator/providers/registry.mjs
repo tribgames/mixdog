@@ -24,6 +24,15 @@ const signatures = new Map();
 // strictly sequential at the registry level, independent of any caller gating,
 // so two different config signatures can never interleave their rebuilds.
 let _initChain = Promise.resolve();
+// Singleflight state layered on top of the serial chain. Under simultaneous
+// multi-agent launch, many callers hit initProviders() with a byte-identical
+// config. `_inFlightPromise`/`_inFlightSig` coalesce those onto the pending
+// init instead of queueing redundant clear()+rebuild passes behind it, and
+// `_lastAppliedSig` lets a repeat call short-circuit entirely once the chain
+// is idle. Differing signatures still serialize through _initChain as before.
+let _inFlightPromise = null;
+let _inFlightSig = null;
+let _lastAppliedSig = null;
 
 // Deterministic structural signature of a provider config. Recursively sorts
 // object keys so signature equality reflects config-value equality regardless
@@ -80,6 +89,16 @@ function instantiateProvider(name, Ctor, cfg) {
 }
 
 export async function initProviders(config) {
+    const sig = configSignature(config);
+    // Coalesce: an identical config is already mid-init — attach to it.
+    if (sig !== null && _inFlightPromise && _inFlightSig === sig) {
+        return _inFlightPromise;
+    }
+    // Fast path: chain idle and the live registry already reflects this exact
+    // config — nothing to tear down or rebuild.
+    if (sig !== null && !_inFlightPromise && _lastAppliedSig === sig) {
+        return;
+    }
     // Serialize ALL inits through a single chain so two different config
     // signatures can never run their clear()+rebuild concurrently, regardless
     // of caller-side gating (agent-tool gateOnPrior may release a queued init
@@ -87,7 +106,19 @@ export async function initProviders(config) {
     const run = () => _initProvidersUnsynchronized(config);
     const next = _initChain.then(run, run);
     _initChain = next.then(() => {}, () => {});
-    return next;
+    const settle = () => {
+        if (_inFlightPromise === tracked) {
+            _inFlightPromise = null;
+            _inFlightSig = null;
+        }
+    };
+    const tracked = next.then(
+        (v) => { _lastAppliedSig = sig; settle(); return v; },
+        (err) => { settle(); throw err; },
+    );
+    _inFlightSig = sig;
+    _inFlightPromise = tracked;
+    return tracked;
 }
 
 async function _initProvidersUnsynchronized(config) {
@@ -243,18 +274,23 @@ export function warmupCatalogs() {
 // context metadata stays on its own 24h TTL. Fire-and-forget: never awaited,
 // per-provider failures logged to stderr like warmupCatalogs.
 export function refreshProviderCatalogsOnStartup() {
+    const pending = [];
     for (const [name, provider] of providers) {
         const refreshFn = typeof provider?._refreshModelCache === 'function'
             ? () => provider._refreshModelCache()
             : (typeof provider?.listModels === 'function' ? () => provider.listModels() : null);
         if (!refreshFn) continue;
-        Promise.resolve()
+        pending.push(Promise.resolve()
             .then(() => refreshFn())
             .catch((err) => {
                 const msg = err instanceof Error ? err.message : String(err);
                 process.stderr.write(`[provider:${name}] startup catalog refresh failed: ${msg}\n`);
-            });
+            }));
     }
+    // Returns a completion promise so callers can invalidate stale model
+    // caches once the fresh catalogs land. Still fire-and-forget: unawaited
+    // callers keep the previous nonblocking startup behavior.
+    return Promise.allSettled(pending);
 }
 
 // Force-refresh provider catalogs after an operator changes model/provider
@@ -262,6 +298,7 @@ export function refreshProviderCatalogsOnStartup() {
 // the shared LiteLLM metadata cache first so context/pricing metadata follows
 // newly released models without waiting for the next process restart.
 export function refreshCatalogs() {
+    const pending = [];
     const metadataReady = Promise.resolve()
         .then(() => refreshMetadataCatalog())
         .catch((err) => {
@@ -274,12 +311,14 @@ export function refreshCatalogs() {
             ? () => provider._refreshModelCache()
             : (typeof provider?.listModels === 'function' ? () => provider.listModels() : null);
         if (!refreshFn) continue;
-        Promise.resolve()
+        pending.push(Promise.resolve()
             .then(() => metadataReady)
             .then(() => refreshFn())
             .catch((err) => {
                 const msg = err instanceof Error ? err.message : String(err);
                 process.stderr.write(`[provider:${name}] catalog refresh failed: ${msg}\n`);
-            });
+            }));
     }
+    // Completion promise: lets callers drop stale model caches after refresh.
+    return Promise.allSettled([metadataReady, ...pending]);
 }

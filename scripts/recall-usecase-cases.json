@@ -8,10 +8,10 @@
   { "id": "uc3-tod-dated", "label": "UC3 dated time window 2026-07-03 09:00~12:00", "args": { "period": "2026-07-03 09:00~12:00", "limit": 10 }, "expect": "browse" },
   { "id": "uc3-date", "label": "UC3 specific date 2026-07-02", "args": { "period": "2026-07-02", "limit": 10 }, "expect": "browse" },
   { "id": "uc3-range", "label": "UC3 date range 2026-07-01~2026-07-03", "args": { "period": "2026-07-01~2026-07-03", "limit": 10 }, "expect": "browse" },
-  { "id": "uc4-topic", "label": "UC4 topic query", "args": { "query": "recall period last 개선", "limit": 8 }, "expect": "results" },
+  { "id": "uc4-topic", "label": "UC4 topic query", "args": { "query": "recall period last \uAC1C\uC120", "limit": 8 }, "expect": "results" },
   { "id": "uc4-topic-time", "label": "UC4 topic + time window", "args": { "query": "recall", "period": "24h", "limit": 8 }, "expect": "results" },
   { "id": "uc4-topic-tod", "label": "UC4 topic + time-of-day", "args": { "query": "recall", "period": "12:00~15:00", "limit": 8 }, "expect": "results" },
-  { "id": "uc4-fanout", "label": "UC4 fan-out array query", "args": { "query": ["recall 개선", "battle balance"], "limit": 5 }, "expect": "results" },
+  { "id": "uc4-fanout", "label": "UC4 fan-out array query", "args": { "query": ["recall \uAC1C\uC120", "battle balance"], "limit": 5 }, "expect": "results" },
   { "id": "uc5-yesterday", "label": "UC5 calendar yesterday", "args": { "period": "yesterday", "limit": 10 }, "expect": "browse" },
   { "id": "uc5-thisweek", "label": "UC5 calendar this_week", "args": { "period": "this_week", "limit": 10 }, "expect": "browse" },
   { "id": "uc6-category", "label": "UC6 category decision 7d", "args": { "period": "7d", "category": "decision", "limit": 10 }, "expect": "browse" }

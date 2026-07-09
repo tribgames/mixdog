@@ -31,7 +31,14 @@ export function createProviderAuthApi({
 }) {
   function refreshProviderCatalogsSoon() {
     if (typeof refreshProviderCatalogs !== 'function') return;
-    try { void Promise.resolve(refreshProviderCatalogs()).catch(() => {}); } catch { /* best-effort */ }
+    try {
+      void Promise.resolve(refreshProviderCatalogs())
+        .then(() => {
+          invalidateProviderCaches();
+          warmProviderModelCache();
+        })
+        .catch(() => {});
+    } catch { /* best-effort */ }
   }
 
   return {

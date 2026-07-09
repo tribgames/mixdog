@@ -62,6 +62,8 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/anthropic-effort.mjs';
 import { buildAnthropicBetaHeaders } from '../src/runtime/agent/orchestrator/providers/anthropic-betas.mjs';
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
+import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
+import { buildRequestBody as buildOpenAIOAuthRequestBody } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 
 // --- Helpers ---------------------------------------------------------------
 
@@ -96,6 +98,33 @@ function compatResponsesEventStream(events) {
     return {
         async *[Symbol.asyncIterator]() {
             for (const event of events) yield event;
+        },
+    };
+}
+
+// Minimal 200-OK Response-like shape for the HTTP/SSE Responses path: frames
+// each event as `event:<type>\ndata:<json>\n\n`, delivered synchronously so the
+// semantic-idle watchdog never arms during the test.
+function httpSseResponse(events) {
+    const encoder = new TextEncoder();
+    const chunks = events.map((e) => encoder.encode(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`));
+    let i = 0;
+    return {
+        status: 200,
+        ok: true,
+        headers: new Map(),
+        body: {
+            getReader() {
+                return {
+                    read() {
+                        return i < chunks.length
+                            ? Promise.resolve({ done: false, value: chunks[i++] })
+                            : Promise.resolve({ done: true, value: undefined });
+                    },
+                    cancel() { return Promise.resolve(); },
+                    releaseLock() {},
+                };
+            },
         },
     };
 }
@@ -220,6 +249,126 @@ test('openai-compat/xai Responses stream: response.completed salvages deferred f
     assert.deepEqual(captured, [{ id: 'fc_1', name: 'read', arguments: { path: 'a' } }]);
 });
 
+// Missing-terminal + partial-tool gate (shared tool-stream-state.mjs tracker):
+// a Responses stream that streams a CUSTOM tool call's input then truncates
+// before response.output_item.done / response.completed. The call never lands
+// in pendingCalls or toolCalls, so the truncation error must be gated as
+// pendingToolUse via the shared active tool-item tracker (activeToolItems),
+// NOT accepted as a text-only partial-final that would drop the in-flight tool.
+test('openai-compat/xai Responses stream: mid custom-tool-input truncation is gated pendingToolUse via shared tracker', async () => {
+    const rejected = await consumeCompatResponsesStream(compatResponsesEventStream([
+        { type: 'response.created', response: { id: 'resp_ct', model: 'grok' } },
+        { type: 'response.output_text.delta', delta: 'partial ' },
+        { type: 'response.output_item.added', item: { type: 'custom_tool_call', id: 'ct_item_1' } },
+        { type: 'response.custom_tool_call_input.delta', item_id: 'ct_item_1', delta: '{"x":' },
+        // stream truncates here: no output_item.done, no response.completed.
+    ]), {
+        label: 'test',
+        parseResponsesToolCalls: compatParseResponsesToolCalls,
+        responseOutputText: () => '',
+        onTextDelta: () => {},
+    }).then(() => null, (e) => e);
+    assert.ok(rejected, 'expected the truncated stream to reject');
+    assert.equal(rejected.streamStalled, true);
+    // The in-flight custom tool must gate partial-final success even though it
+    // never reached pendingCalls/toolCalls — the active tracker carries it.
+    assert.equal(rejected.pendingToolUse, true);
+    assert.equal(rejected.partialContent, 'partial ');
+});
+
+// Precision half of the same tracker: once the tool call fully COMPLETES
+// (output_item.done clears the active item) and text keeps streaming, a later
+// truncation is a plain text-only partial — the tracker having been cleared is
+// what lets pendingToolUse fall back to the real emit/pending state.
+test('openai-compat/xai Responses stream: completed tool then trailing-text truncation clears active tracker', async () => {
+    let emitted = 0;
+    const rejected = await consumeCompatResponsesStream(compatResponsesEventStream([
+        { type: 'response.created', response: { id: 'resp_done', model: 'grok' } },
+        { type: 'response.output_item.added', item: { type: 'custom_tool_call', id: 'ct_done_1' } },
+        { type: 'response.custom_tool_call_input.delta', item_id: 'ct_done_1', delta: '{"x":1}' },
+        { type: 'response.output_item.done', item: { type: 'custom_tool_call', id: 'ct_done_1', name: 'load_tool', input: '{"x":1}' } },
+        { type: 'response.output_text.delta', delta: 'after tool ' },
+        // truncates before response.completed.
+    ]), {
+        label: 'test',
+        parseResponsesToolCalls: compatParseResponsesToolCalls,
+        responseOutputText: () => '',
+        onTextDelta: () => {},
+        onToolCall: () => { emitted += 1; },
+    }).then(() => null, (e) => e);
+    assert.ok(rejected, 'expected the truncated stream to reject');
+    assert.equal(rejected.streamStalled, true);
+    // A tool WAS emitted this turn, so the turn is still unsafe/tool-bearing —
+    // pendingToolUse stays true off the emit state, not a stale active latch.
+    assert.ok(emitted >= 1);
+    assert.equal(rejected.pendingToolUse, true);
+});
+
+// Reviewer fix: function output_item.done must delete the pendingCalls itemId
+// before recomputing toolInFlight — otherwise a fully-completed function call
+// keeps pendingCalls.size > 0 forever, and a later max-output cutoff on trailing
+// text is misclassified as a truncated tool-in-flight stall instead of a clean
+// length completion.
+test('openai-compat/xai Responses stream: completed function call clears pendingCalls so max-output cutoff is clean length', async () => {
+    const out = await consumeCompatResponsesStream(compatResponsesEventStream([
+        { type: 'response.created', response: { id: 'resp_len', model: 'grok' } },
+        { type: 'response.output_item.added', item: { type: 'function_call', id: 'fi_len', name: 'read', call_id: 'fc_len' } },
+        { type: 'response.function_call_arguments.done', item_id: 'fi_len', arguments: '{"path":"a"}' },
+        { type: 'response.output_item.done', item: { type: 'function_call', id: 'fi_len', call_id: 'fc_len', name: 'read', arguments: '{"path":"a"}' } },
+        { type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' } } },
+    ]), {
+        label: 'test',
+        parseResponsesToolCalls: compatParseResponsesToolCalls,
+        responseOutputText: () => '',
+    });
+    // The completed call drained pendingCalls + the active tracker, so the
+    // max-output cutoff is a clean length truncation (no in-flight-tool stall).
+    assert.equal(out.stopReason, 'length');
+    assert.deepEqual(out.toolCalls, [{ id: 'fc_len', name: 'read', arguments: { path: 'a' } }]);
+});
+
+// Reviewer fix (HTTP/SSE): a max_output_tokens cutoff while a function call is
+// still in flight (added + partial args, no output_item.done) must NOT mark a
+// clean length completion — the tool arguments were truncated. Mirror compat:
+// throw a stream-stalled pendingToolUse error so the loop gates/retries.
+test('openai-oauth HTTP/SSE Responses: max-output cutoff with function call in flight → stream-stalled pendingToolUse', async () => {
+    const rejected = await sendViaHttpSse({
+        auth: { type: 'openai-direct', apiKey: 'k' },
+        body: { model: 'gpt', tools: [] },
+        useModel: 'gpt',
+        fetchFn: async () => httpSseResponse([
+            { type: 'response.created', response: { id: 'r', model: 'gpt' } },
+            { type: 'response.output_item.added', item: { type: 'function_call', id: 'fi_1', name: 'read', call_id: 'fc_1' } },
+            { type: 'response.function_call_arguments.delta', item_id: 'fi_1', delta: '{"path":' },
+            { type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' } } },
+        ]),
+    }).then(() => null, (e) => e);
+    assert.ok(rejected, 'expected the truncated-tool cutoff to reject');
+    assert.equal(rejected.streamStalled, true);
+    assert.equal(rejected.pendingToolUse, true);
+});
+
+// Reviewer fix (HTTP/SSE): function output_item.done must delete pendingCalls[id]
+// before recomputing _toolInFlight — otherwise the completed call keeps
+// pendingCalls.size > 0 and a later max-output cutoff is misread as a truncated
+// tool. A fully-completed call before the cutoff must be a clean length result.
+test('openai-oauth HTTP/SSE Responses: completed function call clears pendingCalls so max-output cutoff is clean length', async () => {
+    const out = await sendViaHttpSse({
+        auth: { type: 'openai-direct', apiKey: 'k' },
+        body: { model: 'gpt', tools: [] },
+        useModel: 'gpt',
+        fetchFn: async () => httpSseResponse([
+            { type: 'response.created', response: { id: 'r', model: 'gpt' } },
+            { type: 'response.output_item.added', item: { type: 'function_call', id: 'fi_1', name: 'read', call_id: 'fc_1' } },
+            { type: 'response.function_call_arguments.done', item_id: 'fi_1', arguments: '{"path":"a"}' },
+            { type: 'response.output_item.done', item: { type: 'function_call', id: 'fi_1', call_id: 'fc_1', name: 'read', arguments: '{"path":"a"}' } },
+            { type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' } } },
+        ]),
+    });
+    assert.equal(out.stopReason, 'length');
+    assert.deepEqual(out.toolCalls, [{ id: 'fc_1', name: 'read', arguments: { path: 'a' } }]);
+});
+
 test('openai-compat/xai Responses: freeform apply_patch downgrades to function schema', () => {
     const tools = _toResponsesToolsForTest(PATCH_TOOL_DEFS);
     const patch = tools.find((tool) => tool.name === 'apply_patch');
@@ -227,6 +376,135 @@ test('openai-compat/xai Responses: freeform apply_patch downgrades to function s
     assert.equal(patch.format, undefined);
     assert.equal(patch.parameters?.properties?.patch?.type, 'string');
     assert.deepEqual(patch.parameters?.required, ['patch']);
+});
+
+test('openai-compat/xai Responses: load_tool downgrades from tool_search to function schema', () => {
+    const loadTool = {
+        name: 'load_tool',
+        description: 'load tools',
+        inputSchema: {
+            type: 'object',
+            properties: { names: { type: 'array', items: { type: 'string' } } },
+        },
+    };
+    const [xaiTool] = _toResponsesToolsForTest([loadTool], { provider: 'xai' });
+    assert.equal(xaiTool.type, 'function');
+    assert.equal(xaiTool.name, 'load_tool');
+    assert.equal(xaiTool.execution, undefined);
+    assert.equal(xaiTool.parameters, loadTool.inputSchema);
+
+    const [openaiTool] = _toResponsesToolsForTest([loadTool], { provider: 'openai' });
+    assert.equal(openaiTool.type, 'tool_search');
+    assert.equal(openaiTool.execution, 'client');
+    assert.equal(openaiTool.name, undefined);
+});
+
+test('openai-compat/xai Responses: load_tool history replays as function_call', () => {
+    const { input } = _toXaiResponsesInputForTest([
+        { role: 'user', content: 'load a tool' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call_load_1', name: 'load_tool', arguments: { names: ['read'] }, nativeType: 'tool_search_call' }],
+        },
+        {
+            role: 'tool',
+            toolCallId: 'call_load_1',
+            content: '{}',
+            nativeToolSearch: { openaiTools: [{ name: 'read' }] },
+        },
+    ], {
+        xaiResponses: {
+            previousResponseId: 'resp_same',
+            seenMessageCount: 0,
+            model: 'grok-4.5',
+        },
+    }, { model: 'grok-4.5' });
+    assert.equal(input.some((item) => item.type === 'tool_search_call'), false);
+    assert.equal(input.some((item) => item.type === 'tool_search_output'), false);
+    const call = input.find((item) => item.type === 'function_call' && item.name === 'load_tool');
+    assert.equal(call.call_id, 'call_load_1');
+    assert.deepEqual(JSON.parse(call.arguments), { names: ['read'] });
+    assert.equal(input.some((item) => item.type === 'function_call_output' && item.call_id === 'call_load_1'), true);
+});
+
+test('openai-compat/xai Responses: model switch drops prior tool transcript history', () => {
+    const { input, previousResponseId, continuationResetReason } = _toXaiResponsesInputForTest([
+        { role: 'system', content: 'sys' },
+        { role: 'user', content: 'before switch' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call_load_1', name: 'load_tool', arguments: { names: ['read'] }, nativeType: 'tool_search_call' }],
+        },
+        { role: 'tool', toolCallId: 'call_load_1', content: '{"loaded":["read"]}' },
+        { role: 'user', content: 'after switch' },
+    ], {
+        xaiResponses: {
+            previousResponseId: 'resp_old',
+            seenMessageCount: 4,
+            model: 'grok-4.20',
+        },
+    }, { model: 'grok-4.5' });
+    assert.equal(previousResponseId, null);
+    assert.equal(continuationResetReason, 'model_changed');
+    const serialized = JSON.stringify(input);
+    assert.equal(serialized.includes('tool_search'), false);
+    assert.equal(serialized.includes('function_call'), false);
+    assert.equal(serialized.includes('function_call_output'), false);
+    assert.deepEqual(input.map((item) => item.role), ['system', 'user', 'user']);
+});
+
+test('openai-compat/xai Responses: first Grok request after provider switch drops prior tool transcript history', () => {
+    const { input, previousResponseId, continuationResetReason } = _toXaiResponsesInputForTest([
+        { role: 'system', content: 'sys' },
+        { role: 'user', content: 'before switch' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call_patch_1', name: 'apply_patch', arguments: { patch: '*** Begin Patch\n*** End Patch\n' } }],
+        },
+        { role: 'tool', toolCallId: 'call_patch_1', content: 'OK' },
+        { role: 'user', content: 'after switch' },
+    ], {}, { model: 'grok-4.5' });
+    assert.equal(previousResponseId, null);
+    assert.equal(continuationResetReason, null);
+    const serialized = JSON.stringify(input);
+    assert.equal(serialized.includes('function_call'), false);
+    assert.equal(serialized.includes('function_call_output'), false);
+    assert.deepEqual(input.map((item) => item.role), ['system', 'user', 'user']);
+});
+
+test('openai-oauth Responses: load_tool schema and history stay function_call', () => {
+    const loadTool = {
+        name: 'load_tool',
+        description: 'load tools',
+        inputSchema: {
+            type: 'object',
+            properties: { names: { type: 'array', items: { type: 'string' } } },
+        },
+    };
+    const body = buildOpenAIOAuthRequestBody([
+        { role: 'system', content: 'sys' },
+        { role: 'user', content: 'load a tool' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call_load_1', name: 'tool_search', arguments: { names: ['read'] }, nativeType: 'tool_search_call' }],
+        },
+        { role: 'tool', toolCallId: 'call_load_1', content: '{}' },
+    ], 'gpt-5.5', [loadTool], {});
+    assert.equal(JSON.stringify(body).includes('tool_search'), false);
+    assert.deepEqual(body.tools?.[0], {
+        type: 'function',
+        name: 'load_tool',
+        description: loadTool.description,
+        parameters: loadTool.inputSchema,
+    });
+    const call = body.input.find((item) => item.type === 'function_call' && item.name === 'load_tool');
+    assert.equal(call.call_id, 'call_load_1');
+    assert.deepEqual(JSON.parse(call.arguments), { names: ['read'] });
+    assert.equal(body.input.some((item) => item.type === 'function_call_output' && item.call_id === 'call_load_1'), true);
 });
 
 test('openai-compat/xai Responses: custom_tool_call history replays as function_call', () => {
@@ -239,7 +517,13 @@ test('openai-compat/xai Responses: custom_tool_call history replays as function_
             toolCalls: [{ id: 'call_patch_1', name: 'apply_patch', arguments: { patch: rawPatch }, nativeType: 'custom_tool_call' }],
         },
         { role: 'tool', toolCallId: 'call_patch_1', content: 'OK' },
-    ], null, { model: 'grok-composer-2.5-fast' });
+    ], {
+        xaiResponses: {
+            previousResponseId: 'resp_same',
+            seenMessageCount: 0,
+            model: 'grok-composer-2.5-fast',
+        },
+    }, { model: 'grok-composer-2.5-fast' });
     assert.equal(input.some((item) => item.type === 'custom_tool_call'), false);
     assert.equal(input.some((item) => item.type === 'custom_tool_call_output'), false);
     const call = input.find((item) => item.type === 'function_call' && item.name === 'apply_patch');
@@ -1092,6 +1376,35 @@ test('anthropic effort: sonnet-4-6 uses output_config + effort beta, not thinkin
     assert.ok(beta.includes(EFFORT_BETA_HEADER));
 });
 
+test('anthropic-oauth: load_tool native references replay as ordinary tool_result after model switches', () => {
+    const body = _buildRequestBodyForCacheSmoke(
+        [
+            { role: 'user', content: 'load a tool' },
+            {
+                role: 'assistant',
+                content: '',
+                toolCalls: [{ id: 'toolu_load_1', name: 'load_tool', arguments: { names: ['read'] } }],
+            },
+            {
+                role: 'tool',
+                toolCallId: 'toolu_load_1',
+                content: '{"loaded":["read"]}',
+                nativeToolSearch: { toolReferences: ['read'] },
+            },
+        ],
+        'claude-opus-4-8',
+        [],
+        { effort: 'high' },
+    );
+    const serialized = JSON.stringify(body.messages);
+    assert.equal(serialized.includes('tool_reference'), false);
+    const toolResult = body.messages
+        .flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((block) => block?.type === 'tool_result' && block.tool_use_id === 'toolu_load_1');
+    assert.ok(toolResult);
+    assert.equal(toolResult.content, '{"loaded":["read"]}');
+});
+
 test('anthropic effort: legacy sonnet-4-5 maps effort to thinking budget', () => {
     const model = 'claude-sonnet-4-5-20250514';
     const body = _buildRequestBodyForCacheSmoke(
@@ -1270,7 +1583,7 @@ test('canonical frame: full-frame builder leads with type and preserves codex bo
     assert.equal(frame.previous_response_id, undefined);
 });
 
-test('canonical frame: delta insert keeps key order, drops empty instructions, overrides input', () => {
+test('canonical frame: delta insert keeps key order, drops chained instructions, overrides input', () => {
     const body = {
         model: 'gpt-5.5',
         instructions: 'sys',
@@ -1279,10 +1592,11 @@ test('canonical frame: delta insert keeps key order, drops empty instructions, o
         text: { verbosity: 'low' },
     };
     const delta = _buildResponseCreateFrame(body, { previousResponseId: 'resp_prev', inputOverride: [{ b: 2 }] });
-    assert.deepEqual(Object.keys(delta), ['type', 'model', 'instructions', 'previous_response_id', 'input', 'tool_choice', 'text']);
+    assert.deepEqual(Object.keys(delta), ['type', 'model', 'previous_response_id', 'input', 'tool_choice', 'text']);
+    assert.equal(delta.instructions, undefined);
     assert.equal(delta.previous_response_id, 'resp_prev');
     assert.deepEqual(delta.input, [{ b: 2 }]);
-    // Empty instructions is dropped in delta mode (server resolves via prev id).
+    // Empty instructions is also dropped in delta mode (server resolves via prev id).
     const noInstr = _buildResponseCreateFrame({ ...body, instructions: '' }, { previousResponseId: 'resp_prev', inputOverride: [] });
     assert.deepEqual(Object.keys(noInstr), ['type', 'model', 'previous_response_id', 'input', 'tool_choice', 'text']);
 });
@@ -1328,11 +1642,11 @@ import {
     FULL_RESPONSES_TRANSPORT_CAPS,
 } from '../src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs';
 
-test('transport policy: default (no env) is ws-delta / refs continuation ON', () => {
+test('transport policy: default (no env) is auto WS-first / refs continuation ON / HTTP fallback ON', () => {
     const p = resolveOpenAiTransportPolicy({});
-    assert.equal(p.mode, 'ws-delta');
+    assert.equal(p.mode, 'auto');
     assert.equal(p.transport, 'ws');
-    assert.equal(p.allowHttpFallback, false);
+    assert.equal(p.allowHttpFallback, true);
     assert.deepEqual(p.delta, { force: false, refs: true, optIn: true });
 });
 
@@ -1364,10 +1678,11 @@ test('transport policy: http-sse forces the HTTP transport with delta OFF', () =
     assert.equal(p.delta.optIn, false);
 });
 
-test('transport policy: unknown MIXDOG_OAI_TRANSPORT falls back to default ws-delta', () => {
+test('transport policy: unknown MIXDOG_OAI_TRANSPORT falls back to default auto', () => {
     const p = resolveOpenAiTransportPolicy({ MIXDOG_OAI_TRANSPORT: 'quantum' });
-    assert.equal(p.mode, 'ws-delta');
+    assert.equal(p.mode, 'auto');
     assert.equal(p.transport, 'ws');
+    assert.equal(p.allowHttpFallback, true);
 });
 
 test('response frame builder can omit transport-only stream/background for codex warmup parity', () => {
@@ -1383,7 +1698,7 @@ test('transport policy: mode token aliases normalize', () => {
     assert.equal(_normalizeTransportMode('  ws delta '), 'ws-delta');
     assert.equal(_normalizeTransportMode('http/sse'), 'http-sse');
     assert.equal(_normalizeTransportMode('sse'), 'http-sse');
-    assert.equal(_normalizeTransportMode('auto'), 'ws-delta');
+    assert.equal(_normalizeTransportMode('auto'), 'auto');
     assert.equal(_normalizeTransportMode('official'), null);
     assert.equal(_normalizeTransportMode(''), null);
     assert.equal(_normalizeTransportMode('bogus'), null);
@@ -1472,17 +1787,19 @@ test('responses transport policy: openai direct caps match oauth (both full)', (
     assert.deepEqual(direct.delta, { force: false, refs: true, optIn: true });
 });
 
-test('responses transport policy: xai auto defers (transport=auto, delta OFF, no http fallback)', () => {
+test('responses transport policy: xai auto is WS-first with HTTP fallback', () => {
     const p = resolveResponsesTransportPolicy({}, RESPONSES_TRANSPORT_CAPABILITIES.xai);
-    assert.equal(p.mode, 'ws-delta');
+    assert.equal(p.mode, 'auto');
     assert.equal(p.transport, 'ws');
-    assert.equal(p.allowHttpFallback, false);
+    assert.equal(p.allowHttpFallback, true);
     assert.deepEqual(p.delta, { force: false, refs: true, optIn: true });
 });
 
-test('responses transport policy: explicit auto is a ws-delta compatibility spelling', () => {
+test('responses transport policy: explicit auto is WS-first with HTTP fallback', () => {
     const p = resolveResponsesTransportPolicy({ MIXDOG_OAI_TRANSPORT: 'auto' }, RESPONSES_TRANSPORT_CAPABILITIES.xai);
+    assert.equal(p.mode, 'auto');
     assert.equal(p.transport, 'ws');
+    assert.equal(p.allowHttpFallback, true);
     assert.deepEqual(p.delta, { force: false, refs: true, optIn: true });
 });
 
@@ -1570,11 +1887,13 @@ test('grok-oauth: all Grok models inherit global transport; explicit setting is 
 test('responses transport policy: _gateTransportMode down-shifts per capability', () => {
     // delta unsupported → ws-delta collapses to ws-full; others pass through.
     const noDelta = { ws: true, http: true, delta: false };
+    assert.equal(_gateTransportMode('auto', noDelta), 'ws-full');
     assert.equal(_gateTransportMode('ws-delta', noDelta), 'ws-full');
     assert.equal(_gateTransportMode('ws-full', noDelta), 'ws-full');
     assert.equal(_gateTransportMode('http-sse', noDelta), 'http-sse');
     // WS unsupported → WS modes prefer HTTP.
     const httpOnly = { ws: false, http: true, delta: false };
+    assert.equal(_gateTransportMode('auto', httpOnly), 'http-sse');
     assert.equal(_gateTransportMode('ws-full', httpOnly), 'http-sse');
     assert.equal(_gateTransportMode('ws-delta', httpOnly), 'http-sse');
     // HTTP unsupported → http-sse prefers full-frame WS.

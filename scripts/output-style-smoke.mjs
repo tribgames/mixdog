@@ -13,7 +13,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const DEFAULT_REPORT_LABELS = new Set(['바뀐 점', '확인한 것', '남은 리스크/다음 단계', '다음 단계']);
+const DEFAULT_REPORT_LABELS = new Set(['\uBC14\uB010 \uC810', '\uD655\uC778\uD55C \uAC83', '\uB0A8\uC740 \uB9AC\uC2A4\uD06C/\uB2E4\uC74C \uB2E8\uACC4', '\uB2E4\uC74C \uB2E8\uACC4']);
 
 function assertCleanOutput(name, value, { maxLines = 3, maxBullets = 3, allowedLabels = new Set() } = {}) {
   const text = String(value || '').trim();
@@ -28,7 +28,7 @@ function assertCleanOutput(name, value, { maxLines = 3, maxBullets = 3, allowedL
   }
   assert(!/\b(?:tool trace|session metadata|model metadata|searched-path list)\b/i.test(text), `${name}: tool/meta trace found`);
   assert(!/\b(?:Mapped|Searched|Read|Called) for \d/i.test(text), `${name}: timing/tool status found`);
-  assert(!/^(?:네|예|맞아요|좋아요|알겠습니다|Sure|Okay|Understood)[,.\s]/i.test(text), `${name}: acknowledgment preface found`);
+  assert(!/^(?:\uB124|\uC608|\uB9DE\uC544\uC694|\uC88B\uC544\uC694|\uC54C\uACA0\uC2B5\uB2C8\uB2E4|Sure|Okay|Understood)[,.\s]/i.test(text), `${name}: acknowledgment preface found`);
   assert(!/(.+)(?:\n|\s{2,})\1/.test(text), `${name}: repeated conclusion found`);
 
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
@@ -41,7 +41,7 @@ function assertCleanOutput(name, value, { maxLines = 3, maxBullets = 3, allowedL
   assert(lines.length <= maxLines, `${name}: too many lines`);
 
   const withoutCode = text.replace(/`[^`]*`/g, '');
-  const sentenceMarks = withoutCode.match(/[.!?。！？]|다\.|요\./g) || [];
+  const sentenceMarks = withoutCode.match(/[.!?。！？]|\uB2E4\.|\uC694\./g) || [];
   assert(sentenceMarks.length <= 2, `${name}: too many sentences`);
 }
 
@@ -52,7 +52,7 @@ for (const required of [
   'Mixdog default — the most detailed style',
   'State conclusions, not reasoning',
   'Use labels such as',
-  '`바뀐 점`, `확인한 것`,',
+  '`\uBC14\uB010 \uC810`, `\uD655\uC778\uD55C \uAC83`,',
   'Synthesize agent or retrieval results',
   'Do not hide blockers',
 ]) {
@@ -97,7 +97,7 @@ try {
 
   mkdirSync(join(dataDir, 'output-styles'), { recursive: true });
   writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({
-    agent: { profile: { title: '홍길동님', language: 'system' } },
+    agent: { profile: { title: '\uD64D\uAE38\uB3D9\uB2D8', language: 'system' } },
     outputStyle: 'custom-smoke',
   }));
   writeFileSync(join(dataDir, 'output-styles', 'custom-smoke.md'), '---\nname: custom-smoke\n---\n\n# Custom Output Style\n\ncustom smoke style\n');
@@ -105,7 +105,7 @@ try {
   assert(customRules.includes('# Custom Output Style'), 'configured outputStyle must select custom style');
   assert(!customRules.includes('Mixdog default — the most detailed of the three styles'), 'custom outputStyle should not append default style');
   const profileMeta = rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
-  assert(profileMeta.includes('Use "홍길동님" when directly addressing the user'), 'profile title must inject into Lead BP3 meta');
+  assert(profileMeta.includes('Use "\uD64D\uAE38\uB3D9\uB2D8" when directly addressing the user'), 'profile title must inject into Lead BP3 meta');
   assert(profileMeta.includes('do not repeat it in routine progress updates or pre-tool preambles'), 'profile title must not encourage title in preambles');
   assert(/Default user-facing response language from system locale/.test(profileMeta), 'system profile language must resolve from system locale');
   assert(profileMeta.includes('pre-tool preambles (even single-line)'), 'profile language must cover pre-tool preambles');
@@ -115,26 +115,26 @@ try {
 
 // assertCleanOutput encodes the Simple style compact contract (not Default, which may be longer).
 const goodOutputs = {
-  explanation: 'Simple 스타일은 결과 한 줄과 근거 한 가지로 끝내고, 최종 handoff만 짧은 bullet 라벨을 씁니다.',
-  implementation: '- 바뀐 점: `scripts/output-style-smoke.mjs`의 default/simple 문자열 검증을 현재 프리셋에 맞췄습니다.\n- 확인한 것: `node scripts/output-style-smoke.mjs`를 실행했습니다.',
-  crowded: '- 바뀐 점: compact guardrail은 Simple handoff용 controlled detail을 검증합니다.\n- 확인한 것: bad 샘플 거부 규칙은 그대로입니다.',
-  blocker: '`scripts/output-style-smoke.mjs`를 찾을 수 없어 변경이 막혔습니다.',
-  semicolon: '스모크 스크립트를 갱신했고; Simple 계약에 맞는 예시 응답만 통과합니다.',
+  explanation: 'Simple \uC2A4\uD0C0\uC77C\uC740 \uACB0\uACFC \uD55C \uC904\uACFC \uADFC\uAC70 \uD55C \uAC00\uC9C0\uB85C \uB05D\uB0B4\uACE0, \uCD5C\uC885 handoff\uB9CC \uC9E7\uC740 bullet \uB77C\uBCA8\uC744 \uC501\uB2C8\uB2E4.',
+  implementation: '- \uBC14\uB010 \uC810: `scripts/output-style-smoke.mjs`\uC758 default/simple \uBB38\uC790\uC5F4 \uAC80\uC99D\uC744 \uD604\uC7AC \uD504\uB9AC\uC14B\uC5D0 \uB9DE\uCDC4\uC2B5\uB2C8\uB2E4.\n- \uD655\uC778\uD55C \uAC83: `node scripts/output-style-smoke.mjs`\uB97C \uC2E4\uD589\uD588\uC2B5\uB2C8\uB2E4.',
+  crowded: '- \uBC14\uB010 \uC810: compact guardrail\uC740 Simple handoff\uC6A9 controlled detail\uC744 \uAC80\uC99D\uD569\uB2C8\uB2E4.\n- \uD655\uC778\uD55C \uAC83: bad \uC0D8\uD50C \uAC70\uBD80 \uADDC\uCE59\uC740 \uADF8\uB300\uB85C\uC785\uB2C8\uB2E4.',
+  blocker: '`scripts/output-style-smoke.mjs`\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC5B4 \uBCC0\uACBD\uC774 \uB9C9\uD614\uC2B5\uB2C8\uB2E4.',
+  semicolon: '\uC2A4\uBAA8\uD06C \uC2A4\uD06C\uB9BD\uD2B8\uB97C \uAC31\uC2E0\uD588\uACE0; Simple \uACC4\uC57D\uC5D0 \uB9DE\uB294 \uC608\uC2DC \uC751\uB2F5\uB9CC \uD1B5\uACFC\uD569\uB2C8\uB2E4.',
 };
 for (const [name, output] of Object.entries(goodOutputs)) assertCleanOutput(name, output, { allowedLabels: DEFAULT_REPORT_LABELS });
 
 const badOutputs = {
   heading: '## Summary\nDone.',
   label: 'Changed: updated default style.',
-  koreanLabel: '변경: default 스타일을 수정했습니다.\n검증: 스모크를 통과했습니다.',
+  koreanLabel: '\uBCC0\uACBD: default \uC2A4\uD0C0\uC77C\uC744 \uC218\uC815\uD588\uC2B5\uB2C8\uB2E4.\n\uAC80\uC99D: \uC2A4\uBAA8\uD06C\uB97C \uD1B5\uACFC\uD588\uC2B5\uB2C8\uB2E4.',
   numbered: '1. Updated style\n2. Ran smoke',
   paragraphs: 'Done.\n\nDone again.',
   nested: '- Updated\n  - Nested detail',
-  ack: '네, default 스타일을 수정했습니다.',
-  timing: 'Mapped for 2m 32s\n\ndefault 스타일을 수정했습니다.',
-  tooManySentences: '수정했습니다. 검증했습니다. 보고했습니다.',
-  mixed: '수정했습니다.\n- 검증했습니다.',
-  tooManyBullets: '- 바뀐 점: A\n- 확인한 것: B\n- 다음 단계: C\n- 남은 리스크/다음 단계: D',
+  ack: '\uB124, default \uC2A4\uD0C0\uC77C\uC744 \uC218\uC815\uD588\uC2B5\uB2C8\uB2E4.',
+  timing: 'Mapped for 2m 32s\n\ndefault \uC2A4\uD0C0\uC77C\uC744 \uC218\uC815\uD588\uC2B5\uB2C8\uB2E4.',
+  tooManySentences: '\uC218\uC815\uD588\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uD588\uC2B5\uB2C8\uB2E4. \uBCF4\uACE0\uD588\uC2B5\uB2C8\uB2E4.',
+  mixed: '\uC218\uC815\uD588\uC2B5\uB2C8\uB2E4.\n- \uAC80\uC99D\uD588\uC2B5\uB2C8\uB2E4.',
+  tooManyBullets: '- \uBC14\uB010 \uC810: A\n- \uD655\uC778\uD55C \uAC83: B\n- \uB2E4\uC74C \uB2E8\uACC4: C\n- \uB0A8\uC740 \uB9AC\uC2A4\uD06C/\uB2E4\uC74C \uB2E8\uACC4: D',
 };
 for (const [name, output] of Object.entries(badOutputs)) {
   let failed = false;

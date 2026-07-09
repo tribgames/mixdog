@@ -31,6 +31,7 @@ export function buildGrepCacheKey(parts) {
         onlyMatching,
         pcre2,
         withFilename,
+        patternCapTotal = 0,
     } = parts;
     return [
         'grep',
@@ -50,6 +51,10 @@ export function buildGrepCacheKey(parts) {
         Array.isArray(fileType) ? fileType.join('\x01') : (fileType || ''),
         pcre2 ? 'p1' : 'p0',
         withFilename ? 'H1' : 'H0',
+        // Cap total keeps a capped request (first-N of M patterns, carrying the
+        // "[capped at N of M]" notice) from colliding with an exact N-pattern
+        // request or with a differently-capped one (of 15 vs of 20).
+        'pc' + String(patternCapTotal || 0),
     ].join('|');
 }
 
@@ -126,13 +131,15 @@ export function buildGrepRgArgs(parts) {
     return rgArgs;
 }
 
-export function buildGlobCacheKey({ patterns, basePath, headLimit, offset, extraIgnore, sort }) {
+export function buildGlobCacheKey({ patterns, basePath, headLimit, offset, extraIgnore, sort, patternCapTotal = 0 }) {
     // extraIgnore (rg ignore globs from _extraIgnoreDirs) alters which files
     // match, so it MUST partake in the key — otherwise calls that differ only
     // by extra ignores collide and return stale over-/under-filtered results.
     // Sorted so the same ignore set in any order maps to one key.
     const extra = Array.isArray(extraIgnore) && extraIgnore.length ? [...extraIgnore].sort().join('\x01') : '';
-    return ['glob', patterns.join('\x01'), basePath, headLimit ?? '', offset ?? '', sort || 'natural', extra].join('|');
+    // patternCapTotal: a capped pattern set (first-N of M) must not collide with
+    // an exact N-pattern request or a differently-capped one.
+    return ['glob', patterns.join('\x01'), basePath, headLimit ?? '', offset ?? '', sort || 'natural', extra, 'pc' + String(patternCapTotal || 0)].join('|');
 }
 
 export function buildListCacheKey(parts) {

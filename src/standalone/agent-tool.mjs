@@ -14,6 +14,7 @@ import {
 import { presentErrorText, errorLine } from '../runtime/shared/err-text.mjs';
 import { updateJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { normalizeAgentPermission } from '../runtime/shared/markdown-frontmatter.mjs';
+import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
 import { prepareAgentSession } from '../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import {
   abortAgentProgressWatchdog,
@@ -63,6 +64,8 @@ import { createNotify } from './agent-tool/notify.mjs';
 // identical public surface (`import { AGENT_TOOL } from './agent-tool.mjs'`).
 export { AGENT_TOOL };
 
+ensureProcessListenerHeadroom(64);
+
 const STANDALONE_SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // Grace window during which a terminated/idle worker row is kept around so the
@@ -98,15 +101,18 @@ const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIME
 
 // Global spawn-start stagger: unlimited-N parallel fan-out otherwise fires all
 // first provider calls in the same instant, racing the server-side prompt-
-// cache write/propagation window. Bench (parallel-10, identical-ms starts):
-// 12.5% cache miss; 3000ms lane stagger: 4.3%; 166ms: 6.0%. 1000ms default
-// picked as a low-cost middle ground. Chain (not a fixed lane count) so it
-// scales to any N: each new spawn's start is pushed to at least STAGGER_MS
-// after the previous spawn's start; sequential/non-overlapping spawns (now
-// already past the window) pay zero added latency. MIXDOG_SPAWN_STAGGER_MS=0
-// disables. Applied inside the deferred job body (see startDeferredSpawnJob)
-// so the agent tool call itself still returns task_id immediately.
-const SPAWN_STAGGER_MS = envTimeoutMs('MIXDOG_SPAWN_STAGGER_MS', 1000);
+// cache write/propagation window. Default 0 (off): mirrors the explore fan-out
+// finding — the first spawn's prompt-cache write only lands after its iter1
+// completes (~seconds), so a sub-second stagger yields ~no cross-spawn cache
+// reads while charging every later spawn the full delay, i.e. pure fan-out
+// latency for negligible hit-rate gain. Kept as a knob for tuning: set
+// MIXDOG_SPAWN_STAGGER_MS>0 to re-enable. When >0 it chains (not a fixed lane
+// count) so it scales to any N: each new spawn's start is pushed to at least
+// STAGGER_MS after the previous spawn's start; sequential/non-overlapping
+// spawns pay zero added latency. Applied inside the deferred job body (see
+// startDeferredSpawnJob) so the agent tool call itself still returns task_id
+// immediately.
+const SPAWN_STAGGER_MS = envTimeoutMs('MIXDOG_SPAWN_STAGGER_MS', 0);
 let lastSpawnStartAt = 0;
 async function waitForSpawnStagger() {
   if (SPAWN_STAGGER_MS <= 0) return;

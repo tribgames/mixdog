@@ -10,6 +10,7 @@ import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import { randomBytes } from 'crypto';
+import { createActiveToolItemTracker } from './tool-stream-state.mjs';
 
 // Synthesize a native-shaped OpenAI tool call from a recovered leaked call.
 // Matches the `call_...` id scheme the native Responses/Chat paths use so the
@@ -554,14 +555,17 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                     name: event.item.name || '',
                     callId: event.item.call_id || '',
                 });
+                state.toolTracker?.mark(event.item);
                 state.toolInFlight = true;
             } else if (event.item?.type === 'custom_tool_call') {
+                state.toolTracker?.mark(event.item);
                 state.toolInFlight = true;
             } else if (event.item?.type === 'tool_search_call') {
                 // Mark tool_search in-flight at item-added time, same as
                 // function_call/custom_tool_call above, so the stall-recovery
                 // pendingToolUse gate never drops a mid-flight tool_search
                 // before response.output_item.done pushes it.
+                state.toolTracker?.mark(event.item);
                 state.toolInFlight = true;
             }
             try { onStreamDelta?.(); } catch {}
@@ -569,6 +573,7 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
         case 'response.function_call_arguments.delta':
             // A tool call's args are streaming — mark tool work in-flight so a
             // mid-args stall is NEVER accepted as a text-only partial-final.
+            state.toolTracker?.mark(null, event.item_id);
             state.toolInFlight = true;
             try { onStreamDelta?.(); } catch {}
             break;
@@ -576,6 +581,7 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             // Custom-tool input streams before output_item.done records the call
             // in pendingCalls; flag it so a mid-input stall gates out partial-
             // final success (otherwise a tool-bearing turn looks text-only).
+            state.toolTracker?.mark(null, event.item_id);
             state.toolInFlight = true;
             try { onStreamDelta?.(); } catch {}
             break;
@@ -616,10 +622,21 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                     state.toolCalls.push(call);
                     emitCompatToolCallOnce(state, call, onToolCall);
                 }
+                // Drop the resolved function item from pendingCalls before
+                // recomputing toolInFlight — otherwise a completed call keeps
+                // pendingCalls.size > 0 and the latch never clears, so a later
+                // text-only stall stays wrongly gated as tool-bearing.
+                if (itemId) state.pendingCalls.delete(itemId);
+                state.toolTracker?.clear(item, itemId);
+                state.toolInFlight = state.pendingCalls.size > 0 || (state.toolTracker ? state.toolTracker.items.size > 0 : false);
             } else if (item.type === 'tool_search_call') {
                 pushToolSearchCall(item);
+                state.toolTracker?.clear(item, item.id || '');
+                state.toolInFlight = state.pendingCalls.size > 0 || (state.toolTracker ? state.toolTracker.items.size > 0 : false);
             } else if (item.type === 'custom_tool_call') {
                 pushCustomToolCall(item);
+                state.toolTracker?.clear(item, item.id || '');
+                state.toolInFlight = state.pendingCalls.size > 0 || (state.toolTracker ? state.toolTracker.items.size > 0 : false);
             }
             try { onStreamDelta?.(); } catch {}
             break;
@@ -746,6 +763,14 @@ export async function consumeCompatResponsesStream(stream, {
         pendingCalls: new Map(),
         emittedToolCallKeys: new Set(),
         emittedToolCall: false,
+        // Active tool-item / alias tracking shared with the WS + HTTP-SSE
+        // Responses streams (tool-stream-state.mjs): mark on output_item.added /
+        // arg-input deltas, clear on output_item.done. Unions id/call_id/item_id
+        // aliases so a mark under one key and a clear under another resolve to
+        // the same item — closes the custom-tool-input in-flight gap that a bare
+        // boolean toolInFlight latch could not (a mid-input stall now gates out
+        // text-only partial-final).
+        toolTracker: createActiveToolItemTracker(),
         completed: false,
         completedResponse: null,
         sawOutput: false,
@@ -823,6 +848,7 @@ export async function consumeCompatResponsesStream(stream, {
                     || leakedCalls.length > 0
                     || (state.pendingCalls && state.pendingCalls.size > 0)
                     || (Array.isArray(state.toolCalls) && state.toolCalls.length > 0)
+                    || (state.toolTracker && state.toolTracker.items.size > 0)
                     || state.toolInFlight === true;
                 err.partialModel = state.model || undefined;
             } catch { /* best-effort */ }
@@ -849,6 +875,7 @@ export async function consumeCompatResponsesStream(stream, {
                     || leakedCalls.length > 0
                     || (state.pendingCalls && state.pendingCalls.size > 0)
                     || (Array.isArray(state.toolCalls) && state.toolCalls.length > 0)
+                    || (state.toolTracker && state.toolTracker.items.size > 0)
                     || state.toolInFlight === true;
                 err.partialModel = state.model || undefined;
             } catch { /* best-effort */ }

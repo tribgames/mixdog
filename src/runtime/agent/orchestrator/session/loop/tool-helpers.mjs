@@ -16,10 +16,23 @@ import { isAgentOwner } from '../../agent-owner.mjs';
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
 // to execute during SSE parsing so tool work overlaps with the rest of the
 // stream. Writes, bash, MCP and skills stay serial after send() returns.
+// Memoized: the read-only name Set is built once per distinct `tools` array
+// (keyed by identity via a module-level WeakMap) so repeated per-call lookups
+// are O(1) instead of O(N) tools.find scans.
+const _eagerNameSetByTools = new WeakMap();
 export function isEagerDispatchable(name, tools) {
     if (!Array.isArray(tools)) return false;
-    const def = tools.find(t => t?.name === name);
-    return def?.annotations?.readOnlyHint === true;
+    let set = _eagerNameSetByTools.get(tools);
+    if (set === undefined) {
+        set = new Set();
+        for (const t of tools) {
+            if (t?.annotations?.readOnlyHint === true && typeof t.name === 'string') {
+                set.add(t.name);
+            }
+        }
+        _eagerNameSetByTools.set(tools, set);
+    }
+    return set.has(name);
 }
 export function messagesArrayChanged(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;

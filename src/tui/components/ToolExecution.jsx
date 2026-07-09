@@ -73,7 +73,6 @@ export function displayToolName(name, args) {
 }
 
 const TOOL_BLINK_MS = 500;
-const TOOL_BLINK_LIMIT_MS = 3000;
 const TOOL_PENDING_SHOW_DELAY_MS = 1000;
 // One shared-tick cadence covers both the 500ms blink and per-second elapsed;
 // finer than either boundary so both stay crisp off a single timer.
@@ -87,7 +86,7 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
   // dropping the pad just normalizes the spacing.
   return formatToolActionHeader(name, args, { pending, count });
 }
-export function ToolExecution({ name, args, result, rawResult, isError, errorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false }) {
+export function ToolExecution({ name, args, result, rawResult, isError, errorCount, callErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false }) {
   const rowWidth = Math.max(1, Number(columns || 80));
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
@@ -116,13 +115,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // land — no empty band.
   const hasVisibleProgress = doneCount > 0 || Boolean(String(rt || '').trim());
   const pendingDisplayReady = !pending || !startedAtMs || pendingDelayElapsed || pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS || hasVisibleProgress || deferredDisplayReady;
-  // Derived blink (was two per-card setIntervals + a setTimeout): the dot blinks
-  // at TOOL_BLINK_MS while a display-ready pending card is fresh, then goes solid
-  // once TOOL_BLINK_LIMIT_MS elapses. Phase comes from Date.now() so the cadence
-  // is identical to the old interval without owning a timer.
+  // Derived blink (was two per-card setIntervals + a setTimeout): while pending,
+  // the dot keeps blinking until the tool resolves. Phase comes from Date.now()
+  // so the cadence is identical to the old interval without owning a timer.
   const blinkActive = pending && pendingDisplayReady;
-  const blinkExpired = blinkActive && startedAtMs > 0 && (nowMs - startedAtMs) >= TOOL_BLINK_LIMIT_MS;
-  const blinkOn = !blinkActive || blinkExpired
+  const blinkOn = !blinkActive
     ? true
     : Math.floor(nowMs / TOOL_BLINK_MS) % 2 === 0;
   // Keep the action verb in its active form until the engine explicitly seals
@@ -135,6 +132,12 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const elapsedMs = startedAtMs ? Math.max(0, (pending ? nowMs : (completedAtMs || nowMs)) - startedAtMs) : 0;
   const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
+  // Real tool-call failures only (backend isError / error toolKind). Drives the
+  // ● dot color; command/result failures (shell exit, failed status) are counted
+  // in `failedCount`/L2 detail but never in `callFailedCount`, so they never
+  // paint the dot red. Fall back to 0 (never `isError`) when the engine did not
+  // supply a call-error count so a result failure can't leak into the dot.
+  const callFailedCount = clampFailureCount(callErrorCount, groupCount, false);
   const displayGroupCount = groupCount;
   const displayCategories = normalizeCountMap(categories || {});
   // In the DONE state, count only successful calls: error-terminated calls are
@@ -209,8 +212,8 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const aggregateTerminalStatus = pending
       ? 'running'
       : (resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed'));
-    const dotColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus: aggregateTerminalStatus });
-    const dotText = pending && !blinkExpired && !blinkOn ? ' ' : TURN_MARKER;
+    const dotColor = toolStatusColor({ pending, groupCount, callFailedCount, terminalStatus: aggregateTerminalStatus });
+    const dotText = pending && !blinkOn ? ' ' : TURN_MARKER;
     const gutter = 2;
     const showHeaderExpandHint = hasRawResult;
     const hintLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
@@ -423,7 +426,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     const keepAgentDetail = (isError || agentFailureText) && !(agentHeaderFailure && !agentSurfaceBrief);
     visibleDetailLines = keepAgentDetail ? [agentDetailLine] : [];
   }
-  const finalStatusColor = toolStatusColor({ pending, groupCount, failedCount, terminalStatus });
+  const finalStatusColor = toolStatusColor({ pending, groupCount, callFailedCount, terminalStatus });
   const dotColor = finalStatusColor;
   // Agent surface cards use directional markers: `←` for requests going OUT
   // (spawn/send/etc.) and `→` for the response coming back IN. Background
@@ -441,7 +444,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   // `●` turn marker is a true 1-cell glyph and keeps the padding-only gutter.
   const isDirectionalMarker = isAgentResponse || isAgentSurfaceCard;
   const markerText = isDirectionalMarker ? `${markerGlyph} ` : markerGlyph;
-  const dotText = pending && !blinkExpired && !blinkOn ? ' ' : markerText;
+  const dotText = pending && !blinkOn ? ' ' : markerText;
   let labelText;
   if (isAgentResponse) labelText = agentResponseTitle(parsedArgs);
   else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);

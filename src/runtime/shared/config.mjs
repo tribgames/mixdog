@@ -2,7 +2,7 @@
  * Unified config reader/writer.
  * Single file: mixdog-config.json with sections such as channels, agent, and memory.
  */
-import { readFileSync, mkdirSync, existsSync } from 'fs'
+import { readFileSync, statSync, mkdirSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { createRequire } from 'module'
 import { resolvePluginData } from './plugin-paths.mjs'
@@ -24,6 +24,78 @@ const CONFIG_PATH = join(DATA_DIR, 'mixdog-config.json')
 
 const GENERATED_KEY = '_generated'
 
+// Process-wide short-TTL cache of the RAW utf8 string of CONFIG_PATH (never
+// the parsed object). Parallel agent spawns each hit the non-RMW read path
+// (readAll → readSection/readConfig/readCapabilities); without this every
+// spawn pays a synchronous readFileSync(CONFIG_PATH) on the event loop,
+// serializing the whole fanout behind redundant disk I/O. Caching the raw
+// string — not the parsed object — lets each caller re-JSON.parse for an
+// isolated, freely-mutable object (no shared-reference poisoning). Only the
+// non-RMW readAll() consults this; the RMW path (readAllForRmW) always reads
+// disk under the lock. Read errors and malformed JSON are never cached.
+let _configReadCache = null // { raw, mtimeMs, size, atMs } | null
+// Optional coarse fast-path window (ms). Default 0 => the cached raw string is
+// validated against the file's mtime+size on EVERY read via a cheap statSync
+// (no content read, no whole-file JSON.parse), so a cross-process edit is
+// observed immediately with ZERO time-based staleness while the expensive
+// full read + parse are still skipped on an unchanged file. Set >0 to also
+// skip the statSync within the window, trading a bounded staleness for fewer
+// syscalls under extreme spawn fanout.
+const CONFIG_READ_TTL_MS = (() => {
+  const n = Number(process.env.MIXDOG_CONFIG_READ_TTL_MS)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+})()
+
+export function invalidateConfigReadCache() {
+  _configReadCache = null
+}
+
+function readConfigRawCached() {
+  const now = Date.now()
+  if (_configReadCache) {
+    // Fast path (only when a TTL window is configured): serve without any
+    // syscall until the window lapses.
+    if (CONFIG_READ_TTL_MS > 0 && now - _configReadCache.atMs < CONFIG_READ_TTL_MS) {
+      return _configReadCache.raw
+    }
+    // Freshness gate: metadata-only stat. Unchanged mtime+size => the cached
+    // raw is still current, cross-process writes included — atomic writers land
+    // a new inode with a fresh mtime, so this reliably detects them.
+    try {
+      const st = statSync(CONFIG_PATH)
+      if (st.mtimeMs === _configReadCache.mtimeMs && st.size === _configReadCache.size) {
+        _configReadCache.atMs = now
+        return _configReadCache.raw
+      }
+    } catch {
+      // stat failed (e.g. transient ENOENT mid-rename); fall through to a fresh
+      // read which re-applies the ENOENT/backup-restore semantics below.
+    }
+  }
+  // Stat BEFORE read: if a write lands between the two we cache newer content
+  // against the older mtime, so the very next call re-reads instead of getting
+  // stuck on stale bytes — the cache always converges toward fresh.
+  let st = null
+  try {
+    st = statSync(CONFIG_PATH)
+  } catch (err) {
+    if (err.code === 'ENOENT') { _configReadCache = null; return null }
+    process.stderr.write(`[config] readConfigRawCached: unexpected stat error for ${CONFIG_PATH}: ${err.message}\n`)
+    throw err
+  }
+  let raw
+  try {
+    raw = readFileSync(CONFIG_PATH, 'utf8')
+  } catch (err) {
+    if (err.code === 'ENOENT') { _configReadCache = null; return null }
+    // Fail closed on unknown read errors (EACCES, EIO, …); do NOT cache.
+    process.stderr.write(`[config] readJsonFile: unexpected read error for ${CONFIG_PATH}: ${err.message}\n`)
+    throw err
+  }
+  _configReadCache = { raw, mtimeMs: st.mtimeMs, size: st.size, atMs: now }
+  return raw
+}
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
@@ -36,24 +108,32 @@ export function stripGeneratedMarker(data) {
 
 function readJsonFile(path) {
   let raw
-  try {
-    raw = readFileSync(path, 'utf8')
-  } catch (err) {
-    if (err.code === 'ENOENT') return null
-    // Fail closed on unknown read errors (EACCES, EIO, …). Returning {}
-    // here would let a subsequent writeSection() serialize an empty
-    // object back over an existing-but-temporarily-unreadable config and
-    // erase every other section. Better to surface the read error and
-    // abort the RMW than silently destroy data.
-    process.stderr.write(`[config] readJsonFile: unexpected read error for ${path}: ${err.message}\n`)
-    throw err
+  if (path === CONFIG_PATH) {
+    // Non-RMW read path: served from the short-TTL raw-string cache. Returning
+    // {} on a read error here would let a subsequent writeSection() serialize
+    // an empty object over an existing-but-temporarily-unreadable config and
+    // erase every other section, so read errors surface (throw) uncached.
+    raw = readConfigRawCached()
+  } else {
+    try {
+      raw = readFileSync(path, 'utf8')
+    } catch (err) {
+      if (err.code === 'ENOENT') return null
+      process.stderr.write(`[config] readJsonFile: unexpected read error for ${path}: ${err.message}\n`)
+      throw err
+    }
   }
+  if (raw == null) return null
   try {
     return JSON.parse(raw)
   } catch (err) {
     // Quarantine a malformed mixdog-config.json so the next boot starts fresh
     // instead of looping on a broken file.
     if (path === CONFIG_PATH) {
+      // A cached raw string that fails to parse must not be re-served; drop it
+      // so the post-quarantine/restore read hits disk fresh (malformed = never
+      // cached).
+      invalidateConfigReadCache()
       const corrupt = `${path}.corrupt-${Date.now()}`
       try { renameWithRetrySync(path, corrupt) } catch {}
       process.stderr.write(`[config] mixdog-config.json is malformed (${err.message}). Renamed to ${corrupt}. Restore it or delete to start fresh.\n`)
@@ -81,6 +161,9 @@ function writeJsonFile(path, data) {
   }
   writeJsonAtomicSync(path, data, { lock: false, fsyncDir: true, mode: 0o600, secret: true })
   if (path === CONFIG_PATH) {
+    // Our own write just changed CONFIG_PATH on disk; drop the stale raw cache
+    // synchronously so the next in-process readAll() reflects it immediately.
+    invalidateConfigReadCache()
     try { markUserDataInitialized(DATA_DIR) } catch {}
     try { backupUserData(DATA_DIR, 'post-config-write') } catch {}
   }
@@ -226,6 +309,9 @@ async function writeJsonFileAsync(path, data) {
   }
   await writeJsonAtomicAsync(path, data, { lock: false, fsyncDir: true, mode: 0o600, secret: true })
   if (path === CONFIG_PATH) {
+    // Parity with writeJsonFile: invalidate synchronously after the async
+    // write resolves so this process never serves a stale cached config.
+    invalidateConfigReadCache()
     try { markUserDataInitialized(DATA_DIR) } catch {}
     try { await backupUserDataAsync(DATA_DIR, 'post-config-write') } catch {}
   }

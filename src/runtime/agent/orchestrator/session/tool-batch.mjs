@@ -96,6 +96,9 @@ export async function processToolBatch(ctx) {
             if (isBuiltinTool(call.name)) {
                 call.name = canonicalizeBuiltinToolName(call.name);
             }
+            // Per-call cross-turn signature, computed at most once (lazily, only
+            // when the call is eager — both consumer sites are eager-gated).
+            let _ctSig = null;
             if (_duplicateCallIds.has(call.id)) {
                 const _firstId = _dupFirstId.get(call.id);
                 const _stub = `[intra-turn-dedup] identical read-only \`${call.name}\` call was already executed in this same assistant turn as tool_use_id=${_firstId}. The first call's tool_result is in context immediately above; skipping re-execution to save tokens. If you needed a different slice of the file, narrow the next call (different path / offset / limit / pattern) so it has a distinct signature.`;
@@ -113,7 +116,7 @@ export async function processToolBatch(ctx) {
             // escalation tail once the session has emitted 5+ dedup stubs total.
             // Never applies to write/bash/MCP/skill tools (not eager-dispatchable).
             if (isEagerDispatchable(call.name, tools)) {
-                const _ctSig = crossTurnSignature(call.name, call.arguments);
+                _ctSig = crossTurnSignature(call.name, call.arguments);
                 const _prior = crossTurnCalls.get(_ctSig);
                 if (_prior && _prior.firstIteration < iterations) {
                     _prior.count += 1;
@@ -576,7 +579,7 @@ export async function processToolBatch(ctx) {
                 if (_executeOk) {
                     const _isEager = isEagerDispatchable(call.name, tools);
                     if (_isEager) {
-                        const _ctSig = crossTurnSignature(call.name, call.arguments);
+                        if (_ctSig === null) _ctSig = crossTurnSignature(call.name, call.arguments);
                         if (!crossTurnCalls.has(_ctSig)) {
                             crossTurnCalls.set(_ctSig, { count: 1, firstIteration: iterations });
                             if (crossTurnCalls.size > crossTurnCap) {

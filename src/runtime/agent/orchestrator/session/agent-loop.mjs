@@ -195,21 +195,32 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     const drainSteeringIntoMessages = (stage = 'mid-turn', options = {}) => {
         if (typeof opts.drainSteering !== 'function') return false;
         let steerMsgs = [];
-        try { steerMsgs = opts.drainSteering(sessionId) || []; }
+        try { steerMsgs = opts.drainSteering(sessionId, options) || []; }
         catch { steerMsgs = []; }
-        const merged = mergeSteeringEntries(steerMsgs);
-        if (!merged) return false;
+        const mergedMessages = [];
+        for (const entry of Array.isArray(steerMsgs) ? steerMsgs : []) {
+            const merged = mergeSteeringEntries([entry]);
+            if (merged) mergedMessages.push(merged);
+        }
+        if (mergedMessages.length === 0) return false;
         if (typeof options.beforeAppend === 'function') {
             try { options.beforeAppend(); } catch { /* best-effort hook */ }
         }
-        // Tag steering-origin user messages so provider lowering keeps them a
-        // distinct user turn (see anthropic-oauth foldUserTextIntoToolResultTail):
-        // human/TUI steering must stay attributed as user input, never folded
-        // into a preceding tool_result where it reads as tool output.
-        messages.push({ role: 'user', content: merged.content, meta: { source: 'steering' } });
-        try { opts.onSteerMessage?.(merged.text || steeringContentText(merged.content)); } catch {}
+        let totalCount = 0;
+        let totalTextLen = 0;
+        for (const merged of mergedMessages) {
+            // Tag steering-origin user messages so provider lowering keeps them
+            // distinct from preceding tool results. Keep each queued command as
+            // its own user turn, matching Claude Code queued_command attachment
+            // semantics instead of collapsing priority/mode buckets together.
+            messages.push({ role: 'user', content: merged.content, meta: { source: 'steering' } });
+            const text = merged.text || steeringContentText(merged.content);
+            totalCount += Number(merged.count) || 1;
+            totalTextLen += String(text || '').length;
+            try { opts.onSteerMessage?.(text); } catch {}
+        }
         if (sessionId) {
-            try { process.stderr.write(`[steer] sess=${sessionId} injected ${stage} user message (merged=${merged.count} len=${String(merged.text || '').length})\n`); } catch {}
+            try { process.stderr.write(`[steer] sess=${sessionId} injected ${stage} user message(s) (merged=${totalCount} len=${totalTextLen})\n`); } catch {}
         }
         return true;
     };
@@ -259,6 +270,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // the loop as an explicit empty termination instead.
     let _emptyNudgeStreak = 0;
     const EMPTY_NUDGE_MAX = 3;
+    // Claude Code parity: queued prompt/task notifications are attached after a
+    // tool batch, before the continuation provider send. Normal batches drain
+    // up to 'next'; a Sleep-like tool grants a 'later' flush.
+    let _toolBatchJustCompleted = false;
+    let _lastToolBatchHadSleep = false;
+    const isSleepLikeToolCall = (call) => {
+        const name = String(call?.name || call?.toolName || call?.function?.name || '').toLowerCase();
+        return name === 'sleep' || name.endsWith('/sleep') || name.endsWith('.sleep');
+    };
     // Completion-first steering ladder controller. Owns the (cumulative) level-1
     // fire count, the all-read-only / serial-single / same-file-grep streaks,
     // and the level-2 latch. Threaded via live getters so it reads the loop's
@@ -336,11 +356,19 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 });
             } catch { /* best-effort */ }
         }
-        // Drain queued steering/prompts BEFORE the
-        // pre-send compact check. The compact decision must see the exact
-        // message set that the next provider.send would receive, including
-        // tool results plus any queued user input/notifications.
-        drainSteeringIntoMessages('pre-send');
+        // Drain queued steering/prompts BEFORE the pre-send compact check, but
+        // only immediately after a tool batch has completed. This mirrors
+        // Claude Code's query.ts queued_command attachment drain: queued entries
+        // are attached after tool results are appended and before the recursive
+        // continuation, not on arbitrary non-tool continuations (empty nudges,
+        // iteration-cap final text turns, etc.).
+        if (_toolBatchJustCompleted) {
+            drainSteeringIntoMessages('pre-send', {
+                maxPriority: _lastToolBatchHadSleep ? 'later' : 'next',
+            });
+            _toolBatchJustCompleted = false;
+            _lastToolBatchHadSleep = false;
+        }
         ({
             iterations,
             lastUsage,
@@ -442,16 +470,23 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // the stateless contract for providers that don't use continuation).
         providerState = response?.providerState ?? undefined;
         iterations = nextIteration;
-        // Payload byte estimate serializes the FULL messages+tools array —
-        // only pay that cost when verbose loop tracing is actually enabled
-        // (traceAgentLoop is a no-op otherwise).
-        if (process.env.MIXDOG_AGENT_TRACE_VERBOSE === '1') {
+        // Loop trace has two modes (both no-op on provider behavior):
+        //   VERBOSE=1 → full row; pay the FULL messages+tools payload byte
+        //               estimate (serializes the whole array).
+        //   TIMING=1  → send-latency attribution only; skip the payload
+        //               estimate so measuring send_ms does not itself add
+        //               serialization cost during high-fanout bench runs.
+        const _traceVerbose = process.env.MIXDOG_AGENT_TRACE_VERBOSE === '1';
+        if (_traceVerbose || process.env.MIXDOG_AGENT_TRACE_TIMING === '1') {
             traceAgentLoop({
                 sessionId,
                 iteration: iterations,
                 sendMs: Date.now() - sendStartedAt,
                 messageCount: Array.isArray(messages) ? messages.length : 0,
-                bodyBytesEst: estimateProviderPayloadBytes(messages, model, sendTools),
+                bodyBytesEst: _traceVerbose
+                    ? estimateProviderPayloadBytes(messages, model, sendTools)
+                    : undefined,
+                agent: sessionAgent || null,
             });
         }
         // Accumulate usage across iterations — every billable slot, not just
@@ -556,17 +591,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const isHidden = HIDDEN_AGENT_NAMES.has(sessionAgent);
             const stopReason = response.stopReason ?? response.stop_reason ?? null;
             const isIncompleteStop = stopReason && INCOMPLETE_STOP_REASONS.has(stopReason);
-            // A user/schedule notification can arrive while provider.send() is
-            // returning a terminal no-tool response. Drain once before accepting
-            // it as final so the queued input is handled in the same active turn
-            // instead of waiting for post-turn TUI drain. If the model already
-            // produced assistant text, persist that as an intermediate assistant
-            // message before appending the steered user message.
-            if (drainSteeringIntoMessages('final-pre-send', {
-                beforeAppend: () => pushIntermediateAssistantResponse(response),
-            })) {
-                continue;
-            }
             if (!hasContent && !isHidden) {
                 _emptyNudgeStreak += 1;
                 if (_emptyNudgeStreak > EMPTY_NUDGE_MAX) {
@@ -662,6 +686,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             pushToolResultMessage, throwIfAborted,
             repeatFailLimit: REPEAT_FAIL_LIMIT,
         }));
+        _toolBatchJustCompleted = true;
+        _lastToolBatchHadSleep = calls.some(isSleepLikeToolCall);
     }
     // Classify WHY the loop ended so agent-tool can promote an empty/abnormal
     // finish to an explicit Lead-facing error instead of a silent empty

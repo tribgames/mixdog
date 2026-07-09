@@ -23,9 +23,9 @@ import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import {
     PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS,
-    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
     PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS,
+    PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
     streamStalledError,
 } from '../stall-policy.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
@@ -47,6 +47,10 @@ import {
     _isMaxOutputIncompleteReason,
     _httpStatusFromWsClose,
 } from './openai-ws-events.mjs';
+import {
+    createActiveToolItemTracker,
+    hasCompleteToolCall as sharedHasCompleteToolCall,
+} from './tool-stream-state.mjs';
 
 // Facade re-exports: the delta/matching helpers and usage/event helpers below
 // were extracted to openai-ws-delta.mjs / openai-ws-events.mjs (no behavior
@@ -258,10 +262,24 @@ export async function _streamResponse({
     const citations = [];
     const citationKeys = new Set();
     const pendingCalls = new Map();
+    // Active tool-item / alias tracking extracted to tool-stream-state.mjs.
+    // Keep the WS-local names bound to the tracker's Set + methods so the
+    // event-switch call sites (markActiveToolItem/clearActiveToolItem/
+    // activeToolItems.size) read unchanged.
+    const _toolTracker = createActiveToolItemTracker();
+    const activeToolItems = _toolTracker.items;
+    const markActiveToolItem = _toolTracker.mark;
+    const clearActiveToolItem = _toolTracker.clear;
     // Tool-work-in-flight flag: set the moment a function/custom tool call's
     // input starts streaming (before it lands in pendingCalls/toolCalls).
     // Gates partial-final SUCCESS so a stall mid tool-input never looks text-only.
     let _toolInFlight = false;
+    // Early tool-call settle latch. Set when a fully-formed tool call is
+    // available but the server never emits response.completed/response.done —
+    // we resolve successfully anyway and surface `closeSocket` so the pool
+    // discards (never reuses) the socket, which may still carry the missing
+    // terminal frames as orphans.
+    let _earlySettled = false;
     // Fix 2: cross-path name+args dedupe. A text-leaked synthetic and an
     // identical native function_call must fire onToolCall exactly once. Every
     // dispatch site routes through emitToolCallDedupe.
@@ -461,7 +479,13 @@ export async function _streamResponse({
     // only) trips a short, named terminal StreamStalledError instead of coasting
     // to the 300s inter-chunk cap / 30-min agent watchdog.
     let semanticIdleTimer = null;
-    const semanticIdleMs = PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+    // WS gets its own shorter semantic-idle window. The shared SSE semantic
+    // timeout is intentionally near the 300s stall warning to protect Anthropic
+    // effort-mode "silent thinking"; using that value here lets a wedged WS
+    // request race the TUI 300s watchdog. Keep websocket stalls provider-owned:
+    // fail/retry/fallback here first, then let the TUI watchdog remain a final
+    // safety net only.
+    const semanticIdleMs = PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS;
     const semanticIdleEnabled = PROVIDER_SSE_IDLE_WATCHDOG_ENABLED && semanticIdleMs > 0;
     // First-meaningful-frame watchdog timer + one-shot latch. Armed alongside
     // the pre-stream watchdog; cleared exactly once by the first meaningful
@@ -575,6 +599,11 @@ export async function _streamResponse({
         const resetInterChunk = () => {
             if (interChunkTimer) clearTimeout(interChunkTimer);
             interChunkTimer = setTimeout(() => {
+                // Early settle: a complete tool call is already captured with no
+                // deferred salvage pending, so silence here is the missing
+                // response.completed/done — resolve with the tool call instead
+                // of a stall error the loop would retry.
+                if (settleEarlyOnToolCall('inter_chunk')) return;
                 if (process.env.MIXDOG_DEBUG_AGENT) {
                     process.stderr.write(`[agent-trace] ws-timeout kind=inter-chunk afterMs=${interChunkMs}\n`);
                 }
@@ -593,6 +622,11 @@ export async function _streamResponse({
             if (!semanticIdleEnabled) return;
             if (semanticIdleTimer) clearTimeout(semanticIdleTimer);
             semanticIdleTimer = setTimeout(() => {
+                // Early settle before treating tool-work silence as a stall: if
+                // a complete tool call is available and no deferred salvage
+                // remains, the turn result is already final even without
+                // response.completed/done.
+                if (settleEarlyOnToolCall('semantic_idle')) return;
                 traceWsTimeout('semantic_idle_timeout', semanticIdleMs);
                 terminalError = streamStalledError('Responses WS', semanticIdleMs, { emittedToolCall: !!midState?.emittedToolCall });
                 // Partial-final recovery: attach streamed partial state so
@@ -672,10 +706,42 @@ export async function _streamResponse({
                 // for the WS path (sendViaWebSocket spreads this result
                 // through to the provider caller unchanged).
                 ...(stopReason === 'length' && content.length > 0 ? { truncated: true } : {}),
+                // Early tool-call settle: tell the caller to drop (not pool)
+                // this socket. The server may still emit the skipped
+                // response.completed/done as orphan frames; reusing the socket
+                // would read them as the next request's stream and wedge it.
+                ...(_earlySettled ? { closeSocket: true } : {}),
                 incompleteReason: incompleteReason || undefined,
                 responseId: responseId || undefined,
                 serviceTier: responseServiceTier || undefined,
             });
+        };
+        // Early tool-call settle guard. A fully-formed tool call (real call_id +
+        // name, not a deferred salvage placeholder) means the turn's actionable
+        // result is already complete. When the server then goes silent without
+        // response.completed/response.done, resolve successfully with that tool
+        // call rather than surfacing a stall error the loop gates out via
+        // pendingToolUse and retries. Returns true if it settled the stream.
+        const hasCompleteToolCall = () => sharedHasCompleteToolCall({
+            toolCalls,
+            pendingSize: pendingCalls.size,
+            activeSize: activeToolItems.size,
+            toolInFlight: _toolInFlight,
+        });
+        const settleEarlyOnToolCall = (reason) => {
+            if (done || terminalError) return false;
+            if (!hasCompleteToolCall()) return false;
+            _earlySettled = true;
+            // Treat as a normal completion for downstream state: we have the
+            // canonical tool call, only the terminal lifecycle frame is missing.
+            midState.sawCompleted = true;
+            midState.wsEarlySettle = reason;
+            done = true;
+            // Close and mark keep=false (via closeSocket in the resolve). The
+            // late/never response.completed cannot then leak onto a pooled reuse.
+            try { socket.close(4000, `early_settle_${reason}`); } catch {}
+            finish();
+            return true;
         };
 
         messageHandler = (data) => {
@@ -759,14 +825,17 @@ export async function _streamResponse({
                     break;
                 case 'response.output_item.added':
                     if (event.item?.type === 'function_call') {
+                        markActiveToolItem(event.item);
                         pendingCalls.set(event.item.id || '', {
                             name: event.item.name || '',
                             callId: event.item.call_id || '',
                         });
                         _toolInFlight = true;
                     } else if (event.item?.type === 'custom_tool_call') {
+                        markActiveToolItem(event.item);
                         _toolInFlight = true;
                     } else if (event.item?.type === 'tool_search_call') {
+                        markActiveToolItem(event.item);
                         // Mark tool_search in-flight at item-added time, same
                         // as function_call/custom_tool_call above, so the
                         // semantic-idle stall gate's pendingToolUse never
@@ -780,11 +849,13 @@ export async function _streamResponse({
                     resetSemanticIdle();
                     break;
                 case 'response.function_call_arguments.delta':
+                    markActiveToolItem(null, event.item_id);
                     _toolInFlight = true;
                     try { onStreamDelta?.(); } catch {}
                     bumpSemanticIdle();
                     break;
                 case 'response.custom_tool_call_input.delta':
+                    markActiveToolItem(null, event.item_id);
                     _toolInFlight = true;
                     try { onStreamDelta?.(); } catch {}
                     bumpSemanticIdle();
@@ -819,6 +890,11 @@ export async function _streamResponse({
                         const call = { id: pending.callId, name: pending.name, arguments: args };
                         toolCalls.push(call);
                         emitToolCallDedupe(call);
+                        pendingCalls.delete(itemId);
+                        // Keep the function item active until output_item.done:
+                        // arguments.done completes args, but the lifecycle item
+                        // itself may still be followed by item.done/final frames.
+                        _toolInFlight = pendingCalls.size > 0 || activeToolItems.size > 0;
                     } else {
                         // Synthesizing a `tc_${Date.now()}` callId here would
                         // make the next turn fail to match the model's
@@ -850,11 +926,46 @@ export async function _streamResponse({
                     // server-side prompt cache prefix warm.
                     if (event.item?.type === 'reasoning') pushReasoningItem(event.item);
                     if (event.item?.type === 'web_search_call') pushWebSearchCall(event.item);
+                    if (event.item?.type === 'function_call') {
+                        const item = event.item;
+                        const itemId = item.id || '';
+                        const callId = item.call_id || '';
+                        const name = item.name || '';
+                        const argsText = typeof item.arguments === 'string' ? item.arguments : '';
+                        let args = {};
+                        if (argsText.trim() !== '') {
+                            try {
+                                args = JSON.parse(argsText);
+                            } catch (err) {
+                                args = makeInvalidToolArgsMarker(argsText, err instanceof Error ? err.message : String(err));
+                            }
+                        }
+                        const deferred = toolCalls.find((tc) => tc?._deferred && (!itemId || tc._pendingItemId === itemId));
+                        if (deferred && callId && name) {
+                            deferred.id = callId;
+                            deferred.name = name;
+                            deferred.arguments = deferred.arguments && Object.keys(deferred.arguments).length > 0 ? deferred.arguments : args;
+                            delete deferred._deferred;
+                            delete deferred._pendingItemId;
+                            emitToolCallDedupe(deferred);
+                        } else if (callId && name && !toolCalls.some((tc) => tc?.id === callId)) {
+                            const call = { id: callId, name, arguments: args };
+                            toolCalls.push(call);
+                            emitToolCallDedupe(call);
+                        }
+                        if (itemId) pendingCalls.delete(itemId);
+                        clearActiveToolItem(item, itemId);
+                        _toolInFlight = pendingCalls.size > 0 || activeToolItems.size > 0;
+                    }
                     if (event.item?.type === 'tool_search_call') {
                         pushToolSearchCall(event.item);
+                        clearActiveToolItem(event.item);
+                        _toolInFlight = pendingCalls.size > 0 || activeToolItems.size > 0;
                     }
                     if (event.item?.type === 'custom_tool_call') {
                         pushCustomToolCall(event.item);
+                        clearActiveToolItem(event.item);
+                        _toolInFlight = pendingCalls.size > 0 || activeToolItems.size > 0;
                     }
                     // Item-done is genuine lifecycle progress — reset semantic
                     // idle so latency before the next item/args does not stall.

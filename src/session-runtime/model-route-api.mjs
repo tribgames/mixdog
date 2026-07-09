@@ -17,6 +17,21 @@ import {
   SEARCH_DEFAULT_MODEL,
 } from './workflow.mjs';
 import { writeStatuslineRoute } from './statusline-route.mjs';
+import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
+import {
+  hasUserConversationMessage,
+} from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+
+function isSummaryAnchorMessage(message) {
+  return message?.role === 'user'
+    && typeof message.content === 'string'
+    && message.content.startsWith(SUMMARY_PREFIX);
+}
+
+function hasRouteHistoryMessage(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  return hasUserConversationMessage(list) || list.some(isSummaryAnchorMessage);
+}
 
 // Model/route/search-route selection + mutation surface. Extracted verbatim from
 // the runtime API object; stateless helpers are imported directly and the
@@ -33,6 +48,8 @@ export function createModelRouteApi(deps) {
     persistLeadRoute, refreshRouteEffort,
     refreshStatuslineUsageSnapshot, scheduleStatuslineUsageRefresh,
     invalidateContextStatusCache, invalidateProviderCaches,
+    createCurrentSession, invalidatePreSessionToolSurface,
+    pushTranscriptRebind,
     collectSearchProviderModels,
   } = deps;
   return {
@@ -125,10 +142,41 @@ export function createModelRouteApi(deps) {
       await refreshRouteEffort(modelMeta);
       refreshStatuslineUsageSnapshot(getRoute());
       scheduleStatuslineUsageRefresh();
-      if (!applyToCurrentSession) {
+      const session = getSession();
+      // Model/provider changes are next-session-only for a session the user
+      // has already talked in or compacted (provider-keyed prompt cache). But
+      // an EMPTY current session — no committed route history and no in-flight
+      // first-turn prompt — has no cache to protect, so /model before the first
+      // chat takes effect live: route + statusline update immediately.
+      const currentSessionEmpty = !!session
+        && !hasRouteHistoryMessage(session.messages)
+        && !hasRouteHistoryMessage(session.liveTurnMessages);
+      const applyLive = applyToCurrentSession || currentSessionEmpty;
+      if (!applyLive) {
         return getRoute();
       }
-      const session = getSession();
+      if (currentSessionEmpty && session?.id && typeof createCurrentSession === 'function') {
+        // If the boot create is still finishing SessionStart/deferred-surface
+        // work, drain that promise first. Otherwise createCurrentSession()
+        // would return the old in-flight promise after we tombstone/null the
+        // session, racing the intended rebuild for the new provider.
+        await createCurrentSession('model-switch-empty-drain');
+        const emptySession = getSession();
+        if (!emptySession?.id
+          || hasRouteHistoryMessage(emptySession.messages)
+          || hasRouteHistoryMessage(emptySession.liveTurnMessages)) {
+          invalidateContextStatusCache();
+          return getRoute();
+        }
+        statusRoutes?.clearGatewaySessionRoute?.(emptySession.id);
+        mgr.closeSession?.(emptySession.id, 'cli-model-switch-empty', { tombstone: true });
+        setSession(null);
+        invalidatePreSessionToolSurface?.();
+        await createCurrentSession('model-switch-empty');
+        pushTranscriptRebind?.();
+        invalidateContextStatusCache();
+        return getRoute();
+      }
       if (session) {
         const route = getRoute();
         const updated = mgr.updateSessionRoute?.(session.id, {

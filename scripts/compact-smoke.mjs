@@ -858,7 +858,7 @@ function chars4(text) {
   return Math.ceil(String(text ?? '').length / 4);
 }
 
-const koHeavy = '한국어 컴팩션 경계 테스트 '.repeat(200);
+const koHeavy = '\uD55C\uAD6D\uC5B4 \uCEF4\uD329\uC158 \uACBD\uACC4 \uD14C\uC2A4\uD2B8 '.repeat(200);
 const koEst = estimateMessagesTokens([{ role: 'user', content: koHeavy }]);
 assert(
   koEst > chars4(koHeavy) * 2,
@@ -892,8 +892,8 @@ assert(
 // also use the conservative estimator (>= chars/4 of the serialized JSON).
 const toolSchema = [{
   name: 'apply_patch',
-  description: '패치를 파일에 적용 (한국어 설명) — applies a patch',
-  parameters: { type: 'object', properties: { patch: { type: 'string', description: '패치 본문 텍스트' } } },
+  description: '\uD328\uCE58\uB97C \uD30C\uC77C\uC5D0 \uC801\uC6A9 (\uD55C\uAD6D\uC5B4 \uC124\uBA85) — applies a patch',
+  parameters: { type: 'object', properties: { patch: { type: 'string', description: '\uD328\uCE58 \uBCF8\uBB38 \uD14D\uC2A4\uD2B8' } } },
 }];
 const toolSchemaEst = estimateToolSchemaTokens(toolSchema);
 assert(
@@ -904,7 +904,7 @@ assert(
 // Strict-fit smoke: a Korean/CJK-heavy newest turn far larger than the preserve
 // budget must be summarized/truncated safely — never preserved verbatim — and
 // the final estimated tokens must stay within budget.
-const KO_HUGE_SENTINEL = 'KO_HUGE_SENTINEL_' + '압축경계테스트'.repeat(20_000);
+const KO_HUGE_SENTINEL = 'KO_HUGE_SENTINEL_' + '\uC555\uCD95\uACBD\uACC4\uD14C\uC2A4\uD2B8'.repeat(20_000);
 let strictFitPrompt = '';
 const strictFitProvider = {
   name: 'strict-fit-cjk-smoke',
@@ -915,9 +915,9 @@ const strictFitProvider = {
 };
 const strictFitMessages = [
   { role: 'system', content: 'system rules stay mandatory' },
-  { role: 'user', content: '이전 작은 요청' },
-  { role: 'assistant', content: '이전 작은 응답' },
-  { role: 'user', content: `최신 거대한 한국어 요청 ${KO_HUGE_SENTINEL}` },
+  { role: 'user', content: '\uC774\uC804 \uC791\uC740 \uC694\uCCAD' },
+  { role: 'assistant', content: '\uC774\uC804 \uC791\uC740 \uC751\uB2F5' },
+  { role: 'user', content: `\uCD5C\uC2E0 \uAC70\uB300\uD55C \uD55C\uAD6D\uC5B4 \uC694\uCCAD ${KO_HUGE_SENTINEL}` },
 ];
 const STRICT_FIT_BUDGET = 6_000;
 const strictFitResult = await semanticCompactMessages(strictFitProvider, strictFitMessages, 'fake-model', STRICT_FIT_BUDGET, {

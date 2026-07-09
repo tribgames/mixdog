@@ -234,9 +234,12 @@ export function createCwdPlugins({
   }
 
   async function loadCoreMemoryContext() {
-    // Boot should not pay for memory/PG startup unless explicitly requested.
-    // Recall and memory tools still initialize the memory service on first use.
-    if (process.env.MIXDOG_BOOT_CORE_MEMORY !== '1') {
+    // User-curated core memory injects into new sessions by default.
+    // Explicit opt-out (MIXDOG_BOOT_CORE_MEMORY=0/false/no/off) skips the
+    // memory/PG startup cost; recall and memory tools still initialize the
+    // memory service on first use.
+    const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '').trim().toLowerCase();
+    if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') {
       bootProfile('core-memory:skipped');
       return '';
     }

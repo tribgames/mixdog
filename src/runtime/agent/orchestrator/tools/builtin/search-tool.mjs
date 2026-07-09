@@ -523,7 +523,12 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 }
                 parts.push(`# grep ${p}\n${body}`);
             }
-            if (list.length > GREP_PATH_CAP) parts.push(`[capped at ${GREP_PATH_CAP} of ${list.length} paths]`);
+            if (list.length > GREP_PATH_CAP) {
+                parts.push(`[capped at ${GREP_PATH_CAP} of ${list.length} paths]`);
+                // Omitted paths mean the returned result cannot cover the whole
+                // requested path set — never let it be cached as complete.
+                if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
+            }
             return parts.join('\n\n');
         }
         args.path = list[0];
@@ -542,9 +547,15 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     let patterns = uniqueStrings(rawPatterns.map(normalizeSearchPattern));
     const GREP_PATTERN_ARRAY_CAP = 10;
     let patternCapNote = '';
+    let patternCapTotal = 0;
     if (patterns.length > GREP_PATTERN_ARRAY_CAP) {
         patternCapNote = `[capped at ${GREP_PATTERN_ARRAY_CAP} of ${patterns.length} patterns]\n`;
+        patternCapTotal = patterns.length;
         patterns = patterns.slice(0, GREP_PATTERN_ARRAY_CAP);
+        // Dropping input patterns means the returned result cannot cover the
+        // full requested pattern set — never cache it as complete. Applies to
+        // every downstream path (fan-out, chunk-merge, single combined).
+        if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
     if (patterns.length === 0) {
         if (args.glob || hasGlobMagic(args.path)) {
@@ -725,16 +736,18 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         && !options._grepPatternFanout) {
         const seen = new Set();
         const subOptions = { ...options, _grepPatternFanout: true };
-        const parts = [];
-        for (const p of patterns) {
-            let sub;
+        // Each pattern is an INDEPENDENT grep; run them concurrently and then
+        // apply dedup/section assembly in the original pattern order so the
+        // shared `seen` set and output text stay byte-identical to the
+        // sequential version.
+        const subs = await Promise.all(patterns.map(async (p) => {
             try {
-                sub = await executeGrepTool({ ...args, pattern: p }, workDir, executeChildBuiltinTool, readStateScope, subOptions);
+                return await executeGrepTool({ ...args, pattern: p }, workDir, executeChildBuiltinTool, readStateScope, subOptions);
             } catch (err) {
-                sub = `Error: ${err && err.message ? err.message : err}`;
+                return `Error: ${err && err.message ? err.message : err}`;
             }
-            parts.push(`# grep pattern:${JSON.stringify(p)}\n${dedupeFanoutMatchLines(sub, seen)}`);
-        }
+        }));
+        const parts = patterns.map((p, i) => `# grep pattern:${JSON.stringify(p)}\n${dedupeFanoutMatchLines(subs[i], seen)}`);
         return patternCapNote + parts.join('\n\n');
     }
 
@@ -749,20 +762,27 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             ...(outputMode === 'count' ? { output_mode: 'content' } : {}),
         };
         const chunkMergeOptions = { ...options, _grepChunkMerge: true };
+        // Fetch every chunk concurrently with the full aggregate budget, then
+        // replay the sequential room-based accumulation over the results in
+        // chunk order. rg output order is deterministic, so slicing this
+        // superset by the sequential `room` yields identical lines, and the
+        // re-extract with `room` reproduces the same truncation flags — the
+        // merged output and `truncatedAggregate` are byte-identical to the
+        // old serial loop while the grep calls overlap.
+        const chunkBodies = await Promise.all(patternChunks.map((chunk) => executeGrepTool(
+            { ...chunkBaseArgs, pattern: chunk, head_limit: aggregateBudget },
+            workDir,
+            executeChildBuiltinTool,
+            readStateScope,
+            chunkMergeOptions,
+        )));
         const mergedRaw = [];
-        for (const chunk of patternChunks) {
+        for (const chunkBody of chunkBodies) {
             if (mergedRaw.length >= aggregateBudget) {
                 truncatedAggregate = true;
                 break;
             }
             const room = aggregateBudget - mergedRaw.length;
-            const chunkBody = await executeGrepTool(
-                { ...chunkBaseArgs, pattern: chunk, head_limit: room },
-                workDir,
-                executeChildBuiltinTool,
-                readStateScope,
-                chunkMergeOptions,
-            );
             const extracted = extractGrepChunkResultLines(chunkBody, room);
             if (extracted.error) return extracted.error.startsWith('Error:') ? extracted.error : `Error: ${extracted.error}`;
             const slice = extracted.lines.slice(0, room);
@@ -784,6 +804,16 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         const sliced = offset > 0 ? merged.slice(offset) : merged;
         const limit = headLimit === Infinity ? sliced.length : headLimit;
         const windowed = limit === Infinity ? sliced : sliced.slice(0, limit);
+        // Cache-outcome fidelity: the concurrent chunk fetches run with the full
+        // aggregateBudget as head_limit, so a child may report itself complete
+        // even though the replay above trimmed its lines to a smaller `room`
+        // (truncatedAggregate), the final head_limit window dropped lines, or an
+        // offset paged past earlier matches. Mirror the other grep return paths
+        // and mark the scoped cache incomplete so a partial/paged chunk-merge
+        // result is never cached as whole.
+        if (options?.scopedCacheOutcome && (truncatedAggregate || offset > 0 || windowed.length < sliced.length)) {
+            markScopedCacheIncomplete(options.scopedCacheOutcome);
+        }
         if (!windowed.length) {
             const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
             const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
@@ -791,7 +821,10 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         }
         return formatGrepOutput({
             windowed,
-            totalWindowed: merged.length,
+            // POST-offset total so formatGrepOutput's remaining/total math (which
+            // re-adds `offset`) does not conjure phantom "more" results from the
+            // offset-skipped prefix.
+            totalWindowed: sliced.length,
             totalKnown: !truncatedAggregate,
             headLimit,
             offset,
@@ -828,6 +861,10 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         fileType,
         pcre2: pcre2Mode,
         withFilename: forceGrepFilename,
+        // Capped requests carry the "[capped at N of M]" notice; key on the
+        // original count so they never collide with an exact N-pattern request
+        // (or a differently-capped one) in the internal result cache.
+        patternCapTotal,
     });
     // Single-file grep registers a whole-file read snapshot (parity with
     // apply_patch), satisfying the read-before-edit guard while keeping drift
@@ -1193,17 +1230,22 @@ export async function executeGlobTool(args, workDir, options = {}) {
             .filter((p) => p && !seen.has(p) && seen.add(p));
         if (list.length > 1) {
             const capped = list.slice(0, GLOB_PATH_CAP);
-            const parts = [];
-            for (const p of capped) {
-                let body;
+            // Independent per-path globs run concurrently; assemble sections in
+            // the original (capped) order so output stays identical.
+            const bodies = await Promise.all(capped.map(async (p) => {
                 try {
-                    body = await executeGlobTool({ ...args, path: p }, workDir, options);
+                    return await executeGlobTool({ ...args, path: p }, workDir, options);
                 } catch (err) {
-                    body = `Error: ${err && err.message ? err.message : err}`;
+                    return `Error: ${err && err.message ? err.message : err}`;
                 }
-                parts.push(`# glob ${p}\n${body}`);
+            }));
+            const parts = capped.map((p, i) => `# glob ${p}\n${bodies[i]}`);
+            if (list.length > GLOB_PATH_CAP) {
+                parts.push(`[capped at ${GLOB_PATH_CAP} of ${list.length} paths]`);
+                // Omitted paths mean the returned listing is not the whole
+                // requested set — never cache it as complete.
+                if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
             }
-            if (list.length > GLOB_PATH_CAP) parts.push(`[capped at ${GLOB_PATH_CAP} of ${list.length} paths]`);
             return parts.join('\n\n');
         }
         args.path = list[0] ?? '.';
@@ -1238,9 +1280,15 @@ export async function executeGlobTool(args, workDir, options = {}) {
     }
     const GLOB_PATTERN_ARRAY_CAP = 10;
     let globPatternCapNote = '';
+    let globPatternCapTotal = 0;
     if (patterns.length > GLOB_PATTERN_ARRAY_CAP) {
         globPatternCapNote = `[capped at ${GLOB_PATTERN_ARRAY_CAP} of ${patterns.length} patterns]\n`;
+        globPatternCapTotal = patterns.length;
         patterns = patterns.slice(0, GLOB_PATTERN_ARRAY_CAP);
+        // Omitted patterns: mark the scoped cache incomplete and (below) key the
+        // internal cache on the original count so a capped glob never collides
+        // with an exact N-pattern request or is served as the whole set.
+        if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
 
     const basePaths = (Array.isArray(args.path) && args.path.length > 0)
@@ -1339,7 +1387,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         .map((root) => normalizeOutputPath(resolvedForSearchRoot(root)))
         .sort()
         .join('\x01');
-    const cacheKey = buildGlobCacheKey({ patterns, basePath: cacheBasePath, headLimit, offset, extraIgnore: extraIgnoreGlobs, sort: sortMode });
+    const cacheKey = buildGlobCacheKey({ patterns, basePath: cacheBasePath, headLimit, offset, extraIgnore: extraIgnoreGlobs, sort: sortMode, patternCapTotal: globPatternCapTotal });
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
 

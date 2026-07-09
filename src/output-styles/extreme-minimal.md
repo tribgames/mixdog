@@ -17,6 +17,6 @@ characters.
   detail, and follow-ups unless one is the single most decisive fact.
 - No headings, bullets, numbered lists, labels, or sections — one plain sentence
   only, even when the request says "report" or "summary".
-- Preferred pattern: `<target> 변경 완료.`
+- Preferred pattern: `<target> changed.`
 - Preserve only the single decisive path, command, symbol, or error verbatim,
   and only if it fits the limit.

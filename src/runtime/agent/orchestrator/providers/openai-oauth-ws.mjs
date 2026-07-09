@@ -895,7 +895,26 @@ export async function sendViaWebSocket({
                 // Delta opt-in still chains via entry.lastResponseId above.
             }
 
-            const delta = _computeDelta({ entry, body: requestBody, traceProvider });
+            // Warmup writes the same prefix with generate:false, but the first
+            // real response must still be a FULL generating frame. Reusing the
+            // warmup response_id here causes _buildResponseCreateFrame() to drop
+            // `instructions` (previous_response_id frames cannot carry them) and
+            // can also reduce the frame input to [] when the warmup input matches.
+            // That made first-turn lead/system rules effectively disappear
+            // ("who are you?" answered as a generic OpenAI assistant). Keep the
+            // warmup state for cache/trace, but compute the main frame as cold.
+            const deltaEntry = warmupResult
+                ? {
+                    ...entry,
+                    lastResponseId: null,
+                    lastRequestSansInput: null,
+                    lastRequestInput: null,
+                    lastResponseItems: null,
+                    lastInputLen: 0,
+                    lastInputPrefixHash: null,
+                }
+                : entry;
+            const delta = _computeDelta({ entry: deltaEntry, body: requestBody, traceProvider });
             ({ mode, frame } = delta);
             deltaReason = delta.reason || null;
             strippedResponseItems = delta.strippedResponseItems || 0;
@@ -1063,7 +1082,11 @@ export async function sendViaWebSocket({
         // own, so retaining the anchor cannot corrupt the cache — it only adds
         // a delta fast-path when the items DO match.
         const keepResponseChain = !!result.responseId;
-        const keepSocket = true;
+        // Normally the socket is pooled for reuse. But an early tool-call settle
+        // (result.closeSocket) means the stream resolved before
+        // response.completed/done arrived: the server may still emit those as
+        // orphan frames, so the socket must be discarded, not reused.
+        const keepSocket = !result.closeSocket;
 
         // Update cache state for the next iteration in this session. openai-oauth
         // keeps the previous response anchor even when the model emitted tool
@@ -1300,7 +1323,7 @@ export async function sendViaWebSocket({
         } catch {}
 
         releaseWebSocket({ entry, poolKey, keep: keepSocket });
-        const { responseId: _ignored, responseItems: _responseItemsIgnored, ...out } = result;
+        const { responseId: _ignored, responseItems: _responseItemsIgnored, closeSocket: _closeSocketIgnored, ...out } = result;
         if (includeResponseId && result.responseId) out.responseId = result.responseId;
         if (warmupResult) {
             try {

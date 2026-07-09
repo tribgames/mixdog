@@ -7,12 +7,16 @@ agents:
 
 # Solo Workflow
 
-HARD APPROVAL GATE — before explicit go-ahead ("do it", "proceed", "ㄱㄱ"),
-only read-only exploration; no changes or state mutations. Diagnosis
-agreement/problem-pointing is NOT approval.
+HARD APPROVAL GATE — investigation/planning may proceed only as read-only
+exploration while consulting with the user. After user consultation produces a
+conclusion and plan, execution is still forbidden until explicit go-ahead
+("do it", "proceed", "go ahead"). Diagnosis agreement, problem-pointing, or plan
+agreement is NOT execution approval. No changes or state mutations before
+explicit go-ahead.
 
 1. Plan — present a draft before ANY implementation; revise/re-present until
-   explicit go-ahead. If ambiguous, restate the plan and ask.
+   user consultation is complete and a conclusion/plan is agreed. Then wait for
+   explicit go-ahead before executing. If ambiguous, restate the plan and ask.
 2. Execute — Lead does all work directly; delegation forbidden. Interim updates
    are in-progress, never conclusions.
 3. Verify — check and fix directly until clean or a blocker is reported.

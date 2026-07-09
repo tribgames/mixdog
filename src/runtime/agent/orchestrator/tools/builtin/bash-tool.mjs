@@ -168,10 +168,15 @@ function _prependDestructiveWarning(command, text) {
     return `${warnings.map((w) => `⚠️ ${w}`).join('\n')}\n${text}`;
 }
 
+export function formatShellToolFailure(message) {
+    const text = String(message ?? '').replace(/^Error:\s*/i, '').trim() || 'shell tool failed';
+    return `Error: [shell-tool-failed] ${text}`;
+}
+
 export async function executeBashTool(args, workDir, options = {}) {
     const requestedCwd = args.cwd ?? args.workdir;
     const cwdResult = resolveOptionalCwd(requestedCwd, workDir);
-    if (cwdResult.error) return cwdResult.error;
+    if (cwdResult.error) return formatShellToolFailure(cwdResult.error);
     // Session cwd carry-over (no live shell): when the model
     // passes an explicit cwd it wins and updates the store on the next probe;
     // otherwise reuse the last stored cwd for this session if it still exists.
@@ -199,7 +204,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         // persistent:true. Run the full sweep here so both paths share the
         // same blocklist before dispatch.
         const _policyBlock = checkExecPolicyMessage(_rawCmd);
-        if (_policyBlock) return _policyBlock;
+        if (_policyBlock) return formatShellToolFailure(_policyBlock);
     }
 
     // An empty-string session_id is NOT a persistent-session request: `typeof
@@ -208,7 +213,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     // error, which models then retry in a loop. Require a non-blank id.
     if (args.persistent === true || (typeof args.session_id === 'string' && args.session_id.trim().length > 0)) {
         if (process.platform === 'win32') {
-            return 'Error: persistent shell sessions are disabled on Windows native-shell mode; run one-shot PowerShell commands without persistent/session_id.';
+            return formatShellToolFailure('persistent shell sessions are disabled on Windows native-shell mode; run one-shot PowerShell commands without persistent/session_id.');
         }
         const { executeBashSessionTool } = await import('../bash-session.mjs');
         let persistAbort = null;
@@ -227,7 +232,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     }
 
     let command = args.command;
-    if (!command) return 'Error: command is required';
+    if (!command) return formatShellToolFailure('command is required');
 
     // Resolve the shell up front so shell-type-specific handling (PS-only wmic
     // rewrite, PS UTF-8 prefix) can gate on it. kind 'default' is byte-identical
@@ -238,9 +243,9 @@ export async function executeBashTool(args, workDir, options = {}) {
     const resolvedSpec = resolveShellFor(shellKind);
     if (!resolvedSpec) {
         if (shellKind === 'bash') {
-            return "Error: Git Bash not found — install Git for Windows or omit shell:'bash'.";
+            return formatShellToolFailure("Git Bash not found — install Git for Windows or omit shell:'bash'.");
         }
-        return "Error: pwsh (PowerShell) not found — install PowerShell or omit shell:'powershell'.";
+        return formatShellToolFailure("pwsh (PowerShell) not found — install PowerShell or omit shell:'powershell'.");
     }
 
     // wmic→PowerShell rewrite is PowerShell-only; never mangle a command bound
@@ -251,7 +256,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const wmicRewrite = resolvedSpec.shellType === 'powershell'
         ? maybeRewriteWmicProcessCommand(command)
         : null;
-    if (wmicRewrite?.error) return `Error: ${wmicRewrite.error}`;
+    if (wmicRewrite?.error) return formatShellToolFailure(wmicRewrite.error);
     if (wmicRewrite?.command) command = wmicRewrite.command;
 
     // PowerShell hygiene preflight (Windows PS-only; POSIX no-op): losslessly
@@ -262,19 +267,19 @@ export async function executeBashTool(args, workDir, options = {}) {
         shellType: resolvedSpec.shellType,
         shellName: resolvedSpec.shell,
     });
-    if (psHygiene.block) return psHygiene.block;
+    if (psHygiene.block) return formatShellToolFailure(psHygiene.block);
     command = psHygiene.command;
 
     const _execPolicyBlock = checkExecPolicyMessage(command);
     if (_execPolicyBlock) {
-        return _execPolicyBlock;
+        return formatShellToolFailure(_execPolicyBlock);
     }
 
     let shellEffects;
     try {
         shellEffects = await analyzeShellCommandEffects(command, bashWorkDir);
     } catch (err) {
-        return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+        return formatShellToolFailure(normalizeErrorMessage(err instanceof Error ? err.message : String(err)));
     }
     // Keep foreground commands on a long tool-owned timeout. The MCP dispatch
     // layer must not add a shorter fallback ceiling when timeout is omitted.
@@ -314,7 +319,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             : Math.min(timeoutMs, wmicRewrite?.timeoutMs || MAX_BASH_TIMEOUT_MS));
     const mergeStderr = args.merge_stderr === true;
     const longForegroundHint = foregroundLongCommandHint(command, timeout, { ...args, run_in_background: runInBackground });
-    if (longForegroundHint) return longForegroundHint;
+    if (longForegroundHint) return formatShellToolFailure(longForegroundHint);
     // Auto-background threshold. Reference-CLI parity: sync commands run to
     // their timeout without any default auto-promotion, so the default is 0
     // (disabled) for ALL callers. It is an explicit opt-in only: set
@@ -347,7 +352,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             try {
                 wrappedCommand = await wrapCommandWithSnapshot(shell, command);
             } catch (wrapErr) {
-                return `Error: shell snapshot wrapper failed — ${normalizeErrorMessage(wrapErr instanceof Error ? wrapErr.message : String(wrapErr))}`;
+                return formatShellToolFailure(`shell snapshot wrapper failed — ${normalizeErrorMessage(wrapErr instanceof Error ? wrapErr.message : String(wrapErr))}`);
             }
         } else {
             wrappedCommand = command;
@@ -367,7 +372,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                 // claude.exe pid (server-main threads callerSession.clientHostPid).
                 clientHostPid: options?.clientHostPid,
             });
-            if (job && job.error) return `Error: ${job.error}`;
+            if (job && job.error) return formatShellToolFailure(job.error);
             let task;
             try {
                 task = registerBackgroundTask({
@@ -395,7 +400,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                 });
             } catch (err) {
                 try { killShellJob(job.jobId); } catch { /* best effort cleanup */ }
-                return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+                return formatShellToolFailure(normalizeErrorMessage(err instanceof Error ? err.message : String(err)));
             }
             // Wire a one-shot completion push so the dispatching session learns
             // the background task finished (no polling tool is auto-driven). The
@@ -525,7 +530,9 @@ export async function executeBashTool(args, workDir, options = {}) {
             : (result.killed ? 'SIGKILL' : (result.signal || null));
         const exitCode = signal ? null : result.exitCode;
         const benignExitOne = _isBenignSearchExitOne(command, exitCode, signal, stderr);
-        const isReallyErrored = !!signal || (exitCode !== 0 && exitCode !== null && !benignExitOne);
+        const shellToolFailed = result.failurePhase === 'tool' || !!result.outputCaptureError;
+        const shellRunFailed = !shellToolFailed && (!!signal || (exitCode !== 0 && exitCode !== null && !benignExitOne));
+        const isReallyErrored = shellToolFailed || shellRunFailed;
         const _driftNote = '';
         // Distinct timeout marker so callers see "killed by timeout after Nms"
         // vs an external signal (e.g. user Ctrl-C, OOM kill). result.timedOut
@@ -538,11 +545,16 @@ export async function executeBashTool(args, workDir, options = {}) {
         const timeoutHint = result.timedOut
             ? ` — command killed after ${timeout} ms; if it legitimately needs longer, retry with a larger timeout`
             : '';
-        const statusMarker = result.timedOut
-            ? `[timeout: ${timeout}ms signal: ${signal || 'SIGTERM'}]${timeoutHint}`
-            : (signal
-                ? `[signal: ${signal}]`
-                : (isReallyErrored ? `[exit code: ${exitCode}]` : ''));
+        const statusDetail = shellToolFailed
+            ? `[${result.outputCaptureError ? 'output capture failed' : (result.failureReason || 'tool failed')}]`
+            : (result.timedOut
+                ? `[timeout: ${timeout}ms signal: ${signal || 'SIGTERM'}]${timeoutHint}`
+                : (signal
+                    ? `[signal: ${signal}]`
+                    : (shellRunFailed ? `[exit code: ${exitCode}]` : '')));
+        const statusMarker = shellToolFailed
+            ? `[shell-tool-failed] ${statusDetail}`
+            : (shellRunFailed ? `[shell-run-failed] ${statusDetail}` : '');
         const errorPrefix = isReallyErrored ? 'Error: ' : '';
         if (mergeStderr) {
             // Post-exit concatenation. True chunk-level interleaving would
@@ -568,6 +580,9 @@ export async function executeBashTool(args, workDir, options = {}) {
         if (result.stderrPath && (result.stderrFileSize || 0) > 0) {
             const sizeKb = Math.round((result.stderrFileSize || 0) / 1024);
             spillBlock += `\n[stderr: ${normalizeOutputPath(result.stderrPath)} (${sizeKb} KB)]`;
+        }
+        if (result.outputCaptureError) {
+            spillBlock += `\n[tool capture error: ${normalizeErrorMessage(result.outputCaptureError?.message || String(result.outputCaptureError))}]`;
         }
         const warningBlock = [
             wmicRewrite?.note || '',

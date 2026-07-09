@@ -314,14 +314,14 @@ function collectGroupTs(groupRows) {
   return all
 }
 
-// Activity-span header suffix: `(MM-DD HH:mm ~ HH:mm, n건)`; the end keeps the
+// Activity-span header suffix: `(MM-DD HH:mm ~ HH:mm, n entries)`; the end keeps the
 // MM-DD prefix only when it falls on a different calendar day than the start.
 function spanHeaderSuffix(minTs, maxTs, n) {
   const min = formatTs(minTs) // "YYYY-MM-DD HH:mm"
   const max = formatTs(maxTs)
   const startPart = min.slice(5) // "MM-DD HH:mm"
   const endPart = min.slice(0, 10) === max.slice(0, 10) ? max.slice(11) : max.slice(5)
-  return `(${startPart} ~ ${endPart}, ${n}건)`
+  return `(${startPart} ~ ${endPart}, ${n} entries)`
 }
 
 // Session-grouped rendering for the GLOBAL query-less browse ("what did we
@@ -359,7 +359,7 @@ export function renderSessionGroupedLines(rows, { currentSessionId, recencyOrder
       const tsAll = collectGroupTs(groupRows)
       const suffix = tsAll.length
         ? ` ${spanHeaderSuffix(Math.min(...tsAll), Math.max(...tsAll), groupRows.length)}`
-        : ` (${groupRows.length}건)`
+        : ` (${groupRows.length} entries)`
       parts.push(`## ${label}${mark}${suffix}`)
       const bodyStr = renderEntryLines(groupRows, { recencyOrder })
       const bodyLines = bodyStr === '(no results)'

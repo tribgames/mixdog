@@ -442,6 +442,110 @@ export async function archiveCore(dataDir, id, expect = null) {
   }
 }
 
+// Non-destructive project reclassification: move a mis-scoped core entry to the
+// correct pool (a project slug, or COMMON when newProjectId is null). Only the
+// project_id + updated_at change — no delete, and no re-embed (the embedding is
+// derived from element/summary text, which is pool-independent). Takes BOTH the
+// source and target pool advisory locks in a deterministic (sorted) order so a
+// move can't deadlock with a concurrent add/edit/archive on either pool, then
+// FOR UPDATEs the row and re-validates under the lock. `expect` carries the
+// element/summary cycle3 reviewed; if the live row drifted, the move is skipped
+// ({ skipped, reason }). A live (project_id, element) collision in the target
+// pool means the fact already exists there → skipped, so the caller holds it for
+// manual resolution instead of clobbering the existing row.
+export async function reclassifyCore(dataDir, id, newProjectId, expect = null) {
+  const numId = Number(id)
+  if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required')
+  const targetPid = newProjectId == null ? null : (String(newProjectId).trim() || null)
+  const db = _getDb(dataDir)
+  const now = Date.now()
+  const client = await checkedConnect(db._pool, 'memory')
+  try {
+    await client.query('BEGIN')
+    await client.query(`SET LOCAL lock_timeout = '5s'`)
+    // Read the current pool WITHOUT a row lock first (no FOR UPDATE → acquires
+    // no row lock, can't invert ordering) so the advisory locks are taken first.
+    const pre = (await client.query(`SELECT project_id FROM core_entries WHERE id = $1`, [numId])).rows[0]
+    if (!pre) throw new Error(`no entry with id=${numId}`)
+    const curPid = pre.project_id ?? null
+    if ((curPid ?? null) === (targetPid ?? null)) {
+      await client.query('ROLLBACK')
+      return { id: numId, skipped: true, reason: 'already in target pool' }
+    }
+    // Lock BOTH pools, sorted, so a move in the opposite direction can't deadlock.
+    const keys = [...new Set([
+      `core:${curPid == null ? 'COMMON' : curPid}`,
+      `core:${targetPid == null ? 'COMMON' : targetPid}`,
+    ])].sort()
+    for (const k of keys) await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [k])
+    const locked = (await client.query(
+      `SELECT id, element, summary, project_id, status FROM core_entries WHERE id = $1 FOR UPDATE`,
+      [numId],
+    )).rows[0]
+    if (!locked || !(locked.status == null || locked.status === 'active')) {
+      await client.query('ROLLBACK')
+      return { id: numId, skipped: true, reason: 'concurrently archived/removed' }
+    }
+    if ((locked.project_id ?? null) !== curPid) {
+      await client.query('ROLLBACK')
+      return { id: numId, skipped: true, reason: 'pool changed under lock' }
+    }
+    // Reviewed-source guard: cycle3 decided this move against the pool the row
+    // was in AT REVIEW time. If the row was reclassified into a THIRD pool
+    // between review and now, the in-tx pre-read above sees that new pool (so
+    // the pool-changed-under-lock check passes) but the move is stale → skip.
+    // `expect.sourceProjectId` (null = COMMON) carries the reviewed pool.
+    if (expect && 'sourceProjectId' in expect) {
+      const reviewedPid = expect.sourceProjectId == null ? null : (String(expect.sourceProjectId).trim() || null)
+      if ((locked.project_id ?? null) !== reviewedPid) {
+        await client.query('ROLLBACK')
+        return { id: numId, skipped: true, reason: 'source pool drift' }
+      }
+    }
+    if (expect && (String(expect.element ?? '') !== String(locked.element ?? '') ||
+                   String(expect.summary ?? '') !== String(locked.summary ?? ''))) {
+      await client.query('ROLLBACK')
+      return { id: numId, skipped: true, reason: 'content drift' }
+    }
+    // Unique (project_id, element) guard: a live row with this element already in
+    // the target pool means the fact is present there → don't clobber it.
+    const dup = (await client.query(
+      `SELECT id FROM core_entries
+       WHERE project_id IS NOT DISTINCT FROM $1 AND element = $2
+         AND (status IS NULL OR status = 'active') AND id != $3
+       LIMIT 1`,
+      [targetPid, locked.element, numId],
+    )).rows[0]
+    if (dup) {
+      await client.query('ROLLBACK')
+      return { id: numId, skipped: true, reason: `target pool already has element (id=${dup.id})` }
+    }
+    let r
+    try {
+      await client.query('SAVEPOINT mv')
+      r = await client.query(
+        `UPDATE core_entries SET project_id = $1, updated_at = $2 WHERE id = $3
+         RETURNING id, element, summary, category, project_id, created_at, updated_at`,
+        [targetPid, now, numId],
+      )
+      await client.query('RELEASE SAVEPOINT mv')
+    } catch (err) {
+      if (err.code === '23505') {
+        await client.query('ROLLBACK')
+        return { id: numId, skipped: true, reason: 'unique collision in target pool' }
+      }
+      throw err
+    }
+    await client.query('COMMIT')
+    return { ...r.rows[0], from_project_id: curPid, to_project_id: targetPid }
+  } catch (err) {
+    try { await client.query('ROLLBACK') } catch {}
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
 // ─── Core-candidate promotion pipeline (proposal mode) ───────────────────────
 //
 // nominateCoreCandidates flags strong active entries as core-memory

@@ -193,7 +193,12 @@ function assertOk(name, result, pattern = null) {
 
 {
   const prevTraceDisable = process.env.MIXDOG_AGENT_TRACE_DISABLE;
+  const prevOaiTransport = process.env.MIXDOG_OAI_TRANSPORT;
   process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
+  // This smoke intentionally verifies the pinned WS-only escape hatch. Default
+  // transport is now refs-style auto (WS-first with HTTP fallback), so
+  // forceHttpFallback would legitimately call fakeHttp unless we pin ws-delta.
+  process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
   try {
     const provider = new OpenAIOAuthProvider({});
     provider.ensureAuth = async () => ({ access_token: 'fake-token' });
@@ -252,6 +257,8 @@ function assertOk(name, result, pattern = null) {
   } finally {
     if (prevTraceDisable == null) delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
     else process.env.MIXDOG_AGENT_TRACE_DISABLE = prevTraceDisable;
+    if (prevOaiTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+    else process.env.MIXDOG_OAI_TRANSPORT = prevOaiTransport;
   }
 }
 
@@ -484,6 +491,28 @@ const findOut = await executeBuiltinTool('find', {
   head_limit: 10,
 }, root);
 assertOk('find', findOut, /scripts[\\/]tool-smoke\.mjs/i);
+
+// find query[] batch: fan-out must emit one section per query in caller order
+// and share the broad enumeration sweep across queries (single-flight dedup).
+const findBatchOut = await executeBuiltinTool('find', {
+  query: ['tool smoke', 'smoke'],
+  path: '.',
+  head_limit: 5,
+}, root);
+{
+  const s = String(findBatchOut);
+  const iA = s.indexOf('# find tool smoke');
+  const iB = s.indexOf('# find smoke');
+  if (iA < 0 || iB < 0) {
+    throw new Error(`find query[] must emit a section per query:\n${s.slice(0, 600)}`);
+  }
+  if (!(iA < iB)) {
+    throw new Error(`find query[] must preserve caller order:\n${s.slice(0, 600)}`);
+  }
+  if (!/scripts[\\/]tool-smoke\.mjs/i.test(s)) {
+    throw new Error(`find query[] sections must carry match bodies:\n${s.slice(0, 600)}`);
+  }
+}
 
 const readOut = await executeBuiltinTool('read', {
   path: 'scripts/smoke.mjs',
@@ -743,13 +772,22 @@ const shellOut = await shellOutPromise;
 assertOk('bash explicit shell/cwd', shellOut, /v\d+\.\d+\.\d+/);
 
 const shellFailOut = await shellFailOutPromise;
-if (!/^Error[\s:[]/.test(String(shellFailOut)) || !/\[exit code: 7\]/.test(String(shellFailOut))) {
-  throw new Error(`bash non-zero exit must be classified as Error:\n${shellFailOut}`);
+if (!/^Error[\s:[]/.test(String(shellFailOut)) || !/\[shell-run-failed\]/.test(String(shellFailOut)) || !/\[exit code: 7\]/.test(String(shellFailOut))) {
+  throw new Error(`bash non-zero exit must be classified as shell-run-failed Error:\n${shellFailOut}`);
 }
 
 const shellTimeoutOut = await shellTimeoutOutPromise;
-if (!/^Error[\s:[]/.test(String(shellTimeoutOut)) || !/\[timeout: 500ms\b/.test(String(shellTimeoutOut))) {
-  throw new Error(`bash timeout must be milliseconds and classified as Error:\n${shellTimeoutOut}`);
+if (!/^Error[\s:[]/.test(String(shellTimeoutOut)) || !/\[shell-run-failed\]/.test(String(shellTimeoutOut)) || !/\[timeout: 500ms\b/.test(String(shellTimeoutOut))) {
+  throw new Error(`bash timeout must be milliseconds and classified as shell-run-failed Error:\n${shellTimeoutOut}`);
+}
+
+const shellArgFailOut = await executeBuiltinTool('shell', {
+  command: '',
+  cwd: root,
+  shell: 'powershell',
+}, root);
+if (!/^Error[\s:[]/.test(String(shellArgFailOut)) || !/\[shell-tool-failed\]/.test(String(shellArgFailOut))) {
+  throw new Error(`shell tool/preflight failures must be classified as shell-tool-failed Error:\n${shellArgFailOut}`);
 }
 
 // Auto-promotion: a sync foreground command still running past the (soft)
@@ -1206,6 +1244,14 @@ if (MAX_FANOUT_QUERIES !== 8) throw new Error(`explore fanout cap changed: ${MAX
 const explorerPrompt = buildExplorerPrompt('where is <agent> & status?');
 if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;') || /verdicts, ratings, or recommendations/.test(explorerPrompt) === false) {
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
+}
+if (
+  !/STOP and answer NOW/.test(explorerPrompt)
+  || !/Turns 2-3 exist SOLELY as zero-hit recovery/.test(explorerPrompt)
+  || !/HARD max 3 tool turns/.test(explorerPrompt)
+  || !/turn 1\/3/.test(explorerPrompt)
+) {
+  throw new Error(`explorer prompt must force immediate answer on a specific-token anchor while preserving the 3-turn cap: ${explorerPrompt}`);
 }
 setInternalToolsProvider({
   executor: async () => 'tool-smoke internal tool',
@@ -1737,8 +1783,35 @@ if (/line\/context/i.test(JSON.stringify(readTool?.inputSchema || {}))) {
   if (!/applyToCurrentSession = options\?\.applyToCurrentSession === true/.test(setRouteBlock)) {
     throw new Error('setRoute must default applyToCurrentSession to false (model changes apply to the next session only)');
   }
-  if (!/if \(!applyToCurrentSession\)/.test(setRouteBlock) || !/return (?:route|getRoute\(\));/.test(setRouteBlock)) {
-    throw new Error('setRoute must early-return before touching the live session when applyToCurrentSession is false');
+  if (!/const applyLive = applyToCurrentSession \|\| currentSessionEmpty/.test(setRouteBlock)
+    || !/if \(!applyLive\)/.test(setRouteBlock)
+    || !/return getRoute\(\);/.test(setRouteBlock)) {
+    throw new Error('setRoute must early-return before touching a non-empty live session when applyToCurrentSession is false');
+  }
+  // Empty current session must apply live so /model before the first chat
+  // updates route + statusline at once, but compact summary anchors are route
+  // history and must keep a compacted session next-session-only. Seeded system
+  // or synthetic assistant/tool rows alone must NOT make the session non-empty.
+  if (!/!hasRouteHistoryMessage\(session\.messages\)/.test(setRouteBlock)
+    || !/!hasRouteHistoryMessage\(session\.liveTurnMessages\)/.test(setRouteBlock)
+    || !/SUMMARY_PREFIX/.test(runtimeSrc)
+    || !/hasUserConversationMessage\(list\) \|\| list\.some\(isSummaryAnchorMessage\)/.test(runtimeSrc)
+    || !/function hasRouteHistoryMessage/.test(runtimeSrc)) {
+    throw new Error('setRoute must apply live only to route-empty sessions and must treat compact summary anchors as non-empty route history');
+  }
+  if (!/createCurrentSession\('model-switch-empty'\)/.test(setRouteBlock)
+    || !/createCurrentSession\('model-switch-empty-drain'\)/.test(setRouteBlock)
+    || !/const emptySession = getSession\(\)/.test(setRouteBlock)
+    || !/cli-model-switch-empty/.test(setRouteBlock)
+    || !/pushTranscriptRebind\?\.\(\)/.test(setRouteBlock)
+    || !/invalidatePreSessionToolSurface\?\.\(\)/.test(setRouteBlock)) {
+    throw new Error('setRoute must drain in-flight create then recreate/rebind empty live sessions so provider-specific BP1/tool surface is rebuilt for /model before first chat');
+  }
+  const sessionLifecycleSrc = readMjsSources('src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
+  const updateSessionRouteBlock = sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';
+  if (!/session\.promptCacheKey = providerCacheKey\(session\.provider\)/.test(updateSessionRouteBlock)
+    || !/session\.providerCacheOpts = buildSessionProviderCacheOpts\(session\.provider, session\.id, session\.agent\) \|\| null/.test(updateSessionRouteBlock)) {
+    throw new Error('updateSessionRoute must refresh provider-scoped prompt cache fields when an empty live session changes provider/model');
   }
   const engineSrc = [readMjsSources('src/tui/engine.mjs'), readMjsSources('src/tui/engine')].join('\n');
   if (/setRoute\(\{ model: m \}, \{ applyToCurrentSession: true \}\)/.test(engineSrc)) {
@@ -2074,13 +2147,13 @@ const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description
 const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
 const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
 const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
-if (!/Array = variants in one call/i.test(grepPatternDescription) || !/Verified file or dir/i.test(grepPathDescription)) {
+if (!/Array = variants in one call/i.test(grepPatternDescription) || !/Verified file\/dir/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
-if (!/verified file\/dir scope/i.test(grepTool?.description || '') || !/Unknown scope.*find\/glob first/i.test(grepTool?.description || '')) {
+if (!/verified scope/i.test(grepTool?.description || '') || !/Unknown path\/name.*find first/i.test(grepTool?.description || '')) {
   throw new Error('grep description must require verified scopes and locator-first unknown paths');
 }
-if (!/narrow scope/i.test(grepGlobDescription)) {
+if (!/Glob filter/i.test(grepGlobDescription) || !/no guessed src\/\*\*/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
 }
 if (!/files_with_matches\/count/i.test(grepOutputModeDescription) || !/content_with_context/i.test(grepOutputModeDescription)) {
@@ -2098,7 +2171,7 @@ const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
 if (!/exact glob from verified roots/i.test(globTool?.description || '')) {
   throw new Error('glob description must route exact-pattern unknown paths before read/grep/list');
 }
-if (!/unverified path\/name guesses/i.test(findTool?.description || '') || !/returns verified paths/i.test(findTool?.description || '')) {
+if (!/Partial path\/name lookup/i.test(findTool?.description || '') || !/verify roots before grep\/glob/i.test(findTool?.description || '')) {
   throw new Error('find description must advertise unverified path/name lookup and verified outputs');
 }
 if (!/List verified directories/i.test(listTool?.description || '') || !/Unknown dir.*find first/i.test(listTool?.description || '') || !/Verified directory/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {

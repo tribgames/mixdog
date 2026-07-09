@@ -31,7 +31,7 @@ function _shellMaxTimeoutMs() {
 // the process lifetime, so this is evaluated once at module load.
 const _shellSyntaxCheat =
     process.platform === 'win32'
-        ? ' PowerShell: grep→Select-String, tail→Get-Content -Tail, head→Get-Content -TotalCount, /c/→C:\\, && 미지원 시 ; 사용, $PID 예약.'
+        ? ' PowerShell: grep→Select-String, tail→Get-Content -Tail, head→Get-Content -TotalCount, /c/→C:\\, if && is unsupported use ;, $PID is reserved.'
         : '';
 
 export const BUILTIN_TOOLS = [
@@ -109,7 +109,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Exact text/regex in a verified file/dir scope. Unknown scope → find/glob first. files_with_matches/count for broad anchors, content_with_context for narrow answers.',
+        description: 'Exact text/regex in verified scope. Unknown path/name → find first; no path "." + guessed src/**. Broad: files_with_matches/count; narrow: content_with_context.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -125,14 +125,14 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Verified file or dir. Array = several scopes.',
+                    description: 'Verified file/dir only; unknown → find first.',
                 },
                 glob: {
                     anyOf: [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Glob filter to narrow scope.',
+                    description: 'Glob filter; no guessed src/** under path ".".',
                 },
                 output_mode: { type: 'string', enum: ['content_with_context', 'content', 'files_with_matches', 'count'], description: 'Broad: files_with_matches/count; narrow: content_with_context.' },
                 head_limit: { type: 'number', minimum: 0, description: 'Max results.' },
@@ -148,7 +148,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by exact glob from verified roots. Batch patterns and roots as arrays in one call.',
+        description: 'Exact glob from verified roots. Unknown root/name → find first; no path "." + guessed src/**. Batch arrays.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -164,7 +164,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Base directory/directories. Batch multiple roots as path[] in one call.',
+                    description: 'Verified base dir(s); unknown → find first. Batch path[].',
                 },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip entries.' },
@@ -176,7 +176,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Find files by partial path/name, including dot-directories. Use for unverified path/name guesses; returns verified paths. Batch query[].',
+        description: 'Partial path/name lookup incl dot dirs; verify roots before grep/glob. Batch query[].',
         inputSchema: {
             type: 'object',
             properties: {

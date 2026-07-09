@@ -360,8 +360,8 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const userLimit = Number.isFinite(rawLimit) && rawLimit > 0
       ? Math.min(500, Math.floor(rawLimit))
       : null;
-    await _prewarmReferenceSourceText(graph, symbol, lang);
-    const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix });
+    const _refNodes = await _prewarmReferenceSourceText(graph, symbol, lang);
+    const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix, nodes: _refNodes });
     return narrowedByCaller ? refResult : _augmentNoHitDiagnostic(refResult, '(no references)', graph, cwd, symbol);
   }
 
@@ -390,12 +390,12 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const userLimit = Number.isFinite(rawLimit) && rawLimit > 0
       ? Math.min(500, Math.floor(rawLimit))
       : null;
-    await _prewarmReferenceSourceText(graph, symbol, lang);
+    const _callerNodes = await _prewarmReferenceSourceText(graph, symbol, lang);
     const depth = Math.max(1, Math.min(5, Math.floor(Number(args?.depth) || 1)));
     if (depth > 1) {
       return _formatTransitiveCallers(graph, symbol, cwd, { language: lang, depth, page: args?.page });
     }
-    const refs = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix });
+    const refs = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix, nodes: _callerNodes });
     const callerResult = _formatCallerReferences(graph, symbol, refs, userLimit ? { limit: userLimit } : undefined);
     return narrowedByCaller ? callerResult : _augmentNoHitDiagnostic(callerResult, '(no callers)', graph, cwd, symbol);
   }
@@ -575,13 +575,16 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
           const symbolList = _collectGraphSymbolList(args);
           if (symbolList.length > 1) {
             return (async () => {
-              const sections = [];
-              for (const sym of symbolList) {
+              // Concurrent fan-out: the underlying graph build is single-flight
+              // and cached per cwd (buildCodeGraphAsync), so parallel sections
+              // share one build instead of serializing on it. Order and
+              // per-section error isolation are preserved by the indexed map.
+              const sections = await Promise.all(symbolList.map(async (sym) => {
                 let body;
                 try { body = await dispatchOne({ ...args, symbol: sym, symbols: undefined }); }
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
-                sections.push(`# ${batchMode} ${sym}\n${body}`);
-              }
+                return `# ${batchMode} ${sym}\n${body}`;
+              }));
               return sections.join('\n\n');
             })();
           }
@@ -594,13 +597,12 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
           if (fileList.length > 1) {
             const capped = fileList._capped;
             return (async () => {
-              const sections = [];
-              for (const f of fileList) {
+              const sections = await Promise.all(fileList.map(async (f) => {
                 let body;
                 try { body = await dispatchOne({ ...args, file: f, files: undefined }); }
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
-                sections.push(`# ${batchMode} ${f}\n${body}`);
-              }
+                return `# ${batchMode} ${f}\n${body}`;
+              }));
               if (capped) sections.push(`Note: file list capped at ${CODE_GRAPH_FILE_BATCH_CAP} entries.`);
               return sections.join('\n\n');
             })();

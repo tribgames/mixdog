@@ -32,6 +32,7 @@ import {
 import { formatMtime, formatListSize } from './list-formatting.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 import { runRg } from './rg-runner.mjs';
+import { hasSpareCapacity as childSpawnHasSpareCapacity } from '../../../../shared/child-spawn-gate.mjs';
 import { fuzzyRank } from './fuzzy-match.mjs';
 import { assertPathReachable } from './fs-reachability.mjs';
 
@@ -84,16 +85,30 @@ export async function executeListTool(args, workDir, options = {}) {
         const capped = list.length > 10;
         const targets = capped ? list.slice(0, 10) : list;
         if (targets.length > 1) {
-            const sections = [];
-            for (const p of targets) {
-                let body;
-                try {
-                    body = await executeListTool({ ...args, path: p }, workDir, options);
-                } catch (err) {
-                    body = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+            // Bounded parallel fan-out: each target is an independent listing
+            // (own guard/cache/reachability), so run them concurrently instead
+            // of serially. Bodies land in a fixed-index array so the emitted
+            // section order still matches the caller's `path[]` order — only the
+            // wall-clock cost changes. Concurrency is capped so a 10-path batch
+            // cannot exhaust the child-spawn / FS-handle budget.
+            const LIST_FANOUT_CONCURRENCY = 4;
+            const bodies = new Array(targets.length);
+            let cursor = 0;
+            const runWorker = async () => {
+                for (;;) {
+                    const i = cursor++;
+                    if (i >= targets.length) return;
+                    try {
+                        bodies[i] = await executeListTool({ ...args, path: targets[i] }, workDir, options);
+                    } catch (err) {
+                        bodies[i] = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+                    }
                 }
-                sections.push(`# list ${p}\n${body}`);
-            }
+            };
+            await Promise.all(
+                Array.from({ length: Math.min(LIST_FANOUT_CONCURRENCY, targets.length) }, runWorker),
+            );
+            const sections = targets.map((p, i) => `# list ${p}\n${bodies[i]}`);
             if (capped) sections.push(`... [capped at 10 of ${list.length} paths]`);
             return sections.join('\n\n');
         }
@@ -349,8 +364,9 @@ export async function executeTreeTool(args, workDir, options = {}) {
 // key with in-flight promise dedup (N concurrent callers share ONE sweep)
 // plus a short TTL for serial reuse. Truncated/partial sweeps are
 // known-incomplete and are NEVER cached.
-const FIND_ENUM_CACHE = new Map(); // key -> { files, expiresAt }
+const FIND_ENUM_CACHE = new Map(); // key -> { files, expiresAt, gen }
 const FIND_ENUM_INFLIGHT = new Map(); // key -> Promise<{files,truncated,partial}>
+let FIND_ENUM_GEN = 0;
 
 // The broad enumeration is a DERIVED cache the scope/path invalidation layer
 // does not otherwise know about — a file created/renamed after a sweep would
@@ -358,6 +374,7 @@ const FIND_ENUM_INFLIGHT = new Map(); // key -> Promise<{files,truncated,partial
 // write-invalidation event (TTL remains the secondary bound). Full clear is
 // fine: entries are cheap to rebuild.
 registerCacheInvalidationListener(() => {
+    FIND_ENUM_GEN += 1;
     FIND_ENUM_CACHE.clear();
     FIND_ENUM_INFLIGHT.clear();
 });
@@ -390,18 +407,31 @@ function parseRgFileList(stdout) {
 // must treat it as read-only. `rgArgs` must be the broad-pass args (no per-query
 // narrowing); the cache key is the 4 dims only, so any caller producing an
 // equivalent sweep for the same dims reuses the result.
-async function getBroadEnumeration({ root, hidden, depth, includeNoise, rgArgs, cwd, runRgImpl = runRg }) {
+async function getBroadEnumeration({ root, hidden, depth, includeNoise, rgArgs, cwd, runRgImpl = runRg, bestEffort = false }) {
     const ttl = findEnumTtlMs();
     const key = findEnumKey({ root, hidden, depth, includeNoise });
     if (ttl > 0) {
         const hit = FIND_ENUM_CACHE.get(key);
-        if (hit && hit.expiresAt > Date.now()) {
+        if (hit && hit.gen === FIND_ENUM_GEN && hit.expiresAt > Date.now()) {
             return { files: hit.files, truncated: false, partial: false };
         }
         if (hit) FIND_ENUM_CACHE.delete(key); // expired
-        const inflight = FIND_ENUM_INFLIGHT.get(key);
-        if (inflight) return inflight;
     }
+    // Single-flight is independent of the persistent TTL cache. Even when
+    // MIXDOG_FIND_ENUM_CACHE_TTL_MS=0 disables reuse across calls, concurrent
+    // query[] fan-out should still share the one broad `rg --files` sweep
+    // instead of spawning N identical enumerations.
+    const inflight = FIND_ENUM_INFLIGHT.get(key);
+    if (inflight) return inflight;
+    // Non-competing prewarm: past the cache/single-flight fast paths this runs
+    // a fresh `rg` sweep (a child-spawn slot). Best-effort warmers skip that
+    // spawn when the gate has no spare capacity, returning a known-incomplete
+    // result — and skipping BEFORE registering FIND_ENUM_INFLIGHT so a real
+    // caller is never attached to (or cache-poisoned by) a skipped warm.
+    if (bestEffort && !childSpawnHasSpareCapacity()) {
+        return { files: [], truncated: false, partial: true };
+    }
+    const genAtStart = FIND_ENUM_GEN;
     const run = (async () => {
         const stdout = await runRgImpl(rgArgs, { cwd });
         const truncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
@@ -409,17 +439,18 @@ async function getBroadEnumeration({ root, hidden, depth, includeNoise, rgArgs, 
         const files = parseRgFileList(stdout);
         // Never cache a truncated/partial sweep — it is known-incomplete, so a
         // later query with a larger head_limit must re-run the enumeration.
-        if (ttl > 0 && !truncated && !partial) {
-            FIND_ENUM_CACHE.set(key, { files, expiresAt: Date.now() + ttl });
+        // Also never let an in-flight prewarm/real sweep repopulate after a
+        // write invalidation cleared the cache during the sweep.
+        if (ttl > 0 && !truncated && !partial && FIND_ENUM_GEN === genAtStart) {
+            FIND_ENUM_CACHE.set(key, { files, expiresAt: Date.now() + ttl, gen: genAtStart });
         }
         return { files, truncated, partial };
     })();
-    if (ttl > 0) {
-        FIND_ENUM_INFLIGHT.set(key, run);
-        try { return await run; }
-        finally { FIND_ENUM_INFLIGHT.delete(key); }
+    FIND_ENUM_INFLIGHT.set(key, run);
+    try { return await run; }
+    finally {
+        if (FIND_ENUM_INFLIGHT.get(key) === run) FIND_ENUM_INFLIGHT.delete(key);
     }
-    return run;
 }
 
 // Best-effort warm of the broad enumeration for a root using the `find` tool's
@@ -435,7 +466,7 @@ export async function prewarmFindEnumeration(root) {
         await getBroadEnumeration({
             root: normalizeOutputPath(root),
             hidden, depth, includeNoise,
-            rgArgs, cwd: root,
+            rgArgs, cwd: root, bestEffort: true,
         });
     } catch { /* best-effort warm; never surface */ }
 }
@@ -450,16 +481,31 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
         const capped = list.length > 5;
         const targets = capped ? list.slice(0, 5) : list;
         if (targets.length > 1) {
-            const sections = [];
-            for (const q of targets) {
-                let body;
-                try {
-                    body = await executeFuzzyFindTool({ ...args, query: q }, workDir, options);
-                } catch (err) {
-                    body = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+            // Bounded parallel fan-out: every query shares ONE broad `rg --files`
+            // sweep via the enumeration cache's in-flight single-flight dedup, so
+            // running them concurrently collapses N broad sweeps into one and
+            // overlaps the tiny per-query narrowed passes. Bodies land at a fixed
+            // index so the emitted section order still matches the caller's
+            // query[] order — only wall-clock cost changes. Concurrency is capped
+            // so a 5-query batch cannot exhaust the child-spawn budget.
+            const FIND_FANOUT_CONCURRENCY = 4;
+            const bodies = new Array(targets.length);
+            let cursor = 0;
+            const runWorker = async () => {
+                for (;;) {
+                    const i = cursor++;
+                    if (i >= targets.length) return;
+                    try {
+                        bodies[i] = await executeFuzzyFindTool({ ...args, query: targets[i] }, workDir, options);
+                    } catch (err) {
+                        bodies[i] = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+                    }
                 }
-                sections.push(`# find ${q}\n${body}`);
-            }
+            };
+            await Promise.all(
+                Array.from({ length: Math.min(FIND_FANOUT_CONCURRENCY, targets.length) }, runWorker),
+            );
+            const sections = targets.map((q, i) => `# find ${q}\n${bodies[i]}`);
             if (capped) sections.push(`... [capped at 5 of ${list.length} queries]`);
             return sections.join('\n\n');
         }

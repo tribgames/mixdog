@@ -390,16 +390,16 @@ export function clampFailureCount(errorCount, groupCount, isError) {
 //   partial failure  -> mixdogOrange || warning (some, not all, of the group failed)
 //   all failed       -> theme.error
 //   cancelled        -> theme.warning
-// Note: callers resolve terminalStatus to 'failed' whenever failedCount > 0
-// (they cannot tell partial from total failure), so a 'failed' status must
-// still fall through to the failedCount check below rather than short-circuit
-// to error — otherwise a mixed-success batch (e.g. 1 of 3 failed) renders as
-// full-failure red instead of partial orange.
-export function toolStatusColor({ pending, groupCount, failedCount, terminalStatus = '' }) {
+// The RED/orange failure color is driven ONLY by real tool-call errors
+// (`callFailedCount` — backend isError / error toolKind), NOT by command/result
+// failures like a shell non-zero exit or a `[status: failed]` result. Those
+// keep the card's L2 detail showing "Failed" but leave the dot on the success
+// color. `terminalStatus` is still consulted so a cancelled card stays warning.
+export function toolStatusColor({ pending, groupCount, callFailedCount = 0, terminalStatus = '' }) {
   if (pending) return theme.text;
   const status = normalizeTerminalStatus(terminalStatus);
   if (status === 'cancelled') return theme.warning;
-  if (failedCount <= 0) return status === 'failed' ? theme.error : theme.success;
-  if (groupCount > 1 && failedCount < groupCount) return theme.mixdogOrange || theme.warning;
+  if (callFailedCount <= 0) return theme.success;
+  if (groupCount > 1 && callFailedCount < groupCount) return theme.mixdogOrange || theme.warning;
   return theme.error;
 }

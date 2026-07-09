@@ -10,7 +10,7 @@ const MEMORY_TOKEN_STOPWORDS = new Set([
   'your', 'unless', 'with',
   'user', 'assistant', 'requested', 'request', 'asked', 'ask', 'stated', 'state', 'reported', 'report',
   'mentioned', 'mention', 'clarified', 'clarify', 'explicitly', 'currently',
-  '사용자', '유저', '요청', '질문', '답변', '언급', '말씀', '설명', '보고', '무슨', '뭐야', '했지', 'user', 'asks', 'asked', 'request', 'requested', 'question', 'answer', 'reply', 'said', 'mentioned', 'explained', 'reported', 'what', 'huh',
+  '\uC0AC\uC6A9\uC790', '\uC720\uC800', '\uC694\uCCAD', '\uC9C8\uBB38', '\uB2F5\uBCC0', '\uC5B8\uAE09', '\uB9D0\uC500', '\uC124\uBA85', '\uBCF4\uACE0', '\uBB34\uC2A8', '\uBB50\uC57C', '\uD588\uC9C0', 'user', 'asks', 'asked', 'request', 'requested', 'question', 'answer', 'reply', 'said', 'mentioned', 'explained', 'reported', 'what', 'huh',
 ])
 
 export function normalizeMemoryToken(token) {
@@ -20,9 +20,9 @@ export function normalizeMemoryToken(token) {
   // Korean suffix stripping: basic particles + compound endings
   if (/[\uAC00-\uD7AF]/.test(normalized) && normalized.length > 2) {
     const stripped = normalized
-      .replace(/(했었지|했더라|됐었나|됐던가|했는지|였는지|인건가|하려면|에서는|이라서|였더라|에서도|이었지|으로도|거였지|한건지|이었나)$/u, '')
-      .replace(/(했던|했지|됐던|됐지|하게|되던|이라|에서|으로|하는|없는|있는|었던|하자|않게|할때|인지|인데|인건|이고|보다|처럼|까지|부터|마다|밖에|없이)$/u, '')
-      .replace(/(은|는|이|가|을|를|랑|과|와|도|에|의|로|만|며|나|고|서|자|요)$/u, '')
+      .replace(/(\uD588\uC5C8\uC9C0|\uD588\uB354\uB77C|\uB410\uC5C8\uB098|\uB410\uB358\uAC00|\uD588\uB294\uC9C0|\uC600\uB294\uC9C0|\uC778\uAC74\uAC00|\uD558\uB824\uBA74|\uC5D0\uC11C\uB294|\uC774\uB77C\uC11C|\uC600\uB354\uB77C|\uC5D0\uC11C\uB3C4|\uC774\uC5C8\uC9C0|\uC73C\uB85C\uB3C4|\uAC70\uC600\uC9C0|\uD55C\uAC74\uC9C0|\uC774\uC5C8\uB098)$/u, '')
+      .replace(/(\uD588\uB358|\uD588\uC9C0|\uB410\uB358|\uB410\uC9C0|\uD558\uAC8C|\uB418\uB358|\uC774\uB77C|\uC5D0\uC11C|\uC73C\uB85C|\uD558\uB294|\uC5C6\uB294|\uC788\uB294|\uC5C8\uB358|\uD558\uC790|\uC54A\uAC8C|\uD560\uB54C|\uC778\uC9C0|\uC778\uB370|\uC778\uAC74|\uC774\uACE0|\uBCF4\uB2E4|\uCC98\uB7FC|\uAE4C\uC9C0|\uBD80\uD130|\uB9C8\uB2E4|\uBC16\uC5D0|\uC5C6\uC774)$/u, '')
+      .replace(/(\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uB791|\uACFC|\uC640|\uB3C4|\uC5D0|\uC758|\uB85C|\uB9CC|\uBA70|\uB098|\uACE0|\uC11C|\uC790|\uC694)$/u, '')
     if (stripped.length >= 2) normalized = stripped
   }
 

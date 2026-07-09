@@ -22,6 +22,7 @@ function __mixdogMemoryLog(...args) {
 //   <id>|update|<element>|<summary>
 //   <id>|merge|<target_id>|<source_ids_csv>
 //   <id>|delete|<reason>
+//   <id>|reclassify|<project_slug|common>
 
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
@@ -29,6 +30,7 @@ import { fileURLToPath } from 'url'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import { listCore, editCore, deleteCore, archiveCore, CORE_SUMMARY_MAX } from './core-memory-store.mjs'
+import { reclassifyCore } from './core-memory-store.mjs'
 import { loadCurrentRulesDigest } from './memory-cycle2.mjs'
 import { embedText } from './embedding-provider.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
@@ -264,6 +266,17 @@ function parseVerdicts(raw, idSet) {
     } else if (verb === 'delete') {
       const reason = (parts[2] ?? '').trim()
       actions.push({ id, verb: 'delete', reason: reason || null })
+    } else if (verb === 'reclassify' || verb === 'reproject' || verb === 'rescope') {
+      // Project classification correction: move a mis-scoped entry to the right
+      // pool. `<id>|reclassify|<project_slug|common>`. A missing target scope
+      // has no destination → drop. 'common' (case-insensitive) → COMMON pool.
+      const rawTarget = (parts[2] ?? '').trim()
+      if (!rawTarget) {
+        __mixdogMemoryLog(`[cycle3] reclassify rejected: id=${id} missing target scope\n`)
+        continue
+      }
+      const projectId = /^common$/i.test(rawTarget) ? null : rawTarget
+      actions.push({ id, verb: 'reclassify', projectId })
     } else if (verb === 'superseded' || verb === 'supersede') {
       // Require newer-id proof: `id|superseded|<newer_id>`. Without a valid
       // newer active core id the supersession has no evidence → drop to keep.
@@ -288,6 +301,7 @@ function mergeCycle3Counts(a = {}, b = {}) {
     updated: Number(a.updated || 0) + Number(b.updated || 0),
     merged: Number(a.merged || 0) + Number(b.merged || 0),
     deleted: Number(a.deleted || 0) + Number(b.deleted || 0),
+    reclassified: Number(a.reclassified || 0) + Number(b.reclassified || 0),
   }
 }
 
@@ -302,11 +316,13 @@ function mergeCycle3Results(a, b) {
     updated: Number(a.updated || 0) + Number(b.updated || 0),
     merged: Number(a.merged || 0) + Number(b.merged || 0),
     deleted: Number(a.deleted || 0) + Number(b.deleted || 0),
+    reclassified: Number(a.reclassified || 0) + Number(b.reclassified || 0),
     proposed: mergeCycle3Counts(a.proposed, b.proposed),
     held: {
       updated: Number(a?.held?.updated || 0) + Number(b?.held?.updated || 0),
       merged: Number(a?.held?.merged || 0) + Number(b?.held?.merged || 0),
       deleted: Number(a?.held?.deleted || 0) + Number(b?.held?.deleted || 0),
+      reclassified: Number(a?.held?.reclassified || 0) + Number(b?.held?.reclassified || 0),
     },
     details: [...(a.details || []), ...(b.details || [])],
     skippedInFlight: false,
@@ -517,6 +533,10 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
 
   const idSet = new Set(cores.map(c => Number(c.id)))
   const coreById = new Map(cores.map(c => [Number(c.id), c]))
+  // Real project pools present in this review — reclassify may only move an
+  // entry INTO a pool we already know is real (COMMON is always valid), never
+  // invent a typo pool from an LLM-supplied slug.
+  const knownPools = new Set(cores.map(c => c.project_id).filter(p => p != null).map(String))
   const parsed = parseVerdicts(raw, idSet)
   if (!parsed) {
     __mixdogMemoryLog(
@@ -605,9 +625,9 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
     }
   }
 
-  let kept = 0, updated = 0, merged = 0, deleted = 0, superseded = 0
-  const proposed = { kept: 0, updated: 0, merged: 0, deleted: 0, superseded: 0 }
-  const held = { updated: 0, merged: 0, deleted: 0, superseded: 0 }
+  let kept = 0, updated = 0, merged = 0, deleted = 0, superseded = 0, reclassified = 0
+  const proposed = { kept: 0, updated: 0, merged: 0, deleted: 0, superseded: 0, reclassified: 0 }
+  const held = { updated: 0, merged: 0, deleted: 0, superseded: 0, reclassified: 0 }
   const details = []
   const touched = new Set() // ids already acted on this cycle — avoid double action
   // Safety margin: even when every junk verdict is legitimate, a single
@@ -684,6 +704,44 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
         if (signal?.aborted) throw signal.reason ?? err
         __mixdogMemoryLog(`[cycle3] delete failed id=${a.id}: ${err.message}\n`)
         details.push({ id: a.id, verb: 'delete', error: err.message })
+      }
+      continue
+    }
+    if (a.verb === 'reclassify') {
+      proposed.reclassified++
+      // Project classification correction: move a mis-scoped entry to the right
+      // pool. Non-destructive (project_id only, no delete, no re-embed) and
+      // reversible, so it applies in DEFAULT (conservative) mode. Guards: the
+      // move must actually change pools and the target must be a real pool from
+      // this review (or COMMON) — otherwise hold. Unique-collision / content
+      // drift are resolved inside reclassifyCore (returns skipped).
+      const core = coreById.get(a.id)
+      const curPid = core?.project_id ?? null
+      const targetPid = a.projectId ?? null
+      let holdReason = null
+      if ((curPid ?? null) === (targetPid ?? null)) holdReason = 'already in target pool'
+      else if (targetPid != null && !knownPools.has(String(targetPid))) holdReason = `unknown target pool "${targetPid}"`
+      if (!mutate) holdReason = holdReason || 'proposal mode'
+      if (holdReason) {
+        held.reclassified++
+        details.push({ id: a.id, verb: 'reclassify', from: curPid, to: targetPid, applied: false, held: true, reason: holdReason })
+        touched.add(a.id)
+        continue
+      }
+      try {
+        const res = await reclassifyCore(dataDir, a.id, targetPid, core ? { element: core.element, summary: core.summary, sourceProjectId: curPid } : null)
+        if (res?.skipped) {
+          held.reclassified++
+          details.push({ id: a.id, verb: 'reclassify', from: curPid, to: targetPid, applied: false, held: true, reason: res.reason })
+        } else {
+          reclassified++
+          details.push({ id: a.id, verb: 'reclassify', from: curPid, to: targetPid, applied: true })
+        }
+        touched.add(a.id)
+      } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err
+        __mixdogMemoryLog(`[cycle3] reclassify failed id=${a.id}: ${err.message}\n`)
+        details.push({ id: a.id, verb: 'reclassify', error: err.message })
       }
       continue
     }
@@ -808,9 +866,11 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
     ` proposed_update=${proposed.updated} proposed_merge=${proposed.merged} proposed_delete=${proposed.deleted}` +
     ` applied_update=${updated} applied_merge=${merged} applied_delete=${deleted}` +
     ` applied_superseded=${superseded}` +
+    ` applied_reclassify=${reclassified}` +
     ` held_update=${held.updated} held_merge=${held.merged} held_delete=${held.deleted} held_superseded=${held.superseded}` +
+    ` held_reclassify=${held.reclassified}` +
     ` mode=${applyMode}\n`,
   )
 
-  return { reviewed: cores.length, kept, updated, merged, deleted, superseded, proposed, held, applied: mutate, applyMode, details }
+  return { reviewed: cores.length, kept, updated, merged, deleted, superseded, reclassified, proposed, held, applied: mutate, applyMode, details }
 }

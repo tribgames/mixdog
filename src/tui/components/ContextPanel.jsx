@@ -48,7 +48,10 @@ function percent(value, total) {
 function percentLabel(value, total) {
   const pct = percent(value, total);
   if (pct === null) return 'N/A';
-  return `${pct > 0 && pct < 1 ? pct.toFixed(1) : Math.round(pct)}%`;
+  // Match the footer/statusline display: sub-1% keeps one decimal, otherwise
+  // show the floored percentage so /context and the statusline do not disagree
+  // by 1% around half-percent boundaries.
+  return `${pct > 0 && pct < 1 ? pct.toFixed(1) : Math.floor(pct)}%`;
 }
 
 function usageColor(pct) {

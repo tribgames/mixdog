@@ -3,20 +3,20 @@
  * Responses-API transport policy switch (OpenAI OAuth/direct + xAI/compat).
  *
  * One env knob, MIXDOG_OAI_TRANSPORT, selects among the transport modes:
- *   - 'ws-delta'  (DEFAULT): WS transport, refs-compatible delta ON.
+ *   - 'ws-delta'  WS-only transport, refs-compatible delta ON.
  *   - 'ws-full'   WS transport, delta OFF (always full frames).
  *   - 'http-sse'  force the HTTP/SSE transport directly (delta is WS-only, so
  *                 it stays off).
- *   - 'auto'      compatibility spelling for the default ws-delta route.
+ *   - 'auto'      WS-first route with HTTP/SSE fallback on websocket failure.
  *
- * No mode performs an implicit HTTP fallback: explicit modes pin their
- * transport. Delta is selected solely via MIXDOG_OAI_TRANSPORT=ws-delta
- * (or by leaving the env unset).
+ * Default/unset behaves like 'auto': prefer WS/delta for cache hotness, but
+ * fall back to HTTP/SSE after bounded websocket failures. Explicit ws-* modes
+ * pin WS for experiments; http-sse pins HTTP.
  */
 
 // Normalize the transport mode token. Underscores/spaces and a few common
 // spellings collapse to the canonical modes. Unknown/empty → null so the
-// caller falls back to the default 'ws-delta'.
+// caller falls back to the default 'auto'.
 export function _normalizeTransportMode(raw) {
     const v = String(raw || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
     switch (v) {
@@ -27,7 +27,7 @@ export function _normalizeTransportMode(raw) {
         case 'http-sse': case 'httpsse': case 'http': case 'sse': case 'http/sse':
             return 'http-sse';
         case 'auto':
-            return 'ws-delta';
+            return 'auto';
         default:
             return null;
     }
@@ -63,9 +63,9 @@ export const RESPONSES_TRANSPORT_CAPABILITIES = Object.freeze({
 export function _gateTransportMode(mode, caps) {
     let m = mode;
     // Delta unsupported → keep WS transport but force full frames.
-    if (m === 'ws-delta' && !caps.delta) m = 'ws-full';
+    if ((m === 'auto' || m === 'ws-delta') && !caps.delta) m = caps.ws ? 'ws-full' : (caps.http ? 'http-sse' : 'auto');
     // WS unsupported → prefer HTTP, else defer to auto.
-    if ((m === 'ws-full' || m === 'ws-delta') && !caps.ws) m = caps.http ? 'http-sse' : 'ws-delta';
+    if ((m === 'auto' || m === 'ws-full' || m === 'ws-delta') && !caps.ws) m = caps.http ? 'http-sse' : 'auto';
     // HTTP unsupported → prefer full-frame WS, else defer to auto.
     if (m === 'http-sse' && !caps.http) m = caps.ws ? 'ws-full' : 'auto';
     return m;
@@ -76,8 +76,8 @@ export function _gateTransportMode(mode, caps) {
  * per-provider capabilities.
  * @param {Record<string,string|undefined>} [env=process.env]
  * @param {{ws?:boolean,http?:boolean,delta?:boolean}} [capabilities=FULL_RESPONSES_TRANSPORT_CAPS]
- * @returns {{ mode: 'ws-full'|'ws-delta'|'http-sse',
- *             requestedMode: 'ws-full'|'ws-delta'|'http-sse',
+ * @returns {{ mode: 'auto'|'ws-full'|'ws-delta'|'http-sse',
+ *             requestedMode: 'auto'|'ws-full'|'ws-delta'|'http-sse',
  *             transport: 'auto'|'ws'|'http',
  *             allowHttpFallback: boolean,
  *             delta: { force: boolean, refs: boolean, optIn: boolean },
@@ -85,7 +85,7 @@ export function _gateTransportMode(mode, caps) {
  */
 export function resolveResponsesTransportPolicy(env = process.env, capabilities = FULL_RESPONSES_TRANSPORT_CAPS) {
     const caps = { ...FULL_RESPONSES_TRANSPORT_CAPS, ...(capabilities || {}) };
-    const requestedMode = _normalizeTransportMode(env?.MIXDOG_OAI_TRANSPORT) || 'ws-delta';
+    const requestedMode = _normalizeTransportMode(env?.MIXDOG_OAI_TRANSPORT) || 'auto';
     const mode = _gateTransportMode(requestedMode, caps);
     let transport;
     let delta;
@@ -98,6 +98,7 @@ export function resolveResponsesTransportPolicy(env = process.env, capabilities 
             transport = 'ws';
             delta = DELTA_OFF;      // explicit full frames
             break;
+        case 'auto':
         case 'ws-delta':
             transport = 'ws';
             // Reachable only when caps.delta is true (else gated to ws-full).
@@ -112,9 +113,11 @@ export function resolveResponsesTransportPolicy(env = process.env, capabilities 
         mode,
         requestedMode,
         transport,
-        // No mode performs an implicit HTTP fallback; explicit http-sse pins the
-        // HTTP transport instead. Kept as a field so existing callers gate off.
-        allowHttpFallback: false,
+        // Codex refs behavior: default/auto is WS-first but not WS-only. If the
+        // websocket path stalls/fails before emitting live output, callers may
+        // replay the request over HTTP/SSE. Explicit ws-* modes remain pinned
+        // for transport experiments; explicit http-sse bypasses WS entirely.
+        allowHttpFallback: requestedMode === 'auto' && caps.http,
         delta,
         capabilities: caps,
     };

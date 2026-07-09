@@ -34,6 +34,27 @@ import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent
 import { mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 
+function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
+    // Keep this in sync with createSession's provider-cache policy: only
+    // explicit-breakpoint providers get BP cache opts here; OpenAI/key-prefix
+    // providers use promptCacheKey and request-time strategy instead.
+    if (cacheCapabilityForProvider(providerName) !== 'explicit-breakpoint') return null;
+    try {
+        let autoClear = null;
+        if (!agent || agent === 'lead') {
+            const loadedConfig = loadConfig({ secrets: false });
+            const normalizedAutoClear = normalizeAutoClearConfig(loadedConfig?.autoClear);
+            autoClear = {
+                ...normalizedAutoClear,
+                idleMs: resolveAutoClearIdleMs(loadedConfig, providerName),
+            };
+        }
+        return buildProviderCacheOpts(providerName, sessionId, agent, { autoClear });
+    } catch {
+        return null;
+    }
+}
+
 // --- agent spawn (createSession) ---
 // opts can pass either a `preset` object (from config.presets) or raw provider/model.
 // Preset shape: { name, provider, model, effort?, fast?, tools? }
@@ -107,22 +128,7 @@ export function createSession(opts) {
     // cacheRetention:'24h' shape) were never exercised by createSession
     // before this change, and are left untouched to avoid altering live
     // OpenAI/other-provider request shape as a side effect of this fix.
-    if (!providerCacheOpts && cacheCapabilityForProvider(providerName) === 'explicit-breakpoint') {
-        try {
-            let autoClear = null;
-            if (!opts.agent || opts.agent === 'lead') {
-                const loadedConfig = loadConfig({ secrets: false });
-                const normalizedAutoClear = normalizeAutoClearConfig(loadedConfig?.autoClear);
-                autoClear = {
-                    ...normalizedAutoClear,
-                    idleMs: resolveAutoClearIdleMs(loadedConfig, providerName),
-                };
-            }
-            providerCacheOpts = buildProviderCacheOpts(providerName, id, opts.agent, { autoClear });
-        } catch {
-            providerCacheOpts = null;
-        }
-    }
+    if (!providerCacheOpts) providerCacheOpts = buildSessionProviderCacheOpts(providerName, id, opts.agent);
     const messages = [];
     const ownerIsAgent = isAgentOwner(opts.owner);
     const resolvedAgent = opts.agent || opts.role || profile?.taskType || null;
@@ -425,6 +431,8 @@ export function updateSessionRoute(id, route = {}) {
         || (route.model && route.model !== previousModel);
     if (routeChanged) {
         const now = Date.now();
+        session.promptCacheKey = providerCacheKey(session.provider);
+        session.providerCacheOpts = buildSessionProviderCacheOpts(session.provider, session.id, session.agent) || null;
         session.lastInputTokens = 0;
         session.lastOutputTokens = 0;
         session.lastCachedReadTokens = 0;

@@ -122,7 +122,12 @@ export function createSettingsApi({
     // language catalog entry and the full language list for the picker UI.
     getProfile() {
       const config = getConfig();
-      const profile = cfgMod.normalizeProfileConfig(config.profile);
+      // In-memory config is flat: `config.profile` is what the save path
+      // (buildAgentSaveBuilder) persists into the on-disk `agent.profile`
+      // slot. Fall back to a nested `agent.profile` only for any stray
+      // nested snapshot.
+      const stored = config?.profile ?? config?.agent?.profile;
+      const profile = cfgMod.normalizeProfileConfig(stored);
       return {
         ...profile,
         languageEntry: cfgMod.profileLanguageEntry(profile.language),
@@ -152,7 +157,7 @@ export function createSettingsApi({
     },
     setProfile(input = {}) {
       const config = getConfig();
-      const current = cfgMod.normalizeProfileConfig(config.profile);
+      const current = cfgMod.normalizeProfileConfig(config?.profile ?? config?.agent?.profile);
       const next = { ...current };
       if (hasOwn(input, 'title') || hasOwn(input, 'name')) {
         next.title = input.title ?? input.name ?? '';
@@ -161,6 +166,10 @@ export function createSettingsApi({
         next.language = input.language ?? input.lang ?? 'system';
       }
       const normalized = cfgMod.normalizeProfileConfig(next);
+      // Persist flat: buildAgentSaveBuilder (config.mjs saveConfig) reads
+      // `config.profile` and writes it into the on-disk `agent.profile`
+      // section, which the prompt builder (readAgentConfig) reads. Writing a
+      // nested `agent.profile` here would be dropped by the save path.
       saveConfigAndAdopt({ ...config, profile: normalized });
       return this.getProfile();
     },

@@ -16,6 +16,7 @@ import {
 import {
     executeBashTool,
     executeTaskTool,
+    formatShellToolFailure,
 } from './builtin/bash-tool.mjs';
 import {
     executeFindFilesTool,
@@ -464,7 +465,7 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
     }
     const toolName = canonicalizeBuiltinToolName(name);
     const argError = validateBuiltinArgs(toolName, args);
-    if (argError) return argError;
+    if (argError) return toolName === 'shell' ? formatShellToolFailure(argError) : argError;
     // Fallback live-progress emit for direct callers (in-process toolExecutor
     // path). The MCP dispatch path already fired the central start message and
     // sets progressStarted:true, so guard against a double-emit there. No-op

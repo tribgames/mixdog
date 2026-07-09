@@ -8,6 +8,8 @@
  *
  * Matches documented tool-return error conventions:
  *   "Error: ..."      — Node/MCP tool errors (grep, find_symbol, read, code_graph, etc.)
+ *   "Error: [shell-tool-failed] ..." — shell tool/control-plane failure
+ *   "Error: [shell-run-failed] ..."  — shell command process failure
  *   "Error [code N]:" — structured builtin tool errors
  *   "[error ..."      — bracketed error format
  *   "[exit code: ..." — bash non-zero exit

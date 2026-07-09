@@ -6,7 +6,8 @@
 // identical to the inline closures it replaced.
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { isInvalidToolArgsMarker } from '../providers/openai-compat-stream.mjs';
-import { _intraTurnSig } from './loop/tool-classify.mjs';
+import { _intraTurnSig, _isReadTool, _isScopedCacheableTool, _stripMcpPrefix } from './loop/tool-classify.mjs';
+import { tryReadCached, tryScopedToolCached } from './read-dedup.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { crossTurnSignature } from './loop/completion-guards.mjs';
@@ -62,6 +63,23 @@ export function createEagerDispatcher({
                 const _ctSig = crossTurnSignature(call.name, call.arguments);
                 const _prior = crossTurnCalls.get(_ctSig);
                 if (_prior && _prior.firstIteration < getIterations()) return null;
+            }
+            // Cache short-circuit (mirrors the serial-body lookup at
+            // tool-batch.mjs). If this read / scoped-cacheable call would be
+            // served from the session cache in the serial for-body, do NOT
+            // execute it eagerly — the serial path returns the cached body
+            // (read cache is stat-validated; scoped cache is dep-root evicted).
+            // Returning null here skips redundant IO under concurrent agents
+            // and, combined with the non-barrier `continue` in startEagerRun,
+            // never blocks a later independent eager read behind a cache stub.
+            // If the entry is invalidated before the serial body re-checks,
+            // that call simply executes serially — correctness is preserved.
+            if (sessionId) {
+                if (_isReadTool(call.name)) {
+                    if (tryReadCached({ sessionId, args: call.arguments, cwd }) !== null) return null;
+                } else if (_isScopedCacheableTool(call.name)) {
+                    if (tryScopedToolCached({ sessionId, toolName: _stripMcpPrefix(call.name), args: call.arguments, cwd, countStats: false, touch: false }) !== null) return null;
+                }
             }
             const toolKind = getToolKind(call.name);
             // Shared pre-dispatch deny: identical predicate runs in the
@@ -137,7 +155,15 @@ export function createEagerDispatcher({
                 const call = calls[j];
                 if (!call?.id || !isEagerDispatchable(call.name, tools)) break;
                 if (dupSet && dupSet.has(call.id)) continue;
-                if (!startEagerTool(call) && !pending.has(call.id)) break;
+                // A null return here is NOT a state barrier: the loop above
+                // already breaks at the first non-eager (mutation/bash/unknown)
+                // tool, so every call reached here is read-only. A null means a
+                // non-barrier stub — intra-turn in-flight dup, repeat-failure /
+                // cross-turn dedup, pre-dispatch-deny, invalid-args, or a cache
+                // short-circuit. `continue` (not `break`) so a stub in the
+                // middle of a contiguous eager run does not stop LATER
+                // independent eager reads from starting early.
+                if (!startEagerTool(call) && !pending.has(call.id)) continue;
             }
         };
         let _streamEagerBlocked = false;

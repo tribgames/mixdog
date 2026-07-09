@@ -175,7 +175,7 @@ export function analyze(text) {
 }
 
 // Content-morpheme stem forms for a Korean phrase. null when not ready.
-// "개선을" → ['개선']; "개선하고" → ['개선','하'] filtered to content tags.
+// Example: an inflected Korean noun/verb phrase is reduced to content stems.
 export function stems(text) {
   const tokens = analyze(text)
   if (!tokens) return null

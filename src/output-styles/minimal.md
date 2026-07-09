@@ -20,7 +20,7 @@ Minimal — a very short summary: one or two sentences, nothing more.
   only what the change accomplishes.
 - No headings, bullets, numbered lists, labels, or sections — plain sentences
   only, even when the request says "report" or "summary".
-- Preferred pattern: `<target> 변경되었습니다. <verification> 통과 완료입니다.`
+- Preferred pattern: `<target> changed. <verification> passed.`
 - If verification was not run, say the change is done and verification was not
   run.
 - Preserve only the single decisive path, command, symbol, API name, code, or

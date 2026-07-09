@@ -413,6 +413,11 @@ export class ExecResult {
     this.taskId = opts.taskId;
     this.partialOutput = opts.partialOutput === true;
     this.outputCaptureError = opts.outputCaptureError || null;
+    // Distinguish a shell tool/control-plane failure (spawn/preflight/capture)
+    // from a command process failure (non-zero exit/signal/timeout). The
+    // renderer in builtin/bash-tool.mjs turns this into a model-visible marker.
+    this.failurePhase = opts.failurePhase || null;
+    this.failureReason = opts.failureReason || null;
     // Auto-background transition (CC startBackgrounding analogue). When a
     // foreground command outlives autoBackgroundMs the call settles with
     // backgrounded:true + the jobId for manual task control. The
@@ -558,6 +563,8 @@ export function execShellCommand({
             timedOut: false,
             killed: false,
             taskId,
+            failurePhase: 'tool',
+            failureReason: 'preflight failed',
           }),
         );
         return;
@@ -605,6 +612,8 @@ export function execShellCommand({
           timedOut: false,
           killed: false,
           taskId,
+          failurePhase: 'tool',
+          failureReason: 'spawn failed',
         }),
       );
       return;

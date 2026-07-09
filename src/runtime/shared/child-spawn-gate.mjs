@@ -121,6 +121,21 @@ function _abortError() {
 }
 
 /**
+ * Best-effort capacity probe for NON-COMPETING prewarm/warmup work. Returns
+ * true only when a slot could be taken right now without queuing — i.e. below
+ * the cap AND with no waiter already queued. Speculative warmers (explore's
+ * code_graph / find prewarm) consult this to skip/defer when the daemon is
+ * busy, so a fire-and-forget warm never pushes a real tool query into the
+ * queue (the "non-competing under fanout" guarantee). This is a probe, NOT a
+ * reservation: the answer can go stale under a race, which is acceptable for
+ * best-effort work. Real queries must use acquire()/withGate() and never gate
+ * themselves on this.
+ */
+export function hasSpareCapacity() {
+  return _inflight < MAX_INFLIGHT && _queue.length === 0;
+}
+
+/**
  * Run `fn` while holding one child-spawn slot. Release is guaranteed in a
  * finally so a throw/return from `fn` cannot leak a slot or deadlock the gate.
  *

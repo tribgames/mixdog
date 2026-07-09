@@ -13,6 +13,12 @@ import { runExplore } from '../src/standalone/explore-tool.mjs';
 const ROUND = process.argv[2] || 'r0';
 const CWD = 'C:/Project/mixdog';
 
+// High-fanout timing attribution: emit lightweight per-iteration send_ms
+// loop rows (no verbose payload estimate) so we can split LLM send time
+// from tool time under the parallel round below. Trace-only; no behavior
+// or provider change.
+if (!process.env.MIXDOG_AGENT_TRACE_TIMING) process.env.MIXDOG_AGENT_TRACE_TIMING = '1';
+
 // Representative locator queries with ground truth: expect = substrings, at
 // least one must appear in the anchor output (quality hit). expectFail = the
 // correct answer is EXPLORATION_FAILED (miss discipline).
@@ -51,12 +57,12 @@ const QUERIES = [
     expect: ['agent-dispatch'],
   },
   {
-    q: '에이전트 세션의 최대 루프 반복 횟수는 어디서 정해져?', // korean concept query
+    q: '\uC5D0\uC774\uC804\uD2B8 \uC138\uC158\uC758 \uCD5C\uB300 \uB8E8\uD504 \uBC18\uBCF5 \uD69F\uC218\uB294 \uC5B4\uB514\uC11C \uC815\uD574\uC838?', // korean concept query
     expect: ['agent-loop-policy'],
   },
   {
     q: 'how does a fixed agent slot map to a workflow slot (explore/explorer)',
-    expect: ['mixdog-session-runtime', 'internal-agents'],
+    expect: ['session-runtime/workflow', 'FIXED_AGENT_SLOTS'],
   },
   {
     q: 'where is the mixdog config json file path resolved (data dir)',
@@ -81,7 +87,9 @@ function readTraceSince(ts) {
     if (!line) continue;
     try {
       const r = JSON.parse(line);
-      if (r.ts >= ts && r.agent === 'explorer') rows.push(r);
+      // Keep every row since ts; explorer-session attribution happens at
+      // aggregation time.
+      if (r.ts >= ts) rows.push(r);
     } catch { /* skip */ }
   }
   return rows;
@@ -103,17 +111,37 @@ const results = await Promise.all(QUERIES.map(async ({ q, expect, expectFail }) 
   return { q: q.slice(0, 48), ms: Date.now() - qt0, anchors, failed, hit, bytes: text.length };
 }));
 
-// Attribute tool calls per explorer session spawned during this run.
+// Identify explorer sessions from trace rows, then attribute both tool calls
+// and LLM send time per session.
 const rows = readTraceSince(t0);
+const explorerSessions = new Set(
+  rows.filter((r) => r.agent === 'explorer').map((r) => r.session_id)
+);
 const bySession = new Map();
 for (const r of rows) {
-  if (r.kind !== 'tool') continue;
+  if (r.kind !== 'tool' || !explorerSessions.has(r.session_id)) continue;
   const s = bySession.get(r.session_id) || { calls: 0, tools: [] };
   s.calls++; s.tools.push(r.tool_name);
   bySession.set(r.session_id, s);
 }
 const callCounts = [...bySession.values()].map((s) => s.calls).sort((a, b) => a - b);
 const p50 = callCounts[Math.floor(callCounts.length / 2)] ?? 0;
+
+// LLM send-time attribution from loop rows (kind='loop', send_ms), emitted
+// under MIXDOG_AGENT_TRACE_TIMING. Under the parallel round, sends overlap
+// wall time, so send/wall > 1 quantifies provider contention.
+const sendBySession = new Map();
+for (const r of rows) {
+  if (r.kind !== 'loop' || !explorerSessions.has(r.session_id)) continue;
+  const cur = sendBySession.get(r.session_id) || { sends: 0, ms: 0 };
+  cur.sends++; cur.ms += Number(r.send_ms) || 0;
+  sendBySession.set(r.session_id, cur);
+}
+const sendMsPer = [...sendBySession.values()].map((s) => s.ms).sort((a, b) => a - b);
+const sendTotal = sendMsPer.reduce((a, b) => a + b, 0);
+const sendP50 = sendMsPer[Math.floor(sendMsPer.length / 2)] ?? 0;
+const sendMax = sendMsPer[sendMsPer.length - 1] ?? 0;
+const sendCount = [...sendBySession.values()].reduce((a, s) => a + s.sends, 0);
 
 console.log(`\n=== explore-bench round=${ROUND} ===`);
 for (const r of results) {
@@ -122,4 +150,6 @@ for (const r of results) {
 console.log(`  quality: ${results.filter((r) => r.hit).length}/${results.length} hits`);
 console.log(`  sessions=${bySession.size} toolcalls p50=${p50} max=${callCounts[callCounts.length - 1] ?? 0} total=${callCounts.reduce((a, b) => a + b, 0)}`);
 for (const [id, s] of bySession) console.log(`    ${id.slice(-8)}: ${s.tools.join(',')}`);
-console.log(`  wall total=${((Date.now() - t0) / 1000).toFixed(1)}s`);
+const wallMs = Date.now() - t0;
+console.log(`  llm-send: sessions=${sendBySession.size} sends=${sendCount} ms/session p50=${sendP50} max=${sendMax} total=${sendTotal}`);
+console.log(`  wall total=${(wallMs / 1000).toFixed(1)}s  send/wall=${wallMs > 0 ? (sendTotal / wallMs).toFixed(2) : '0.00'}x`);

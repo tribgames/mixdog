@@ -226,11 +226,11 @@ function cacheRatioFromUsage(rows) {
 
 function cacheBreakExplanation(reason) {
   const r = String(reason || '');
-  if (r === 'no_anchor') return 'delta 기준점/previous response 없음';
-  if (r === 'input_prefix_mismatch') return '요청 prefix가 이전 turn과 달라짐';
-  if (r.startsWith('response_output_mismatch')) return '이전 응답 output 체인이 기대값과 다름';
-  if (r === 'cache_key_changed') return 'cache key 변경';
-  return r ? '원인 미분류' : '원인 기록 없음';
+  if (r === 'no_anchor') return 'delta \uAE30\uC900\uC810/previous response \uC5C6\uC74C';
+  if (r === 'input_prefix_mismatch') return '\uC694\uCCAD prefix\uAC00 \uC774\uC804 turn\uACFC \uB2EC\uB77C\uC9D0';
+  if (r.startsWith('response_output_mismatch')) return '\uC774\uC804 \uC751\uB2F5 output \uCCB4\uC778\uC774 \uAE30\uB300\uAC12\uACFC \uB2E4\uB984';
+  if (r === 'cache_key_changed') return 'cache key \uBCC0\uACBD';
+  return r ? '\uC6D0\uC778 \uBBF8\uBD84\uB958' : '\uC6D0\uC778 \uAE30\uB85D \uC5C6\uC74C';
 }
 
 function classifyCacheBreakPhase(row, usageRows, transportRows) {
@@ -1342,27 +1342,27 @@ function buildExecutiveSummary(report) {
   const tools = report.summary.total_tool_ms || 0;
   const total = headers + stream + tools;
   const dominant = [['stream', stream], ['tools', tools], ['headers', headers]].sort((a, b) => b[1] - a[1])[0];
-  lines.push(`주 병목=${dominant[0]} ${fmtMs(dominant[1])}/${fmtMs(total)}; cache=${fmtPct((report.summary.cache_ratio ?? 0) * 100)}; turns=${report.summary.turns}; tools=${report.summary.tool_calls}`);
+  lines.push(`\uC8FC \uBCD1\uBAA9=${dominant[0]} ${fmtMs(dominant[1])}/${fmtMs(total)}; cache=${fmtPct((report.summary.cache_ratio ?? 0) * 100)}; turns=${report.summary.turns}; tools=${report.summary.tool_calls}`);
   if (report.cache.cache_breaks.length) {
     const summary = countBy(report.cache.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`).slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
-    lines.push(`캐시 깨짐=${report.cache.cache_breaks.length} (${summary})`);
+    lines.push(`\uCE90\uC2DC \uAE68\uC9D0=${report.cache.cache_breaks.length} (${summary})`);
   }
   if (report.cache.actual_cache_misses?.length) {
     const top = [...report.cache.actual_cache_misses].sort((a, b) => (b.uncached_tokens || 0) - (a.uncached_tokens || 0))[0];
-    lines.push(`실제 캐시 미스=${report.cache.actual_cache_misses.length} (top uncached=${fmtTok(top?.uncached_tokens || 0)})`);
+    lines.push(`\uC2E4\uC81C \uCE90\uC2DC \uBBF8\uC2A4=${report.cache.actual_cache_misses.length} (top uncached=${fmtTok(top?.uncached_tokens || 0)})`);
   }
   if (report.compact?.cache_breaks?.length) {
     const summary = countBy(report.compact.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`).slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
-    lines.push(`컴팩트 호출=${report.compact.sessions.length} session, cache reset=${report.compact.cache_breaks.length} (${summary})`);
+    lines.push(`\uCEF4\uD329\uD2B8 \uD638\uCD9C=${report.compact.sessions.length} session, cache reset=${report.compact.cache_breaks.length} (${summary})`);
   }
   if (report.tools.failures.length) {
     const summary = countBy(report.tools.failures, (f) => f.category || f.tool || 'unknown').slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
-    lines.push(`툴 실패=${report.tools.failures.length} (${summary})`);
+    lines.push(`\uD234 \uC2E4\uD328=${report.tools.failures.length} (${summary})`);
   }
   const topGrowth = report.tokens.growth_turns[0];
-  if (topGrowth) lines.push(`토큰 증폭=${topGrowth.agent || '-'} it=${topGrowth.turn_label} promptΔ=${fmtTok(topGrowth.prompt_delta)} out=${fmtTok(topGrowth.output_tokens + topGrowth.thinking_tokens)}`);
+  if (topGrowth) lines.push(`\uD1A0\uD070 \uC99D\uD3ED=${topGrowth.agent || '-'} it=${topGrowth.turn_label} promptΔ=${fmtTok(topGrowth.prompt_delta)} out=${fmtTok(topGrowth.output_tokens + topGrowth.thinking_tokens)}`);
   const topChurn = report.tools.duplicates[0];
-  if (topChurn) lines.push(`툴 헛돎=${topChurn.tool}×${topChurn.count} ${compactText(topChurn.target, 90)}`);
+  if (topChurn) lines.push(`\uD234 \uD5DB\uB3CE=${topChurn.tool}×${topChurn.count} ${compactText(topChurn.target, 90)}`);
   return lines;
 }
 
@@ -1626,7 +1626,7 @@ function renderText(report) {
     if (report.tools.failures.length) {
       lines.push('tool failures:');
       for (const f of report.tools.failures.slice(0, 10)) {
-        lines.push(`- ${f.agent || '-'} it=${f.iteration ?? '-'} ${f.tool || '-'} ${fmtMs(f.tool_ms)} category=${f.category || '-'} reason=${f.reason || 'trace에 상세 stderr/예외 미저장'} result=${Math.round(f.bytes / 1024)}KB/${f.lines}l: ${f.target}`);
+        lines.push(`- ${f.agent || '-'} it=${f.iteration ?? '-'} ${f.tool || '-'} ${fmtMs(f.tool_ms)} category=${f.category || '-'} reason=${f.reason || 'trace\uC5D0 \uC0C1\uC138 stderr/\uC608\uC678 \uBBF8\uC800\uC7A5'} result=${Math.round(f.bytes / 1024)}KB/${f.lines}l: ${f.target}`);
         if (opts.failuresOnly && f.preview) {
           const preview = compactText(f.preview, 700);
           lines.push(`  preview: ${preview}`);

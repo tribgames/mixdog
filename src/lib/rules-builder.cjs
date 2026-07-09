@@ -69,7 +69,7 @@ function readAgentConfig(dataDir) {
 
 const PROFILE_LANGUAGE_PROMPTS = Object.freeze({
   en: 'English',
-  ko: 'Korean (한국어)',
+  ko: 'Korean',
   ja: 'Japanese (日本語)',
   'zh-Hans': 'Simplified Chinese (简体中文)',
   'zh-Hant': 'Traditional Chinese (繁體中文)',
@@ -129,7 +129,8 @@ function buildProfilePreferencesContent(dataDir) {
   const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
   const lines = [];
   if (profile.title) {
-    lines.push(`- Use "${profile.title}" when directly addressing the user (greetings, answers, questions); do not repeat it in routine progress updates or pre-tool preambles.`);
+    lines.push(`- User title: ${profile.title}.`);
+    lines.push(`- Use "${profile.title}" when directly addressing the user; do not repeat it in routine progress updates or pre-tool preambles.`);
   }
   const shell = process.platform === 'win32' ? 'powershell' : 'bash';
   lines.push(`- Shell environment: ${shell}. Write shell commands and scripts in ${shell} syntax unless the user specifies otherwise; keep commands, paths, symbols, and exact errors verbatim.`);

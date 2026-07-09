@@ -15,6 +15,7 @@ import {
   transcriptMeasuredRowsCache,
   streamingMeasuredRowsById,
   pruneStreamingMeasuredRowsById,
+  hasStreamingRowStateToPrune,
   transcriptItemVariantKey,
   buildTranscriptRowIndexIncremental,
   transcriptStructureSignature,
@@ -632,7 +633,7 @@ export function useTranscriptWindow({
         if (!els.has(key)) refCache.delete(key);
       }
     }
-    if (streamingMeasuredRowsById.size > 0) {
+    if (hasStreamingRowStateToPrune()) {
       pruneStreamingMeasuredRowsById(new Set(liveItems.keys()));
     }
   });

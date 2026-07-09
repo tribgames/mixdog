@@ -1,11 +1,11 @@
 [
-  { "id": "q-kr-recall-phrase", "label": "Korean distinctive phrase: persistent memory", "args": { "query": "영속 메모리" }, "expect": { "kind": "results", "topNContains": ["영속 메모리"], "topN": 5 } },
+  { "id": "q-kr-recall-phrase", "label": "Korean distinctive phrase: persistent memory", "args": { "query": "\uC601\uC18D \uBA54\uBAA8\uB9AC" }, "expect": { "kind": "results", "topNContains": ["\uC601\uC18D \uBA54\uBAA8\uB9AC"], "topN": 5 } },
   { "id": "q-en-recall-pipeline", "label": "English distinctive phrase: recall fast-track builder", "args": { "query": "buildRecallFastTrackQuery" }, "expect": { "kind": "results", "topNContains": ["buildRecallFastTrackQuery"], "topN": 5 } },
   { "id": "q-cycle1-drain", "label": "cycle1 ECONNRESET topic", "args": { "query": "cycle1 ECONNRESET" }, "expect": { "kind": "results", "topNContains": ["cycle1", "ECONNRESET"], "topN": 5 } },
   { "id": "q-recall-general", "label": "bare recall keyword", "args": { "query": "recall" }, "expect": { "kind": "results", "topNContains": ["recall"], "topN": 5 } },
-  { "id": "q-uc4-topic-kr", "label": "UC4 topic query with Korean qualifier", "args": { "query": "recall period last 개선", "limit": 8 }, "expect": { "kind": "results", "topNContains": ["개선"], "topN": 5 } },
-  { "id": "q-recall-improve-kr", "label": "cache improvement topic", "args": { "query": "캐시 개선" }, "expect": { "kind": "results", "topNContains": ["개선"], "topN": 5 } },
-  { "id": "q-fanout-recall-cache", "label": "fan-out array query cache+recall", "args": { "query": ["캐시 개선", "recall"], "limit": 5 }, "expect": { "kind": "results", "topNContains": ["개선", "recall"], "topN": 10 } },
+  { "id": "q-uc4-topic-kr", "label": "UC4 topic query with Korean qualifier", "args": { "query": "recall period last \uAC1C\uC120", "limit": 8 }, "expect": { "kind": "results", "topNContains": ["\uAC1C\uC120"], "topN": 5 } },
+  { "id": "q-recall-improve-kr", "label": "cache improvement topic", "args": { "query": "\uCE90\uC2DC \uAC1C\uC120" }, "expect": { "kind": "results", "topNContains": ["\uAC1C\uC120"], "topN": 5 } },
+  { "id": "q-fanout-recall-cache", "label": "fan-out array query cache+recall", "args": { "query": ["\uCE90\uC2DC \uAC1C\uC120", "recall"], "limit": 5 }, "expect": { "kind": "results", "topNContains": ["\uAC1C\uC120", "recall"], "topN": 10 } },
   { "id": "q-short-2tok-cycle", "label": "short 2-token cycle1 query", "args": { "query": "cycle1 drain", "limit": 8 }, "expect": { "kind": "results", "topNContains": ["cycle1"], "topN": 3 } },
   { "id": "q-recall-scope-project", "label": "project-scoped recall query", "args": { "query": "recall", "cwd": "C:\\Project\\mixdog" , "limit": 10 }, "expect": { "kind": "results", "topNContains": ["recall"], "topN": 5 } }
 ]

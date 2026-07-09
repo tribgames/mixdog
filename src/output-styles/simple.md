@@ -31,9 +31,8 @@ result, do not narrate or explain the change.
   multi-line list items — never a dense wall of text. If a point runs past one
   line, cut the elaboration — detail beyond key phrase + one clause belongs to
   Default.
-- Final handoffs may use labels like `바뀐 점`, `확인한 것`,
-  `남은 리스크/다음 단계` for Korean-facing profiles (plain English labels in
-  English threads); do not label interim progress.
+- Final handoffs may use labels like `Changes`, `Verification`, and
+  `Risks / next steps`; do not label interim progress.
 - Synthesize agent or retrieval results; never forward raw reports, long file
   lists, tool traces, or session metadata.
 - Do not hide blockers, failed verification, or required follow-up — state

@@ -21,15 +21,22 @@ const MIXDOG_SLOW_TOOL_TRACE_NAMES = new Set(
         .filter(Boolean)
 );
 
-function traceAgentLoop({ sessionId, iteration, sendMs, messageCount, bodyBytesEst }) {
-    if (process.env.MIXDOG_AGENT_TRACE_VERBOSE !== '1') return;
+function traceAgentLoop({ sessionId, iteration, sendMs, messageCount, bodyBytesEst, agent = null }) {
+    // Two emit modes, no behavior change either way:
+    //   VERBOSE=1 → full loop row incl. body_bytes_est (payload serialized).
+    //   TIMING=1  → lightweight send-latency attribution for high-fanout
+    //               benches; bodyBytesEst is skipped upstream so measuring
+    //               the send does not perturb it (body_bytes_est → null).
+    if (process.env.MIXDOG_AGENT_TRACE_VERBOSE !== '1'
+        && process.env.MIXDOG_AGENT_TRACE_TIMING !== '1') return;
     appendAgentTrace({
         sessionId,
         iteration,
         kind: 'loop',
+        agent: agent || null,
         send_ms: sendMs,
         message_count: messageCount,
-        body_bytes_est: bodyBytesEst,
+        body_bytes_est: bodyBytesEst ?? null,
     });
 }
 
@@ -206,6 +213,11 @@ function _redactLogText(text) {
 
 function classifyToolFailure(resultText, toolName) {
     const text = String(resultText ?? '').toLowerCase();
+    if (/\[shell-tool-failed\]/i.test(String(resultText ?? ''))) return 'tool-call/failure';
+    if (/\[shell-run-failed\]/i.test(String(resultText ?? ''))) {
+        if (/timeout|timed out|aborted|interrupted/.test(text)) return 'timeout/abort';
+        return 'command-exit';
+    }
     if (/requires either|invalid arguments|unknown parameter|must be|schema|expected|required|old_string is .*>=/.test(text)) return 'schema/args';
     if (/not in allow-list|not allowed/.test(text)) return 'permission';
     if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(String(resultText ?? ''))) return 'command-exit';

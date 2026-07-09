@@ -376,15 +376,15 @@ function toAnthropicMessages(messages) {
         }
         if (m.role === 'tool') {
             const last = result[result.length - 1];
-            const refs = Array.isArray(m.nativeToolSearch?.toolReferences)
-                ? m.nativeToolSearch.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
-                : [];
+            // Do not replay native deferred-loader `tool_reference` blocks from
+            // prior turns. They are tied to the exact Anthropic deferred-tool
+            // request that produced them; after /model or provider switches the
+            // new request may not carry the matching deferred tool surface and
+            // Anthropic rejects the history as a request validation error.
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: refs.length
-                    ? refs.map((name) => ({ type: 'tool_reference', tool_name: name }))
-                    : normalizeContentForAnthropic(m.content),
+                content: normalizeContentForAnthropic(m.content),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
                 last.content.push(block);

@@ -26,8 +26,8 @@ Content
 - Size budget: roughly TWICE the Simple style — per point about 2 rendered
   lines, whole report ~10–15 lines. Spend the extra room on evidence and
   context Simple would drop, not on longer sentences.
-- Use labels such as `바뀐 점`, `확인한 것`, and `남은 리스크/다음 단계`
-  in final reports to structure the summary; skip labels on interim progress.
+- Use labels such as `Changes`, `Verification`, and `Risks / next steps` in
+  final reports to structure the summary; skip labels on interim progress.
 - Collapse trivial tasks to a couple of sentences instead of forcing sections.
 - Synthesize agent or retrieval results; never forward raw reports, long file
   lists, tool traces, or session metadata.

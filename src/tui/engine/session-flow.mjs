@@ -60,9 +60,6 @@ export function createSessionFlow(bag) {
 
   function removeQueuedEntries(entries) {
     const ids = new Set(entries.map((entry) => entry.id));
-    const keys = entries.map((entry) => entry.key).filter(Boolean);
-    for (const key of keys) pendingNotificationKeys.delete(key);
-    for (const key of keys) displayedExecutionNotificationKeys.delete(key);
     const queued = getState().queued.filter((q) => !ids.has(q.id));
     if (queued.length !== getState().queued.length) set({ queued });
   }
@@ -76,8 +73,9 @@ export function createSessionFlow(bag) {
         displayText: entry.displayText || (entry.mode === 'task-notification' ? notificationDisplayText(entry.text) : String(entry.text || '')),
       };
       if (next.mode === 'task-notification' && next.key) {
-        if (pendingNotificationKeys.has(next.key)) continue;
-        pendingNotificationKeys.add(next.key);
+        const duplicateQueued = pending.some((entry) => entry?.mode === 'task-notification' && entry?.key === next.key);
+        if (duplicateQueued) continue;
+        if (!pendingNotificationKeys.has(next.key)) pendingNotificationKeys.add(next.key);
       }
       restored.push(next);
     }
@@ -120,17 +118,67 @@ export function createSessionFlow(bag) {
     return batch;
   }
 
+  function scheduleBlockedDrainRetry() {
+    if (pending.length === 0) return;
+    if (flags.blockedDrainRetryTimer) return;
+    const timer = setTimeout(() => {
+      flags.blockedDrainRetryTimer = null;
+      if (pending.length > 0) void drain();
+    }, 50);
+    if (typeof timer.unref === 'function') timer.unref();
+    flags.blockedDrainRetryTimer = timer;
+  }
+
+  function clearBlockedDrainRetry() {
+    if (!flags.blockedDrainRetryTimer) return;
+    clearTimeout(flags.blockedDrainRetryTimer);
+    flags.blockedDrainRetryTimer = null;
+  }
+
+  function hasModelDrainablePending() {
+    return pending.some((entry) => !isSlashQueuedEntry(entry));
+  }
+
   async function drain() {
     if (flags.draining) return;
-    if (flags.autoClearRunning) return;
+    // Bail while any session command holds commandBusy (auto-clear implies it,
+    // but so do setModel/newSession/resume/etc). Running a turn concurrently
+    // with a command that swaps or reroutes the live session is a race; the
+    // commandBusy-release hook re-kicks drain once the command finishes.
+    if (flags.autoClearRunning || getState().commandBusy) {
+      scheduleBlockedDrainRetry();
+      return;
+    }
+    // Claude Code parity: a queued prompt/notification can arrive while a
+    // provider turn is already in flight (scheduled message, webhook, agent
+    // completion, or user input), but the unified queue only runs BETWEEN
+    // turns. Do NOT start a second Lead runTurn from the post-turn drain in
+    // that window: the active runtime.ask owns the session mutex/transcript.
+    // Anything pending is kicked again by runTurn.finally once busy flips
+    // false. Starting a parallel run here is what tangles turn order and can
+    // abort/interleave the active turn.
+    if (getState().busy) {
+      tuiDebug(`busy-queue drain deferred while active pending=${pending.length}`);
+      return;
+    }
+    clearBlockedDrainRetry();
+    const drainEpoch = (Number(flags.drainEpoch) || 0) + 1;
+    flags.drainEpoch = drainEpoch;
     flags.draining = true;
     let firstBatch = true;
     try {
       while (pending.length > 0) {
+        if (flags.drainEpoch !== drainEpoch) return;
         // Drain one priority/mode bucket at a time (unified command queue):
         // unified command queue semantics: prompt steering stays editable and
         // task notifications stay non-editable but model-visible.
-        const batch = dequeueQueueBatch('later', { limit: firstBatch ? 1 : Infinity });
+        const batch = dequeueQueueBatch('later', {
+          limit: firstBatch ? 1 : Infinity,
+          // Slash commands must run through the TUI command dispatcher, not be
+          // delivered to the model as plain text. Claude Code's queueProcessor
+          // similarly handles slash entries outside the queued_command drain.
+          predicate: (entry) => !isSlashQueuedEntry(entry),
+        });
         firstBatch = false;
         if (batch.length === 0) break;
         tuiDebug(`busy-queue drain batch=${batch.length} remaining=${pending.length}`);
@@ -152,6 +200,7 @@ export function createSessionFlow(bag) {
           restorable: nonEditable.length === 0,
           requeueOnAbort: nonEditable,
         });
+        if (flags.drainEpoch !== drainEpoch) return;
         // A deferred cleared-session UI sync (from a late-settling abandoned
         // compacting clear) applies here now that this turn has settled.
         flushDeferredClearedSessionUi();
@@ -180,10 +229,12 @@ export function createSessionFlow(bag) {
         if (turnStatus === 'cancelled' && pending.length === 0) break;
       }
     } finally {
-      flags.draining = false;
-      flushDeferredClearedSessionUi();
-      if (pending.length > 0) void drain();
-      else flushDeferredExecutionPendingResumeKick();
+      if (flags.drainEpoch === drainEpoch) {
+        flags.draining = false;
+        flushDeferredClearedSessionUi();
+        if (hasModelDrainablePending()) void drain();
+        else flushDeferredExecutionPendingResumeKick();
+      }
     }
   }
   function enqueue(text, options = {}) {
@@ -202,25 +253,24 @@ export function createSessionFlow(bag) {
     return true;
   }
 
-  function drainPendingSteering() {
-    // Mid-turn steering drain:
-    // Injects queued user prompts (steering) plus non-editable internal entries
-    // into the CURRENT provider pre-send window so the user can redirect a turn
-    // that is already running. Slash commands are still excluded: they must run
-    // through the normal command processor after the turn, not be sent as plain
-    // text. Consumed entries are spliced out of `pending` here, so the post-turn
-    // drain() loop will not re-execute them.
-    //
-    // dequeueQueueBatch drains ONE priority/mode bucket per call, capped at a
-    // max priority. A concurrent user steering prompt (`next`) and a task
-    // notification (`later`) sit in different buckets, so a single `next`-capped
-    // dequeue would leave the notification pending and the post-turn drain()
-    // loop would spawn an unintended follow-up turn/reply. Loop up to `later`
-    // so EVERY non-slash bucket is consumed by the current turn.
-    const predicate = (entry) => !isSlashQueuedEntry(entry);
+  function drainPendingSteering(_sessionIdOrOptions = null, maybeOptions = null) {
+    const options = maybeOptions && typeof maybeOptions === 'object'
+      ? maybeOptions
+      : (_sessionIdOrOptions && typeof _sessionIdOrOptions === 'object' ? _sessionIdOrOptions : {});
+    const maxPriority = options.maxPriority || 'next';
+    // Claude Code parity: mid-chain drain converts queued prompt/task
+    // notification entries into model-visible "queued_command" style steering
+    // only at provider continuation boundaries. Slash commands stay queued for
+    // the post-turn command processor. `later` notifications (scheduled tasks)
+    // are skipped unless the runtime explicitly asks for a later flush.
+    const predicate = (entry) => {
+      if (isSlashQueuedEntry(entry)) return false;
+      const mode = entry?.mode || 'prompt';
+      return mode === 'prompt' || mode === 'task-notification';
+    };
     const out = [];
     for (;;) {
-      const batch = dequeueQueueBatch('later', { predicate });
+      const batch = dequeueQueueBatch(maxPriority, { predicate });
       if (batch.length === 0) break;
       for (const entry of batch) {
         const content = entry.content;

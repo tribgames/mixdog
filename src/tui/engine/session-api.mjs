@@ -9,13 +9,22 @@ import { buildDoctorReport } from '../app/doctor.mjs';
 import { recomputePromptHistory } from './prompt-history.mjs';
 import { buildMergedPromptHistory, loadPromptHistory } from '../prompt-history-store.mjs';
 
+// Upper bound on how long a manual Esc abort may leave the store busy while the
+// in-flight runtime.ask() unwinds. runtime.abort() normally rejects the pending
+// ask within a tick; this is the belt-and-suspenders window before the bounded
+// recovery timer hard-releases busy so Esc can never wedge input forever.
+const MANUAL_ABORT_RECOVERY_MS = (() => {
+  const v = Number(process.env.MIXDOG_MANUAL_ABORT_RECOVERY_MS);
+  return Number.isFinite(v) && v > 0 ? v : 4000;
+})();
+
 export function createEngineApi(bag) {
   return { ...createEngineApiA(bag), ...createEngineApiB(bag) };
 }
 
 export function createEngineApiA(bag) {
   const {
-    runtime, nextId, flags, pending, listeners, getState, set, pushItem, patchItem, replaceItems, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext,
+    runtime, nextId, flags, pending, listeners, getState, set, pushItem, patchItem, replaceItems, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick,
   } = bag;
   return {
     getState: () => getState(),
@@ -44,12 +53,23 @@ export function createEngineApiA(bag) {
         enqueue(text, queueOptions);
         return true;
       }
-      if (getState().commandBusy) return false;
+      // Any in-flight session command (clear/setModel/newSession/resume/...)
+      // holds commandBusy. Previously the prompt was dropped here and only the
+      // prompt-history side effect survived. Queue it instead: drain bails while
+      // commandBusy, and the central release hook re-kicks drain once the
+      // command settles, so the prompt runs afterwards rather than vanishing.
+      if (getState().commandBusy) {
+        enqueue(text, queueOptions);
+        return true;
+      }
       if (getState().busy) {
         enqueue(text, queueOptions);
         return true;
       }
-      void autoClearBeforeSubmit().then(() => enqueue(text, queueOptions));
+      // If autoClearBeforeSubmit rejects (e.g. compaction timeout throws), the
+      // prompt must still be queued — swallow the rejection so enqueue always
+      // runs and the submit is never silently lost.
+      void autoClearBeforeSubmit().catch(() => {}).then(() => enqueue(text, queueOptions));
       return true;
     },
     restoreQueued,
@@ -573,6 +593,41 @@ export function createEngineApiA(bag) {
         restoreState.restorable = false;
         restoreState.requeueEntries = [];
       }
+      // ── Bounded manual-abort recovery ───────────────────────────────────
+      // runtime.abort() above normally rejects the in-flight runtime.ask() so
+      // the turn's own finally clears busy within a tick. If that unwind is
+      // starved — e.g. a provider abort that never settles after a post-tool
+      // fetch stall — busy would stay true until the far-larger turn watchdog
+      // trips, wedging the TUI with dead input. Arm a short grace timer that
+      // hard-releases busy exactly like the watchdog force-release, but ONLY
+      // when this same turn is still the active owner (epoch unchanged) AND
+      // still busy — so a normal cancellation that settles in time is never
+      // masked and a newer turn's store is never corrupted.
+      const abortEpoch = flags.leadTurnEpoch;
+      const recoveryMs = Number(flags.manualAbortRecoveryMs) > 0
+        ? Number(flags.manualAbortRecoveryMs)
+        : MANUAL_ABORT_RECOVERY_MS;
+      const recoveryTimer = setTimeout(() => {
+        if (flags.disposed) return;
+        if (!getState().busy) return;                    // normal abort settled
+        if (flags.leadTurnEpoch !== abortEpoch) return;  // a newer turn owns the store
+        // Bump the epoch FIRST so the still-stuck turn's eventual finally becomes
+        // a no-op for shared getState() writes and cannot corrupt the handoff.
+        flags.leadTurnEpoch = (Number(flags.leadTurnEpoch) || 0) + 1;
+        set({ busy: false, spinner: null, thinking: null, lastTurn: null });
+        flags.activePromptRestore = null;
+        // Abandon the drain loop that is still awaiting the stuck turn before
+        // releasing the drain lock. Its eventual finally observes the stale
+        // epoch and cannot clear a newer drain's ownership or continue work.
+        flags.drainEpoch = (Number(flags.drainEpoch) || 0) + 1;
+        if (flags.draining) flags.draining = false;
+        pushNotice('Interrupt did not settle — input restored.', 'warn', { transcript: true });
+        if (pending.length > 0 && typeof drain === 'function') void drain();
+        // busy→false here bypasses the normal turn-end + drain-finally flushes,
+        // so re-arm any deferred completion kick explicitly (idempotent).
+        if (typeof flushDeferredExecutionPendingResumeKick === 'function') flushDeferredExecutionPendingResumeKick();
+      }, recoveryMs);
+      recoveryTimer.unref?.();
       return { aborted, restoreText, pastedImages: restorePastedImages, discardPastedImages, pastedTexts: restorePastedTexts, discardPastedTexts };
     },
   };

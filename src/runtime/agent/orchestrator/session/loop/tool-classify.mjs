@@ -2,8 +2,6 @@
 // loop.mjs. These drive cross-turn read dedup, scoped caching, shell routing,
 // and duplicate-call detection. Strips the MCP prefix so direct calls and
 // MCP-wrapped calls share the same cache.
-import { createHash } from 'crypto';
-
 export const MCP_TOOL_PREFIX = 'mcp__plugin_mixdog_mixdog__';
 
 export function _stripMcpPrefix(name) {
@@ -73,5 +71,5 @@ export function _canonicalArgs(args) {
     } catch { return String(args); }
 }
 export function _intraTurnSig(name, args) {
-    return createHash('sha256').update(`${name}:${_canonicalArgs(args)}`).digest('hex').slice(0, 16);
+    return `${name}:${_canonicalArgs(args)}`;
 }

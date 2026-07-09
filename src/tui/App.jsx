@@ -1494,7 +1494,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       const n = Number(value || 0);
       const d = Number(total || 0);
       if (!d) return 'N/A';
-      return `${((n / d) * 100).toFixed(n > 0 && n < d / 100 ? 1 : 0)}%`;
+      const p = Math.max(0, Math.min(100, (n / d) * 100));
+      return `${p > 0 && p < 1 ? p.toFixed(1) : Math.floor(p)}%`;
     };
     const fmt = (value) => {
       const n = Number(value || 0);
@@ -2153,12 +2154,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       }
     }
     if (!commandText) return false;
-    if (state.commandBusy) {
-      store.pushNotice('wait for the current command to finish', 'warn');
-      return false;
-    }
 
     if (commandText.startsWith('/')) {
+      if (state.commandBusy) {
+        store.pushNotice('wait for the current command to finish', 'warn');
+        return false;
+      }
       const [cmd, ...rest] = commandText.slice(1).split(/\s+/);
       const accepted = runSlashCommand(cmd, rest.join(' ').trim());
       if (accepted !== false) clearPastedImagesSnapshot();

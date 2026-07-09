@@ -13,6 +13,7 @@ import { performance } from 'node:perf_hooks';
 import { format } from 'node:util';
 import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
+import { scheduleRenderFrameAck } from './engine/render-timing.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
@@ -139,7 +140,14 @@ function installTuiPerfProbe() {
 }
 
 function makeRenderProfiler() {
-  if (!PERF_ENABLED) return undefined;
+  // Always resolve pending yieldToRenderer() acks on each painted frame so
+  // split transcript commits (preamble frame → tool-card frame) wait for a
+  // real render instead of a fixed timeout. Ink calls onRender before its
+  // renderInteractiveFrame/stdout write, so defer the ack one macrotask: the
+  // split continuation then resumes after the frame has been emitted, not while
+  // it can still coalesce with the same write. Profiling stays gated on PERF.
+  const ackRenderedFrame = () => { scheduleRenderFrameAck(); };
+  if (!PERF_ENABLED) return ackRenderedFrame;
   let count = 0;
   let sum = 0;
   let max = 0;
@@ -147,6 +155,7 @@ function makeRenderProfiler() {
   let maxGap = 0;
   let lastFrameAt = 0;
   return ({ renderTime } = {}) => {
+    ackRenderedFrame();
     const now = performance.now();
     const ms = Number(renderTime) || 0;
     const gap = lastFrameAt ? now - lastFrameAt : 0;

@@ -713,7 +713,7 @@ export async function createMixdogSessionRuntime({
       // available / installs on quit" nag while the background stage runs
       // silently. The wording lives in the notice surface (notification-plan):
       // this emit only carries meta.version. TUI maps meta.kind 'update-notice'
-      // to a transcript notice, never a model-visible message; tone 'info' =
+      // to a transient notice, never a model-visible message; tone 'info' =
       // non-urgent, applies on the next launch.
       const announceReady = () => {
         emitRuntimeNotification('update ready', { kind: 'update-notice', version: ver, tone: 'info' });
@@ -1228,7 +1228,15 @@ export async function createMixdogSessionRuntime({
     if (!startupProviderCatalogRefreshStarted && !closeRequested) {
       startupProviderCatalogRefreshStarted = true;
       try {
-        reg.refreshProviderCatalogsOnStartup();
+        void Promise.resolve(reg.refreshProviderCatalogsOnStartup())
+          .then(() => {
+            invalidateProviderCaches();
+            warmProviderModelCache();
+            bootProfile('provider-catalogs:refresh-ready');
+          })
+          .catch((error) => {
+            bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
+          });
         bootProfile('provider-catalogs:refresh-started');
       } catch (error) {
         bootProfile('provider-catalogs:refresh-failed', { error: error?.message || String(error) });
@@ -2102,6 +2110,9 @@ export async function createMixdogSessionRuntime({
     scheduleStatuslineUsageRefresh,
     invalidateContextStatusCache,
     invalidateProviderCaches,
+    createCurrentSession,
+    invalidatePreSessionToolSurface,
+    pushTranscriptRebind,
     collectSearchProviderModels,
   });
   const workflowAgentsApi = createWorkflowAgentsApi({

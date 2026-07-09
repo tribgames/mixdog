@@ -13,7 +13,7 @@
 // worker at tools/.
 import { resolve as pathResolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { acquire as acquireChildSpawnSlot } from '../../../../shared/child-spawn-gate.mjs';
+import { acquire as acquireChildSpawnSlot, hasSpareCapacity as childSpawnHasSpareCapacity } from '../../../../shared/child-spawn-gate.mjs';
 import {
   canonicalGraphCwd as _canonicalGraphCwd,
   codeGraphCache as _codeGraphCache,
@@ -55,8 +55,10 @@ const _inflightAsyncBuilds = new Map();
 
 export function prewarmCodeGraph(cwd) {
   if (!cwd) return;
-  // Reuse the buildCodeGraphAsync single-flight path. Fire-and-forget.
-  buildCodeGraphAsync(cwd).catch(() => { /* best-effort */ });
+  // Reuse the buildCodeGraphAsync single-flight path. Fire-and-forget, and
+  // best-effort: skip a fresh worker spawn when the child-spawn gate is busy
+  // so this warm never queues ahead of real code_graph/find queries.
+  buildCodeGraphAsync(cwd, null, { bestEffort: true }).catch(() => { /* best-effort */ });
 }
 
 export function prewarmCodeGraphSymbols(cwd, symbols, { language = null } = {}) {
@@ -64,7 +66,7 @@ export function prewarmCodeGraphSymbols(cwd, symbols, { language = null } = {}) 
   const wanted = (Array.isArray(symbols) ? symbols : [symbols])
     .map((s) => String(s || '').trim())
     .filter(Boolean);
-  buildCodeGraphAsync(cwd).then((graph) => {
+  buildCodeGraphAsync(cwd, null, { bestEffort: true }).then((graph) => {
     if (!graph) return;
     for (const symbol of wanted) {
       try { _lookupCandidateNodes(graph, symbol, language); } catch { /* best-effort */ }
@@ -80,7 +82,7 @@ export function prewarmCodeGraphIfProject(cwd) {
   return true;
 }
 
-export async function buildCodeGraphAsync(cwd, signal = null) {
+export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = false } = {}) {
   if (signal?.aborted) throw new Error('aborted');
   const graphCwd = _canonicalGraphCwd(cwd);
   const cached = _codeGraphCache.get(graphCwd);
@@ -107,6 +109,13 @@ export async function buildCodeGraphAsync(cwd, signal = null) {
       (e) => { cleanup(); throw e; },
     );
   }
+  // Non-competing prewarm: once past the cache/single-flight fast paths a
+  // fresh build must spawn the worker (a child-spawn slot). Best-effort warmers
+  // skip that spawn when the gate has no spare capacity, returning null so the
+  // caller no-ops — and skipping BEFORE registering the in-flight entry so a
+  // concurrent REAL caller is never attached to (and thus never starved by) a
+  // skipped warm.
+  if (bestEffort && !childSpawnHasSpareCapacity()) return null;
   const _genAtStart = _getCodeGraphGen(graphCwd);
   let _worker = null;
   const promise = new Promise((resolve, reject) => {
@@ -151,11 +160,12 @@ export async function buildCodeGraphAsync(cwd, signal = null) {
       w.once('message', (msg) => {
         try {
           if (msg && msg.ok && msg.graph && typeof msg.signature === 'string') {
-            if (_getCodeGraphGen(graphCwd) === _genAtStart) {
+            const genStillCurrent = _getCodeGraphGen(graphCwd) === _genAtStart;
+            if (genStillCurrent) {
               _setCodeGraphCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
               _setDiskCodeGraphEntry(graphCwd, msg.graph);
             }
-            settle(msg.graph);
+            settle(genStillCurrent ? msg.graph : new Error('code-graph build invalidated during prewarm'));
           } else {
             settle(new Error('code-graph prewarm worker failed'));
           }

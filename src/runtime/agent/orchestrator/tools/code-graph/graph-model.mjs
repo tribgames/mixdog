@@ -119,6 +119,7 @@ export function _deserializeGraph(cwd, payload) {
 export function _attachGraphRuntimeCaches(graph) {
   if (!graph || typeof graph !== 'object') return graph;
   if (!graph._referenceSearchCache) graph._referenceSearchCache = new Map();
+  if (!graph._keywordSearchCache) graph._keywordSearchCache = new Map();
   if (!graph._maskedLinesCache) graph._maskedLinesCache = new Map();
   if (!graph._sourceLinesCache) graph._sourceLinesCache = new Map();
   if (!graph._sourceTextCache) graph._sourceTextCache = new Map();
@@ -144,6 +145,9 @@ export function _estimateGraphRuntimeCacheBytes(graph) {
   for (const memo of graph._referenceSearchCache?.values() || []) {
     total += Buffer.byteLength(String(memo || ''), 'utf8');
   }
+  for (const memo of graph._keywordSearchCache?.values() || []) {
+    total += Buffer.byteLength(String(memo || ''), 'utf8');
+  }
   return total;
 }
 
@@ -153,6 +157,7 @@ export function _clearGraphRuntimeCaches(graph) {
   graph._maskedLinesCache?.clear();
   graph._sourceLinesCache?.clear();
   graph._referenceSearchCache?.clear();
+  graph._keywordSearchCache?.clear();
   graph._symbolTokenIndex?.clear();
   graph._symbolTokenIndexDirty = true;
 }
