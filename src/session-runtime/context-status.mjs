@@ -100,6 +100,7 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     const lastContextTokens = Number(session?.lastContextTokens || 0);
     const estimatedContextTokens = estimateTranscriptContextUsage(messages, tools, {
       messageCount: messageSummary.count,
+      estimatedMessageTokens: messageSummary.estimatedTokens,
     });
     const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
     const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);

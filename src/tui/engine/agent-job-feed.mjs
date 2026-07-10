@@ -122,6 +122,13 @@ export function createAgentJobFeed({
     patchItem(itemId, buildAgentJobCardPatch(itemId, text, isError));
   }
 
+  function refreshAgentStatus(parsed) {
+    if (!parsed?.taskId) return;
+    const status = String(parsed.status || '').toLowerCase();
+    const terminal = /^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
+    set(agentStatusState(terminal ? { force: true } : undefined));
+  }
+
   function subscribeRuntimeNotifications() {
     if (typeof runtime.onNotification !== 'function') return null;
     return runtime.onNotification((event) => {
@@ -137,7 +144,7 @@ export function createAgentJobFeed({
         return true;
       }
       if (delivery.action === 'status-only') {
-        if (parsed?.taskId) set(agentStatusState({ force: true }));
+        refreshAgentStatus(parsed);
         return true;
       }
       if (delivery.action === 'execution-ui') {
@@ -147,7 +154,7 @@ export function createAgentJobFeed({
           if (cardKey) displayedExecutionNotificationKeys.add(cardKey);
           pushUserOrSyntheticItem(delivery.displayText, nextId());
         }
-        if (parsed?.taskId) set(agentStatusState({ force: true }));
+        refreshAgentStatus(parsed);
         const resumeBody = String(delivery.modelContent || '').trim();
         if (resumeBody) {
           // Consolidated completion dedup keyed off execution_id (+ text hash):
@@ -197,9 +204,7 @@ export function createAgentJobFeed({
         }
         return true;
       }
-      if (parsed?.taskId) {
-        set(agentStatusState({ force: true }));
-      }
+      refreshAgentStatus(parsed);
       const modelContent = String(delivery.modelContent ?? delivery.displayText ?? text).trim();
       const imagePaths = parseInboundImagePaths(event?.meta?.image_paths);
       if (!modelContent && imagePaths.length === 0) return true;

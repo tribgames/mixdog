@@ -27,6 +27,35 @@ export const MEASURED_TOOL_USAGE = Object.freeze({
   web_fetch: 2,
 });
 const MEASURED_TOOL_ORDER = Object.freeze(Object.keys(MEASURED_TOOL_USAGE));
+const toolSchemaBreakdownMemo = new WeakMap();
+
+function sameToolSchemaEntries(cached, tools) {
+  if (!cached || cached.entries.length !== tools.length) return false;
+  for (let index = 0; index < tools.length; index += 1) {
+    const entry = cached.entries[index];
+    const tool = tools[index];
+    if (entry.tool !== tool
+      || entry.name !== tool?.name
+      || entry.description !== tool?.description
+      || entry.inputSchema !== tool?.inputSchema
+      || entry.input_schema !== tool?.input_schema
+      || entry.parameters !== tool?.parameters
+      || entry.schema !== tool?.schema) return false;
+  }
+  return true;
+}
+
+function toolSchemaEntry(tool) {
+  return {
+    tool,
+    name: tool?.name,
+    description: tool?.description,
+    inputSchema: tool?.inputSchema,
+    input_schema: tool?.input_schema,
+    parameters: tool?.parameters,
+    schema: tool?.schema,
+  };
+}
 export const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
   'read',
   'code_graph',
@@ -125,6 +154,10 @@ export function toolSchemaBucket(tool) {
 }
 
 export function estimateToolSchemaBreakdown(tools) {
+  if (Array.isArray(tools)) {
+    const cached = toolSchemaBreakdownMemo.get(tools);
+    if (sameToolSchemaEntries(cached, tools)) return cached.value;
+  }
   const out = {};
   for (const tool of Array.isArray(tools) ? tools : []) {
     const bucket = toolSchemaBucket(tool);
@@ -133,6 +166,7 @@ export function estimateToolSchemaBreakdown(tools) {
     row.tokens += estimateToolSchemaTokens([tool]);
     out[bucket] = row;
   }
+  if (Array.isArray(tools)) toolSchemaBreakdownMemo.set(tools, { entries: tools.map(toolSchemaEntry), value: out });
   return out;
 }
 

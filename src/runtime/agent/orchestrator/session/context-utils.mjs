@@ -99,6 +99,212 @@ export function estimateMessagesTokens(messages) {
     return messages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
 }
 
+// Context status is polled while the agent loop mutates and replaces message
+// arrays. Keep the accumulated summary on that array, but cheaply validate
+// every entry before reusing its contribution. The fingerprint deliberately
+// avoids serializing content/blocks on the warm path; it compares the
+// references of every estimator-visible string instead.
+// Producer invariant: compaction copies message/call objects, transcript repair
+// replaces array entries, stored-tool-args replaces `arguments`, and MCP reload
+// replaces tool descriptors; settled nested non-string payloads are not mutated
+// in place without replacing their containing reference.
+const contextMessageMemo = new WeakMap();
+const contextTranscriptMemo = new WeakMap();
+
+function contextValueFingerprint(value) {
+    if (typeof value === 'string') return { value, entries: null };
+    if (Array.isArray(value)) return {
+        value,
+        entries: value.map(contextBlockFingerprint),
+    };
+    return value && typeof value === 'object'
+        ? { value, entries: [contextBlockFingerprint(value)] }
+        : { value, entries: null };
+}
+
+function contextBlockFingerprint(block) {
+    if (!block || typeof block !== 'object') return { value: block };
+    const fn = block.function;
+    return {
+        value: block,
+        text: typeof block.text === 'string' ? block.text : null,
+        content: typeof block.content === 'string' ? block.content : null,
+        args: typeof block.args === 'string' ? block.args : null,
+        arguments: block.arguments,
+        input: typeof block.input === 'string' ? block.input : null,
+        function: fn,
+        functionArguments: typeof fn?.arguments === 'string' ? fn.arguments : null,
+    };
+}
+
+function contextMessageFingerprint(message) {
+    if (!message || typeof message !== 'object') {
+        return {
+            role: undefined,
+            content: contextValueFingerprint(''),
+            toolCalls: contextValueFingerprint(null),
+            thinkingBlocks: contextValueFingerprint(null),
+            assistantBlocks: contextValueFingerprint(null),
+            toolCallId: null,
+        };
+    }
+    return {
+        role: message.role,
+        content: contextValueFingerprint(message.content),
+        toolCalls: contextValueFingerprint(message.toolCalls),
+        thinkingBlocks: contextValueFingerprint(message.thinkingBlocks),
+        assistantBlocks: contextValueFingerprint(message.assistantBlocks),
+        toolCallId: message?.toolCallId || null,
+    };
+}
+
+function sameContextValueFingerprint(a, b) {
+    if (!a || !b || a.value !== b.value) return false;
+    if (a.entries === null || b.entries === null) return a.entries === b.entries;
+    if (a.entries.length !== b.entries.length) return false;
+    for (let index = 0; index < a.entries.length; index += 1) {
+        if (!sameContextBlockFingerprint(a.entries[index], b.entries[index])) return false;
+    }
+    return true;
+}
+
+function sameContextBlockFingerprint(a, b) {
+    return !!a && !!b
+        && a.value === b.value
+        && a.text === b.text
+        && a.content === b.content
+        && a.args === b.args
+        && Object.is(a.arguments, b.arguments)
+        && a.input === b.input
+        && a.function === b.function
+        && a.functionArguments === b.functionArguments;
+}
+
+function sameContextMessageFingerprint(a, b) {
+    return !!a && a.role === b.role
+        && sameContextValueFingerprint(a.content, b.content)
+        && sameContextValueFingerprint(a.toolCalls, b.toolCalls)
+        && sameContextValueFingerprint(a.thinkingBlocks, b.thinkingBlocks)
+        && sameContextValueFingerprint(a.assistantBlocks, b.assistantBlocks)
+        && a.toolCallId === b.toolCallId;
+}
+
+function contextMessageContribution(message) {
+    const fingerprint = contextMessageFingerprint(message);
+    if (message && typeof message === 'object') {
+        const cached = contextMessageMemo.get(message);
+        if (cached && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
+    }
+    const role = ['system', 'user', 'assistant', 'tool'].includes(fingerprint.role) ? fingerprint.role : 'other';
+    const text = messageEstimateText(message);
+    const tokens = estimateTokens(text) + 4;
+    const contribution = {
+        role,
+        tokens,
+        reminderBuckets: null,
+        toolCallCount: 0,
+        toolCallTokens: 0,
+        toolResultCount: role === 'tool' ? 1 : 0,
+        toolResultTokens: role === 'tool' ? tokens : 0,
+    };
+    if (role === 'user' && String(text || '').trim().startsWith('<system-reminder>')) {
+        const buckets = { tokens: contribution.tokens, otherTokens: contribution.tokens };
+        let sectionTokens = 0;
+        for (const section of splitMarkdownSections(stripSystemReminder(text))) {
+            const bucket = reminderSectionBucket(section);
+            const sectionTokenCount = estimateTokens(section);
+            buckets[bucket] = (buckets[bucket] || 0) + sectionTokenCount;
+            sectionTokens += sectionTokenCount;
+        }
+        buckets.otherTokens = Math.max(0, contribution.tokens - sectionTokens);
+        contribution.reminderBuckets = buckets;
+    }
+    if (fingerprint.role === 'assistant' && Array.isArray(message?.toolCalls) && message.toolCalls.length) {
+        contribution.toolCallCount = message.toolCalls.length;
+        try { contribution.toolCallTokens = estimateTokens(JSON.stringify(message.toolCalls)); }
+        catch { contribution.toolCallTokens = estimateTokens(`[${message.toolCalls.length} tool calls]`); }
+    }
+    if (message && typeof message === 'object') {
+        contextMessageMemo.set(message, { fingerprint, contribution });
+    }
+    return contribution;
+}
+
+function emptyContextSummaryState() {
+    return {
+        rows: {
+            system: { count: 0, tokens: 0 },
+            user: { count: 0, tokens: 0 },
+            assistant: { count: 0, tokens: 0 },
+            tool: { count: 0, tokens: 0 },
+            other: { count: 0, tokens: 0 },
+        },
+        semantic: {
+            system: { count: 0, tokens: 0 },
+            chat: { count: 0, tokens: 0 },
+            assistant: { count: 0, tokens: 0 },
+            toolResults: { count: 0, tokens: 0 },
+            reminders: { count: 0, tokens: 0, otherTokens: 0 },
+            workflow: { tokens: 0 },
+            memory: { tokens: 0 },
+            workspace: { tokens: 0 },
+            environment: { tokens: 0 },
+            other: { tokens: 0 },
+        },
+        estimatedTokens: 0,
+        toolCallCount: 0,
+        toolCallTokens: 0,
+        toolResultCount: 0,
+        toolResultTokens: 0,
+    };
+}
+
+function applyContextMessageContribution(state, contribution, direction) {
+    const { role, tokens } = contribution;
+    state.estimatedTokens += direction * tokens;
+    state.rows[role].count += direction;
+    state.rows[role].tokens += direction * tokens;
+    if (role === 'system') {
+        state.semantic.system.count += direction;
+        state.semantic.system.tokens += direction * tokens;
+    } else if (role === 'user') {
+        if (contribution.reminderBuckets) {
+            state.semantic.reminders.count += direction;
+            state.semantic.reminders.tokens += direction * contribution.reminderBuckets.tokens;
+            state.semantic.reminders.otherTokens += direction * contribution.reminderBuckets.otherTokens;
+            for (const bucket of ['workflow', 'memory', 'workspace', 'environment', 'other']) {
+                state.semantic[bucket].tokens += direction * (contribution.reminderBuckets[bucket] || 0);
+            }
+        } else {
+            state.semantic.chat.count += direction;
+            state.semantic.chat.tokens += direction * tokens;
+        }
+    } else if (role === 'assistant') {
+        state.semantic.assistant.count += direction;
+        state.semantic.assistant.tokens += direction * tokens;
+    } else if (role === 'tool') {
+        state.semantic.toolResults.count += direction;
+        state.semantic.toolResults.tokens += direction * tokens;
+    }
+    state.toolCallCount += direction * contribution.toolCallCount;
+    state.toolCallTokens += direction * contribution.toolCallTokens;
+    state.toolResultCount += direction * contribution.toolResultCount;
+    state.toolResultTokens += direction * contribution.toolResultTokens;
+}
+
+function contextSummaryResult(state, count) {
+    return {
+        count,
+        estimatedTokens: state.estimatedTokens,
+        roles: Object.fromEntries(Object.entries(state.rows).map(([role, row]) => [role, { ...row }])),
+        semantic: Object.fromEntries(Object.entries(state.semantic).map(([name, row]) => [name, { ...row }])),
+        toolCallCount: state.toolCallCount,
+        toolCallTokens: state.toolCallTokens,
+        toolResultCount: state.toolResultCount,
+        toolResultTokens: state.toolResultTokens,
+    };
+}
+
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
 export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
@@ -301,81 +507,23 @@ function reminderSectionBucket(section) {
 }
 
 export function summarizeContextMessages(messages) {
-    const rows = {
-        system: { count: 0, tokens: 0 },
-        user: { count: 0, tokens: 0 },
-        assistant: { count: 0, tokens: 0 },
-        tool: { count: 0, tokens: 0 },
-        other: { count: 0, tokens: 0 },
-    };
-    const semantic = {
-        system: { count: 0, tokens: 0 },
-        chat: { count: 0, tokens: 0 },
-        assistant: { count: 0, tokens: 0 },
-        toolResults: { count: 0, tokens: 0 },
-        reminders: { count: 0, tokens: 0, otherTokens: 0 },
-        workflow: { tokens: 0 },
-        memory: { tokens: 0 },
-        workspace: { tokens: 0 },
-        environment: { tokens: 0 },
-        other: { tokens: 0 },
-    };
-    let toolCallCount = 0;
-    let toolCallTokens = 0;
-    let toolResultCount = 0;
-    let toolResultTokens = 0;
-    for (const message of messages || []) {
-        const role = rows[message?.role] ? message.role : 'other';
-        const text = messageEstimateText(message);
-        const tokens = estimateMessageTokens(message);
-        rows[role].count += 1;
-        rows[role].tokens += tokens;
-        if (role === 'system') {
-            semantic.system.count += 1;
-            semantic.system.tokens += tokens;
-        } else if (role === 'user') {
-            if (String(text || '').trim().startsWith('<system-reminder>')) {
-                semantic.reminders.count += 1;
-                semantic.reminders.tokens += tokens;
-                let sectionTokens = 0;
-                for (const section of splitMarkdownSections(stripSystemReminder(text))) {
-                    const bucket = reminderSectionBucket(section);
-                    const sectionTokenCount = estimateTokens(section);
-                    semantic[bucket].tokens += sectionTokenCount;
-                    sectionTokens += sectionTokenCount;
-                }
-                semantic.reminders.otherTokens += Math.max(0, tokens - sectionTokens);
-            } else {
-                semantic.chat.count += 1;
-                semantic.chat.tokens += tokens;
-            }
-        } else if (role === 'assistant') {
-            semantic.assistant.count += 1;
-            semantic.assistant.tokens += tokens;
-        } else if (role === 'tool') {
-            semantic.toolResults.count += 1;
-            semantic.toolResults.tokens += tokens;
-        }
-        if (message?.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
-            toolCallCount += message.toolCalls.length;
-            try { toolCallTokens += estimateTokens(JSON.stringify(message.toolCalls)); }
-            catch { toolCallTokens += estimateTokens(`[${message.toolCalls.length} tool calls]`); }
-        }
-        if (message?.role === 'tool') {
-            toolResultCount += 1;
-            toolResultTokens += tokens;
-        }
+    if (!Array.isArray(messages)) return contextSummaryResult(emptyContextSummaryState(), 0);
+    let cached = contextTranscriptMemo.get(messages);
+    if (!cached || messages.length < cached.count) {
+        cached = { count: 0, contributions: [], state: emptyContextSummaryState() };
+        contextTranscriptMemo.set(messages, cached);
     }
-    return {
-        count: Array.isArray(messages) ? messages.length : 0,
-        estimatedTokens: Array.isArray(messages) ? estimateMessagesTokens(messages) : 0,
-        roles: rows,
-        semantic,
-        toolCallCount,
-        toolCallTokens,
-        toolResultCount,
-        toolResultTokens,
-    };
+    for (let index = 0; index < messages.length; index += 1) {
+        const previous = cached.contributions[index];
+        const contribution = contextMessageContribution(messages[index]);
+        if (previous === contribution) continue;
+        if (previous) applyContextMessageContribution(cached.state, previous, -1);
+        cached.contributions[index] = contribution;
+        applyContextMessageContribution(cached.state, contribution, 1);
+    }
+    cached.contributions.length = messages.length;
+    cached.count = messages.length;
+    return contextSummaryResult(cached.state, messages.length);
 }
 
 // Per-request overhead the provider injects that never appears in the
@@ -383,6 +531,39 @@ export function summarizeContextMessages(messages) {
 // provider wraps around the request. The chars/4 message estimate misses all
 // of it, so a "fits" verdict computed from messages alone is optimistic.
 const REQUEST_OVERHEAD_TOKENS = 512;
+const toolSchemaTokenMemo = new WeakMap();
+const requestReserveTokenMemo = new WeakMap();
+
+function sameToolArrayEntries(cached, tools) {
+    if (!cached || cached.entries.length !== tools.length) return false;
+    for (let index = 0; index < tools.length; index += 1) {
+        const entry = cached.entries[index];
+        const tool = tools[index];
+        if (entry.tool !== tool
+            || entry.name !== tool?.name
+            || entry.description !== tool?.description
+            || entry.inputSchema !== tool?.inputSchema
+            || entry.input_schema !== tool?.input_schema
+            || entry.parameters !== tool?.parameters
+            || entry.schema !== tool?.schema) return false;
+    }
+    return true;
+}
+
+function cacheToolArrayValue(tools, value) {
+    return {
+        entries: tools.map((tool) => ({
+            tool,
+            name: tool?.name,
+            description: tool?.description,
+            inputSchema: tool?.inputSchema,
+            input_schema: tool?.input_schema,
+            parameters: tool?.parameters,
+            schema: tool?.schema,
+        })),
+        value,
+    };
+}
 
 /**
  * Estimate the token cost of the tool/function schemas a provider appends to
@@ -394,10 +575,14 @@ const REQUEST_OVERHEAD_TOKENS = 512;
  */
 export function estimateToolSchemaTokens(tools) {
     if (!Array.isArray(tools) || tools.length === 0) return 0;
+    const cached = toolSchemaTokenMemo.get(tools);
+    if (sameToolArrayEntries(cached, tools)) return cached.value;
     let text = '';
     try { text = JSON.stringify(tools); }
     catch { text = tools.map(t => String(t?.name ?? '')).join(''); }
-    return estimateTokens(text);
+    const tokens = estimateTokens(text);
+    toolSchemaTokenMemo.set(tools, cacheToolArrayValue(tools, tokens));
+    return tokens;
 }
 
 /**
@@ -407,7 +592,12 @@ export function estimateToolSchemaTokens(tools) {
  * request-side bytes the message estimate cannot see.
  */
 export function estimateRequestReserveTokens(tools) {
-    return estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
+    if (!Array.isArray(tools)) return estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
+    const cached = requestReserveTokenMemo.get(tools);
+    if (sameToolArrayEntries(cached, tools)) return cached.value;
+    const reserve = estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
+    requestReserveTokenMemo.set(tools, cacheToolArrayValue(tools, reserve));
+    return reserve;
 }
 
 /**
@@ -418,13 +608,15 @@ export function estimateRequestReserveTokens(tools) {
  *
  * @param {unknown[]} messages
  * @param {unknown[]|number} toolsOrReserve tool list or precomputed reserve tokens
- * @param {{ messageCount?: number }} [opts]
+ * @param {{ messageCount?: number, estimatedMessageTokens?: number }} [opts]
  */
 export function estimateTranscriptContextUsage(messages, toolsOrReserve, opts = {}) {
     const list = Array.isArray(messages) ? messages : [];
     const count = Number.isFinite(Number(opts.messageCount)) ? Number(opts.messageCount) : list.length;
     if (count <= 0 || list.length === 0) return 0;
-    const messageTokens = estimateMessagesTokens(list);
+    const messageTokens = Number.isFinite(Number(opts.estimatedMessageTokens))
+        ? Number(opts.estimatedMessageTokens)
+        : summarizeContextMessages(list).estimatedTokens;
     const reserve = typeof toolsOrReserve === 'number' && Number.isFinite(toolsOrReserve)
         ? Math.max(0, toolsOrReserve)
         : estimateRequestReserveTokens(toolsOrReserve);
