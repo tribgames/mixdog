@@ -2,6 +2,7 @@
 // DB status/update/merge writers plus the cosine-similarity dedup pass.
 // Facade (memory-cycle2.mjs) re-exports the public members unchanged.
 import { deleteRootEmbedding, syncRootEmbedding } from './memory-embed.mjs'
+import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import { __mixdogMemoryLog, throwIfAborted } from './memory-cycle2-shared.mjs'
 
@@ -318,7 +319,7 @@ async function _llmJudgePair(summaryA, summaryB, siblingContext = [], options = 
       agent: 'cycle2-agent',
       taskType: 'maintenance',
       mode: 'cycle2-phase_merge_judge',
-      preset: 'HAIKU',
+      preset: options.preset || resolveMaintenancePreset('memory'),
       timeout: 30000,
       cwd: null,
     }, prompt)
@@ -413,7 +414,7 @@ export async function runPhaseMerge(db, options = {}) {
       // callAgentDispatch (IPC), which is unavailable in the standalone
       // memory service and failed every judge call with
       // `agent-ipc: IPC channel unavailable`.
-      { signal, callLlm: options?.callLlm },
+      { signal, preset: options?.preset, callLlm: options?.callLlm },
     )
     throwIfAborted(signal)
     if (shouldMerge) await doMerge(pair.a, pair.b, pair.sim)
@@ -459,7 +460,7 @@ export async function runPhaseMerge(db, options = {}) {
       String(row.entry_summary ?? ''),
       String(row.core_summary ?? ''),
       [],
-      { signal, callLlm: options?.callLlm },
+      { signal, preset: options?.preset, callLlm: options?.callLlm },
     )
     throwIfAborted(signal)
     if (!verdictMerge) continue

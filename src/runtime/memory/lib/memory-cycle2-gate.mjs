@@ -496,10 +496,10 @@ export async function sonnetCascade(candidates, rulesDigest, options = {}) {
     `NO prose, NO preamble, NO meta-commentary. First character must be a digit.`,
   ].join('\n')
 
-  // Hardcoded — resolveMaintenancePreset falls back to first preset (HAIKU)
-  // when no binding exists, which would defeat the cascade. SONNET HIGH
-  // matches the worker pool's default preset id from agent-config.
-  const preset = options.cascadePreset || 'SONNET HIGH'
+  // Keep the cascade on the same maintenance route as every other memory
+  // cycle call. An explicit override remains available for focused tests and
+  // controlled callers.
+  const preset = options.cascadePreset || resolveMaintenancePreset('memory')
   const llmCall = typeof options?.callLlm === 'function' ? options.callLlm : callAgentDispatch
   let raw
   try {

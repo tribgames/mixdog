@@ -51,6 +51,17 @@ async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispa
   }, prompt)
 }
 
+export async function invokeCycle3Maintenance(prompt, options = {}) {
+  const preset = options.preset || resolveMaintenancePreset('memory')
+  return await invokeLlm(
+    prompt,
+    'cycle3-review',
+    preset,
+    Number(options.timeout ?? 600000),
+    options.callLlm,
+  )
+}
+
 function throwIfAborted(signal) {
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')
 }
@@ -507,7 +518,6 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
     .replace('{{CORE_REVIEW}}', coreReview)
     .replace('{{CURRENT_RULES}}', rulesDigest)
 
-  const preset = resolveMaintenancePreset('memory')
   const timeout = Number(config?.cycle3?.timeout ?? 600000)
   const mode = 'cycle3-review'
 
@@ -516,7 +526,7 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
   let raw
   try {
     throwIfAborted(signal)
-    raw = await invokeLlm(prompt, mode, preset, timeout, options.callLlm)
+    raw = await invokeCycle3Maintenance(prompt, { ...options, timeout, mode })
   } catch (err) {
     if (signal?.aborted) throw signal.reason ?? err
     __mixdogMemoryLog(`[cycle3] LLM error: ${err.message}\n`)
