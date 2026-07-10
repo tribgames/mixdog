@@ -4,7 +4,10 @@ import { resolve } from 'node:path';
 import { accessSync, constants, statSync } from 'node:fs';
 import { promisify } from 'node:util';
 import os from 'node:os';
-import { acquire as acquireChildSpawnSlot } from '../../../../shared/child-spawn-gate.mjs';
+import {
+    acquire as acquireChildSpawnSlot,
+    hasSpareCapacity as hasRgSpareCapacity,
+} from '../../../../shared/child-spawn-gate.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,18 +32,48 @@ const execFileAsync = promisify(execFile);
 // ── rg --threads cap ─────────────────────────────────────────────────────
 // Each rg process otherwise fans out across EVERY core; with several agents
 // running grep at once the box over-saturates and the whole batch trips the
-// 20s deadline together. Cap rg's worker threads to a fraction of the host so
-// concurrent greps share the machine. Internal dynamic default; env override
-// only — deliberately NOT exposed on any tool schema / parameter surface.
+// 20s deadline together. Use the larger half-CPU cap only when the spawn gate
+// has spare capacity; otherwise retain the conservative quarter-CPU cap.
+// Internal dynamic default; env override only — deliberately NOT exposed on
+// any tool schema / parameter surface.
 let _rgDefaultThreadCap = null;
-export function _rgThreadCap() {
+export function _rgThreadCap(spareCapacity = false) {
     const override = Number(process.env.MIXDOG_RG_THREADS);
     if (Number.isFinite(override) && override >= 1) return Math.floor(override);
-    if (_rgDefaultThreadCap !== null) return _rgDefaultThreadCap;
-    let cpus = 0;
-    try { cpus = os.cpus()?.length || 0; } catch { cpus = 0; }
-    _rgDefaultThreadCap = Math.max(2, Math.ceil((cpus || 4) / 4));
-    return _rgDefaultThreadCap;
+    if (_rgDefaultThreadCap === null) {
+        let cpus = 0;
+        try { cpus = os.cpus()?.length || 0; } catch { cpus = 0; }
+        _rgDefaultThreadCap = cpus || 4;
+    }
+    const cpus = _rgDefaultThreadCap;
+    return spareCapacity
+        ? Math.max(4, Math.ceil(cpus / 2))
+        : Math.max(2, Math.ceil(cpus / 4));
+}
+
+// Walk rg options once for all thread-argument helpers. Values of these
+// flags are opaque patterns/paths and must not be mistaken for options.
+const _rgValueFlags = new Set([
+    '-e', '--glob', '--iglob', '--type', '-A', '-B', '-C',
+    '--max-depth', '--max-columns',
+]);
+function _walkRgArgs(argsList, visit) {
+    let options = true;
+    for (let i = 0; i < argsList.length; i++) {
+        const a = argsList[i];
+        if (options && a === '--') {
+            visit(a, i, null, true);
+            options = false;
+            continue;
+        }
+        if (options && typeof a === 'string'
+            && (_rgValueFlags.has(a) || a === '-j' || a === '--threads')) {
+            visit(a, i, i + 1, true);
+            i++;
+            continue;
+        }
+        visit(a, i, null, options);
+    }
 }
 
 // Single source of truth for "did the caller already pin rg's thread count?".
@@ -48,23 +81,23 @@ export function _rgThreadCap() {
 // is the NEXT arg, short-attached (`-j8`), and long-attached (`--threads=8`).
 // Used by both the _withRgThreads injection guard and the EAGAIN retry guard
 // so the two never disagree.
-function _hasRgThreadArg(argsList) {
-    for (const a of argsList) {
-        if (typeof a !== 'string') continue;
-        if (a === '-j' || a === '--threads') return true;
-        if (/^-j\d+$/.test(a)) return true;
-        if (a.startsWith('--threads=')) return true;
-    }
-    return false;
+export function _hasRgThreadArg(argsList) {
+    let found = false;
+    _walkRgArgs(argsList, (a, _index, _valueIndex, options) => {
+        if (!options || typeof a !== 'string') return;
+        if (a === '-j' || a === '--threads'
+            || /^-j\d+$/.test(a) || a.startsWith('--threads=')) found = true;
+    });
+    return found;
 }
 
 // Inject `--threads N` unless the caller already pinned thread count
 // (`-j`/`--threads`/`-jN`/`--threads=N`, e.g. the EAGAIN `-j 1` retry). Does
 // not mutate; may return the ORIGINAL array unchanged when already
 // thread-pinned (callers must not assume a fresh copy).
-function _withRgThreads(argsList) {
+export function _withRgThreads(argsList, spareCapacity = false) {
     if (_hasRgThreadArg(argsList)) return argsList;
-    return ['--threads', String(_rgThreadCap()), ...argsList];
+    return ['--threads', String(_rgThreadCap(spareCapacity)), ...argsList];
 }
 
 // Build the EAGAIN single-thread retry args. If the caller already pinned a
@@ -72,14 +105,15 @@ function _withRgThreads(argsList) {
 // retry is unambiguously single-threaded (never `-j 8 ... -j 1`). Drops both the
 // separated form (`-j N` / `--threads N` → flag + following count) and the
 // attached forms (`-jN` / `--threads=N`).
-function _rgEagainRetryArgs(argsList) {
+export function _rgEagainRetryArgs(argsList) {
     const out = [];
-    for (let i = 0; i < argsList.length; i++) {
-        const a = argsList[i];
-        if (a === '-j' || a === '--threads') { i++; continue; } // skip flag + its count
-        if (typeof a === 'string' && (/^-j\d+$/.test(a) || a.startsWith('--threads='))) continue;
+    _walkRgArgs(argsList, (a, index, valueIndex, options) => {
+        if (options && typeof a === 'string'
+            && (a === '-j' || a === '--threads'
+                || /^-j\d+$/.test(a) || a.startsWith('--threads='))) return;
         out.push(a);
-    }
+        if (valueIndex !== null && valueIndex < argsList.length) out.push(argsList[valueIndex]);
+    });
     return ['-j', '1', ...out];
 }
 
@@ -87,14 +121,15 @@ function _rgEagainRetryArgs(argsList) {
 // retry would change nothing. Matches the separated `-j 1` / `--threads 1` form
 // and the attached `-j1` / `--threads=1` form. Any other thread pin (e.g. -j8)
 // is NOT "single-thread pinned": the retry should still run and downshift it.
-function _isRgSingleThreadPinned(argsList) {
-    for (let i = 0; i < argsList.length; i++) {
-        const a = argsList[i];
-        if (typeof a !== 'string') continue;
-        if ((a === '-j' || a === '--threads') && String(argsList[i + 1]).trim() === '1') return true;
-        if (a === '-j1' || a === '--threads=1') return true;
-    }
-    return false;
+export function _isRgSingleThreadPinned(argsList) {
+    let found = false;
+    _walkRgArgs(argsList, (a, _index, valueIndex, options) => {
+        if (!options || typeof a !== 'string') return;
+        if ((a === '-j' || a === '--threads')
+            && valueIndex !== null && String(argsList[valueIndex]).trim() === '1') found = true;
+        if (a === '-j1' || a === '--threads=1') found = true;
+    });
+    return found;
 }
 
 let _rgExecutableResolved = null;
@@ -360,7 +395,9 @@ function spawnRg(argsList, execOptions) {
     // node guardian is started: rg owns its full SIGTERM→grace→force-kill +
     // force-settle teardown, so the 1:1 guardian process was pure overhead.
     return acquireChildSpawnSlot(gateSignal).then((releaseSlot) => new Promise((resolve, reject) => {
-        const proc = spawn(rgExecutable(), _withRgThreads(argsList), {
+        // Probe after acquisition: this spawn counts toward inflight. The
+        // answer is best-effort and only selects the per-process rg cap.
+        const proc = spawn(rgExecutable(), _withRgThreads(argsList, hasRgSpareCapacity()), {
             cwd: execOptions?.cwd,
             env: execOptions?.env || process.env,
             windowsHide: true,
@@ -505,7 +542,8 @@ function spawnRgWindowedLines(argsList, execOptions, opts = {}) {
     // excluded from the rg timeout (armed after spawn). releaseSlot is fired
     // once via .finally on every settle path.
     return acquireChildSpawnSlot(gateSignal).then((releaseSlot) => new Promise((resolve, reject) => {
-        const proc = spawn(rgExecutable(), _withRgThreads(argsList), {
+        // As above, probe only after this spawn has acquired its gate slot.
+        const proc = spawn(rgExecutable(), _withRgThreads(argsList, hasRgSpareCapacity()), {
             cwd: execOptions?.cwd,
             env: execOptions?.env || process.env,
             windowsHide: true,

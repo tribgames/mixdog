@@ -382,7 +382,7 @@ export async function executeTreeTool(args, workDir, options = {}) {
 
 // ── Broad-enumeration cache (shared `rg --files` sweep) ──────────────────
 // A `rg --files` sweep of a root depends ONLY on (root, hidden, depth,
-// includeNoise) — NOT on the per-query narrowing. Yet both the fuzzy-find
+// includeNoise, ignoreMode) — NOT on the per-query narrowing. Yet both the fuzzy-find
 // broad pass and the find_files broad fast path re-run that full sweep for
 // every query item AND for every concurrent caller (measured 1-4s each when
 // 8 explorer sub-sessions hit the same root). Cache the PARSED file list per
@@ -412,8 +412,8 @@ function findEnumTtlMs() {
     return Math.floor(n); // 0 = disabled
 }
 
-function findEnumKey({ root, hidden, depth, includeNoise }) {
-    return `${root}\u0000${hidden ? 1 : 0}\u0000${depth ?? ''}\u0000${includeNoise ? 1 : 0}`;
+function findEnumKey({ root, hidden, depth, includeNoise, ignoreMode }) {
+    return `${root}\u0000${hidden ? 1 : 0}\u0000${depth ?? ''}\u0000${includeNoise ? 1 : 0}\u0000${ignoreMode}`;
 }
 
 // Parse `rg --files` stdout into the same normalized relative-path list both
@@ -430,11 +430,12 @@ function parseRgFileList(stdout) {
 // Run (or reuse) the broad `rg --files` sweep for a root. Returns
 // { files, truncated, partial }. The returned `files` array is SHARED — callers
 // must treat it as read-only. `rgArgs` must be the broad-pass args (no per-query
-// narrowing); the cache key is the 4 dims only, so any caller producing an
+// narrowing); the cache key includes every enumeration-affecting dimension, so
+// any caller producing an
 // equivalent sweep for the same dims reuses the result.
-async function getBroadEnumeration({ root, hidden, depth, includeNoise, rgArgs, cwd, runRgImpl = runRg, bestEffort = false }) {
+async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMode, rgArgs, cwd, runRgImpl = runRg, bestEffort = false }) {
     const ttl = findEnumTtlMs();
-    const key = findEnumKey({ root, hidden, depth, includeNoise });
+    const key = findEnumKey({ root, hidden, depth, includeNoise, ignoreMode });
     if (ttl > 0) {
         const hit = FIND_ENUM_CACHE.get(key);
         if (hit && hit.gen === FIND_ENUM_GEN && hit.expiresAt > Date.now()) {
@@ -485,12 +486,12 @@ export async function prewarmFindEnumeration(root) {
     try {
         if (!root || typeof root !== 'string') return;
         const hidden = true, includeNoise = false, depth = null;
-        const rgArgs = ['--files', '--no-ignore', '--hidden'];
+        const rgArgs = ['--files', '--no-require-git', '--hidden'];
         for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
         rgArgs.push('.');
         await getBroadEnumeration({
             root: normalizeOutputPath(root),
-            hidden, depth, includeNoise,
+            hidden, depth, includeNoise, ignoreMode: 'git',
             rgArgs, cwd: root, bestEffort: true,
         });
     } catch { /* best-effort warm; never surface */ }
@@ -568,11 +569,10 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     });
     const cached = cacheGet(cacheKey);
     if (cached !== null) return cached;
-    // --no-ignore: match the find_files fast path contract — do not consult
-    // .gitignore, so a .gitignored-but-present file is still discoverable.
+    // Common discovery respects .gitignore even outside a Git repository.
+    // include_noise deliberately retains the old hardened --no-ignore behavior.
     // Noise dirs stay excluded via DEFAULT_IGNORE_GLOBS below.
-    // Shared rg flags for both enumeration passes below.
-    const baseRgArgs = ['--files', '--no-ignore'];
+    const baseRgArgs = ['--files', includeNoise ? '--no-ignore' : '--no-require-git'];
     if (hidden) baseRgArgs.push('--hidden');
     if (depth != null) baseRgArgs.push('--max-depth', String(depth));
     // Noise-exclusion globs are kept SEPARATE and always appended LAST (after
@@ -611,7 +611,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     try {
         broadEnum = await getBroadEnumeration({
             root: normalizeOutputPath(fullPath),
-            hidden, depth, includeNoise,
+            hidden, depth, includeNoise, ignoreMode: includeNoise ? 'all' : 'git',
             rgArgs: [...baseRgArgs, ...ignoreGlobs, '.'],
             cwd: fullPath,
             runRgImpl,
@@ -619,8 +619,42 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     } catch (err) {
         return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
     }
-    const rgTruncated = broadEnum.truncated;
-    const rgPartial = broadEnum.partial;
+    let rgTruncated = broadEnum.truncated;
+    let rgPartial = broadEnum.partial;
+    const passOneItems = broadEnum.files.map((path) => ({ path }));
+    // Any single path segment is an exact-name candidate, including names with
+    // spaces, extensionless names, and literal glob characters. The comparison
+    // below is direct, so glob syntax has no special meaning in this decision.
+    const exactFilenameQuery = !/[\\/]/.test(query);
+    const queryLower = query.toLowerCase();
+    const passOneHasExactBasename = !exactFilenameQuery || broadEnum.files.some((path) =>
+        path.slice(path.lastIndexOf('/') + 1).toLowerCase() === queryLower);
+    const passOneHasCandidate = fuzzyRank(query, passOneItems, 1).length > 0;
+    let fallbackRan = false;
+    let fallbackPaths = [];
+    // Only pay for the hardened tree walk when common discovery has no answer,
+    // or when an exact filename could be hidden by .gitignore. Reuse the
+    // hardened broad cache shared with find_files: its key distinguishes
+    // ignoreMode, so this cannot collide with the common pass.
+    if (!includeNoise && (!passOneHasCandidate || !passOneHasExactBasename)) {
+        try {
+            const fallbackArgs = ['--files', '--no-ignore', ...baseRgArgs.slice(2), ...ignoreGlobs, '.'];
+            const fallbackEnum = await getBroadEnumeration({
+                root: normalizeOutputPath(fullPath),
+                hidden, depth, includeNoise, ignoreMode: 'all',
+                rgArgs: fallbackArgs, cwd: fullPath, runRgImpl,
+            });
+            rgTruncated ||= fallbackEnum.truncated;
+            rgPartial ||= fallbackEnum.partial;
+            fallbackPaths = fallbackEnum.files;
+            fallbackRan = true;
+        } catch {
+            // This required fallback leaves the result incomplete. Surface the
+            // existing partial warning and prevent the final output cache from
+            // preserving a pass-one-only answer.
+            rgPartial = true;
+        }
+    }
     // Narrowed enumeration: only files whose NAME contains the query
     // (case-insensitive substring glob). This output is tiny and effectively
     // never truncated, so exact/substring hits are guaranteed to reach ranking
@@ -637,15 +671,23 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
         // `!**/<noise>/**` negations would otherwise exclude (the whitelist
         // wins regardless of glob order), so noise dirs are pruned in JS here
         // instead — matching the broad pass's effective exclusion set.
-        const narrowStdout = await runRgImpl([...baseRgArgs, '--iglob', `*${escapeGlobLiteral(query)}*`, '.'], { cwd: fullPath });
+        const narrowBaseArgs = fallbackRan
+            ? ['--files', '--no-ignore', ...baseRgArgs.slice(2)]
+            : baseRgArgs;
+        const narrowStdout = await runRgImpl([...narrowBaseArgs, '--iglob', `*${escapeGlobLiteral(query)}*`, '.'], { cwd: fullPath });
         narrowPaths = parseRgFiles(narrowStdout).filter((p) =>
             includeNoise || !p.split('/').some((seg) => NOISE_DIR_NAMES.has(seg)));
     } catch { /* best-effort backstop; broad pass already collected */ }
-    // Merge broad + narrowed, deduplicating by path (broad order preserved,
-    // narrowed-only exact-name candidates appended).
+    // Merge pass one + fallback + narrowed, deduplicating by path. Pass-one
+    // order always wins so the fallback cannot perturb common-path ranking.
     const seen = new Set();
     const items = [];
     for (const p of broadEnum.files) {
+        if (seen.has(p)) continue;
+        seen.add(p);
+        items.push({ path: p });
+    }
+    for (const p of fallbackPaths) {
         if (seen.has(p)) continue;
         seen.add(p);
         items.push({ path: p });
@@ -668,6 +710,9 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     if (!noMatch && hasMore) lines.push(`... (top ${headLimit}; raise head_limit for more)`);
     if (rgTruncated) lines.push('... [warning] rg stdout truncated at 20MB cap; broad ranking incomplete (exact-name hits still merged)');
     if (rgPartial && !rgTruncated) lines.push('... [warning] rg exit 2 (partial results); broad ranking may be incomplete');
+    if (!fallbackRan && headLimit > 0 && fuzzyRank(query, passOneItems, headLimit).length >= headLimit) {
+        lines.push('[gitignored trees not searched; retry with include_noise:true]');
+    }
     const result = lines.join('\n');
     // Do not cache a truncated/partial enumeration — the broad ranking is
     // known-incomplete, so a later call with a larger head_limit must re-run.
@@ -826,7 +871,7 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
             if (!namePattern) {
                 const enumRes = await getBroadEnumeration({
                     root: normalizeOutputPath(fullPath),
-                    hidden, depth, includeNoise,
+                    hidden, depth, includeNoise, ignoreMode: 'all',
                     rgArgs, cwd: fullPath,
                 });
                 rgStdoutTruncated = enumRes.truncated;

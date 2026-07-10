@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { _resolveRgExecutable, _rgThreadCap, ensureRgResolved, rgSupportsPcre2 } from '../src/runtime/agent/orchestrator/tools/builtin/rg-runner.mjs';
+import {
+    _resolveRgExecutable,
+    _rgEagainRetryArgs,
+    _rgThreadCap,
+    _withRgThreads,
+    ensureRgResolved,
+    rgSupportsPcre2,
+} from '../src/runtime/agent/orchestrator/tools/builtin/rg-runner.mjs';
 
 function makeRgFile(path) {
     writeFileSync(path, '');
@@ -221,4 +228,13 @@ test('rg thread cap honors the environment override', () => {
         if (original === undefined) delete process.env.MIXDOG_RG_THREADS;
         else process.env.MIXDOG_RG_THREADS = original;
     }
+});
+
+test('rg treats a -e --threads pattern as a pattern during injection and retry', () => {
+    const args = ['-e', '--threads', 'needle'];
+    const injected = _withRgThreads(args);
+    assert.equal(injected[0], '--threads');
+    assert.equal(injected[2], '-e');
+    assert.deepEqual(injected.slice(3), ['--threads', 'needle']);
+    assert.deepEqual(_rgEagainRetryArgs(args), ['-j', '1', '-e', '--threads', 'needle']);
 });

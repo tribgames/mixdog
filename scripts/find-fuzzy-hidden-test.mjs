@@ -156,6 +156,41 @@ test('find hidden:false skips dot-directories', async () => {
     }
 });
 
+test('find respects .gitignore on the common path, then deterministically falls back for an exact ignored filename', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-find-gitignore-'));
+    try {
+        writeFileSync(join(root, '.gitignore'), 'ignored-tree/\n');
+        mkdirSync(join(root, 'src'), { recursive: true });
+        mkdirSync(join(root, 'ignored-tree'), { recursive: true });
+        writeFileSync(join(root, 'src', 'common-visible.mjs'), 'x\n');
+        writeFileSync(join(root, 'ignored-tree', 'common-ignored.mjs'), 'x\n');
+        writeFileSync(join(root, 'src', 'needle-target.mjs.bak'), 'x\n');
+        writeFileSync(join(root, 'ignored-tree', 'needle-target.mjs'), 'x\n');
+        writeFileSync(join(root, 'ignored-tree', 'LICENSE'), 'x\n');
+        writeFileSync(join(root, 'ignored-tree', '[slug].tsx'), 'x\n');
+        writeFileSync(join(root, 'ignored-tree', 'my file.txt'), 'x\n');
+
+        const common = await executeFuzzyFindTool({ query: 'common-visible.mjs', head_limit: 1 }, root);
+        assert.ok(common.includes('src/common-visible.mjs'), `common path must keep visible files: ${common}`);
+        assert.ok(!common.includes('ignored-tree/common-ignored.mjs'), `common path must skip .gitignored trees: ${common}`);
+        assert.ok(common.includes('[gitignored trees not searched; retry with include_noise:true]'), `filled common path must disclose skipped trees: ${common}`);
+
+        const exact = await executeFuzzyFindTool({ query: 'needle-target.mjs' }, root);
+        assert.ok(exact.includes('src/needle-target.mjs.bak'), `visible fuzzy decoy must remain in pass one: ${exact}`);
+        assert.ok(exact.includes('ignored-tree/needle-target.mjs'), `exact ignored filename must trigger fallback: ${exact}`);
+        assert.ok(!exact.includes('[gitignored trees not searched'), `fallback result must not claim ignored trees were skipped: ${exact}`);
+
+        const extensionless = await executeFuzzyFindTool({ query: 'LICENSE' }, root);
+        assert.ok(extensionless.includes('ignored-tree/LICENSE'), `extensionless exact filename must trigger fallback: ${extensionless}`);
+        const literalGlob = await executeFuzzyFindTool({ query: '[slug].tsx' }, root);
+        assert.ok(literalGlob.includes('ignored-tree/[slug].tsx'), `literal-glob exact filename must trigger fallback: ${literalGlob}`);
+        const spaced = await executeFuzzyFindTool({ query: 'my file.txt' }, root);
+        assert.ok(spaced.includes('ignored-tree/my file.txt'), `space-containing exact filename must trigger fallback: ${spaced}`);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 // ── narrowed-pass merge / dedup backstop ─────────────────────────────────
 
 test('exact-name hit survives among many decoys and is not duplicated', async () => {
