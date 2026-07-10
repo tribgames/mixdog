@@ -107,7 +107,6 @@ import {
   transcriptItemVariantKey,
   transcriptMeasuredRowsCache,
   buildTranscriptRowIndex,
-  transcriptStructureSignature,
   transcriptRenderWindow,
 } from './app/transcript-window.mjs';
 import {
@@ -2951,6 +2950,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     transcriptMeasureRef,
   } = useTranscriptWindow({
     items: state.items,
+    structureRevision: state.structureRevision,
+    streamingTail: state.streamingTail,
     themeEpoch: state.themeEpoch,
     frameColumns,
     toolOutputExpanded,

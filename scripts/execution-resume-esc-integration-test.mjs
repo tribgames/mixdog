@@ -146,9 +146,10 @@ for (const phase of ['before first delta', 'after response progress']) {
       harness.activeAsk().options.onTextDelta('partial response\n');
       await wait(40);
       assert.equal(
-        harness.state.items.some((item) => item.kind === 'assistant' && /partial response/.test(item.text)),
+        harness.state.streamingTail?.kind === 'assistant'
+          && /partial response/.test(harness.state.streamingTail.text),
         true,
-        'response progress reached the live turn',
+        'response progress reached the dedicated live tail',
       );
     }
 
@@ -157,6 +158,7 @@ for (const phase of ['before first delta', 'after response progress']) {
     assert.equal(harness.state.busy, false, 'busy clears after the real abort unwind');
     assert.equal(harness.state.spinner, null, 'spinner clears after Esc');
     assert.equal(harness.state.thinking, null, 'thinking clears after Esc');
+    assert.equal(harness.state.streamingTail == null, true, 'Esc leaves no orphaned streaming tail');
 
     harness.deliver(completion('execution_A', 'duplicate retry'));
     await tick();

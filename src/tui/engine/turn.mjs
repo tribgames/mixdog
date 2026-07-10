@@ -12,8 +12,25 @@ import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, ass
 
 export function createRunTurn(bag) {
   const {
-    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, pushItem, patchItem, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
+    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, pushItem, patchItem, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
   } = bag;
+  // Small fallbacks keep isolated createRunTurn harnesses source-compatible;
+  // the real engine supplies atomic implementations that also maintain revision.
+  const updateStreamingTail = updateStreamingTailFromStore || ((id, patch = {}) => {
+    set({ streamingTail: { ...(getState().streamingTail || {}), ...patch, kind: 'assistant', id, streaming: true } });
+    return true;
+  });
+  const settleStreamingTail = settleStreamingTailFromStore || ((id, patch = {}) => {
+    const tail = getState().streamingTail;
+    if (!tail || tail.id !== id) return false;
+    pushItem({ ...tail, ...patch, kind: 'assistant', id, streaming: false });
+    set({ streamingTail: null });
+    return true;
+  });
+  const clearStreamingTail = clearStreamingTailFromStore || ((id = null) => {
+    if (id == null || getState().streamingTail?.id === id) set({ streamingTail: null });
+    return true;
+  });
 
     async function runTurn(userText, options = {}) {
     const turnIndex = getState().stats.turns || 0;
@@ -146,6 +163,11 @@ export function createRunTurn(bag) {
           finalizeToolHeaders();
           clearDeferredTimers();
           flags.flushDeferredBeforeImmediatePush = null;
+          if (currentAssistantId && currentAssistantText.trim()) {
+            settleStreamingTail(currentAssistantId, { text: currentAssistantText });
+          } else {
+            clearStreamingTail(currentAssistantId);
+          }
           // Bump the epoch FIRST so this (still-stuck) turn's later finally becomes
           // a no-op for shared getState() and cannot corrupt the turn we hand off to.
           flags.leadTurnEpoch++;
@@ -330,7 +352,7 @@ export function createRunTurn(bag) {
         const it = newItems[i];
         if (it?.id != null) itemIndexById.set(it.id, base + i);
       }
-      set({ items, ...extra });
+      set({ items, structureRevision: (Number(getState().structureRevision) || 0) + 1, ...extra });
     };
 
     const markPromptCommitted = () => {
@@ -366,7 +388,7 @@ export function createRunTurn(bag) {
         changed = true;
         return { ...item, headerFinalized: true };
       });
-      if (changed) set({ items });
+      if (changed) set({ items, structureRevision: (Number(getState().structureRevision) || 0) + 1 });
       return changed;
     };
 
@@ -490,7 +512,7 @@ export function createRunTurn(bag) {
         // Seed the new row with the already-visible text so the ● gutter and the
         // first body line appear in the SAME set()/emit() — no empty "●-only"
         // row that scrolls once on its own and again when the body lands.
-        pushItem({ kind: 'assistant', id: currentAssistantId, text: String(initialText || ''), streaming: true });
+        updateStreamingTail(currentAssistantId, { text: String(initialText || '') });
       }
       return currentAssistantId;
     };
@@ -503,7 +525,6 @@ export function createRunTurn(bag) {
       _lastNewlineIdx = -1;
       _emittedNewlineIdx = -2;
       _emittedVisibleText = '';
-      _cachedAssistantIndex = -1;
     };
 
     const commitAssistantSegment = ({ sealToolBlock = false } = {}) => {
@@ -514,7 +535,7 @@ export function createRunTurn(bag) {
       }
       if (sealToolBlock) clearAggregateContinuation();
       const id = currentAssistantId || ensureAssistant(text);
-      patchItem(id, { text, streaming: false });
+      settleStreamingTail(id, { text });
       committedSegments.push(text);
       closeAssistantSegment();
       return true;
@@ -558,7 +579,6 @@ export function createRunTurn(bag) {
     let _lastNewlineIdx = -1;      // offset of the last completed-line '\n' found so far
     let _emittedNewlineIdx = -2;   // newline offset backing _emittedVisibleText (-2 forces first compute)
     let _emittedVisibleText = '';  // cached visible slice for the current newline offset
-    let _cachedAssistantIndex = -1;// cached getState().items index of the streaming assistant row
     // Engine-local streaming scalars. Neither responseLength nor thinkingText is
     // rendered per-token by any consumer: App reads getState().thinking only as a
     // boolean (App.jsx `!!(getState().thinking || liveSpinner?.thinking)`) and the
@@ -626,22 +646,9 @@ export function createRunTurn(bag) {
         // until there is real content to paint.
         if (currentAssistantId || streamingVisibleText.trim()) {
           const id = ensureAssistant(streamingVisibleText);
-          // Emit the accumulated assistant text and spinner update together so a
-          // streaming batch costs one set() → one emit() → one React reconcile.
-          // Cache the streaming row's index; re-find only on a cache miss (row
-          // added/removed) instead of a findIndex scan on every flush.
-          let index = _cachedAssistantIndex;
-          if (index < 0 || getState().items[index]?.id !== id) {
-            index = getState().items.findIndex((it) => it.id === id);
-            _cachedAssistantIndex = index;
-          }
-          if (index >= 0) {
-            const current = getState().items[index];
-            if (!Object.is(current.text, streamingVisibleText) || current.streaming !== true) {
-              const items = getState().items.slice();
-              items[index] = { ...current, text: streamingVisibleText, streaming: true };
-              patch.items = items;
-            }
+          const current = getState().streamingTail;
+          if (!current || current.id !== id || !Object.is(current.text, streamingVisibleText)) {
+            patch.streamingTail = { kind: 'assistant', id, text: streamingVisibleText, streaming: true };
           }
         }
         // Only touch the spinner when there is a real reason: a visible-line
@@ -649,7 +656,7 @@ export function createRunTurn(bag) {
         // pending thinking end timestamp. Refresh responseLength here so the
         // finalize outputTokens fallback stays valid without a per-token push.
         const responseLengthVal = assistantText.length + thinkingText.length;
-        const visibleLineChanged = patch.items !== undefined;
+        const visibleLineChanged = patch.streamingTail !== undefined;
         const thinkingTransition = _publishedThinkingActive === true; // was thinking, now responding
         if (getState().spinner && (visibleLineChanged || thinkingTransition || _pendingThinkingLastEndedAt)) {
           patch.spinner = { ...getState().spinner, responseLength: responseLengthVal, thinking: false, thinkingLastEndedAt: _pendingThinkingLastEndedAt || getState().spinner.thinkingLastEndedAt, mode: compactingActive ? 'compacting' : 'responding' };
@@ -1133,10 +1140,10 @@ export function createRunTurn(bag) {
           // the final provider text when it is available.
           const id = currentAssistantId || ensureAssistant(finalRemainder);
           currentAssistantText = finalRemainder;
-          patchItem(id, { text: finalRemainder, streaming: false });
+          settleStreamingTail(id, { text: finalRemainder });
         } else if (currentAssistantId && (currentAssistantText.trim() || assistantText.trim())) {
           const streamedText = currentAssistantText || assistantText;
-          patchItem(currentAssistantId, { text: streamedText, streaming: false });
+          settleStreamingTail(currentAssistantId, { text: streamedText });
         }
         turnFinishedNormally = true;
       }
@@ -1149,7 +1156,7 @@ export function createRunTurn(bag) {
         if (error?.name === 'SessionClosedError') {
           cancelled = true;
           if (assistantText.trim() && currentAssistantId) {
-            patchItem(currentAssistantId, { text: currentAssistantText || assistantText, streaming: false });
+            settleStreamingTail(currentAssistantId, { text: currentAssistantText || assistantText });
           }
           // Finalize pending tool cards so they don't stay "Running..." forever
           // after cancellation. Without this, the spinner vanishes and TurnDone
@@ -1193,6 +1200,13 @@ export function createRunTurn(bag) {
       if (isStaleUnwind) {
         tuiDebug(`runTurn STALE UNWIND turn=${turnIndex} — force-released; skipping shared UI/state writes`);
       } else {
+        if (currentAssistantId && getState().streamingTail?.id === currentAssistantId) {
+          if (currentAssistantText.trim()) {
+            settleStreamingTail(currentAssistantId, { text: currentAssistantText });
+          } else {
+            clearStreamingTail(currentAssistantId);
+          }
+        }
         const producedTranscriptItem =
           getState().items.length + closingItems.length > itemsAtTurnStart;
         const reclaimed = cancelled && flags.activePromptRestore?.reclaimed === true;

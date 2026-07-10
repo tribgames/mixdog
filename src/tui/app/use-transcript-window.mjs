@@ -18,7 +18,6 @@ import {
   hasStreamingRowStateToPrune,
   transcriptItemVariantKey,
   buildTranscriptRowIndexIncremental,
-  transcriptStructureSignature,
   estimateTranscriptItemRowsCached,
   setStreamingBottomPinned,
   transcriptRenderWindow,
@@ -32,7 +31,9 @@ import {
 import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.mjs';
 
 export function useTranscriptWindow({
-  items,
+  items: settledItems,
+  structureRevision,
+  streamingTail,
   themeEpoch,
   frameColumns,
   toolOutputExpanded,
@@ -129,42 +130,12 @@ export function useTranscriptWindow({
     return fn;
   }, []);
 
-  // Key the heavy O(n) row-index + windowing memos on a STRUCTURE signature
-  // instead of the `items` array identity. The engine swaps `items`
-  // for a new array on every streaming flush (~8ms) while only the final
-  // assistant item's text grows; depending on array identity re-ran both memos
-  // each delta frame and visibly throttled the stream. The signature changes
-  // only when transcript structure or the streaming item's estimated height
-  // changes, so steady per-character growth keeps both memos warm.
-  //
-  // The signature itself is memoized on `items` identity (+columns/
-  // expanded) so re-renders that DO NOT touch items — drag motion, scroll,
-  // input typing — skip the O(n) signature walk entirely. During streaming the
-  // engine hands us a fresh `items` array each flush, so this memo
-  // recomputes and still tracks the streaming item's height correctly.
-  // Split the structure signature into prefix (all items except the trailing
-  // streaming item) + tail. On a streaming flush only the tail item object is
-  // replaced; every prefix item keeps identity, so the prefix sig is O(1)-
-  const streamingTailItem = useMemo(() => {
-    const last = (items || []).length > 0 ? items[items.length - 1] : null;
-    return last && last.kind === 'assistant' && last.streaming ? last : null;
-  }, [items]);
-  const prefixLen = streamingTailItem ? (items || []).length - 1 : (items || []).length;
-  // Key on `items` identity (engine swaps the array every flush — INCLUDING a
-  // tool-card patch that replaces a MIDDLE item object), so a same-length
-  // middle-item replacement is caught (new object → fresh WeakMap fragment →
-  // different prefixSig string). The walk itself is cheap: transcript-
-  // StructureSignature reads a WeakMap sigPart per item (no re-estimation for
-  // unchanged objects) and joins — O(n) map lookups, not O(n) measurement. The
-  // row-index memo stays keyed on the prefixSig STRING, so a tail-only flush
-  // (identical prefix objects → identical string) still skips the row rebuild.
-  const prefixSig = useMemo(
-    () => transcriptStructureSignature(
-      streamingTailItem ? (items || []).slice(0, prefixLen) : (items || []),
-      frameColumns, toolOutputExpanded,
-    ),
-    [items, streamingTailItem, prefixLen, frameColumns, toolOutputExpanded],
-  );
+  // The settled array no longer changes during streaming. Geometry is keyed by
+  // the engine revision plus the live tail's resolved height, so same-height
+  // text flushes do not copy/walk the settled prefix or rerun heavy memos.
+  const streamingTailItem = streamingTail?.kind === 'assistant' && streamingTail.streaming
+    ? streamingTail
+    : null;
   const scrolledUpRowsForPin = Math.max(0, Number(scrollTargetRef.current) || 0);
   const transcriptPinnedForStreaming = followingRef.current
     || scrolledUpRowsForPin <= transcriptBottomSlackRows;
@@ -173,13 +144,18 @@ export function useTranscriptWindow({
   // applies while bottom-pinned (right geometry on first commit, no judder) and
   // every tail-resolving path reads the same height (no sig/geometry divergence).
   setStreamingBottomPinned(transcriptPinnedForStreaming);
-  const tailSig = streamingTailItem
-    ? `a${streamingTailItem.id}:${estimateTranscriptItemRowsCached(streamingTailItem, frameColumns, toolOutputExpanded)}`
-    : '_';
-  const transcriptStructureSig = `${prefixSig}#${tailSig}`;
-  const transcriptStreamingActive = (items || []).some(
-    (item) => item?.kind === 'assistant' && item?.streaming,
+  const tailRows = streamingTailItem
+    ? estimateTranscriptItemRowsCached(streamingTailItem, frameColumns, toolOutputExpanded)
+    : 0;
+  const tailSig = streamingTailItem ? `${streamingTailItem.id}:${tailRows}` : '_';
+  const revision = Math.max(0, Number(structureRevision) || 0);
+  const transcriptItems = useMemo(
+    () => streamingTailItem ? [...(settledItems || []), streamingTailItem] : (settledItems || []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tail text at the same resolved height is injected into the bounded visible slice below
+    [settledItems, revision, streamingTailItem?.id, tailRows],
   );
+  const transcriptStructureSig = `${revision}#${tailSig}`;
+  const transcriptStreamingActive = !!streamingTailItem;
   const scrolledUpForStreamingMeasure = scrolledUpRowsForPin > transcriptBottomSlackRows;
   const prevEstimateGeometry = transcriptGeomRef.current?.suppressMeasuredRowHeights === true;
   const hasStreamingReadingAnchor = !!transcriptAnchorRef.current
@@ -199,15 +175,15 @@ export function useTranscriptWindow({
   // rebuild for the settled prefix. All those invalidators are folded into the
   // memo deps below (sig captures item/column/expanded structure; the rest are
   // listed explicitly), so the memo only recomputes when one of them changes.
-  const transcriptRowIndex = useMemo(() => buildTranscriptRowIndexIncremental(items, {
+  const transcriptRowIndex = useMemo(() => buildTranscriptRowIndexIncremental(transcriptItems, {
     columns: frameColumns,
     toolOutputExpanded,
     suppressMeasuredRowHeights,
     measuredRowsVersion,
     cacheRef: incrementalRowIndexCacheRef,
-    prefixSig,
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: prefixSig/tailSig capture the relevant item changes (raw `items` dropped so a tail-only flush never re-enters the builder via array identity); measuredRowsVersion folds in app-level measured height corrections
-  }), [prefixSig, tailSig, measuredRowsVersion, suppressMeasuredRowHeights]);
+    prefixRevision: revision,
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision/tail height capture structural geometry; measuredRowsVersion folds in measured corrections
+  }), [revision, tailSig, frameColumns, toolOutputExpanded, measuredRowsVersion, suppressMeasuredRowHeights]);
   // ── Same-frame anchor lock ───────────────────────────────────────────────
   // While the user reads older transcript (anchor captured, not dirty), resolve
   // the scroll offset that keeps the anchored viewport-top row fixed for THIS
@@ -243,7 +219,7 @@ export function useTranscriptWindow({
   if (anchorLockActive) {
     const locked = resolveAnchorScrollOffset({
       anchor: transcriptAnchorRef.current,
-      items: items,
+      items: transcriptItems,
       curPrefix: curPrefixForLock,
       totalRows: lockTotalRows,
       viewRows: lockViewRows,
@@ -288,7 +264,7 @@ export function useTranscriptWindow({
         const captured = { id: anchorItem.id, offset: Math.max(0, prevTopRow - (prevPrefix[idx] || 0)) };
         const locked = resolveAnchorScrollOffset({
           anchor: captured,
-          items: items,
+          items: transcriptItems,
           curPrefix: curPrefixForLock,
           totalRows: lockTotalRows,
           viewRows: lockViewRows,
@@ -343,7 +319,7 @@ export function useTranscriptWindow({
         const captured = { id: anchorItem.id, offset: Math.max(0, prevTopRow - (prevPrefix[idx] || 0)) };
         const locked = resolveAnchorScrollOffset({
           anchor: captured,
-          items: items,
+          items: transcriptItems,
           curPrefix: curPrefixForLock,
           totalRows: lockTotalRows,
           viewRows: lockViewRows,
@@ -376,7 +352,7 @@ export function useTranscriptWindow({
   // measuredRowsVersion bumps, the row index absorbs the growth (idEntry.rows ==
   // the new measured height) and the live estimate matches it, so delta → 0.
   if (scrolledUp && !followingRef.current) {
-    const growth = streamingTailMountedGrowth(items, frameColumns, toolOutputExpanded);
+    const growth = streamingTailMountedGrowth(transcriptItems, frameColumns, toolOutputExpanded);
     // Only compensate when the tail is actually mounted in the rendered slice
     // (viewport + overscan). Off-slice it is represented by a row-index-sized
     // bottom spacer that does NOT physically grow this frame, so shifting the
@@ -394,7 +370,7 @@ export function useTranscriptWindow({
       }
     }
   }
-  const transcriptWindow = useMemo(() => transcriptRenderWindow(items, {
+  const transcriptWindow = useMemo(() => transcriptRenderWindow(transcriptItems, {
     scrollOffset: renderScrollOffset,
     viewportHeight: transcriptContentHeight,
     columns: frameColumns,
@@ -451,7 +427,7 @@ export function useTranscriptWindow({
     prefixRows: transcriptRowIndex?.prefixRows || null,
     totalRows: Math.max(0, Number(transcriptWindow.totalRows) || 0),
     viewRows: Math.max(1, Number(transcriptContentHeight) || 1),
-    items: items || null,
+    items: transcriptItems || null,
     // The offset THIS frame actually rendered with. The same-frame anchor
     // CAPTURE for a missing/dirty anchor (above) reads this from the PREVIOUS
     // frame to reconstruct the exact top-edge row that was on screen, so the
@@ -469,10 +445,16 @@ export function useTranscriptWindow({
   // height changes. Re-slice the live `items` over the memo's stable
   // [startIndex, endIndex) bounds so the on-screen text is always current
   // while the expensive indexing/windowing stays warm.
-  const transcriptVisibleItems = (items || []).slice(
+  const transcriptVisibleItems = (transcriptItems || []).slice(
     transcriptWindow.startIndex,
     transcriptWindow.endIndex,
   );
+  if (streamingTailItem && transcriptVisibleItems.length > 0) {
+    const last = transcriptVisibleItems.length - 1;
+    if (transcriptVisibleItems[last]?.id === streamingTailItem.id) {
+      transcriptVisibleItems[last] = streamingTailItem;
+    }
+  }
   // The bottom meta band is spinner-only, so nothing is pulled out of the
   // transcript for it. A finished turn's done row (turndone/statusdone) renders
   // inline in scrollback like any other item — no filtering, no double-paint.
@@ -703,7 +685,7 @@ export function useTranscriptWindow({
     // move the item's prefix start and are absorbed the same way. No deltas, no
     // fallback, no drift.
     const viewRows = Math.max(1, Number(transcriptContentHeight) || 1);
-    const itemList = items || [];
+    const itemList = transcriptItems || [];
     let anchor = transcriptAnchorRef.current;
     // (Re)capture the anchor from the current viewport-top edge when missing or
     // invalidated by a manual scroll. anchorRow = absolute row at the top edge.

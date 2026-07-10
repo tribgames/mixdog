@@ -24,7 +24,7 @@ export function createEngineApi(bag) {
 
 export function createEngineApiA(bag) {
   const {
-    runtime, nextId, flags, pending, listeners, getState, set, pushItem, patchItem, replaceItems, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
+    runtime, nextId, flags, pending, listeners, getState, set, pushItem, patchItem, replaceItems, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
   } = bag;
   return {
     getState: () => getState(),
@@ -617,6 +617,12 @@ export function createEngineApiA(bag) {
         if (flags.disposed) return;
         if (!getState().busy) return;                    // normal abort settled
         if (flags.leadTurnEpoch !== abortEpoch) return;  // a newer turn owns the store
+        const streamingTail = getState().streamingTail;
+        if (streamingTail?.text?.trim()) {
+          settleStreamingTail?.(streamingTail.id, {});
+        } else {
+          clearStreamingTail?.();
+        }
         // Bump the epoch FIRST so the still-stuck turn's eventual finally becomes
         // a no-op for shared getState() writes and cannot corrupt the handoff.
         flags.leadTurnEpoch = (Number(flags.leadTurnEpoch) || 0) + 1;

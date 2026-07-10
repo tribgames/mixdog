@@ -142,6 +142,87 @@ export { parseBackgroundTaskEnvelope };
 // so importers/tests keep resolving resolveTuiRuntimeNotificationDelivery from engine.mjs.
 export { resolveTuiRuntimeNotificationDelivery };
 
+export function replaceEngineItemsState({
+  state,
+  items,
+  itemIndexById,
+  preserveStreamingTail = false,
+  extra = {},
+}) {
+  const nextItems = Array.isArray(items) ? items : [];
+  itemIndexById.clear();
+  for (let i = 0; i < nextItems.length; i++) {
+    const id = nextItems[i]?.id;
+    if (id != null) itemIndexById.set(id, i);
+  }
+  return {
+    ...state,
+    ...extra,
+    items: nextItems,
+    structureRevision: (Number(state.structureRevision) || 0) + 1,
+    streamingTail: preserveStreamingTail ? state.streamingTail : null,
+  };
+}
+
+// Shared by the live engine and focused transcript tests so revision/tail
+// regressions exercise the exact mutation implementation used in production.
+export function createEngineItemMutators({ getState, set, itemIndexById }) {
+  const patchItem = (id, patch) => {
+    const state = getState();
+    let index = itemIndexById.get(id);
+    if (!Number.isInteger(index) || state.items[index]?.id !== id) {
+      index = state.items.findIndex((it) => it.id === id);
+      if (index >= 0) itemIndexById.set(id, index);
+    }
+    if (index < 0) return false;
+    const current = state.items[index];
+    let changed = false;
+    for (const [key, value] of Object.entries(patch || {})) {
+      if (!Object.is(current[key], value)) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return false;
+    const items = state.items.slice();
+    items[index] = { ...current, ...patch };
+    set({ items, structureRevision: (Number(state.structureRevision) || 0) + 1 });
+    return true;
+  };
+
+  const settleStreamingTail = (id, patch = {}, extra = {}) => {
+    const state = getState();
+    const tail = state.streamingTail?.id === id ? state.streamingTail : null;
+    // Bulk transcript replacement/reset owns the new transcript. A stale turn
+    // must never append into it after replaceItems deliberately cleared its tail.
+    if (!tail) return false;
+    let existingIndex = itemIndexById.get(id);
+    if (!Number.isInteger(existingIndex) || state.items[existingIndex]?.id !== id) {
+      existingIndex = state.items.findIndex((item) => item?.id === id);
+    }
+    if (existingIndex >= 0) return false;
+    const item = {
+      ...(tail || {}),
+      ...patch,
+      kind: 'assistant',
+      id,
+      streaming: false,
+    };
+    const index = state.items.length;
+    const items = [...state.items, item];
+    itemIndexById.set(id, index);
+    set({
+      items,
+      structureRevision: (Number(state.structureRevision) || 0) + 1,
+      streamingTail: null,
+      ...extra,
+    });
+    return true;
+  };
+
+  return { patchItem, settleStreamingTail };
+}
+
 export async function createEngineSession({
   provider: providerName,
   model,
@@ -205,6 +286,8 @@ export async function createEngineSession({
   };
   let state = {
     items: [],
+    structureRevision: 0,
+    streamingTail: null,
     toasts: [],
     progressHint: null,
     busy: false,
@@ -283,13 +366,8 @@ export async function createEngineSession({
   };
 
   const itemIndexById = new Map();
-  const replaceItems = (items) => {
+  const replaceItems = (items, { preserveStreamingTail = false } = {}) => {
     const nextItems = Array.isArray(items) ? items : [];
-    itemIndexById.clear();
-    for (let i = 0; i < nextItems.length; i++) {
-      const id = nextItems[i]?.id;
-      if (id != null) itemIndexById.set(id, i);
-    }
     // Bulk item swap (session load / clear / compact). Derive the prompt-history
     // list from the NEW items and stage it onto state here so App never rescans;
     // the callers that invoke replaceItems always follow with a set({items:...,
@@ -297,12 +375,21 @@ export async function createEngineSession({
     // emit (the accompanying set() diffs the full patch). A bulk swap also
     // discards the old transcript, so drop any tracked active tool calls.
     activeToolCalls.clear();
-    state = {
-      ...state,
+    state = replaceEngineItemsState({
+      state,
       items: nextItems,
-      promptHistoryList: buildMergedPromptHistory(recomputePromptHistory(nextItems), loadPromptHistory(state.cwd)),
-      activeToolSummary: null,
-    };
+      itemIndexById,
+      preserveStreamingTail,
+      extra: {
+        promptHistoryList: buildMergedPromptHistory(recomputePromptHistory(nextItems), loadPromptHistory(state.cwd)),
+        activeToolSummary: null,
+      },
+    });
+    // replaceItems stages the bulk state before its callers compose their
+    // accompanying patch. Emit here as well so an items-only replacement
+    // (for example removeNotice) cannot be hidden by the outer set seeing the
+    // already-installed array identity.
+    emit();
     return nextItems;
   };
   // --- Prompt-history list (newest-first, deduped) maintained incrementally ---
@@ -371,11 +458,39 @@ export async function createEngineSession({
       // first — set() diffs against the current state, so a pre-assign would make
       // the references identical and skip emit().
       const promptHistoryList = buildMergedPromptHistory(recomputePromptHistory(items), loadPromptHistory(state.cwd));
-      set({ items, promptHistoryList });
+      set({ items, structureRevision: state.structureRevision + 1, promptHistoryList });
     } else {
-      set({ items });
+      set({ items, structureRevision: state.structureRevision + 1 });
     }
   };
+  const updateStreamingTail = (id, patch = {}, extra = {}) => {
+    if (id == null) return false;
+    const current = state.streamingTail?.id === id
+      ? state.streamingTail
+      : { kind: 'assistant', id, text: '', streaming: true };
+    const next = { ...current, ...patch, kind: 'assistant', id, streaming: true };
+    let changed = state.streamingTail !== current;
+    if (!changed) {
+      for (const [key, value] of Object.entries(next)) {
+        if (!Object.is(current[key], value)) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    return set(changed ? { streamingTail: next, ...extra } : extra);
+  };
+  const clearStreamingTail = (id = null, extra = {}) => {
+    if (!state.streamingTail || (id != null && state.streamingTail.id !== id)) {
+      return set(extra);
+    }
+    return set({ streamingTail: null, ...extra });
+  };
+  const { patchItem, settleStreamingTail } = createEngineItemMutators({
+    getState: () => state,
+    set,
+    itemIndexById,
+  });
   const upsertSyntheticToolItem = (text, id = nextId(), parsed = null) => {
     const synthetic = parseSyntheticAgentMessage(text);
     if (!synthetic) return false;
@@ -513,7 +628,7 @@ export async function createEngineSession({
     if (id == null) return false;
     const items = state.items.filter((it) => !(it?.kind === 'notice' && it?.id === id));
     if (items.length === state.items.length) return false;
-    set({ items: replaceItems(items) });
+    set({ items: replaceItems(items, { preserveStreamingTail: true }) });
     return true;
   };
   // Sticky (non-TTL) input-hint-line progress state, for long-running
@@ -538,27 +653,6 @@ export async function createEngineSession({
     getDisposed: () => flags.disposed,
     timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
   });
-  const patchItem = (id, patch) => {
-    let index = itemIndexById.get(id);
-    if (!Number.isInteger(index) || state.items[index]?.id !== id) {
-      index = state.items.findIndex((it) => it.id === id);
-      if (index >= 0) itemIndexById.set(id, index);
-    }
-    if (index < 0) return false;
-    const current = state.items[index];
-    let changed = false;
-    for (const [key, value] of Object.entries(patch || {})) {
-      if (!Object.is(current[key], value)) {
-        changed = true;
-        break;
-      }
-    }
-    if (!changed) return false;
-    const items = state.items.slice();
-    items[index] = { ...current, ...patch };
-    set({ items });
-    return true;
-  };
   const toastTimers = new Set();
   lifecycle.runtimePulseTimer = setInterval(() => {
     if (flags.disposed) return;
@@ -637,7 +731,8 @@ export async function createEngineSession({
     runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS,
     flags, lifecycle, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, listeners, itemIndexById,
     getState: () => state, set,
-    pushItem, patchItem, replaceItems, pushToast, pushNotice, removeNotice, setProgressHint,
+    pushItem, patchItem, replaceItems, updateStreamingTail, settleStreamingTail, clearStreamingTail,
+    pushToast, pushNotice, removeNotice, setProgressHint,
     pushUserOrSyntheticItem, pushAsyncAgentResponse, upsertSyntheticToolItem,
     markToolCallActive, markToolCallDone, clearActiveToolSummary, clearToastTimers,
     autoClearState, agentStatusState, baseRouteState, routeState, syncContextStats,

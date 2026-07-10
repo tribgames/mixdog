@@ -832,7 +832,7 @@ export function buildTranscriptRowIndexIncremental(items, {
   suppressMeasuredRowHeights = false,
   measuredRowsVersion = 0,
   cacheRef = null,
-  prefixSig = null,
+  prefixRevision = null,
 } = {}) {
   const allItems = Array.isArray(items) ? items : [];
   const tail = trailingStreamingItem(allItems);
@@ -850,11 +850,10 @@ export function buildTranscriptRowIndexIncremental(items, {
   }
   const prefixLen = allItems.length - 1;
   const cache = holder.current;
-  // Prefix identity is carried by `prefixSig` (a hash of every prefix item's
-  // WeakMap sigPart, computed once in the hook). String equality catches a
-  // same-length MIDDLE-item replacement (tool-card patch swaps a middle object →
-  // fresh fragment → different sig), which a last-item ref check would miss.
-  // Fast path: same prefix length + tail id + prefixSig, and columns/expanded/
+  // Prefix identity is carried by the engine's monotonic structure revision.
+  // Every settled-item mutation, including same-length middle tool-card patches,
+  // bumps it without requiring a render-time walk over the transcript.
+  // Fast path: same prefix length + tail id + revision, and columns/expanded/
   // suppress/version all match. Only the tail row can differ → recompute + append.
   if (cache
     && cache.columns === columns
@@ -862,10 +861,10 @@ export function buildTranscriptRowIndexIncremental(items, {
     && cache.suppress === suppressMeasuredRowHeights
     && cache.version === measuredRowsVersion
     && cache.prefixLen === prefixLen
-    && prefixSig != null
-    && cache.prefixSig === prefixSig
+    && prefixRevision != null
+    && cache.prefixRevision === prefixRevision
     && cache.tailId === tail.id) {
-    // prefixSig matches → prefix rows provably unchanged; NO prefix walk / no
+    // revision matches → prefix rows provably unchanged; NO prefix walk / no
     // re-estimation. Only the tail row can differ, recompute it.
     {
       const tailMeasured = suppressMeasuredRowHeights
@@ -894,7 +893,7 @@ export function buildTranscriptRowIndexIncremental(items, {
     suppress: suppressMeasuredRowHeights,
     version: measuredRowsVersion,
     prefixLen,
-    prefixSig,
+    prefixRevision,
     tailId: tail.id,
     prefixRowsArr: full.rows.slice(0, prefixLen),
     prefixPrefixRows: full.prefixRows.slice(0, prefixLen + 1),
