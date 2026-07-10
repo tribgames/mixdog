@@ -1,6 +1,7 @@
 import { spawn, execFile } from 'child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { resolve } from 'node:path';
+import { accessSync, constants, statSync } from 'node:fs';
 import { promisify } from 'node:util';
 import os from 'node:os';
 import { acquire as acquireChildSpawnSlot } from '../../../../shared/child-spawn-gate.mjs';
@@ -31,12 +32,15 @@ const execFileAsync = promisify(execFile);
 // 20s deadline together. Cap rg's worker threads to a fraction of the host so
 // concurrent greps share the machine. Internal dynamic default; env override
 // only — deliberately NOT exposed on any tool schema / parameter surface.
-function _rgThreadCap() {
+let _rgDefaultThreadCap = null;
+export function _rgThreadCap() {
     const override = Number(process.env.MIXDOG_RG_THREADS);
     if (Number.isFinite(override) && override >= 1) return Math.floor(override);
+    if (_rgDefaultThreadCap !== null) return _rgDefaultThreadCap;
     let cpus = 0;
     try { cpus = os.cpus()?.length || 0; } catch { cpus = 0; }
-    return Math.max(2, Math.ceil((cpus || 4) / 4));
+    _rgDefaultThreadCap = Math.max(2, Math.ceil((cpus || 4) / 4));
+    return _rgDefaultThreadCap;
 }
 
 // Single source of truth for "did the caller already pin rg's thread count?".
@@ -94,32 +98,63 @@ function _isRgSingleThreadPinned(argsList) {
 }
 
 let _rgExecutableResolved = null;
+let _rgExecutableResolutionKey = null;
+let _rgResolvePromise = null;
+let _rgResolvePromiseKey = null;
+let _rgResolutionGeneration = 0;
 
-async function _resolveRgExecutable() {
+function _rgResolutionKey() {
+    return [
+        process.platform,
+        process.cwd(),
+        String(process.env.PATH || ''),
+        String(process.env.PATHEXT || ''),
+    ].join('\0');
+}
+
+function _usableRgCandidate(candidate, isWin = process.platform === 'win32') {
+    try {
+        const info = statSync(candidate);
+        if (!info.isFile()) return false;
+        if (isWin) {
+            const ext = candidate.slice(candidate.lastIndexOf('.')).toLowerCase();
+            return ext === '.exe' || ext === '.com';
+        }
+        accessSync(candidate, constants.X_OK);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export async function _resolveRgExecutable() {
     const isWin = process.platform === 'win32';
+    const pathSep = isWin ? ';' : ':';
+    const dirs = String(process.env.PATH || '').split(pathSep);
+    // Avoid `where`/`which` on the normal path: on Windows it costs tens of
+    // milliseconds before doing the same filesystem search. Windows command
+    // lookup checks the current directory before PATH and applies PATHEXT in
+    // order; POSIX lookup is just the PATH order.
+    const searchDirs = isWin ? [process.cwd(), ...dirs] : dirs;
+    const names = isWin
+        ? String(process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';')
+            .map((ext) => ext.trim().toLowerCase())
+            .filter((ext) => ext === '.exe' || ext === '.com')
+            .map((ext) => `rg${ext}`)
+        : ['rg'];
+    for (const dir of searchDirs) {
+        for (const name of names) {
+            const candidate = resolve(dir, name);
+            if (existsSync(candidate) && _usableRgCandidate(candidate, isWin)) return candidate;
+        }
+    }
     try {
         const cmd = isWin ? 'where' : 'which';
         const { stdout: out } = await execFileAsync(cmd, ['rg'], { encoding: 'utf8', windowsHide: true });
         const first = out.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
-        if (first && existsSync(first)) return first;
-    } catch { /* fall through to PATH scan */ }
-    const pathSep = isWin ? ';' : ':';
-    const dirs = String(process.env.PATH || '').split(pathSep).filter(Boolean);
-    const pathext = isWin
-        ? String(process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').map((e) => e.toLowerCase())
-        : [''];
-    const names = isWin ? ['rg.exe', 'rg'] : ['rg'];
-    for (const dir of dirs) {
-        for (const name of names) {
-            const candidate = join(dir, name);
-            if (!existsSync(candidate)) continue;
-            if (isWin) {
-                const ext = candidate.slice(candidate.lastIndexOf('.')).toLowerCase();
-                if (ext && !pathext.includes(ext)) continue;
-            }
-            return candidate;
-        }
-    }
+        const candidate = first ? resolve(first) : '';
+        if (candidate && _usableRgCandidate(candidate, isWin)) return candidate;
+    } catch { /* preserve bare-rg fallback */ }
     return 'rg';
 }
 
@@ -134,12 +169,23 @@ function rgExecutable() {
 // blocking the event loop ~90ms on the first grep/glob/find of a session
 // (freezing the TUI). Resolve asynchronously and cache the result; subsequent
 // calls return immediately.
-let _rgResolvePromise = null;
-async function ensureRgResolved() {
-    if (_rgExecutableResolved !== null) return _rgExecutableResolved;
-    if (!_rgResolvePromise) {
+export async function ensureRgResolved() {
+    const key = _rgResolutionKey();
+    const cachedUsable = _rgExecutableResolved !== null
+        && _rgExecutableResolved !== 'rg'
+        && _usableRgCandidate(_rgExecutableResolved);
+    if (_rgExecutableResolutionKey === key && cachedUsable) return _rgExecutableResolved;
+    if (_rgExecutableResolved !== null && (_rgExecutableResolutionKey !== key || !cachedUsable)) {
+        _rgResolutionGeneration++;
+        _rgExecutableResolved = null;
+        _rgExecutableResolutionKey = null;
+        _rgResolvePromise = null;
+    }
+    if (!_rgResolvePromise || _rgResolvePromiseKey !== key) {
+        _rgResolvePromiseKey = key;
         _rgResolvePromise = _resolveRgExecutable().then((resolved) => {
             _rgExecutableResolved = resolved;
+            _rgExecutableResolutionKey = key;
             return resolved;
         });
     }
@@ -155,7 +201,6 @@ const RG_FALLBACK_FAIL_TTL_MS = 30000;
 let _rgFallbackUsable = null;
 let _rgFallbackFailAt = 0;
 async function rgFallbackUsable() {
-    if (_rgFallbackUsable === true) return true;
     if (_rgFallbackUsable === false && (Date.now() - _rgFallbackFailAt) < RG_FALLBACK_FAIL_TTL_MS) {
         return false;
     }
@@ -195,12 +240,16 @@ const RG_PCRE2_FAIL_TTL_MS = 30000;
 let _rgPcre2Supported = null;
 let _rgPcre2FailAt = 0;
 export async function rgSupportsPcre2() {
-    if (_rgPcre2Supported === true) return true;
-    if (_rgPcre2Supported === false && (Date.now() - _rgPcre2FailAt) < RG_PCRE2_FAIL_TTL_MS) {
-        return false;
+    await ensureRgResolved();
+    const cacheKey = `${_rgResolutionGeneration}:${rgExecutable()}`;
+    if (rgSupportsPcre2._cacheKey !== cacheKey) {
+        _rgPcre2Supported = null;
+        _rgPcre2FailAt = 0;
+        rgSupportsPcre2._cacheKey = cacheKey;
     }
+    if (_rgPcre2Supported === true) return true;
+    if (_rgPcre2Supported === false && (Date.now() - _rgPcre2FailAt) < RG_PCRE2_FAIL_TTL_MS) return false;
     try {
-        await ensureRgResolved();
         await execFileAsync(rgExecutable(), ['--pcre2-version'], { windowsHide: true, timeout: 3000 });
         _rgPcre2Supported = true;
     } catch {

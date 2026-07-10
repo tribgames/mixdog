@@ -53,33 +53,46 @@ function frontmatter(text, label) {
   return source.slice(opening[0].length, opening[0].length + closing.index);
 }
 
-// --- Lead brief contract: canonical in lead-brief.md, referenced from WORKFLOW -
+// --- Compact rule contracts -------------------------------------------------
 const workflow = readSrc('workflows', 'default', 'WORKFLOW.md');
 const leadBrief = readSrc('rules', 'lead', 'lead-brief.md');
+const solo = readSrc('workflows', 'solo', 'WORKFLOW.md');
+const bench = readSrc('workflows', 'bench', 'WORKFLOW.md');
+const general = readSrc('rules', 'lead', '01-general.md');
+const leadTool = readSrc('rules', 'lead', 'lead-tool.md');
+const core = readSrc('rules', 'agent', '00-core.md');
+const common = readSrc('rules', 'agent', '00-common.md');
+const skip = readSrc('rules', 'agent', '20-skip-protocol.md');
 const BRIEF_FIELDS = ['Goal:', 'Anchors:', 'Allow/Forbid:', 'Deliver:', 'Verify:'];
-// Canonical brief contract lives in lead-brief.md (Lead brief contract).
 const TOKEN_PRINCIPLE = /minimum (?:characters|chars), maximum (?:information|info)/i;
+function requireAll(text, label, patterns) {
+  for (const pattern of patterns) assert(pattern.test(normalize(text).toLowerCase()), `${label}: missing ${pattern}`);
+}
 assert(TOKEN_PRINCIPLE.test(normalize(leadBrief)), 'lead-brief.md: brief must state min-char/max-info principle');
 for (const field of BRIEF_FIELDS) assert(leadBrief.includes(field), `lead-brief.md: brief missing labeled field ${field}`);
 assert(leadBrief.includes('Stop:'), 'lead-brief.md: brief must add Stop: for heavy-worker bound');
 assert(/role-known|already (?:owns|knows)|wasted cost|wasted/i.test(normalize(leadBrief)), 'lead-brief.md: brief must ban restating known rules/background as cost');
-assert(/Referenced spec\/test file beats its summary/i.test(normalize(leadBrief)), 'lead-brief.md: brief must state spec-file precedence over summary');
-// WORKFLOW.md must not duplicate the field list; it defers to the lead brief contract.
+assert(/spec\/test beats its summary/i.test(normalize(leadBrief)), 'lead-brief.md: spec/test must beat summary');
+requireAll(leadBrief, 'Lead brief lifecycle', [
+  /full brief only for fresh spawn\/`respawned: true`/, /live follow-ups are delta/,
+  /dead-tag send is cold: re-supply anchors/, /never `send` mid-run/,
+  /batch one follow-up after completion/, /interrupt only to cancel/,
+  /agent communication is english/,
+]);
 assert(/lead brief contract/i.test(normalize(workflow)), 'WORKFLOW.md: must defer to the lead brief contract');
 assert(!BRIEF_FIELDS.every((field) => workflow.includes(field)), 'WORKFLOW.md: must not duplicate the full brief field list');
 
-// --- Agent handoff contract (00-core.md) -----------------------------------
-const core = readSrc('rules', 'agent', '00-core.md');
 assert(/fragments/i.test(core), '00-core: handoff must require fragments');
 assert(/file:line/i.test(core), '00-core: handoff must anchor evidence to file:line');
-assert(/Ban headings/i.test(normalize(core)), '00-core: handoff must list banned cost items');
 for (const banned of ['headings', 'tables', 'narration', 'raw logs', 'next-checks']) {
   assert(core.toLowerCase().includes(banned), `00-core: banned list missing ${banned}`);
 }
-const common = readSrc('rules', 'agent', '00-common.md');
 assert(/Public Agent Constraints/i.test(common), '00-common: must be titled public-only constraints');
-assert(/git operations deferred to Lead/i.test(common), '00-common: must refuse git/Ship');
+assert(/git operations deferred to Lead/i.test(normalize(common)), '00-common: must refuse git/Ship');
 assert(/Overflow goes to a file/i.test(common), '00-common: must keep overflow-to-file rule');
+requireAll(common, 'Public-agent shell', [
+  /shell only verifies own edits/, /no exploration, install, or state change beyond brief/,
+]);
 
 // --- Per-role output contracts --------------------------------------------
 const roles = {
@@ -89,64 +102,64 @@ const roles = {
   'debugger/AGENT.md': readSrc('agents', 'debugger', 'AGENT.md'),
 };
 
-// --- Approved workflow contracts -------------------------------------------
+// Semantic contracts deliberately avoid prose snapshots.
 function snapshot(actual, expected, label) {
   assert(normalize(actual) === normalize(expected), `${label}: canonical snapshot changed`);
 }
-const approvalGateRaw = rawBlock(workflow, 'HARD APPROVAL GATE', 'Lead supervises', 'Default approval gate');
-const selectionRaw = rawBlock(workflow, 'Lead supervises', '1. Plan', 'Default selection');
-snapshot(selectionRaw, `Lead supervises/delegates/coordinates/judges/decides. After approval, delegate
-by default. Lead handles only coordination, git, or an obvious one-edit/
-one-check change; all other implementation, research, and debugging goes to
-the matching agent. Select Worker for bounded work on an established path
-when risk, coupling, and verification complexity are low and local
-verification is clear. Select Heavy Worker when risk, coupling, or
-verification complexity is high, including any high-risk scope. Architecture,
-contracts, storage, concurrency, security, and lifecycle concerns are
-indicators to weigh, not automatic categories; use Heavy Worker for coupled
-multi-stage work requiring coordinated verification.
-Reviewer verifies an implementation scope; Debugger handles requested
-debugging or root cause after a failed fix.`, 'Default selection');
-const delegateRaw = rawBlock(workflow, '2. Delegate', '3. Review', 'Default Delegate');
-snapshot(delegateRaw, `2. Delegate — maximize useful fan-out: split every ready, independent scope
-whose parallel benefit exceeds its coordination/merge cost to its own
-appropriately selected Worker or Heavy Worker, and spawn all such agents
-in the SAME turn. There is no arbitrary agent-count cap. Serialize only a
-real dependency, an overlapping write, or an inseparable coupled scope;
-otherwise keep useful scopes parallel. Briefs follow Lead brief contract.
-After spawning async agents, END THE TURN.`, 'Default Delegate');
-const reviewRaw = rawBlock(workflow, '3. Review', '4. Report', 'Default Review');
-snapshot(reviewRaw, `3. Review — after approval, complete delegation, review, self-verification, and
-in-scope fixes without reapproval. Once each implementation scope lands,
-spawn one Reviewer for that scope, with all ready reviewers in the SAME
-turn, and run Lead integration/cross-scope verification for all scopes IN
-PARALLEL. The Reviewer independently judges the scope's risk, intent, and
-boundaries; Lead checks acceptance and interactions across scopes, not
-duplicate same-scope busywork. For high-risk scopes, add distinct review
-lenses (for example security, concurrency, or contract review). Every
-delegated implementation gets a Reviewer plus Lead integration
-verification. Synthesize findings into ONE verdict; send merged fixes to
-the original scope's live session and loop fix -> re-verify (same reviewer
-session + Lead integration re-check) until clean. Use Debugger first when
-asked for debugging or a bug survives 2+ fix cycles. On each agent
-report, relay scope+verdict and next work as in-progress, never as a
-conclusion.`, 'Default Review');
-
-let defaultBody = bodyAfterFrontmatter(workflow, 'Default workflow');
-for (const extracted of [approvalGateRaw, selectionRaw, delegateRaw, reviewRaw]) defaultBody = defaultBody.replace(extracted, '');
-assert(!/\b(?:Worker|Heavy Worker|Reviewer|Debugger|delegat\w*|spawn\w*|assign\w*|rout\w*|parallel|concurrent|same[- ]turn|fan-out|agent-count|review[- ]lens(?:es)?)\b/i.test(defaultBody), 'Default: role/delegation/review policy must stay in canonical blocks');
-
-const solo = readSrc('workflows', 'solo', 'WORKFLOW.md');
 assert(/^agents:\s*$/m.test(frontmatter(solo, 'Solo workflow')), 'Solo: agents frontmatter must be empty');
-const soloRaw = rawBlock(solo, '2. Execute', '4. Report', 'Solo execution');
-snapshot(soloRaw, `2. Execute — after approval, Lead does all work directly. Do not
-spawn, send, delegate, or ask agents to work. Complete execution and
-in-scope fixes without reapproval. Interim updates are in-progress, never
-conclusions.
-3. Verify — Lead checks and fixes directly until clean or a blocker is
-reported.`, 'Solo execution');
-const soloBody = bodyAfterFrontmatter(solo, 'Solo workflow').replace(soloRaw, '');
-assert(!/\b(?:spawn\w*|send\w*|delegat\w*|assign\w*|rout\w*|choose\w*|select\w*|match\w*|agent[- ]selection|ask\w*[^.!?]{0,40}\bagents?)\b/i.test(soloBody), 'Solo: delegation/selection policy must stay in Execute/Verify block');
+requireAll(workflow, 'Default approval', [
+  /read-only investigation\/planning while consulting/, /later explicit user message after the latest plan/,
+  /initial\/additional\/changed requests reset planning/, /scope change needs a revised plan and fresh approval/,
+  /no edits, state mutation, or delegation/,
+]);
+requireAll(workflow, 'Default routing', [
+  /delegate by default/, /only coordinates, does git, or an obvious 1-edit\/ 1-check change/,
+  /implementation\/research\/debugging to its matching agent/, /indicators, not automatic categories/,
+  /worker: bounded established path, low local risk\/coupling\/verification, clear local check/,
+  /heavy worker: high risk\/coupling\/verification \(including any high-risk scope\), or coupled staged work needing coordinated verification/,
+  /reviewer verifies an implementation/, /debugger handles requested debugging or root cause after a failed fix/,
+]);
+requireAll(workflow, 'Default lifecycle', [
+  /draft before any implementation/, /parallel gain exceeds coordination\/merge cost/,
+  /all in one turn, with no count cap/, /real dependency, overlapping write, or inseparable coupling/,
+  /after async spawn, end the turn/, /every delegated implementation gets one reviewer/,
+  /lead integration\/cross-scope verification in parallel/, /high-risk scopes add distinct lenses/,
+  /original live session/, /loop fix -> re-verify \(same reviewer \+ lead re-check\) until clean/,
+  /bug surviving 2\+ fix cycles/, /agent reports relay.*as in-progress, never conclusions/,
+  /final \(not interim\) report/, /never forward raw agent output/,
+  /explicit user request after issue-free feedback/, /outcome\/direction change, pause and re-consult/,
+]);
+requireAll(solo, 'Solo lifecycle', [
+  /no edits or state mutation/, /never spawn, send, delegate, or ask agents to work/,
+  /read-only investigation\/planning while consulting/,
+  /later explicit user message after the latest plan/,
+  /initial\/additional\/changed requests reset planning/,
+  /scope change needs a revised plan and fresh approval/,
+  /checks\/fixes directly until clean or reports a blocker/, /final \(not interim\) report/,
+  /interim updates are in-progress, never conclusions/,
+  /issue-free user feedback/,
+]);
+requireAll(bench, 'Bench lifecycle', [
+  /never wait for approval or ask questions/, /verified complete or provably blocked/,
+  /maximum independent scopes/, /spawning every scope in one turn/,
+  /build\/test-green gate/, /no polling, guessing, or dependent work/,
+  /one reviewer per implementation scope/, /never deferred\/batched/,
+  /fact-check agent responses and cross-check implementation\/review yourself before acting/,
+  /return fixes to the original scope/, /loop verify -> fix -> re-verify until clean/,
+  /skip only simple, low-risk review/, /hard blocked/, /outcome and evidence/,
+]);
+requireAll(leadTool, 'Lead tools', [
+  /write-role agents self-verify/, /cross-scope verification.*benches.*all git/,
+  /workflow permits delegation/, /no-delegation workflow.*controls/,
+]);
+requireAll(general, 'General safety', [
+  /identify as mixdog\/current coding agent/, /destructive\/hard-to-reverse action needs explicit confirmation/,
+  /never push, build, deploy without explicit user request/, /implementation approval is not deploy approval/,
+]);
+requireAll(skip, 'Silent skip', [
+  /webhook-handler/, /scheduler-task/, /label-only, duplicate\/dedup, no action needed\/report/,
+  /whole response.*\[meta:silent\]/,
+]);
 
 const roleSnapshots = {
   'worker/AGENT.md': `# Worker

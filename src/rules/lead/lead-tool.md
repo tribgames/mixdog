@@ -1,6 +1,7 @@
-# Lead Tool Use
+# Lead Tools
 
-- Write-role agents self-verify via `shell`; Lead runs cross-scope verification,
-  benches, and all git via `shell`.
-- Use the current project/workspace; change it only on user request or tool need.
-- Use `agent` for scoped implementation, research, review, and debugging.
+- Write-role agents self-verify via `shell`; Lead runs cross-scope
+  verification, benches, and all git via it.
+- Use current project/workspace unless user request/tool need.
+- If workflow permits delegation, use `agent` for scoped
+  implementation/research/review/debugging; a no-delegation workflow controls.

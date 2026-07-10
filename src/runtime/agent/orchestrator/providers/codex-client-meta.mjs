@@ -16,7 +16,10 @@
 import os from 'node:os';
 
 // Offline fallback only; live value refreshes from npm (24h TTL, in-process).
-export const CODEX_CLIENT_VERSION_FLOOR = '0.142.5';
+// The backend gates model exposure AND per-request model access on the client
+// version (gpt-5.6-* require >= 0.144.0 per codex models-manager/models.json,
+// verified 2026-07-09), so keep this at the current release when bumping.
+export const CODEX_CLIENT_VERSION_FLOOR = '0.144.1';
 const VERSION_TTL_MS = 24 * 60 * 60_000;
 let _cache = { value: null, fetchedAt: 0 };
 let _refreshInFlight = null;
@@ -50,6 +53,23 @@ export function codexClientVersionSync() {
         _refreshInFlight = _refresh().finally(() => { _refreshInFlight = null; });
     }
     return _cache.value || CODEX_CLIENT_VERSION_FLOOR;
+}
+
+/**
+ * Awaitable warmup for cold-start paths: resolves the live npm version (or
+ * floor on failure) and fills the shared cache so codexClientVersionSync()
+ * and codexVersionHeader() stop reporting the floor. Never rejects; dedupes
+ * with the in-flight background refresh. First turns await this so the
+ * backend's minimal_client_version gate never sees a stale floor.
+ */
+export function warmCodexClientVersion() {
+    if (_cache.value && Date.now() - _cache.fetchedAt < VERSION_TTL_MS) {
+        return Promise.resolve(_cache.value);
+    }
+    if (!_refreshInFlight) {
+        _refreshInFlight = _refresh().finally(() => { _refreshInFlight = null; });
+    }
+    return _refreshInFlight;
 }
 
 function _osType() {

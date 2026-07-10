@@ -4,6 +4,9 @@
 
 export const CODE_GRAPH_TTL_MS = 30_000;
 export const CODE_GRAPH_MAX_FILES = 10_000;
+// A cold-process disk hit may deserialize only this much JSON on the main
+// thread. Larger entries still validate/rebuild inside the Worker.
+export const CODE_GRAPH_FAST_PATH_MAX_BYTES = 8 * 1024 * 1024;
 export const CODE_GRAPH_WORKER_TIMEOUT_MS = 120_000;
 // Timeout for the native mixdog-graph binary child process (spawned per graph build).
 export const CODE_GRAPH_BINARY_TIMEOUT_MS = Math.max(1000, Number(process.env.MIXDOG_CODE_GRAPH_BINARY_TIMEOUT_MS) || 20000);

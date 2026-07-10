@@ -35,8 +35,44 @@ function taskId(text) {
 async function main() {
   const leadToolRules = readFileSync('src/rules/lead/lead-tool.md', 'utf8');
   const workflowRules = readFileSync('src/workflows/default/WORKFLOW.md', 'utf8');
-  assert(/Use `agent` for scoped implementation/i.test(leadToolRules), 'lead rules must direct scoped work to agents');
-  assert(/PARALLEL across independent scopes/i.test(workflowRules), 'workflow rules must keep independent work parallel');
+  const soloRules = readFileSync('src/workflows/solo/WORKFLOW.md', 'utf8');
+  const compact = (text) => text.toLowerCase().replace(/\s+/g, ' ');
+  const hasAll = (text, ...terms) => terms.every((term) => text.includes(term));
+  const lead = compact(leadToolRules);
+  const workflow = compact(workflowRules);
+  const solo = compact(soloRules);
+  const reviewSkipViolation = (text) => compact(text)
+    .split(/[.!?]\s+|;|,\s+(?=(?:but|however|yet)\b)/)
+    .some((clause) => {
+      const hasReview = /\b(review|reviewer|verification)\b/.test(clause);
+      const hasSkip = /\b(skip|skipping|skipped|omit|omits|omitting|omitted)\b/.test(clause) ||
+        /\bwithout\s+(?:any\s+)?(?:a\s+)?(?:review|reviewer|verification)\b/.test(clause);
+      const negated = /\b(?:never|(?:must|shall|may)\s+not|can(?:not|'t)|do\s+not|don't|not)\b[^;]{0,40}\b(?:skip|skipping|skipped|omit|omitting|omitted)\b/.test(clause) ||
+        /\b(?:skip|skipping|skipped|omit|omitting|omitted)\b[^;]{0,40}\b(?:not allowed|forbidden|prohibited)\b/.test(clause) ||
+        /\b(?:never|(?:must|shall|may)\s+not|can(?:not|'t)|do\s+not|don't|not)\b[^;]{0,40}\bwithout\s+(?:any\s+)?(?:a\s+)?(?:review|reviewer|verification)\b/.test(clause);
+      const exception = /\b(?:unless|except(?:\s+when)?|only\s+if)\b/.test(clause);
+      return hasReview && hasSkip && (!negated || exception);
+    });
+  for (const [phrase, expected] of [
+    ['Never skip Reviewer verification', false],
+    ['Reviewer verification must not be skipped', false],
+    ['Must not proceed without review', false],
+    ['Never skip risky review, but may skip simple review', true],
+    ['Never skip review unless low-risk', true],
+    ['Never skip review except when low-risk', true],
+    ['Never skip review only if low-risk', true],
+    ['May omit review', true],
+    ['Proceed without review', true],
+  ]) assert(reviewSkipViolation(phrase) === expected, `review-skip detector case failed: ${phrase}`);
+  const skipsReview = reviewSkipViolation(workflow);
+  assert(hasAll(lead, 'workflow permits delegation', 'use `agent`', 'implementation', 'research', 'review', 'debugging'), 'lead rules must conditionally direct scoped work to agents');
+  assert(hasAll(workflow, 'after approval', 'delegate', 'by default'), 'default workflow must delegate after approval');
+  assert(hasAll(workflow, 'coordinates', 'git', '1-edit', '1-check'), 'default workflow must limit Lead direct work');
+  assert(hasAll(workflow, 'implementation/research/debugging', 'matching agent'), 'default workflow must route other work to matching agents');
+  assert(hasAll(workflow, 'parallel', 'independent', 'every delegated implementation'), 'workflow rules must keep independent work parallel');
+  assert(hasAll(workflow, 'every delegated implementation', 'reviewer', 'lead integration', 'fix', 're-verify'), 'default workflow must require review and the fix loop');
+  assert(!skipsReview, 'default workflow must not permit delegated-review skips');
+  assert(hasAll(solo, 'never spawn', 'send', 'delegate', 'ask agents'), 'Solo workflow must forbid delegation');
   assert(/always start background tasks/i.test(AGENT_TOOL.description || '') && /distinct tags?/i.test(AGENT_TOOL.description || '') && /completion notification/i.test(AGENT_TOOL.description || ''), 'agent tool description must expose async parallel tags');
 
   mkdirSync(dataDir, { recursive: true });

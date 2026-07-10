@@ -31,6 +31,7 @@ export {
   prewarmCodeGraphIfProject,
   buildCodeGraphAsync,
   _buildCodeGraph,
+  _postCodeGraphWorkerSuccess,
 } from './code-graph/build.mjs';
 export {
   resolveSymbolReadSpan,

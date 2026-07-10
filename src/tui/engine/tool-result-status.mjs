@@ -8,6 +8,10 @@
  * keeps calling them unchanged.
  */
 import { toolErrorDisplay } from './tool-result-text.mjs';
+import {
+  normalizeToolTerminalStatus,
+  toolResultTerminalStatus,
+} from '../../runtime/shared/tool-status.mjs';
 
 export const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
@@ -34,6 +38,24 @@ export function shellCommandExitCode(text) {
   return Number.isFinite(code) ? code : null;
 }
 
+// Only provider envelope metadata establishes a failed invocation. Result
+// bodies can contain "Error:"/HTTP/domain/task status text without making the
+// call itself fail. A recognized plain shell exit wins over provider envelope
+// error flags: adapters commonly label non-zero process exits as tool errors
+// even though the shell tool itself ran successfully.
+export function toolCallOutcome(message, rawText) {
+  const exitCode = shellCommandExitCode(rawText);
+  if (exitCode != null) {
+    return { isCallError: false, isExitError: true, exitCode };
+  }
+  const isCallError = message?.isError === true || message?.toolKind === 'error';
+  return {
+    isCallError,
+    isExitError: false,
+    exitCode,
+  };
+}
+
 // Build the collapsed failure/exit detail string. Real tool-call/result
 // failures keep the red-adjacent "Failed" wording; shell command-exits render
 // as the distinct neutral "Exit" state ("Exit N" for a single exit, "Y Exit"
@@ -50,23 +72,11 @@ export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 
 }
 
 export function normalizedResultStatusToken(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return '';
-  if (/^(running|pending|queued|in_progress|in-progress)$/.test(raw)) return 'running';
-  if (/^(completed|complete|done|success|succeeded|ok)$/.test(raw)) return 'completed';
-  if (/^(failed|fail|error|errored|timeout|timed_out|killed)$/.test(raw)) return 'failed';
-  if (/^(cancelled|canceled|cancel)$/.test(raw)) return 'cancelled';
-  return '';
+  return normalizeToolTerminalStatus(value);
 }
 
 export function resultTextTerminalStatus(text) {
-  const body = String(text || '');
-  const tagged = body.match(/<status[^>]*>([\s\S]*?)<\/status>/i)?.[1]?.trim();
-  if (tagged) return normalizedResultStatusToken(tagged);
-  const bracketed = body.match(/^\[status:\s*([^\]]*)\]/mi)?.[1]?.trim();
-  if (bracketed) return normalizedResultStatusToken(bracketed);
-  const inline = body.match(/^(?:status|state):\s*([^\s·,;]+)/mi)?.[1]?.trim();
-  return normalizedResultStatusToken(inline);
+  return toolResultTerminalStatus(text);
 }
 
 export function itemHasKnownTerminalStatus(item, texts = []) {
@@ -95,10 +105,10 @@ export function withCancelledResultMarker(text, item) {
 export function groupedToolResultText(group) {
   const completed = Math.min(group.count, group.completed);
   if (group.count <= 1) return group.results.at(-1)?.text ?? '';
-  if (group.errors > 0) {
-    const exitErrors = Number(group.exitErrors || 0);
-    const realErrors = Math.max(0, group.errors - exitErrors);
-    const succeeded = Math.max(0, completed - group.errors);
+  const exitErrors = Number(group.exitErrors || 0);
+  if (group.errors > 0 || exitErrors > 0) {
+    const realErrors = Math.max(0, Number(group.callErrors || group.errors || 0));
+    const succeeded = Math.max(0, completed - group.errors - exitErrors);
     const exitCode = group.results.find((result) => result?.isExitError)?.exitCode;
     // Command-exits carry no failure reason line; only real failures do.
     const reasons = group.results
@@ -142,7 +152,7 @@ export function aggregateRawResult(calls) {
   return chunks.join('\n\n');
 }
 
-export function aggregateBucketForCategory(category) {
+export function aggregateBucketForCategory(category, { agentBatch = '' } = {}) {
   // Merge consecutive tool calls of the SAME category into one aggregate card;
   // a different category opens a fresh card (no cross-category merge). The
   // bucket key is the category itself, so a run of Search calls collapses into
@@ -157,6 +167,10 @@ export function aggregateBucketForCategory(category) {
   // header still spells out both. State-changing categories (Patch/Shell/…)
   // stay separate.
   if (key === 'Read' || key === 'Search') return 'category:Read+Search';
+  // Agent actions are grouped only inside the provider callback that emitted
+  // them. This keeps a later provider batch from changing an older outbound
+  // card above an intervening result/transcript boundary.
+  if (key === 'Agent') return agentBatch ? `category:Agent:${agentBatch}` : 'category:Agent';
   return key ? `category:${key}` : 'default';
 }
 

@@ -59,6 +59,7 @@ import {
     _shouldUseOpenAIHttpFallback,
 } from './openai-oauth-http-sse.mjs';
 import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
+import { warmCodexClientVersion } from './codex-client-meta.mjs';
 import {
     _displayCodexModel,
     _codexFamily,
@@ -77,42 +78,13 @@ const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 export const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
-// Version string baked into the models endpoint query — the OAuth backend
-// rejects the request without it, and gates new model exposures (e.g.
-// gpt-5.5 only on >= 0.130.0) on this client_version header; older versions
-// trigger a visibility-filtered catalog (e.g. only rollout models). Resolved
-// dynamically from npm so newly-shipped models surface within a day instead
-// of waiting on a hardcoded bump here. Cached 24h in-process; npm failure
-// falls back to the floor below.
-// Offline fallback only — _resolveCodexClientVersion() fetches the live
-// @openai/codex latest from npm first. Bumped to the current release
-// (0.142.5, verified 2026-07-03) so the offline path stays close to what the
-// backend expects for client-version gating.
-const CODEX_CLIENT_VERSION_FLOOR = '0.142.5';
-const CODEX_VERSION_CACHE_TTL_MS = 24 * 60 * 60_000;
-let _codexVersionCache = { value: null, fetchedAt: 0 };
-
-async function _resolveCodexClientVersion() {
-    const now = Date.now();
-    if (_codexVersionCache.value && now - _codexVersionCache.fetchedAt < CODEX_VERSION_CACHE_TTL_MS) {
-        return _codexVersionCache.value;
-    }
-    try {
-        const res = await fetch('https://registry.npmjs.org/@openai/codex/latest', {
-            signal: AbortSignal.timeout(5_000),
-        });
-        if (res.ok) {
-            const j = await res.json();
-            const v = String(j?.version || '').trim();
-            if (/^\d+\.\d+\.\d+/.test(v)) {
-                _codexVersionCache = { value: v, fetchedAt: now };
-                return v;
-            }
-        }
-    } catch { /* network down / npm rejects — use floor */ }
-    _codexVersionCache = { value: CODEX_CLIENT_VERSION_FLOOR, fetchedAt: now };
-    return CODEX_CLIENT_VERSION_FLOOR;
-}
+// Client version for the models endpoint query and the `version`/User-Agent
+// request headers — the OAuth backend rejects requests without it, gates new
+// model exposures on it (gpt-5.6-* require >= 0.144.0), and rejects turns on
+// gated models when the reported version is below the model's
+// minimal_client_version. Resolution is unified in codex-client-meta.mjs
+// (live npm @openai/codex latest, 24h in-process cache, offline floor) so the
+// catalog query and the transport headers can never disagree.
 const CODEX_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 const CODEX_MODEL_CACHE_SCHEMA_VERSION = 3;
 const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
@@ -784,7 +756,14 @@ export class OpenAIOAuthProvider {
             ? Promise.resolve(opts._prebuiltBody)
             : Promise.resolve().then(() => buildRequestBody(messages, useModel, tools, bodyOpts));
         const _authP = this.ensureAuth();
+        // Cold-start guard: the WS/SSE transports read the client version via
+        // the SYNC accessor for the `version` header + User-Agent. Await the
+        // shared resolver (parallel with auth; never rejects; no-op once
+        // cached) so the first turn after boot doesn't report the offline
+        // floor and trip the backend's minimal_client_version gate.
+        const _verP = warmCodexClientVersion();
         let auth = await _authP;
+        await _verP;
         const body = await _bodyP;
         // poolKey != cacheKey by design (see openai-oauth-ws.mjs header note).
         // poolKey is per-session so parallel reviewer/worker callers each get
@@ -1038,7 +1017,7 @@ export class OpenAIOAuthProvider {
         }
         try {
             const auth = await this.ensureAuth();
-            const clientVersion = await _resolveCodexClientVersion();
+            const clientVersion = await warmCodexClientVersion();
             const url = `https://chatgpt.com/backend-api/codex/models?client_version=${clientVersion}`;
             const res = await fetch(url, {
                 signal: AbortSignal.timeout(10_000),
@@ -1076,7 +1055,7 @@ export class OpenAIOAuthProvider {
         _codexRefreshInFlight = (async () => {
             try {
                 const auth = await this.ensureAuth();
-                const clientVersion = await _resolveCodexClientVersion();
+                const clientVersion = await warmCodexClientVersion();
                 const url = `https://chatgpt.com/backend-api/codex/models?client_version=${clientVersion}`;
                 const res = await fetch(url, {
                     signal: AbortSignal.timeout(10_000),

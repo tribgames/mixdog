@@ -56,10 +56,13 @@ export function compareProviderModelRecency(a, b) {
   }
   const ta = providerModelReleaseTime(a);
   const tb = providerModelReleaseTime(b);
-  if (ta !== tb) return tb - ta;
-  if (a.latest !== b.latest) return a.latest ? -1 : 1;
   const versionDelta = compareProviderModelVersion(a, b);
+  // Release dates win only when both sides have one; sparse OAuth catalogs
+  // must not sink undated (often newest) models below dated/latest ones.
+  if (ta > 0 && tb > 0 && ta !== tb) return tb - ta;
   if (versionDelta) return versionDelta;
+  if (a.latest !== b.latest) return a.latest ? -1 : 1;
+  if (ta !== tb) return tb - ta;
   return clean(a.display || a.id).localeCompare(clean(b.display || b.id));
 }
 

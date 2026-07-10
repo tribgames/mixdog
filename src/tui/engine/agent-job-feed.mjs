@@ -24,6 +24,7 @@ import {
   executionCardKey,
   resolveTuiRuntimeNotificationDelivery,
 } from './notification-plan.mjs';
+import { shortTextFingerprint } from './queue-helpers.mjs';
 import { readImageAttachmentFromPath } from '../paste-attachments.mjs';
 import {
   isDeliveredCompletion,
@@ -53,13 +54,26 @@ export function createAgentJobFeed({
   enqueue,
   drain,
   pushUserOrSyntheticItem,
+  pushAsyncAgentResponse,
   makeQueueEntry,
   getPending,
   agentStatusState,
   displayedExecutionNotificationKeys,
   pushNotice,
+  now = () => Date.now(),
+  executionResumeTombstoneTtlMs = 30_000,
+  executionResumeTombstoneLimit = 128,
 }) {
   let executionResumeKickDeferred = false;
+  // Completion keys explicitly abandoned by Esc. Tombstones are per-feed
+  // (therefore per TUI session), short-lived, and bounded: they catch a late
+  // duplicate racing the abort without permanently reserving execution IDs or
+  // retaining completion bodies.
+  const discardedExecutionResumeKeys = new Map();
+  // Tracks whether an execution's visible response is only a bodyless preview
+  // or has reached its final body. A preview must not permanently suppress the
+  // later body, while repeated body retries remain idempotent.
+  const displayedExecutionResponseStates = new Map();
 
   // FIFO accumulation of model-visible bodies from completions that arrived
   // while busy (or while a pending-resume entry was already queued). A single
@@ -67,8 +81,49 @@ export function createAgentJobFeed({
   // the queue preserves every body and merges them into the resume turn.
   const executionResumeKickBodies = [];
 
-  function kickExecutionPendingResume(body = '') {
-    if (body) executionResumeKickBodies.push(body);
+  function executionResumeKey(body, completionKey = '') {
+    if (completionKey && typeof completionKey === 'object') {
+      completionKey = completionKey.executionId || completionKey.key || '';
+    }
+    const explicitKey = String(completionKey || '').trim();
+    if (explicitKey.startsWith('execution:') || explicitKey.startsWith('body:')) return explicitKey;
+    if (explicitKey) return `execution:${explicitKey}`;
+    const value = String(body || '').trim();
+    return value ? `body:${shortTextFingerprint(value)}` : '';
+  }
+
+  function pruneDiscardedExecutionResumeKeys() {
+    const nowMs = Number(now()) || Date.now();
+    for (const [key, expiresAt] of discardedExecutionResumeKeys) {
+      if (expiresAt <= nowMs) discardedExecutionResumeKeys.delete(key);
+    }
+  }
+
+  function isDiscardedExecutionResumeKey(key) {
+    if (!key) return false;
+    pruneDiscardedExecutionResumeKeys();
+    return discardedExecutionResumeKeys.has(key);
+  }
+
+  function rememberDiscardedExecutionResumeKey(key) {
+    if (!key) return;
+    pruneDiscardedExecutionResumeKeys();
+    const limit = Math.max(1, Number(executionResumeTombstoneLimit) || 128);
+    while (!discardedExecutionResumeKeys.has(key) && discardedExecutionResumeKeys.size >= limit) {
+      const oldest = discardedExecutionResumeKeys.keys().next().value;
+      if (oldest == null) break;
+      discardedExecutionResumeKeys.delete(oldest);
+    }
+    const ttlMs = Math.max(1, Number(executionResumeTombstoneTtlMs) || 30_000);
+    // Refresh insertion order so the bounded map evicts the oldest tombstone.
+    discardedExecutionResumeKeys.delete(key);
+    discardedExecutionResumeKeys.set(key, (Number(now()) || Date.now()) + ttlMs);
+  }
+
+  function kickExecutionPendingResume(body = '', completionKey = '') {
+    const key = executionResumeKey(body, completionKey);
+    if (body && isDiscardedExecutionResumeKey(key)) return;
+    if (body) executionResumeKickBodies.push({ body, key });
     if (getDisposed()) return;
     if (getState().busy) {
       executionResumeKickDeferred = true;
@@ -82,8 +137,15 @@ export function createAgentJobFeed({
     executionResumeKickDeferred = false;
     // Drain every accumulated body into ONE resume turn so no completion body
     // is lost when several deferred while busy.
-    const resumeBody = executionResumeKickBodies.splice(0).filter(Boolean).join('\n\n');
-    pending.push(makeQueueEntry(resumeBody, { mode: 'pending-resume', priority: 'next' }));
+    const resumeBodies = executionResumeKickBodies.splice(0);
+    const resumeBody = resumeBodies.map(({ body: value }) => value).filter(Boolean).join('\n\n');
+    const resumeCompletionKeys = resumeBodies.map(({ key }) => key).filter(Boolean);
+    pending.push(makeQueueEntry(resumeBody, {
+      mode: 'pending-resume',
+      priority: 'next',
+      abortDiscardOnAbort: true,
+      resumeCompletionKeys,
+    }));
     void drain();
   }
 
@@ -92,11 +154,25 @@ export function createAgentJobFeed({
     kickExecutionPendingResume();
   }
 
-  function scheduleExecutionPendingResumeKick(body = '') {
+  function scheduleExecutionPendingResumeKick(body = '', completionKey = '') {
     // Carry the model-visible body directly into the pending-resume entry so
     // the resumed turn sends it, instead of relying on the session-pending
     // completion marker (dropped by askSession pre-drain).
-    queueMicrotask(() => kickExecutionPendingResume(body));
+    queueMicrotask(() => kickExecutionPendingResume(body, completionKey));
+  }
+
+  function discardExecutionPendingResume(completionKeys = []) {
+    const keys = (Array.isArray(completionKeys) ? completionKeys : [completionKeys])
+      .map((key) => executionResumeKey('', key))
+      .filter(Boolean);
+    if (keys.length === 0) return;
+    for (const key of keys) rememberDiscardedExecutionResumeKey(key);
+    for (let i = executionResumeKickBodies.length - 1; i >= 0; i -= 1) {
+      if (isDiscardedExecutionResumeKey(executionResumeKickBodies[i].key)) {
+        executionResumeKickBodies.splice(i, 1);
+      }
+    }
+    executionResumeKickDeferred = executionResumeKickBodies.length > 0;
   }
 
   // Pure builder for the agent-job card patch. Split out so callers that are
@@ -150,13 +226,26 @@ export function createAgentJobFeed({
       if (delivery.action === 'execution-ui') {
         const cardKey = executionCardKey(event, text, parsed);
         const firstDelivery = !cardKey || !displayedExecutionNotificationKeys.has(cardKey);
-        if (firstDelivery) {
+        const executionId = String(event?.meta?.execution_id || parsed?.taskId || '').trim();
+        const status = String(event?.meta?.status || parsed?.status || '').toLowerCase();
+        const hasBody = /\n\s*\n[\s\S]*\S/.test(text);
+        const isFailure = /^(failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
+        const successfulPreview = !hasBody && !isFailure && /^(completed|complete|done|success|succeeded|ok)$/.test(status);
+        const responseState = executionId ? displayedExecutionResponseStates.get(executionId) : '';
+        const bodyAlreadyDisplayed = responseState === 'body';
+        if (firstDelivery && !successfulPreview && !bodyAlreadyDisplayed) {
           if (cardKey) displayedExecutionNotificationKeys.add(cardKey);
-          pushUserOrSyntheticItem(delivery.displayText, nextId());
+          if (executionId) displayedExecutionResponseStates.set(executionId, hasBody ? 'body' : 'preview');
+          // Execution completions are inbound agent responses. The engine keeps
+          // their aggregation tail-safe (only an immediately-adjacent inbound
+          // response of the same preview/body phase can merge); the fallback
+          // preserves the standalone path for minimal/test harnesses.
+          (pushAsyncAgentResponse || pushUserOrSyntheticItem)(delivery.displayText, nextId(), 'injected', { responseKey: executionId });
         }
         refreshAgentStatus(parsed);
         const resumeBody = String(delivery.modelContent || '').trim();
         if (resumeBody) {
+          const completionKey = executionResumeKey(resumeBody, executionId);
           // Consolidated completion dedup keyed off execution_id (+ text hash):
           // if this exact execution completion was already delivered — either by
           // an earlier TUI enqueue here or by runtime-core's ack — do NOT enqueue
@@ -165,8 +254,7 @@ export function createAgentJobFeed({
           // turn. Still ack (modelVisibleDelivered) so runtime-core's
           // mirror/fallback stays suppressed; the card first-delivery push and
           // status refresh above already ran.
-          const executionId = event?.meta?.execution_id;
-          if (isDeliveredCompletion({ executionId, text: resumeBody })) {
+          if (isDiscardedExecutionResumeKey(completionKey) || isDeliveredCompletion({ executionId, text: resumeBody })) {
             if (event && typeof event === 'object') event.modelVisibleDelivered = true;
             return true;
           }
@@ -177,6 +265,8 @@ export function createAgentJobFeed({
             // next tool batch; no special pending-resume bypass.
             priority: 'next',
             key: notificationKey || undefined,
+            abortDiscardOnAbort: true,
+            resumeCompletionKeys: completionKey ? [completionKey] : [],
             displayText: delivery.displayText || text,
             // The immediate Response card was already pushed above
             // (pushUserOrSyntheticItem). Keep this queued twin model-visible
@@ -248,6 +338,7 @@ export function createAgentJobFeed({
     kickExecutionPendingResume,
     flushDeferredExecutionPendingResumeKick,
     scheduleExecutionPendingResumeKick,
+    discardExecutionPendingResume,
     updateAgentJobCard,
     buildAgentJobCardPatch,
     subscribeRuntimeNotifications,

@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import {
-  readdirSync, readFileSync, statSync, existsSync, mkdirSync, renameSync, unlinkSync,
+  readdirSync, readFileSync, statSync, existsSync, mkdirSync, renameSync, unlinkSync, openSync, readSync, closeSync,
 } from 'node:fs';
 import { getPluginData } from '../../config.mjs';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
@@ -19,6 +19,7 @@ import {
   CODE_GRAPH_DISK_DIR,
   CODE_GRAPH_DISK_MAX_ENTRIES,
   CODE_GRAPH_DISK_MAX_BYTES,
+  CODE_GRAPH_FAST_PATH_MAX_BYTES,
   ORPHAN_TMP_MIN_AGE_MS,
   RE_CACHE_TMP,
   RE_MANIFEST_TMP,
@@ -81,6 +82,13 @@ function _migrateLegacyDiskCache() {
   } catch (err) {
     process.stderr.write(`[code-graph] legacy cache migration failed: ${err?.message || err}\n`);
   }
+}
+
+// This intentionally does not call _loadDiskCodeGraphCache: the parent-side
+// fast path uses it to leave a legacy blob's synchronous read/JSON.parse to
+// the Worker, where normal one-shot migration still happens.
+export function hasLegacyDiskCodeGraphCache() {
+  return existsSync(join(getPluginData(), CODE_GRAPH_DISK_FILE));
 }
 
 function _pruneDiskCodeGraphEntries(_now = Date.now()) {
@@ -278,7 +286,10 @@ function _ensureCwdLoaded(cwd) {
   } catch { /* skip corrupt per-cwd file */ }
 }
 
-function _persistDiskCodeGraphCacheNow() {
+export function _persistDiskCodeGraphCacheNow({
+  strict = false,
+  writeJson = writeJsonAtomicSync,
+} = {}) {
   try {
     _loadDiskCodeGraphCache();
     _pruneDiskCodeGraphEntries();
@@ -307,8 +318,15 @@ function _persistDiskCodeGraphCacheNow() {
       // rebuildable — a busy lock just skips this flush; _scheduleDiskCodeGraphCacheFlush
       // re-schedules on the next build. Exit drain still runs (unref'd timer
       // cancelled + direct call).
-      writeJsonAtomicSync(file, entry, { compact: true, lock: true, timeoutMs: 0 });
-      manifest[cwd] = { hash, builtAt: entry.builtAt || Date.now() };
+      writeJson(file, entry, { compact: true, lock: true, timeoutMs: 0 });
+      let bytes = null;
+      try { bytes = statSync(file).size; } catch { /* written entry may be unavailable */ }
+      manifest[cwd] = {
+        hash,
+        builtAt: entry.builtAt || Date.now(),
+        bytes: Number.isFinite(bytes) ? bytes : undefined,
+        maxFiles: Number.isFinite(entry.maxFiles) ? entry.maxFiles : undefined,
+      };
     }
     const pruned = _pruneCodeGraphManifestForBudget(manifest, dir);
     manifest = pruned.manifest;
@@ -320,7 +338,7 @@ function _persistDiskCodeGraphCacheNow() {
     }
 
     const manifestFile = join(dir, 'manifest.json');
-    writeJsonAtomicSync(manifestFile, manifest, { compact: true, lock: true, timeoutMs: 0 });
+    writeJson(manifestFile, manifest, { compact: true, lock: true, timeoutMs: 0 });
     _diskManifest = manifest;
 
     // Sweep orphan per-cwd files. validHashes now includes every hash in
@@ -329,6 +347,7 @@ function _persistDiskCodeGraphCacheNow() {
     _sweepCodeGraphCacheDir(dir, validHashes, { sweepJson: true });
   } catch (err) {
     process.stderr.write(`[code-graph] disk cache persist failed (target: ${_codeGraphDiskDir()}): ${err?.message || err}\n`);
+    if (strict) throw err;
   }
 }
 
@@ -355,6 +374,16 @@ function drainCodeGraphCacheNow() {
 }
 registerCodeGraphDrain(drainCodeGraphCacheNow);
 
+// Worker-only success fencing: unlike the exit/parent drain, a failed
+// persistence must reject the Worker result instead of being log-only.
+export function drainCodeGraphCacheStrict() {
+  if (_diskCodeGraphCacheFlushTimer) {
+    clearTimeout(_diskCodeGraphCacheFlushTimer);
+    _diskCodeGraphCacheFlushTimer = null;
+  }
+  _persistDiskCodeGraphCacheNow({ strict: true });
+}
+
 // Public: delegate to the state module's drain hook (which invokes the
 // registered drainCodeGraphCacheNow). Preserves the original facade behavior.
 export function drainCodeGraphCache() {
@@ -367,6 +396,40 @@ export function getDiskCodeGraphEntry(cwd) {
   const key = _canonicalGraphCwd(cwd);
   _ensureCwdLoaded(key);
   return _diskCodeGraphCache.get(key);
+}
+
+// Inspect only manifest metadata (or a stat fallback), never parse the entry.
+// The main-thread fast path uses this to leave large/legacy entries to Worker
+// isolation while still allowing small compatible entries to avoid Worker boot.
+export function probeDiskCodeGraphEntry(cwd, maxBytes = CODE_GRAPH_FAST_PATH_MAX_BYTES) {
+  const key = _canonicalGraphCwd(cwd);
+  const meta = _diskManifest?.[key];
+  if (!meta || typeof meta !== 'object' || !_isCodeGraphCacheHash(meta.hash)) return null;
+  const file = join(_codeGraphDiskDir(), `${meta.hash}.json`);
+  let bytes = Number(meta.bytes);
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    try { bytes = statSync(file).size; } catch { return null; }
+  }
+  let maxFiles = Number.isFinite(meta.maxFiles) ? meta.maxFiles : null;
+  // Legacy manifests have no per-entry metadata. Read only the compact JSON
+  // header (maxFiles precedes nodes) rather than parsing a potentially huge
+  // payload on the main thread.
+  if (maxFiles === null) {
+    let fd = null;
+    try {
+      fd = openSync(file, 'r');
+      const header = Buffer.allocUnsafe(4096);
+      const read = readSync(fd, header, 0, header.length, 0);
+      const match = /"maxFiles":(\d+)/.exec(header.toString('utf8', 0, read));
+      if (match) maxFiles = Number(match[1]);
+    } catch { /* leave legacy/corrupt metadata in the Worker path */ }
+    finally { if (fd !== null) try { closeSync(fd); } catch {} }
+  }
+  return {
+    bytes,
+    maxFiles,
+    isFastPathEligible: bytes <= maxBytes,
+  };
 }
 
 // Ensure the on-disk manifest/sweep boot pass has run (idempotent).

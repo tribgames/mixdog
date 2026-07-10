@@ -54,6 +54,12 @@ export function createSessionFlow(bag) {
       skipSlashCommands: options.skipSlashCommands === true,
       displayText: mode === 'task-notification' ? notificationDisplayText(displayText) : String(displayText || ''),
       suppressDisplay: options.suppressDisplay === true,
+      // Completion resumes are consumed exactly once: Esc abandons their
+      // uncommitted body instead of putting it back at the queue front.
+      abortDiscardOnAbort: options.abortDiscardOnAbort === true,
+      resumeCompletionKeys: Array.isArray(options.resumeCompletionKeys)
+        ? options.resumeCompletionKeys.filter((key) => key != null && String(key).trim())
+        : [],
       steeringPersistId: options.steeringPersistId || null,
       steeringPersistRestored: options.steeringPersistRestored === true,
     };
@@ -194,6 +200,17 @@ export function createSessionFlow(bag) {
           pushUserOrSyntheticItem(entry.text, entry.id, isQueuedEntryEditable(entry) ? 'user' : 'injected');
         }
         const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
+        // A completion resume is owned by the completion that woke it. Esc
+        // consumes that ownership; unlike ordinary notifications it must never
+        // be requeued from an uncommitted turn. Keep normal task notifications
+        // recoverable exactly as before.
+        const discardOnAbort = nonEditable.filter(
+          (entry) => entry?.abortDiscardOnAbort === true || entry?.mode === 'pending-resume',
+        );
+        const requeueOnAbort = nonEditable.filter((entry) => !discardOnAbort.includes(entry));
+        const discardExecutionPendingResumeKeys = discardOnAbort.flatMap(
+          (entry) => Array.isArray(entry?.resumeCompletionKeys) ? entry.resumeCompletionKeys : [],
+        );
         const batchPastedImages = mergePastedImages(batch);
         const batchPastedTexts = mergePastedTexts(batch);
         const turnStatus = await bag.runTurn(merged, {
@@ -203,7 +220,8 @@ export function createSessionFlow(bag) {
           onCommitted: () => commitSteeringQueueEntries(batch),
           submittedIds: [...ids],
           restorable: nonEditable.length === 0,
-          requeueOnAbort: nonEditable,
+          requeueOnAbort,
+          discardExecutionPendingResumeKeys,
         });
         if (flags.drainEpoch !== drainEpoch) return;
         // A deferred cleared-session UI sync (from a late-settling abandoned

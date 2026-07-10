@@ -33,7 +33,7 @@ function _graphBinaryPath() {
   try { return findCachedGraphBinary(getPluginData()); } catch { return null; }
 }
 
-async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
+async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signal = null) {
   let binPath = _graphBinaryPath();
   if (!binPath) {
     // No local build or cached binary — fetch the prebuilt from the release
@@ -54,14 +54,10 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
 
   // Inner spawn + promise — extracted so we can retry once on EAGAIN.
   //
-  // child-spawn-gate is NOT acquired here. This function runs inside the
-  // code-graph prewarm WORKER THREAD (via _buildCodeGraph), and worker_threads
-  // do not share module-level state with the main thread — acquiring here would
-  // create a SECOND, independent semaphore that never coordinates with the
-  // main-thread rg gate. Instead the gate is held on the MAIN THREAD across the
-  // whole graph-build worker's lifetime (see buildCodeGraphAsync). The binary
-  // child is spawned exclusively from this worker path, so one main-side slot
-  // per worker correctly bounds native graph spawns against rg.
+  // child-spawn-gate is NOT acquired here. Worker builds and main-thread
+  // signature validation both hold their slot in buildCodeGraphAsync; worker
+  // threads do not share module-level state with the main thread, so acquiring
+  // here would create an independent semaphore that cannot coordinate with rg.
   const _spawnOnce = () => new Promise((resolve, reject) => {
     // When stdinLines is supplied (--files mode), stream one JSON object per
     // line to the child's STDIN — the reused nodes' metadata — so Rust can
@@ -79,6 +75,7 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
     const STDERR_CAP = 8 * 1024;
     let settled = false;
     let timedOut = false;
+    let aborted = false;
 
     // ── timeout + kill helpers (mirrors rg-runner's _killRgProc/_escalateRgKill) ──
     let timeoutTimer = null;
@@ -130,7 +127,12 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
         clearTimeout(forceSettleTimer);
         forceSettleTimer = null;
       }
+      if (onAbort && signal) {
+        try { signal.removeEventListener('abort', onAbort); } catch { /* ignore */ }
+        onAbort = null;
+      }
     };
+    let onAbort = null;
 
     // Arm timeout — unref so it doesn't keep the process alive. On timeout we
     // start SIGTERM→grace→force-kill but do NOT settle yet: the promise stays
@@ -157,6 +159,14 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
       if (forceSettleTimer.unref) forceSettleTimer.unref();
     }, timeoutMs);
     if (timeoutTimer.unref) timeoutTimer.unref();
+    if (signal) {
+      onAbort = () => {
+        aborted = true;
+        _killProc();
+      };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
 
     proc.stdout.on('data', (c) => chunks.push(c));
     proc.stderr.on('data', (c) => {
@@ -184,6 +194,10 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
         // Our timeout kill won the race: the child is gone now, so the gate
         // slot releases here (not at timeout-fire time). Report as a timeout.
         reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
+        return;
+      }
+      if (aborted) {
+        reject(new Error('aborted'));
         return;
       }
       if (code !== 0) {
@@ -215,7 +229,7 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null) {
     throw err;
   }
 }
-export function _runGraphManifest(absRoot) { return _runGraphBinaryJsonl(absRoot, ['--manifest']); }
+export function _runGraphManifest(absRoot, signal = null) { return _runGraphBinaryJsonl(absRoot, ['--manifest'], null, signal); }
 export function _runGraphWalk(absRoot) { return _runGraphBinaryJsonl(absRoot, []); }
 // --files (design A: full-graph resolution) full-parses only `rels` (argv) but
 // resolves imports across the WHOLE tree. The reused nodes' metas are streamed

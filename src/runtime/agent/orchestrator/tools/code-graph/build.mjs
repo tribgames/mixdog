@@ -23,6 +23,7 @@ import {
 import {
   CODE_GRAPH_TTL_MS,
   CODE_GRAPH_MAX_FILES,
+  CODE_GRAPH_FAST_PATH_MAX_BYTES,
   CODE_GRAPH_WORKER_TIMEOUT_MS,
   SYMBOL_SCHEMA_VERSION,
 } from './constants.mjs';
@@ -34,7 +35,10 @@ import {
 import { _touchCodeGraphCache, _setCodeGraphCache } from './memory-cache.mjs';
 import {
   ensureDiskCodeGraphLoaded,
+  drainCodeGraphCacheStrict,
   getDiskCodeGraphEntry,
+  hasLegacyDiskCodeGraphCache,
+  probeDiskCodeGraphEntry,
   _setDiskCodeGraphEntry,
 } from './disk-cache.mjs';
 import {
@@ -52,6 +56,104 @@ import { _findDirProjectRoot } from './project-root.mjs';
 // spawn instead of fanning out. Entry removed on settle so the next caller
 // after a failure can retry.
 const _inflightAsyncBuilds = new Map();
+
+export function _isCompatibleDiskCodeGraphEntry(entry, maxFiles = CODE_GRAPH_MAX_FILES) {
+  return Number.isFinite(entry?.maxFiles) && entry.maxFiles === maxFiles;
+}
+
+function _throwIfAborted(signal) {
+  if (signal?.aborted) throw new Error('aborted');
+}
+
+// Validate an already-loaded disk entry before paying Worker startup. The
+// manifest process is async; its child-spawn slot is held by the caller until
+// either this returns a hit or the Worker takes over the same slot on a miss.
+// Exported for the focused deterministic cache-validation test.
+export async function _validateDiskCodeGraphHit({
+  graphCwd,
+  diskEntry,
+  genAtStart,
+  now = Date.now(),
+  runManifest = _runGraphManifest,
+  computeSignature = _computeGraphSignature,
+  deserializeGraph = _deserializeGraph,
+  getGeneration = _getCodeGraphGen,
+  setMemoryCache = _setCodeGraphCache,
+  signal = null,
+}) {
+  if (!_isCompatibleDiskCodeGraphEntry(diskEntry)) return { incompatible: true };
+  const manifest = await runManifest(graphCwd, signal);
+  const signature = computeSignature(manifest);
+  if (diskEntry.signature !== signature) return { graph: null, manifest, signature };
+  const graph = deserializeGraph(graphCwd, diskEntry);
+  if (!graph) return { graph: null, manifest, signature };
+  if (getGeneration(graphCwd) !== genAtStart) return { invalidated: true };
+  setMemoryCache(graphCwd, { ts: now, signature, graph });
+  return { graph, manifest, signature };
+}
+
+// Owns a pre-acquired slot until a validated miss hands it to spawnWorker.
+// Keeping this seam dependency-injectable makes slot/abort behavior testable
+// without spawning native processes or Worker threads.
+export async function _runDiskCodeGraphFastPath({
+  graphCwd,
+  diskProbe,
+  genAtStart,
+  signal = null,
+  loadDiskEntry,
+  consumeDirty = () => {},
+  acquireSlot = acquireChildSpawnSlot,
+  validateDiskHit = _validateDiskCodeGraphHit,
+  spawnWorker,
+  maxFiles = CODE_GRAPH_MAX_FILES,
+}) {
+  if (!diskProbe?.isFastPathEligible || diskProbe.maxFiles !== maxFiles) {
+    return spawnWorker(null, null, null);
+  }
+  const diskEntry = loadDiskEntry();
+  if (!_isCompatibleDiskCodeGraphEntry(diskEntry, maxFiles)) {
+    return spawnWorker(null, null, null);
+  }
+  consumeDirty();
+  const release = await acquireSlot(signal || null);
+  let handedToWorker = false;
+  try {
+    _throwIfAborted(signal);
+    const hit = await validateDiskHit({ graphCwd, diskEntry, genAtStart, signal });
+    _throwIfAborted(signal);
+    if (hit?.invalidated) throw new Error('code-graph build invalidated during prewarm');
+    if (hit?.graph) return hit.graph;
+    _throwIfAborted(signal);
+    const workerPromise = spawnWorker(release, hit?.manifest || null, hit?.signature || null);
+    handedToWorker = true;
+    return workerPromise;
+  } finally {
+    if (!handedToWorker) release();
+  }
+}
+
+// A legacy single-file cache can be very large. Its migration is deliberately
+// performed by _buildCodeGraph in the Worker; probing it here would poison the
+// parent disk-cache loaded state after a synchronous JSON.parse.
+export function _prepareDiskCodeGraphFastPath({
+  graphCwd,
+  hasLegacyCache = hasLegacyDiskCodeGraphCache,
+  ensureDiskLoaded = ensureDiskCodeGraphLoaded,
+  probeDiskEntry = probeDiskCodeGraphEntry,
+  runFastPath,
+}) {
+  if (hasLegacyCache()) return runFastPath(null);
+  ensureDiskLoaded();
+  return runFastPath(probeDiskEntry(graphCwd, CODE_GRAPH_FAST_PATH_MAX_BYTES));
+}
+
+// Worker disk writes are debounced with an unref'd timer. Drain before sending
+// success so legacy migration persists every loaded cwd before this Worker can
+// exit; a drain failure is intentionally thrown to the worker's failure path.
+export function _postCodeGraphWorkerSuccess(graph, postMessage, drainCache = drainCodeGraphCacheStrict) {
+  drainCache();
+  postMessage({ ok: true, signature: graph.signature, graph });
+}
 
 export function prewarmCodeGraph(cwd) {
   if (!cwd) return;
@@ -109,16 +211,54 @@ export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = fal
       (e) => { cleanup(); throw e; },
     );
   }
-  // Non-competing prewarm: once past the cache/single-flight fast paths a
-  // fresh build must spawn the worker (a child-spawn slot). Best-effort warmers
-  // skip that spawn when the gate has no spare capacity, returning null so the
-  // caller no-ops — and skipping BEFORE registering the in-flight entry so a
-  // concurrent REAL caller is never attached to (and thus never starved by) a
-  // skipped warm.
+  // Non-competing prewarm: the signature-validation manifest also needs a
+  // child-spawn slot, so warmers skip before either it or a Worker can queue.
   if (bestEffort && !childSpawnHasSpareCapacity()) return null;
   const _genAtStart = _getCodeGraphGen(graphCwd);
+  const promise = (async () => {
+    // Loading the compact disk manifest/one candidate entry is synchronous but
+    // bounded I/O. Do not run a manifest at all when no disk candidate exists:
+    // cold/dirty misses remain entirely on the existing Worker path.
+    return _prepareDiskCodeGraphFastPath({
+      graphCwd,
+      runFastPath: (diskProbe) => _runDiskCodeGraphFastPath({
+        graphCwd,
+        diskProbe,
+        genAtStart: _genAtStart,
+        signal,
+        loadDiskEntry: () => getDiskCodeGraphEntry(graphCwd),
+        consumeDirty: () => _consumeCodeGraphDirtyPaths(graphCwd),
+        spawnWorker: (preAcquiredRelease, manifest, signature) => _spawnCodeGraphWorker(
+          cwd,
+          graphCwd,
+          _genAtStart,
+          signal,
+          preAcquiredRelease,
+          manifest,
+          signature,
+        ),
+      }),
+    });
+  })();
+  _inflightAsyncBuilds.set(graphCwd, promise);
+  try {
+    return await promise;
+  } finally {
+    _inflightAsyncBuilds.delete(graphCwd);
+  }
+}
+
+function _spawnCodeGraphWorker(
+  cwd,
+  graphCwd,
+  genAtStart,
+  signal,
+  preAcquiredRelease = null,
+  manifest = null,
+  signature = null,
+) {
   let _worker = null;
-  const promise = new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
     let timeout = null;
     let _onSignalAbort = null;
@@ -132,18 +272,23 @@ export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = fal
         _onSignalAbort = null;
       }
       if (_releaseSlot) { try { _releaseSlot(); } catch {} _releaseSlot = null; }
-      _inflightAsyncBuilds.delete(graphCwd);
       if (val instanceof Error) reject(val);
       else resolve(val);
     };
-    acquireChildSpawnSlot(signal || null).then((release) => {
+    (preAcquiredRelease ? Promise.resolve(preAcquiredRelease) : acquireChildSpawnSlot(signal || null)).then((release) => {
       _releaseSlot = release;
       if (settled) { release(); _releaseSlot = null; return; }
+      if (signal?.aborted) { settle(new Error('aborted')); return; }
       const workerUrl = new URL('../code-graph-prewarm-worker.mjs', import.meta.url);
-      _worker = new Worker(workerUrl, {
-        workerData: { cwd },
-        execArgv: [],
-      });
+      try {
+        _worker = new Worker(workerUrl, {
+          workerData: { cwd, manifest, signature },
+          execArgv: [],
+        });
+      } catch (e) {
+        settle(e instanceof Error ? e : new Error(String(e)));
+        return;
+      }
       const w = _worker;
       timeout = setTimeout(() => {
         try { _worker?.terminate(); } catch {}
@@ -160,7 +305,7 @@ export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = fal
       w.once('message', (msg) => {
         try {
           if (msg && msg.ok && msg.graph && typeof msg.signature === 'string') {
-            const genStillCurrent = _getCodeGraphGen(graphCwd) === _genAtStart;
+            const genStillCurrent = _getCodeGraphGen(graphCwd) === genAtStart;
             if (genStillCurrent) {
               _setCodeGraphCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
               _setDiskCodeGraphEntry(graphCwd, msg.graph);
@@ -174,8 +319,6 @@ export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = fal
       w.once('error', (e) => settle(e instanceof Error ? e : new Error(String(e))));
     }, (e) => settle(e instanceof Error ? e : new Error(String(e))));
   });
-  _inflightAsyncBuilds.set(graphCwd, promise);
-  return promise;
 }
 
 /**
@@ -184,7 +327,7 @@ export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = fal
  * buildCodeGraphAsync (worker-thread isolated) or the code_graph / find_symbol
  * tools, never this synchronous form on the main event loop.
  */
-export async function _buildCodeGraph(cwd) {
+export async function _buildCodeGraph(cwd, { manifest: suppliedManifest = null, signature: suppliedSignature = null } = {}) {
   const now = Date.now();
   let _tp = performance.now();
   const _trace = (label) => { if (process.env.MIXDOG_GRAPH_TRACE) { const n = performance.now(); process.stderr.write(`[cg-trace] ${label}=${(n - _tp).toFixed(0)}ms\n`); _tp = n; } };
@@ -195,10 +338,14 @@ export async function _buildCodeGraph(cwd) {
   let previousGraph = cached?.graph || null;
   _consumeCodeGraphDirtyPaths(graphCwd);
 
-  // 1. Change-detect via Rust --manifest (fp/rel/size only, no parse).
-  const manifest = await _runGraphManifest(absRoot);
-  const signature = _computeGraphSignature(manifest);
-  _trace('manifest+sig');
+  // 1. Change-detect via Rust --manifest (fp/rel/size only, no parse). A
+  // main-thread disk-cache validation may hand its just-computed manifest to
+  // this Worker after a miss, avoiding a duplicate native process.
+  const manifest = Array.isArray(suppliedManifest) ? suppliedManifest : await _runGraphManifest(absRoot);
+  const signature = typeof suppliedSignature === 'string'
+    ? suppliedSignature
+    : _computeGraphSignature(manifest);
+  if (!Array.isArray(suppliedManifest)) _trace('manifest+sig');
   const truncated = manifest.length > CODE_GRAPH_MAX_FILES;
   const indexed = truncated ? manifest.slice(0, CODE_GRAPH_MAX_FILES) : manifest;
 
@@ -211,7 +358,7 @@ export async function _buildCodeGraph(cwd) {
   // 3. Disk cache hit.
   ensureDiskCodeGraphLoaded(now);
   const diskEntry = getDiskCodeGraphEntry(graphCwd);
-  if (diskEntry?.signature === signature) {
+  if (_isCompatibleDiskCodeGraphEntry(diskEntry) && diskEntry.signature === signature) {
     const graph = _deserializeGraph(graphCwd, diskEntry);
     if (graph) {
       if (_getCodeGraphGen(graphCwd) === _genAtStart) {
@@ -220,7 +367,9 @@ export async function _buildCodeGraph(cwd) {
       return graph;
     }
   }
-  if (!previousGraph && diskEntry) previousGraph = _deserializeGraph(graphCwd, diskEntry);
+  if (!previousGraph && _isCompatibleDiskCodeGraphEntry(diskEntry)) {
+    previousGraph = _deserializeGraph(graphCwd, diskEntry);
+  }
   if (previousGraph && previousGraph.schemaVersion !== SYMBOL_SCHEMA_VERSION) {
     previousGraph = null;
   }

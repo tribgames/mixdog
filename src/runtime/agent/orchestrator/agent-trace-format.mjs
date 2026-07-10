@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { countJsonNextCalls } from './tools/next-call-utils.mjs';
+import { splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
 import {
     appendAgentTrace,
     normalizeSessionId,
@@ -108,7 +109,7 @@ const TOOL_ARG_KEYS = {
     recall: ['query', 'limit', 'session_id', 'cwd'],
     search: ['query', 'limit', 'cwd'],
     explore: ['query', 'queries', 'limit', 'cwd'],
-    code_graph: ['mode', 'file', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
+    code_graph: ['mode', 'file', 'files', 'symbol', 'symbols', 'body', 'language', 'limit', 'depth', 'page', 'cwd'],
     shell: ['command', 'cwd', 'timeout', 'mode', 'run_in_background', 'persistent', 'session_id'],
     task: ['task_id', 'action', 'timeout_ms', 'poll_ms'],
     edit: ['path', 'replace_all', 'edits'],
@@ -211,6 +212,38 @@ function _redactLogText(text) {
     return out;
 }
 
+const GREP_COVERAGE_MAX = 512;
+export function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
+    if (toolName !== 'grep' || resultKind === 'error' || (toolArgs?.output_mode && toolArgs.output_mode !== 'content_with_context')) return null;
+    const out = [];
+    const seen = new Set();
+    let sectionPath = null;
+    for (const line of String(resultText ?? '').split(/\r?\n/)) {
+        const section = line.match(/^# grep (.+)$/);
+        if (section) {
+            if (!section[1].startsWith('pattern:')) sectionPath = section[1];
+            continue;
+        }
+        const split = splitGrepLinePrefix(line);
+        const omitted = !split && typeof toolArgs?.path === 'string'
+            ? String(line).match(/^(\d+)(?::|-)/)
+            : null;
+        const sectionOmitted = !split && sectionPath
+            ? String(line).match(/^(\d+)(?::|-)/)
+            : null;
+        const path = split?.path || (omitted ? toolArgs.path : null) || (sectionOmitted ? sectionPath : null);
+        const lineNo = split?.lineNo || (omitted ? Number(omitted[1]) : null)
+            || (sectionOmitted ? Number(sectionOmitted[1]) : null);
+        if (!path || !Number.isInteger(lineNo) || lineNo < 1) continue;
+        const key = `${path}\0${lineNo}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ path: String(path).replace(/\\/g, '/'), line: lineNo });
+        if (out.length >= GREP_COVERAGE_MAX) break;
+    }
+    return out.length ? out : null;
+}
+
 function classifyToolFailure(resultText, toolName) {
     const text = String(resultText ?? '').toLowerCase();
     if (/\[shell-tool-failed\]/i.test(String(resultText ?? ''))) return 'tool-call/failure';
@@ -264,6 +297,7 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
     const numericToolMs = Number(toolMs);
     const summarizedArgs = summarizeToolArgs(toolName, toolArgs);
+    const grepCoverage = parseGrepCoverage(resultText, toolName, toolArgs, resultKind);
     // Hash the FULL args, not the summary: summaries drop payload fields
     // (e.g. apply_patch keeps only base_path), which made every patch in a
     // session collide to one hash and broke duplicate/retry detection.
@@ -297,6 +331,8 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         result_next_call_count: nextCallCount,
         result_bytes_est: resultBytesEst,
         result_lines_est: resultLinesEst,
+        grep_coverage: grepCoverage,
+        cwd: cwd || null,
     });
     if (
         Number.isFinite(numericToolMs)

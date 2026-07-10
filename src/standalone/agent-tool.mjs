@@ -60,6 +60,7 @@ import {
 import { abnormalEmptyFinishError, renderResult } from './agent-tool/render.mjs';
 import { createProviderInit } from './agent-tool/provider-init.mjs';
 import { createNotify } from './agent-tool/notify.mjs';
+import { resolveAgentTerminalReapMs } from '../session-runtime/config-helpers.mjs';
 // Re-export the static tool descriptor so importers of this facade keep the
 // identical public surface (`import { AGENT_TOOL } from './agent-tool.mjs'`).
 export { AGENT_TOOL };
@@ -68,30 +69,6 @@ ensureProcessListenerHeadroom(64);
 
 const STANDALONE_SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Grace window during which a terminated/idle worker row is kept around so the
-// same terminal can re-use (or cleanly re-spawn) the same tag. Cached as a
-// constant like the other timeouts; override with MIXDOG_AGENT_TERMINAL_REAP_MS.
-// 5m (was 1h): aligned with the BP4 message-tail cache TTL — past 5m the
-// session's prompt cache is cold anyway, so same-tag reuse pays a full prefix
-// rewrite; a fresh respawn (send dead-tag fallback) starts smaller and cheaper.
-// Trace replay (2026-07): agent tail cost 1h 1.77M -> 5m 1.11M (-37%).
-const TERMINAL_REAP_MS = envTimeoutMs('MIXDOG_AGENT_TERMINAL_REAP_MS', 5 * 60_000);
-// Provider-aware reap windows: the 5m default matches Anthropic's 5m agent
-// tail TTL, but providers with long-lived automatic prefix caches (OpenAI 24h
-// retention, DeepSeek hours-days, Groq 2h) keep a warm cache well past 5m, so
-// same-tag reuse stays cheaper than a respawn. Capped at 1h — holding closed
-// worker sessions longer hoards manager memory for a reuse pattern that
-// rarely spans hours. Explicit MIXDOG_AGENT_TERMINAL_REAP_MS overrides all.
-const PROVIDER_REAP_MS = {
-  'openai': 60 * 60_000,
-  'deepseek': 60 * 60_000,
-  'groq': 60 * 60_000,
-  'openai-oauth': 10 * 60_000,
-};
-function reapMsForProvider(provider) {
-  if (clean(process.env.MIXDOG_AGENT_TERMINAL_REAP_MS)) return TERMINAL_REAP_MS;
-  return PROVIDER_REAP_MS[clean(provider)] || TERMINAL_REAP_MS;
-}
 // Independent hard cap for the spawn *prep* phase (ensureProvider /
 // prepareAgentSession / catalog+rules load). Kept separate from the
 // first-response watchdog so prep cannot hang a whole fanout before the model
@@ -161,7 +138,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const t = workerRowTime(row);
     if (!t) return true;
     if (!isTerminalWorkerStatus(row.status || row.stage)) return true;
-    return Date.now() - t < reapMsForProvider(row.provider);
+    const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row.provider);
+    return reapMs == null || Date.now() - t < reapMs;
   }
 
   function normalizeWorkerRows(value) {
@@ -562,6 +540,17 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     removeWorkerRow({ tag, sessionId });
   }
 
+  function forgetTerminalSession(tag, sessionId) {
+    const value = clean(tag);
+    const id = clean(sessionId);
+    if (value && id && tags.get(value) === id) {
+      tags.delete(value);
+      tagAgents.delete(value);
+      tagCwds.delete(value);
+    }
+    if (id) removeWorkerRow({ sessionId: id });
+  }
+
   function cancelReap(sessionId) {
     const handle = reapTimers.get(sessionId);
     if (!handle) return false;
@@ -574,15 +563,16 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (!sessionId) return;
     cancelReap(sessionId);
     const reapProvider = provider || getLiveSession(sessionId)?.provider || null;
+    const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), reapProvider);
+    if (reapMs == null) return;
     const handle = setTimeout(() => {
       reapTimers.delete(sessionId);
       try { mgr.hideSessionFromList?.(sessionId); } catch {}
       const tag = tagForSession(sessionId);
-      if (tag) forgetTag(tag);
-      removeWorkerRow({ tag, sessionId });
+      forgetTerminalSession(tag, sessionId);
       clearAgentStatuslineRoute(sessionId);
       try { mgr.closeSession(sessionId, 'terminal-reap'); } catch {}
-    }, reapMsForProvider(reapProvider));
+    }, reapMs);
     handle.unref?.();
     reapTimers.set(sessionId, handle);
   }
@@ -872,8 +862,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (!prepared?.session?.id) return;
     try { mgr.closeSession(prepared.session.id, reason); } catch {}
     try { clearAgentStatuslineRoute(prepared.session.id); } catch {}
-    if (prepared.tag) forgetTag(prepared.tag);
-    removeWorkerRow({ tag: prepared.tag, sessionId: prepared.session.id });
+    forgetTerminalSession(prepared.tag, prepared.session.id);
   }
 
   // Owner/worker completion notification lives in ./agent-tool/notify.mjs; the
@@ -1464,7 +1453,12 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const sessionId = resolveTag(target, scopedContext, { scanSessions: wantsSessionScan(args) });
     if (!sessionId) {
       if (!target.startsWith('sess_') && tagAgents.has(target)) {
-        forgetTag(target);
+        // This is only stale local metadata: resolveTag found no session in
+        // this terminal/scope, so there is no sessionId-safe worker row to
+        // delete. Never turn it into a tag-wide persisted-row removal.
+        tags.delete(target);
+        tagAgents.delete(target);
+        tagCwds.delete(target);
         if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by agent close');
         return { closed: true, forgotten: true, tag: target, sessionId: null, task_id: task?.taskId || null };
       }
@@ -1472,8 +1466,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     }
     cancelReap(sessionId);
     const tag = tagForSession(sessionId);
-    if (tag) forgetTag(tag);
-    removeWorkerRow({ tag, sessionId });
+    forgetTerminalSession(tag, sessionId);
     clearAgentStatuslineRoute(sessionId);
     // Cancel any running background task bound to this session BEFORE closing
     // the session. Otherwise closeSession rejects the in-flight runSpawn with
@@ -1549,16 +1542,12 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   function reapTerminalTraceForTag(tag, context = {}) {
     const value = clean(tag);
     if (!value || value.startsWith('sess_')) return false;
-    if (!hasTerminalTrace(value, context)) return false;
+    const row = terminalWorkerRowForTag(value, context);
+    if (!row) return false;
     refreshTagsFromSessions({ context });
-    let sessionId = tags.get(value) || '';
-    if (!sessionId) {
-      const row = readWorkerRows(context).find((item) => clean(item.tag) === value);
-      sessionId = clean(row?.sessionId) || '';
-    }
+    const sessionId = clean(row.sessionId);
     if (sessionId) cancelReap(sessionId);
-    forgetTag(value);
-    removeWorkerRow({ tag: value, sessionId });
+    forgetTerminalSession(value, sessionId);
     return true;
   }
 
@@ -1593,38 +1582,25 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           if (!fallbackTag || fallbackTag.startsWith('sess_') || !isDeadTarget) throw err;
           const prompt = clean(args.message || args.prompt);
           if (!prompt) throw err;
-          // Inherit the dead session's agent/cwd so the auto-respawn doesn't
-          // die on "agent spawn: agent is required" when Lead's send (correctly)
-          // omitted them. Read BEFORE forgetTag wipes the registry entries.
-          //
-          // Root cause of the surfaced "target not found" errors: when a tag is
-          // FULLY reaped (session gone past the 5m grace window), the in-memory
-          // tagAgents/tagCwds maps are cleared, so inheritedAgent came back empty
-          // and this path re-threw instead of respawning. Recover the agent/cwd
-          // from the persisted worker row, then fall back to the default `worker`
-          // agent so an unknown-but-plausible tag still cold-respawns. The guards
-          // above (empty tag / raw sess_ id / non-dead error) keep plainly invalid
-          // targets erroring.
-          // readWorkerRows is already scoped to THIS terminal (clientHostPid,
-          // via rowMatchesContext), so inheritedRow — and every mutation below
-          // keyed on its sessionId — never touches another terminal's same-tag
-          // worker row.
+          // A retained row is proof that this terminal owned the tag. Once the
+          // reaper removes that row, an explicit agent plus usable cwd is enough
+          // to cold-spawn a replacement without retaining closed sessions.
           let inheritedRow = null;
           try {
             inheritedRow = readWorkerRows(scopedContext).find((row) => clean(row.tag) === fallbackTag) || null;
           } catch { inheritedRow = null; }
-          // Gate the respawn on evidence the tag previously existed IN THIS
-          // terminal: a persisted, clientHostPid-scoped worker row. The
-          // in-memory tags/tagAgents/tagCwds maps are NOT reliable evidence —
-          // closeAll() calls refreshTagsFromSessions() with NO context
-          // (see ~L1501), which populates them from EVERY terminal's rows
-          // (readWorkerRows({}) — rowMatchesContext returns true with no pid),
-          // so they can hold a peer terminal's tag. A typo'd / never-existed
-          // tag has no scoped row and must keep the original "not found" error.
-          if (!inheritedRow) throw err;
-          const inheritedSessionId = clean(inheritedRow.sessionId);
-          const inheritedAgent = clean(args.agent) || clean(inheritedRow.agent) || 'worker';
-          const inheritedCwd = clean(args.cwd) || clean(inheritedRow.cwd) || clean(callerCwd);
+          // Never use explicit cold-spawn identity to take over a tag retained
+          // by another terminal. In-memory maps can contain peer entries, so
+          // inspect the persisted index directly.
+          const peerRow = readAllWorkerRows().find((row) => (
+            clean(row.tag) === fallbackTag && !rowMatchesContext(row, scopedContext)
+          ));
+          const explicitAgent = clean(args.agent);
+          const explicitCwd = clean(args.cwd) || clean(callerCwd);
+          if (peerRow || (!inheritedRow && (!explicitAgent || !explicitCwd))) throw err;
+          const inheritedSessionId = clean(inheritedRow?.sessionId);
+          const inheritedAgent = explicitAgent || clean(inheritedRow?.agent) || 'worker';
+          const inheritedCwd = clean(args.cwd) || clean(inheritedRow?.cwd) || clean(callerCwd);
           // Drop this terminal's in-memory trace and remove ONLY the persisted
           // row matching inheritedRow.sessionId. Do NOT call forgetTag here: it
           // does a tag-wide removeWorkerRow({tag,sessionId}) (L556) whose OR

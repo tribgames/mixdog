@@ -26,7 +26,7 @@ export const PATCH_TOOL_DEFS = [
     name: 'apply_patch',
     title: 'Mixdog Apply Patch',
     annotations: { title: 'Mixdog Apply Patch', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-    description: 'Apply file patches. Put known edits in one patch, not multiple turns; sections run in listed order.',
+    description: 'Apply known file edits in one patch; sections run in listed order. Do not split a dependent edit across turns.',
     freeformDescription: APPLY_PATCH_FREEFORM_DESCRIPTION,
     freeform: {
       type: 'grammar',

@@ -48,11 +48,9 @@ export function createModelPicker({
     setChannelPrompt(null);
     setHookPrompt(null);
     setSettingsPrompt(null);
-    const modelPickerRequest = ++modelPickerRequestRef.current;
+    modelPickerRequestRef.current += 1;
     let modelPickerClosed = false;
-    let activeModelProvider = null;
     let providerListHighlightProvider = null;
-    const isActiveModelPicker = () => !modelPickerClosed && modelPickerRequestRef.current === modelPickerRequest;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const returnLabel = String(options.returnLabel || 'Agents');
     const returnOnNestedCancel = options.returnOnNestedCancel === true;
@@ -68,7 +66,6 @@ export function createModelPicker({
       : [];
     let refreshModelsPromise = null;
     let renderedQuickModels = false;
-    let renderActiveProviderModels = null;
     if (!providerModels.length || options.refreshModels === true) {
       setPicker({
         title: options.title || 'Model',
@@ -130,16 +127,12 @@ export function createModelPicker({
         providerListHighlightProvider = renderOptions.highlightProvider;
       }
       const highlightProvider = renderOptions.highlightProvider || providerListHighlightProvider || null;
-      activeModelProvider = null;
-      renderActiveProviderModels = null;
       const openProviderModelsPicker = (provider) => {
         if (!provider) return;
-        activeModelProvider = provider;
-        renderActiveProviderModels = () => openProviderModelsPicker(provider);
         const providerModels = models.filter((model) => model.provider === provider);
         const preferredEffort = (values = []) => {
           const allowed = values.filter(Boolean);
-          for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max']) {
+          for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
             if (allowed.includes(value)) return value;
           }
           return allowed[0] || null;
@@ -213,6 +206,7 @@ export function createModelPicker({
           if (value === 'medium') return '◑';
           if (value === 'high') return '◕';
           if (value === 'max') return '◆';
+          if (value === 'ultra') return '✦';
           return '●';
         };
         const effortColor = (value) => {
@@ -221,6 +215,7 @@ export function createModelPicker({
           if (value === 'medium') return theme.claude;
           if (value === 'high') return theme.error;
           if (value === 'max') return theme.permission;
+          if (value === 'ultra') return theme.permission;
           return theme.error;
         };
         const modelFooter = (model = null) => {
@@ -366,34 +361,27 @@ export function createModelPicker({
     };
 
     renderModelPicker();
-    const applyFreshModels = (freshModels) => {
-      if (!isActiveModelPicker()) return;
+    // Freshness policy: an open picker keeps the catalog it first rendered.
+    // Background refreshes only update the cache, so fresh rows apply on the
+    // NEXT open (re-entry) instead of re-sorting the list mid-selection.
+    const adoptFreshModels = (freshModels) => {
       if (!Array.isArray(freshModels) || freshModels.length === 0) return;
-      providerModels = freshModels;
-      models = normalizeModelOptions(providerModels);
-      cacheRef.current = { models: providerModels, at: Date.now() };
-      if (activeModelProvider === null) {
-        renderModelPicker();
-      } else if (typeof renderActiveProviderModels === 'function') {
-        renderActiveProviderModels();
-      }
+      cacheRef.current = { models: freshModels, at: Date.now() };
     };
     if (renderedQuickModels && refreshModelsPromise) {
-      void refreshModelsPromise.then(applyFreshModels).catch(() => {});
+      void refreshModelsPromise.then(adoptFreshModels).catch(() => {});
     } else if (cacheIsStale) {
       if (!providerModelsTtlRefreshPromise) {
         providerModelsTtlRefreshPromise = Promise.resolve(loadModels({ force: true }))
           .then((freshModels) => {
-            if (Array.isArray(freshModels) && freshModels.length > 0) {
-              cacheRef.current = { models: freshModels, at: Date.now() };
-            }
+            adoptFreshModels(freshModels);
             return freshModels;
           })
           .finally(() => {
             providerModelsTtlRefreshPromise = null;
           });
       }
-      void providerModelsTtlRefreshPromise.then(applyFreshModels).catch(() => {});
+      void providerModelsTtlRefreshPromise.catch(() => {});
     }
   };
 

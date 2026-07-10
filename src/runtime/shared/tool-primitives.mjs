@@ -250,10 +250,13 @@ export function bridgeAgentModelSummary(args) {
 }
 
 export function summarizeLineWindow(a) {
+  const hasOffset = a.offset != null;
   const offset = a.offset ?? a.start_line ?? a.startLine ?? a.line;
   const limit = a.limit ?? a.line_count ?? a.lineCount ?? a.lines;
   if (offset == null && limit == null) return '';
-  const start = Number(offset);
+  // `read` uses a zero-based offset, while legacy start_line/line inputs are
+  // already one-based. Surface the human line number, never a raw array index.
+  const start = Number(offset) + (hasOffset ? 1 : 0);
   const count = Number(limit);
   if (Number.isFinite(start) && Number.isFinite(count) && count > 0) {
     return `lines ${start}-${Math.max(start, start + count - 1)}`;

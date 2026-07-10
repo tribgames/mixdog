@@ -87,10 +87,12 @@ test('genuinely-new completion (different execution_id) still enqueues + wakes t
 // stable execution_id-based key (executionCardKey → card:<id>:<hasBody>), NOT
 // the full composite notificationKey. A duplicate completion re-arriving with a
 // different type/status (same execution_id, same hasBody) must push ONE card;
-// a bodyless preview (b0) followed by the real result (b1) must still push TWO.
+// a bodyless successful preview (b0) is status-only; the real body (b1) is the
+// single visible logical response.
 function makeCardHarness() {
   let handler = null;
   let cardPushes = 0;
+  const responseCalls = [];
   const feed = createAgentJobFeed({
     runtime: { onNotification: (fn) => { handler = fn; return () => {}; } },
     getState: () => ({ busy: false }),
@@ -101,6 +103,7 @@ function makeCardHarness() {
     enqueue: () => true,
     drain: () => Promise.resolve(),
     pushUserOrSyntheticItem: () => { cardPushes += 1; },
+    pushAsyncAgentResponse: (...args) => { cardPushes += 1; responseCalls.push(args); },
     makeQueueEntry: (text, opts = {}) => ({ text, ...opts }),
     getPending: () => [],
     agentStatusState: () => ({}),
@@ -108,7 +111,7 @@ function makeCardHarness() {
     pushNotice: () => {},
   });
   feed.subscribeRuntimeNotifications();
-  return { cardPushes: () => cardPushes, deliver: (event) => handler(event) };
+  return { cardPushes: () => cardPushes, responseCalls, deliver: (event) => handler(event) };
 }
 
 test('duplicate completion (same execution_id, differing type/status) pushes ONE card', () => {
@@ -122,15 +125,33 @@ test('duplicate completion (same execution_id, differing type/status) pushes ONE
   assert.equal(cardPushes(), 1, 'dup with differing type/status pushes NO second card (execution_id card key)');
 });
 
-test('bodyless preview (b0) then real result (b1), same execution_id, pushes TWO cards', () => {
+test('bodyless successful preview (b0) then result (b1), same execution_id, pushes ONE card', () => {
   _clearDeliveredCompletions();
   const { cardPushes, deliver } = makeCardHarness();
 
   // Bodyless preview: header-only, no blank-line-separated result body → b0.
   deliver({ content: 'Async agent task task_9 completed finished.', meta: { type: 'agent_task_result', execution_id: 'task_9', status: 'completed' } });
-  assert.equal(cardPushes(), 1, 'preview pushes a card');
+  assert.equal(cardPushes(), 0, 'successful preview is status-only');
 
   // Real result: carries a body after a blank line → b1 (upgrade preserved).
   deliver({ content: 'Async agent task task_9 completed finished.\n\nResult:\n> ok', meta: { type: 'agent_task_result', execution_id: 'task_9', status: 'completed' } });
-  assert.equal(cardPushes(), 2, 'result body (b1) pushes a second card — preview→result upgrade intact');
+  assert.equal(cardPushes(), 1, 'result body (b1) is the one logical response');
+
+  deliver({ content: 'Async agent task task_9 completed finished.\n\nResult:\n> retry', meta: { type: 'background_task_result', execution_id: 'task_9', status: 'finished' } });
+  assert.equal(cardPushes(), 1, 'same execution retry pushes no additional response');
+});
+
+test('bodyless failure preview does not suppress its later body', () => {
+  _clearDeliveredCompletions();
+  const { cardPushes, responseCalls, deliver } = makeCardHarness();
+  deliver({ content: 'Async agent task task_fail failed.', meta: { type: 'agent_task_result', execution_id: 'task_fail', status: 'failed' } });
+  assert.equal(cardPushes(), 1, 'failure preview remains visible');
+
+  deliver({ content: 'Async agent task task_fail completed.\n\nResult:\n> recovered', meta: { type: 'agent_task_result', execution_id: 'task_fail', status: 'completed' } });
+  assert.equal(cardPushes(), 2, 'body is delivered for tail update or boundary-safe standalone card');
+  assert.equal(responseCalls[0][3].responseKey, 'task_fail');
+  assert.equal(responseCalls[1][3].responseKey, 'task_fail');
+
+  deliver({ content: 'Async agent task task_fail completed.\n\nResult:\n> retry', meta: { type: 'background_task_result', execution_id: 'task_fail', status: 'finished' } });
+  assert.equal(cardPushes(), 2, 'same-body retry remains idempotent');
 });

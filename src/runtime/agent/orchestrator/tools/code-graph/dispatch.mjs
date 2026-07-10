@@ -103,8 +103,16 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   // Name-only "symbols" calls (symbols[]/symbol without a file) are symbol
   // lookups, not a file outline — absorb into symbol_search instead of
   // erroring "file not found in graph: (missing file)".
-  if (mode === 'symbols' && !String(args?.file || '').trim()
-      && ((Array.isArray(args?.symbols) && args.symbols.length) || String(args?.symbol || '').trim())) {
+  if (mode === 'symbols'
+      && !String(args?.file || '').trim()
+      && !String(args?.files || '').trim()
+      && ((Array.isArray(args?.symbols) && args.symbols.length)
+        || (typeof args?.symbols === 'string' && args.symbols.trim())
+        || String(args?.symbol || '').trim())) {
+    if (!args.symbol && typeof args.symbols === 'string' && args.symbols.trim()) {
+      args = { ...args, symbol: args.symbols };
+      delete args.symbols;
+    }
     mode = 'symbol_search';
   }
 
@@ -523,8 +531,14 @@ export async function resolveSymbolReadSpan(cwd, { symbol, path = null, language
 export async function executeCodeGraphTool(name, args, cwd, signal = null, options = {}) {
   if (!cwd) throw new Error('find_symbol/code_graph requires cwd — caller did not provide a working directory');
   args = _normalizeGraphFileArgs(args);
-  const fileArg = (args && typeof args.file === 'string' && args.file.trim()) ? args.file.trim() : '';
   const baseCwd = (args && typeof args.cwd === 'string' && args.cwd.trim()) ? args.cwd.trim() : cwd;
+  const symbolMode = ['find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees', 'symbols'].includes(args?.mode);
+  if (symbolMode && typeof args?.file === 'string' && args.file.trim()
+      && pathResolve(baseCwd, args.file.trim()) === pathResolve(baseCwd)) {
+    args = { ...args };
+    delete args.file;
+  }
+  const fileArg = (args && typeof args.file === 'string' && args.file.trim()) ? args.file.trim() : '';
   let effectiveCwd = baseCwd;
   if (fileArg) {
     const abs = isAbsolute(fileArg) ? pathResolve(fileArg) : pathResolve(baseCwd, fileArg);

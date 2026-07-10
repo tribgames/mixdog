@@ -609,6 +609,19 @@ const graphOut = await executeCodeGraphTool('code_graph', {
   file: 'scripts/smoke.mjs',
 }, root);
 assertOk('code_graph', graphOut, /binding|spawnSync|symbol/i);
+const graphStringSymbolOut = await executeCodeGraphTool('code_graph', {
+  mode: 'symbols',
+  symbols: 'executeBuiltinTool',
+}, root);
+assertOk('code_graph string symbols', graphStringSymbolOut, /executeBuiltinTool|symbol_search/i);
+const graphRootAnchorOut = await executeCodeGraphTool('code_graph', {
+  mode: 'symbol_search',
+  symbol: 'executeBuiltinTool',
+  file: root,
+}, root);
+if (/file not found|outside cwd|arbitrary tree/i.test(String(graphRootAnchorOut))) {
+  throw new Error(`code_graph redundant root anchor was not normalized:\n${graphRootAnchorOut}`);
+}
 
 const graphSymbolBatchOut = await executeCodeGraphTool('code_graph', {
   mode: 'symbol_search',
@@ -1242,16 +1255,11 @@ if (normalizedExplore.length !== 2 || normalizedExplore[0] !== 'where is model s
 }
 if (MAX_FANOUT_QUERIES !== 8) throw new Error(`explore fanout cap changed: ${MAX_FANOUT_QUERIES}`);
 const explorerPrompt = buildExplorerPrompt('where is <agent> & status?');
-if (!explorerPrompt.includes('&lt;agent&gt;') || !explorerPrompt.includes('&amp;') || /verdicts, ratings, or recommendations/.test(explorerPrompt) === false) {
+if (explorerPrompt !== '<query>where is &lt;agent&gt; &amp; status?</query>') {
   throw new Error(`explorer prompt contract failed: ${explorerPrompt}`);
 }
-if (
-  !/STOP and answer NOW/.test(explorerPrompt)
-  || !/Turns 2-3 exist SOLELY as zero-hit recovery/.test(explorerPrompt)
-  || !/HARD max 3 tool turns/.test(explorerPrompt)
-  || !/turn 1\/3/.test(explorerPrompt)
-) {
-  throw new Error(`explorer prompt must force immediate answer on a specific-token anchor while preserving the 3-turn cap: ${explorerPrompt}`);
+if (/Reminder:|BUDGET|STOP and answer|verdicts|ratings|recommendations|grep|code_graph|find|glob/i.test(explorerPrompt)) {
+  throw new Error(`explorer prompt must not duplicate the system routing/fan-out contract: ${explorerPrompt}`);
 }
 setInternalToolsProvider({
   executor: async () => 'tool-smoke internal tool',

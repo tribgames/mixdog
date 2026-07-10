@@ -501,34 +501,62 @@ function formatGrepOutput({ windowed, totalWindowed, totalKnown, headLimit, offs
 export async function executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope = null, options = {}) {
     args = normalizeGrepArgs(args);
     args.path = coerceReadFamilyPathArg(args.path, workDir);
-    // Fan-out guard: batch multiple string paths sequentially, mirroring
-    // code_graph files[] batching. Recursive calls pass a single string
-    // path, so recursion bottoms out after one level.
+    // Fan-out guard: batch multiple string paths with bounded concurrency,
+    // mirroring code_graph files[] batching. Recursive calls pass a single
+    // string path, so recursion bottoms out after one level. Results are
+    // assembled below in input order, regardless of completion order.
     if (Array.isArray(args.path)) {
         const GREP_PATH_CAP = 10;
+        const GREP_PATH_CONCURRENCY = 4;
         const seen = new Set();
         const list = args.path
             .map(p => typeof p === 'string' ? p.trim() : '')
             .filter(p => p && !seen.has(p) && seen.add(p));
         if (list.length > 1) {
             const capped = list.slice(0, GREP_PATH_CAP);
-            const parts = [];
-            for (const p of capped) {
-                let body;
-                try {
-                    body = await executeGrepTool({ ...args, path: p }, workDir, executeChildBuiltinTool, readStateScope, options);
-                } catch (err) {
-                    body = `Error: ${err && err.message ? err.message : err}`;
+            const nestedOptions = { ...options, _grepPathFanout: true };
+            const configuredOutputCap = Number(options?.toolOutputMaxBytes) > 0
+                ? Math.trunc(Number(options.toolOutputMaxBytes))
+                : Math.trunc(Number(process.env.MIXDOG_TOOL_OUTPUT_MAX_BYTES));
+            const bodies = new Array(capped.length);
+            let next = 0;
+            const runWorker = async () => {
+                while (next < capped.length) {
+                    const index = next++;
+                    const p = capped[index];
+                    try {
+                        bodies[index] = await executeGrepTool(
+                            { ...args, path: p },
+                            workDir,
+                            executeChildBuiltinTool,
+                            readStateScope,
+                            nestedOptions,
+                        );
+                    } catch (err) {
+                        bodies[index] = `Error: ${err && err.message ? err.message : err}`;
+                    }
                 }
-                parts.push(`# grep ${p}\n${body}`);
-            }
+            };
+            await Promise.all(
+                Array.from(
+                    { length: Math.min(GREP_PATH_CONCURRENCY, capped.length) },
+                    () => runWorker(),
+                ),
+            );
+            const parts = capped.map((p, index) => `# grep ${p}\n${bodies[index]}`);
             if (list.length > GREP_PATH_CAP) {
                 parts.push(`[capped at ${GREP_PATH_CAP} of ${list.length} paths]`);
                 // Omitted paths mean the returned result cannot cover the whole
                 // requested path set — never let it be cached as complete.
                 if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
             }
-            return parts.join('\n\n');
+            const output = parts.join('\n\n');
+            if (configuredOutputCap > 0
+                && Buffer.byteLength(output, 'utf8') > configuredOutputCap
+                && options?.scopedCacheOutcome) {
+                markScopedCacheIncomplete(options.scopedCacheOutcome);
+            }
+            return output;
         }
         args.path = list[0];
     }
@@ -645,17 +673,11 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     if (rawOutputMode && !ALLOWED_OUTPUT_MODES.has(rawOutputMode)) {
         return `Error: invalid output_mode ${JSON.stringify(args.output_mode)}; expected one of ${[...ALLOWED_OUTPUT_MODES].join(', ')}`;
     }
-    // `content_with_context` is a convenience alias for `content` that auto-applies
-    // a generous surrounding-lines window, so the model can read a match in place
-    // without following up with `read`. It maps to content mode; the default
-    // context is applied below unless the caller passed an explicit -A/-B/-C/context.
-    const wantAutoContext = rawOutputMode === 'content_with_context';
-    // Default to `content` when output_mode is omitted. A pattern is always
-    // present here (the no-pattern case returned above), so this is a content
-    // search — it should return the matching lines WITH line numbers, not just
-    // filenames. Filename-only was forcing callers to re-grep for the actual
-    // coordinates (the explorer over-iteration root cause). `files_with_matches`
-    // is now opt-in; pure filename discovery belongs to `glob`.
+    // Omitted output_mode and `content_with_context` both return content with a
+    // generous surrounding-lines window. Explicit `content` remains bare.
+    const wantAutoContext = rawOutputMode === '' || rawOutputMode === 'content_with_context';
+    // Filename-only and count searches are explicit: callers must opt into
+    // `files_with_matches` or `count` when they only need existence/count data.
     const outputMode = (rawOutputMode === 'content_with_context') ? 'content' : (rawOutputMode || 'content');
     const headLimitRaw = args.head_limit;
     const headLimitCoerced = coerceNonNegInt(headLimitRaw);
@@ -739,13 +761,16 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         // apply dedup/section assembly in the original pattern order so the
         // shared `seen` set and output text stay byte-identical to the
         // sequential version.
-        const subs = await Promise.all(patterns.map(async (p) => {
+        const runPattern = async (p) => {
             try {
                 return await executeGrepTool({ ...args, pattern: p }, workDir, executeChildBuiltinTool, readStateScope, subOptions);
             } catch (err) {
                 return `Error: ${err && err.message ? err.message : err}`;
             }
-        }));
+        };
+        const subs = options._grepPathFanout
+            ? await patterns.reduce(async (all, p) => [...await all, await runPattern(p)], Promise.resolve([]))
+            : await Promise.all(patterns.map(runPattern));
         const parts = patterns.map((p, i) => `# grep pattern:${JSON.stringify(p)}\n${dedupeFanoutMatchLines(subs[i], seen)}`);
         return patternCapNote + parts.join('\n\n');
     }

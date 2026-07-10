@@ -592,6 +592,37 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       searchModelsCacheRef.current = { models: null, at: 0 };
     }
   }, []);
+  // Boot-time catalog prefetch: warm the /model & /agents provider catalog and
+  // the /search catalog once at startup so those pickers open instantly from
+  // cache (openModelPicker still TTL-refreshes stale rows in the background).
+  // Provider models load first so the search catalog derives from the full
+  // runtime cache instead of the sparse quick rows. Guarded by the same
+  // generation seq as the onboarding prefetch so an auth-triggered
+  // clearModelCaches() can't be clobbered by a stale in-flight result.
+  useEffect(() => {
+    let alive = true;
+    const timer = setTimeout(async () => {
+      const seq = onboardingPrefetchSeqRef.current;
+      try {
+        const models = await Promise.resolve(store.listProviderModels?.() || []);
+        if (alive && seq === onboardingPrefetchSeqRef.current
+          && Array.isArray(models) && models.length > 0
+          && !Array.isArray(providerModelsCacheRef.current.models)) {
+          providerModelsCacheRef.current = { models, at: Date.now() };
+        }
+      } catch { /* prefetch is advisory; pickers fall back to their own load */ }
+      if (!alive) return;
+      try {
+        const searchModels = await Promise.resolve(store.listSearchModels?.() || []);
+        if (alive && Array.isArray(searchModels) && searchModels.length > 0
+          && !Array.isArray(searchModelsCacheRef.current.models)) {
+          searchModelsCacheRef.current = { models: searchModels, at: Date.now() };
+        }
+      } catch { /* prefetch is advisory; /search falls back to its own load */ }
+    }, 1500);
+    timer.unref?.();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [store]);
   // Onboarding wizard + channel setup picker factories. Instantiated here —
   // after the onboarding refs above (const-TDZ) — with later-defined openers
   // (openProviderSetupPicker/openOutputStylePicker) threaded as lazy getters

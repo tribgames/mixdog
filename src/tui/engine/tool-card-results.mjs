@@ -10,11 +10,10 @@
  * the factory argument (getters/callbacks) — never stale snapshots. Every body
  * is the original engine.mjs logic verbatim.
  */
-import { summarizeToolResult, aggregateDoneCategories, classifyToolCategory } from '../../runtime/shared/tool-surface.mjs';
+import { summarizeToolResult, aggregateDoneCategories } from '../../runtime/shared/tool-surface.mjs';
 import { toolResultText, toolErrorDisplay, toolGroupedDisplayFallback } from './tool-result-text.mjs';
 import { toolResultCallId } from './tool-call-fields.mjs';
-import { memoryCoreResultErrorText } from '../app/input-parsers.mjs';
-import { parseAgentJob, toolResultStatus, isErrorToolStatus } from './agent-envelope.mjs';
+import { parseAgentJob } from './agent-envelope.mjs';
 import {
   withCancelledResultMarker,
   groupedToolResultText,
@@ -22,7 +21,7 @@ import {
   aggregateSummaries,
   assignAggregateSummaryOrder,
   failureDetailText,
-  shellCommandExitCode,
+  toolCallOutcome,
 } from './tool-result-status.mjs';
 import { formatAggregateDetail } from '../../runtime/shared/tool-surface.mjs';
 import { carryTranscriptMeasuredRowsCache } from '../app/transcript-window.mjs';
@@ -73,28 +72,11 @@ export function createToolCardResults({
     // Aggregate card handling — collect semantic summaries per call
     const aggregate = card.aggregate;
     const callRec = aggregate && callId ? aggregate.calls.get(callId) : null;
-    // Backend "core" memory-op failures are flattened to plain text (isError
-    // dropped upstream — see memoryCoreResultErrorText); recover that signal so
-    // failed memory writes are excluded from the done count. Gated to Memory
-    // calls: the text-matcher's ^(error|failed) catch-all would otherwise
-    // misflag legitimate non-memory success output.
-    const isMemoryCall = classifyToolCategory(callRec?.name || card?.name || '', callRec?.args || {}) === 'Memory';
-    // Split the failure signal into two:
-    //   isCallError  — a REAL tool-call failure (backend isError / error
-    //                  toolKind). ONLY this paints the ● dot red.
-    //   isResultError — a command/result failure (shell exit code, [error…]
-    //                  text, failed status text, flattened core memory-op
-    //                  failure). These still mark the card Failed in the L2
-    //                  detail but must NOT turn the dot red.
-    // A shell command that RAN but exited non-zero is a command-exit, NOT a
-    // real tool-call failure: it must not paint the ● dot red and renders as
-    // the distinct neutral "Exit N" state. Timeout/abort and shell-tool-failed
-    // are excluded by shellCommandExitCode and stay Failed.
-    const exitCode = shellCommandExitCode(rawText);
-    const isExitError = exitCode != null;
-    const isCallError = !isExitError && (message?.isError === true || message?.toolKind === 'error');
-    const isResultError = /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText)) || (isMemoryCall && memoryCoreResultErrorText(rawText) != null);
-    const isError = isCallError || isResultError;
+    // Only a provider-marked invocation failure contributes to failure count,
+    // red state, or Failed aggregate copy. Tool-reported HTTP/domain/status
+    // outcomes remain successful calls with their raw/semantic result detail.
+    const { exitCode, isExitError, isCallError } = toolCallOutcome(message, rawText);
+    const isError = isCallError;
     const text = isError ? toolErrorDisplay(rawText, card?.name || 'tool') : rawText;
 
     if (aggregate && card.itemId === aggregate.itemId) {
@@ -121,9 +103,9 @@ export function createToolCardResults({
       // ("512 lines, 6 matches, 3 files") so the finished card answers "how
       // much" without ctrl+o. Failures keep a bare 'N Ok · N Failed' status so
       // an error stays visible while collapsed.
-      const succeeded = completed - errors;
-      const detailText = errors > 0
-        ? failureDetailText({ succeeded, realErrors: errors - exitErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
+      const succeeded = Math.max(0, completed - errors - exitErrors);
+      const detailText = errors > 0 || exitErrors > 0
+        ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
         : formatAggregateDetail(aggregateSummaries(aggregate));
       const currentItem = getState().items.find((it) => it.id === card.itemId);
       const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
@@ -257,13 +239,13 @@ export function createToolCardResults({
         const errors = allCalls.filter((r) => r.isError).length;
         const callErrors = allCalls.filter((r) => r.isCallError).length;
         const exitErrors = allCalls.filter((r) => r.isExitError).length;
-        const succeeded = completed - errors;
+        const succeeded = Math.max(0, completed - errors - exitErrors);
         const rawResult = aggregateRawResult(allCalls);
         // Collapsed detail carries the merged per-call count summary; real
         // failures keep 'N Failed', shell command-exits show 'Exit N'/'Y Exit'.
         // Raw is kept for ctrl+o.
-        let displayDetail = errors > 0
-          ? failureDetailText({ succeeded, realErrors: errors - exitErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
+        let displayDetail = errors > 0 || exitErrors > 0
+          ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
           : formatAggregateDetail(aggregateSummaries(aggregate));
         if (cancelled) {
           // Cancelled aggregates MUST keep the [status: cancelled] marker on the

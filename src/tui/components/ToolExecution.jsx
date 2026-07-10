@@ -86,7 +86,7 @@ function statusCopy(name, label, count, doneCount, pending, isError, args = {}) 
   // dropping the pad just normalizes the spacing.
   return formatToolActionHeader(name, args, { pending, count });
 }
-export function ToolExecution({ name, args, result, rawResult, isError, errorCount, callErrorCount, exitErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false }) {
+export function ToolExecution({ name, args, result, rawResult, isError, errorCount, callErrorCount, exitErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false, agentResponseAggregate = false }) {
   const rowWidth = Math.max(1, Number(columns || 80));
   const groupCount = Math.max(1, Number(count || 1));
   const doneCount = Math.max(0, Math.min(groupCount, Number(completedCount || (result == null ? 0 : groupCount))));
@@ -387,7 +387,9 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const showRawResult = expanded && (hasDisplayBody || hasRawResult)
     && (!isBackgroundMetadataResult || hasRawResult);
   const detailLines = showRawResult
-    ? (hasDisplayBody ? lines : (rawRt ? stripLeadingStatusMarkerLines(rawRt.split('\n')) : []))
+    ? (agentResponseAggregate && hasRawResult
+      ? stripLeadingStatusMarkerLines(rawRt.split('\n'))
+      : (hasDisplayBody ? lines : (rawRt ? stripLeadingStatusMarkerLines(rawRt.split('\n')) : [])))
     : (collapsedDetail ? [collapsedDetail] : []);
   const isPendingPlaceholderDetail = !showRawResult && Boolean(pendingDetailPlaceholder);
   const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
@@ -449,7 +451,7 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const markerText = isDirectionalMarker ? `${markerGlyph} ` : markerGlyph;
   const dotText = pending && !blinkOn ? ' ' : markerText;
   let labelText;
-  if (isAgentResponse) labelText = agentResponseTitle(parsedArgs);
+  if (isAgentResponse) labelText = agentResponseTitle(parsedArgs, displayGroupCount);
   else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);
   else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
   else if (isShellSurface) labelText = shellHeader(shellStatus, displayGroupCount);

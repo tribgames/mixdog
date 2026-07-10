@@ -32,6 +32,93 @@ test('fuzzyRank floor drops a purely scattered subsequence but keeps a substring
     assert.deepEqual(ranked.map((r) => r.item.path), ['src/abcdef.txt']);
 });
 
+// Frozen copy of the pre-optimization scorer: this must not call production
+// fuzzy helpers, so rank parity also detects scoring regressions.
+function legacyFuzzyScore(query, str) {
+    if (!query) return 0;
+    const normalizedQuery = String(query).replace(/[\/\\_.\-\s]+/g, '');
+    if (!normalizedQuery) return 0;
+    const q = normalizedQuery.toLowerCase();
+    const s = str.toLowerCase();
+    const qlen = q.length;
+    const slen = s.length;
+    if (qlen === 0) return 0;
+    if (qlen > slen) return null;
+
+    const lastSep = Math.max(str.lastIndexOf('/'), str.lastIndexOf('\\'));
+    let score = 0;
+    let si = 0;
+    let prevMatch = -2;
+    let firstMatchIdx = -1;
+    for (let qi = 0; qi < qlen; qi++) {
+        const qc = q[qi];
+        let found = -1;
+        for (let k = si; k < slen; k++) {
+            if (s[k] === qc) { found = k; break; }
+        }
+        if (found === -1) return null;
+        if (firstMatchIdx === -1) firstMatchIdx = found;
+        score += 1;
+        if (found === prevMatch + 1) score += 5;
+        const prevCh = found > 0 ? str[found - 1] : undefined;
+        if (prevCh === undefined
+            || prevCh === '/' || prevCh === '\\' || prevCh === '_' || prevCh === '-'
+            || prevCh === '.' || prevCh === ' '
+            || (/[a-z0-9]/.test(prevCh) && /[A-Z]/.test(str[found]))) {
+            score += 8;
+        }
+        if (str[found] === normalizedQuery[qi]) score += 1;
+        prevMatch = found;
+        si = found + 1;
+    }
+    if (firstMatchIdx > lastSep) score += 10;
+    score -= Math.floor(slen / 16);
+    score -= Math.floor(firstMatchIdx / 8);
+    return score;
+}
+
+function referenceFuzzyRank(query, items, limit = 0) {
+    const normQuery = String(query || '').toLowerCase().replace(/[\/\\_.\-\s]+/g, '');
+    const floor = normQuery.length * 4;
+    const scored = [];
+    for (const item of items) {
+        const p = String(item.path || '');
+        const pathScore = legacyFuzzyScore(query, p);
+        const base = p.split(/[\\/]/).pop() || '';
+        const baseScore = legacyFuzzyScore(query, base);
+        const score = Math.max(pathScore ?? -Infinity, baseScore === null ? -Infinity : baseScore + 40);
+        if (!Number.isFinite(score)) continue;
+        const strong = normQuery.length > 0
+            && (String(base || '').toLowerCase().replace(/[\/\\_.\-\s]+/g, '').includes(normQuery)
+                || String(p || '').toLowerCase().replace(/[\/\\_.\-\s]+/g, '').includes(normQuery));
+        if (!strong && score < floor) continue;
+        scored.push({ item, score });
+    }
+    scored.sort((a, b) => (b.score - a.score)
+        || (a.item.path < b.item.path ? -1 : a.item.path > b.item.path ? 1 : 0));
+    return limit > 0 ? scored.slice(0, limit) : scored;
+}
+
+test('fuzzyRank exactly matches the frozen legacy full-sort reference ranker', () => {
+    const fragments = ['alpha', 'Beta', 'tool-events', 'src', 'x_y', 'log', 'camelCase', 'archive'];
+    const items = Array.from({ length: 1200 }, (_, i) => ({
+        path: i % 97 === 0
+            ? 'duplicate/tool-events.log'
+            : `${fragments[i % fragments.length]}/${fragments[(i * 7) % fragments.length]}-${i}.mjs`,
+    }));
+    for (const query of ['', 'tool', 'ToolEvents', 'a_b', 'camel']) {
+        for (const limit of [-5, 0, 0.5, 1, 2, 25, 300, 2000]) {
+            const expected = referenceFuzzyRank(query, items, limit);
+            const actual = fuzzyRank(query, items, limit);
+            assert.deepEqual(
+                actual.map(({ item, score }) => ({ index: items.findIndex((candidate) => candidate === item), score })),
+                expected.map(({ item, score }) => ({ index: items.findIndex((candidate) => candidate === item), score })),
+                `query=${JSON.stringify(query)}, limit=${limit}`,
+            );
+        }
+    }
+});
+
 // ── hidden-directory discovery via the find tool ─────────────────────────
 
 function makeRepo() {

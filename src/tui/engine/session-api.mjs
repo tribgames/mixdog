@@ -24,7 +24,7 @@ export function createEngineApi(bag) {
 
 export function createEngineApiA(bag) {
   const {
-    runtime, nextId, flags, pending, listeners, getState, set, pushItem, patchItem, replaceItems, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick,
+    runtime, nextId, flags, pending, listeners, getState, set, pushItem, patchItem, replaceItems, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
   } = bag;
   return {
     getState: () => getState(),
@@ -573,10 +573,15 @@ export function createEngineApiA(bag) {
         ? restoreState.pastedTexts
         : null;
       const requeueEntries = restoreState && !restoreState.committed && Array.isArray(restoreState.requeueEntries)
-        ? restoreState.requeueEntries.slice()
+        ? restoreState.requeueEntries.filter(
+          (entry) => entry?.abortDiscardOnAbort !== true && entry?.mode !== 'pending-resume',
+        )
         : [];
       const aborted = runtime.abort('cli-react-abort');
       if (restoreState) {
+        if (aborted !== false && Array.isArray(restoreState.discardExecutionPendingResumeKeys)) {
+          discardExecutionPendingResume?.(restoreState.discardExecutionPendingResumeKeys);
+        }
         if ((restoreText || requeueEntries.length > 0) && aborted !== false) {
           restoreState.reclaimed = true;
           const idSet = new Set((restoreState.submittedIds || []).filter((id) => id != null));
@@ -592,6 +597,7 @@ export function createEngineApiA(bag) {
         }
         restoreState.restorable = false;
         restoreState.requeueEntries = [];
+        restoreState.discardExecutionPendingResumeKeys = [];
       }
       // ── Bounded manual-abort recovery ───────────────────────────────────
       // runtime.abort() above normally rejects the in-flight runtime.ask() so

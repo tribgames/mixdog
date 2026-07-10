@@ -77,7 +77,7 @@ export const Item = React.memo(function Item({ item, prevKind, columns, toolOutp
         node = <ToolHookDenialCard item={item} columns={columns} />;
         break;
       }
-      node = <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} callErrorCount={item.callErrorCount} exitErrorCount={item.exitErrorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} doneCategories={item.doneCategories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} />;
+      node = <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} callErrorCount={item.callErrorCount} exitErrorCount={item.exitErrorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} doneCategories={item.doneCategories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} agentResponseAggregate={item.agentResponseAggregate} />;
       break;
     }
     case 'notice':

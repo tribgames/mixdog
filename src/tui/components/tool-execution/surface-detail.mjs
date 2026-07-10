@@ -105,7 +105,9 @@ export function joinActionAgent(action, agent) {
   return agent ? `${action} ${agent}` : action;
 }
 
-export function agentResponseTitle(args) {
+export function agentResponseTitle(args, count = 1) {
+  const total = Math.max(1, Number(count) || 1);
+  if (total > 1) return `Responses ${total} agents`;
   const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
   // The agent + model identify the responder; the response summary itself
   // is hidden in the collapsed card (ctrl+o expand still shows the full body).
@@ -406,6 +408,7 @@ export function toolStatusColor({ pending, groupCount, callFailedCount = 0, exit
   if (pending) return theme.text;
   const status = normalizeTerminalStatus(terminalStatus);
   if (status === 'cancelled') return theme.warning;
+  if (status === 'denied') return theme.warning;
   if (callFailedCount > 0) {
     if (groupCount > 1 && callFailedCount < groupCount) return theme.mixdogOrange || theme.warning;
     return theme.error;

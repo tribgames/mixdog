@@ -6,11 +6,9 @@ import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
 import { toolResultText, toolErrorDisplay } from './tool-result-text.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
-import { toolResultStatus, isErrorToolStatus } from './agent-envelope.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
-import { memoryCoreResultErrorText } from '../app/input-parsers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
-import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, assignAggregateSummaryOrder, failureDetailText, shellCommandExitCode } from './tool-result-status.mjs';
+import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, assignAggregateSummaryOrder, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
 
 export function createRunTurn(bag) {
   const {
@@ -42,6 +40,9 @@ export function createRunTurn(bag) {
       reclaimed: false,
       committed: false,
       requeueEntries: Array.isArray(options.requeueOnAbort) ? options.requeueOnAbort.slice() : [],
+      discardExecutionPendingResumeKeys: Array.isArray(options.discardExecutionPendingResumeKeys)
+        ? options.discardExecutionPendingResumeKeys.slice()
+        : [],
     };
     set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, responseLength: 0, inputTokens: 0, outputTokens: 0, mode: 'requesting' } });
 
@@ -156,6 +157,7 @@ export function createRunTurn(bag) {
     const earlyResultBuffer = new Map();
     const aggregateCards = []; // active aggregate cards in the current consecutive tool block
     let tailAggregate = null; // most recently touched aggregate card; only the tail may absorb the next same-bucket call
+    let providerToolBatch = 0;
 
     // ── Deferred tool-card push (scroll/text sync) ────────────────────────────
     // A tool card used to enter the transcript the instant onToolCall fired,
@@ -172,13 +174,11 @@ export function createRunTurn(bag) {
     // cards are pushed alongside the result-bearing one before their own delay
     // elapses and would otherwise paint an empty reserved band.
     // Mirrors components/ToolExecution.jsx TOOL_PENDING_SHOW_DELAY_MS.
-    // [jitter fix] Reserve the tool-card row immediately instead of after a
-    // 1000ms delay. Delayed insertion made rows appear late and shove the body
-    // vertically; pushing now (with the real 'Running' header height via
-    // deferredDisplayReady) keeps the layout stable. The timer path is kept as a
-    // 0ms microtask fallback for entries that are registered but not explicitly
-    // surfaced, preserving call-order flush semantics.
-    const TOOL_CARD_PUSH_DELAY_MS = 0;
+    // Keep a fast call off-screen until it either resolves or has genuinely
+    // been pending long enough to communicate work. This avoids a one-frame
+    // Running→Finished flash while preserving the deferred entry's ordered,
+    // result-forced materialization path.
+    const TOOL_CARD_PUSH_DELAY_MS = 1000;
     let deferredSeqCounter = 0;
     const deferredEntries = []; // creation-order list; each is pushed at most once
     // Push this entry AND every earlier-created still-deferred entry, in order,
@@ -339,13 +339,13 @@ export function createRunTurn(bag) {
         const callErrors = allCalls.filter((r) => r.isCallError).length;
         const exitErrors = allCalls.filter((r) => r.isExitError).length;
         const completed = allCalls.filter((r) => r.resolved).length;
-        const succeeded = completed - errors;
+        const succeeded = Math.max(0, completed - errors - exitErrors);
         const rawResult = aggregateRawResult(allCalls);
         // Merged count summary (see patchToolCardResult); real failures keep
         // 'N Failed', shell command-exits render 'Exit N'/'Y Exit'. Raw
         // preserved for ctrl+o expansion.
-        const displayDetail = errors > 0
-          ? failureDetailText({ succeeded, realErrors: errors - exitErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
+        const displayDetail = errors > 0 || exitErrors > 0
+          ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
           : formatAggregateDetail(aggregateSummaries(aggregate));
         patchItem(aggregate.itemId, {
           result: displayDetail,
@@ -671,20 +671,11 @@ export function createRunTurn(bag) {
         if (!callRec || callRec.resolved || callRec.completedEarly) return;
         aggregate.ensureVisible?.();
         const rawText = toolResultText(message?.content);
-        // Recover flattened memory "core" op failures (isError dropped upstream)
-        // so they are excluded from the done count — see memoryCoreResultErrorText.
-        // Gated to Memory calls: the text-matcher's ^(error|failed) catch-all
-        // would otherwise misflag legitimate non-memory success output.
-        const isMemoryCall = classifyToolCategory(callRec.name, callRec.args) === 'Memory';
-        // Same split as tool-card-results.mjs: a REAL tool-call error drives the
-        // red ● dot; command/result failures only mark the card Failed in L2. A
-        // shell command that RAN but exited non-zero is a command-exit — never a
-        // call error — and renders as the neutral "Exit N" state.
-        const exitCode = shellCommandExitCode(rawText);
-        const isExitError = exitCode != null;
-        const isCallError = !isExitError && (message?.isError === true || message?.toolKind === 'error');
-        const isResultError = /^\s*\[?error/i.test(rawText) || isErrorToolStatus(toolResultStatus(rawText)) || (isMemoryCall && memoryCoreResultErrorText(rawText) != null);
-        const isError = isCallError || isResultError;
+        // Tool result text (including HTTP/domain failures, zero matches, task
+        // statuses, and shell output) is detail, not a failed invocation. Only
+        // the provider's isError/error-tool envelope drives failure counts/red.
+        const { exitCode, isExitError, isCallError } = toolCallOutcome(message, rawText);
+        const isError = isCallError;
         const text = isError ? toolErrorDisplay(rawText, callRec.name || 'tool') : rawText;
         callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
         assignAggregateSummaryOrder(aggregate, callRec);
@@ -699,14 +690,14 @@ export function createRunTurn(bag) {
         const errors = allCalls.filter((r) => r.isError).length;
         const callErrors = allCalls.filter((r) => r.isCallError).length;
         const exitErrors = allCalls.filter((r) => r.isExitError).length;
-        const succeeded = completedCount - errors;
+        const succeeded = Math.max(0, completedCount - errors - exitErrors);
         const rawResult = aggregateRawResult(allCalls);
         // Collapsed detail carries the merged per-call count summary even on
         // the early-notify path; patching '' here flipped the detail row back
         // to the 'Running' placeholder between count updates (the visible
         // jitter). Failures keep 'N Failed'. Raw preserved for ctrl+o expansion.
-        const displayDetail = errors > 0
-          ? failureDetailText({ succeeded, realErrors: errors - exitErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
+        const displayDetail = errors > 0 || exitErrors > 0
+          ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
           : formatAggregateDetail(aggregateSummaries(aggregate));
         const currentItem = getState().items.find((it) => it.id === card.itemId);
         const visualCompleted = Math.max(
@@ -792,6 +783,7 @@ export function createRunTurn(bag) {
           }
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
+          const agentBatch = ++providerToolBatch;
           const committedAssistantSegment = commitAssistantSegment({ sealToolBlock: true });
           if (committedAssistantSegment) {
             // Let the pre-tool assistant preamble paint and settle before the
@@ -815,11 +807,10 @@ export function createRunTurn(bag) {
             // Category drives the aggregate bucket so only same-category calls
             // merge into one card; classify first, then bucket by it.
             const category = classifyToolCategory(name, args);
-            // Agent/bridge calls always get their own standalone card so
-            // ToolExecution's isAgentTool/agentActionTitle path renders a
-            // "Spawn <Agent> (model, tag)" header instead of being folded
-            // into the "Called N agent(s)" category-aggregate card.
-            const bucket = category === 'Agent' ? null : aggregateBucketForCategory(category);
+            // Agent actions aggregate only within this provider-emitted batch.
+            // They stay outbound category cards; asynchronous inbound Responses
+            // are separately tailed by the notification feed and never mix here.
+            const bucket = aggregateBucketForCategory(category, { agentBatch });
             const callId = toolCallId(c);
             const callKey = callId || `__tool_${toolCards.length}_${i}`;
             // The old App scan counted multi-pattern calls via

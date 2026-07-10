@@ -2,7 +2,7 @@
 import { clean } from './session-text.mjs';
 
 export const TOOL_MODES = new Set(['full', 'readonly', 'lead']);
-export const ALL_EFFORT_LEVELS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
+export const ALL_EFFORT_LEVELS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 export const EFFORT_LABELS = {
   none: 'None',
   low: 'Low',
@@ -10,11 +10,14 @@ export const EFFORT_LABELS = {
   high: 'High',
   xhigh: 'Extra High',
   max: 'Max',
+  ultra: 'Ultra',
 };
 
 export const EFFORT_OPTIONS_BY_PROVIDER = {
   openai: ['none', 'low', 'medium', 'high', 'xhigh'],
-  'openai-oauth': ['none', 'low', 'medium', 'high', 'xhigh'],
+  // gpt-5.6+ catalogs declare max/ultra; the openai-oauth transport folds
+  // ultra -> max on the wire (openai-oauth.mjs _normalizeReasoningEffort).
+  'openai-oauth': ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   anthropic: ['low', 'medium', 'high', 'xhigh', 'max'],
   'anthropic-oauth': ['low', 'medium', 'high', 'xhigh', 'max'],
   xai: ['none', 'low', 'medium', 'high'],
@@ -36,6 +39,7 @@ export const EFFORT_BY_FAMILY = {
   grok: ['none', 'low', 'medium', 'high'],
 };
 export const EFFORT_FALLBACKS = {
+  ultra: ['ultra', 'max', 'xhigh', 'high', 'medium', 'low'],
   max: ['max', 'xhigh', 'high', 'medium', 'low'],
   xhigh: ['xhigh', 'high', 'medium', 'low'],
   high: ['high', 'medium', 'low'],

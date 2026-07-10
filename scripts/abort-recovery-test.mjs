@@ -18,6 +18,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 function makeEngine({ abortSettles = false, recoveryMs = 30 } = {}) {
   let seq = 0;
   const notices = [];
+  const requeued = [];
+  const discardedCompletionKeys = [];
   let drainCount = 0;
   let state = { items: [], queued: [], busy: false, commandBusy: false, spinner: null, thinking: null, lastTurn: null };
   const bag = {
@@ -51,16 +53,24 @@ function makeEngine({ abortSettles = false, recoveryMs = 30 } = {}) {
     syncContextStats: () => {},
     denyAllToolApprovals: () => {},
     updateAgentJobCard: () => {},
-    requeueEntriesFront: () => {},
+    requeueEntriesFront: (entries) => { requeued.push(...entries); },
     resetStatsAndSyncContext: () => {},
     flushDeferredExecutionPendingResumeKick: () => {},
+    discardExecutionPendingResume: (keys) => { discardedCompletionKeys.push(...keys); },
     drain: async () => { drainCount += 1; },
     runTurn: async () => 'ok',
   };
   Object.assign(bag, createSessionFlow(bag));
   bag.drain = async () => { drainCount += 1; };
   const api = createEngineApiA(bag);
-  return { api, bag, getNotices: () => notices, getDrainCount: () => drainCount };
+  return {
+    api,
+    bag,
+    getNotices: () => notices,
+    getDrainCount: () => drainCount,
+    getRequeued: () => requeued,
+    getDiscardedCompletionKeys: () => discardedCompletionKeys,
+  };
 }
 
 test('starved abort → bounded recovery hard-releases busy and re-kicks drain', async () => {
@@ -116,3 +126,34 @@ test('recovery no-ops if a newer turn already owns the store', async () => {
   assert.equal(bag.flags.leadTurnEpoch, 5, 'recovery must not touch a newer turn epoch');
   assert.equal(bag.getState().busy, true, 'newer turn stays busy — not force-released');
 });
+
+for (const phase of ['before first delta', 'after response progress']) {
+  test(`Esc ${phase} abandons the active completion resume`, () => {
+    const {
+      api, bag, getRequeued, getDiscardedCompletionKeys,
+    } = makeEngine({ abortSettles: true });
+    bag.flags.activePromptRestore = {
+      text: 'completion response',
+      restorable: false,
+      committed: false,
+      requeueEntries: [{
+        mode: 'pending-resume',
+        text: 'completion response',
+        abortDiscardOnAbort: true,
+      }],
+      discardExecutionPendingResumeKeys: ['execution_A'],
+    };
+    bag.set({
+      busy: true,
+      spinner: { active: true, responseLength: phase === 'after response progress' ? 24 : 0 },
+      thinking: phase === 'after response progress' ? { text: 'working' } : null,
+    });
+
+    assert.equal(api.abort().aborted, true);
+    assert.equal(bag.getState().busy, false, 'Esc releases the active completion turn');
+    assert.equal(bag.getState().spinner, null, 'spinner is cleared');
+    assert.equal(bag.getState().thinking, null, 'thinking is cleared');
+    assert.deepEqual(getRequeued(), [], 'the completion resume is not requeued');
+    assert.deepEqual(getDiscardedCompletionKeys(), ['execution_A'], 'its completion ownership is retired');
+  });
+}

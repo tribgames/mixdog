@@ -245,6 +245,7 @@ function toolHasDisplayResultForRows(item) {
 
 function toolExpandedRawTextForRows(item, rawRt) {
   if (item?.aggregate) return rawRt;
+  if (item?.agentResponseAggregate) return rawRt;
   const hasDisplayResult = toolHasDisplayResultForRows(item);
   if (hasDisplayResult) return toolDisplayedResultTextForRows(item);
   return stripLeadingStatusMarkerFromTextForRows(rawRt || '');

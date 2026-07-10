@@ -7,7 +7,7 @@
 //
 //   node scripts/internal-comms-bench.mjs
 //   node scripts/internal-comms-bench.mjs --run [--model grok] [--provider P] [--json]
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   copyFileSync,
   cpSync,
@@ -31,11 +31,16 @@ const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-role.mjs')).href;
 const RULE_FILES = [
   'rules/agent/00-core.md',
   'rules/agent/00-common.md',
+  'rules/agent/20-skip-protocol.md',
   'agents/worker/AGENT.md',
   'agents/heavy-worker/AGENT.md',
   'agents/reviewer/AGENT.md',
   'agents/debugger/AGENT.md',
   'workflows/default/WORKFLOW.md',
+  'workflows/solo/WORKFLOW.md',
+  'workflows/bench/WORKFLOW.md',
+  'rules/lead/01-general.md',
+  'rules/lead/02-channels.md',
   'rules/lead/lead-tool.md',
   'rules/lead/lead-brief.md',
 ];
@@ -48,11 +53,12 @@ const DEFAULT_WORKER_PROMPT =
 // Identical across variants A/B; only the on-disk rule files differ.
 const DEFAULT_LEAD_PROMPT = [
   'You are the Lead in an automation benchmark. A file named math.js already exists in your working directory.',
-  'Do NOT edit any file yourself and do NOT call apply_patch yourself. You MUST delegate every implementation step.',
-  'Step 1: call the agent tool with agent "worker" and give it a brief to add an exported function add(a, b) that returns a + b to math.js, keeping the existing mul export unchanged, using apply_patch only.',
-  'Step 2: after the worker hands off, call the agent tool with agent "reviewer" and give it a brief to verify that math.js exports both add and mul.',
-  'Step 3: stop and reply with a one-line outcome plus math.js:line. Do exactly these three steps and nothing else.',
+  'This is the planning turn: give a concise plan only, then wait for a later explicit approval. Do not edit, mutate state, or delegate in this turn.',
+  'After approval, do NOT edit any file yourself or call apply_patch yourself. Delegate every implementation step: first a worker adds exported add(a, b) returning a + b to math.js while preserving mul, then a reviewer verifies both exports. Finally reply with a one-line outcome plus math.js:line.',
 ].join(' ');
+export const DEFAULT_LEAD_APPROVAL_PROMPT = 'Proceed with the latest plan.';
+export const CHILD_RESULT_START = '__INTERNAL_COMMS_BENCH_RESULT_START__';
+export const CHILD_RESULT_END = '__INTERNAL_COMMS_BENCH_RESULT_END__';
 
 const MODEL_ALIASES = {
   opus: { provider: 'anthropic-oauth', model: 'claude-opus-4-8' },
@@ -383,6 +389,18 @@ function emptyRoleSplit(dataDir) {
   };
 }
 
+function mathTaskCompleted(taskCwd) {
+  let source = '';
+  try {
+    source = readFileSync(join(taskCwd, 'math.js'), 'utf8');
+  } catch {
+    return false;
+  }
+  return source !== INITIAL_MATH_JS
+    && /export\s+function\s+add\s*\(\s*a\s*,\s*b\s*\)\s*\{\s*return\s+a\s*\+\s*b\s*;?\s*\}/.test(source)
+    && /export\s+function\s+mul\s*\(\s*a\s*,\s*b\s*\)\s*\{\s*return\s+a\s*\*\s*b\s*;?\s*\}/.test(source);
+}
+
 function splitTokensByRole(dataDir, rootSessionId) {
   const tracePath = join(dataDir, 'history', 'agent-trace.jsonl');
   const rows = readRows(tracePath);
@@ -420,6 +438,21 @@ function splitTokensByRole(dataDir, rootSessionId) {
   return { tracePath, session_ids: [...treeIds], byRole, total };
 }
 
+export function validateLeadRun({ taskCwd, run, split }) {
+  const reasons = [];
+  if (!run.ok) reasons.push('child did not return a successful benchmark result');
+  if (!mathTaskCompleted(taskCwd)) reasons.push('math.js does not contain the approved add and preserved mul implementation');
+  if ((split?.byRole?.worker?.usage_rows || 0) < 1) reasons.push('worker participation/usage is missing');
+  if ((split?.byRole?.reviewer?.usage_rows || 0) < 1) reasons.push('reviewer participation/usage is missing');
+  return { valid: reasons.length === 0, reasons };
+}
+
+export function leadModeExitCode(runsMeta, perVariant) {
+  const allValid = ['A', 'B'].every((variant) => runsMeta[variant].length > 0 && runsMeta[variant].every((run) => run.valid));
+  const anyUsage = ['A', 'B'].some((variant) => perVariant[variant].some((split) => split.total.usage_rows > 0));
+  return allValid && anyUsage ? 0 : 1;
+}
+
 function median(values) {
   const arr = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
   if (!arr.length) return 0;
@@ -443,54 +476,120 @@ function aggregateVariant(splits) {
   return out;
 }
 
-// Drives a REAL Lead session in the variant sandbox (createSession/askSession/
-// closeSession from the runtime manager — same pattern as output-style-bench).
-// The variant rule files take effect through MIXDOG_ROOT; the runtime modules
-// themselves are imported from the real PLUGIN_ROOT (identical across variants).
-function runLiveLeadDelegation({ pluginRoot, dataDir, taskCwd, prompt, provider, model, effort, fast }) {
-  const cfgUrl = pathToFileURL(join(PLUGIN_ROOT, 'runtime/agent/orchestrator/config.mjs')).href;
-  const regUrl = pathToFileURL(join(PLUGIN_ROOT, 'runtime/agent/orchestrator/providers/registry.mjs')).href;
-  const mgrUrl = pathToFileURL(join(PLUGIN_ROOT, 'runtime/agent/orchestrator/session/manager.mjs')).href;
-  const driver = [
-    `import * as cfgMod from ${JSON.stringify(cfgUrl)};`,
-    `import * as reg from ${JSON.stringify(regUrl)};`,
-    `import { createSession, askSession, closeSession } from ${JSON.stringify(mgrUrl)};`,
-    `const config = cfgMod.loadConfig({ secrets: true });`,
-    `await reg.initProviders(config.providers || {});`,
-    `const sessionOpts = { provider: ${JSON.stringify(provider)}, model: ${JSON.stringify(model)},`,
-    `  owner: 'cli', agent: 'lead', lane: 'cli', sourceType: 'lead', sourceName: 'internal-comms-bench-lead',`,
-    `  cwd: ${JSON.stringify(taskCwd)}, tools: 'full', fast: ${fast ? 'true' : 'false'} };`,
-    effort ? `sessionOpts.effort = ${JSON.stringify(effort)};` : '',
-    `const session = createSession(sessionOpts);`,
-    `let result;`,
-    `try { result = await askSession(session.id, ${JSON.stringify(prompt)}, null, null, ${JSON.stringify(taskCwd)}); }`,
-    `finally { try { closeSession(session.id, 'internal-comms-bench-lead'); } catch {} }`,
-    `process.stdout.write(JSON.stringify({ text: String(result?.text || result?.content || '').trim(), sessionId: session.id }));`,
+// Drives a REAL Lead session in the variant sandbox through the public session
+// runtime, including its deferred standalone tool surface.
+// The variant rule files and public runtime modules take effect through the
+// sandboxed MIXDOG_ROOT.
+export function buildLiveLeadDriver({
+  runtimeUrl,
+  traceUrl = pathToFileURL(join(PLUGIN_ROOT, 'runtime/agent/orchestrator/agent-trace-io.mjs')).href,
+  taskCwd,
+  prompt,
+  approvalPrompt = DEFAULT_LEAD_APPROVAL_PROMPT,
+  provider,
+  model,
+  effort,
+  fast,
+}) {
+  return [
+    `import { createMixdogSessionRuntime } from ${JSON.stringify(runtimeUrl)};`,
+    `import { drainAgentTrace } from ${JSON.stringify(traceUrl)};`,
+    `const rt = await createMixdogSessionRuntime({ provider: ${JSON.stringify(provider)}, model: ${JSON.stringify(model)},`,
+    `  cwd: ${JSON.stringify(taskCwd)}, toolMode: 'full' });`,
+    effort ? `await rt.setEffort(${JSON.stringify(effort)});` : '',
+    fast !== undefined ? `await rt.setFast(${JSON.stringify(fast)});` : '',
+    `const prePromptTools = rt.toolsStatus?.()?.activeTools || [];`,
+    `if (!prePromptTools.includes('agent')) throw new Error('Lead runtime agent tool is not active');`,
+    `let busy = false; let kickDeferred = false; let wake = null;`,
+    `rt.onNotification(() => { queueMicrotask(() => { kickDeferred = true; if (!busy && wake) wake(); }); return false; });`,
+    `const askOnce = async (msg) => { busy = true; try { const { result } = await rt.ask(msg); return result; } finally { busy = false; } };`,
+    `const agentsBusy = () => { const jobs = rt.agentStatus?.()?.agentJobs || []; return jobs.some((j) => /running|pending|spawn|queued/i.test(String(j?.status || j?.state || ''))); };`,
+    `let result; let sessionId = '';`,
+    `try {`,
+    `  await askOnce(${JSON.stringify(prompt)});`,
+    `  result = await askOnce(${JSON.stringify(approvalPrompt)});`,
+    `  const deadline = Date.now() + 30 * 60_000;`,
+    `  while (Date.now() < deadline) {`,
+    `    if (!kickDeferred) {`,
+    `      if (!agentsBusy()) break;`,
+    `      const kicked = await new Promise((resolve) => { wake = () => resolve(true); setTimeout(() => resolve(false), 10_000); });`,
+    `      wake = null;`,
+    `      if (!kicked && !kickDeferred && !agentsBusy()) break;`,
+    `    }`,
+    `    if (!kickDeferred && !agentsBusy()) break;`,
+    `    kickDeferred = false; result = (await askOnce('')) || result;`,
+    `  }`,
+    `  sessionId = rt.sessionId || rt.id || rt.session?.id || '';`,
+    `}`,
+    `finally { try { await rt.close('internal-comms-bench-lead'); } catch {} }`,
+    `await drainAgentTrace();`,
+    `const benchResult = JSON.stringify({ text: String(result?.text || result?.content || '').trim(), sessionId });`,
+    `process.stdout.write(${JSON.stringify(CHILD_RESULT_START)} + benchResult + ${JSON.stringify(CHILD_RESULT_END)} + '\\n', () => process.exit(0));`,
   ].filter(Boolean).join('\n');
-  const started = Date.now();
-  let raw = '';
-  let ok = false;
-  let sid = null;
+}
+
+export function parseLiveLeadResult(stdout) {
+  const source = String(stdout || '');
+  const start = source.lastIndexOf(CHILD_RESULT_START);
+  if (start < 0) return null;
+  const jsonStart = start + CHILD_RESULT_START.length;
+  const end = source.indexOf(CHILD_RESULT_END, jsonStart);
+  if (end < 0) return null;
   try {
-    raw = execFileSync('node', ['--input-type=module', '-e', driver], {
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-      env: {
-        ...process.env,
-        MIXDOG_ROOT: pluginRoot,
-        MIXDOG_DATA_DIR: dataDir,
-      },
-    });
-    const j = raw.lastIndexOf('{');
-    if (j >= 0) { try { sid = JSON.parse(raw.slice(j)).sessionId || null; } catch { /* tail */ } }
-    ok = !!sid;
-  } catch (e) {
-    raw = String(e.stdout || '') + String(e.stderr || '');
-    const j = raw.lastIndexOf('{');
-    if (j >= 0) { try { sid = JSON.parse(raw.slice(j)).sessionId || null; } catch { /* tail */ } }
-    ok = false;
+    const result = JSON.parse(source.slice(jsonStart, end));
+    return typeof result?.sessionId === 'string' && result.sessionId ? result : null;
+  } catch {
+    return null;
   }
-  return { sessionId: sid || extractSessionId(raw), ms: Date.now() - started, ok, raw };
+}
+
+export function runLiveLeadDelegation({
+  pluginRoot,
+  dataDir,
+  taskCwd,
+  prompt,
+  provider,
+  model,
+  effort,
+  fast,
+  runtimeUrls = null,
+}) {
+  const runtimeUrl = runtimeUrls?.runtimeUrl || pathToFileURL(join(pluginRoot, 'mixdog-session-runtime.mjs')).href;
+  const traceUrl = runtimeUrls?.traceUrl || pathToFileURL(join(pluginRoot, 'runtime/agent/orchestrator/agent-trace-io.mjs')).href;
+  const driver = buildLiveLeadDriver({
+    runtimeUrl,
+    traceUrl,
+    taskCwd,
+    prompt,
+    provider,
+    model,
+    effort,
+    fast,
+  });
+  const started = Date.now();
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', driver], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    env: {
+      ...process.env,
+      MIXDOG_ROOT: pluginRoot,
+      MIXDOG_DATA_DIR: dataDir,
+    },
+  });
+  const stdout = String(child.stdout || '');
+  const stderr = String(child.stderr || '');
+  const result = parseLiveLeadResult(stdout);
+  return {
+    sessionId: result?.sessionId || null,
+    ms: Date.now() - started,
+    ok: child.status === 0 && !child.error && !!result,
+    raw: stdout + stderr,
+    stdout,
+    stderr,
+    exitCode: child.status,
+    signal: child.signal || null,
+    error: child.error ? String(child.error.message || child.error) : null,
+  };
 }
 
 function fmtDeltaEntry(entry) {
@@ -505,12 +604,13 @@ function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
   const sandboxRoot = mkdtempSync(join(REPO_ROOT, '.tmp-internal-comms-bench-lead-'));
   const perVariant = { A: [], B: [] };
   const runsMeta = { A: [], B: [] };
+  let invalidRun = null;
   try {
     const pluginRoots = {
       A: materializePluginRoot('A', sandboxRoot),
       B: materializePluginRoot('B', sandboxRoot),
     };
-    for (let i = 0; i < repeat; i += 1) {
+    runLoop: for (let i = 0; i < repeat; i += 1) {
       for (const variant of ['A', 'B']) {
         const taskCwd = prepareTaskCwd(sandboxRoot);
         const dataDir = prepareDataDir(sandboxRoot, `${variant}-r${i}`, realDataDir, userUnified, route.provider);
@@ -526,13 +626,42 @@ function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
           fast,
         });
         const split = run.sessionId ? splitTokensByRole(dataDir, run.sessionId) : emptyRoleSplit(dataDir);
-        perVariant[variant].push(split);
-        runsMeta[variant].push({ ok: run.ok, ms: run.ms, sessionId: run.sessionId, total: split.total.total_tokens });
-        process.stderr.write(`[internal-comms-bench]   -> ${run.ok ? 'ok' : 'FAIL'} ${Math.round(run.ms / 1000)}s session=${run.sessionId || '(none)'} total=${split.total.total_tokens} lead=${split.byRole.lead.total_tokens} worker=${split.byRole.worker.total_tokens} reviewer=${split.byRole.reviewer.total_tokens} other=${split.byRole.other.total_tokens}\n`);
+        const validation = validateLeadRun({ taskCwd, run, split });
+        if (validation.valid) perVariant[variant].push(split);
+        const meta = {
+          ok: run.ok,
+          valid: validation.valid,
+          reasons: validation.reasons,
+          ms: run.ms,
+          sessionId: run.sessionId,
+          total: split.total.total_tokens,
+          diagnostics: {
+            stdout: run.stdout,
+            stderr: run.stderr,
+            exitCode: run.exitCode,
+            signal: run.signal,
+            error: run.error,
+          },
+        };
+        runsMeta[variant].push(meta);
+        process.stderr.write(`[internal-comms-bench]   -> ${validation.valid ? 'ok' : 'FAIL'} ${Math.round(run.ms / 1000)}s session=${run.sessionId || '(none)'} total=${split.total.total_tokens} lead=${split.byRole.lead.total_tokens} worker=${split.byRole.worker.total_tokens} reviewer=${split.byRole.reviewer.total_tokens} other=${split.byRole.other.total_tokens}${validation.valid ? '' : ` reasons=${validation.reasons.join('; ')}`}\n`);
+        if (!validation.valid && (run.stdout || run.stderr || run.error)) {
+          process.stderr.write(`[internal-comms-bench] child diagnostics variant=${variant} stdout=${JSON.stringify(run.stdout)} stderr=${JSON.stringify(run.stderr)} error=${JSON.stringify(run.error)}\n`);
+        }
+        if (!validation.valid) {
+          invalidRun = { variant, index: i, reasons: validation.reasons };
+          break runLoop;
+        }
       }
     }
   } finally {
     rmSync(sandboxRoot, { recursive: true, force: true });
+  }
+
+  if (invalidRun) {
+    process.stderr.write(`[internal-comms-bench] aborting before aggregation: invalid variant=${invalidRun.variant} run=${invalidRun.index + 1} reasons=${invalidRun.reasons.join('; ')}\n`);
+    process.exit(1);
+    return;
   }
 
   const aggA = aggregateVariant(perVariant.A);
@@ -574,9 +703,7 @@ function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
     console.log('delta B-vs-A (mean):   ' + [...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMean[r])}`).join(' '));
   }
 
-  const allOk = runsMeta.A.every((r) => r.ok) && runsMeta.B.every((r) => r.ok);
-  const anyUsage = perVariant.A.some((s) => s.total.usage_rows > 0) || perVariant.B.some((s) => s.total.usage_rows > 0);
-  process.exit(allOk && anyUsage ? 0 : 1);
+  process.exit(leadModeExitCode(runsMeta, perVariant));
 }
 
 function pctChange(b, a) {
@@ -724,4 +851,4 @@ function main() {
   process.exit(ok ? 0 : 1);
 }
 
-main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

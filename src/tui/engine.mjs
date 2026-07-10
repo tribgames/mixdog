@@ -81,6 +81,7 @@ import {
 import { createToolApproval } from './engine/tool-approval.mjs';
 import { createToolCardResults } from './engine/tool-card-results.mjs';
 import { createAgentJobFeed } from './engine/agent-job-feed.mjs';
+import { appendAgentResponseTail } from './engine/agent-response-tail.mjs';
 import {
   appendTuiSteeringPersist,
   dropTuiSteeringPersist,
@@ -424,6 +425,64 @@ export async function createEngineSession({
     if (origin === 'user') appendPromptHistory(state.cwd, text);
     pushItem({ kind: 'user', id, text });
   };
+  const pushAsyncAgentResponse = (text, id = nextId(), origin = 'injected', metadata = {}) => {
+    const synthetic = parseSyntheticAgentMessage(text);
+    const isAgent = synthetic?.name === 'agent';
+    if (!isAgent) return pushUserOrSyntheticItem(text, id, origin);
+    const responseHasBody = /\n\s*\n[\s\S]*\S/.test(String(text || ''));
+    const rawResult = synthetic.rawResult ?? text;
+    const args = {
+      ...(synthetic.args && typeof synthetic.args === 'object' ? synthetic.args : {}),
+      type: 'result',
+    };
+    const responseKey = String(metadata.responseKey || metadata.executionId || args.task_id || '').trim();
+    const previous = state.items.at(-1);
+    // Tail-only aggregation prevents a later completion from mutating a card
+    // above any outbound tool, assistant, user, or preview/body boundary.
+    if (
+      previous?.kind === 'tool'
+      && previous.agentDirection === 'inbound'
+    ) {
+      const patch = appendAgentResponseTail(previous, {
+        key: responseKey,
+        args,
+        result: synthetic.result,
+        rawResult,
+        hasBody: responseHasBody,
+        isError: synthetic.isError === true,
+      });
+      if (patch) {
+        patchItem(previous.id, patch);
+        return true;
+      }
+    }
+    pushItem({
+      kind: 'tool',
+      id,
+      name: 'agent',
+      args,
+      result: synthetic.result,
+      rawResult,
+      isError: synthetic.isError === true,
+      expanded: false,
+      count: 1,
+      completedCount: 1,
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+      agentDirection: 'inbound',
+      agentResponseKey: responseKey,
+      agentResponseHasBody: responseHasBody,
+      agentResponseAggregate: false,
+      agentResponseEntries: [{
+        key: responseKey,
+        raw: String(rawResult ?? '').trim(),
+        result: synthetic.result,
+        hasBody: responseHasBody,
+        isError: synthetic.isError === true,
+      }],
+    });
+    return true;
+  };
   const pushToast = (text, tone = 'info', ttlMs = 3000) => {
     const id = nextId();
     const value = String(text ?? '').trim();
@@ -524,6 +583,7 @@ export async function createEngineSession({
     kickExecutionPendingResume,
     flushDeferredExecutionPendingResumeKick,
     scheduleExecutionPendingResumeKick,
+    discardExecutionPendingResume,
     updateAgentJobCard,
     buildAgentJobCardPatch,
     subscribeRuntimeNotifications,
@@ -537,6 +597,7 @@ export async function createEngineSession({
     enqueue: (...args) => bag.enqueue(...args),
     drain: (...args) => bag.drain(...args),
     pushUserOrSyntheticItem,
+    pushAsyncAgentResponse,
     makeQueueEntry: (...args) => bag.makeQueueEntry(...args),
     getPending: () => pending,
     agentStatusState,
@@ -574,12 +635,12 @@ export async function createEngineSession({
     flags, lifecycle, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, listeners, itemIndexById,
     getState: () => state, set,
     pushItem, patchItem, replaceItems, pushToast, pushNotice, removeNotice, setProgressHint,
-    pushUserOrSyntheticItem, upsertSyntheticToolItem,
+    pushUserOrSyntheticItem, pushAsyncAgentResponse, upsertSyntheticToolItem,
     markToolCallActive, markToolCallDone, clearActiveToolSummary, clearToastTimers,
     autoClearState, agentStatusState, baseRouteState, routeState, syncContextStats,
     presentNextToolApproval, finishToolApproval, denyAllToolApprovals, requestToolApproval,
     patchToolCardResult, flushToolResults,
-    kickExecutionPendingResume, flushDeferredExecutionPendingResumeKick, scheduleExecutionPendingResumeKick, updateAgentJobCard, subscribeRuntimeNotifications,
+    kickExecutionPendingResume, flushDeferredExecutionPendingResumeKick, scheduleExecutionPendingResumeKick, discardExecutionPendingResume, updateAgentJobCard, subscribeRuntimeNotifications,
   });
   Object.assign(bag, createSessionFlow(bag));
   bag.runTurn = createRunTurn(bag);

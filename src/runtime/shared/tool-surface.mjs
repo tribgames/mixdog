@@ -452,7 +452,10 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'read_mcp_resource':
       return unitDescriptor('Read', { count: queryCount(a, 'uri', 'uris') || 1, noun: 'resource' });
     case 'apply_patch': {
-      const creating = a.old_string === '';
+      const patchText = String(a.patch ?? '');
+      const creating = a.old_string === '' || /^\*\*\*\s+Add File:/mi.test(patchText);
+      const deleting = (!creating && a.new_string === '' && a.old_string != null)
+        || /^\*\*\*\s+Delete File:/mi.test(patchText);
       // A dry_run patch validates the diff WITHOUT writing any file, so the
       // header must not claim "Editing/Edited" (which made a pure validation
       // look like a real edit). Surface it as "Checking/Checked" instead.
@@ -466,8 +469,8 @@ export function toolWorkUnit(name, args = {}, category = '') {
       }
       return unitDescriptor('Patch', {
         count: patchFileCount(a) || 1,
-        active: creating ? 'Creating' : 'Editing',
-        done: creating ? 'Created' : 'Edited',
+        active: creating ? 'Creating' : deleting ? 'Deleting' : 'Editing',
+        done: creating ? 'Created' : deleting ? 'Deleted' : 'Edited',
         noun: 'file',
       });
     }

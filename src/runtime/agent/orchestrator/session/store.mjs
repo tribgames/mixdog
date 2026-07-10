@@ -8,12 +8,13 @@ import * as fsp from 'fs/promises';
 import { randomBytes } from 'crypto';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
-import { getPluginData } from '../config.mjs';
+import { getPluginData, loadConfig } from '../config.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { renameWithRetrySync } from '../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../providers/media-normalization.mjs';
 import { scanTopLevelLifecycle } from './lifecycle-scan.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../../../../lib/mixdog-debug.cjs';
+import { resolveAgentTerminalReapMs } from '../../../../session-runtime/config-helpers.mjs';
 import {
     summaryIndexPath,
     _sessionSummary,
@@ -754,10 +755,6 @@ export function deleteSession(id, options = {}) {
     return removed;
 }
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes idle — aligned with Anthropic 5m messages tier and OpenAI in-memory cache window
-// Completed agents (idle/done/error) live until terminal reap - must
-// match TERMINAL_REAP_MS / _scheduleBridgeReap (3_600_000) in index.mjs and
-// agent stall watchdog, so the store sweep is the durable 1h reaper.
-const AGENT_TERMINAL_TTL_MS = 60 * 60 * 1000;
 const AGENT_TERMINAL_STATUSES = new Set(['idle', 'done', 'error']);
 // Hard wall-clock ceiling for sessions stuck in status='running'. The
 // stream-watchdog should abort stalled streams within ~120s, but if it misses
@@ -844,6 +841,8 @@ export function sweepStaleSessions(ttlMs, options = {}) {
     }
     const maxAge = ttlMs || DEFAULT_SESSION_TTL_MS;
     const sweepIdle = options.sweepIdle !== false;
+    let terminalReapConfig = null;
+    try { terminalReapConfig = loadConfig({ secrets: false }); } catch { /* built-ins remain available */ }
     const tombstoneMaxAgeMs = Number(options.tombstoneMaxAgeMs);
     const sweepTombstones = Number.isFinite(tombstoneMaxAgeMs) && tombstoneMaxAgeMs > 0;
     // Retention cap for resumable open sessions runs only on the idle sweep
@@ -858,7 +857,28 @@ export function sweepStaleSessions(ttlMs, options = {}) {
     const dir = getStoreDir();
     if (!existsSync(dir))
         return { cleaned: 0, remaining: 0, details: [], tombstonesCleaned: 0, tombstoneDetails: [], tombstoneErrors: [] };
-    const summaries = listStoredSessionSummaries();
+    // Reconcile the index-derived candidate set with a direct directory scan:
+    // the summary index is a best-effort sidecar that can lag far behind disk
+    // (thousands of on-disk .json files may be absent from a smaller index).
+    // Any such orphan closed+mature tombstone would otherwise be unreachable by
+    // this sweep and accumulate forever. Union the index rows with every
+    // on-disk .json id, deduped by id; synthetic { id } rows are sufficient
+    // because the loop below re-reads all lifecycle truth from disk. This stays
+    // sweep-local and does NOT change listStoredSessionSummaries for other
+    // callers. Steady-state cost is one readdirSync plus cheap per-orphan reads.
+    const indexRows = listStoredSessionSummaries();
+    const summaries = indexRows;
+    try {
+        const seen = new Set();
+        for (const row of indexRows) { if (row?.id) seen.add(row.id); }
+        for (const f of readdirSync(dir)) {
+            if (!f.endsWith('.json')) continue;
+            const id = f.slice(0, -5);
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            summaries.push({ id });
+        }
+    } catch { /* dir scan failure — fall back to index rows only */ }
     const now = Date.now();
     let cleaned = 0;
     let remaining = 0;
@@ -946,10 +966,30 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 remaining++;
                 continue;
             }
+            // Parse the open record before its freshness gate: completed agents
+            // use their provider's Advanced terminal duration rather than the
+            // general sweep cadence. A short provider override must therefore
+            // not be hidden behind the default 5-minute gate.
+            if (!actual && raw != null) { try { actual = JSON.parse(raw); } catch { actual = null; } }
+            const gateOwner = (actual && typeof actual.owner === 'string' && actual.owner.length > 0)
+                ? actual.owner : row.owner;
+            const gateStatus = (actual && typeof actual.status === 'string') ? actual.status : row.status;
+            const gateProvider = (actual && typeof actual.provider === 'string') ? actual.provider : row.provider;
+            const isCompletedAgentForGate = isAgentOwner({ owner: gateOwner })
+                && AGENT_TERMINAL_STATUSES.has(gateStatus);
+            const terminalReapMsForGate = isCompletedAgentForGate
+                ? resolveAgentTerminalReapMs(terminalReapConfig, gateProvider)
+                : null;
+            if (isCompletedAgentForGate && terminalReapMsForGate == null) {
+                remaining++;
+                continue;
+            }
             // Freshness gate — OPEN sessions only (closed sessions handled and
             // `continue`d above). Recently-touched open sessions are skipped
             // cheaply here.
-            const freshnessGateMs = sweepIdle ? maxAge : (sweepTombstones ? tombstoneMaxAgeMs : 0);
+            const freshnessGateMs = sweepIdle
+                ? (terminalReapMsForGate ?? maxAge)
+                : (sweepTombstones ? tombstoneMaxAgeMs : 0);
             const newestKnown = Math.max(row.updatedAt || 0, row.lastHeartbeatAt || 0, row.createdAt || 0, jsonMtime, heartbeatMtime);
             if (freshnessGateMs > 0 && newestKnown > 0 && now - newestKnown <= freshnessGateMs) {
                 remaining++;
@@ -968,6 +1008,7 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             const effLastHb = Number(actual?.lastHeartbeatAt) > 0 ? Number(actual.lastHeartbeatAt) : (row.lastHeartbeatAt || 0);
             const effCreatedAt = Number(actual?.createdAt) > 0 ? Number(actual.createdAt) : (row.createdAt || 0);
             const effBashId = (actual && actual.implicitBashSessionId) || row.implicitBashSessionId || null;
+            const effProvider = (actual && typeof actual.provider === 'string') ? actual.provider : row.provider;
             // Sweep agent-owned and ownerless (legacy) sessions; skip explicit
             // user sessions before touching heartbeat sidecars. USER-owned
             // conversations are NEVER added to the retention-cap candidate set —
@@ -996,7 +1037,8 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             }
             const isCompletedAgent = isAgentOwner(ownerRef)
                 && AGENT_TERMINAL_STATUSES.has(effStatus);
-            const sessionMaxAge = isCompletedAgent ? AGENT_TERMINAL_TTL_MS : maxAge;
+            const terminalReapMs = isCompletedAgent ? terminalReapMsForGate : null;
+            const sessionMaxAge = terminalReapMs ?? maxAge;
             if (now - lastActive > sessionMaxAge) {
                 try { markSessionClosed(row.id, 'idle-sweep'); }
                 catch (err) {

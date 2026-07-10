@@ -5,7 +5,7 @@
 // set by re-running --eval before/after (input constant, only rules change).
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, resolve } from 'node:path';
+import { basename, resolve, win32 } from 'node:path';
 import { resolvePluginData } from '../src/runtime/shared/plugin-paths.mjs';
 
 function argValue(name, fallback = null) {
@@ -64,7 +64,10 @@ function argsSummary(tool, args) {
   switch (tool) {
     case 'grep': return clip(Array.isArray(args.pattern) ? `[${args.pattern.length}]${args.pattern[0]}` : args.pattern);
     case 'read': return clip(basename(String(Array.isArray(args.path) ? args.path[0] : args.path || '')));
-    case 'code_graph': return clip(`${args.mode || '?'}:${args.symbol || args.file || ''}`);
+    case 'code_graph': {
+      const values = args.symbols || args.files || args.symbol || args.file || '';
+      return clip(`${args.mode || '?'}:${Array.isArray(values) ? `[${values.length}]${values[0] || ''}` : values}`);
+    }
     case 'explore': return arr(args.query);
     case 'find': return clip(args.query);
     case 'glob': return clip(Array.isArray(args.pattern) ? args.pattern[0] : args.pattern);
@@ -75,9 +78,119 @@ function argsSummary(tool, args) {
   }
 }
 
-function normGrep(args) {
-  const p = args?.pattern;
-  return String(Array.isArray(p) ? p.join('|') : (p ?? '')).trim().toLowerCase();
+function isMutation(tool) {
+  return ['apply_patch', 'edit', 'edit_many', 'write', 'shell'].includes(tool);
+}
+function failed(row) {
+  const kind = field(row, 'result_kind');
+  return /^(error|failed|failure|command-exit|timeout|permission)$/i.test(String(kind || ''));
+}
+function targetValues(tool, args) {
+  if (!args || typeof args !== 'object') return [];
+  let key = 'path';
+  if (tool === 'code_graph') {
+    const fileMode = ['overview', 'imports', 'dependents', 'related', 'impact'].includes(args.mode);
+    const symbolMode = ['find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees'].includes(args.mode);
+    key = fileMode || (args.mode === 'symbols' && (args.files != null || args.file != null))
+      ? (args.files != null ? 'files' : 'file')
+      : symbolMode || args.mode === 'symbols' ? (args.symbols != null ? 'symbols' : 'symbol') : 'file';
+  } else if (tool === 'grep' || tool === 'glob') key = 'pattern';
+  else if (tool === 'find' || tool === 'explore') key = 'query';
+  const value = args[key];
+  return Array.isArray(value) ? value : value == null ? [] : [value];
+}
+function batchFields(tool, args) {
+  if (tool === 'grep' || tool === 'glob') return ['pattern', 'path'];
+  if (tool === 'code_graph') {
+    const fileMode = ['overview', 'imports', 'dependents', 'related', 'impact'].includes(args?.mode);
+    const symbolMode = ['find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees'].includes(args?.mode);
+    if (symbolMode && args?.files == null && args?.file == null) return ['symbols', 'symbol'];
+    if (symbolMode) return [];
+    return [fileMode || args?.mode === 'symbols'
+      ? (args?.files != null ? 'files' : args?.file != null ? 'file' : args?.symbols != null ? 'symbols' : 'symbol')
+      : null].filter(Boolean);
+  }
+  return [tool === 'read' || tool === 'list' ? 'path' : tool === 'find' || tool === 'explore' ? 'query' : null].filter(Boolean);
+}
+function compatibleBatchCalls(tool, left, right) {
+  if (tool === 'read') {
+    const nonBatch = Object.keys({ ...left, ...right }).filter((key) => !['path', 'offset', 'limit'].includes(key));
+    return nonBatch.every((key) => JSON.stringify(left?.[key]) === JSON.stringify(right?.[key]));
+  }
+  const fields = batchFields(tool, left);
+  if (!fields.length) return false;
+  const differing = fields.filter((key) => JSON.stringify(left?.[key]) !== JSON.stringify(right?.[key]));
+  if (differing.length !== 1) return false;
+  const batchKey = differing[0];
+  if ((Array.isArray(left?.[batchKey]) && left[batchKey].length !== 1) || (Array.isArray(right?.[batchKey]) && right[batchKey].length !== 1)) return false;
+  return Object.keys({ ...left, ...right }).filter((key) => !fields.includes(key))
+    .every((key) => JSON.stringify(left?.[key]) === JSON.stringify(right?.[key]));
+}
+function readTargets(args) {
+  if (!args || typeof args !== 'object') return null;
+  const values = Array.isArray(args.path) ? args.path : [args.path];
+  return values.map((value) => {
+    if (typeof value === 'string') return { path: value, offset: args.offset ?? null, limit: args.limit ?? null };
+    if (value && typeof value === 'object' && typeof value.path === 'string') {
+      return { path: value.path, offset: value.offset ?? null, limit: value.limit ?? null };
+    }
+    return null;
+  }).filter(Boolean);
+}
+function batchSpec(tool, args, forcedField = null) {
+  if (!args || typeof args !== 'object') return null;
+  if (tool === 'code_graph') {
+    if (!['symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees', 'overview', 'imports', 'dependents', 'related', 'impact'].includes(args.mode)) return null;
+    const fileMode = ['overview', 'imports', 'dependents', 'related', 'impact'].includes(args.mode);
+    const symbolMode = ['find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees'].includes(args.mode);
+    if (symbolMode && (args.files != null || args.file != null)) return null;
+    const field = fileMode || (args.mode === 'symbols' && (args.files != null || args.file != null))
+      ? (args.files != null ? 'files' : 'file')
+      : (args.symbols != null ? 'symbols' : 'symbol');
+    return { field, values: targetValues(tool, args) };
+  }
+  const fieldName = forcedField || (tool === 'read' || tool === 'list' ? 'path' : tool === 'grep' || tool === 'glob' ? 'pattern' : tool === 'find' || tool === 'explore' ? 'query' : null);
+  if (!fieldName) return null;
+  const value = args[fieldName];
+  return { field: fieldName, values: Array.isArray(value) ? value : value == null ? [] : [value] };
+}
+function sameIterationBatchObservations(sequence) {
+  let found = false;
+  for (let i = 0; i < sequence.length; i += 1) {
+    const first = sequence[i];
+    if (isMutation(first.tool) || first.it == null) continue;
+    const group = [first];
+    for (let j = i + 1; j < sequence.length; j += 1) {
+      const next = sequence[j];
+      if (next.it !== first.it) break;
+      if (isMutation(next.tool)) break;
+      group.push(next);
+    }
+    for (const candidate of ['read', 'grep', 'find', 'glob', 'list', 'explore', 'code_graph']) {
+      if (candidate === 'read') {
+        const calls = group.filter((entry) => entry.tool === 'read' && !entry.failed).map((entry) => ({ entry, targets: readTargets(entry.rawArgs) })).filter(({ targets }) => targets?.length);
+        if (calls.some(({ entry, targets }, index) => calls.some(({ entry: other, targets: otherTargets }, otherIndex) => (
+          index < otherIndex
+          && compatibleBatchCalls('read', entry.rawArgs, other.rawArgs)
+          && targets.some((target) => otherTargets.some((otherTarget) => JSON.stringify(target) !== JSON.stringify(otherTarget)))
+        )))) found = true;
+        continue;
+      }
+      const firstArgs = group.find((entry) => entry.tool === candidate && !entry.failed)?.rawArgs;
+      for (const field of batchFields(candidate, firstArgs || {})) {
+        const calls = group.filter((entry) => entry.tool === candidate && !entry.failed).map((entry) => ({ entry, spec: batchSpec(candidate, entry.rawArgs, field) })).filter(({ spec }) => spec && spec.values.length === 1);
+        if (calls.length < 2) continue;
+        const distinct = new Set(calls.map(({ spec }) => JSON.stringify(spec.values[0])));
+        const compatiblePair = calls.some(({ entry, spec }, index) => calls.some(({ entry: other, spec: otherSpec }, otherIndex) => (
+          index < otherIndex
+          && JSON.stringify(spec.values[0]) !== JSON.stringify(otherSpec.values[0])
+          && compatibleBatchCalls(candidate, entry.rawArgs, other.rawArgs)
+        )));
+      if (distinct.size >= 2 && compatiblePair) found = true;
+      }
+    }
+  }
+  return found ? ['same_turn_batch_opportunity'] : [];
 }
 
 // shell used to INSPECT the filesystem (read/list/search/exists) instead of a
@@ -104,32 +217,98 @@ function buildCase(sid, toolRows) {
     const it = field(r, 'iteration');
     if (it != null) iters.add(it);
     const tool = field(r, 'tool_name') || '?';
-    sequence.push({ it: it ?? null, tool, args: argsSummary(tool, field(r, 'tool_args')), rawArgs: field(r, 'tool_args') });
+    const rawArgs = field(r, 'tool_args');
+    const summaryArgs = rawArgs;
+    sequence.push({
+      it: it ?? null,
+      tool,
+      args: argsSummary(tool, rawArgs),
+      rawArgs,
+      inspectArgs: summaryArgs,
+      argsHash: field(r, 'tool_args_hash'),
+      resultKind: field(r, 'result_kind'),
+      resultLines: Number(field(r, 'result_lines_est') || 0),
+      coverage: field(r, 'grep_coverage'),
+      cwd: field(r, 'cwd') || '',
+      failed: failed(r),
+    });
   }
-  // per-iteration tool counts for serial detection
-  const perIt = new Map();
-  for (const s of sequence) { if (s.it == null) continue; perIt.set(s.it, (perIt.get(s.it) || 0) + 1); }
-  const itOrder = [...perIt.keys()].sort((a, b) => a - b);
-  let longestSingleRun = 0, run = 0;
-  for (const it of itOrder) { if (perIt.get(it) === 1) { run += 1; longestSingleRun = Math.max(longestSingleRun, run); } else run = 0; }
-
   const names = sequence.map((s) => s.tool);
-  const hasAnchor = names.some((n) => n === 'grep' || n === 'code_graph' || n === 'find' || n === 'read');
-  const exploreCalls = sequence.filter((s) => s.tool === 'explore');
   const flags = [];
-  if (exploreCalls.length && hasAnchor) flags.push('explore_overuse');
-  if (exploreCalls.some((s) => Array.isArray(s.rawArgs?.query))) flags.push('explore_multiquery');
-  if (names[0] === 'explore') flags.push('explore_first');
-  if (sequence.some((s) => s.tool === 'code_graph' && s.rawArgs?.mode === 'find_symbol' && !s.rawArgs?.file)) flags.push('find_symbol_noscope');
-  if (longestSingleRun >= 4) flags.push('serial_single_tool');
-  // read fragmentation
-  const readCounts = new Map();
-  for (const s of sequence) { if (s.tool !== 'read') continue; const k = String(s.rawArgs?.path ?? s.args); readCounts.set(k, (readCounts.get(k) || 0) + 1); }
-  if ([...readCounts.values()].some((c) => c >= 3)) flags.push('read_fragmentation');
-  // grep retry
-  const grepCounts = new Map();
-  for (const s of sequence) { if (s.tool !== 'grep') continue; const k = normGrep(s.rawArgs); if (!k) continue; grepCounts.set(k, (grepCounts.get(k) || 0) + 1); }
-  if ([...grepCounts.values()].some((c) => c >= 2)) flags.push('grep_retry');
+  const observations = [];
+  if (sequence.some((s) => s.tool === 'code_graph' && s.rawArgs?.mode === 'find_symbol' && !s.rawArgs?.file && !s.rawArgs?.files)) flags.push('find_symbol_noscope');
+  // Exact duplicate requests are the only relookup signal available in tool
+  // traces. Do not infer waste from counts, roles, turns, or explore→inspection:
+  // exploration followed by inspection can be the intended route.
+  const seenRequests = new Set();
+  const readWindows = [];
+  let pendingContextGrep = null;
+  for (const s of sequence) {
+    if (isMutation(s.tool)) {
+      seenRequests.clear();
+      readWindows.length = 0;
+      pendingContextGrep = null;
+      continue;
+    }
+    if (s.failed) continue;
+    if (['grep', 'read'].includes(s.tool)) {
+      const key = s.argsHash ? `${s.tool}:${s.argsHash}` : null;
+      const duplicate = key && seenRequests.has(key);
+      if (duplicate) flags.push(`${s.tool}_relookup`);
+      if (key) seenRequests.add(key);
+      if (s.tool === 'read' && !duplicate) {
+        const normalize = (value, cwd) => {
+          const raw = String(value);
+          const base = String(cwd || process.cwd());
+          const winStyle = /^[A-Za-z]:[\\/]/.test(raw) || /^[A-Za-z]:[\\/]/.test(base) || raw.includes('\\');
+          const resolved = (winStyle ? win32.resolve(base, raw) : resolve(base, raw)).replace(/\\/g, '/');
+          return winStyle ? resolved.toLowerCase() : resolved;
+        };
+        const bounded = (offset, limit) => Number.isFinite(Number(offset)) && Number(offset) >= 0
+          && Number.isFinite(Number(limit)) && Number(limit) > 0;
+        for (const target of readTargets(s.rawArgs) || []) {
+          const start = bounded(target.offset, target.limit) ? Number(target.offset) : 0;
+          const end = bounded(target.offset, target.limit) ? start + Number(target.limit) : Infinity;
+          const path = normalize(target.path, s.cwd);
+          if (!flags.includes('read_overlap') && readWindows.some((prior) => prior.path === path && start < prior.end && prior.start < end)) flags.push('read_overlap');
+          readWindows.push({ path, start, end });
+        }
+      }
+    }
+    if (s.tool === 'grep' && Array.isArray(s.coverage) && s.coverage.length) {
+      pendingContextGrep = s;
+    } else if (s.tool === 'read' && pendingContextGrep) {
+      // Coverage is emitted by the trace formatter from actual path:line
+      // output. Missing/boundedness-unknown coverage intentionally stays
+      // unclassified; whole-file reads are a documented residual limitation.
+      const pathArg = s.rawArgs?.path;
+      const bounded = (offset, limit) => Number.isFinite(Number(offset)) && Number(offset) >= 0
+        && Number.isFinite(Number(limit)) && Number(limit) > 0;
+      const region = typeof pathArg === 'string' && bounded(s.rawArgs.offset, s.rawArgs.limit)
+        ? { path: pathArg, start: Number(s.rawArgs.offset) + 1, end: Number(s.rawArgs.offset) + Number(s.rawArgs.limit) }
+        : pathArg && typeof pathArg === 'object' && pathArg.path && bounded(pathArg.offset, pathArg.limit)
+          ? { path: pathArg.path, start: Number(pathArg.offset) + 1, end: Number(pathArg.offset) + Number(pathArg.limit) }
+          : null;
+      if (region) {
+      const normalize = (value, cwd) => {
+        const raw = String(value);
+        const base = String(cwd || process.cwd());
+        const winStyle = /^[A-Za-z]:[\\/]/.test(raw) || /^[A-Za-z]:[\\/]/.test(base) || raw.includes('\\');
+        const resolved = resolve(base, raw).replace(/\\/g, '/');
+        return winStyle ? resolved.toLowerCase() : resolved;
+      };
+        const wanted = normalize(region.path, s.cwd || pendingContextGrep.cwd);
+        const covered = new Set((pendingContextGrep.coverage || [])
+          .filter((item) => normalize(item.path, pendingContextGrep.cwd) === wanted)
+          .map((item) => Number(item.line)));
+        let complete = true;
+        for (let line = region.start; line <= region.end; line += 1) if (!covered.has(line)) { complete = false; break; }
+        if (complete) flags.push('grep_context_then_read');
+      }
+      pendingContextGrep = null;
+    }
+  }
+  observations.push(...sameIterationBatchObservations(sequence));
   // shell used for filesystem inspection instead of dedicated tools
   if (sequence.some((s) => s.tool === 'shell' && isShellInspect(s.rawArgs?.command))) flags.push('shell_inspect');
 
@@ -137,17 +316,17 @@ function buildCase(sid, toolRows) {
     session_id: sid,
     short_id: shortId(sid),
     agent, model,
-    turns: iters.size || itOrder.length,
+    turns: iters.size,
     tools: sequence.length,
     first_tool: names[0] || null,
-    longest_single_run: longestSingleRun,
     flags,
+    observations,
     max_ts: Math.max(...sorted.map((r) => Number(r.ts || 0))),
-    sequence: sequence.map((s) => ({ it: s.it, tool: s.tool, args: s.args })),
+    sequence: sequence.map((s) => ({ it: s.it, tool: s.tool, args: s.args, result_kind: s.resultKind, result_lines_est: s.resultLines, grep_coverage: s.coverage })),
   };
 }
 
-const FLAG_KEYS = ['explore_overuse', 'explore_multiquery', 'explore_first', 'find_symbol_noscope', 'serial_single_tool', 'read_fragmentation', 'grep_retry', 'shell_inspect'];
+const FLAG_KEYS = ['find_symbol_noscope', 'read_relookup', 'read_overlap', 'grep_relookup', 'grep_context_then_read', 'missed_array_batch', 'shell_inspect'];
 
 function buildCorpus(rows, { limit, sinceTs, agentFilter }) {
   let filtered = rows.filter((r) => r.kind === 'tool' && sessionId(r));

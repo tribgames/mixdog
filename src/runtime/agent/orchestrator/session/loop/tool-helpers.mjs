@@ -15,7 +15,8 @@ import { isAgentOwner } from '../../agent-owner.mjs';
 
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
 // to execute during SSE parsing so tool work overlaps with the rest of the
-// stream. Writes, bash, MCP and skills stay serial after send() returns.
+// stream. MCP follows that annotation; writes, bash, and skills stay serial
+// after send() returns.
 // Memoized: the read-only name Set is built once per distinct `tools` array
 // (keyed by identity via a module-level WeakMap) so repeated per-call lookups
 // are O(1) instead of O(N) tools.find scans.

@@ -13,7 +13,7 @@ import { createAgentJobFeed } from '../src/tui/engine/agent-job-feed.mjs';
 
 // Minimal harness: a mutable busy flag, a pending queue, and a synchronous
 // drain stub that "resumes" by surfacing every pending-resume entry's body.
-function makeHarness() {
+function makeHarness({ now, executionResumeTombstoneTtlMs, executionResumeTombstoneLimit } = {}) {
   const pending = [];
   const surfaced = [];
   const state = { busy: false };
@@ -48,11 +48,20 @@ function makeHarness() {
     enqueue: () => {},
     drain,
     pushUserOrSyntheticItem: () => {},
-    makeQueueEntry: (text, opts = {}) => ({ text, mode: opts.mode, priority: opts.priority }),
+    makeQueueEntry: (text, opts = {}) => ({
+      text,
+      mode: opts.mode,
+      priority: opts.priority,
+      abortDiscardOnAbort: opts.abortDiscardOnAbort,
+      resumeCompletionKeys: opts.resumeCompletionKeys,
+    }),
     getPending: () => pending,
     agentStatusState: () => ({}),
     displayedExecutionNotificationKeys: new Set(),
     pushNotice: () => {},
+    now,
+    executionResumeTombstoneTtlMs,
+    executionResumeTombstoneLimit,
   });
 
   return { feed, pending, surfaced, state };
@@ -93,4 +102,50 @@ test('B: deferred kick after a non-drain busy->false transition still fires', as
   // Idempotent: a second flush with nothing deferred is a no-op.
   feed.flushDeferredExecutionPendingResumeKick();
   assert.deepEqual(surfaced, ['only body']);
+});
+
+test('Esc discards one completion resume, drops its duplicate retry, and still wakes for a new completion', async () => {
+  const { feed, surfaced, state } = makeHarness();
+  state.busy = true;
+  feed.scheduleExecutionPendingResumeKick('body A', 'execution_A');
+  await microtasks();
+
+  // Esc owns and retires A while its resume is active. A delayed duplicate
+  // cannot re-create that resume, but a genuinely different completion can.
+  feed.discardExecutionPendingResume(['execution_A']);
+  state.busy = false;
+  feed.flushDeferredExecutionPendingResumeKick();
+  assert.deepEqual(surfaced, [], 'the aborted completion is not deferred-kicked');
+
+  feed.scheduleExecutionPendingResumeKick('body A retry', 'execution_A');
+  await microtasks();
+  assert.deepEqual(surfaced, [], 'duplicate retry after Esc cannot restart A');
+
+  feed.scheduleExecutionPendingResumeKick('body B', 'execution_B');
+  await microtasks();
+  assert.deepEqual(surfaced, ['body B'], 'a later new completion still wakes the lead');
+});
+
+test('Esc tombstone expires so a later legitimate execution/body reuse can resume', async () => {
+  let clock = 1_000;
+  const { feed, surfaced, state } = makeHarness({
+    now: () => clock,
+    executionResumeTombstoneTtlMs: 20,
+    executionResumeTombstoneLimit: 2,
+  });
+  state.busy = true;
+  feed.scheduleExecutionPendingResumeKick('same body', 'execution_reused');
+  await microtasks();
+  feed.discardExecutionPendingResume(['execution_reused']);
+  state.busy = false;
+  feed.flushDeferredExecutionPendingResumeKick();
+
+  feed.scheduleExecutionPendingResumeKick('duplicate retry', 'execution_reused');
+  await microtasks();
+  assert.deepEqual(surfaced, [], 'the short-lived tombstone blocks a delayed duplicate');
+
+  clock += 21;
+  feed.scheduleExecutionPendingResumeKick('legitimate reuse', 'execution_reused');
+  await microtasks();
+  assert.deepEqual(surfaced, ['legitimate reuse'], 'expired tombstone no longer reserves the execution ID');
 });

@@ -26,6 +26,7 @@ let _localTracePath = null;
 let _localTraceBuffer = [];
 let _localTraceTimer = null;
 let _localTraceFlushInFlight = false;
+let _localTraceFlushPromise = null;
 let _toolFailurePath = null;
 let _toolFailureBuffer = [];
 let _toolFailureTimer = null;
@@ -132,12 +133,10 @@ function _flushLocalTrace() {
         clearTimeout(_localTraceTimer);
         _localTraceTimer = null;
     }
-    if (_localTraceBuffer.length === 0) return;
     if (_localTraceFlushInFlight) {
-        _localTraceTimer = setTimeout(_flushLocalTrace, 25);
-        _localTraceTimer.unref?.();
-        return;
+        return _localTraceFlushPromise;
     }
+    if (_localTraceBuffer.length === 0) return null;
     const path = _resolveLocalTracePath();
     if (!path) return;
     const chunk = _localTraceBuffer.join('');
@@ -157,17 +156,20 @@ function _flushLocalTrace() {
     // mode only applies on file creation; existing files keep their mode.
     // Windows ignores POSIX bits — ACL governs there.
     _localTraceFlushInFlight = true;
-    appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
+    const pending = appendFile(path, chunk, { encoding: 'utf8', mode: 0o600 })
         .catch((err) => {
             warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
         })
         .finally(() => {
             _localTraceFlushInFlight = false;
+            _localTraceFlushPromise = null;
             if (_localTraceBuffer.length > 0) {
                 _localTraceTimer = setTimeout(_flushLocalTrace, 0);
                 _localTraceTimer.unref?.();
             }
         });
+    _localTraceFlushPromise = pending;
+    return pending;
 }
 
 function _flushLocalTraceSync() {
@@ -294,7 +296,20 @@ function _scheduleFlush(immediate = false) {
     }
 }
 
+async function _drainLocalTrace() {
+    if (!_resolveLocalTracePath()) return;
+    if (_localTraceTimer) {
+        clearTimeout(_localTraceTimer);
+        _localTraceTimer = null;
+    }
+    while (_localTraceBuffer.length > 0 || _localTraceFlushInFlight) {
+        const pending = _flushLocalTrace();
+        if (pending) await pending;
+    }
+}
+
 async function drainAgentTrace() {
+    await _drainLocalTrace();
     if (!_resolveServiceUrl()) return;
     if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
     for (let i = 0; i < 10 && _buffer.length > 0; i++) {

@@ -70,11 +70,13 @@ export const compareModelRecency = (a, b) => {
 
   const ta = releaseTime(a);
   const tb = releaseTime(b);
-  if (ta !== tb) return tb - ta;
-
-  if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
   const versionDelta = compareModelVersion(a, b);
+  // Release dates win only when both sides have one; sparse OAuth catalogs
+  // must not sink undated (often newest) models below dated/latest ones.
+  if (ta > 0 && tb > 0 && ta !== tb) return tb - ta;
   if (versionDelta) return versionDelta;
+  if (!!a?.latest !== !!b?.latest) return a?.latest ? -1 : 1;
+  if (ta !== tb) return tb - ta;
   return String(a?.display || a?.id || '').localeCompare(String(b?.display || b?.id || ''));
 };
 

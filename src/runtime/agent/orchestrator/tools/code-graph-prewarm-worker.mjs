@@ -12,7 +12,7 @@
 //  - On any failure: postMessage({ ok: false }). Main thread propagates
 //    an error — find_symbol / code_graph tools throw. No sync fallback.
 import { parentPort, workerData } from 'node:worker_threads';
-import { _buildCodeGraph } from './code-graph.mjs';
+import { _buildCodeGraph, _postCodeGraphWorkerSuccess } from './code-graph.mjs';
 
 const cwd = workerData && workerData.cwd ? workerData.cwd : null;
 
@@ -27,9 +27,12 @@ try {
   if (!cwd) {
     parentPort.postMessage({ ok: false });
   } else {
-    const graph = await _buildCodeGraph(cwd);
+    const graph = await _buildCodeGraph(cwd, {
+      manifest: Array.isArray(workerData.manifest) ? workerData.manifest : null,
+      signature: typeof workerData.signature === 'string' ? workerData.signature : null,
+    });
     if (graph && typeof graph.signature === 'string') {
-      parentPort.postMessage({ ok: true, signature: graph.signature, graph });
+      _postCodeGraphWorkerSuccess(graph, (message) => parentPort.postMessage(message));
     } else {
       parentPort.postMessage({ ok: false });
     }

@@ -8,6 +8,10 @@ import { displayWidth } from '../../display-width.mjs';
 import { theme } from '../../theme.mjs';
 import { formatElapsed } from '../../time-format.mjs';
 import stripAnsi from 'strip-ansi';
+import {
+  normalizeToolTerminalStatus,
+  toolResultTerminalStatus,
+} from '../../../runtime/shared/tool-status.mjs';
 
 export const MIN_RESULT_LINE_CHARS = 24;
 // Hard cap for the collapsed result detail row (the second line under the ⎿
@@ -108,13 +112,7 @@ export function shellResultStatus(value) {
 }
 
 export function normalizeTerminalStatus(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return '';
-  if (/^(running|pending|queued|in_progress|in-progress)$/.test(raw)) return 'running';
-  if (/^(completed|complete|done|success|succeeded|ok)$/.test(raw)) return 'completed';
-  if (/^(failed|fail|error|errored|timeout|timed_out|killed)$/.test(raw)) return 'failed';
-  if (/^(cancelled|canceled|cancel)$/.test(raw)) return 'cancelled';
-  return '';
+  return normalizeToolTerminalStatus(value);
 }
 
 export function displayTerminalStatus(value) {
@@ -126,22 +124,12 @@ export function displayTerminalStatus(value) {
   if (status === 'completed') return 'Finished';
   if (status === 'failed') return 'Failed';
   if (status === 'cancelled') return 'Cancelled';
+  if (status === 'denied') return 'Denied';
   return '';
 }
 
 export function resultTerminalStatus(value) {
-  const text = String(value || '');
-  const tagged = text.match(/<status[^>]*>([\s\S]*?)<\/status>/i)?.[1]?.trim();
-  if (tagged) return normalizeTerminalStatus(tagged);
-  const bracketed = text.match(/^\[status:\s*([^\]]*)\]/mi)?.[1]?.trim();
-  if (bracketed) return normalizeTerminalStatus(bracketed);
-  // Loose inline `status: x` / `state: x` matches are a last-resort fallback —
-  // prefer the engine-controlled `<status>` tag or `[status: …]` marker above.
-  // A loose match can false-positive on prose that happens to start with
-  // "status:" (rare, but shellResultStatus below already owns real shell
-  // output parsing; this fallback stays narrow and unchanged in behavior).
-  const inline = text.match(/^(?:status|state):\s*([^\s·,;]+)/mi)?.[1]?.trim();
-  return normalizeTerminalStatus(inline);
+  return toolResultTerminalStatus(value);
 }
 
 const LEADING_STATUS_MARKER_LINE_RE = /^\[status:\s*[^\]]*\]\s*$/i;

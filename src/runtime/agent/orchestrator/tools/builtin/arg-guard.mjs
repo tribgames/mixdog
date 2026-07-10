@@ -446,7 +446,7 @@ function guardGrep(a) {
     const grepMode = a.output_mode || a.mode;
     const hasExplicitCtx = ['-A', '-B', '-C', 'context'].some((k) => grepContextKeyPresent(a, k));
     const isCountOrFiles = grepMode === 'files_with_matches' || grepMode === 'count';
-    if (!isCountOrFiles && (grepMode === 'content_with_context' || hasExplicitCtx)) {
+    if (!isCountOrFiles && (grepMode == null || grepMode === 'content_with_context' || hasExplicitCtx)) {
         const hl = Number(a.head_limit);
         if (grepContextKeyPresent(a, 'head_limit') && Number.isFinite(hl) && hl > GREP_CTX_HEAD_LIMIT_MAX) {
             a.head_limit = GREP_CTX_HEAD_LIMIT_MAX;
