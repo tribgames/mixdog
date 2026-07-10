@@ -2259,6 +2259,7 @@ export async function createMixdogSessionRuntime({
     resolveCwdPath,
     agentStatusState,
     notificationListeners,
+    remoteStateListeners,
     awaitInitialMcpConnect,
   });
 

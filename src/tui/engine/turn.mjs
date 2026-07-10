@@ -739,7 +739,10 @@ export function createRunTurn(bag) {
         const displayDetail = errors > 0 || exitErrors > 0
           ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
           : formatAggregateDetail(aggregateSummaries(aggregate));
-        const currentItem = getState().items.find((it) => it.id === card.itemId);
+        const currentIndex = itemIndexById.get(card.itemId);
+        const currentItem = Number.isInteger(currentIndex) && getState().items[currentIndex]?.id === card.itemId
+          ? getState().items[currentIndex]
+          : null;
         const visualCompleted = Math.max(
           completedCount,
           Math.min(allCalls.length, Number(currentItem?.completedCount || 0)),

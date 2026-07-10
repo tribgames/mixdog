@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'fs';
-import { readdir, rmdir, unlink, writeFile } from 'fs/promises';
+import { readdir, rmdir, stat, unlink, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
 import { normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
@@ -11,6 +11,7 @@ const TOOL_RESULT_SHELL_THRESHOLD_CHARS = 30_000;
 const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_GREP_THRESHOLD_CHARS = 20_000;
 export const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
+const OFFLOAD_PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
 
 // Per-tool persistence limits mirror reference per-tool maxResultSizeChars
 // rather than a single global value: Grep persists at 20k (CC GrepTool), Glob
@@ -145,6 +146,47 @@ export async function clearOffloadSession(sessionId) {
             .map((name) => unlink(join(dir, name)).catch(() => { /* best-effort */ })));
         await rmdir(dir).catch(() => { /* best-effort: non-empty / already gone */ });
     } catch { /* best-effort */ }
+}
+
+// Remove sidecars that no longer occur in the live transcript. A serialized
+// path match is conservative: if messages cannot be serialized, or a path is
+// mentioned anywhere in a message, retain the file rather than risk deleting
+// one that can still be read by the model.
+export async function pruneOffloadSession(sessionId, getMessages) {
+    if (!sessionId || typeof getMessages !== 'function') return;
+    const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
+    if (!existsSync(dir)) return;
+    let candidates;
+    try {
+        const entries = await readdir(dir);
+        candidates = (await Promise.all(entries
+            .filter((name) => name.endsWith('.txt'))
+            .map(async (name) => {
+                const filePath = join(dir, name);
+                try {
+                    const fileStat = await stat(filePath);
+                    if (Date.now() - fileStat.mtimeMs < OFFLOAD_PRUNE_MIN_AGE_MS) return null;
+                    return { name, filePath };
+                } catch {
+                    return null;
+                }
+            })
+        )).filter(Boolean);
+    } catch { /* best-effort */ }
+    if (!candidates) return;
+    let serialized;
+    try { serialized = JSON.stringify(getMessages()); } catch { return; }
+    const haystack = process.platform === 'win32' ? serialized.toLowerCase() : serialized;
+    await Promise.all(candidates
+        .filter(({ name, filePath }) => {
+            const normalizedPath = normalizeOutputPath(filePath);
+            const needles = [normalizedPath, name];
+            return !needles.some((needle) => {
+                const value = process.platform === 'win32' ? needle.toLowerCase() : needle;
+                return haystack.includes(value);
+            });
+        })
+        .map(({ filePath }) => unlink(filePath).catch(() => { /* best-effort */ })));
 }
 
 export function isOffloadedToolResultText(text) {

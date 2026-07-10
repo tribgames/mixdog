@@ -176,16 +176,16 @@ export function autoClearProviderDefaults(providerIdleMs = null) {
 }
 
 // Agent terminal retention is deliberately narrower than Auto Clear's general
-// resolution: only listed provider rows participate. In particular, neither
-// the global idleMs nor the Advanced "default" row can retain a completed
-// agent, because those values do not describe a provider cache lifetime.
-// Null means leave the completed agent alone (no live timer, row expiry, or
-// durable store sweep).
+// resolution: listed providers use their provider cache lifetime. Unlisted
+// providers use the Advanced "default" row, or the built-in default when no
+// override is configured, so completed agents are still eventually reclaimed.
 export function resolveAgentTerminalReapMs(config, provider) {
   const key = clean(provider).toLowerCase();
-  if (!key || key === 'default' || !Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, key)) return null;
   const raw = config?.autoClear && typeof config.autoClear === 'object' ? config.autoClear : {};
   const overrides = normalizeAutoClearProviderIdleMs(raw.providerIdleMs);
+  if (!key || key === 'default' || !Object.hasOwn(AUTO_CLEAR_PROVIDER_IDLE_MS, key)) {
+    return overrides.default ?? AUTO_CLEAR_PROVIDER_IDLE_MS.default;
+  }
   return overrides[key] ?? AUTO_CLEAR_PROVIDER_IDLE_MS[key];
 }
 

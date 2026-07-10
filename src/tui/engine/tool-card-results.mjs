@@ -34,7 +34,12 @@ export function createToolCardResults({
   updateAgentJobCard,
   buildAgentJobCardPatch,
   agentStatusState,
+  itemIndexById,
 }) {
+  const itemById = (id) => {
+    const index = itemIndexById?.get(id);
+    return Number.isInteger(index) ? getState().items[index]?.id === id ? getState().items[index] : null : null;
+  };
   // A finalized/failed non-aggregate card must never carry an empty body:
   // an empty-body error card is classified fully-failed-with-no-body upstream
   // (transcript-tool-failures) and null-renders (card disappears). Stamp a
@@ -47,10 +52,10 @@ export function createToolCardResults({
     return 'Failed';
   }
   function patchToolItem(id, patch) {
-    const prev = getState().items.find((it) => it.id === id);
+    const prev = itemById(id);
     const ok = patchItem(id, patch);
     if (!ok || !prev) return ok;
-    const next = getState().items.find((it) => it.id === id);
+    const next = itemById(id);
     if (next && next !== prev) carryTranscriptMeasuredRowsCache(prev, next);
     return ok;
   }
@@ -107,7 +112,7 @@ export function createToolCardResults({
       const detailText = errors > 0 || exitErrors > 0
         ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
         : formatAggregateDetail(aggregateSummaries(aggregate));
-      const currentItem = getState().items.find((it) => it.id === card.itemId);
+      const currentItem = itemById(card.itemId);
       const earlyCompleted = allCalls.filter((r) => r.resolved || r.completedEarly).length;
       const visualCompleted = Math.max(completed, earlyCompleted, Math.min(allCalls.length, Number(currentItem?.completedCount || 0)));
       const rawResult = aggregateRawResult(allCalls);
@@ -251,7 +256,7 @@ export function createToolCardResults({
           // Cancelled aggregates MUST keep the [status: cancelled] marker on the
           // result so terminalStatus parsing resolves to 'cancelled'. Only normal
           // completions drop the summary; cancelled ones prepend the marker.
-          const currentItem = getState().items.find((it) => it.id === card.itemId);
+          const currentItem = itemById(card.itemId);
           displayDetail = withCancelledResultMarker(displayDetail, currentItem);
         }
         patchToolItem(card.itemId, {
@@ -284,7 +289,7 @@ export function createToolCardResults({
         resultText = finalizedErrorFallbackBody(resultText, exitRec?.text, exitRec?.exitCode);
       }
       if (cancelled) {
-        const currentItem = getState().items.find((it) => it.id === card.itemId);
+        const currentItem = itemById(card.itemId);
         resultText = withCancelledResultMarker(resultText, currentItem);
       }
       patchToolItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, callErrorCount: group.callErrors || 0, exitErrorCount: group.exitErrors || 0, count: group.count, completedCount: group.completed, completedAt: Date.now() });

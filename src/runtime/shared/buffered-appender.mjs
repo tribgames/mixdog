@@ -38,6 +38,13 @@ function scheduleFlush(path, q) {
     q.timer.unref?.();
 }
 
+function deleteIfIdle(path, q) {
+    if (!q.timer && !q.flushing && !q.inFlight && q.chunks.length === 0
+        && queues.get(path) === q) {
+        queues.delete(path);
+    }
+}
+
 function _flush(path, q) {
     if (q.flushing) return;
     if (q.chunks.length === 0) return;
@@ -70,7 +77,7 @@ function _flush(path, q) {
             if (q.chunks.length > 0) {
                 if (q.bytes >= BUFFER_FLUSH_BYTES) _flush(path, q);
                 else scheduleFlush(path, q);
-            }
+            } else deleteIfIdle(path, q);
         });
 }
 
@@ -120,7 +127,10 @@ export function drainPathSync(path) {
         }
         q.inFlight = null;
     }
-    if (q.chunks.length === 0) return;
+    if (q.chunks.length === 0) {
+        deleteIfIdle(path, q);
+        return;
+    }
     const data = q.chunks.join('');
     q.chunks = [];
     q.bytes = 0;
@@ -129,6 +139,7 @@ export function drainPathSync(path) {
     } catch {
         // Best-effort exit drain; nothing to recover from here.
     }
+    deleteIfIdle(path, q);
 }
 
 /**

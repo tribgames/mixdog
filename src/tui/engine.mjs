@@ -587,6 +587,7 @@ export async function createEngineSession({
     updateAgentJobCard,
     buildAgentJobCardPatch,
     subscribeRuntimeNotifications,
+    clearExecutionDedupState,
   } = createAgentJobFeed({
     runtime,
     getState: () => state,
@@ -603,6 +604,7 @@ export async function createEngineSession({
     agentStatusState,
     displayedExecutionNotificationKeys,
     pushNotice,
+    itemIndexById,
   });
   lifecycle.unsubscribeRuntimeNotifications = subscribeRuntimeNotifications();
 
@@ -627,12 +629,13 @@ export async function createEngineSession({
     updateAgentJobCard,
     buildAgentJobCardPatch,
     agentStatusState,
+    itemIndexById,
   });
 
 
   Object.assign(bag, {
     runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS,
-    flags, lifecycle, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, listeners, itemIndexById,
+    flags, lifecycle, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, listeners, itemIndexById,
     getState: () => state, set,
     pushItem, patchItem, replaceItems, pushToast, pushNotice, removeNotice, setProgressHint,
     pushUserOrSyntheticItem, pushAsyncAgentResponse, upsertSyntheticToolItem,
@@ -640,6 +643,7 @@ export async function createEngineSession({
     autoClearState, agentStatusState, baseRouteState, routeState, syncContextStats,
     presentNextToolApproval, finishToolApproval, denyAllToolApprovals, requestToolApproval,
     patchToolCardResult, flushToolResults,
+    clearExecutionDedupState,
     kickExecutionPendingResume, flushDeferredExecutionPendingResumeKick, scheduleExecutionPendingResumeKick, discardExecutionPendingResume, updateAgentJobCard, subscribeRuntimeNotifications,
   });
   Object.assign(bag, createSessionFlow(bag));

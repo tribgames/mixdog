@@ -33,16 +33,16 @@ try {
     AUTO_CLEAR_PROVIDER_IDLE_MS.anthropic,
     'global idleMs and default row are ignored for listed providers',
   );
-  assert.equal(resolveAgentTerminalReapMs(overrideConfig, 'default'), null, 'default row is ignored');
-  assert.equal(resolveAgentTerminalReapMs(overrideConfig, 'unlisted'), null, 'unlisted override is ignored');
-  assert.equal(resolveAgentTerminalReapMs(overrideConfig, 'unknown'), null, 'unknown provider is ignored');
+  assert.equal(resolveAgentTerminalReapMs(overrideConfig, 'default'), 90_000, 'default row applies to default provider');
+  assert.equal(resolveAgentTerminalReapMs(overrideConfig, 'unlisted'), 90_000, 'default row applies to unlisted provider');
+  assert.equal(resolveAgentTerminalReapMs({ autoClear: {} }, 'unknown'), AUTO_CLEAR_PROVIDER_IDLE_MS.default, 'unknown provider uses built-in default');
 
   mkdirSync(join(root, 'sessions'), { recursive: true });
   writeFileSync(join(root, 'mixdog-config.json'), JSON.stringify({
     agent: { autoClear: overrideConfig.autoClear },
   }));
   const { sweepStaleSessions } = await import('../src/runtime/agent/orchestrator/session/store.mjs');
-  const old = Date.now() - 61_000;
+  const old = Date.now() - 181_000;
   const known = {
     id: 'sess_known_reap',
     owner: 'agent',
@@ -81,7 +81,7 @@ try {
     'short provider override bypasses the default sweep freshness gate',
   );
   assert.ok(defaultSweep.details.some((detail) => detail.id === known.id), 'store reaps a listed provider at its Advanced duration');
-  assert.ok(!defaultSweep.details.some((detail) => detail.id === unknown.id), 'store never sweeps an unlisted provider');
+  assert.ok(defaultSweep.details.some((detail) => detail.id === unknown.id), 'store reaps an unlisted provider at the default duration');
 
   const dataDir = join(root, 'worker-index');
   mkdirSync(dataDir, { recursive: true });
@@ -116,7 +116,7 @@ try {
   });
   const workers = agent.getStatus().workers;
   assert.ok(!workers.some((worker) => worker.tag === 'known'), 'worker row expires at the provider duration');
-  assert.ok(workers.some((worker) => worker.tag === 'unknown'), 'unlisted worker row does not expire');
+  assert.ok(!workers.some((worker) => worker.tag === 'unknown'), 'unlisted worker row expires at the default duration');
   agent.closeAll('agent-terminal-reap-test');
 
   process.stdout.write(`agent terminal reap test passed (${builtIns.length} providers)\n`);

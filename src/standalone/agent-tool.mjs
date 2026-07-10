@@ -509,7 +509,11 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     for (const [tag, sessionId] of [...tags.entries()]) {
       if (indexedKeys.has(`${tag}\0${sessionId}`)) continue;
       const session = getLiveSession(sessionId);
-      if (!session || session.closed) tags.delete(tag);
+      if (!session || session.closed) {
+        tags.delete(tag);
+        tagAgents.delete(tag);
+        tagCwds.delete(tag);
+      }
     }
     if (!scanSessions) return;
     for (const session of mgr.listSessions({ includeClosed: false }) || []) {
@@ -1514,6 +1518,9 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     }
     for (const timer of reapTimers.values()) clearTimeout(timer);
     reapTimers.clear();
+    tags.clear();
+    tagAgents.clear();
+    tagCwds.clear();
     flushWorkerIndexMutations();
     writeWorkerRows((byKey) => byKey.clear());
     return { closed, failed };

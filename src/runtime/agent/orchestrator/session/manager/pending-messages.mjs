@@ -1,6 +1,7 @@
 // Steering / pending-message queue with sync buffered + atomic-file persistence.
 // Extracted verbatim from manager.mjs (behavior-preserving).
 import { join } from 'path';
+import { readFileSync } from 'fs';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync, updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
 import { promptContentText, isInternalRuntimeNotificationText } from './prompt-utils.mjs';
@@ -456,6 +457,31 @@ export function drainPendingMessages(sessionId) {
         seen.add(text);
     }
     return out;
+}
+
+// Snapshot queued entries without draining them. Compaction uses this to keep
+// sidecars referenced by a message that is waiting for the next turn, whether
+// it is still in memory, buffered for persistence, or already on disk.
+export function _getPendingMessagesForSession(sessionId) {
+    if (!isValidPendingSessionId(sessionId)) return [];
+    const queued = [
+        ...(_sessionPendingMessages.get(sessionId) || []),
+        ...(_pendingPersistBuffers.get(sessionId) || []),
+    ];
+    let raw;
+    try {
+        raw = readFileSync(pendingMessagesPath(), 'utf8');
+    } catch (err) {
+        if (err?.code === 'ENOENT') return queued;
+        throw err;
+    }
+    try {
+        const persisted = normalizePendingStore(JSON.parse(raw)).sessions[sessionId];
+        if (Array.isArray(persisted)) queued.push(...persisted);
+    } catch (err) {
+        throw err;
+    }
+    return queued;
 }
 
 // Cleanup hook for closeSession — drop the in-memory queue and buffered-persist

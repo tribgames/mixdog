@@ -124,23 +124,31 @@ export function _isBenignSearchExitOne(command, exitCode, signal, stderr) {
 function _combineAbortSignals(sessionSignal, externalSignal) {
     const a = sessionSignal || null;
     const b = externalSignal || null;
-    if (!a && !b) return null;
-    if (!a) return b;
-    if (!b) return a;
-    if (a === b) return a;
+    if (!a && !b) return { signal: null, cleanup() {} };
+    if (!a) return { signal: b, cleanup() {} };
+    if (!b) return { signal: a, cleanup() {} };
+    if (a === b) return { signal: a, cleanup() {} };
     if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
-        try { return AbortSignal.any([a, b]); } catch { /* fall through */ }
+        try { return { signal: AbortSignal.any([a, b]), cleanup() {} }; } catch { /* fall through */ }
     }
     const ctl = new AbortController();
     const onAbort = (sig) => {
         if (ctl.signal.aborted) return;
         try { ctl.abort(sig?.reason); } catch { try { ctl.abort(); } catch {} }
     };
-    if (a.aborted) { onAbort(a); return ctl.signal; }
-    if (b.aborted) { onAbort(b); return ctl.signal; }
-    try { a.addEventListener('abort', () => onAbort(a), { once: true }); } catch {}
-    try { b.addEventListener('abort', () => onAbort(b), { once: true }); } catch {}
-    return ctl.signal;
+    if (a.aborted) { onAbort(a); return { signal: ctl.signal, cleanup() {} }; }
+    if (b.aborted) { onAbort(b); return { signal: ctl.signal, cleanup() {} }; }
+    const onAbortA = () => onAbort(a);
+    const onAbortB = () => onAbort(b);
+    try { a.addEventListener('abort', onAbortA, { once: true }); } catch {}
+    try { b.addEventListener('abort', onAbortB, { once: true }); } catch {}
+    return {
+        signal: ctl.signal,
+        cleanup() {
+            try { a.removeEventListener('abort', onAbortA); } catch {}
+            try { b.removeEventListener('abort', onAbortB); } catch {}
+        },
+    };
 }
 
 function _prefixPowerShellUtf8(command) {
@@ -228,7 +236,11 @@ export async function executeBashTool(args, workDir, options = {}) {
         const userProvidedSession = typeof args.session_id === 'string' && args.session_id.trim().length > 0;
         const shouldCreate = args.create === true || !userProvidedSession;
         effectiveArgs = { ...effectiveArgs, create: shouldCreate };
-        return executeBashSessionTool('bash_session', effectiveArgs, bashWorkDir, { abortSignal: combinedPersistAbort, sessionId: options?.sessionId });
+        try {
+            return await executeBashSessionTool('bash_session', effectiveArgs, bashWorkDir, { abortSignal: combinedPersistAbort.signal, sessionId: options?.sessionId });
+        } finally {
+            combinedPersistAbort.cleanup();
+        }
     }
 
     let command = args.command;
@@ -276,6 +288,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     }
 
     let shellEffects;
+    let combinedBashAbort = null;
     try {
         shellEffects = await analyzeShellCommandEffects(command, bashWorkDir);
     } catch (err) {
@@ -423,7 +436,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         let bashAbortSignal = null;
         try { bashAbortSignal = (await getAbortSignalForSession(options?.sessionId)) || null; }
         catch { bashAbortSignal = null; }
-        const combinedBashAbort = _combineAbortSignals(bashAbortSignal, options?.abortSignal || null);
+        combinedBashAbort = _combineAbortSignals(bashAbortSignal, options?.abortSignal || null);
         // Sync path only: chain a trailing cwd probe so the session's final
         // working directory persists to the next shell call. Async jobs run
         // detached and are intentionally excluded (they never reach here). The
@@ -456,7 +469,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             env: spawnEnv,
             cwd: bashWorkDir,
             timeoutMs: timeout,
-            abortSignal: combinedBashAbort,
+            abortSignal: combinedBashAbort.signal,
             autoBackgroundMs,
             // On a foreground timeout, promote the still-running child to a
             // tracked background job (unlimited) instead of killing it.
@@ -592,6 +605,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
     }
     finally {
+        combinedBashAbort?.cleanup?.();
         if (shellEffects.mutationMode === 'paths') {
             invalidateBuiltinResultCache(shellEffects.paths);
             markCodeGraphDirtyPaths(shellEffects.paths);

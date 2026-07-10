@@ -59,11 +59,13 @@ export function createAgentJobFeed({
   getPending,
   agentStatusState,
   displayedExecutionNotificationKeys,
+  itemIndexById,
   pushNotice,
   now = () => Date.now(),
   executionResumeTombstoneTtlMs = 30_000,
   executionResumeTombstoneLimit = 128,
 }) {
+  const executionDedupLimit = 256;
   let executionResumeKickDeferred = false;
   // Completion keys explicitly abandoned by Esc. Tombstones are per-feed
   // (therefore per TUI session), short-lived, and bounded: they catch a late
@@ -74,6 +76,60 @@ export function createAgentJobFeed({
   // or has reached its final body. A preview must not permanently suppress the
   // later body, while repeated body retries remain idempotent.
   const displayedExecutionResponseStates = new Map();
+  const terminalExecutionNotificationKeys = new Set();
+  const terminalExecutionResponseKeys = new Set();
+  const executionNotificationKeys = new Map();
+
+  const clearExecutionDedupState = () => {
+    displayedExecutionNotificationKeys.clear();
+    displayedExecutionResponseStates.clear();
+    terminalExecutionNotificationKeys.clear();
+    terminalExecutionResponseKeys.clear();
+    executionNotificationKeys.clear();
+  };
+  const rememberDisplayedExecutionNotificationKey = (key, terminal = false, executionId = '') => {
+    if (!key) return;
+    displayedExecutionNotificationKeys.delete(key);
+    if (executionId) executionNotificationKeys.set(key, executionId);
+    if (terminal) terminalExecutionNotificationKeys.add(key);
+    else terminalExecutionNotificationKeys.delete(key);
+    while (displayedExecutionNotificationKeys.size >= executionDedupLimit) {
+      const oldestTerminal = [...displayedExecutionNotificationKeys]
+        .find((candidate) => terminalExecutionNotificationKeys.has(candidate));
+      if (oldestTerminal == null) break;
+      displayedExecutionNotificationKeys.delete(oldestTerminal);
+      terminalExecutionNotificationKeys.delete(oldestTerminal);
+      executionNotificationKeys.delete(oldestTerminal);
+    }
+    displayedExecutionNotificationKeys.add(key);
+  };
+  const promoteExecutionNotificationKeys = (executionId) => {
+    if (!executionId) return;
+    for (const [key, keyExecutionId] of executionNotificationKeys) {
+      if (keyExecutionId !== executionId || !displayedExecutionNotificationKeys.has(key)) continue;
+      terminalExecutionNotificationKeys.add(key);
+    }
+  };
+  const promoteExecutionDedupState = (executionId) => {
+    if (!executionId) return;
+    promoteExecutionNotificationKeys(executionId);
+    const responseState = displayedExecutionResponseStates.get(executionId);
+    if (responseState) rememberDisplayedExecutionResponseState(executionId, responseState, true);
+  };
+  const rememberDisplayedExecutionResponseState = (key, value, terminal = false) => {
+    if (!key) return;
+    displayedExecutionResponseStates.delete(key);
+    if (terminal) terminalExecutionResponseKeys.add(key);
+    else terminalExecutionResponseKeys.delete(key);
+    while (displayedExecutionResponseStates.size >= executionDedupLimit) {
+      const oldestTerminal = [...displayedExecutionResponseStates.keys()]
+        .find((candidate) => terminalExecutionResponseKeys.has(candidate));
+      if (oldestTerminal == null) break;
+      displayedExecutionResponseStates.delete(oldestTerminal);
+      terminalExecutionResponseKeys.delete(oldestTerminal);
+    }
+    displayedExecutionResponseStates.set(key, value);
+  };
 
   // FIFO accumulation of model-visible bodies from completions that arrived
   // while busy (or while a pending-resume entry was already queued). A single
@@ -182,7 +238,10 @@ export function createAgentJobFeed({
   // jitter into one visible item update.
   function buildAgentJobCardPatch(itemId, text, isError = false) {
     const parsed = parseAgentJob(text);
-    const current = getState().items.find((it) => it.id === itemId);
+    const index = itemIndexById?.get(itemId);
+    const current = Number.isInteger(index) && getState().items[index]?.id === itemId
+      ? getState().items[index]
+      : null;
     const rawDisplayText = agentJobResultText(text, parsed) || String(text ?? '').trim();
     const displayText = isError ? toolErrorDisplay(rawDisplayText, 'agent') : rawDisplayText;
     return {
@@ -207,13 +266,17 @@ export function createAgentJobFeed({
 
   function subscribeRuntimeNotifications() {
     if (typeof runtime.onNotification !== 'function') return null;
-    return runtime.onNotification((event) => {
+    const unsubscribe = runtime.onNotification((event) => {
       if (getDisposed()) return;
       const text = String(event?.content ?? event?.text ?? event ?? '').trim();
       if (!text) return;
       const parsed = parseAgentJob(text);
       const notificationKey = notificationQueueKey(event, text, parsed);
       const delivery = resolveTuiRuntimeNotificationDelivery(event, text);
+      const executionId = String(event?.meta?.execution_id || parsed?.taskId || '').trim();
+      const status = String(event?.meta?.status || parsed?.status || '').toLowerCase();
+      const terminalStatus = /^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
+      if (terminalStatus) promoteExecutionDedupState(executionId);
       if (delivery.action === 'ignore') return;
       if (delivery.action === 'notice') {
         pushNotice?.(delivery.displayText, delivery.tone || 'info', { transcript: delivery.transcript === true });
@@ -226,16 +289,19 @@ export function createAgentJobFeed({
       if (delivery.action === 'execution-ui') {
         const cardKey = executionCardKey(event, text, parsed);
         const firstDelivery = !cardKey || !displayedExecutionNotificationKeys.has(cardKey);
-        const executionId = String(event?.meta?.execution_id || parsed?.taskId || '').trim();
-        const status = String(event?.meta?.status || parsed?.status || '').toLowerCase();
         const hasBody = /\n\s*\n[\s\S]*\S/.test(text);
         const isFailure = /^(failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
         const successfulPreview = !hasBody && !isFailure && /^(completed|complete|done|success|succeeded|ok)$/.test(status);
+        const terminal = terminalStatus;
         const responseState = executionId ? displayedExecutionResponseStates.get(executionId) : '';
         const bodyAlreadyDisplayed = responseState === 'body';
+        if (cardKey && terminal && displayedExecutionNotificationKeys.has(cardKey)) {
+          rememberDisplayedExecutionNotificationKey(cardKey, true, executionId);
+        }
+        if (terminal) promoteExecutionDedupState(executionId);
         if (firstDelivery && !successfulPreview && !bodyAlreadyDisplayed) {
-          if (cardKey) displayedExecutionNotificationKeys.add(cardKey);
-          if (executionId) displayedExecutionResponseStates.set(executionId, hasBody ? 'body' : 'preview');
+          if (cardKey) rememberDisplayedExecutionNotificationKey(cardKey, terminal, executionId);
+          if (executionId) rememberDisplayedExecutionResponseState(executionId, hasBody ? 'body' : 'preview', terminal);
           // Execution completions are inbound agent responses. The engine keeps
           // their aggregation tail-safe (only an immediately-adjacent inbound
           // response of the same preview/body phase can merge); the fallback
@@ -332,6 +398,9 @@ export function createAgentJobFeed({
       enqueue(modelContent, enqueueOpts);
       return true;
     });
+    return () => {
+      try { unsubscribe?.(); } finally { clearExecutionDedupState(); }
+    };
   }
 
   return {
@@ -342,5 +411,6 @@ export function createAgentJobFeed({
     updateAgentJobCard,
     buildAgentJobCardPatch,
     subscribeRuntimeNotifications,
+    clearExecutionDedupState,
   };
 }

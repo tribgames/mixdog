@@ -163,6 +163,8 @@ export function bumpUsageMetricsTurnId(session) {
     if (!session || typeof session !== 'object') return 0;
     const next = (Number(session.usageMetricsTurnId) || 0) + 1;
     session.usageMetricsTurnId = next;
+    const seen = _metricSeenIter.get(session.id);
+    if (seen) seen.clear();
     return next;
 }
 

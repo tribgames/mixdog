@@ -8,7 +8,7 @@ import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersi
 
 export function createSessionFlow(bag) {
   const {
-    runtime, nextId, tuiDebug, flags, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, getState, set, pushItem, replaceItems, pushNotice, pushUserOrSyntheticItem, autoClearState, agentStatusState, routeState, syncContextStats, flushDeferredExecutionPendingResumeKick,
+    runtime, nextId, tuiDebug, flags, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, getState, set, pushItem, replaceItems, pushNotice, pushUserOrSyntheticItem, autoClearState, agentStatusState, routeState, syncContextStats, flushDeferredExecutionPendingResumeKick,
   } = bag;
 
   // Upper bound on the awaited compacting clear. requireCompactSuccess makes
@@ -116,6 +116,7 @@ export function createSessionFlow(bag) {
       if (predicate(entry) && (entry.mode || 'prompt') === targetMode && queuePriorityValue(entry.priority) === bestPriority) {
         batch.push(entry);
         pending.splice(i, 1);
+        if (entry.mode === 'task-notification' && entry.key) pendingNotificationKeys.delete(entry.key);
         if (batch.length >= limit) break;
       } else {
         i += 1;
@@ -498,6 +499,7 @@ export function createSessionFlow(bag) {
     getState().busy = false;
     pendingNotificationKeys.clear();
     displayedExecutionNotificationKeys.clear();
+    clearExecutionDedupState?.();
   };
   // Post-success UI sync shared by the normal clear path and a late-fulfilling
   // abandoned compacting clear, so the UI always matches the cleared runtime

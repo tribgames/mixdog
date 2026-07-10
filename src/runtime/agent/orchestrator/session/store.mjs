@@ -289,7 +289,10 @@ function _getOrSpawnWorker() {
         // (the originating call plus any that coalesced onto it before it was
         // posted). A supersede never lands here as a rejection — only a real
         // worker failure does.
-        if (ok) { for (const w of waiters) w.resolve(); }
+        if (ok) {
+            clearSessionSaveError(id);
+            for (const w of waiters) w.resolve();
+        }
         else {
             const e = new Error(`[session-store] worker save failed: ${error}`);
             for (const w of waiters) w.reject(e);
@@ -441,6 +444,7 @@ function _doSaveSync(payload) {
         }
         _renameWithRetrySync(tmp, target);
         _upsertSessionSummary(session);
+        clearSessionSaveError(id);
     } catch (err) {
         try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
         throw err;
@@ -580,6 +584,7 @@ async function _doSave(payload) {
         }
         _renameWithRetrySync(tmp, target);
         _upsertSessionSummary(session);
+        clearSessionSaveError(id);
     } catch (err) {
         try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
         _savePending.delete(id);
@@ -643,6 +648,7 @@ export function markSessionClosed(id, reason = 'manual') {
         return null;
     }
     _savePending.delete(id);
+    clearSessionSaveError(id);
     _clearLiveSession(id);
     _deleteHeartbeat(id);
     _upsertSessionSummary(tombstone);
@@ -702,6 +708,7 @@ export function bumpSessionGeneration(id, reason = 'detach') {
         return null;
     }
     _savePending.delete(id);
+    clearSessionSaveError(id);
     _clearLiveSession(id);
     _deleteHeartbeat(id);
     _upsertSessionSummary(detached);
@@ -748,6 +755,7 @@ export function deleteSession(id, options = {}) {
         catch { /* fall through to .hb cleanup */ }
     }
     _deleteHeartbeat(id);
+    if (removed || !existsSync(path)) clearSessionSaveError(id);
     // deferSummaryUpdate: bulk callers (tombstone sweep) remove thousands of
     // rows — a per-id _removeSessionSummary would parse+rewrite the multi-MB
     // summary index once PER DELETION. They batch the index update themselves.

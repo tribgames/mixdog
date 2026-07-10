@@ -73,7 +73,7 @@ test('drainPendingSteering accepts runtime callback signature', () => {
   assert.equal(bag.pending.length, 0);
 });
 
-test('drained notification key remains deduped and displayed key is not cleared', () => {
+test('drained notification key is released while displayed key is not cleared', () => {
   const { flow, bag } = makeFlow();
   bag.getState().busy = true;
   assert.equal(flow.enqueue('task finished', { mode: 'task-notification', key: 'task-1' }), true);
@@ -82,7 +82,7 @@ test('drained notification key remains deduped and displayed key is not cleared'
   const out = flow.drainPendingSteering({ maxPriority: 'later' });
 
   assert.deepEqual(out, ['task finished']);
-  assert.equal(flow.enqueue('task duplicate', { mode: 'task-notification', key: 'task-1' }), false);
+  assert.equal(flow.enqueue('task duplicate', { mode: 'task-notification', key: 'task-1' }), true);
   assert.equal(bag.displayedExecutionNotificationKeys.has('task-1'), true);
 });
 

@@ -30,6 +30,7 @@ export function createLifecycleApi(deps) {
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, standaloneTools,
     pushTranscriptRebind,
+    notificationListeners, remoteStateListeners,
   } = deps;
   return {
     async close(reason = 'cli-exit', options = {}) {
@@ -132,6 +133,9 @@ export function createLifecycleApi(deps) {
         ok = mgr.closeSession(session.id, reason, { tombstone });
         setSession(null);
       }
+      invalidateContextStatusCache();
+      notificationListeners?.clear?.();
+      remoteStateListeners?.clear?.();
       const shellJobsStop = globalThis.__mixdogShellJobsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs')
           .then((mod) => mod?.shutdownShellJobs?.(reason, { sync: !detach }))
