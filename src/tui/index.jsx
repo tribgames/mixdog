@@ -281,7 +281,7 @@ function paintBootSplash() {
     const rows = Math.max(1, Number(process.stdout.rows) || 24);
     const windowsLikeTerminal = process.platform === 'win32' || Boolean(process.env.WT_SESSION);
     const frameCols = Math.max(1, cols - (windowsLikeTerminal ? 1 : 0));
-    const center = (s) => `${' '.repeat(Math.max(0, Math.floor((frameCols - displayWidth(s)) / 2)))}${s}`;
+    const center = (s, reserve = 0) => `${' '.repeat(Math.max(0, Math.floor((frameCols - reserve - displayWidth(s)) / 2)))}${s}`;
     const logo = [
       '███╗   ███╗██╗██╗  ██╗██████╗  ██████╗  ██████╗ ',
       '████╗ ████║██║╚██╗██╔╝██╔══██╗██╔═══██╗██╔════╝ ',
@@ -300,7 +300,7 @@ function paintBootSplash() {
       out += `${bold}${fg}${center(logo[i])}${reset}\r\n`;
     }
     out += '\r\n';
-    out += `${subtleFg}${center(`mixdog coding agent · v${localPackageVersion()} · ${process.cwd()}`)}${reset}`;
+    out += `${subtleFg}${center(`mixdog coding agent · v${localPackageVersion()} · ${process.cwd()}`, 4)}${reset}`;
 
     // Park the cursor at home so ink's first frame paints top-down over the
     // splash instead of starting at the bottom row and scrolling the screen.
