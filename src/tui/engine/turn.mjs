@@ -63,22 +63,63 @@ export function createRunTurn(bag) {
     let watchdogGraceTimer = null;
     let lastProgressAt = startedAt;
     let lastProgressLabel = 'start';
+    let watchdogDeferralCeilingAt = 0;
+    const configuredLeadToolMaxMs = Number(process.env.MIXDOG_LEAD_TOOL_MAX_MS);
+    const leadToolMaxMs = Number.isFinite(configuredLeadToolMaxMs) && configuredLeadToolMaxMs > 0
+      ? configuredLeadToolMaxMs
+      : 30 * 60 * 1000;
     const clearWatchdog = () => {
       if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
       if (watchdogGraceTimer) { clearTimeout(watchdogGraceTimer); watchdogGraceTimer = null; }
     };
+    const refreshWatchdogFromRuntimeLiveness = () => {
+      let liveness;
+      try { liveness = runtime.getTurnLiveness?.(); } catch { return false; }
+      if (liveness?.stage !== 'tool_running') watchdogDeferralCeilingAt = 0;
+      const progressAt = Number(liveness?.lastProgressAt);
+      const now = Date.now();
+      if (!liveness || !Number.isFinite(progressAt) || progressAt <= now - LEAD_TURN_TIMEOUT_MS) return false;
+
+      if (liveness.stage === 'tool_running') {
+        watchdogDeferralCeilingAt = 0;
+        const toolStartedAt = Number(liveness.toolStartedAt);
+        if (!Number.isFinite(toolStartedAt) || toolStartedAt <= 0) return false;
+        const toolSelfDeadlineMs = Number(liveness.toolSelfDeadlineMs);
+        const toolCeilingMs = Math.max(
+          Number.isFinite(toolSelfDeadlineMs) && toolSelfDeadlineMs > 0 ? toolSelfDeadlineMs + 60_000 : 0,
+          leadToolMaxMs,
+        );
+        if (now - toolStartedAt >= toolCeilingMs) return false;
+        watchdogDeferralCeilingAt = toolStartedAt + toolCeilingMs;
+      }
+
+      lastProgressAt = progressAt;
+      lastProgressLabel = `orchestrator:${String(liveness.stage || 'unknown')}`;
+      armWatchdog();
+      return true;
+    };
     const armWatchdog = () => {
       if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
       if (watchdogTripped) return;
-      const remaining = Math.max(1, LEAD_TURN_TIMEOUT_MS - Math.max(0, Date.now() - lastProgressAt));
+      const now = Date.now();
+      const remaining = Math.max(1, LEAD_TURN_TIMEOUT_MS - Math.max(0, now - lastProgressAt));
+      const ceilingRemaining = watchdogDeferralCeilingAt > 0
+        ? Math.max(1, watchdogDeferralCeilingAt - now)
+        : Infinity;
+      const delay = Math.min(remaining, ceilingRemaining);
       watchdogTimer = setTimeout(() => {
         if (!isCurrentTurn()) return;
         if (watchdogTripped) return;
-        const idleMs = Date.now() - lastProgressAt;
+        const now = Date.now();
+        const idleMs = now - lastProgressAt;
         if (idleMs < LEAD_TURN_TIMEOUT_MS) {
-          armWatchdog();
-          return;
-        }
+          if (watchdogDeferralCeilingAt > 0 && now >= watchdogDeferralCeilingAt) {
+            if (refreshWatchdogFromRuntimeLiveness()) return;
+          } else {
+            armWatchdog();
+            return;
+          }
+        } else if (refreshWatchdogFromRuntimeLiveness()) return;
         watchdogTripped = true;
         if (_batchTimer !== null) {
           clearTimeout(_batchTimer);
@@ -89,7 +130,7 @@ export function createRunTurn(bag) {
         _pendingThinkingLastEndedAt = 0;
         const elapsed = Date.now() - startedAt;
         tuiDebug(`runTurn WATCHDOG TRIP turn=${turnIndex} elapsedMs=${elapsed} idleMs=${idleMs} lastProgress=${lastProgressLabel} — aborting stuck turn`);
-        pushNotice(`Turn timed out after ${Math.round(idleMs / 1000)}s idle — aborting stuck request. Input will be released shortly if abort does not unwind.`, 'warn', { transcript: true });
+        pushNotice(`Turn timed out after ${Math.round(idleMs / 1000)}s idle (last progress: ${lastProgressLabel}) — aborting stuck request. Input will be released shortly if abort does not unwind.`, 'warn', { transcript: true });
         try { runtime.abort('cli-react-abort-watchdog'); } catch {}
         // Belt-and-suspenders: if runtime.abort() did not reject runtime.ask()
         // (unwind starved), hard-release the turn after a short grace so the
@@ -118,7 +159,7 @@ export function createRunTurn(bag) {
           flushDeferredExecutionPendingResumeKick();
         }, 5_000);
         watchdogGraceTimer.unref?.();
-      }, remaining);
+      }, delay);
       watchdogTimer.unref?.();
     };
     const markTurnProgress = (label) => {
@@ -126,7 +167,6 @@ export function createRunTurn(bag) {
       if (watchdogTripped) return;
       lastProgressAt = Date.now();
       lastProgressLabel = String(label || 'progress');
-      armWatchdog();
       return true;
     };
     armWatchdog();
@@ -737,6 +777,9 @@ export function createRunTurn(bag) {
     try {
       const { result, session } = await runtime.ask(userText, {
         drainSteering: (_sessionId, drainOptions) => (isCurrentTurn() ? drainPendingSteering(drainOptions) : []),
+        onStreamDelta: () => {
+          markTurnProgress('stream-delta');
+        },
         onSteerMessage: (text) => {
           if (!markTurnProgress('steer-message')) return;
           // A suppressed live-completion twin is model-visible only; its

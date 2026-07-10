@@ -33,6 +33,18 @@ export function createSessionTurnApi(deps) {
     awaitInitialMcpConnect,
   } = deps;
   return {
+    getTurnLiveness() {
+      const sessionId = getSession()?.id;
+      if (!sessionId || typeof mgr.getSessionProgressSnapshot !== 'function') return null;
+      const snapshot = mgr.getSessionProgressSnapshot(sessionId);
+      if (!snapshot) return null;
+      return {
+        stage: snapshot.stage,
+        lastProgressAt: snapshot.lastProgressAt,
+        toolStartedAt: snapshot.toolStartedAt,
+        toolSelfDeadlineMs: snapshot.toolSelfDeadlineMs,
+      };
+    },
     async ask(prompt, options = {}) {
       setActiveTurnCount(getActiveTurnCount() + 1);
       // Lazy code-graph prewarm: kick off the build ONCE, on the first real
