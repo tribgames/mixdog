@@ -111,7 +111,7 @@ jobs:
       # the 5-8 min source compile on every run. Hash key includes the build
       # script — script changes invalidate the cache and force a fresh build.
       - name: Cache build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build
           key: build-${{ matrix.os }}-${{ matrix.arch }}-pg16.4-pgvector0.8.2-${{ hashFiles(matrix.script) }}
@@ -122,7 +122,7 @@ jobs:
       # installed (or restored from this cache) every run.
       - name: Cache Windows PG 16 system install
         if: matrix.os == 'win32'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: 'C:\Program Files\PostgreSQL\16'
           key: pg16-system-win32-x64-16.4.0
@@ -148,7 +148,7 @@ jobs:
           Get-ChildItem dist/
 
       - name: Upload tarballs to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
@@ -205,7 +205,7 @@ jobs:
           Set-Content -Path "dist\$Name" -Value $Json -Encoding UTF8
 
       - name: Upload build-success marker to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: dist/build-success-*.marker
@@ -217,7 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -228,13 +228,13 @@ jobs:
         run: node scripts/generate-runtime-manifest.mjs
 
       - name: Upload manifest to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: dist/runtime-manifest.json
 
       - name: Publish manifest as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runtime-manifest
           path: dist/runtime-manifest.json
