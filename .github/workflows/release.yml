@@ -40,6 +40,11 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Smoke's routing corpus exercises the real grep tool, which shells out
+      # to ripgrep; the ubuntu runner image does not ship rg by default.
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       # src/tui/dist is gitignored; smoke imports it. prepack rebuilds it
       # again at publish time, but the smoke gate needs it present first.
       - name: Build TUI
