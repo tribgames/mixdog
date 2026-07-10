@@ -1,6 +1,6 @@
 {
   "name": "mixdog",
-  "version": "0.9.38",
+  "version": "0.9.39",
   "private": false,
   "type": "module",
   "description": "Standalone mixdog coding-agent CLI/TUI workspace.",
