@@ -309,6 +309,12 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
     const errorFirstLine = resultKind === 'error'
         ? _firstNonEmptyLine(_redactLogText(String(resultText ?? ''))).slice(0, 200) || null
         : null;
+    // Failure taxonomy on the tool row itself (mirrors the failure log's
+    // `category`) so trace-level aggregation can exclude expected command
+    // exits (`command-exit`) without joining tool-failures.jsonl.
+    const errorCategory = resultKind === 'error'
+        ? classifyToolFailure(String(resultText ?? ''), toolName)
+        : null;
     // Flat shape — fields named exactly as the agent_calls PG columns so
     // insertAgentCalls can pick them up by direct property access without
     // a payload-unwrap step. result_kind has no column and rides as plain
@@ -327,6 +333,7 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         tool_args_summary: summarizedArgs,
         result_kind: resultKind || null,
         result_error_first_line: errorFirstLine,
+        result_error_category: errorCategory,
         result_has_next_call: nextCallCount > 0,
         result_next_call_count: nextCallCount,
         result_bytes_est: resultBytesEst,
