@@ -146,6 +146,14 @@ export function createSteeringLadder(ctx) {
     // read-permission sessions legitimately never edit, so they get the
     // report-oriented level-2 text.
     const readOnlyRole = ctx.readOnlyRole === true;
+    // Edit-push steering is EXPLORER-ONLY: leads legitimately read broadly
+    // before delegating, and reviewer/debugger-style roles read continuously
+    // by design. Pushing "start editing / apply the edit" at those roles
+    // suppresses delegation (observed on TB2.1: forced-delegation workflow
+    // leads went solo right after these nudges). Non-explorer roles keep the
+    // batching guidance but never receive an edit directive, and level-2
+    // edit-push is skipped for them entirely.
+    const editPushEligible = sessionAgent === 'explorer';
 
     // Step 1: escalation ladder. _level1FireCount is CUMULATIVE (never reset)
     // so repeated batching reminders accumulate across the whole session.
@@ -194,6 +202,7 @@ export function createSteeringLadder(ctx) {
     // level-1 streak and the independent all-read-only streak). Sets the latch
     // so it fires at most once per 5 turns regardless of which path triggered.
     const _emitLevel2Steer = () => {
+        if (!editPushEligible && !readOnlyRole) return;
         const iterations = getIterations();
         _level2LatchAtIteration = iterations;
         _level2FireCount += 1;
@@ -252,7 +261,9 @@ export function createSteeringLadder(ctx) {
                     if (_canEscalate) {
                         _emitLevel2Steer();
                     } else {
-                        pushSystemReminder('Last 2 turns each ran a single read-only tool. Batch independent lookups (read/grep/glob/code_graph) into ONE turn, or start editing if you have enough context.');
+                        pushSystemReminder(editPushEligible
+                            ? 'Last 2 turns each ran a single read-only tool. Batch independent lookups (read/grep/glob/code_graph) into ONE turn, or start editing if you have enough context.'
+                            : 'Last 2 turns each ran a single read-only tool. Batch independent lookups (read/grep/glob/code_graph) into ONE turn.');
                     }
                     _hintFiredThisTurn = true;
                 }

@@ -11,7 +11,7 @@
 // avoid a circular import back into manager.mjs.
 //
 // Entry shape: {
-//   stage, lastStreamDeltaAt, lastToolCall, lastError, updatedAt,
+//   stage, lastStreamDeltaAt, lastTransportAt, lastToolCall, lastError, updatedAt,
 //   controller?: AbortController,  // set while an ask is in flight
 //   generation?: number,            // snapshot taken at ask start
 //   closed?: boolean,               // flipped by closeSession()
@@ -46,7 +46,7 @@ export function configureRuntimeLiveness(deps = {}) {
 export function _touchRuntime(id) {
     let entry = _runtimeState.get(id);
     if (!entry) {
-        entry = { stage: 'idle', lastStreamDeltaAt: null, lastToolCall: null, lastError: null, updatedAt: Date.now() };
+        entry = { stage: 'idle', lastStreamDeltaAt: null, lastTransportAt: null, lastToolCall: null, lastError: null, updatedAt: Date.now() };
         _runtimeState.set(id, entry);
     }
     return entry;
@@ -106,6 +106,8 @@ export function markSessionAskStart(id) {
     if (sessionForTurn) bumpUsageMetricsTurnId(sessionForTurn);
     entry.stage = 'connecting';
     entry.lastStreamDeltaAt = null;
+    entry.lastTransportAt = null;
+    entry.transportTrackingEnabled = false;
     entry.lastToolCall = null;
     entry.toolStartedAt = null;
     entry.toolSelfDeadlineMs = null;
@@ -132,6 +134,27 @@ export function markSessionAskStart(id) {
     // statusline showed no maintenance/agent badge. STREAM_FRESH_MS (5 min)
     // still drops a session whose provider truly never returns a chunk;
     // markSessionStreamDelta keeps refreshing once chunks arrive.
+    publishHeartbeat(id, now);
+}
+export function enableSessionTransportTracking(id) {
+    if (!id) return;
+    const entry = _runtimeState.get(id);
+    if (!entry || entry.closed || entry.controller?.signal?.aborted) return;
+    entry.transportTrackingEnabled = true;
+}
+export function disableSessionTransportTracking(id) {
+    if (!id) return;
+    const entry = _runtimeState.get(id);
+    if (!entry) return;
+    entry.transportTrackingEnabled = false;
+}
+export function markSessionTransportActivity(id) {
+    if (!id) return;
+    const entry = _runtimeState.get(id);
+    if (!entry || entry.closed || entry.controller?.signal?.aborted) return;
+    const now = Date.now();
+    entry.lastTransportAt = now;
+    entry.updatedAt = now;
     publishHeartbeat(id, now);
 }
 export async function markSessionStreamDelta(id) {
@@ -285,16 +308,20 @@ export function getSessionProgressSnapshot(sessionId) {
         entry.toolStartedAt || 0,
     );
     const stage = entry.stage || 'idle';
+    const waitingStage = stage === 'connecting'
+        || stage === 'requesting'
+        || (stage === 'streaming' && entry.transportTrackingEnabled === true);
     const waitingForFirstActivity = Boolean(
         modelRequestStartedAt
-        && (stage === 'connecting' || stage === 'requesting')
-        && firstActivityAt <= modelRequestStartedAt
+        && waitingStage
+        && (!firstActivityAt || firstActivityAt <= modelRequestStartedAt)
     );
     return {
         stage,
         askStartedAt,
         modelRequestStartedAt,
         firstActivityAt,
+        lastTransportAt: entry.lastTransportAt || 0,
         lastStreamDeltaAt: entry.lastStreamDeltaAt || 0,
         toolStartedAt: entry.toolStartedAt || 0,
         currentTool: entry.lastToolCall || null,

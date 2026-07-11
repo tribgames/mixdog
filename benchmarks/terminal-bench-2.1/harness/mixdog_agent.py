@@ -29,7 +29,7 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 # Version of mixdog to install from npm when a local tarball is not supplied.
-DEFAULT_MIXDOG_VERSION = "0.9.18"
+DEFAULT_MIXDOG_VERSION = "0.9.40"
 # No hard-coded model/workflow defaults: with neither a Harbor -m override nor
 # an explicit kwarg, the runtime boots the user's configured route + active
 # workflow from the copied mixdog-config.json.
@@ -61,6 +61,43 @@ CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
 # Full-Lead-session driver, uploaded next to the creds and run with node.
 CONTAINER_LEAD_DRIVER = f"{CONTAINER_DATA_DIR}/lead_driver.mjs"
 HOST_LEAD_DRIVER = Path(__file__).with_name("lead_driver.mjs")
+# Bench workflow pack (repo copy of the CURRENT Default tuned for headless
+# autonomy: approval gate removed). Uploaded into the container data dir,
+# where user packs override the built-in pack shipped in the npm package —
+# so the run always uses the repo's current tuning. Missing file => the
+# built-in pack from the installed mixdog version applies.
+HOST_BENCH_WORKFLOW = (
+    Path(__file__).resolve().parents[3] / "src" / "workflows" / "bench" / "WORKFLOW.md"
+)
+CONTAINER_BENCH_WORKFLOW = f"{CONTAINER_DATA_DIR}/workflows/bench/WORKFLOW.md"
+
+# Repo-src overlay: files copied OVER the npm-installed package so bench runs
+# carry local runtime fixes that are not yet published. Paths are relative to
+# the repo's src/ and to <npm root -g>/mixdog/src/ (identical layout). Only
+# files listed here are overlaid; missing host files are skipped.
+_REPO_SRC = Path(__file__).resolve().parents[3] / "src"
+SRC_OVERLAY_FILES = [
+    # Prompt assembly: Active Workflow block promoted to the top of BP2.
+    "runtime/agent/orchestrator/context/collect.mjs",
+    # Lead rules: conditional delegation bullet removed.
+    "rules/lead/lead-tool.md",
+    # Steering: edit-push nudges restricted to explorer sessions.
+    "runtime/agent/orchestrator/session/loop/steering-ladder.mjs",
+    # Watchdog stall fix: first-response wait covers 'streaming'; empty
+    # reasoning deltas / response.in_progress are transport-only.
+    "runtime/agent/orchestrator/session/manager/runtime-liveness.mjs",
+    "runtime/agent/orchestrator/providers/openai-ws-stream.mjs",
+    "runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs",
+    # Background-promotion semantics: waiting is a decision, not a default —
+    # promotion message asks the model to judge budget/progress and pivot.
+    "runtime/agent/orchestrator/tools/shell-command.mjs",
+    "runtime/agent/orchestrator/tools/builtin/bash-tool.mjs",
+    # Explicit-timeout blocking cap: schema contract for the shell timeout.
+    "runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+    "rules/shared/01-tool.md",
+    # Reviewer: verify against stated acceptance criteria, not proxy metrics.
+    "agents/reviewer/AGENT.md",
+]
 
 # Boot files copied from the host data dir into the container so the in-container
 # runtime uses the user's REAL daily setup. mixdog-config.json defines the route
@@ -134,8 +171,9 @@ class MixdogAgent(BaseInstalledAgent):
         # mode: "lead" (full session runtime + agent fan-out, default) or
         # "worker" (single headless role). Selectable via --ak mode=worker.
         self._mode = (mode or "lead").strip().lower()
-        # None => use the configured active workflow from mixdog-config.json.
-        self._workflow = workflow
+        # Default to the bench workflow (headless-autonomous Default). Pass
+        # --ak workflow=default to run the configured gated workflow instead.
+        self._workflow = workflow or "bench"
         # None => use the configured route effort; e.g. --ak effort=xhigh.
         self._effort = effort
         super().__init__(*args, **kwargs)
@@ -198,6 +236,34 @@ class MixdogAgent(BaseInstalledAgent):
         # docker cp each file — token bytes never appear in a shell command/log.
         for name, host_path in boot_files.items():
             await environment.upload_file(host_path, f"{CONTAINER_DATA_DIR}/{name}")
+        # Bench workflow pack override (see HOST_BENCH_WORKFLOW note above).
+        if HOST_BENCH_WORKFLOW.is_file():
+            await self.exec_as_root(
+                environment,
+                command=f"mkdir -p {CONTAINER_DATA_DIR}/workflows/bench",
+            )
+            await environment.upload_file(HOST_BENCH_WORKFLOW, CONTAINER_BENCH_WORKFLOW)
+        # Repo-src overlay over the npm install (see SRC_OVERLAY_FILES).
+        overlay = [rel for rel in SRC_OVERLAY_FILES if (_REPO_SRC / rel).is_file()]
+        if overlay:
+            staging = f"{CONTAINER_DATA_DIR}/src-overlay"
+            for rel in overlay:
+                dest = f"{staging}/{rel}"
+                await self.exec_as_root(
+                    environment,
+                    command=f"mkdir -p {shlex.quote(dest.rsplit('/', 1)[0])}",
+                )
+                await environment.upload_file(_REPO_SRC / rel, dest)
+            await self.exec_as_root(
+                environment,
+                command=(
+                    'set -eu; SRC="$(npm root -g)/mixdog/src"; '
+                    f'cd {staging}; '
+                    'find . -type f | while read -r f; do '
+                    'cp "$f" "$SRC/${f#./}"; done; '
+                    'echo "src overlay applied"'
+                ),
+            )
         # Own/secure the copied setup so the user mixdog runs as can read + write
         # it (token refresh); default_user is None => container root.
         user = getattr(environment, "default_user", None)
@@ -231,6 +297,22 @@ class MixdogAgent(BaseInstalledAgent):
             "MIXDOG_DATA_DIR": CONTAINER_DATA_DIR,
             # Non-interactive: never open a browser / onboarding from the container.
             "CI": "1",
+            # Credential-agnostic boot: NEVER warm/refresh provider catalogs or
+            # tokens at startup. Whatever credentials the host has (including
+            # single-use rotating refresh tokens like grok's), only providers a
+            # route actually uses get touched, and only when first used. This
+            # kills the boot-time token-rotation race (N containers sharing one
+            # rotating token revoke each other + the host copy) and the boot
+            # noise it produced. Model catalogs come from the uploaded
+            # *-models.json caches, so no network refresh is needed.
+            "MIXDOG_DISABLE_PROVIDER_WARMUP": "1",
+            "MIXDOG_DISABLE_MODEL_PREFETCH": "1",
+            "MIXDOG_DISABLE_MODEL_CATALOG_WARMUP": "1",
+            # Bench-only decision cadence: cap explicit sync shell timeouts at
+            # 2 min (blocking window), so promote-on-timeout delivers the
+            # partial-output decision point early. Uniform time policy — no
+            # task-specific heuristics; product default stays 10 min.
+            "BASH_MAX_TIMEOUT_MS": "120000",
         }
         if self._mode == "worker":
             await self._run_worker(environment, instruction, model, base_env)
@@ -268,9 +350,12 @@ class MixdogAgent(BaseInstalledAgent):
             )
         run_env = {
             **base_env,
-            # Grant standing execution pre-approval so headless Lead does not
-            # halt for plan-approval (no user exists to approve).
-            "MIXDOG_PROMPT": EXECUTION_MANDATE + instruction,
+            # Raw task instruction, no prepended mandate: the bench workflow
+            # pack already grants standing pre-approval / no-questions, and the
+            # old EXECUTION_MANDATE ("execute end-to-end ... just do it")
+            # suppressed the workflow's delegate-by-default (observed: zero
+            # agent-tool delegations across all runs; fix-git smoke confirmed).
+            "MIXDOG_PROMPT": instruction,
         }
         # Only set overrides when explicitly requested; otherwise the driver
         # boots the user's configured route + active workflow.

@@ -52,6 +52,20 @@ const FB_MODEL = process.env.MIXDOG_REFUSAL_FALLBACK_MODEL !== undefined
   : 'claude-opus-4-8';
 const FB_PROVIDER = process.env.MIXDOG_REFUSAL_FALLBACK_PROVIDER || 'anthropic-oauth';
 const FB_EFFORT = process.env.MIXDOG_REFUSAL_FALLBACK_EFFORT || 'xhigh';
+// Driver loop deadline. Only a runaway-loop guard: the REAL per-task time
+// limit is enforced by Harbor (AgentTimeoutError), so this can sit far above
+// every task budget. The old fixed 30min cut long tasks (caffe-cifar-10)
+// while their heavy-worker was still training.
+const DEADLINE_MS = Number(process.env.MIXDOG_DRIVER_DEADLINE_MS || 180 * 60_000);
+// Boot jitter: N concurrent trials all fire their FIRST ask in the same
+// second, which bursts the provider into 429/retry loops (observed: trials
+// dying at AgentTimeout with only boot noise logged). Spread the first ask.
+const BOOT_JITTER_MS = Number(process.env.MIXDOG_BOOT_JITTER_MS ?? 30_000);
+// Stall watchdog: if a turn shows NO progress signal (stream/tool activity)
+// for STALL_MS, abort that turn and retry it in the SAME session instead of
+// burning the whole Harbor budget inside a hung request.
+const STALL_MS = Number(process.env.MIXDOG_STALL_MS || 6 * 60_000);
+const MAX_STALL_RETRIES = Number(process.env.MIXDOG_STALL_RETRIES || 2);
 
 // Refusal detection: the session manager logs
 // "[session] empty-final persisted ... stopReason=refusal" to stderr when the
@@ -107,6 +121,9 @@ const driveSession = async (route) => {
   let busy = false;
   let kickDeferred = false;
   let wake = null;
+  let lastProgressAt = Date.now();
+  let stallAborted = false;
+  let stallRetries = 0;
 
   rt.onNotification(() => {
     queueMicrotask(() => {
@@ -117,12 +134,43 @@ const driveSession = async (route) => {
     return false;
   });
 
+  // Watchdog: abort the CURRENT turn when no progress arrived for STALL_MS.
+  // askOnce() catches the abort and retries the same message (bounded).
+  const stallTimer = setInterval(() => {
+    if (!busy || STALL_MS <= 0) return;
+    if (Date.now() - lastProgressAt <= STALL_MS) return;
+    stallAborted = true;
+    lastProgressAt = Date.now();
+    process.stderr.write(`lead_driver: stall watchdog abort (no progress ${STALL_MS}ms)\n`);
+    try { rt.abort?.('driver-stall'); } catch { /* abort is best-effort */ }
+  }, 15_000);
+  stallTimer.unref?.();
+
   const askOnce = async (msg) => {
     busy = true;
+    lastProgressAt = Date.now();
+    const touch = () => { lastProgressAt = Date.now(); };
     try {
       let t = '';
-      const { result } = await rt.ask(msg, { onTextDelta: (c) => { t += c; } });
+      const { result } = await rt.ask(msg, {
+        onTextDelta: (c) => { t += c; touch(); },
+        onReasoningDelta: touch,
+        onStreamDelta: touch,
+        onToolCall: touch,
+        onToolResult: touch,
+      });
       return String(result?.text ?? t ?? '');
+    } catch (err) {
+      // Stall-abort recovery: retry the SAME message in the same session; the
+      // transcript keeps prior turns, so a retry resumes rather than restarts.
+      if (stallAborted && stallRetries < MAX_STALL_RETRIES) {
+        stallAborted = false;
+        stallRetries += 1;
+        busy = false;
+        process.stderr.write(`lead_driver: retrying stalled turn (${stallRetries}/${MAX_STALL_RETRIES})\n`);
+        return await askOnce(msg);
+      }
+      throw err;
     } finally { busy = false; }
   };
 
@@ -136,8 +184,11 @@ const driveSession = async (route) => {
 
   const anyWorkBusy = () => agentsBusy() || shellJobsBusy();
 
+  if (BOOT_JITTER_MS > 0) {
+    await new Promise((r) => setTimeout(r, Math.floor(Math.random() * BOOT_JITTER_MS)));
+  }
   text = await askOnce(prompt);
-  const deadline = Date.now() + 30 * 60_000;
+  const deadline = Date.now() + DEADLINE_MS;
   while (Date.now() < deadline) {
     if (!kickDeferred) {
       for (;;) {
@@ -158,6 +209,36 @@ const driveSession = async (route) => {
   }
 
   const sid = rt.sessionId || rt.session?.id || '';
+  // Delegation audit: the agent tool logs nothing to stderr, so dump the
+  // worker index + agent board + session inventory before close. This is the
+  // only host-visible evidence of whether the Lead delegated (agent-workers
+  // rows / non-lead sessions) once the container is discarded.
+  try {
+    const dd = process.env.MIXDOG_DATA_DIR || '';
+    let idx = '';
+    try { idx = readFileSync(dd + '/agent-workers.json', 'utf8').trim(); } catch { idx = '<none>'; }
+    process.stdout.write('delegation-audit agent-workers.json: ' + idx + '\n');
+    let jobs = [];
+    try { jobs = rt.agentStatus?.()?.agentJobs || []; } catch { /* best-effort */ }
+    process.stdout.write('delegation-audit agent-board: ' + JSON.stringify(jobs) + '\n');
+    let sess = [];
+    try { sess = readdirSync(dd + '/sessions').filter((f) => f.endsWith('.json')); } catch { /* none */ }
+    process.stdout.write('delegation-audit sessions(' + sess.length + '): ' + sess.join(',') + '\n');
+    // Lead tool surface: prove whether the `agent` tool was model-visible.
+    let toolNames = [];
+    try {
+      const sfile = dd + '/sessions/' + (rt.sessionId || rt.session?.id || '') + '.json';
+      const sdoc = JSON.parse(readFileSync(sfile, 'utf8'));
+      toolNames = (sdoc?.tools || rt.session?.tools || []).map((t) => t?.name || t).filter(Boolean);
+    } catch { /* fall through */ }
+    if (!toolNames.length) {
+      try { toolNames = (rt.session?.tools || []).map((t) => t?.name || t).filter(Boolean); } catch { /* none */ }
+    }
+    process.stdout.write('delegation-audit lead-tools(' + toolNames.length + '): ' + toolNames.join(',') + '\n');
+  } catch (e) {
+    process.stdout.write('delegation-audit failed: ' + (e?.message || e) + '\n');
+  }
+  clearInterval(stallTimer);
   await rt.close('bench-exit');
   return { text, sid };
 };

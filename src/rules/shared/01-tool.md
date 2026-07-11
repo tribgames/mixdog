@@ -44,3 +44,7 @@
   reread returned spans. A third window means the first was too narrow.
 - One carve-out to parallel-first: apply the edit, then verify it in a
   separate shell turn and consume results in order. Otherwise stay parallel.
+- A long-running command promoted to background is a decision point, not a
+  cue to wait: estimate from its observed progress whether it can finish
+  within the remaining budget; if not, diagnose the bottleneck and switch to
+  an alternative route. Waiting is chosen, never assumed.

@@ -32,6 +32,9 @@ Thumbs.db
 # Scratch
 *.tmp
 tmp/
+.tmp-internal-comms-live.*
+benchmarks/terminal-bench-2.1/jobs-*
+benchmarks/terminal-bench-2.1/harness/__pycache__/
 scratch/
 
 # Tool backups

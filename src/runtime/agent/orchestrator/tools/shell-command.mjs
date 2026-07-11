@@ -500,6 +500,7 @@ export function execShellCommand({
   onProgress,
   clientHostPid,
   backgroundOnTimeout,
+  promotedTimeoutMs = 0,
 }) {
   return new Promise(async (resolve) => {
     const taskId = `shell_${randomUUID().slice(0, 8)}`;
@@ -741,9 +742,8 @@ export function execShellCommand({
     //      BACKGROUND_MS opt-in) — an EARLIER promotion before the timeout, and
     //   2. the foreground timeout deadline (backgroundOnTimeout) — the default
     //      promote-on-timeout that replaces the old tree-kill.
-    // Either way the adopted job runs UNLIMITED (timeoutMs 0, matching the
-    // async default): the original foreground timeout no longer bounds it, and
-    // the adopted-job cap poll still enforces the 100 MB output ceiling.
+    // A capped explicit foreground timeout supplies its remaining deadline to
+    // the adopted job; otherwise adoption remains unlimited as before.
     // Mutually exclusive with settle() via the autoBackgrounded flag set
     // synchronously at the top before any await.
     const _autoBackground = async ({ reason = 'threshold' } = {}) => {
@@ -754,8 +754,7 @@ export function execShellCommand({
       if (child.exitCode != null || child.signalCode != null) return;
       autoBackgrounded = true;
       // The foreground capture is over; stop the local watchdogs/timers so
-      // they cannot treeKill the now-adopted child. The adopted job runs
-      // unlimited; refreshShellJob only enforces the output cap.
+      // they cannot treeKill the now-adopted child.
       if (timer) { clearTimeout(timer); timer = null; }
       _clearProgressTimer();
       if (sizeWatchdog) { clearInterval(sizeWatchdog); sizeWatchdog = null; }
@@ -777,14 +776,13 @@ export function execShellCommand({
       const stdoutPath = taskOutput.spilled ? taskOutput.stdoutPath : null;
       const stderrPath = taskOutput.spilled ? taskOutput.stderrPath : null;
       let job = null;
+      const adoptedTimeoutMs = reason === 'timeout' ? promotedTimeoutMs : 0;
       try {
         job = adoptForegroundShellJob({
           command,
           cwd,
           pid: child.pid,
-          // Unlimited: the promoted job is no longer bounded by the foreground
-          // timeout (matches the async omitted-default behavior).
-          timeoutMs: 0,
+          timeoutMs: adoptedTimeoutMs,
           mergeStderr: false,
           stdoutPath,
           stderrPath,
@@ -854,9 +852,10 @@ export function execShellCommand({
           outputCaptureError: taskOutput.writeError,
           backgrounded: true,
           jobId,
+          backgroundTimeoutMs: adoptedTimeoutMs,
           backgroundMessage: jobId
-            ? `${_verb}; still running — completion will be delivered as a background task notification. Use task with task_id:${jobId} only for manual wait/status/read/cancel.`
-            : `${_verb}; still running`,
+            ? `${_verb}; still running. Waiting is a decision, not a default: judge from the partial output whether this will finish within your remaining budget — if progress looks slow or stalled, diagnose the cause and pursue an alternative instead of waiting. Completion will be delivered as a background task notification; use task with task_id:${jobId} only for manual wait/status/read/cancel.`
+            : `${_verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
         }),
       );
     };

@@ -784,6 +784,13 @@ export function composeSystemPrompt(opts) {
         ? ''
         : loadScopedRoleInstructions(opts.agent || null, opts.provider || null);
     const stableSystemParts = [];
+    // Active workflow contract leads the role layer: it must outrank the
+    // generic role/tool guidance below it, not trail the profile/meta block
+    // in BP3 (observed: leads deprioritized delegation rules that sat behind
+    // ~3KB of profile/output-style text).
+    if (opts.workflowContext && typeof opts.workflowContext === 'string' && opts.workflowContext.trim()) {
+        stableSystemParts.push(opts.workflowContext.trim());
+    }
     if (opts.roleRules) stableSystemParts.push(opts.roleRules);
     if (opts.userPrompt) stableSystemParts.push(opts.userPrompt);
     if (roleInstructionContext) stableSystemParts.push(roleInstructionContext);
@@ -797,9 +804,6 @@ export function composeSystemPrompt(opts) {
     const sessionMarkerParts = [];
     if (opts.metaContext && typeof opts.metaContext === 'string' && opts.metaContext.trim()) {
         sessionMarkerParts.push(opts.metaContext.trim());
-    }
-    if (opts.workflowContext && typeof opts.workflowContext === 'string' && opts.workflowContext.trim()) {
-        sessionMarkerParts.push(opts.workflowContext.trim());
     }
     if (!_skip.memory && opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
         sessionMarkerParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());

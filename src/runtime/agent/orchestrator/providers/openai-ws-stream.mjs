@@ -51,6 +51,11 @@ import {
     createActiveToolItemTracker,
     hasCompleteToolCall as sharedHasCompleteToolCall,
 } from './tool-stream-state.mjs';
+import {
+    enableSessionTransportTracking,
+    disableSessionTransportTracking,
+    markSessionTransportActivity,
+} from '../session/manager/runtime-liveness.mjs';
 
 // Facade re-exports: the delta/matching helpers and usage/event helpers below
 // were extracted to openai-ws-delta.mjs / openai-ws-events.mjs (no behavior
@@ -92,6 +97,11 @@ export const WS_PRE_RESPONSE_CREATED_MS = (() => {
 // including metadata/keepalive, proves the socket is live.
 export const WS_INTER_CHUNK_MS = PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS;
 const X_CODEX_TURN_STATE_HEADER = 'x-codex-turn-state';
+const WS_TRACE_ENABLED = process.env.MIXDOG_WS_TRACE === '1';
+
+function _writeWsLifecycleTrace(lifecycle) {
+    process.stderr.write(`[ws-trace] t=${new Date().toISOString()} lifecycle=${lifecycle}\n`);
+}
 
 function _responseItemKey(item, fallbackIndex = 0) {
     if (!item || typeof item !== 'object') return `primitive:${fallbackIndex}`;
@@ -239,6 +249,7 @@ export async function _streamResponse({
 }) {
     const errLabel = _wsErrLabel(traceProvider);
     const socket = entry.socket;
+    enableSessionTransportTracking(state?.sessionId);
     const preResponseCreatedMs = _positiveInt(_timeouts?.preResponseCreatedMs, WS_PRE_RESPONSE_CREATED_MS);
     const interChunkMs = _positiveInt(_timeouts?.interChunkMs, WS_INTER_CHUNK_MS);
     // First-MEANINGFUL-frame deadline. Distinct from preResponseCreatedMs (a
@@ -471,6 +482,9 @@ export async function _streamResponse({
     let messageHandler = null;
     let closeHandler = null;
     let errorHandler = null;
+    let traceOpenHandler = null;
+    let tracePingHandler = null;
+    let tracePongHandler = null;
     // SEMANTIC idle timer: distinct from the inter-chunk
     // timer, which resets on EVERY frame (rate_limits/metadata/keepalive keep
     // the socket "alive"). This timer resets ONLY on meaningful output deltas
@@ -668,6 +682,7 @@ export async function _streamResponse({
         // frames never reach here, so they cannot satisfy the watchdog.
         const bumpSemanticIdle = () => { clearFirstMeaningfulWatchdog(); resetSemanticIdle(); };
         const cleanup = () => {
+            disableSessionTransportTracking(midState.sessionId);
             if (idleTimer) clearTimeout(idleTimer);
             if (interChunkTimer) { clearTimeout(interChunkTimer); interChunkTimer = null; }
             if (semanticIdleTimer) { clearTimeout(semanticIdleTimer); semanticIdleTimer = null; }
@@ -676,6 +691,9 @@ export async function _streamResponse({
             if (messageHandler) socket.off('message', messageHandler);
             if (closeHandler) socket.off('close', closeHandler);
             if (errorHandler) socket.off('error', errorHandler);
+            if (traceOpenHandler) socket.off('open', traceOpenHandler);
+            if (tracePingHandler) socket.off('ping', tracePingHandler);
+            if (tracePongHandler) socket.off('pong', tracePongHandler);
             if (abortHandler && externalSignal) externalSignal.removeEventListener('abort', abortHandler);
         };
         const finish = () => {
@@ -755,6 +773,15 @@ export async function _streamResponse({
             const text = typeof data === 'string' ? data : data.toString('utf-8');
             const event = _parseEvent(text);
             if (!event) return;
+            if (WS_TRACE_ENABLED) {
+                const type = typeof event.type === 'string' ? event.type : '';
+                const empty = type.endsWith('.delta')
+                    && (event.delta == null || event.delta === '');
+                process.stderr.write(
+                    `[ws-trace] t=${new Date().toISOString()} type=${type} bytes=${Buffer.byteLength(text)} empty=${empty}\n`,
+                );
+            }
+            markSessionTransportActivity(midState.sessionId);
             _traceWsHeaderKeys(entry, event, midState, traceProvider, model);
             _captureTurnStateFromEvent(entry, event);
             if (event.error) {
@@ -780,12 +807,9 @@ export async function _streamResponse({
                     // first-meaningful watchdog (keepalive/metadata frames do
                     // NOT reach this case, so they never clear it).
                     clearFirstMeaningfulWatchdog();
-                    // Arm the semantic idle/stall timer from response.created
-                    // too: it otherwise only arms on the first meaningful delta
-                    // (bumpSemanticIdle), so a created+keepalive-only stream that
-                    // never emits a delta would stall unbounded until the outer
-                    // watchdog. Arming here bounds that gap.
-                    resetSemanticIdle();
+                    // Do not arm semantic idle until actual model progress.
+                    // Transport-only reasoning heartbeats are bounded by the
+                    // outer first-visible ceiling instead.
                     break;
                 case 'response.output_text.delta':
                     try {
@@ -814,14 +838,12 @@ export async function _streamResponse({
                 case 'response.reasoning_summary_text.delta':
                     if (event.type === 'response.reasoning_text.delta') reasoningTextDeltaCount += 1;
                     else reasoningSummaryTextDeltaCount += 1;
-                    // Reasoning text is live model progress — refresh
-                    // lastStreamDeltaAt so stream-watchdog does not flag a
-                    // long reasoning span as a stall. The local WS idle timer
-                    // was already reset by resetIdle() at the top of
-                    // messageHandler. Reasoning is still suppressed from user
-                    // content (no `content +=` here).
-                    try { onStreamDelta?.(); } catch {}
-                    bumpSemanticIdle();
+                    // Only non-empty reasoning text is model progress. Empty
+                    // deltas remain transport activity via resetIdle() above.
+                    if (event.delta) {
+                        try { onStreamDelta?.(); } catch {}
+                        bumpSemanticIdle();
+                    }
                     break;
                 case 'response.output_item.added':
                     if (event.item?.type === 'function_call') {
@@ -1184,25 +1206,24 @@ export async function _streamResponse({
                         && event.type.startsWith('response.reasoning')
                         && event.type.endsWith('.delta')) {
                         reasoningOtherDeltaCount += 1;
-                        // These ARE live model progress (reviewer Medium): a
-                        // provider that emits only these reasoning variants for a
-                        // long span would otherwise trip the SEMANTIC idle abort.
-                        // Refresh both the watchdog and the semantic idle timer,
-                        // matching the named reasoning_text.delta case above.
-                        try { onStreamDelta?.(); } catch {}
-                        bumpSemanticIdle();
+                        // Only non-empty reasoning deltas are model progress;
+                        // empty variants remain transport activity only.
+                        if (event.delta) {
+                            try { onStreamDelta?.(); } catch {}
+                            bumpSemanticIdle();
+                        }
                     }
-                    // response.in_progress is a server lifecycle heartbeat during
-                    // long tool/generation latency — reset semantic idle so it is
-                    // not counted as silence (resetIdle already ran at the top).
+                    // response.in_progress is transport activity only;
+                    // resetIdle() already kept the socket alive above.
                     else if (event.type === 'response.in_progress') {
-                        resetSemanticIdle();
+                        // No semantic/model progress.
                     }
                     // Other trace-only events fall through.
                     break;
             }
         };
         closeHandler = (code, reason) => {
+            if (WS_TRACE_ENABLED) _writeWsLifecycleTrace('close');
             if (done) return;
             midState.wsCloseCode = code;
             if (!terminalError) {
@@ -1219,6 +1240,7 @@ export async function _streamResponse({
             finish();
         };
         errorHandler = (err) => {
+            if (WS_TRACE_ENABLED) _writeWsLifecycleTrace('error');
             if (done) return;
             const wrapped = err instanceof Error ? err : new Error(String(err));
             if (terminalError) {
@@ -1268,6 +1290,15 @@ export async function _streamResponse({
         socket.on('message', messageHandler);
         socket.on('close', closeHandler);
         socket.on('error', errorHandler);
+        if (WS_TRACE_ENABLED) {
+            traceOpenHandler = () => _writeWsLifecycleTrace('open');
+            tracePingHandler = () => _writeWsLifecycleTrace('ping');
+            tracePongHandler = () => _writeWsLifecycleTrace('pong');
+            socket.on('open', traceOpenHandler);
+            socket.on('ping', tracePingHandler);
+            socket.on('pong', tracePongHandler);
+            if (socket.readyState === WebSocket.OPEN) _writeWsLifecycleTrace('open');
+        }
         armPreStreamWatchdog();
         armFirstMeaningfulWatchdog();
         // Periodic client-side WS ping while the stream is active. The server's
@@ -1280,6 +1311,7 @@ export async function _streamResponse({
         keepaliveTimer = setInterval(() => {
             try {
                 if (socket.readyState !== WebSocket.OPEN) return;
+                if (WS_TRACE_ENABLED) _writeWsLifecycleTrace('ping');
                 socket.ping();
             } catch {}
         }, 10_000);

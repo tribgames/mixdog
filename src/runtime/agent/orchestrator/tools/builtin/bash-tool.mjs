@@ -297,10 +297,9 @@ export async function executeBashTool(args, workDir, options = {}) {
     // Keep foreground commands on a long tool-owned timeout. The MCP dispatch
     // layer must not add a shorter fallback ceiling when timeout is omitted.
     // Reference-CLI parity (opencode/codex/claude-code): sync-first, no hard
-    // upper ceiling on a caller-provided timeout. Default 120 s (2 min) when
-    // omitted; BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS env overrides keep
-    // their semantics (max floored at default) but only bound the *omitted*
-    // default — an explicit args.timeout is honored UNCAPPED.
+    // upper ceiling on a caller-provided total timeout. Default 120 s (2 min)
+    // when omitted; BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS env overrides
+    // bound the blocking window when timeout promotion is available.
     const _envDefaultTimeout = parseInt(process.env.BASH_DEFAULT_TIMEOUT_MS ?? '', 10);
     const DEFAULT_BASH_TIMEOUT_MS = _envDefaultTimeout > 0 ? _envDefaultTimeout : 120_000;
     // Background (async / run_in_background) jobs get NO omitted default: 0
@@ -315,8 +314,14 @@ export async function executeBashTool(args, workDir, options = {}) {
         : DEFAULT_BASH_TIMEOUT_MS;
     const hasExplicitTimeout = typeof args.timeout === 'number' && args.timeout > 0;
     const timeoutMs = hasExplicitTimeout ? args.timeout : defaultTimeoutMs;
-    // Explicit caller timeout is uncapped (only the wmic-rewrite ceiling, when
-    // present, still bounds it); the omitted default keeps the MAX ceiling.
+    const _bgTasksDisabled = /^(1|true|yes|on)$/i.test(
+        String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
+    );
+    const backgroundOnTimeout = !runInBackground
+        && !_bgTasksDisabled
+        && isAutobackgroundingAllowed(command, resolvedSpec.shellType);
+    // Explicit caller timeout remains the total deadline. When promotion is
+    // available, cap only its foreground blocking portion at MAX.
     // JS timers (setTimeout) and PS WaitForExit(ms) are 32-bit: a delay above
     // 2^31-1 wraps to a tiny/negative value and fires immediately. Clamp the
     // uncapped explicit timeout once here (~24.8 days ceiling) so every
@@ -325,11 +330,15 @@ export async function executeBashTool(args, workDir, options = {}) {
     const TIMER_MAX_MS = 2_147_483_647;
     // timeoutMs <= 0 (omitted background default) means unlimited: pass it
     // through untouched — the min() clamps below must not turn 0 into a bound.
-    const timeout = timeoutMs <= 0
+    const totalTimeout = timeoutMs <= 0
         ? 0
-        : (hasExplicitTimeout
-            ? Math.min(timeoutMs, wmicRewrite?.timeoutMs || TIMER_MAX_MS)
-            : Math.min(timeoutMs, wmicRewrite?.timeoutMs || MAX_BASH_TIMEOUT_MS));
+        : Math.min(timeoutMs, wmicRewrite?.timeoutMs || (hasExplicitTimeout ? TIMER_MAX_MS : MAX_BASH_TIMEOUT_MS));
+    const timeout = hasExplicitTimeout && backgroundOnTimeout
+        ? Math.min(totalTimeout, MAX_BASH_TIMEOUT_MS)
+        : totalTimeout;
+    const promotedTimeoutMs = hasExplicitTimeout && backgroundOnTimeout
+        ? Math.max(0, totalTimeout - timeout)
+        : 0;
     const mergeStderr = args.merge_stderr === true;
     const longForegroundHint = foregroundLongCommandHint(command, timeout, { ...args, run_in_background: runInBackground });
     if (longForegroundHint) return formatShellToolFailure(longForegroundHint);
@@ -458,12 +467,6 @@ export async function executeBashTool(args, workDir, options = {}) {
         // base commands (isAutobackgroundingAllowed), (b) the truthy
         // MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env. Never applies to
         // run_in_background (already detached, handled above).
-        const _bgTasksDisabled = /^(1|true|yes|on)$/i.test(
-            String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
-        );
-        const backgroundOnTimeout = !runInBackground
-            && !_bgTasksDisabled
-            && isAutobackgroundingAllowed(command, shellType);
         const result = await execShellCommand({
             shell, shellArg, shellArgs, command: syncCommand,
             env: spawnEnv,
@@ -474,6 +477,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             // On a foreground timeout, promote the still-running child to a
             // tracked background job (unlimited) instead of killing it.
             backgroundOnTimeout,
+            promotedTimeoutMs,
             // Threaded so an auto-backgrounded foreground job is stamped with
             // the dispatching terminal's claude.exe pid (per-terminal scope).
             clientHostPid: options?.clientHostPid,
@@ -507,10 +511,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                             stdout: result.stdoutPath ? normalizeOutputPath(result.stdoutPath) : null,
                             stderr: (!mergeStderr && result.stderrPath) ? normalizeOutputPath(result.stderrPath) : null,
                             cwd: bashWorkDir,
-                            // Adopted foreground jobs run unlimited (timeoutMs 0)
-                            // — matches the async default; the original
-                            // foreground timeout no longer bounds the promoted job.
-                            timeoutMs: 0,
+                            timeoutMs: result.backgroundTimeoutMs || 0,
                         },
                         resultType: 'shell_task_result',
                         cancel: () => killShellJob(result.jobId),
@@ -530,7 +531,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             const lines = [
                 task ? renderBackgroundTask(task) : (result.jobId ? `[task_id: ${result.jobId}]` : null),
                 '',
-                result.backgroundMessage || 'auto-backgrounded; still running',
+                result.backgroundMessage || 'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.',
                 partialStdout ? `\n[partial stdout]\n${partialStdout}` : '',
                 (!mergeStderr && partialStderr) ? `\n[partial stderr]\n${partialStderr}` : '',
             ].filter((l) => l !== null && l !== '');

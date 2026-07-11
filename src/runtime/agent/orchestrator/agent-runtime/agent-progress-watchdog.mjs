@@ -194,6 +194,10 @@ export const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs(
     'MIXDOG_AGENT_FIRST_RESPONSE_TIMEOUT_MS',
     120_000,
 );
+export const DEFAULT_FIRST_VISIBLE_CEILING_MS = envTimeoutMs(
+    'MIXDOG_AGENT_FIRST_VISIBLE_TIMEOUT_MS',
+    600_000,
+);
 export const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs(
     'MIXDOG_AGENT_STALE_TIMEOUT_MS',
     30 * 60_000,
@@ -208,6 +212,10 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     const firstResponseMs = resolveExplicitMs(
         overrides.firstResponseTimeoutMs,
         DEFAULT_FIRST_RESPONSE_TIMEOUT_MS,
+    );
+    const firstVisibleCeilingMs = resolveExplicitMs(
+        overrides.firstVisibleTimeoutMs,
+        DEFAULT_FIRST_VISIBLE_CEILING_MS,
     );
 
     let idleStaleMs;
@@ -238,6 +246,7 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
 
     return {
         firstResponseMs,
+        firstVisibleCeilingMs,
         idleStaleMs,
         toolRunningMs,
     };
@@ -248,8 +257,16 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
 
     if (snapshot.waitingForFirstActivity) {
         const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
-        if (policy.firstResponseMs > 0 && startedAt && now - startedAt > policy.firstResponseMs) {
-            return new AgentStallAbortError(`agent first response stale (${policy.firstResponseMs}ms)`);
+        const hasTransport = Boolean(
+            startedAt
+            && snapshot.lastTransportAt
+            && snapshot.lastTransportAt > startedAt
+        );
+        const ceilingMs = hasTransport
+            ? policy.firstVisibleCeilingMs
+            : policy.firstResponseMs;
+        if (ceilingMs > 0 && startedAt && now - startedAt > ceilingMs) {
+            return new AgentStallAbortError(`agent first response stale (${ceilingMs}ms)`);
         }
         return null;
     }
@@ -293,6 +310,7 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
 export function agentWatchdogPolicyActive(policy) {
     if (!policy) return false;
     return (policy.firstResponseMs > 0)
+        || (policy.firstVisibleCeilingMs > 0)
         || (policy.idleStaleMs > 0)
         || (policy.toolRunningMs > 0);
 }
