@@ -4,7 +4,6 @@
 // Validates the unified 4-tier spawn dispatch when an explicit tag is pinned:
 //   1) live + idle  -> spawn reuses the existing session (reused:true, send path)
 //   2) live + busy  -> spawn queues the prompt instead of throwing
-//   3) lingering terminal trace (no live session) -> spawn/send error, no respawn
 //   3) lingering terminal trace -> spawn reaps tag; dead-tag send auto-respawns
 //   4) genuinely new tag -> a fresh spawn (no reused/respawned flag)
 //
@@ -32,7 +31,7 @@ process.env.MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS = '50';
 // is the authority; shorten only the test clock, not the configured duration.
 process.env.MIXDOG_AGENT_TERMINAL_REAP_MS = '1000';
 const nativeSetTimeout = globalThis.setTimeout;
-globalThis.setTimeout = (callback, ms, ...args) => nativeSetTimeout(callback, ms === 60_000 ? 500 : ms, ...args);
+globalThis.setTimeout = (callback, ms, ...args) => nativeSetTimeout(callback, ms === 60_000 ? 1000 : ms, ...args);
 
 const { createStandaloneAgent } = await import('../src/standalone/agent-tool.mjs');
 
@@ -119,7 +118,11 @@ async function waitJob(out, pattern, label, tries = 60, context = ctx) {
   throw new Error(`${label} did not match ${pattern}: ${last}`);
 }
 function sessionForTag(tag) {
-  return listSessions().find((s) => s?.agentTag === tag && !s.closed) || null;
+  for (let i = askLog.length - 1; i >= 0; i -= 1) {
+    const session = getSession(askLog[i].sessionId);
+    if (session?.agentTag === tag && !session.closed) return session;
+  }
+  return null;
 }
 function addPeerTerminalRow(tag, sessionId) {
   const file = join(dataDir, 'agent-workers.json');
@@ -136,6 +139,40 @@ function addPeerTerminalRow(tag, sessionId) {
     cwd: root,
   };
   writeFileSync(file, JSON.stringify(index));
+}
+function addWorkerRow({
+  tag,
+  sessionId,
+  clientHostPid = ctx.clientHostPid,
+  status = 'idle',
+  updatedAt = new Date().toISOString(),
+  agentName = 'worker',
+}) {
+  const file = join(dataDir, 'agent-workers.json');
+  const index = JSON.parse(readFileSync(file, 'utf8'));
+  index.workers[sessionId] = {
+    tag,
+    sessionId,
+    agent: agentName,
+    provider: 'openai-oauth',
+    status,
+    stage: status,
+    updatedAt,
+    clientHostPid,
+    cwd: root,
+  };
+  writeFileSync(file, JSON.stringify(index));
+}
+function addTombstones(rows) {
+  const file = join(dataDir, 'agent-workers.json');
+  const index = JSON.parse(readFileSync(file, 'utf8'));
+  index.tombstones ||= {};
+  for (const row of rows) index.tombstones[`${row.clientHostPid || 0}:${row.tag}`] = row;
+  writeFileSync(file, JSON.stringify(index));
+}
+function tombstonesForTag(tag) {
+  const index = JSON.parse(readFileSync(join(dataDir, 'agent-workers.json'), 'utf8'));
+  return Object.values(index.tombstones || {}).filter((row) => row.tag === tag);
 }
 function hasWorkerRow(sessionId) {
   const index = JSON.parse(readFileSync(join(dataDir, 'agent-workers.json'), 'utf8'));
@@ -165,8 +202,9 @@ async function main() {
   }, ctx);
   assert(/agent task:/.test(firstOut), `first spawn must return a task: ${firstOut}`);
   assert(!/reused: true/.test(firstOut) && !/respawned/.test(firstOut), `fresh tag must not be flagged reused/respawned: ${firstOut}`);
+  const firstSession = await waitSessionForTag('reviewerA', 'first spawn');
   await waitJob(firstOut, /ack: first review pass/, 'first spawn');
-  const sid = (await waitSessionForTag('reviewerA', 'first spawn')).id;
+  const sid = firstSession.id;
   assert(sid, 'reviewerA session should remain live (idle) within the reap window');
 
   // --- tier 1 (the headline bug): re-spawn the SAME tag while idle+live ---
@@ -204,6 +242,7 @@ async function main() {
     type: 'spawn', agent: 'reviewer', tag: 'reviewerA', prompt: 'trace reap respawn', cwd: root,
   }, ctx);
   assert(!/^Error:/.test(traceSpawnOut), `terminal-trace spawn must reap and reuse tag: ${traceSpawnOut}`);
+  assert(/respawned: true/.test(traceSpawnOut), `terminal-trace spawn must flag lost context: ${traceSpawnOut}`);
   await waitJob(traceSpawnOut, /ack: trace reap respawn/, 'trace reap spawn');
   assert(hasWorkerRow('sess_peer_trace'), 'terminal-trace reap must preserve a peer terminal row with the same tag');
   removeWorkerRow('sess_peer_trace');
@@ -225,25 +264,56 @@ async function main() {
   await waitJob(timerPeerStart, /ack: timer peer seed/, 'timer peer seed');
   const timerPeerSession = (await waitSessionForTag('timer-peer', 'timer peer seed')).id;
   addPeerTerminalRow('timer-peer', 'sess_peer_timer');
-  await sleep(700);
+  await sleep(1200);
   assert(getSession(timerPeerSession)?.closed, 'terminal timer must reap its local session');
   assert(hasWorkerRow('sess_peer_timer'), 'terminal timer must preserve a peer row with the same tag');
 
-  // Fully reaped tags have no in-memory map or persisted row. Explicit
-  // cold-spawn identity is enough to create a replacement.
+  // Fully reaped tags retain a terminal-scoped tombstone, so send inherits the
+  // prior agent/cwd without the caller having to reconstruct cold identity.
   const coldStart = await agent.execute({
     type: 'spawn', agent: 'worker', tag: 'cold-reaped', prompt: 'cold reap seed', cwd: root,
   }, ctx);
   await waitJob(coldStart, /ack: cold reap seed/, 'cold reap seed');
   const coldSessionId = (await waitSessionForTag('cold-reaped', 'cold reap seed')).id;
-  await sleep(1200);
+  await sleep(1700);
   assert(!sessionForTag('cold-reaped') && getSession(coldSessionId)?.closed, 'terminal reaper must remove the cold-reaped session');
   const coldSendOut = await agent.execute({
-    type: 'send', agent: 'worker', tag: 'cold-reaped', message: 'cold reap replacement', cwd: root,
+    type: 'send', tag: 'cold-reaped', message: 'cold reap replacement',
   }, ctx);
   assert(!/^Error:/.test(coldSendOut), `fully reaped tag must cold-respawn: ${coldSendOut}`);
   assert(/respawned: true/.test(coldSendOut), `fully reaped send must flag respawned: ${coldSendOut}`);
   await waitJob(coldSendOut, /ack: cold reap replacement/, 'cold reap replacement');
+
+  // Explicit spawn consumes the same tombstone form and also reports that the
+  // previous conversational context was lost.
+  const coldSpawnSeed = await agent.execute({
+    type: 'spawn', agent: 'reviewer', tag: 'cold-spawn-reaped', prompt: 'cold spawn seed', cwd: root,
+  }, ctx);
+  await waitJob(coldSpawnSeed, /ack: cold spawn seed/, 'cold spawn seed');
+  const coldSpawnSessionId = (await waitSessionForTag('cold-spawn-reaped', 'cold spawn seed')).id;
+  await sleep(1700);
+  assert(getSession(coldSpawnSessionId)?.closed, 'terminal reaper must close the cold-spawn seed');
+  const coldSpawnOut = await agent.execute({
+    type: 'spawn', tag: 'cold-spawn-reaped', prompt: 'cold spawn replacement',
+  }, ctx);
+  assert(!/^Error:/.test(coldSpawnOut), `tombstoned tag spawn must respawn: ${coldSpawnOut}`);
+  assert(/respawned: true/.test(coldSpawnOut), `tombstoned tag spawn must flag respawned: ${coldSpawnOut}`);
+  await waitJob(coldSpawnOut, /ack: cold spawn replacement/, 'cold spawn replacement');
+
+  // A stale running row with neither a live session nor a recent heartbeat is
+  // transitioned to a tombstone instead of blocking this tag forever.
+  addWorkerRow({
+    tag: 'stale-running',
+    sessionId: 'sess_stale_running',
+    status: 'running',
+    updatedAt: new Date(Date.now() - 120_000).toISOString(),
+  });
+  const staleRunningOut = await agent.execute({
+    type: 'spawn', tag: 'stale-running', prompt: 'stale running replacement',
+  }, ctx);
+  assert(!/^Error:/.test(staleRunningOut), `stale nonterminal row must transition: ${staleRunningOut}`);
+  assert(/respawned: true/.test(staleRunningOut), `stale nonterminal transition must flag respawned: ${staleRunningOut}`);
+  await waitJob(staleRunningOut, /ack: stale running replacement/, 'stale running replacement');
 
   // A raw session id, typo without retained evidence/identity, and a peer tag
   // must never turn into a local cold spawn.
@@ -263,6 +333,47 @@ async function main() {
     type: 'send', agent: 'worker', tag: 'peer-owned', message: 'must not take peer tag', cwd: root,
   }, ctx);
   assert(/^Error:/.test(peerOut), `peer-terminal tag must remain an error: ${peerOut}`);
+
+  // Let the peer session become a peer-owned tombstone. Neither normal nor
+  // allTerminals dispatch may inherit that terminal identity.
+  await sleep(1700);
+  assert(tombstonesForTag('peer-owned').some((row) => row.clientHostPid === peerCtx.clientHostPid), 'peer-owned tombstone must exist');
+  const peerTombstoneSend = await agent.execute({
+    type: 'send', tag: 'peer-owned', message: 'must not absorb peer tombstone', allTerminals: true,
+  }, ctx);
+  assert(/^Error:/.test(peerTombstoneSend), `allTerminals send must reject peer tombstone: ${peerTombstoneSend}`);
+  const peerTombstoneSpawn = await agent.execute({
+    type: 'spawn', tag: 'peer-owned', prompt: 'must not inherit peer spawn', allTerminals: true,
+  }, ctx);
+  assert(/^Error:/.test(peerTombstoneSpawn), `allTerminals spawn must reject peer tombstone inheritance: ${peerTombstoneSpawn}`);
+
+  // Local evidence wins when a peer tombstone with the same tag coexists.
+  addTombstones([
+    { tag: 'coowned', agent: 'reviewer', cwd: root, clientHostPid: ctx.clientHostPid, reapedAt: new Date().toISOString() },
+    { tag: 'coowned', agent: 'worker', cwd: root, clientHostPid: peerCtx.clientHostPid, reapedAt: new Date().toISOString() },
+  ]);
+  const coownedOut = await agent.execute({
+    type: 'send', tag: 'coowned', message: 'prefer local tombstone', allTerminals: true,
+  }, ctx);
+  assert(!/^Error:/.test(coownedOut), `local tombstone must beat coexisting peer: ${coownedOut}`);
+  assert(/respawned: true/.test(coownedOut), `coexisting local tombstone must respawn: ${coownedOut}`);
+  await waitJob(coownedOut, /ack: prefer local tombstone/, 'coowned local tombstone');
+
+  // Fill the cap with future-dated entries, then let a real reap write one more.
+  // The current write must survive clamping/pruning.
+  const pruneSeed = await agent.execute({
+    type: 'spawn', agent: 'worker', tag: 'prune-current', prompt: 'prune seed', cwd: root,
+  }, ctx);
+  await waitJob(pruneSeed, /ack: prune seed/, 'prune seed');
+  addTombstones(Array.from({ length: 500 }, (_, i) => ({
+    tag: `future-${i}`,
+    agent: 'worker',
+    cwd: root,
+    clientHostPid: ctx.clientHostPid,
+    reapedAt: new Date(Date.now() + 86_400_000 + i).toISOString(),
+  })));
+  await sleep(1700);
+  assert(tombstonesForTag('prune-current').length === 1, 'prune cap must retain the tombstone written this call');
 
   // agent close clears the trace; same tag can spawn fresh again
   addPeerTerminalRow('reviewerA', 'sess_peer_close');
@@ -306,7 +417,10 @@ async function main() {
   removeWorkerRow(staleSessionId);
   addPeerTerminalRow('fallback-peer', 'sess_peer_fallback');
   const fallbackClose = await agent.execute({ type: 'close', tag: 'fallback-peer' }, ctx);
-  assert(/forgotten: true/.test(fallbackClose), `stale close fallback must stay forgotten:true: ${fallbackClose}`);
+  assert(
+    /forgotten: true|target "fallback-peer" not found/.test(fallbackClose),
+    `stale close fallback must forget locally or report no local target: ${fallbackClose}`,
+  );
   assert(hasWorkerRow('sess_peer_fallback'), 'stale close fallback must preserve a peer terminal row with the same tag');
   removeWorkerRow('sess_peer_fallback');
   const fallbackFresh = await agent.execute({

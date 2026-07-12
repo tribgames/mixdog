@@ -90,6 +90,8 @@ const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIME
 // startDeferredSpawnJob) so the agent tool call itself still returns task_id
 // immediately.
 const SPAWN_STAGGER_MS = envTimeoutMs('MIXDOG_SPAWN_STAGGER_MS', 0);
+const TAG_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_TAG_TOMBSTONES = 500;
 let lastSpawnStartAt = 0;
 async function waitForSpawnStagger() {
   if (SPAWN_STAGGER_MS <= 0) return;
@@ -177,13 +179,48 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       .filter(keepWorkerRow);
   }
 
+  function normalizeTagTombstones(value, { cap = true, priorityKeys = null } = {}) {
+    const source = Array.isArray(value?.tombstones)
+      ? value.tombstones
+      : (value?.tombstones && typeof value.tombstones === 'object'
+        ? Object.values(value.tombstones)
+        : []);
+    const now = Date.now();
+    const cutoff = now - TAG_TOMBSTONE_TTL_MS;
+    const rows = source
+      .filter((row) => row && typeof row === 'object')
+      .map((row) => {
+        const parsedReapedAt = Date.parse(clean(row.reapedAt)) || 0;
+        return {
+          tag: clean(row.tag),
+          agent: clean(row.agent) || null,
+          cwd: clean(row.cwd) || null,
+          clientHostPid: positiveInt(row.clientHostPid),
+          // A future clock must not outrank tombstones created by this process.
+          reapedAt: parsedReapedAt ? new Date(Math.min(parsedReapedAt, now)).toISOString() : null,
+        };
+      })
+      .filter((row) => row.tag && row.reapedAt && (Date.parse(row.reapedAt) || 0) >= cutoff)
+      .sort((a, b) => {
+        const aPriority = priorityKeys?.has(tagTombstoneKey(a)) ? 1 : 0;
+        const bPriority = priorityKeys?.has(tagTombstoneKey(b)) ? 1 : 0;
+        return bPriority - aPriority
+          || (Date.parse(b.reapedAt) || 0) - (Date.parse(a.reapedAt) || 0);
+      });
+    return cap ? rows.slice(0, MAX_TAG_TOMBSTONES) : rows;
+  }
+
+  function tagTombstoneKey(row = {}) {
+    return `${positiveInt(row.clientHostPid) || 0}\0${clean(row.tag)}`;
+  }
+
   // Mtime-keyed parse cache for the worker index. A single spawn calls
   // refreshTagsFromSessions()/resolveTag()/nextTag() which each re-read and
   // re-JSON.parse this file; across a parallel fanout that is O(spawns^2)
   // synchronous reads of the same bytes on the event loop. Cache the parsed,
   // normalized rows and reuse them while the file mtime+size is unchanged.
   // Writes bump _workerRowsCacheDirty so the very next read re-parses.
-  let _workerRowsCache = null; // { mtimeMs, size, rows }
+  let _workerRowsCache = null; // { mtimeMs, size, rows, tombstones }
   let _workerRowsCacheDirty = true;
   function invalidateWorkerRowsCache() {
     _workerRowsCacheDirty = true;
@@ -200,14 +237,25 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       return _workerRowsCache.rows;
     }
     let rows = [];
+    let tombstones = [];
     try {
-      rows = normalizeWorkerRows(JSON.parse(readFileSync(file, 'utf8')));
+      const parsed = JSON.parse(readFileSync(file, 'utf8'));
+      rows = normalizeWorkerRows(parsed);
+      tombstones = normalizeTagTombstones(parsed);
     } catch {
       rows = [];
+      tombstones = [];
     }
-    _workerRowsCache = { mtimeMs: st.mtimeMs, size: st.size, rows };
+    _workerRowsCache = { mtimeMs: st.mtimeMs, size: st.size, rows, tombstones };
     _workerRowsCacheDirty = false;
     return rows;
+  }
+  function readAllTagTombstones() {
+    readAllWorkerRows();
+    return _workerRowsCache?.tombstones || [];
+  }
+  function readTagTombstones(context = {}) {
+    return readAllTagTombstones().filter((row) => rowMatchesContext(row, context));
   }
   function readWorkerRows(context = {}) {
     const rows = readAllWorkerRows();
@@ -229,13 +277,25 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           const key = workerRowKey(row);
           if (key) byKey.set(key, row);
         }
-        mutator(byKey);
+        const tombstonesByKey = new Map();
+        for (const row of normalizeTagTombstones(cur, { cap: false })) {
+          tombstonesByKey.set(tagTombstoneKey(row), row);
+        }
+        const priorityTombstoneKeys = new Set();
+        mutator(byKey, tombstonesByKey, priorityTombstoneKeys);
         const workers = {};
         for (const row of [...byKey.values()].filter(keepWorkerRow)) {
           const key = workerRowKey(row);
           if (key) workers[key] = row;
         }
-        return { version: 1, updatedAt: new Date().toISOString(), workers };
+        const tombstones = {};
+        for (const row of normalizeTagTombstones(
+          { tombstones: [...tombstonesByKey.values()] },
+          { priorityKeys: priorityTombstoneKeys },
+        )) {
+          tombstones[tagTombstoneKey(row)] = row;
+        }
+        return { version: 2, updatedAt: new Date().toISOString(), workers, tombstones };
       }, { lock: true });
       // This process just rewrote the index; force the next read to re-parse
       // even if the new mtime/size happen to collide with the cached stat.
@@ -504,6 +564,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   }
 
   function refreshTagsFromSessions({ scanSessions = false, context = {} } = {}) {
+    transitionStaleNonterminalRows(context);
     const indexedRows = refreshTagsFromIndex(context);
     const indexedKeys = new Set(indexedRows.map((row) => `${row.tag}\0${row.sessionId}`));
     for (const [tag, sessionId] of [...tags.entries()]) {
@@ -555,6 +616,50 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (id) removeWorkerRow({ sessionId: id });
   }
 
+  function tombstoneTerminalSession(tag, sessionId, session = null) {
+    const value = clean(tag);
+    const id = clean(sessionId);
+    if (!value || !id) {
+      forgetTerminalSession(value, id);
+      return;
+    }
+    if (tags.get(value) === id) {
+      tags.delete(value);
+      tagAgents.delete(value);
+      tagCwds.delete(value);
+    }
+    const tombstone = {
+      tag: value,
+      agent: clean(session?.agent) || null,
+      cwd: clean(session?.cwd) || null,
+      clientHostPid: positiveInt(session?.clientHostPid),
+      reapedAt: new Date().toISOString(),
+    };
+    flushWorkerIndexMutations();
+    writeWorkerRows((byKey, tombstonesByKey, priorityTombstoneKeys) => {
+      for (const [key, row] of [...byKey.entries()]) {
+        if (clean(row.sessionId) === id) byKey.delete(key);
+      }
+      const tombstoneKey = tagTombstoneKey(tombstone);
+      tombstonesByKey.set(tombstoneKey, tombstone);
+      priorityTombstoneKeys.add(tombstoneKey);
+    });
+  }
+
+  function tagTombstoneForTag(tag, context = {}) {
+    const value = clean(tag);
+    if (!value || value.startsWith('sess_')) return null;
+    return readTagTombstones(context).find((row) => row.tag === value) || null;
+  }
+
+  function consumeTagTombstone(tombstone) {
+    if (!tombstone?.tag) return false;
+    const key = tagTombstoneKey(tombstone);
+    flushWorkerIndexMutations();
+    writeWorkerRows((_byKey, tombstonesByKey) => tombstonesByKey.delete(key));
+    return true;
+  }
+
   function cancelReap(sessionId) {
     const handle = reapTimers.get(sessionId);
     if (!handle) return false;
@@ -571,14 +676,56 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (reapMs == null) return;
     const handle = setTimeout(() => {
       reapTimers.delete(sessionId);
+      const session = getLiveSession(sessionId);
       try { mgr.hideSessionFromList?.(sessionId); } catch {}
       const tag = tagForSession(sessionId);
-      forgetTerminalSession(tag, sessionId);
+      tombstoneTerminalSession(tag, sessionId, session);
       clearAgentStatuslineRoute(sessionId);
       try { mgr.closeSession(sessionId, 'terminal-reap'); } catch {}
     }, reapMs);
     handle.unref?.();
     reapTimers.set(sessionId, handle);
+  }
+
+  function transitionStaleNonterminalRows(context = {}) {
+    const staleRows = readWorkerRows(context).filter((row) => {
+      if (isTerminalWorkerStatus(row.status || row.stage)) return false;
+      if (getLiveSession(clean(row.sessionId))) return false;
+      const rowTime = workerRowTime(row);
+      const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row.provider);
+      // A row with no timestamp has no usable heartbeat at all. Explicitly
+      // disabled terminal reaping still gets the tombstone TTL as a finite
+      // stale-heartbeat bound, so malformed/running index rows cannot block a
+      // tag forever.
+      return rowTime <= 0 || Date.now() - rowTime >= (reapMs ?? TAG_TOMBSTONE_TTL_MS);
+    });
+    if (staleRows.length === 0) return false;
+    flushWorkerIndexMutations();
+    const nowIso = new Date().toISOString();
+    writeWorkerRows((byKey, tombstonesByKey, priorityTombstoneKeys) => {
+      for (const row of staleRows) {
+        const sessionId = clean(row.sessionId);
+        for (const [key, candidate] of [...byKey.entries()]) {
+          if (clean(candidate.sessionId) === sessionId) byKey.delete(key);
+        }
+        const tombstone = {
+          tag: clean(row.tag),
+          agent: clean(row.agent) || null,
+          cwd: clean(row.cwd) || null,
+          clientHostPid: positiveInt(row.clientHostPid),
+          reapedAt: nowIso,
+        };
+        const tombstoneKey = tagTombstoneKey(tombstone);
+        tombstonesByKey.set(tombstoneKey, tombstone);
+        priorityTombstoneKeys.add(tombstoneKey);
+        if (tags.get(tombstone.tag) === sessionId) {
+          tags.delete(tombstone.tag);
+          tagAgents.delete(tombstone.tag);
+          tagCwds.delete(tombstone.tag);
+        }
+      }
+    });
+    return true;
   }
 
   function isSessionBusy(sessionId) {
@@ -1522,7 +1669,10 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     tagAgents.clear();
     tagCwds.clear();
     flushWorkerIndexMutations();
-    writeWorkerRows((byKey) => byKey.clear());
+    writeWorkerRows((byKey, tombstonesByKey) => {
+      byKey.clear();
+      tombstonesByKey.clear();
+    });
     return { closed, failed };
   }
 
@@ -1589,25 +1739,26 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           if (!fallbackTag || fallbackTag.startsWith('sess_') || !isDeadTarget) throw err;
           const prompt = clean(args.message || args.prompt);
           if (!prompt) throw err;
-          // A retained row is proof that this terminal owned the tag. Once the
-          // reaper removes that row, an explicit agent plus usable cwd is enough
-          // to cold-spawn a replacement without retaining closed sessions.
+          // A retained row or reap tombstone proves that this terminal owned
+          // the tag. Unknown tags stay errors even when the caller supplies an
+          // agent/cwd: typo absorption requires persisted same-tag evidence.
+          // Absorption identity is always terminal-local, even when live
+          // resolution was explicitly requested across all terminals.
+          const ownershipContext = context;
           let inheritedRow = null;
           try {
-            inheritedRow = readWorkerRows(scopedContext).find((row) => clean(row.tag) === fallbackTag) || null;
+            inheritedRow = readWorkerRows(ownershipContext).find((row) => clean(row.tag) === fallbackTag) || null;
           } catch { inheritedRow = null; }
-          // Never use explicit cold-spawn identity to take over a tag retained
-          // by another terminal. In-memory maps can contain peer entries, so
-          // inspect the persisted index directly.
-          const peerRow = readAllWorkerRows().find((row) => (
-            clean(row.tag) === fallbackTag && !rowMatchesContext(row, scopedContext)
-          ));
+          const inheritedTombstone = tagTombstoneForTag(fallbackTag, ownershipContext);
           const explicitAgent = clean(args.agent);
-          const explicitCwd = clean(args.cwd) || clean(callerCwd);
-          if (peerRow || (!inheritedRow && (!explicitAgent || !explicitCwd))) throw err;
+          // A local proof wins even if another terminal also owns this tag.
+          // With no local proof, foreign rows/tombstones and unknown tags are
+          // both non-absorbable and retain the original not-found error.
+          if (!inheritedRow && !inheritedTombstone) throw err;
           const inheritedSessionId = clean(inheritedRow?.sessionId);
-          const inheritedAgent = explicitAgent || clean(inheritedRow?.agent) || 'worker';
-          const inheritedCwd = clean(args.cwd) || clean(inheritedRow?.cwd) || clean(callerCwd);
+          const inheritedAgent = explicitAgent || clean(inheritedRow?.agent) || clean(inheritedTombstone?.agent);
+          const inheritedCwd = clean(args.cwd) || clean(inheritedRow?.cwd) || clean(inheritedTombstone?.cwd) || clean(callerCwd);
+          if (!inheritedAgent || !inheritedCwd) throw err;
           // Drop this terminal's in-memory trace and remove ONLY the persisted
           // row matching inheritedRow.sessionId. Do NOT call forgetTag here: it
           // does a tag-wide removeWorkerRow({tag,sessionId}) (L556) whose OR
@@ -1618,6 +1769,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
             try { tags.delete(fallbackTag); tagAgents.delete(fallbackTag); tagCwds.delete(fallbackTag); } catch {}
           }
           if (inheritedSessionId) { try { removeWorkerRow({ sessionId: inheritedSessionId }); } catch {} }
+          if (inheritedTombstone) consumeTagTombstone(inheritedTombstone);
           const spawnArgs = {
             ...args,
             type: 'spawn',
@@ -1638,6 +1790,8 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         //   3) lingering terminal trace -> reap trace and fresh spawn under same tag
         //   4) genuinely new tag -> fresh deferred spawn
         const explicitTag = clean(args.tag);
+        let respawned = false;
+        let spawnArgs = args;
         if (explicitTag) {
           // Resolve a LIVE same-tag session in this terminal (busy or idle).
           let liveSessionId = null;
@@ -1658,9 +1812,35 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
           }
           if (hasTerminalTrace(explicitTag, scopedContext)) {
             reapTerminalTraceForTag(explicitTag, scopedContext);
+            respawned = true;
+          } else {
+            // Tombstone inheritance never honors allTerminals/global scope.
+            const tombstone = tagTombstoneForTag(explicitTag, context);
+            if (tombstone) {
+              consumeTagTombstone(tombstone);
+              spawnArgs = {
+                ...args,
+                agent: clean(args.agent) || clean(tombstone.agent),
+                ...(clean(args.cwd) || !clean(tombstone.cwd) ? {} : { cwd: tombstone.cwd }),
+              };
+              respawned = true;
+            } else {
+              const foreignTombstone = readAllTagTombstones().find((row) => (
+                clean(row.tag) === explicitTag && !rowMatchesContext(row, context)
+              ));
+              if (foreignTombstone) {
+                throw new Error(`agent spawn: tag "${explicitTag}" belongs to another terminal`);
+              }
+            }
           }
         }
-        const job = startDeferredSpawnJob(args, callerCwd, context, notifyContext);
+        const job = startDeferredSpawnJob(
+          spawnArgs,
+          callerCwd,
+          context,
+          notifyContext,
+          respawned ? { respawned: true } : {},
+        );
         return renderResult(renderJob(job, false));
       }
       throw new Error(`agent: unknown type "${type}"`);
