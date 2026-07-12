@@ -344,6 +344,15 @@ function stripTrailingPatternArtifacts(v) {
     return out;
 }
 
+function coercePatternStringValues(v) {
+    const coerce = (value) => (
+        (typeof value === 'number' && Number.isFinite(value)) || typeof value === 'boolean'
+            ? String(value)
+            : value
+    );
+    return Array.isArray(v) ? v.map(coerce) : coerce(v);
+}
+
 // ---- per-tool guards ----
 
 function guardGrep(a) {
@@ -355,9 +364,10 @@ function guardGrep(a) {
     // Lossless cleanup of trailing artifacts before validation (item 5b).
     for (const k of patternKeys) {
         if (hasOwn(a, k)) {
-            a[k] = Array.isArray(a[k])
-                ? a[k].map(stripTrailingPatternArtifacts)
-                : stripTrailingPatternArtifacts(a[k]);
+            const value = coercePatternStringValues(a[k]);
+            a[k] = Array.isArray(value)
+                ? value.map(stripTrailingPatternArtifacts)
+                : stripTrailingPatternArtifacts(value);
         }
     }
 
@@ -376,6 +386,7 @@ function guardGrep(a) {
     // rg's PCRE2 engine (-P/--pcre2) when the installed rg build supports it,
     // falling back to this same error text only when PCRE2 is unavailable.
     for (const k of globKeys) {
+        if (hasOwn(a, k)) a[k] = coercePatternStringValues(a[k]);
         if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
             return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
         }
@@ -755,6 +766,7 @@ function guardGlob(a) {
         }
     }
     for (const k of globPatternKeys) {
+        if (hasOwn(a, k)) a[k] = coercePatternStringValues(a[k]);
         if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
             return `Error: glob arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
         }

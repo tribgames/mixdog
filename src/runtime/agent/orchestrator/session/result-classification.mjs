@@ -40,6 +40,8 @@
  *   "(no lines in range"    — read offset out-of-range       (builtin.mjs:739, 3571)
  *
  * @param {unknown} result
+ * @param {boolean} [explicitSuccess=false] true only when the tool handler
+ * explicitly returned `isError: false`
  * @returns {'normal' | 'error' | 'zero-match'}
  */
 const ZERO_MATCH_PREFIXES = [
@@ -56,7 +58,8 @@ const ZERO_MATCH_PREFIXES = [
     '(no lines in range',
 ];
 
-export function classifyResultKind(result) {
+export function classifyResultKind(result, explicitSuccess = false) {
+    if (explicitSuccess === true) return 'normal';
     if (typeof result !== 'string') return 'normal';
     const trimmed = result.trimStart();
     if (/^error(?:\s+\[code\b|\s*:)/i.test(trimmed) || /^\[error/i.test(trimmed) || /^\[exit code:/i.test(trimmed)) return 'error';

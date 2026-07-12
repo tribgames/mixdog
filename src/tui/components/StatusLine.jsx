@@ -250,26 +250,6 @@ function localRunningWorkerCount(agentWorkers = [], agentJobs = []) {
   return seen.size;
 }
 
-function localRunningWorkerTags(agentWorkers = [], agentJobs = [], limit = 3) {
-  const tags = [];
-  const seen = new Set();
-  for (const worker of Array.isArray(agentWorkers) ? agentWorkers : []) {
-    const tag = String(worker?.tag || worker?.agent || worker?.name || '').trim();
-    if (!tag || isTerminalStatus(worker?.stage || worker?.status) || seen.has(tag)) continue;
-    seen.add(tag);
-    tags.push(tag);
-  }
-  for (const job of Array.isArray(agentJobs) ? agentJobs : []) {
-    if (!/running/i.test(String(job?.status || job?.stage || ''))) continue;
-    const tag = String(job?.tag || job?.agent || job?.type || job?.task_id || job?.taskId || '').trim();
-    if (!tag || seen.has(tag)) continue;
-    seen.add(tag);
-    tags.push(tag);
-  }
-  if (tags.length <= limit) return tags.join(', ');
-  return `${tags.slice(0, limit).join(', ')}, +${tags.length - limit}`;
-}
-
 function localTimeMs(value) {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
   const n = Date.parse(String(value || ''));
@@ -311,11 +291,9 @@ function localStatusLineL2({
   const runningCount = localRunningWorkerCount(agentWorkers, agentJobs);
   if (runningCount > 0) {
     const label = `Running ${runningCount} Agent${runningCount === 1 ? '' : 's'}`;
-    const tagSummary = localRunningWorkerTags(agentWorkers, agentJobs);
-    const tags = tagSummary ? ` ${SUBTLE}(${RESET}${STATUS}${tagSummary}${RESET}${SUBTLE})${RESET}` : '';
     const oldestStart = localOldestWorkerStartMs(agentWorkers, agentJobs);
     const elapsed = oldestStart > 0 ? localFormatElapsed(now - oldestStart) : '';
-    l2Parts.push(`${spin} ${STATUS}${label}${RESET}${tags}${elapsedSuffix(elapsed)}`);
+    l2Parts.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(elapsed)}`);
   }
   const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
   const exploreInfo = tools.explore || null;
@@ -369,9 +347,9 @@ function extractCachedShellSegments(cachedL2 = '', now = Date.now(), capturedAt 
     // Start-anchored so only a REAL standalone shell segment matches. A visible
     // segment is `<spinner-glyph> Running N … [· elapsed]`, so allow the single
     // leading spinner token via `^(?:\S+\s+)?` then pin `Running N Shell(s)` to
-    // that position. An Agents segment is `<glyph> Running N Agents (tags) …` →
-    // `Shells?` cannot match `Agents`; a tag-injected `Running 3 Shells · 9s`
-    // sits AFTER `Running N Agents (` (not at the pinned start) → no false match.
+    // that position. An Agents segment is `<glyph> Running N Agents · …` →
+    // `Shells?` cannot match `Agents`; any shell-like text after the Agents label
+    // is not at the pinned start, so it cannot produce a false match.
     const m = /^(?:\S+\s+)?Running (\d+) Shells?\b(?:\s·\s(.+?))?\s*$/.exec(seg.trim());
     if (!m) continue;
     const n = Number(m[1]) || 0;

@@ -14,14 +14,6 @@ import { num, GRN, R, B } from './statusline-format.mjs';
 const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze(['explorer', 'cycle1-agent', 'cycle2-agent', 'cycle3-agent', 'scheduler-task', 'webhook-handler']);
 let _hiddenStatuslineAgents = null;
 
-export function summarizeWorkerTags(workers, limit = 3) {
-  const cleanLabels = [...new Set((Array.isArray(workers) ? workers : [])
-    .map((worker) => String(worker?.tag || '').trim())
-    .filter(Boolean))];
-  if (cleanLabels.length <= limit) return cleanLabels.join(', ');
-  return `${cleanLabels.slice(0, limit).join(', ')}, +${cleanLabels.length - limit}`;
-}
-
 function normalizeAgentWorkerForStatusline(worker = {}) {
   const tag = String(worker.tag || worker.agent || worker.name || '').trim();
   if (!tag) return null;

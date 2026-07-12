@@ -32,6 +32,11 @@ import { crossTurnSignature, crossTurnDedupStub, isEditProgressTool } from './lo
 import { getToolKind, isEagerDispatchable, parseNativeToolSearchPayload } from './loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId, dropCompactedBodyArgsForId } from './loop/stored-tool-args.mjs';
 
+function classifyToolReturn(value) {
+    const normalized = normalizeToolEnvelope(value);
+    return classifyResultKind(normalized.result, normalized.explicitSuccess);
+}
+
 export async function processToolBatch(ctx) {
     const {
         calls, messages, tools, cwd, sessionId, sessionRef, signal, opts,
@@ -258,7 +263,7 @@ export async function processToolBatch(ctx) {
                     if (!settled.ok) throw settled.error;
                     result = settled.value;
                     toolEndedAt = eager.endedAt ?? Date.now();
-                    const _eagerKind = classifyResultKind(result);
+                    const _eagerKind = classifyToolReturn(result);
                     if (_eagerKind === 'error') {
                         _resultKind = 'error';
                         _executeOk = false;
@@ -286,7 +291,7 @@ export async function processToolBatch(ctx) {
                         // Boundary: tool-return string convention → structural kind.
                         // The only prefix check in this codebase; downstream layers
                         // operate on _resultKind.
-                        if (classifyResultKind(result) === 'error') {
+                        if (classifyToolReturn(result) === 'error') {
                             _resultKind = 'error';
                             _executeOk = false;
                         } else {

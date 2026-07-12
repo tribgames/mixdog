@@ -6,6 +6,8 @@ import { randomUUID } from 'crypto';
 import { smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
 import { shutdownStdioChild, killStdioChildTreeFast } from './child-tree.mjs';
 import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../../shared/service-discovery.mjs';
+import { makeToolEnvelope, normalizeToolEnvelope } from '../session/tool-envelope.mjs';
+import { classifyResultKind } from '../session/result-classification.mjs';
 // --- Types ---
 /** Known auto-detect targets: port file path relative to tmpdir.
  *  Note: `mixdog` used to self-loopback via active-instance.json's
@@ -215,6 +217,16 @@ export async function executeMcpTool(name, args) {
             throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
         }
     }
+    const normalized = normalizeToolEnvelope(normalizeMcpToolResult(result));
+    const text = capMcpOutput(normalized.result);
+    return normalized.explicitSuccess
+        ? makeToolEnvelope(text, [], { explicitSuccess: true })
+        : text;
+}
+
+// Preserve MCP failure metadata across the object→string boundary. The
+// session loop classifies the canonical Error: prefix as toolKind:error.
+export function normalizeMcpToolResult(result) {
     const content = result.content;
     let text;
     if (Array.isArray(content)) {
@@ -224,7 +236,11 @@ export async function executeMcpTool(name, args) {
     } else {
         text = typeof content === 'string' ? content : JSON.stringify(content);
     }
-    return capMcpOutput(text);
+    if (result.isError === true) return !text.startsWith('Error:') ? `Error: ${text}` : text;
+    if (result.isError === false && classifyResultKind(text) === 'error') {
+        return makeToolEnvelope(text, [], { explicitSuccess: true });
+    }
+    return text;
 }
 
 // MCP per-tool-call timeout. Default 2min: a hung/unresponsive MCP server

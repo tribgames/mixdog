@@ -223,21 +223,30 @@ export async function executeTool(name, args, cwd, callerSessionId, sessionRef, 
     })();
     if (typeof afterToolHook === 'function') {
         try {
+            // Tool outcome metadata is runtime-internal. Hooks receive the same
+            // model-visible result value they received before transient
+            // envelopes existed, never the envelope object itself.
+            const {
+                result: __res,
+                newMessages: __nm,
+                explicitSuccess: __explicitSuccess,
+            } = normalizeToolEnvelope(__result);
             const hookResult = await afterToolHook({
                 name,
                 args,
                 cwd,
                 sessionId: callerSessionId,
                 toolCallId: executeOpts.toolCallId || null,
-                result: __result,
+                result: __res,
             });
             // Envelope-aware hook override: a PostToolUse hook may override the
             // model-VISIBLE tool output (the envelope's `result` / stub), but it
             // must NEVER drop the `newMessages` channel. Split first, apply the
             // override to `result` only, then re-wrap so newMessages survive.
-            const { result: __res, newMessages: __nm } = normalizeToolEnvelope(__result);
             const __overridden = resolveToolResultAfterHook(__res, hookResult);
-            if (__nm.length) return makeToolEnvelope(__overridden, __nm);
+            if (__nm.length || __explicitSuccess) {
+                return makeToolEnvelope(__overridden, __nm, { explicitSuccess: __explicitSuccess });
+            }
             return __overridden;
         } catch {
             // PostToolUse hooks are best-effort; never let one break the tool result.

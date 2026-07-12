@@ -514,8 +514,7 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'memory': {
       const action = String(a.action || '').toLowerCase();
       const op = String(a.op || '').toLowerCase();
-      const isMutation = op === 'add' || op === 'edit' || op === 'delete' || op === 'promote' || op === 'dismiss'
-        || (action === 'core' && !op);
+      const isMutation = op === 'add' || op === 'edit' || op === 'delete' || op === 'promote' || op === 'dismiss';
       if (isMutation) return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Writing', done: 'Wrote', noun: 'memory item' });
       return unitDescriptor('Memory', { count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1, active: 'Checking', done: 'Checked', noun: 'memory item' });
     }

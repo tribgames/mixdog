@@ -23,7 +23,7 @@ import {
 } from './statusline-format.mjs';
 import { shellJobsStatus, memoryCycleStatus } from './statusline-segments.mjs';
 import {
-  summarizeWorkerTags, agentStatuslinePayload, classifyAgentWorkers, activeHiddenAgentWorkers, agentWebSearchStatus,
+  agentStatuslinePayload, classifyAgentWorkers, activeHiddenAgentWorkers, agentWebSearchStatus,
 } from './statusline-agents.mjs';
 export { createSessionStats, applyUsageDelta } from './session-stats.mjs';
 // Facade re-exports: keep these public symbols resolving from statusline.mjs.
@@ -362,14 +362,12 @@ function renderNativeStatusline({
   if (runningWorkers.length) {
     const n = runningWorkers.length;
     const label = `Running ${n} Agent${n === 1 ? '' : 's'}`;
-    const tagSummary = summarizeWorkerTags(runningWorkers);
-    const tags = tagSummary ? ` ${D}(${R}${B}${tagSummary}${R}${D})${R}` : '';
     const oldestStart = runningWorkers.reduce((min, w) => {
       const t = num(w?.startedAtMs);
       return t > 0 && t < min ? t : min;
     }, Infinity);
     const elapsed = Number.isFinite(oldestStart) ? formatElapsed(Date.now() - oldestStart) : '';
-    addL2(`${spin} ${B}${label}${R}${tags}${elapsedSuffix(elapsed)}`);
+    addL2(`${spin} ${B}${label}${R}${elapsedSuffix(elapsed)}`);
   }
   const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
   const exploreInfo = tools.explore || null;

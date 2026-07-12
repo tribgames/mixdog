@@ -773,7 +773,7 @@ export function foregroundLongCommandHint(command, timeoutMs, args = {}) {
     const longSleep = /\bsleep\s+(?:[3-9]\d|\d{3,}|\d+[mh])\b/i.test(cmd) || longPowerShellSleep;
     if (!watchLike && !longSleep) return '';
     if (!longTimeout && !watchLike && !longSleep) return '';
-    return 'Error: long foreground command detected.';
+    return 'Error: long foreground command detected. Use mode:"async" (background task) or task wait instead of blocking sleeps/watch loops.';
 }
 
 // Commands that must NOT be promoted to background on a foreground timeout —

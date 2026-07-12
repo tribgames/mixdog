@@ -75,3 +75,19 @@ test('below-min (negative) still errors', () => {
 test('fractional numeric string is not coerced (still errors)', () => {
     assert.match(validateBuiltinArgs('read', { path: 'x.mjs', limit: '3.5' }), /must be an integer/);
 });
+
+test('grep pattern and glob-filter numeric values coerce to strings', () => {
+    const pattern = { pattern: 123 };
+    assert.equal(validateBuiltinArgs('grep', pattern), null);
+    assert.equal(pattern.pattern, '123');
+
+    const patternArray = { pattern: [123, 'a'] };
+    assert.equal(validateBuiltinArgs('grep', patternArray), null);
+    assert.deepEqual(patternArray.pattern, ['123', 'a']);
+
+    const glob = { pattern: 'x', glob: 123 };
+    assert.equal(validateBuiltinArgs('grep', glob), null);
+    assert.equal(glob.glob, '123');
+
+    assert.match(validateBuiltinArgs('grep', { pattern: {} }), /must be string or string\[\]/);
+});

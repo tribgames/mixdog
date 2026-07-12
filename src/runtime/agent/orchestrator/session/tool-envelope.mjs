@@ -5,7 +5,8 @@
  *   - legacy: a string (or existing structured media object) — unchanged, OR
  *   - an envelope object:
  *       { __toolEnvelope: true, result: <string|structured>,
- *         newMessages: [{ role:'user', content:'...' }, ...] }
+ *         newMessages: [{ role:'user', content:'...' }, ...],
+ *         explicitSuccess?: true }
  *
  * The `__toolEnvelope` marker is deliberately namespaced so it can NEVER be
  * confused with the existing structured media content objects that
@@ -37,17 +38,18 @@ function isValidNewMessage(m) {
  * sees as the tool_result; `newMessages` are appended (as their own
  * messages, e.g. role:'user') AFTER the batch's tool results.
  */
-export function makeToolEnvelope(result, newMessages = []) {
+export function makeToolEnvelope(result, newMessages = [], options = {}) {
     return {
         [TOOL_ENVELOPE_MARKER]: true,
         result,
         newMessages: Array.isArray(newMessages) ? newMessages.filter(isValidNewMessage) : [],
+        ...(options.explicitSuccess === true ? { explicitSuccess: true } : {}),
     };
 }
 
 /**
- * Split a tool return value into `{ result, newMessages }`.
- *   - legacy string/object → { result: value, newMessages: [] }
+ * Split a tool return value into `{ result, newMessages, explicitSuccess }`.
+ *   - legacy string/object → { result: value, newMessages: [], explicitSuccess: false }
  *   - envelope             → { result, newMessages } (newMessages validated)
  */
 export function normalizeToolEnvelope(value) {
@@ -55,7 +57,7 @@ export function normalizeToolEnvelope(value) {
         const newMessages = Array.isArray(value.newMessages)
             ? value.newMessages.filter(isValidNewMessage)
             : [];
-        return { result: value.result, newMessages };
+        return { result: value.result, newMessages, explicitSuccess: value.explicitSuccess === true };
     }
-    return { result: value, newMessages: [] };
+    return { result: value, newMessages: [], explicitSuccess: false };
 }

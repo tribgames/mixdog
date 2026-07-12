@@ -15,7 +15,8 @@
  * no-tool role guard) — not a permission check. No gating is needed here.
  */
 
-import { isToolEnvelope, makeToolEnvelope } from './session/tool-envelope.mjs';
+import { isToolEnvelope, makeToolEnvelope, normalizeToolEnvelope } from './session/tool-envelope.mjs';
+import { classifyResultKind } from './session/result-classification.mjs';
 
 let _executor = null;
 let _tools = [];
@@ -62,12 +63,24 @@ function _normalize(result) {
     // JSON.stringify below and the loop would see the stringified envelope as
     // the tool_result (body inlined + duplicated, no newMessages).
     if (isToolEnvelope(result)) {
-        return makeToolEnvelope(_normalize(result.result), result.newMessages);
+        const normalized = normalizeToolEnvelope(_normalize(result.result));
+        return makeToolEnvelope(normalized.result, result.newMessages, {
+            explicitSuccess: normalized.explicitSuccess || result.explicitSuccess === true,
+        });
     }
     if (result && typeof result === 'object' && Array.isArray(result.content)) {
-        return result.content
+        const text = result.content
             .map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c)))
             .join('\n');
+        // Preserve MCP-style handler outcome metadata across the object→string
+        // boundary. Explicit failures retain the canonical Error: convention;
+        // explicit successes use a transient envelope so legitimate output
+        // beginning with Error: is not mistaken for a failed execution.
+        if (result.isError === true) return !text.startsWith('Error:') ? `Error: ${text}` : text;
+        if (result.isError === false && classifyResultKind(text) === 'error') {
+            return makeToolEnvelope(text, [], { explicitSuccess: true });
+        }
+        return text;
     }
     if (typeof result === 'string') return result;
     return JSON.stringify(result);
