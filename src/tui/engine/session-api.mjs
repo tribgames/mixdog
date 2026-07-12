@@ -516,6 +516,9 @@ export function createEngineApiA(bag) {
         syncContextStats({ allowEstimated: true });
         set({ ...routeState(), stats: { ...getState().stats } });
         if (result) {
+          if (!result.error && result.changed !== false) {
+            set({ items: replaceItems([]) });
+          }
           pushItem({
             kind: 'statusdone',
             id: nextId(),

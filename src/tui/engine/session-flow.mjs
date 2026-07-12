@@ -2,13 +2,14 @@
  * src/tui/engine/session-flow.mjs - prompt queue drain + session clear/reset. Extracted from engine.mjs.
  */
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';
+import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { createSessionStats } from './session-stats.mjs';
 import { queuePriorityValue, defaultQueuePriority, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersist } from './tui-steering-persist.mjs';
 
 export function createSessionFlow(bag) {
   const {
-    runtime, nextId, tuiDebug, flags, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, getState, set, pushItem, replaceItems, pushNotice, pushUserOrSyntheticItem, autoClearState, agentStatusState, routeState, syncContextStats, flushDeferredExecutionPendingResumeKick,
+    runtime, nextId, tuiDebug, flags, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, clearToastTimers, getState, set, pushItem, replaceItems, pushNotice, pushUserOrSyntheticItem, autoClearState, agentStatusState, routeState, syncContextStats, flushDeferredExecutionPendingResumeKick,
   } = bag;
 
   // Upper bound on the awaited compacting clear. requireCompactSuccess makes
@@ -498,6 +499,8 @@ export function createSessionFlow(bag) {
     return getState().stats;
   };
   const clearUiActivityBeforeContextSync = () => {
+    clearToastTimers();
+    resetAllStreamingMarkdownStablePrefixes();
     getState().items = replaceItems([]);
     getState().toasts = [];
     getState().queued = [];

@@ -12,7 +12,7 @@ import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, ass
 
 export function createRunTurn(bag) {
   const {
-    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, pushItem, patchItem, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
+    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, pushItem, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
   } = bag;
   // Small fallbacks keep isolated createRunTurn harnesses source-compatible;
   // the real engine supplies atomic implementations that also maintain revision.
@@ -209,7 +209,14 @@ export function createRunTurn(bag) {
     let cancelled = false;
     let askResult = null;
     let turnFinishedNormally = false;
+    let transcriptCompactedThisTurn = false;
     const itemsAtTurnStart = getState().items.length;
+    const submittedIdSet = new Set(submittedIds.filter((id) => id != null));
+    const firstSubmittedIndex = getState().items.findIndex((item) => submittedIdSet.has(item?.id));
+    // The submitted user row is pushed immediately before runTurn. Keep it and
+    // everything produced after it if compaction succeeds mid-turn; dropping all
+    // items would invalidate live tool-card ids and the streaming assistant tail.
+    let currentTurnItemsStart = firstSubmittedIndex >= 0 ? firstSubmittedIndex : itemsAtTurnStart;
     const cardByCallId = new Map();
     const toolCards = [];
     const toolGroups = new Map();
@@ -987,6 +994,13 @@ export function createRunTurn(bag) {
           // later same-category tool call doesn't reuse a card whose count
           // would then change above this statusdone item.
           clearAggregateContinuation();
+          const compactStatus = String(event?.status || '').toLowerCase();
+          if (!['failed', 'skipped', 'no_change'].includes(compactStatus)) {
+            const currentTurnItems = getState().items.slice(currentTurnItemsStart);
+            set({ items: replaceItems(currentTurnItems, { preserveStreamingTail: true }) });
+            currentTurnItemsStart = 0;
+            transcriptCompactedThisTurn = true;
+          }
           pushItem({
             kind: 'statusdone',
             id: nextId(),
@@ -1215,7 +1229,8 @@ export function createRunTurn(bag) {
           }
         }
         const producedTranscriptItem =
-          getState().items.length + closingItems.length > itemsAtTurnStart;
+          transcriptCompactedThisTurn
+          || getState().items.length + closingItems.length > itemsAtTurnStart;
         const reclaimed = cancelled && flags.activePromptRestore?.reclaimed === true;
         flags.activePromptRestore = null;
         const elapsedMs = Date.now() - startedAt;

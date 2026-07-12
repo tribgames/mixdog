@@ -8,7 +8,7 @@ import { buildTranscriptRowIndexIncremental } from '../src/tui/app/transcript-wi
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function makeTurnHarness(ask) {
+function makeTurnHarness(ask, stateOverrides = {}) {
   let seq = 0;
   let state = {
     items: [],
@@ -18,6 +18,7 @@ function makeTurnHarness(ask) {
     busy: false,
     spinner: null,
     thinking: null,
+    ...stateOverrides,
   };
   const itemIndexById = new Map();
   const set = (patch) => { state = { ...state, ...patch }; return true; };
@@ -43,6 +44,15 @@ function makeTurnHarness(ask) {
   const clearStreamingTail = (id = null) => {
     if (id == null || state.streamingTail?.id === id) set({ streamingTail: null });
   };
+  const replaceItems = (items, options = {}) => {
+    state = replaceEngineItemsState({
+      state,
+      items,
+      itemIndexById,
+      preserveStreamingTail: options.preserveStreamingTail === true,
+    });
+    return items;
+  };
   const bag = {
     runtime: { id: null, toolMode: 'auto', ask, abort: () => true },
     nextId: () => `id_${++seq}`,
@@ -55,6 +65,7 @@ function makeTurnHarness(ask) {
     set,
     pushItem,
     patchItem,
+    replaceItems,
     updateStreamingTail,
     settleStreamingTail,
     clearStreamingTail,
@@ -76,6 +87,50 @@ function makeTurnHarness(ask) {
   };
   return { runTurn: createRunTurn(bag), getState: () => state };
 }
+
+test('successful mid-turn compact trims history but preserves live turn references', async () => {
+  let preservedTail = false;
+  const harness = makeTurnHarness(async (_text, options) => {
+    options.onTextDelta('before compact\n');
+    await wait(30);
+    options.onCompactEvent({ status: 'compacted', trigger: 'reactive' });
+    preservedTail = harness.getState().streamingTail?.text === 'before compact\n';
+    options.onCompactEvent({ status: 'compacted', trigger: 'reactive' });
+    options.onTextDelta('after compact\n');
+    return { result: { content: 'before compact\nafter compact\n' }, session: { messages: [] } };
+  }, {
+    items: [
+      { id: 'old', kind: 'assistant', text: 'old history' },
+      { id: 'current-user', kind: 'user', text: 'go' },
+    ],
+  });
+
+  assert.equal(await harness.runTurn('go', { submittedIds: ['current-user'] }), 'done');
+  assert.equal(preservedTail, true);
+  assert.equal(harness.getState().items.some((item) => item.id === 'old'), false);
+  assert.equal(harness.getState().items.some((item) => item.id === 'current-user'), true);
+  assert.equal(
+    harness.getState().items.filter((item) => item.label === 'Compact complete (overflow recovery)').length,
+    2,
+  );
+  assert.equal(
+    harness.getState().items.find((item) => item.kind === 'assistant')?.text,
+    'before compact\nafter compact\n',
+  );
+});
+
+test('failed mid-turn compact leaves prior transcript items untouched', async () => {
+  const harness = makeTurnHarness(async (_text, options) => {
+    options.onCompactEvent({ status: 'failed' });
+    return { result: { content: '' }, session: { messages: [] } };
+  }, {
+    items: [{ id: 'old', kind: 'assistant', text: 'old history' }],
+  });
+
+  assert.equal(await harness.runTurn('go'), 'done');
+  assert.equal(harness.getState().items.some((item) => item.id === 'old'), true);
+  assert.equal(harness.getState().items.some((item) => item.label === 'Compact failed'), true);
+});
 
 test('stream flush keeps settled items identity and finalize appends one assistant', async () => {
   let identityStable = false;
