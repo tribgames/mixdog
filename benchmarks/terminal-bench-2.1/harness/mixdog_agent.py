@@ -20,13 +20,31 @@ run():
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
+import asyncio
+import subprocess
+import tempfile
 from pathlib import Path
 
 from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
+
+from .routing_profiles import (
+    format_resolved_routes,
+    load_route_profile,
+    merge_route_profile,
+    refusal_fallback_env,
+    reject_profile_conflicts,
+)
+from .src_overlay import (
+    SNAPSHOT_ENV,
+    STATIC_SRC_OVERLAY_FILES,
+    build_src_snapshot,
+    load_src_snapshot,
+)
 
 # Version of mixdog to install from npm when a local tarball is not supplied.
 DEFAULT_MIXDOG_VERSION = "0.9.40"
@@ -71,33 +89,35 @@ HOST_BENCH_WORKFLOW = (
 )
 CONTAINER_BENCH_WORKFLOW = f"{CONTAINER_DATA_DIR}/workflows/bench/WORKFLOW.md"
 
-# Repo-src overlay: files copied OVER the npm-installed package so bench runs
-# carry local runtime fixes that are not yet published. Paths are relative to
-# the repo's src/ and to <npm root -g>/mixdog/src/ (identical layout). Only
-# files listed here are overlaid; missing host files are skipped.
+# Repo-src overlay: the static compatibility manifest is unioned with every
+# Git modified/untracked src file, then copied over the npm-installed package.
+# Paths are relative to src/ and to <npm root -g>/mixdog/src/.
 _REPO_SRC = Path(__file__).resolve().parents[3] / "src"
-SRC_OVERLAY_FILES = [
-    # Prompt assembly: Active Workflow block promoted to the top of BP2.
-    "runtime/agent/orchestrator/context/collect.mjs",
-    # Lead rules: conditional delegation bullet removed.
-    "rules/lead/lead-tool.md",
-    # Steering: edit-push nudges restricted to explorer sessions.
-    "runtime/agent/orchestrator/session/loop/steering-ladder.mjs",
-    # Watchdog stall fix: first-response wait covers 'streaming'; empty
-    # reasoning deltas / response.in_progress are transport-only.
-    "runtime/agent/orchestrator/session/manager/runtime-liveness.mjs",
-    "runtime/agent/orchestrator/providers/openai-ws-stream.mjs",
-    "runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs",
-    # Background-promotion semantics: waiting is a decision, not a default —
-    # promotion message asks the model to judge budget/progress and pivot.
-    "runtime/agent/orchestrator/tools/shell-command.mjs",
-    "runtime/agent/orchestrator/tools/builtin/bash-tool.mjs",
-    # Explicit-timeout blocking cap: schema contract for the shell timeout.
-    "runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-    "rules/shared/01-tool.md",
-    # Reviewer: verify against stated acceptance criteria, not proxy metrics.
-    "agents/reviewer/AGENT.md",
-]
+SRC_OVERLAY_FILES = STATIC_SRC_OVERLAY_FILES
+HOST_SRC_OVERLAY_APPLIER = Path(__file__).with_name("src_overlay_apply.mjs")
+CONTAINER_SRC_OVERLAY_APPLIER = f"{CONTAINER_DATA_DIR}/src_overlay_apply.mjs"
+HOST_ANTHROPIC_PREFLIGHT = Path(__file__).with_name("anthropic_oauth_preflight.mjs")
+BENCH_DRIVER_DEADLINE_MS = 180 * 60 * 1000
+ANTHROPIC_REFRESH_SKEW_MS = 5 * 60 * 1000
+PROCESS_KILL_GRACE_S = 30
+LEAD_CLEANUP_GRACE_S = 60
+LEASE_STARTUP_CLEANUP_MARGIN_MS = 55 * 60 * 1000
+# Preflight precedes uploads/runtime boot. The lease covers the complete 3h
+# driver deadline, provider refresh skew, and 55m of startup/cleanup margin.
+ANTHROPIC_CREDENTIAL_LEASE_MS = (
+    BENCH_DRIVER_DEADLINE_MS
+    + ANTHROPIC_REFRESH_SKEW_MS
+    + LEASE_STARTUP_CLEANUP_MARGIN_MS
+)
+PROCESS_RUN_DEADLINE_S = (
+    ANTHROPIC_CREDENTIAL_LEASE_MS
+    - ANTHROPIC_REFRESH_SKEW_MS
+    - LEASE_STARTUP_CLEANUP_MARGIN_MS
+    - PROCESS_KILL_GRACE_S * 1000
+) // 1000
+LEAD_INNER_DEADLINE_MS = (
+    PROCESS_RUN_DEADLINE_S - LEAD_CLEANUP_GRACE_S
+) * 1000
 
 # Boot files copied from the host data dir into the container so the in-container
 # runtime uses the user's REAL daily setup. mixdog-config.json defines the route
@@ -152,6 +172,62 @@ def _collect_boot_files() -> dict[str, Path]:
     return files
 
 
+def _run_anthropic_preflight(host_creds: Path, snapshot_path: Path) -> None:
+    """Refresh only on the host, under the provider's cross-process lease lock."""
+    env = {
+        **os.environ,
+        "ANTHROPIC_OAUTH_CREDENTIALS_PATH": str(host_creds),
+    }
+    result = subprocess.run(
+        [
+            "node",
+            str(HOST_ANTHROPIC_PREFLIGHT),
+            "--output",
+            str(snapshot_path),
+            "--minimum-validity-ms",
+            str(ANTHROPIC_CREDENTIAL_LEASE_MS),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=180,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or "preflight process exited without diagnostics").strip()
+        raise RuntimeError(detail)
+    if not snapshot_path.is_file():
+        raise RuntimeError(
+            "Anthropic OAuth host preflight succeeded without writing a credential snapshot."
+        )
+
+
+def _bounded_process_command(
+    payload: str,
+    label: str,
+    *,
+    deadline_s: int = PROCESS_RUN_DEADLINE_S,
+    kill_grace_s: int = PROCESS_KILL_GRACE_S,
+) -> str:
+    """GNU-timeout process-group boundary shared by Lead and direct Worker."""
+    safe_label = label.replace("'", "")
+    return (
+        "set -u; "
+        "if ! timeout --version 2>&1 | grep -q 'GNU coreutils'; then "
+        f"echo 'mixdog {safe_label}: GNU coreutils timeout is required' >&2; "
+        "exit 125; fi; "
+        "status=0; "
+        f"timeout --signal=TERM --kill-after={kill_grace_s}s {deadline_s}s "
+        f"bash -o pipefail -c {shlex.quote(payload)} || status=$?; "
+        'if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then '
+        f"echo 'mixdog {safe_label}: whole-process deadline exceeded after "
+        f"{deadline_s}s; process group terminated before OAuth lease expiry' >&2; "
+        "exit 124; "
+        'fi; exit "$status"'
+    )
+
+
 class MixdogAgent(BaseInstalledAgent):
     """Installed-agent adapter for the mixdog headless ``worker`` role."""
 
@@ -163,9 +239,15 @@ class MixdogAgent(BaseInstalledAgent):
         mixdog_version: str | None = None,
         mode: str | None = None,
         workflow: str | None = None,
+        provider: str | None = None,
         effort: str | None = None,
+        route_profile: str | None = None,
         **kwargs,
     ):
+        route_profile = (route_profile or "").strip() or None
+        reject_profile_conflicts(
+            route_profile, provider=provider, effort=effort
+        )
         # Accept mixdog_version via agents[].kwargs; default to the pinned release.
         self._mixdog_version = mixdog_version or DEFAULT_MIXDOG_VERSION
         # mode: "lead" (full session runtime + agent fan-out, default) or
@@ -174,8 +256,17 @@ class MixdogAgent(BaseInstalledAgent):
         # Default to the bench workflow (headless-autonomous Default). Pass
         # --ak workflow=default to run the configured gated workflow instead.
         self._workflow = workflow or "bench"
+        # None => use the configured route provider; e.g.
+        # --ak provider=anthropic-oauth.
+        self._provider = provider
         # None => use the configured route effort; e.g. --ak effort=xhigh.
         self._effort = effort
+        # A profile is merged into a generated copy of the host config. The host
+        # file is never opened for writing.
+        self._route_profile_name = route_profile
+        self._route_profile = (
+            load_route_profile(route_profile) if route_profile else None
+        )
         super().__init__(*args, **kwargs)
 
     @staticmethod
@@ -192,18 +283,18 @@ class MixdogAgent(BaseInstalledAgent):
             command=(
                 "set -eu; "
                 "if command -v apt-get >/dev/null 2>&1; then "
-                "  apt-get update && apt-get install -y curl ca-certificates && "
+                "  apt-get update && apt-get install -y curl ca-certificates coreutils && "
                 "  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && "
                 "  apt-get install -y nodejs; "
                 "elif command -v apk >/dev/null 2>&1; then "
-                "  apk add --no-cache curl bash nodejs npm; "
+                "  apk add --no-cache curl bash coreutils nodejs npm; "
                 "elif command -v yum >/dev/null 2>&1; then "
                 "  curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && "
-                "  yum install -y nodejs; "
+                "  yum install -y nodejs coreutils; "
                 "else "
                 "  echo 'No known package manager (apt/apk/yum)' >&2; exit 1; "
                 "fi; "
-                "node --version"
+                "timeout --version | grep -q 'GNU coreutils'; node --version"
             ),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
@@ -219,7 +310,6 @@ class MixdogAgent(BaseInstalledAgent):
         )
 
     async def _inject_credentials(self, environment: BaseEnvironment) -> None:
-        boot_files = _collect_boot_files()
         host_creds = _host_credentials_path()
         if not host_creds.is_file():
             raise RuntimeError(
@@ -227,15 +317,67 @@ class MixdogAgent(BaseInstalledAgent):
                 "Sign in on the host (mixdog /providers) or set "
                 "ANTHROPIC_OAUTH_CREDENTIALS_PATH."
             )
+        credential_snapshot_dir = tempfile.TemporaryDirectory(
+            prefix="mixdog-tb-anthropic-lease-"
+        )
+        credential_snapshot = (
+            Path(credential_snapshot_dir.name) / "anthropic-oauth-credentials.json"
+        )
+        try:
+            await asyncio.to_thread(
+                _run_anthropic_preflight, host_creds, credential_snapshot
+            )
+        except Exception:
+            credential_snapshot_dir.cleanup()
+            raise
+        boot_files = _collect_boot_files()
+        # Never distribute the mutable host file. Every trial receives the
+        # exact owner-only snapshot written inside the serialized host lease.
+        boot_files["anthropic-oauth-credentials.json"] = credential_snapshot
         if "mixdog-config.json" not in boot_files:
+            credential_snapshot_dir.cleanup()
             raise RuntimeError(
                 f"mixdog-config.json not found in {_host_data_dir()}; cannot boot "
                 "the user's configured setup."
             )
         await self.exec_as_root(environment, command=f"mkdir -p {CONTAINER_DATA_DIR}")
-        # docker cp each file — token bytes never appear in a shell command/log.
-        for name, host_path in boot_files.items():
-            await environment.upload_file(host_path, f"{CONTAINER_DATA_DIR}/{name}")
+        # Generate a benchmark-only config copy before docker cp. Other boot
+        # files still upload directly; no host setup file is ever modified.
+        generated_dir = None
+        try:
+            if self._route_profile is not None:
+                host_config_path = boot_files["mixdog-config.json"]
+                try:
+                    host_config = json.loads(host_config_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        f"cannot read host mixdog config {host_config_path}: {exc}"
+                    ) from exc
+                merged_config = merge_route_profile(host_config, self._route_profile)
+                generated_dir = tempfile.TemporaryDirectory(
+                    prefix="mixdog-tb-route-"
+                )
+                generated_config = Path(generated_dir.name) / "mixdog-config.json"
+                generated_config.write_text(
+                    json.dumps(merged_config, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                boot_files = {**boot_files, "mixdog-config.json": generated_config}
+                print(
+                    format_resolved_routes(
+                        self._route_profile_name, self._route_profile
+                    ),
+                    flush=True,
+                )
+            # docker cp each file — token bytes never appear in a shell command/log.
+            for name, host_path in boot_files.items():
+                await environment.upload_file(
+                    host_path, f"{CONTAINER_DATA_DIR}/{name}"
+                )
+        finally:
+            if generated_dir is not None:
+                generated_dir.cleanup()
+            credential_snapshot_dir.cleanup()
         # Bench workflow pack override (see HOST_BENCH_WORKFLOW note above).
         if HOST_BENCH_WORKFLOW.is_file():
             await self.exec_as_root(
@@ -243,29 +385,9 @@ class MixdogAgent(BaseInstalledAgent):
                 command=f"mkdir -p {CONTAINER_DATA_DIR}/workflows/bench",
             )
             await environment.upload_file(HOST_BENCH_WORKFLOW, CONTAINER_BENCH_WORKFLOW)
-        # Repo-src overlay over the npm install (see SRC_OVERLAY_FILES).
-        overlay = [rel for rel in SRC_OVERLAY_FILES if (_REPO_SRC / rel).is_file()]
-        if overlay:
-            staging = f"{CONTAINER_DATA_DIR}/src-overlay"
-            for rel in overlay:
-                dest = f"{staging}/{rel}"
-                await self.exec_as_root(
-                    environment,
-                    command=f"mkdir -p {shlex.quote(dest.rsplit('/', 1)[0])}",
-                )
-                await environment.upload_file(_REPO_SRC / rel, dest)
-            await self.exec_as_root(
-                environment,
-                command=(
-                    'set -eu; SRC="$(npm root -g)/mixdog/src"; '
-                    f'cd {staging}; '
-                    'find . -type f | while read -r f; do '
-                    'cp "$f" "$SRC/${f#./}"; done; '
-                    'echo "src overlay applied"'
-                ),
-            )
-        # Own/secure the copied setup so the user mixdog runs as can read + write
-        # it (token refresh); default_user is None => container root.
+        await self._inject_src_overlay(environment)
+        # Own/secure the copied setup so the user mixdog can read it; OAuth
+        # refresh is explicitly forbidden below. default_user None => root.
         user = getattr(environment, "default_user", None)
         if user is not None:
             await self.exec_as_root(
@@ -281,6 +403,62 @@ class MixdogAgent(BaseInstalledAgent):
             ),
         )
 
+    async def _inject_src_overlay(self, environment: BaseEnvironment) -> None:
+        # The launcher supplies a frozen pre-Harbor snapshot. Direct adapter
+        # use builds the same snapshot synchronously before the first await.
+        owned_snapshot = None
+        snapshot_root = os.environ.get(SNAPSHOT_ENV)
+        try:
+            if snapshot_root:
+                snapshot = load_src_snapshot(Path(snapshot_root))
+            else:
+                owned_snapshot = tempfile.TemporaryDirectory(
+                    prefix="mixdog-tb-src-overlay-"
+                )
+                root = Path(owned_snapshot.name) / "snapshot"
+                snapshot = build_src_snapshot(SRC_OVERLAY_FILES, _REPO_SRC, root)
+            snapshot_paths = {entry.path for entry in snapshot.entries}
+            missing_static = set(SRC_OVERLAY_FILES) - snapshot_paths
+            if missing_static:
+                raise RuntimeError(
+                    "src snapshot omits static compatibility files: "
+                    + ", ".join(sorted(missing_static))
+                )
+            staging = f"{CONTAINER_DATA_DIR}/src-overlay"
+            await self.exec_as_root(
+                environment,
+                command=(
+                    f"rm -rf {shlex.quote(staging)} && "
+                    f"mkdir -p {shlex.quote(staging + '/files')}"
+                ),
+            )
+            await environment.upload_file(
+                snapshot.manifest_path, f"{staging}/manifest.json"
+            )
+            await environment.upload_file(
+                HOST_SRC_OVERLAY_APPLIER, CONTAINER_SRC_OVERLAY_APPLIER
+            )
+            for entry in snapshot.entries:
+                dest = f"{staging}/files/{entry.path}"
+                await self.exec_as_root(
+                    environment,
+                    command=f"mkdir -p {shlex.quote(dest.rsplit('/', 1)[0])}",
+                )
+                await environment.upload_file(snapshot.file_path(entry), dest)
+            await self.exec_as_root(
+                environment,
+                command=(
+                    "set -eu; "
+                    'SRC="$(npm root -g)/mixdog/src"; '
+                    f"node {shlex.quote(CONTAINER_SRC_OVERLAY_APPLIER)} "
+                    f"--staging {shlex.quote(staging)} --src \"$SRC\"; "
+                    'echo "src overlay applied"'
+                ),
+            )
+        finally:
+            if owned_snapshot is not None:
+                owned_snapshot.cleanup()
+
     @with_prompt_template
     async def run(
         self,
@@ -288,23 +466,23 @@ class MixdogAgent(BaseInstalledAgent):
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        await self._inject_credentials(environment)
-
         # Optional Harbor -m override; None => configured route applies.
         model = self.model_name
+        reject_profile_conflicts(self._route_profile_name, model=model)
+        await self._inject_credentials(environment)
+
         base_env = {
             "ANTHROPIC_OAUTH_CREDENTIALS_PATH": CONTAINER_CREDS_PATH,
             "MIXDOG_DATA_DIR": CONTAINER_DATA_DIR,
             # Non-interactive: never open a browser / onboarding from the container.
             "CI": "1",
-            # Credential-agnostic boot: NEVER warm/refresh provider catalogs or
-            # tokens at startup. Whatever credentials the host has (including
-            # single-use rotating refresh tokens like grok's), only providers a
-            # route actually uses get touched, and only when first used. This
-            # kills the boot-time token-rotation race (N containers sharing one
-            # rotating token revoke each other + the host copy) and the boot
-            # noise it produced. Model catalogs come from the uploaded
-            # *-models.json caches, so no network refresh is needed.
+            # The host preflight above is the sole Anthropic refresh owner.
+            # Containers receive a bounded-lifetime snapshot and fail clearly
+            # instead of consuming its single-use rotating refresh token.
+            "MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED": "1",
+            "MIXDOG_DRIVER_DEADLINE_MS": str(LEAD_INNER_DEADLINE_MS),
+            # Credential-agnostic boot: model catalogs come from uploaded
+            # caches and no unrelated provider is touched at startup.
             "MIXDOG_DISABLE_PROVIDER_WARMUP": "1",
             "MIXDOG_DISABLE_MODEL_PREFETCH": "1",
             "MIXDOG_DISABLE_MODEL_CATALOG_WARMUP": "1",
@@ -313,6 +491,17 @@ class MixdogAgent(BaseInstalledAgent):
             # partial-output decision point early. Uniform time policy — no
             # task-specific heuristics; product default stays 10 min.
             "BASH_MAX_TIMEOUT_MS": "120000",
+            # Network-stall recovery ordering: the runtime must abort+retry a
+            # hung provider request BEFORE the lead_driver outer stall guard
+            # (360s) fires, so recovery happens inside the session instead of
+            # burning driver stall-retries (observed: regex-chess exhausted
+            # 2 driver retries at 6min each and died to AgentTimeout).
+            # Runtime session stall abort: 600s -> 300s.
+            "STALL_TIMEOUT_S": "300",
+            # Wedged-socket first byte: abort at 120s (reasoning deltas count
+            # as progress, so long XHIGH thinks are not affected).
+            "MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS": "120000",
+            "MIXDOG_STALL_FIRST_BYTE_ABORT_S": "150",
         }
         if self._mode == "worker":
             await self._run_worker(environment, instruction, model, base_env)
@@ -323,14 +512,15 @@ class MixdogAgent(BaseInstalledAgent):
         # Worker path still needs an explicit route; fall back to a sane model.
         model = model or "claude-sonnet-4-5"
         escaped_instruction = shlex.quote(instruction)
+        worker_pipeline = (
+            "mkdir -p /logs/agent; "
+            f"mixdog --provider anthropic-oauth --model {shlex.quote(model)} "
+            f"worker {escaped_instruction} "
+            "2>&1 | tee /logs/agent/mixdog.txt"
+        )
         await self.exec_as_agent(
             environment,
-            command=(
-                "mkdir -p /logs/agent; "
-                f"mixdog --provider anthropic-oauth --model {shlex.quote(model)} "
-                f"worker {escaped_instruction} "
-                "2>&1 | tee /logs/agent/mixdog.txt"
-            ),
+            command=_bounded_process_command(worker_pipeline, "worker"),
             env=base_env,
         )
 
@@ -357,21 +547,29 @@ class MixdogAgent(BaseInstalledAgent):
             # agent-tool delegations across all runs; fix-git smoke confirmed).
             "MIXDOG_PROMPT": instruction,
         }
+        # A route profile owns its refusal fallback. Inject it only into the
+        # disposable container's Lead-driver process; product/host defaults
+        # and the copied host source config remain untouched.
+        if self._route_profile is not None:
+            run_env.update(refusal_fallback_env(self._route_profile))
         # Only set overrides when explicitly requested; otherwise the driver
         # boots the user's configured route + active workflow.
         if model:
             run_env["MIXDOG_MODEL"] = model
+        if self._provider:
+            run_env["MIXDOG_PROVIDER"] = self._provider
         if self._effort:
             run_env["MIXDOG_EFFORT"] = self._effort
         if self._workflow:
             run_env["MIXDOG_WORKFLOW"] = self._workflow
+        lead_pipeline = (
+            "mkdir -p /logs/agent; "
+            'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '
+            f"node {CONTAINER_LEAD_DRIVER} "
+            "2>&1 | tee /logs/agent/mixdog.txt"
+        )
         await self.exec_as_agent(
             environment,
-            command=(
-                "mkdir -p /logs/agent; "
-                'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '
-                f"node {CONTAINER_LEAD_DRIVER} "
-                "2>&1 | tee /logs/agent/mixdog.txt"
-            ),
+            command=_bounded_process_command(lead_pipeline, "lead"),
             env=run_env,
         )

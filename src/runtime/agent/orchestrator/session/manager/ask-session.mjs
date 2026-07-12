@@ -44,6 +44,7 @@ import { _tryBridgeExplicitPrefetch } from './prefetch-bridge.mjs';
 import { sanitizeSessionMessagesForModel, persistCompactedOutgoingAfterAskFailure } from './message-sanitize.mjs';
 import { _getAgentLoop } from './runtime-loaders.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
+import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
 
 /**
  * Wrap an async call so that if the session's controller aborts mid-flight,
@@ -327,6 +328,21 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     onAssistantText: typeof askOpts?.onAssistantText === 'function' ? askOpts.onAssistantText : undefined,
                     onUsageDelta: (d) => {
                         persistIterationMetrics(d).catch(() => {});
+                        // provider_send usage arrives before agentLoop appends
+                        // the assistant response. Preserve the full actual
+                        // input/cache/output count and mark this request
+                        // boundary; compact pressure will skip that first
+                        // assistant representation and estimate only later
+                        // tool results/steering.
+                        if (d?.source === 'provider_send') {
+                            recordProviderContextBaseline(session, outgoing, {
+                                inputTokens: d.deltaInput,
+                                outputTokens: d.deltaOutput,
+                                promptTokens: d.deltaPrompt,
+                                cachedTokens: d.deltaCachedRead,
+                                cacheWriteTokens: d.deltaCacheWrite,
+                            }, { boundary: 'request' });
+                        }
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
                     onToolResult: typeof askOpts?.onToolResult === 'function' ? askOpts.onToolResult : undefined,
@@ -401,12 +417,20 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // contextStatus() reverts to the authoritative committed transcript.
             session.liveTurnMessages = null;
             if (result.content || result.reasoningContent) {
+                // Max-output recovery returns the complete concatenated text to
+                // callers/TUI, while outgoing already contains prior partial
+                // assistant turns and their continuation prompts. Persist only
+                // the terminal segment here so model history contains every byte
+                // exactly once.
+                const persistedAssistantContent = typeof result.historyContent === 'string'
+                    ? result.historyContent
+                    : (result.content || '');
                 session.messages.push({
                     role: 'assistant',
                     // Keep content as-is in memory (model-visible). Image bytes,
                     // if any, are swapped for a placeholder only at disk write
                     // time inside the session store (store.mjs _sessionForDisk).
-                    content: result.content || '',
+                    content: persistedAssistantContent,
                     ...(typeof result.reasoningContent === 'string' && result.reasoningContent
                         ? { reasoningContent: result.reasoningContent }
                         : {}),
@@ -458,6 +482,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             applyAskTerminalUsageTotals(session, result, {
                 skipTotalsIfIncremental: runtime?.usageMetricsTurnIncremental === true,
             });
+            recordProviderContextBaseline(session, session.messages, result.lastTurnUsage || result.usage);
             // Agent Runtime cache stats — record hit/miss after every successful
             // ask so the registry reflects all agent traffic, not just
             // maintenance cycles. Guarded against any agent-runtime error so

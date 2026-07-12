@@ -9,6 +9,24 @@ import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { resolveWorkerCompactPolicy } from './loop/compact-policy.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
+import { isOutputLimitStopReason } from './loop/termination.mjs';
+
+function normalizedIncompleteUsage(raw) {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const inputTokens = Number(raw.promptTokenCount ?? raw.prompt_token_count ?? raw.input_tokens ?? raw.prompt_tokens ?? 0) || 0;
+    const candidateTokens = Number(raw.candidatesTokenCount ?? raw.candidates_token_count ?? 0) || 0;
+    const thoughtTokens = Number(raw.thoughtsTokenCount ?? raw.thoughts_token_count ?? 0) || 0;
+    const outputFallback = Number(raw.output_tokens ?? raw.completion_tokens ?? 0) || 0;
+    const cachedTokens = Number(raw.cachedContentTokenCount ?? raw.cached_content_token_count ?? raw.cached_tokens ?? 0) || 0;
+    return {
+        inputTokens,
+        outputTokens: candidateTokens + thoughtTokens || outputFallback,
+        cachedTokens,
+        cacheWriteTokens: 0,
+        promptTokens: inputTokens,
+        raw,
+    };
+}
 
 export async function sendWithRecovery(ctx) {
     const {
@@ -19,6 +37,33 @@ export async function sendWithRecovery(ctx) {
         try {
             response = await provider.send(messages, model, sendTools.length ? sendTools : undefined, opts);
         } catch (sendErr) {
+            // Gemini REST/SDK reports MAX_TOKENS by throwing a typed
+            // ProviderIncompleteError after preserving the streamed candidate.
+            // Normalize only that exact, safe no-tool output-limit shape into a
+            // regular truncated response; all moderation/OTHER/tool-bearing and
+            // unrelated errors continue through their existing error paths.
+            if (
+                sendErr?.providerIncomplete === true
+                && sendErr.code === 'PROVIDER_INCOMPLETE'
+                && isOutputLimitStopReason(sendErr.finishReason)
+                && typeof sendErr.partialContent === 'string'
+                && sendErr.partialContent.trim().length > 0
+                && sendErr.pendingToolUse !== true
+                && sendErr.emittedToolCall !== true
+                && !(Array.isArray(sendErr.partialToolCalls) && sendErr.partialToolCalls.length > 0)
+            ) {
+                response = {
+                    content: sendErr.partialContent,
+                    model: sendErr.model || model,
+                    toolCalls: undefined,
+                    usage: normalizedIncompleteUsage(sendErr.rawUsage),
+                    stopReason: sendErr.finishReason,
+                    truncated: true,
+                    providerState: opts.providerState,
+                    providerIncompleteRecovery: true,
+                };
+                return { action: 'proceed', response };
+            } else
             // Partial-final recovery (owner-notify fix): the recurring "worker
             // finished but the task hung / no result delivered" case is a FINAL,
             // no-tool summary stream that wedges (ping-only) AFTER all real tool

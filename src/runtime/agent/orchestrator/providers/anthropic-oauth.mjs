@@ -27,6 +27,7 @@ import {
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
 import {
     TOKEN_REFRESH_SKEW_MS,
+    isAnthropicOAuthRefreshDisabled,
     resolveCliVersion,
     loadCredentials,
     hasAnthropicOAuthCredentials,
@@ -342,7 +343,7 @@ function toAnthropicMessages(messages) {
         const m = messages[idx];
         if (m.role === 'system') continue;
 
-        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length)) {
+        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length || m.thinkingBlocks?.length)) {
             let content;
             if (m.assistantBlocks?.length) {
                 content = m.assistantBlocks.slice();
@@ -358,7 +359,7 @@ function toAnthropicMessages(messages) {
                     }
                 }
                 if (m.content) content.push({ type: 'text', text: m.content });
-                for (const tc of m.toolCalls) {
+                for (const tc of m.toolCalls || []) {
                     content.push({
                         type: 'tool_use',
                         id: tc.id,
@@ -703,6 +704,12 @@ export class AnthropicOAuthProvider {
         const expiring = this.credentials.expiresAt
             && this.credentials.expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
         if (forceRefresh || expiring) {
+            if (isAnthropicOAuthRefreshDisabled()) {
+                throw new Error(
+                    'Anthropic OAuth credentials require refresh, but refresh is disabled '
+                    + 'in this container. Host credential preflight must provide a fresh snapshot.',
+                );
+            }
             this.credentials = await this._refreshCredentials({ force: forceRefresh, reason });
         }
 
@@ -710,6 +717,12 @@ export class AnthropicOAuthProvider {
     }
 
     async _refreshCredentials({ force = false, reason = 'preemptive' } = {}) {
+        if (isAnthropicOAuthRefreshDisabled()) {
+            throw new Error(
+                'Anthropic OAuth refresh is disabled in this container; '
+                + 'host credential preflight must provide a fresh snapshot.',
+            );
+        }
         const currentToken = this.credentials?.accessToken || null;
         const disk = loadCredentials();
         const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);

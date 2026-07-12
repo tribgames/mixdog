@@ -7,13 +7,48 @@ param(
     [string[]]$Include = @(),
     [string[]]$Exclude = @(),
     [int]$Concurrent = 4,
+    # Primary route overrides; empty => configured route provider/model.
+    [string]$Provider = "",
+    [string]$Model = "",
+    # Lead session effort override (e.g. xhigh); empty => configured route effort.
+    [string]$Effort = "",
+    # Complete per-role routing table, applied to the disposable config copy.
+    [string]$RouteProfile = "",
     # Auto-retry count for trials that die before/around the agent run
     # (RuntimeError, NonZeroAgentExitCodeError, docker daemon death, ...).
     # Harbor's default exclude list keeps AgentTimeout/Verifier errors OUT of
     # retry, so real task failures are never retried — only infra errors.
-    [int]$MaxRetries = 2
+    [int]$MaxRetries = 2,
+    # Render the exact routes and Harbor command without launching Harbor.
+    [switch]$DryRun,
+    # Agent container KEY=VALUE entries; comma-bearing values are unsupported.
+    [string[]]$AgentEnv = @()
 )
 $ErrorActionPreference = "Stop"
+$hasProvider = -not [string]::IsNullOrWhiteSpace($Provider)
+$hasModel = -not [string]::IsNullOrWhiteSpace($Model)
+$hasEffort = -not [string]::IsNullOrWhiteSpace($Effort)
+$hasRouteProfile = -not [string]::IsNullOrWhiteSpace($RouteProfile)
+if ($hasRouteProfile -and ($hasProvider -or $hasModel -or $hasEffort)) {
+    throw "RouteProfile cannot be combined with Provider, Model, or Effort."
+}
+if ($hasProvider -ne $hasModel) {
+    throw "Provider and Model must be supplied together, or both omitted."
+}
+$resolvedProfile = $null
+if ($hasRouteProfile) {
+    $profilePath = Join-Path $PSScriptRoot "route_profiles.json"
+    $profileDoc = Get-Content -Raw $profilePath | ConvertFrom-Json
+    if ($profileDoc.schemaVersion -ne 1) {
+        throw "Unsupported routing profile schemaVersion: $($profileDoc.schemaVersion)"
+    }
+    $profileProperty = $profileDoc.profiles.PSObject.Properties[$RouteProfile]
+    if ($null -eq $profileProperty) {
+        $available = @($profileDoc.profiles.PSObject.Properties.Name) -join ", "
+        throw "Unknown RouteProfile '$RouteProfile'. Available: $available"
+    }
+    $resolvedProfile = $profileProperty.Value
+}
 # Windows: harbor/rich read+write UTF-8 content (agent logs, box-drawing
 # glyphs); the cp949 default codec crashed a full run mid-flight. Force
 # Python UTF-8 mode (files) + UTF-8 stdio for the whole child tree.
@@ -24,6 +59,16 @@ $env:PYTHONIOENCODING = "utf-8"
 $benchRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $benchRoot
 $env:PYTHONPATH = $benchRoot
+
+# Freeze the complete source union before Harbor starts. Every trial uploads
+# only this immutable snapshot; the adapter verifies it again before apply.
+$snapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-src-" + [guid]::NewGuid().ToString("N"))
+try {
+    $overlayPreflight = & python -m harness.src_overlay --output $snapshotRoot 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Terminal-Bench src overlay preflight failed: $($overlayPreflight -join [Environment]::NewLine)"
+    }
+    $env:MIXDOG_TB_SRC_SNAPSHOT = $snapshotRoot
 
 $harborArgs = @(
     "run",
@@ -56,6 +101,53 @@ function Expand-Tasks([string[]]$names) {
 }
 foreach ($t in (Expand-Tasks $Include)) { $harborArgs += @("-i", $t) }
 foreach ($t in (Expand-Tasks $Exclude)) { $harborArgs += @("-x", $t) }
+if ($hasModel) { $harborArgs += @("-m", $Model) }
+if ($hasProvider) { $harborArgs += @("--ak", "provider=$Provider") }
+if ($Effort) { $harborArgs += @("--ak", "effort=$Effort") }
+foreach ($item in $AgentEnv) {
+    foreach ($entry in ($item -split ",")) {
+        if ($entry -notmatch "^[A-Za-z_][A-Za-z0-9_]*=.+$") {
+            $equalsIndex = $entry.IndexOf("=")
+            $displayEntry = if ($equalsIndex -ge 0) {
+                ($entry.Substring(0, $equalsIndex) -replace "[\x00-\x1F\x7F]", "?") + "=***"
+            } else {
+                "<missing '='>"
+            }
+            throw "AgentEnv entry must be KEY=VALUE with a valid environment variable name and non-empty value: '$displayEntry'"
+        }
+        $harborArgs += @("--ae", $entry)
+    }
+}
+if ($hasRouteProfile) {
+    $harborArgs += @("--ak", "route_profile=$RouteProfile")
+    $routeParts = @()
+    foreach ($role in @("lead", "worker", "heavy-worker", "reviewer", "debugger", "explorer")) {
+        $route = $resolvedProfile.routes.$role
+        $fast = if ($route.fast -eq $true) { "true" } else { "false" }
+        $routeParts += "${role}=$($route.provider)/$($route.model) effort=$($route.effort) fast=$fast"
+    }
+    $fallback = $resolvedProfile.refusalFallback
+    $fallbackFast = if ($fallback.fast -eq $true) { "true" } else { "false" }
+    $routeParts += "refusal-fallback=$($fallback.provider)/$($fallback.model) effort=$($fallback.effort) fast=$fallbackFast"
+    "route-profile ${RouteProfile}: $($routeParts -join '; ')"
+}
 
-"harbor $($harborArgs -join ' ')"
-harbor @harborArgs
+$displayArgs = @($harborArgs)
+for ($i = 0; $i -lt ($displayArgs.Count - 1); $i++) {
+    if ($displayArgs[$i] -eq "--ae") {
+        $key = $displayArgs[$i + 1].Split("=", 2)[0]
+        $displayArgs[$i + 1] = "$key=***"
+        $i++
+    }
+}
+"harbor $($displayArgs -join ' ')"
+if (-not $DryRun) {
+    harbor @harborArgs
+}
+}
+finally {
+    Remove-Item Env:MIXDOG_TB_SRC_SNAPSHOT -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $snapshotRoot) {
+        Remove-Item -LiteralPath $snapshotRoot -Recurse -Force
+    }
+}

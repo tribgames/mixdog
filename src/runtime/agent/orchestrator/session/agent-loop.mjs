@@ -83,7 +83,7 @@ import {
     restoreToolCallBodyForId,
 } from './loop/stored-tool-args.mjs';
 import { repairTranscriptBeforeProviderSend } from './loop/transcript-repair.mjs';
-import { classifyTerminationReason, INCOMPLETE_STOP_REASONS } from './loop/termination.mjs';
+import { classifyTerminationReason, INCOMPLETE_STOP_REASONS, isOutputLimitStopReason } from './loop/termination.mjs';
 import { createSteeringLadder } from './loop/steering-ladder.mjs';
 import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
@@ -116,6 +116,11 @@ export {
 // this catches tight deterministic-failure loops (e.g. a command that errors
 // the same way every time) far earlier than 100 iterations.
 const REPEAT_FAIL_LIMIT = 3;
+// A provider max-output stop is not a completed assistant turn, even when it
+// contains useful text. Preserve each partial in the provider transcript and
+// grant at most three direct continuations before surfacing a hard truncation.
+const MAX_OUTPUT_RECOVERY_LIMIT = 3;
+const MAX_OUTPUT_EXHAUSTED_NOTICE = '[mixdog-runtime] Output remained truncated after 3 continuation attempts.';
 // _scopedCacheOutcomeForCall and executeTool moved to ./loop/tool-exec.mjs
 // (imported above).
 /**
@@ -233,10 +238,16 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const reasoningItems = Array.isArray(resp.reasoningItems) && resp.reasoningItems.length
             ? resp.reasoningItems
             : null;
-        if (!content && !reasoningContent && !reasoningItems) return false;
+        const thinkingBlocks = Array.isArray(resp.thinkingBlocks) && resp.thinkingBlocks.length
+            ? resp.thinkingBlocks
+            : null;
+        if (!content && !reasoningContent && !reasoningItems && !thinkingBlocks) return false;
         messages.push({
             role: 'assistant',
             content,
+            // Anthropic adaptive-thinking signatures must be replayed verbatim
+            // before the continuation turn, just like tool-call trajectories.
+            ...(thinkingBlocks ? { thinkingBlocks } : {}),
             ...(reasoningItems ? { reasoningItems } : {}),
             ...(reasoningContent ? { reasoningContent } : {}),
         });
@@ -270,6 +281,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // the loop as an explicit empty termination instead.
     let _emptyNudgeStreak = 0;
     const EMPTY_NUDGE_MAX = 3;
+    let _maxOutputRecoveryCount = 0;
+    const _maxOutputContentParts = [];
     // Claude Code parity: queued prompt/task notifications are attached after a
     // tool batch, before the continuation provider send. Normal batches drain
     // up to 'next'; a Sleep-like tool grants a 'later' flush.
@@ -517,22 +530,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // Provider may have returned despite an abort (SDKs that don't honour
         // signal) — bail before processing any of its output.
         throwIfAborted();
-        // P1 audit fix (Step4): a text-only turn truncated by the provider's
-        // max-output limit (response.truncated, set by the provider layer
-        // when stopReason==='length' AND content is non-empty) used to look
-        // identical to a clean completion — the model's answer could be
-        // silently cut mid-sentence with zero signal to the operator. Surface
-        // it as a one-line stderr warning + trace event WITHOUT failing the
-        // turn (the partial content is still usable and the loop's own
-        // isIncompleteStop nudge below already re-prompts when content is
-        // empty).
+        // Keep a diagnostic for every provider-declared truncation. Eligible
+        // no-tool text turns are recovered below rather than accepted as final.
         if (response?.truncated === true) {
             try {
                 process.stderr.write(
                     `[loop] provider output truncated at max-output limit (sess=${sessionId || 'unknown'} `
                     + `iter=${iterations} stopReason=${response.stopReason ?? response.stop_reason ?? 'length'} `
                     + `contentLen=${typeof response.content === 'string' ? response.content.length : 0}); `
-                    + `answer may be cut off mid-sentence.\n`,
+                    + `continuation recovery will be attempted when eligible.\n`,
                 );
             } catch { /* best-effort */ }
             try {
@@ -600,6 +606,33 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const isHidden = HIDDEN_AGENT_NAMES.has(sessionAgent);
             const stopReason = response.stopReason ?? response.stop_reason ?? null;
             const isIncompleteStop = stopReason && INCOMPLETE_STOP_REASONS.has(stopReason);
+            const isOutputLimitStop = isOutputLimitStopReason(stopReason);
+            if (hasContent && isOutputLimitStop) {
+                _maxOutputContentParts.push(response.content);
+                if (_maxOutputRecoveryCount < MAX_OUTPUT_RECOVERY_LIMIT) {
+                    // The partial assistant turn must be visible to the model so
+                    // it can resume at the exact cutoff instead of reconstructing
+                    // or repeating it. askSession persists this natural recovery
+                    // chain; historyContent below prevents the aggregate returned
+                    // to callers from being persisted a second time.
+                    pushIntermediateAssistantResponse(response);
+                    _maxOutputRecoveryCount += 1;
+                    messages.push({
+                        role: 'user',
+                        content: 'Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where the previous text stopped.',
+                        meta: { source: 'max-output-recovery', attempt: _maxOutputRecoveryCount },
+                    });
+                    continue;
+                }
+                const terminalSegment = `${response.content}\n\n${MAX_OUTPUT_EXHAUSTED_NOTICE}`;
+                response = {
+                    ...response,
+                    content: `${_maxOutputContentParts.slice(0, -1).join('')}${terminalSegment}`,
+                    historyContent: terminalSegment,
+                    maxOutputRecoveryAttempts: _maxOutputRecoveryCount,
+                };
+                break;
+            }
             if (!hasContent && !isHidden) {
                 _emptyNudgeStreak += 1;
                 if (_emptyNudgeStreak > EMPTY_NUDGE_MAX) {
@@ -621,6 +654,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 }
                 messages.push({ role: 'user', content: nudgeMsg });
                 continue;
+            }
+            if (_maxOutputContentParts.length > 0) {
+                const terminalSegment = typeof response.content === 'string' ? response.content : '';
+                response = {
+                    ...response,
+                    content: `${_maxOutputContentParts.join('')}${terminalSegment}`,
+                    historyContent: terminalSegment,
+                    maxOutputRecoveryAttempts: _maxOutputRecoveryCount,
+                };
             }
             break;
         }

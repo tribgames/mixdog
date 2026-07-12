@@ -307,6 +307,7 @@ function contextSummaryResult(state, count) {
 
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
 export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
+export const MAIN_COMPACTION_TRIGGER_RATIO = 0.95;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
 const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
@@ -443,8 +444,8 @@ export function resolveCompactTriggerTokens(sessionOrConfig = {}, boundaryTokens
 //     (trigger = limit) for every session type;
 //   - agent-owned semantic sessions otherwise keep the default early-trigger
 //     buffer (config-driven, default 10% -> compact at 90% of the boundary);
-//   - main/user recall-fasttrack sessions have NO default buffer and compact on
-//     the boundary itself (100%).
+//   - main/user recall-fasttrack sessions keep 5% headroom and compact at 95%
+//     of the effective boundary.
 // Returns the sanitized explicit limit (null when absent/legacy full-window)
 // plus triggerTokens / bufferTokens / bufferRatio for the given boundary.
 export function resolveSessionCompactPolicy(sessionOrConfig = {}, boundaryTokens = 0) {
@@ -466,7 +467,7 @@ export function resolveSessionCompactPolicy(sessionOrConfig = {}, boundaryTokens
     } else if (isAgentOwner(sessionOrConfig)) {
         triggerTokens = Math.max(1, boundary - resolveCompactBufferTokens(boundary, cfg));
     } else {
-        triggerTokens = boundary;
+        triggerTokens = Math.max(1, Math.floor(boundary * MAIN_COMPACTION_TRIGGER_RATIO));
     }
     const bufferTokens = Math.max(0, boundary - triggerTokens);
     const bufferRatio = bufferTokens / boundary;

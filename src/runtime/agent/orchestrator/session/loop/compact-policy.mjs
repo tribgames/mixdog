@@ -3,6 +3,7 @@
 // runRecallFastTrackCompact stays in the loop (it drives the recall pipeline
 // against live session state).
 import {
+    estimateMessagesTokens,
     estimateRequestReserveTokens,
     resolveSessionCompactPolicy,
 } from '../context-utils.mjs';
@@ -18,6 +19,7 @@ import {
 } from '../compact.mjs';
 import { positiveTokenInt, envFlag, envTokenInt } from './env.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
+import { providerInputExcludesCache } from '../../providers/registry.mjs';
 
 // Unified context-share rule (compact/constants.mjs CONTEXT_SHARE_RATIO): the
 // post-compaction target is 10% of the boundary/context window — the same 10%
@@ -91,8 +93,8 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     if (!boundaryTokens) return null;
     const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
     // Shared session-compaction policy (context-utils): agent semantic keeps the
-    // default early-trigger buffer (90%); main/user compact on the boundary
-    // (100%); a truly-explicit sub-boundary limit wins. explicitAutoCompactTokenLimit
+    // default early-trigger buffer (90%); main/user keep 5% headroom (95%);
+    // a truly-explicit sub-boundary limit wins. explicitAutoCompactTokenLimit
     // is the sanitized (null when legacy full-window) value so telemetry never
     // re-persists a boundary-collapsing limit.
     const policy = resolveSessionCompactPolicy(sessionRef, compactBoundaryTokens);
@@ -132,15 +134,103 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         configuredReserveTokens: configuredReserve,
     };
 }
-/** Transcript + request reserve only (never provider lastContextTokens). */
+/** Transcript + request reserve fallback used until an aligned provider baseline exists. */
 function compactPressureTokens(messageTokensEst, policy) {
     if (messageTokensEst === null) return 0;
     return Math.max(0, messageTokensEst + (policy?.reserveTokens || 0));
 }
 
+function providerPressureTokens(sessionRef, usage) {
+    if (!usage || typeof usage !== 'object') return 0;
+    const input = Math.max(0, Number(usage.inputTokens) || 0);
+    const cachedRead = Math.max(0, Number(usage.cachedTokens) || 0);
+    const cacheWrite = Math.max(0, Number(usage.cacheWriteTokens) || 0);
+    const explicitPrompt = Math.max(0, Number(usage.promptTokens) || 0);
+    const normalizedPrompt = providerInputExcludesCache(sessionRef?.provider)
+        ? input + cachedRead + cacheWrite
+        : input;
+    const prompt = Math.max(explicitPrompt, normalizedPrompt);
+    const output = Math.max(0, Number(usage.outputTokens) || 0);
+    return Math.max(0, Math.round(prompt + output));
+}
+
+/**
+ * Align an authoritative provider usage snapshot to the message prefix it
+ * covers. Later pressure checks add estimates only for messages after this
+ * baseline, matching Claude Code's actual-usage-plus-growth accounting.
+ */
+export function recordProviderContextBaseline(sessionRef, messages, usage, { boundary = 'complete' } = {}) {
+    if (!sessionRef || !Array.isArray(messages)) return false;
+    const tokens = providerPressureTokens(sessionRef, usage);
+    if (!tokens) return false;
+    sessionRef.contextPressureBaselineTokens = tokens;
+    sessionRef.contextPressureBaselineOutputTokens = Math.max(0, Math.round(Number(usage?.outputTokens) || 0));
+    sessionRef.contextPressureBaselineMessageCount = messages.length;
+    // provider_send usage arrives before the response's assistant message is
+    // appended. Mark that request boundary so pressure resolution skips the
+    // first subsequent assistant representation: its output (including opaque
+    // reasoningItems/tool calls) is already authoritative provider usage.
+    sessionRef.contextPressureBaselineBoundary = boundary === 'request' ? 'request' : 'complete';
+    sessionRef.contextPressureBaselineUpdatedAt = Date.now();
+    sessionRef.lastContextTokensStaleAfterCompact = false;
+    return true;
+}
+
+/** A changed transcript cannot reuse usage measured against its old prefix. */
+export function invalidateProviderContextBaseline(sessionRef) {
+    if (!sessionRef) return;
+    sessionRef.contextPressureBaselineTokens = null;
+    sessionRef.contextPressureBaselineOutputTokens = null;
+    sessionRef.contextPressureBaselineMessageCount = null;
+    sessionRef.contextPressureBaselineBoundary = null;
+    sessionRef.contextPressureBaselineUpdatedAt = null;
+    sessionRef.lastContextTokensStaleAfterCompact = true;
+}
+
+function providerBaselinePressureTokens(messages, sessionRef) {
+    if (!Array.isArray(messages) || !sessionRef
+        || sessionRef.lastContextTokensStaleAfterCompact === true) return null;
+    let tokens = positiveTokenInt(sessionRef.contextPressureBaselineTokens);
+    const outputTokens = Math.max(0, Number(sessionRef.contextPressureBaselineOutputTokens) || 0);
+    let count = Number(sessionRef.contextPressureBaselineMessageCount);
+    const baselineAt = Number(sessionRef.contextPressureBaselineUpdatedAt || 0);
+    const compactAt = Number(sessionRef.compaction?.lastChangedAt || sessionRef.compaction?.lastCompactAt || 0);
+    if (!tokens || !Number.isInteger(count) || count < 0 || count > messages.length
+        || (compactAt > 0 && baselineAt > 0 && baselineAt < compactAt)) return null;
+    if (sessionRef.contextPressureBaselineBoundary === 'request') {
+        const assistantOffset = messages.slice(count).findIndex(message => message?.role === 'assistant');
+        if (assistantOffset >= 0) {
+            // The represented assistant is covered by actual output usage.
+            count += assistantOffset + 1;
+        } else {
+            // Empty/thinking-only continuations append no assistant replay.
+            // Their output was billed but is absent from the next request, so
+            // remove it and estimate every genuinely later message (the nudge).
+            tokens = Math.max(0, tokens - outputTokens);
+        }
+    }
+    try {
+        const growth = count < messages.length
+            ? estimateMessagesTokens(messages.slice(count))
+            : 0;
+        return Math.max(0, tokens + growth);
+    } catch {
+        return null;
+    }
+}
+
+export function resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
+    return providerBaselinePressureTokens(messages, sessionRef)
+        ?? compactPressureTokens(messageTokensEst, policy);
+}
+
 /** Telemetry pressure when a reactive overflow retry forces the next compact. */
-export function compactionTelemetryPressureTokens(messageTokensEst, policy, { reactivePending = false } = {}) {
-    const base = compactPressureTokens(messageTokensEst, policy);
+export function compactionTelemetryPressureTokens(messageTokensEst, policy, {
+    reactivePending = false,
+    messages,
+    sessionRef,
+} = {}) {
+    const base = resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef });
     if (!reactivePending) return base;
     const floor = positiveTokenInt(policy?.triggerTokens) || positiveTokenInt(policy?.boundaryTokens) || 0;
     return floor ? Math.max(base, floor) : base;
@@ -152,11 +242,19 @@ export function compactTargetBudget(policy) {
     const targetEffective = resolveCompactTargetTokens(boundary, policy) || boundary;
     return Math.max(1, Math.min(boundary, targetEffective + reserve));
 }
-export function shouldCompactForSession(messageTokensEst, policy, { forceReactive = false } = {}) {
+export function shouldCompactForSession(messageTokensEst, policy, {
+    forceReactive = false,
+    messages,
+    sessionRef,
+    pressureTokens,
+} = {}) {
     if (!policy?.auto || !policy.boundaryTokens) return false;
     if (forceReactive) return true;
     if (messageTokensEst === null) return true;
-    return compactPressureTokens(messageTokensEst, policy) >= (policy.triggerTokens || policy.boundaryTokens);
+    const pressure = Number.isFinite(Number(pressureTokens))
+        ? Number(pressureTokens)
+        : resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef });
+    return pressure >= (policy.triggerTokens || policy.boundaryTokens);
 }
 export function countPrunedToolOutputs(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return 0;
@@ -228,7 +326,7 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         const changedAt = Date.now();
         sessionRef.compaction.lastChangedAt = changedAt;
         sessionRef.compaction.lastCompactAt = changedAt;
-        sessionRef.lastContextTokensStaleAfterCompact = true;
+        invalidateProviderContextBaseline(sessionRef);
     }
     sessionRef.contextWindow = policy.contextWindow || sessionRef.contextWindow;
     sessionRef.rawContextWindow = policy.rawContextWindow || sessionRef.rawContextWindow;

@@ -29,6 +29,7 @@ import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 import { pruneOffloadSession } from '../tool-result-offload.mjs';
 import { _getPendingMessagesForSession } from './pending-messages.mjs';
 import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
+import { invalidateProviderContextBaseline } from '../loop/compact-policy.mjs';
 
 // 'compacting' is a transient in-flight stage written just before semantic /
 // recall-fasttrack compaction runs. If the process crashes or only partially
@@ -539,7 +540,7 @@ export async function runSessionCompaction(session, opts = {}) {
         } : null,
         compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
     };
-    if (changed && mode === 'auto') session.lastContextTokensStaleAfterCompact = true;
+    if (changed) invalidateProviderContextBaseline(session);
     return {
         changed,
         reason: unchangedReason,

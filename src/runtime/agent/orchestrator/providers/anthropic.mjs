@@ -347,7 +347,7 @@ function toAnthropicMessages(messages) {
     for (let idx = 0; idx < messages.length; idx++) {
         const m = messages[idx];
         if (m.role === 'system') continue;
-        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length)) {
+        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length || m.thinkingBlocks?.length)) {
             let content;
             if (m.assistantBlocks?.length) {
                 content = m.assistantBlocks.slice();
@@ -362,7 +362,7 @@ function toAnthropicMessages(messages) {
                     }
                 }
                 if (m.content) content.push({ type: 'text', text: m.content });
-                for (const tc of m.toolCalls) {
+                for (const tc of m.toolCalls || []) {
                     content.push({
                         type: 'tool_use',
                         id: tc.id,

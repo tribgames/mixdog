@@ -61,8 +61,17 @@ export async function runPreSendCompactPass(state) {
             };
             const messageTokensEst = estimateMessagesTokensSafe(messages);
             const reactivePending = reactiveOverflowRetryPending === true;
-            const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, { forceReactive: reactivePending });
-            const pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, { reactivePending });
+            const pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, {
+                reactivePending,
+                messages,
+                sessionRef,
+            });
+            const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, {
+                forceReactive: reactivePending,
+                messages,
+                sessionRef,
+                pressureTokens,
+            });
             // A pending reactive-overflow retry makes THIS compact pass the
             // recovery from a provider overflow refusal, not the proactive
             // pressure trigger. Tag the emitted events so telemetry can tell

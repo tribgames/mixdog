@@ -57,6 +57,7 @@
     "test:shellhardening": "node --test scripts/shell-hardening-test.mjs",
     "test:placeholder": "node --test scripts/compacted-placeholder-scrub-test.mjs",
     "test:providers": "node --test scripts/provider-toolcall-test.mjs",
+    "test:anthropic-oauth-race": "node --test scripts/anthropic-oauth-refresh-race-test.mjs",
     "test:atomiclock": "node --test scripts/atomic-lock-tryonce-test.mjs",
     "test:memory-routing": "node --test scripts/memory-cycle-routing-test.mjs scripts/memory-rule-contract-test.mjs",
     "test:tui-queue": "node --test scripts/submit-commandbusy-race-test.mjs scripts/steering-drain-buckets-test.mjs scripts/abort-recovery-test.mjs scripts/execution-pending-resume-kick-test.mjs scripts/execution-resume-esc-integration-test.mjs",

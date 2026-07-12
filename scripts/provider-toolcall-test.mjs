@@ -52,6 +52,7 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/gemini-cache.mjs';
 import { parseSSEStream as anthropicParseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { _buildRequestBodyForCacheSmoke } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import { _toAnthropicMessagesForTest } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import {
     EFFORT_BETA_HEADER,
     LEGACY_EFFORT_BUDGET,
@@ -771,6 +772,37 @@ test('anthropic(-oauth): redacted_thinking round-trips exactly as {type,data} (n
     assert.deepEqual(result.thinkingBlocks, [
         { type: 'redacted_thinking', data: 'ENCRYPTED_PAYLOAD' },
     ]);
+});
+
+test('anthropic API-key and OAuth lower plain signed thinkingBlocks before text without tool calls', () => {
+    const thinkingBlocks = [
+        { type: 'thinking', thinking: 'resume state', signature: 'sig-recovery-1' },
+        { type: 'redacted_thinking', data: 'ENCRYPTED_RECOVERY_STATE' },
+    ];
+    const history = [
+        { role: 'user', content: 'write the answer' },
+        { role: 'assistant', content: 'partial answer', thinkingBlocks },
+        { role: 'user', content: 'resume directly' },
+    ];
+    const expectedAssistantContent = [
+        ...thinkingBlocks,
+        { type: 'text', text: 'partial answer' },
+    ];
+
+    const apiKeyMessages = _toAnthropicMessagesForTest(history);
+    const oauthMessages = _buildRequestBodyForCacheSmoke(
+        history,
+        'claude-sonnet-4-6',
+        [],
+        {},
+    ).messages;
+
+    for (const lowered of [apiKeyMessages, oauthMessages]) {
+        const assistant = lowered.find((message) => message.role === 'assistant');
+        assert.ok(assistant, 'plain recovery assistant turn must survive lowering');
+        assert.deepEqual(assistant.content, expectedAssistantContent);
+        assert.equal(assistant.content.some((block) => block.type === 'tool_use'), false);
+    }
 });
 
 test('anthropic effort: legacy claude-3-7-sonnet gets NO adaptive thinking / effort beta', () => {

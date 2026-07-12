@@ -63,14 +63,23 @@ const leadTool = readSrc('rules', 'lead', 'lead-tool.md');
 const core = readSrc('rules', 'agent', '00-core.md');
 const common = readSrc('rules', 'agent', '00-common.md');
 const skip = readSrc('rules', 'agent', '20-skip-protocol.md');
-const BRIEF_FIELDS = ['Goal:', 'Anchors:', 'Allow/Forbid:', 'Deliver:', 'Verify:'];
+const OPTIONAL_BRIEF_FIELDS = ['Anchors:', 'Allow/Forbid:', 'Deliver:', 'Verify:'];
 const TOKEN_PRINCIPLE = /minimum (?:characters|chars), maximum (?:information|info)/i;
 function requireAll(text, label, patterns) {
   for (const pattern of patterns) assert(pattern.test(normalize(text).toLowerCase()), `${label}: missing ${pattern}`);
 }
 assert(TOKEN_PRINCIPLE.test(normalize(leadBrief)), 'lead-brief.md: brief must state min-char/max-info principle');
-for (const field of BRIEF_FIELDS) assert(leadBrief.includes(field), `lead-brief.md: brief missing labeled field ${field}`);
-assert(leadBrief.includes('Stop:'), 'lead-brief.md: brief must add Stop: for heavy-worker bound');
+assert(leadBrief.includes('Task:'), 'lead-brief.md: brief must require labeled field Task:');
+assert(!leadBrief.includes('Goal:'), 'lead-brief.md: Goal: must be replaced by Task:');
+for (const field of OPTIONAL_BRIEF_FIELDS) assert(leadBrief.includes(field), `lead-brief.md: brief missing optional labeled field ${field}`);
+requireAll(leadBrief, 'Lead brief task', [
+  /`task:` is mandatory and lossless/, /intent/, /required outcomes/, /negative outcomes/,
+  /completion\/stop boundary/, /all other fields are optional task-specific deltas/,
+  /preserve user-supplied exact targets and exact replacements\/outputs in `task:`/,
+  /never infer exactness from a task name, file count, or perceived difficulty/,
+  /exact same `task:` across worker -> debugger -> reviewer/,
+  /never summarize, rewrite, or replace it/,
+]);
 assert(/role-known|already (?:owns|knows)|wasted cost|wasted/i.test(normalize(leadBrief)), 'lead-brief.md: brief must ban restating known rules/background as cost');
 assert(/spec\/test beats its summary/i.test(normalize(leadBrief)), 'lead-brief.md: spec/test must beat summary');
 requireAll(leadBrief, 'Lead brief lifecycle', [
@@ -80,7 +89,7 @@ requireAll(leadBrief, 'Lead brief lifecycle', [
   /agent communication is english/,
 ]);
 assert(/lead brief contract/i.test(normalize(workflow)), 'WORKFLOW.md: must defer to the lead brief contract');
-assert(!BRIEF_FIELDS.every((field) => workflow.includes(field)), 'WORKFLOW.md: must not duplicate the full brief field list');
+assert(!OPTIONAL_BRIEF_FIELDS.every((field) => workflow.includes(field)), 'WORKFLOW.md: must not duplicate the optional brief field list');
 
 assert(/fragments/i.test(core), '00-core: handoff must require fragments');
 assert(/file:line/i.test(core), '00-core: handoff must anchor evidence to file:line');
@@ -112,19 +121,52 @@ requireAll(workflow, 'Default approval', [
   /initial\/additional\/changed requests reset planning/, /scope change needs a revised plan and fresh approval/,
   /no edits, state mutation, or delegation/,
 ]);
-requireAll(workflow, 'Default routing', [
-  /delegate by default/, /only coordinates, does git, or an obvious 1-edit\/ 1-check change/,
-  /implementation\/research\/debugging to its matching agent/, /indicators, not automatic categories/,
-  /worker: bounded established path, low local risk\/coupling\/verification, clear local check/,
-  /heavy worker: high risk\/coupling\/verification \(including any high-risk scope\), or coupled staged work needing coordinated verification/,
-  /reviewer verifies an implementation/, /debugger handles requested debugging or root cause after a failed fix/,
-]);
+function routingReviewBlocks(text, label) {
+  const source = String(text).replace(/\r\n/g, '\n');
+  return {
+    routing: block(source, 'Lead orchestrates and verifies.', '1. Plan:', `${label} routing policy`),
+    review: block(source, '3. Review:', '\n4.', `${label} review policy`),
+  };
+}
+const defaultPolicy = routingReviewBlocks(workflow, 'Default');
+const benchPolicy = routingReviewBlocks(bench, 'Bench');
+for (const section of ['routing', 'review']) {
+  assert(
+    defaultPolicy[section] === benchPolicy[section],
+    `Default/Bench ${section} policy must be identical after normalization`,
+  );
+}
+const ROUTING_REVIEW_POLICY = [
+  /lead-direct work is allowed only for pure read\/analysis, git\/configuration/,
+  /user explicitly supplies both the exact target and exact replacement\/output/,
+  /never infer an exemption from a task name, file count, or perceived difficulty/,
+  /every other implementation, reverse engineering, debugging application, or artifact generation delegates to the matching agent/,
+  /debugger owns diagnosis and reverse engineering/,
+  /worker applies an established bounded change or fully specified artifact/,
+  /heavy worker owns implementation that must establish the change through investigation or staged delivery/,
+  /applying a debugger result is implementation, not diagnosis/,
+  /review is exempt only for pure read\/analysis with no edit, artifact, or state mutation; git\/configuration; or a request where the user explicitly supplies both the exact target and exact replacement\/output\. every non-exempt mutation or artifact/,
+  /every non-exempt mutation or artifact/,
+  /worker, heavy worker, debugger, or lead/,
+  /one reviewer .*lead integration\/cross-scope verification in parallel/,
+  /debugger analysis cannot substitute for implementation review/,
+  /applying a debugger result triggers the same reviewer \+ lead verification/,
+  /loop fix -> re-verify \(same reviewer \+ lead re-check\) until clean/,
+  /exempt mutations still require shell self-verification/,
+];
+for (const [label, text] of [['Default', workflow], ['Bench', bench]]) {
+  requireAll(text, `${label} routing/review parity`, ROUTING_REVIEW_POLICY);
+  assert(
+    !/(high clarity|low structural complexity|immediate 1-step|genuinely simple)/i.test(text),
+    `${label}: heuristic routing/review language must not return`,
+  );
+}
 requireAll(workflow, 'Default lifecycle', [
-  /draft before any implementation/, /parallel gain exceeds coordination\/merge cost/,
-  /all in one turn, with no count cap/, /real dependency, overlapping write, or inseparable coupling/,
-  /after async spawn, end the turn/, /every delegated implementation gets one reviewer/,
-  /lead integration\/cross-scope verification in parallel/, /high-risk scopes add distinct lenses/,
-  /original live session/, /loop fix -> re-verify \(same reviewer \+ lead re-check\) until clean/,
+  /draft before any implementation/, /all ready scopes in one turn, with no count cap/,
+  /real dependency, overlapping write, or inseparable coupling/,
+  /after async spawn, end the turn/,
+  /high-risk scopes add distinct lenses/,
+  /original live session/,
   /bug surviving 2\+ fix cycles/, /agent reports relay.*as in-progress, never conclusions/,
   /final \(not interim\) report/, /never forward raw agent output/,
   /explicit user request after issue-free feedback/, /outcome\/direction change, pause and re-consult/,
@@ -137,16 +179,13 @@ requireAll(solo, 'Solo lifecycle', [
   /scope change needs a revised plan and fresh approval/,
   /checks\/fixes directly until clean or reports a blocker/, /final \(not interim\) report/,
   /interim updates are in-progress, never conclusions/,
-  /issue-free user feedback/,
+  /issue-free feedback/,
 ]);
 requireAll(bench, 'Bench lifecycle', [
-  /never wait for approval or ask questions/, /verified complete or provably blocked/,
-  /maximum independent scopes/, /spawning every scope in one turn/,
-  /build\/test-green gate/, /no polling, guessing, or dependent work/,
-  /one reviewer per implementation scope/, /never deferred\/batched/,
-  /fact-check agent responses and cross-check implementation\/review yourself before acting/,
-  /return fixes to the original scope/, /loop verify -> fix -> re-verify until clean/,
-  /skip only simple, low-risk review/, /hard blocked/, /outcome and evidence/,
+  /never ask questions, propose plans for approval, or end the turn waiting/,
+  /verified complete or provably blocked/, /all ready scopes in one turn, with no count cap/,
+  /after async spawn, end the turn/, /original live session/,
+  /hard blocked/, /outcome and evidence/,
 ]);
 requireAll(leadTool, 'Lead tools', [
   /write-role agents self-verify/, /cross-scope verification.*benches.*all git/,
@@ -220,7 +259,9 @@ const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-internal-comms-smoke-'));
 try {
   const leadRules = rulesBuilder.buildInjectionContent({ PLUGIN_ROOT: join(root, 'src'), DATA_DIR: dataDir });
   assert(TOKEN_PRINCIPLE.test(normalize(leadRules)), 'injected Lead rules must carry the brief token principle');
-  for (const field of BRIEF_FIELDS) assert(leadRules.includes(field), `injected Lead rules missing brief field ${field}`);
+  assert(leadRules.includes('Task:'), 'injected Lead rules missing mandatory brief field Task:');
+  assert(!leadRules.includes('Goal:'), 'injected Lead rules must not retain Goal:');
+  for (const field of OPTIONAL_BRIEF_FIELDS) assert(leadRules.includes(field), `injected Lead rules missing optional brief field ${field}`);
 } finally {
   rmSync(dataDir, { recursive: true, force: true });
 }

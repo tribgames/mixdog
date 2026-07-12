@@ -16,13 +16,15 @@
 //   MIXDOG_PROMPT    the task instruction
 //   MIXDOG_REFUSAL_FALLBACK_MODEL     OPTIONAL fallback model when the primary
 //                                     lead REFUSES at the API level (default
-//                                     claude-opus-4-8; set empty to disable)
+//                                     gpt-5.6-sol; set empty to disable)
 //   MIXDOG_REFUSAL_FALLBACK_PROVIDER  OPTIONAL fallback provider (default
-//                                     anthropic-oauth)
+//                                     openai-oauth)
 //   MIXDOG_REFUSAL_FALLBACK_EFFORT    OPTIONAL fallback effort (default xhigh)
+//   MIXDOG_REFUSAL_FALLBACK_FAST      OPTIONAL fallback fast mode (default
+//                                     true; false/off/0/empty disables)
 
 import { pathToFileURL } from 'node:url';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const SRC = process.env.MIXDOG_SRC;
 if (!SRC) {
@@ -49,14 +51,26 @@ const prompt = process.env.MIXDOG_PROMPT || '';
 // task are unchanged; only the model route differs.
 const FB_MODEL = process.env.MIXDOG_REFUSAL_FALLBACK_MODEL !== undefined
   ? process.env.MIXDOG_REFUSAL_FALLBACK_MODEL
-  : 'claude-opus-4-8';
-const FB_PROVIDER = process.env.MIXDOG_REFUSAL_FALLBACK_PROVIDER || 'anthropic-oauth';
+  : 'gpt-5.6-sol';
+const FB_PROVIDER = process.env.MIXDOG_REFUSAL_FALLBACK_PROVIDER || 'openai-oauth';
 const FB_EFFORT = process.env.MIXDOG_REFUSAL_FALLBACK_EFFORT || 'xhigh';
+const FB_FAST_ENV = process.env.MIXDOG_REFUSAL_FALLBACK_FAST;
+const FB_FAST = FB_FAST_ENV === undefined
+  ? true
+  : !/^(?:|0|false|off)$/i.test(FB_FAST_ENV.trim());
 // Driver loop deadline. Only a runaway-loop guard: the REAL per-task time
 // limit is enforced by Harbor (AgentTimeoutError), so this can sit far above
 // every task budget. The old fixed 30min cut long tasks (caffe-cifar-10)
 // while their heavy-worker was still training.
-const DEADLINE_MS = Number(process.env.MIXDOG_DRIVER_DEADLINE_MS || 180 * 60_000);
+const DEADLINE_MS = Number(process.env.MIXDOG_DRIVER_DEADLINE_MS ?? 180 * 60_000);
+// One deadline owns the complete primary/fallback run, including runtime
+// creation, boot jitter, and the initial turn.
+const RUN_DEADLINE = DEADLINE_MS >= 0 ? Date.now() + DEADLINE_MS : -1;
+const assertRunDeadline = (stage) => {
+  if (RUN_DEADLINE >= 0 && Date.now() >= RUN_DEADLINE) {
+    throw new Error(`lead_driver: run deadline exceeded before ${stage}`);
+  }
+};
 // Boot jitter: N concurrent trials all fire their FIRST ask in the same
 // second, which bursts the provider into 429/retry loops (observed: trials
 // dying at AgentTimeout with only boot noise logged). Spread the first ask.
@@ -101,6 +115,55 @@ const shellJobsBusy = () => {
   return false;
 };
 
+// Runtime setters intentionally persist the selected route as workflowRoutes.lead.
+// For a one-shot refusal retry, use the existing CLI preset-selector path instead:
+// briefly add an unreferenced preset to the copied config, let runtime creation
+// resolve it into its private route state, then restore the config byte-for-byte.
+// The temporary preset is never a default/workflow route, so agent routing stays
+// on the copied benchmark configuration.
+const createEphemeralRouteRuntime = async (route) => {
+  const configPath = (process.env.MIXDOG_DATA_DIR || '') + '/mixdog-config.json';
+  const original = readFileSync(configPath, 'utf8');
+  const configDoc = JSON.parse(original);
+  if (!configDoc?.agent || typeof configDoc.agent !== 'object') {
+    throw new Error('lead_driver: copied config has no agent section');
+  }
+
+  const presetId = `terminal-bench-refusal-${process.pid}-${Date.now()}`;
+  const settingsKey = `${route.provider}/${route.model}`;
+  const agent = configDoc.agent;
+  configDoc.agent = {
+    ...agent,
+    presets: [
+      ...(Array.isArray(agent.presets) ? agent.presets : []),
+      {
+        id: presetId,
+        name: presetId,
+        provider: route.provider,
+        model: route.model,
+        ...(route.effort ? { effort: route.effort } : {}),
+        ...(route.fast === true ? { fast: true } : {}),
+        tools: 'full',
+      },
+    ],
+    modelSettings: {
+      ...(agent.modelSettings || {}),
+      [settingsKey]: {
+        ...(agent.modelSettings?.[settingsKey] || {}),
+        ...(route.effort ? { effort: route.effort } : {}),
+        ...(route.fast !== undefined ? { fast: route.fast } : {}),
+      },
+    },
+  };
+
+  try {
+    writeFileSync(configPath, JSON.stringify(configDoc, null, 2) + '\n');
+    return await createMixdogSessionRuntime({ model: presetId });
+  } finally {
+    writeFileSync(configPath, original);
+  }
+};
+
 // Drive one full Lead session (create runtime -> auto-resume loop -> close).
 // Mirrors the TUI auto-resume (engine/agent-job-feed.mjs): a runtime
 // notification enqueues the model-visible completion into the session's
@@ -109,13 +172,26 @@ const shellJobsBusy = () => {
 // 'continue' / verdict heuristic: resume per kick, finish when no kick
 // arrived during the last turn and the agent board is clear.
 const driveSession = async (route) => {
-  const rt = await createMixdogSessionRuntime({ provider: route.provider, model: route.model });
-  if (workflow) {
-    await rt.setWorkflow(normalizeWorkflowId(workflow));
-  }
-  if (route.effort) {
-    await rt.setEffort(route.effort);
-  }
+  assertRunDeadline(route.ephemeral ? 'fallback session' : 'primary session');
+  let rt = null;
+  let stallTimer = null;
+  let lifecycleCompleted = false;
+  try {
+    rt = route.ephemeral
+      ? await createEphemeralRouteRuntime(route)
+      : await createMixdogSessionRuntime({ provider: route.provider, model: route.model });
+    if (workflow) {
+      assertRunDeadline('workflow setup');
+      await rt.setWorkflow(normalizeWorkflowId(workflow));
+    }
+    if (!route.ephemeral && route.effort) {
+      assertRunDeadline('effort setup');
+      await rt.setEffort(route.effort);
+    }
+    if (!route.ephemeral && route.fast !== undefined) {
+      assertRunDeadline('fast-mode setup');
+      await rt.setFast(route.fast);
+    }
 
   let text = '';
   let busy = false;
@@ -136,7 +212,7 @@ const driveSession = async (route) => {
 
   // Watchdog: abort the CURRENT turn when no progress arrived for STALL_MS.
   // askOnce() catches the abort and retries the same message (bounded).
-  const stallTimer = setInterval(() => {
+  stallTimer = setInterval(() => {
     if (!busy || STALL_MS <= 0) return;
     if (Date.now() - lastProgressAt <= STALL_MS) return;
     stallAborted = true;
@@ -147,20 +223,45 @@ const driveSession = async (route) => {
   stallTimer.unref?.();
 
   const askOnce = async (msg) => {
+    assertRunDeadline('model ask');
     busy = true;
     lastProgressAt = Date.now();
     const touch = () => { lastProgressAt = Date.now(); };
+    let deadlineAborted = false;
+    let askDeadlineTimer = null;
     try {
       let t = '';
-      const { result } = await rt.ask(msg, {
+      const askPromise = rt.ask(msg, {
         onTextDelta: (c) => { t += c; touch(); },
         onReasoningDelta: touch,
         onStreamDelta: touch,
         onToolCall: touch,
         onToolResult: touch,
       });
+      const resultPromise = RUN_DEADLINE < 0
+        ? askPromise
+        : Promise.race([
+            askPromise,
+            new Promise((_, reject) => {
+              askDeadlineTimer = setTimeout(() => {
+                deadlineAborted = true;
+                const error = new Error(
+                  `lead_driver: run deadline exceeded during model ask after ${DEADLINE_MS}ms`,
+                );
+                reject(error);
+                try { rt.abort?.('driver-deadline'); } catch { /* best-effort */ }
+              }, Math.max(0, RUN_DEADLINE - Date.now()));
+            }),
+          ]);
+      const { result } = await resultPromise;
       return String(result?.text ?? t ?? '');
     } catch (err) {
+      if (deadlineAborted) {
+        throw new Error(
+          `lead_driver: run deadline exceeded during model ask after ${DEADLINE_MS}ms`,
+          { cause: err },
+        );
+      }
       // Stall-abort recovery: retry the SAME message in the same session; the
       // transcript keeps prior turns, so a retry resumes rather than restarts.
       if (stallAborted && stallRetries < MAX_STALL_RETRIES) {
@@ -171,7 +272,10 @@ const driveSession = async (route) => {
         return await askOnce(msg);
       }
       throw err;
-    } finally { busy = false; }
+    } finally {
+      if (askDeadlineTimer) clearTimeout(askDeadlineTimer);
+      busy = false;
+    }
   };
 
   const agentsBusy = () => {
@@ -188,18 +292,20 @@ const driveSession = async (route) => {
     await new Promise((r) => setTimeout(r, Math.floor(Math.random() * BOOT_JITTER_MS)));
   }
   text = await askOnce(prompt);
-  const deadline = Date.now() + DEADLINE_MS;
-  while (Date.now() < deadline) {
+  while (RUN_DEADLINE >= 0 && Date.now() < RUN_DEADLINE) {
     if (!kickDeferred) {
       for (;;) {
         const kicked = await new Promise((r) => {
           wake = () => r(true);
-          setTimeout(() => r(false), 10_000);
+          const waitMs = RUN_DEADLINE < 0
+            ? 10_000
+            : Math.max(0, Math.min(10_000, RUN_DEADLINE - Date.now()));
+          setTimeout(() => r(false), waitMs);
         });
         wake = null;
         if (kicked || kickDeferred) break;
         if (!anyWorkBusy()) break;
-        if (Date.now() >= deadline) break;
+        if (Date.now() >= RUN_DEADLINE) break;
       }
       if (!kickDeferred && !anyWorkBusy()) break;
     }
@@ -238,9 +344,24 @@ const driveSession = async (route) => {
   } catch (e) {
     process.stdout.write('delegation-audit failed: ' + (e?.message || e) + '\n');
   }
-  clearInterval(stallTimer);
-  await rt.close('bench-exit');
-  return { text, sid };
+    lifecycleCompleted = true;
+    return { text, sid };
+  } finally {
+    if (stallTimer) clearInterval(stallTimer);
+    if (rt) {
+      if (!lifecycleCompleted) {
+        try { rt.abort?.('bench-lifecycle-error'); } catch { /* best-effort */ }
+      }
+      try {
+        await rt.close('bench-exit');
+      } catch (closeError) {
+        if (lifecycleCompleted) throw closeError;
+        process.stderr.write(
+          `lead_driver: runtime close after failure also failed: ${closeError?.message || closeError}\n`,
+        );
+      }
+    }
+  }
 };
 
 const sids = [];
@@ -252,10 +373,12 @@ sids.push(sid);
 // text). A sub-agent refusal inside an otherwise-completed run does not
 // trigger a rerun. Skipped when the fallback route is the primary route or
 // explicitly disabled (MIXDOG_REFUSAL_FALLBACK_MODEL=).
-if (refusalSeen && !String(text || '').trim() && FB_MODEL && FB_MODEL !== model) {
-  process.stdout.write(`refusal-fallback: primary route refused (sess=${sid}); retrying with ${FB_PROVIDER}/${FB_MODEL} effort=${FB_EFFORT}\n`);
+const fallbackIsPrimary = FB_PROVIDER === provider && FB_MODEL === model;
+if (refusalSeen && !String(text || '').trim() && FB_MODEL && !fallbackIsPrimary) {
+  assertRunDeadline('refusal fallback');
+  process.stdout.write(`refusal-fallback: primary route refused (sess=${sid}); retrying with ${FB_PROVIDER}/${FB_MODEL} effort=${FB_EFFORT} fast=${FB_FAST}\n`);
   refusalSeen = false;
-  const retry = await driveSession({ provider: FB_PROVIDER, model: FB_MODEL, effort: FB_EFFORT });
+  const retry = await driveSession({ provider: FB_PROVIDER, model: FB_MODEL, effort: FB_EFFORT, fast: FB_FAST, ephemeral: true });
   text = retry.text;
   sid = retry.sid;
   sids.push(retry.sid);
