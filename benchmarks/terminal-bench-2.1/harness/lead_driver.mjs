@@ -12,19 +12,154 @@
 //   MIXDOG_PROVIDER  OPTIONAL provider override; unset => use configured route
 //   MIXDOG_MODEL     OPTIONAL model override; unset => use configured route
 //   MIXDOG_EFFORT    OPTIONAL effort override (low/medium/high/xhigh)
+//   MIXDOG_LEAD_FALLBACK OPTIONAL JSON route used once after a Lead refusal
 //   MIXDOG_WORKFLOW  OPTIONAL workflow override; unset => use configured active
 //   MIXDOG_PROMPT    the task instruction
-//   MIXDOG_REFUSAL_FALLBACK_MODEL     OPTIONAL fallback model when the primary
-//                                     lead REFUSES at the API level (default
-//                                     gpt-5.6-sol; set empty to disable)
-//   MIXDOG_REFUSAL_FALLBACK_PROVIDER  OPTIONAL fallback provider (default
-//                                     openai-oauth)
-//   MIXDOG_REFUSAL_FALLBACK_EFFORT    OPTIONAL fallback effort (default xhigh)
-//   MIXDOG_REFUSAL_FALLBACK_FAST      OPTIONAL fallback fast mode (default
-//                                     true; false/off/0/empty disables)
 
 import { pathToFileURL } from 'node:url';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
+
+const USAGE_LOG = '/logs/agent/usage.json';
+const toolCallHighWater = new Map();
+let usageMirrorInFlight = false;
+let usageMirrorStopped = false;
+let usageMirrorTimer = null;
+
+const finiteTokenCount = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+};
+
+const sessionUsageRecord = (doc, file) => {
+  const models = [];
+  const addModel = (candidate) => {
+    const value = typeof candidate === 'string' ? candidate.trim() : '';
+    if (value && !models.includes(value)) models.push(value);
+  };
+  addModel(doc?.model);
+  for (const message of Array.isArray(doc?.messages) ? doc.messages : []) {
+    addModel(message?.model);
+  }
+  const messages = Array.isArray(doc?.messages) ? doc.messages : [];
+  let observedToolCalls = messages.filter((message) => message?.role === 'tool').length;
+  if (!observedToolCalls) {
+    observedToolCalls = messages.reduce(
+      (total, message) => total + (
+        Array.isArray(message?.toolCalls)
+          ? message.toolCalls.length
+          : finiteTokenCount(message?.toolCallsTotal)
+      ),
+      0,
+    );
+  }
+  const sessionId = String(doc?.id || file.slice(0, -5));
+  // Retained-message high-water mark; it may undercount after context compaction.
+  const toolCallCountApprox = Math.max(toolCallHighWater.get(sessionId) || 0, observedToolCalls);
+  toolCallHighWater.set(sessionId, toolCallCountApprox);
+  return {
+    sessionId,
+    agentRole: String(doc?.agent || doc?.role || (doc?.owner === 'agent' ? 'agent' : 'lead')),
+    models,
+    inputTokens: finiteTokenCount(doc?.totalInputTokens),
+    cacheTokens: finiteTokenCount(doc?.totalCachedReadTokens),
+    outputTokens: finiteTokenCount(doc?.totalOutputTokens),
+    toolCallCountApprox,
+  };
+};
+
+const usageDocument = (sessions) => {
+  const totals = sessions.reduce(
+    (sum, session) => ({
+      inputTokens: sum.inputTokens + session.inputTokens,
+      cacheTokens: sum.cacheTokens + session.cacheTokens,
+      outputTokens: sum.outputTokens + session.outputTokens,
+      toolCallCountApprox: sum.toolCallCountApprox + session.toolCallCountApprox,
+    }),
+    { inputTokens: 0, cacheTokens: 0, outputTokens: 0, toolCallCountApprox: 0 },
+  );
+  return { schemaVersion: 1, sessions, totals };
+};
+
+// Synchronous I/O is reserved for explicit/final snapshots, where the write
+// must complete before process.exit().
+const mirrorUsageSync = () => {
+  let tmp = '';
+  try {
+    const sessionsDir = (process.env.MIXDOG_DATA_DIR || '') + '/sessions';
+    const sessions = [];
+    for (const file of readdirSync(sessionsDir).filter((name) => name.endsWith('.json')).sort()) {
+      try {
+        const doc = JSON.parse(readFileSync(sessionsDir + '/' + file, 'utf8'));
+        sessions.push(sessionUsageRecord(doc, file));
+      } catch { /* partial/corrupt session write: skip until the next snapshot */ }
+    }
+    mkdirSync(dirname(USAGE_LOG), { recursive: true });
+    tmp = `${USAGE_LOG}.tmp-${process.pid}-sync`;
+    writeFileSync(tmp, JSON.stringify(usageDocument(sessions), null, 2) + '\n');
+    renameSync(tmp, USAGE_LOG);
+  } catch {
+    if (tmp) {
+      try { unlinkSync(tmp); } catch { /* best-effort cleanup */ }
+    }
+  }
+};
+
+// Periodic snapshots stay off the driver event loop. A slow snapshot is simply
+// skipped on the next tick rather than overlapping reads/writes.
+const mirrorUsageAsync = async () => {
+  if (usageMirrorStopped || usageMirrorInFlight) return;
+  usageMirrorInFlight = true;
+  let tmp = '';
+  try {
+    const sessionsDir = (process.env.MIXDOG_DATA_DIR || '') + '/sessions';
+    const files = (await readdir(sessionsDir)).filter((name) => name.endsWith('.json')).sort();
+    const sessions = [];
+    for (const file of files) {
+      try {
+        const doc = JSON.parse(await readFile(sessionsDir + '/' + file, 'utf8'));
+        sessions.push(sessionUsageRecord(doc, file));
+      } catch { /* partial/corrupt session write: skip until the next snapshot */ }
+    }
+    await mkdir(dirname(USAGE_LOG), { recursive: true });
+    tmp = `${USAGE_LOG}.tmp-${process.pid}-async`;
+    await writeFile(tmp, JSON.stringify(usageDocument(sessions), null, 2) + '\n');
+    if (usageMirrorStopped) {
+      await unlink(tmp).catch(() => {});
+      return;
+    }
+    // An already-issued rename may still land after the final sync write; that
+    // accepted race yields only a valid snapshot at most one interval stale.
+    await rename(tmp, USAGE_LOG);
+  } catch {
+    if (tmp) {
+      try { await unlink(tmp); } catch { /* best-effort cleanup */ }
+    }
+  } finally {
+    usageMirrorInFlight = false;
+  }
+};
+
+// Test/diagnostic entry point avoids booting the installed runtime.
+if (process.env.MIXDOG_USAGE_SUMMARY_ONLY === '1') {
+  mirrorUsageSync();
+  process.exit(0);
+}
 
 const SRC = process.env.MIXDOG_SRC;
 if (!SRC) {
@@ -45,26 +180,39 @@ const model = process.env.MIXDOG_MODEL || undefined;
 const effort = process.env.MIXDOG_EFFORT || '';
 const workflow = process.env.MIXDOG_WORKFLOW || '';
 const prompt = process.env.MIXDOG_PROMPT || '';
-// Refusal fallback policy: a guardrail false-positive refusal (stopReason=
-// refusal, zero tool calls) is retried once on an alternate configured route.
-// This is a documented harness policy, not per-task tampering: the prompt and
-// task are unchanged; only the model route differs.
-const FB_MODEL = process.env.MIXDOG_REFUSAL_FALLBACK_MODEL !== undefined
-  ? process.env.MIXDOG_REFUSAL_FALLBACK_MODEL
-  : 'gpt-5.6-sol';
-const FB_PROVIDER = process.env.MIXDOG_REFUSAL_FALLBACK_PROVIDER || 'openai-oauth';
-const FB_EFFORT = process.env.MIXDOG_REFUSAL_FALLBACK_EFFORT || 'xhigh';
-const FB_FAST_ENV = process.env.MIXDOG_REFUSAL_FALLBACK_FAST;
-const FB_FAST = FB_FAST_ENV === undefined
-  ? true
-  : !/^(?:|0|false|off)$/i.test(FB_FAST_ENV.trim());
+const parseFallbackRoute = (raw) => {
+  if (!raw) return null;
+  try {
+    const route = JSON.parse(raw);
+    if (
+      !route
+      || typeof route !== 'object'
+      || Array.isArray(route)
+      || Object.keys(route).sort().join(',') !== 'effort,fast,model,provider'
+      || typeof route.provider !== 'string'
+      || !route.provider.trim()
+      || typeof route.model !== 'string'
+      || !route.model.trim()
+      || !['low', 'medium', 'high', 'xhigh', 'max'].includes(route.effort)
+      || typeof route.fast !== 'boolean'
+    ) return null;
+    return route;
+  } catch {
+    return null;
+  }
+};
+const fallbackRoute = parseFallbackRoute(process.env.MIXDOG_LEAD_FALLBACK);
+// Refusal restart policy: if the primary Lead session terminates on an
+// API-level refusal, relaunch one full Lead session on the configured fallback
+// route. Without a valid fallback, or if that session also refuses, exit 86 so
+// Harbor retries the task as a fresh trial with a full task budget.
 // Driver loop deadline. Only a runaway-loop guard: the REAL per-task time
 // limit is enforced by Harbor (AgentTimeoutError), so this can sit far above
 // every task budget. The old fixed 30min cut long tasks (caffe-cifar-10)
 // while their heavy-worker was still training.
 const DEADLINE_MS = Number(process.env.MIXDOG_DRIVER_DEADLINE_MS ?? 180 * 60_000);
-// One deadline owns the complete primary/fallback run, including runtime
-// creation, boot jitter, and the initial turn.
+// One deadline owns the complete trial, including runtime creation, boot
+// jitter, and the initial turn.
 const RUN_DEADLINE = DEADLINE_MS >= 0 ? Date.now() + DEADLINE_MS : -1;
 const assertRunDeadline = (stage) => {
   if (RUN_DEADLINE >= 0 && Date.now() >= RUN_DEADLINE) {
@@ -80,16 +228,23 @@ const BOOT_JITTER_MS = Number(process.env.MIXDOG_BOOT_JITTER_MS ?? 30_000);
 // burning the whole Harbor budget inside a hung request.
 const STALL_MS = Number(process.env.MIXDOG_STALL_MS || 6 * 60_000);
 const MAX_STALL_RETRIES = Number(process.env.MIXDOG_STALL_RETRIES || 2);
+usageMirrorTimer = setInterval(() => { void mirrorUsageAsync(); }, 30_000);
+usageMirrorTimer.unref?.();
+void mirrorUsageAsync();
 
 // Refusal detection: the session manager logs
-// "[session] empty-final persisted ... stopReason=refusal" to stderr when the
-// LEAD session terminates on an API-level refusal (no tool calls, empty
-// final). The runtime does not surface stopReason through ask(), so tap the
-// in-process stderr stream for the marker.
-let refusalSeen = false;
+// "[session] empty-final persisted sessionId=<sid> ... stopReason=refusal" to
+// stderr when a session terminates on an API-level refusal. The runtime does
+// not surface stopReason through ask(), so retain the terminated session IDs
+// from the in-process stderr stream and match the returned lead session.
+const refusalSessionIds = new Set();
 const _origErrWrite = process.stderr.write.bind(process.stderr);
 process.stderr.write = (chunk, enc, cb) => {
-  try { if (String(chunk).includes('stopReason=refusal')) refusalSeen = true; } catch { /* detector only */ }
+  try {
+    for (const match of String(chunk).matchAll(/\[session\] empty-final persisted sessionId=([^\s]+).*stopReason=refusal/g)) {
+      refusalSessionIds.add(match[1]);
+    }
+  } catch { /* detector only */ }
   return _origErrWrite(chunk, enc, cb);
 };
 
@@ -115,55 +270,6 @@ const shellJobsBusy = () => {
   return false;
 };
 
-// Runtime setters intentionally persist the selected route as workflowRoutes.lead.
-// For a one-shot refusal retry, use the existing CLI preset-selector path instead:
-// briefly add an unreferenced preset to the copied config, let runtime creation
-// resolve it into its private route state, then restore the config byte-for-byte.
-// The temporary preset is never a default/workflow route, so agent routing stays
-// on the copied benchmark configuration.
-const createEphemeralRouteRuntime = async (route) => {
-  const configPath = (process.env.MIXDOG_DATA_DIR || '') + '/mixdog-config.json';
-  const original = readFileSync(configPath, 'utf8');
-  const configDoc = JSON.parse(original);
-  if (!configDoc?.agent || typeof configDoc.agent !== 'object') {
-    throw new Error('lead_driver: copied config has no agent section');
-  }
-
-  const presetId = `terminal-bench-refusal-${process.pid}-${Date.now()}`;
-  const settingsKey = `${route.provider}/${route.model}`;
-  const agent = configDoc.agent;
-  configDoc.agent = {
-    ...agent,
-    presets: [
-      ...(Array.isArray(agent.presets) ? agent.presets : []),
-      {
-        id: presetId,
-        name: presetId,
-        provider: route.provider,
-        model: route.model,
-        ...(route.effort ? { effort: route.effort } : {}),
-        ...(route.fast === true ? { fast: true } : {}),
-        tools: 'full',
-      },
-    ],
-    modelSettings: {
-      ...(agent.modelSettings || {}),
-      [settingsKey]: {
-        ...(agent.modelSettings?.[settingsKey] || {}),
-        ...(route.effort ? { effort: route.effort } : {}),
-        ...(route.fast !== undefined ? { fast: route.fast } : {}),
-      },
-    },
-  };
-
-  try {
-    writeFileSync(configPath, JSON.stringify(configDoc, null, 2) + '\n');
-    return await createMixdogSessionRuntime({ model: presetId });
-  } finally {
-    writeFileSync(configPath, original);
-  }
-};
-
 // Drive one full Lead session (create runtime -> auto-resume loop -> close).
 // Mirrors the TUI auto-resume (engine/agent-job-feed.mjs): a runtime
 // notification enqueues the model-visible completion into the session's
@@ -172,23 +278,21 @@ const createEphemeralRouteRuntime = async (route) => {
 // 'continue' / verdict heuristic: resume per kick, finish when no kick
 // arrived during the last turn and the agent board is clear.
 const driveSession = async (route) => {
-  assertRunDeadline(route.ephemeral ? 'fallback session' : 'primary session');
+  assertRunDeadline('primary session');
   let rt = null;
   let stallTimer = null;
   let lifecycleCompleted = false;
   try {
-    rt = route.ephemeral
-      ? await createEphemeralRouteRuntime(route)
-      : await createMixdogSessionRuntime({ provider: route.provider, model: route.model });
+    rt = await createMixdogSessionRuntime({ provider: route.provider, model: route.model });
     if (workflow) {
       assertRunDeadline('workflow setup');
       await rt.setWorkflow(normalizeWorkflowId(workflow));
     }
-    if (!route.ephemeral && route.effort) {
+    if (route.effort) {
       assertRunDeadline('effort setup');
       await rt.setEffort(route.effort);
     }
-    if (!route.ephemeral && route.fast !== undefined) {
+    if (route.fast !== undefined) {
       assertRunDeadline('fast-mode setup');
       await rt.setFast(route.fast);
     }
@@ -254,6 +358,9 @@ const driveSession = async (route) => {
             }),
           ]);
       const { result } = await resultPromise;
+      const finalText = String(result?.text ?? '');
+      const resolvedSid = rt.sessionId || rt.session?.id || '';
+      if (resolvedSid && finalText.trim()) refusalSessionIds.delete(resolvedSid);
       return String(result?.text ?? t ?? '');
     } catch (err) {
       if (deadlineAborted) {
@@ -368,20 +475,33 @@ const sids = [];
 let { text, sid } = await driveSession({ provider, model, effort });
 sids.push(sid);
 
-// Guardrail false-positive fallback: only when the PRIMARY lead refused at
-// the API level AND produced no usable output (refusal marker + empty final
-// text). A sub-agent refusal inside an otherwise-completed run does not
-// trigger a rerun. Skipped when the fallback route is the primary route or
-// explicitly disabled (MIXDOG_REFUSAL_FALLBACK_MODEL=).
-const fallbackIsPrimary = FB_PROVIDER === provider && FB_MODEL === model;
-if (refusalSeen && !String(text || '').trim() && FB_MODEL && !fallbackIsPrimary) {
-  assertRunDeadline('refusal fallback');
-  process.stdout.write(`refusal-fallback: primary route refused (sess=${sid}); retrying with ${FB_PROVIDER}/${FB_MODEL} effort=${FB_EFFORT} fast=${FB_FAST}\n`);
-  refusalSeen = false;
-  const retry = await driveSession({ provider: FB_PROVIDER, model: FB_MODEL, effort: FB_EFFORT, fast: FB_FAST, ephemeral: true });
-  text = retry.text;
-  sid = retry.sid;
-  sids.push(retry.sid);
+// Restart only when the PRIMARY lead session's ID has an API-level refusal
+// marker. A sub-agent refusal has a different session ID and does not restart
+// an otherwise-completed Lead run.
+const refusalGateHit = refusalSessionIds.has(sid);
+process.stdout.write(`refusal-gate: sid=${sid} refused=${refusalGateHit}\n`);
+if (refusalGateHit) {
+  process.stdout.write(`refusal-restart: lead session terminated on refusal (sess=${sid}); exiting 86 so Harbor retries a fresh trial\n`);
+  if (!fallbackRoute) process.exit(86);
+
+  process.stdout.write(
+    `refusal-fallback: relaunching lead on ${fallbackRoute.provider}/${fallbackRoute.model} effort=${fallbackRoute.effort}\n`,
+  );
+  try {
+    ({ text, sid } = await driveSession(fallbackRoute));
+  } catch (error) {
+    process.stderr.write(
+      `lead_driver: refusal fallback failed; exiting 86: ${error?.message || error}\n`,
+    );
+    process.exit(86);
+  }
+  sids.push(sid);
+  const fallbackRefusalGateHit = refusalSessionIds.has(sid);
+  process.stdout.write(`refusal-gate: sid=${sid} refused=${fallbackRefusalGateHit}\n`);
+  if (fallbackRefusalGateHit) {
+    process.stdout.write(`refusal-restart: lead session terminated on refusal (sess=${sid}); exiting 86 so Harbor retries a fresh trial\n`);
+    process.exit(86);
+  }
 }
 
 // Sanity: extract the model(s) the runtime actually used from the session
@@ -402,4 +522,7 @@ try {
 }
 process.stdout.write('sessionId: ' + sid + '\n');
 process.stdout.write(text + '\n');
+usageMirrorStopped = true;
+if (usageMirrorTimer) clearInterval(usageMirrorTimer);
+mirrorUsageSync();
 process.exit(0);

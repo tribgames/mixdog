@@ -36,7 +36,6 @@ from .routing_profiles import (
     format_resolved_routes,
     load_route_profile,
     merge_route_profile,
-    refusal_fallback_env,
     reject_profile_conflicts,
 )
 from .src_overlay import (
@@ -52,23 +51,11 @@ DEFAULT_MIXDOG_VERSION = "0.9.40"
 # an explicit kwarg, the runtime boots the user's configured route + active
 # workflow from the copied mixdog-config.json.
 
-# Prepended to the instruction on the Lead path. Default-workflow Lead pauses
-# for user plan-approval; a headless bench has no user, so Lead would propose a
-# plan / ask a question and end the turn (observed: fix-git ended with "Shall I
-# merge...?" after 22s, no work). This grants standing pre-approval so Lead
-# executes end-to-end instead of halting for confirmation.
-EXECUTION_MANDATE = (
-    "Benchmark context: this is an automated evaluation trial from the "
-    "public terminal-bench 2.1 suite, executed by the Harbor runner inside "
-    "an isolated, disposable Docker container. Every file, dataset, and "
-    "service involved is a local synthetic fixture created for this task; "
-    "nothing touches real users, networks of record, or production systems. "
-    "An automated verifier scores the container afterward.\n\n"
-    "Headless benchmark run: no user is available to answer questions or "
-    "approve plans. You have full pre-approval to act. Execute the task "
-    "end-to-end without asking, verify your work, and finish. Never end the "
-    "turn with a question, a plan awaiting approval, or a proposed next step "
-    "\u2014 just do it.\n\n"
+# Prepended to the Lead instruction because the stock default workflow pauses
+# for interactive approval. Keep this narrow: broad execution directives
+# historically suppressed the default workflow's delegate-by-default behavior.
+HEADLESS_BENCH_MANDATE = (
+    "[Headless bench run: no user is present. Standing pre-approval covers this entire task - never draft a plan and wait for approval, never ask questions or end a turn waiting for a reply; decide and proceed until the task is verified complete or provably blocked. All other workflow rules, including delegation and review, apply unchanged.]\n\n"
 )
 
 # Where the OAuth credentials file lands inside the container. Also used as
@@ -79,16 +66,6 @@ CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
 # Full-Lead-session driver, uploaded next to the creds and run with node.
 CONTAINER_LEAD_DRIVER = f"{CONTAINER_DATA_DIR}/lead_driver.mjs"
 HOST_LEAD_DRIVER = Path(__file__).with_name("lead_driver.mjs")
-# Bench workflow pack (repo copy of the CURRENT Default tuned for headless
-# autonomy: approval gate removed). Uploaded into the container data dir,
-# where user packs override the built-in pack shipped in the npm package —
-# so the run always uses the repo's current tuning. Missing file => the
-# built-in pack from the installed mixdog version applies.
-HOST_BENCH_WORKFLOW = (
-    Path(__file__).resolve().parents[3] / "src" / "workflows" / "bench" / "WORKFLOW.md"
-)
-CONTAINER_BENCH_WORKFLOW = f"{CONTAINER_DATA_DIR}/workflows/bench/WORKFLOW.md"
-
 # Repo-src overlay: the static compatibility manifest is unioned with every
 # Git modified/untracked src file, then copied over the npm-installed package.
 # Paths are relative to src/ and to <npm root -g>/mixdog/src/.
@@ -253,9 +230,9 @@ class MixdogAgent(BaseInstalledAgent):
         # mode: "lead" (full session runtime + agent fan-out, default) or
         # "worker" (single headless role). Selectable via --ak mode=worker.
         self._mode = (mode or "lead").strip().lower()
-        # Default to the bench workflow (headless-autonomous Default). Pass
-        # --ak workflow=default to run the configured gated workflow instead.
-        self._workflow = workflow or "bench"
+        # Bench runs use the stock default workflow; the prompt-level mandate
+        # bypasses only waiting for interactive approval.
+        self._workflow = workflow or "default"
         # None => use the configured route provider; e.g.
         # --ak provider=anthropic-oauth.
         self._provider = provider
@@ -378,13 +355,6 @@ class MixdogAgent(BaseInstalledAgent):
             if generated_dir is not None:
                 generated_dir.cleanup()
             credential_snapshot_dir.cleanup()
-        # Bench workflow pack override (see HOST_BENCH_WORKFLOW note above).
-        if HOST_BENCH_WORKFLOW.is_file():
-            await self.exec_as_root(
-                environment,
-                command=f"mkdir -p {CONTAINER_DATA_DIR}/workflows/bench",
-            )
-            await environment.upload_file(HOST_BENCH_WORKFLOW, CONTAINER_BENCH_WORKFLOW)
         await self._inject_src_overlay(environment)
         # Own/secure the copied setup so the user mixdog can read it; OAuth
         # refresh is explicitly forbidden below. default_user None => root.
@@ -507,6 +477,33 @@ class MixdogAgent(BaseInstalledAgent):
             await self._run_worker(environment, instruction, model, base_env)
         else:
             await self._run_lead(environment, instruction, model, base_env)
+        await self._populate_usage_context(environment, context)
+
+    async def _populate_usage_context(self, environment, context) -> None:
+        """Best-effort copy of the driver's aggregate usage into Harbor."""
+        try:
+            result = await environment.exec(
+                command="cat /logs/agent/usage.json"
+            )
+            if getattr(result, "return_code", 1) != 0:
+                return
+            document = json.loads(getattr(result, "stdout", "") or "")
+            totals = document.get("totals")
+            if not isinstance(totals, dict):
+                return
+            fields = (
+                ("n_input_tokens", "inputTokens"),
+                ("n_cache_tokens", "cacheTokens"),
+                ("n_output_tokens", "outputTokens"),
+            )
+            model_fields = getattr(type(context), "model_fields", {})
+            for target, source in fields:
+                if hasattr(context, target) or target in model_fields:
+                    setattr(context, target, max(0, int(totals.get(source, 0) or 0)))
+        except Exception:
+            # Older Harbor schemas, missing snapshots, and container read
+            # failures are all intentionally non-fatal.
+            return
 
     async def _run_worker(self, environment, instruction, model, base_env):
         # Worker path still needs an explicit route; fall back to a sane model.
@@ -540,18 +537,10 @@ class MixdogAgent(BaseInstalledAgent):
             )
         run_env = {
             **base_env,
-            # Raw task instruction, no prepended mandate: the bench workflow
-            # pack already grants standing pre-approval / no-questions, and the
-            # old EXECUTION_MANDATE ("execute end-to-end ... just do it")
-            # suppressed the workflow's delegate-by-default (observed: zero
-            # agent-tool delegations across all runs; fix-git smoke confirmed).
-            "MIXDOG_PROMPT": instruction,
+            # This narrow headless waiver preserves stock-workflow delegation
+            # and review rules; broad execution mandates suppressed delegation.
+            "MIXDOG_PROMPT": HEADLESS_BENCH_MANDATE + instruction,
         }
-        # A route profile owns its refusal fallback. Inject it only into the
-        # disposable container's Lead-driver process; product/host defaults
-        # and the copied host source config remain untouched.
-        if self._route_profile is not None:
-            run_env.update(refusal_fallback_env(self._route_profile))
         # Only set overrides when explicitly requested; otherwise the driver
         # boots the user's configured route + active workflow.
         if model:
@@ -562,6 +551,10 @@ class MixdogAgent(BaseInstalledAgent):
             run_env["MIXDOG_EFFORT"] = self._effort
         if self._workflow:
             run_env["MIXDOG_WORKFLOW"] = self._workflow
+        if self._route_profile and "leadFallback" in self._route_profile:
+            run_env["MIXDOG_LEAD_FALLBACK"] = json.dumps(
+                self._route_profile["leadFallback"], separators=(",", ":")
+            )
         lead_pipeline = (
             "mkdir -p /logs/agent; "
             'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '

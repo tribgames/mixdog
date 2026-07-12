@@ -19,7 +19,8 @@ PROFILE_ROLES = (
 )
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 ROUTE_FIELDS = {"provider", "model", "effort", "fast"}
-PROFILE_FIELDS = {"routes", "refusalFallback"}
+PROFILE_REQUIRED_FIELDS = {"routes"}
+PROFILE_OPTIONAL_FIELDS = {"leadFallback"}
 AGENT_CONFIG_KEYS = {
     "worker": "worker",
     "heavy-worker": "heavy-worker",
@@ -97,11 +98,17 @@ def validate_profile_document(document: Any) -> dict[str, Any]:
     for profile_name, profile in profiles.items():
         if not _nonempty_string(profile_name):
             raise RouteProfileError("routing profile names must be non-empty strings")
-        if not isinstance(profile, dict) or set(profile) != PROFILE_FIELDS:
+        profile_fields = set(profile) if isinstance(profile, dict) else set()
+        if (
+            not isinstance(profile, dict)
+            or not PROFILE_REQUIRED_FIELDS <= profile_fields
+            or profile_fields - PROFILE_REQUIRED_FIELDS - PROFILE_OPTIONAL_FIELDS
+        ):
             raise RouteProfileError(
-                f"profile {profile_name!r} must contain exactly routes and "
-                "refusalFallback"
+                f"profile {profile_name!r} must contain routes and optionally leadFallback"
             )
+        if "leadFallback" in profile:
+            _validate_route(profile_name, "leadFallback", profile["leadFallback"])
         routes = profile["routes"]
         if not isinstance(routes, dict) or set(routes) != expected_roles:
             missing = sorted(expected_roles - set(routes)) if isinstance(routes, dict) else []
@@ -112,9 +119,6 @@ def validate_profile_document(document: Any) -> dict[str, Any]:
             )
         for role in PROFILE_ROLES:
             _validate_route(profile_name, role, routes[role])
-        _validate_route(
-            profile_name, "refusalFallback", profile["refusalFallback"]
-        )
     return document
 
 
@@ -231,17 +235,6 @@ def merge_route_profile(
     return merged
 
 
-def refusal_fallback_env(profile: dict[str, Any]) -> dict[str, str]:
-    """Return the Lead-driver env owned by a validated routing profile."""
-    route = profile["refusalFallback"]
-    return {
-        "MIXDOG_REFUSAL_FALLBACK_PROVIDER": route["provider"],
-        "MIXDOG_REFUSAL_FALLBACK_MODEL": route["model"],
-        "MIXDOG_REFUSAL_FALLBACK_EFFORT": route["effort"],
-        "MIXDOG_REFUSAL_FALLBACK_FAST": str(route["fast"]).lower(),
-    }
-
-
 def format_resolved_routes(profile_name: str, profile: dict[str, Any]) -> str:
     """Produce stable, audit-friendly resolved-route logging."""
     parts = []
@@ -251,9 +244,4 @@ def format_resolved_routes(profile_name: str, profile: dict[str, Any]) -> str:
             f"{role}={route['provider']}/{route['model']} "
             f"effort={route['effort']} fast={str(route['fast']).lower()}"
         )
-    fallback = profile["refusalFallback"]
-    parts.append(
-        f"refusal-fallback={fallback['provider']}/{fallback['model']} "
-        f"effort={fallback['effort']} fast={str(fallback['fast']).lower()}"
-    )
     return f"route-profile {profile_name}: " + "; ".join(parts)

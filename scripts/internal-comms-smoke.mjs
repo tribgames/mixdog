@@ -57,7 +57,6 @@ function frontmatter(text, label) {
 const workflow = readSrc('workflows', 'default', 'WORKFLOW.md');
 const leadBrief = readSrc('rules', 'lead', 'lead-brief.md');
 const solo = readSrc('workflows', 'solo', 'WORKFLOW.md');
-const bench = readSrc('workflows', 'bench', 'WORKFLOW.md');
 const general = readSrc('rules', 'lead', '01-general.md');
 const leadTool = readSrc('rules', 'lead', 'lead-tool.md');
 const core = readSrc('rules', 'agent', '00-core.md');
@@ -121,21 +120,6 @@ requireAll(workflow, 'Default approval', [
   /initial\/additional\/changed requests reset planning/, /scope change needs a revised plan and fresh approval/,
   /no edits, state mutation, or delegation/,
 ]);
-function routingReviewBlocks(text, label) {
-  const source = String(text).replace(/\r\n/g, '\n');
-  return {
-    routing: block(source, 'Lead orchestrates and verifies.', '1. Plan:', `${label} routing policy`),
-    review: block(source, '3. Review:', '\n4.', `${label} review policy`),
-  };
-}
-const defaultPolicy = routingReviewBlocks(workflow, 'Default');
-const benchPolicy = routingReviewBlocks(bench, 'Bench');
-for (const section of ['routing', 'review']) {
-  assert(
-    defaultPolicy[section] === benchPolicy[section],
-    `Default/Bench ${section} policy must be identical after normalization`,
-  );
-}
 const ROUTING_REVIEW_POLICY = [
   /lead-direct work is allowed only for pure read\/analysis, git\/configuration/,
   /user explicitly supplies both the exact target and exact replacement\/output/,
@@ -154,13 +138,11 @@ const ROUTING_REVIEW_POLICY = [
   /loop fix -> re-verify \(same reviewer \+ lead re-check\) until clean/,
   /exempt mutations still require shell self-verification/,
 ];
-for (const [label, text] of [['Default', workflow], ['Bench', bench]]) {
-  requireAll(text, `${label} routing/review parity`, ROUTING_REVIEW_POLICY);
-  assert(
-    !/(high clarity|low structural complexity|immediate 1-step|genuinely simple)/i.test(text),
-    `${label}: heuristic routing/review language must not return`,
-  );
-}
+requireAll(workflow, 'Default routing/review policy', ROUTING_REVIEW_POLICY);
+assert(
+  !/(high clarity|low structural complexity|immediate 1-step|genuinely simple)/i.test(workflow),
+  'Default: heuristic routing/review language must not return',
+);
 requireAll(workflow, 'Default lifecycle', [
   /draft before any implementation/, /all ready scopes in one turn, with no count cap/,
   /real dependency, overlapping write, or inseparable coupling/,
@@ -181,19 +163,15 @@ requireAll(solo, 'Solo lifecycle', [
   /interim updates are in-progress, never conclusions/,
   /issue-free feedback/,
 ]);
-requireAll(bench, 'Bench lifecycle', [
-  /never ask questions, propose plans for approval, or end the turn waiting/,
-  /verified complete or provably blocked/, /all ready scopes in one turn, with no count cap/,
-  /after async spawn, end the turn/, /original live session/,
-  /hard blocked/, /outcome and evidence/,
-]);
 requireAll(leadTool, 'Lead tools', [
   /write-role agents self-verify/, /cross-scope verification.*benches.*all git/,
-  /workflow permits delegation/, /no-delegation workflow.*controls/,
 ]);
 requireAll(general, 'General safety', [
   /identify as mixdog\/current coding agent/, /destructive\/hard-to-reverse action needs explicit confirmation/,
-  /never push, build, deploy without explicit user request/, /implementation approval is not deploy approval/,
+]);
+requireAll(workflow, 'Default ship safety', [
+  /build\/deploy\/commit\/push require an explicit user request after issue-free feedback/,
+  /implementation approval alone is insufficient/,
 ]);
 requireAll(skip, 'Silent skip', [
   /webhook-handler/, /scheduler-task/, /label-only, duplicate\/dedup, no action needed\/report/,
@@ -234,7 +212,11 @@ Review the approved intent, diff, and tests with independent judgment. Prioritiz
 actionable correctness, regression, security, and verification risks; inspect
 affected boundaries. Do not reimplement the change or report non-risky nits.
 Report findings first, severity-ordered, with one line per \`file:line\`. If clean,
-say so in one line and include only material residual risk.`,
+say so in one line and include only material residual risk.
+
+When the work comes with stated criteria or reference material for judging
+it, verify against those as given — substituting your own interpretation or
+a self-built check is a verification risk to report.`,
   'debugger/AGENT.md': `# Debugger
 Root-cause analysis agent.
 

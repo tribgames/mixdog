@@ -45,19 +45,15 @@ from harness.src_overlay import (  # noqa: E402
 EXPECTED_AUDIT_LINE = (
     "route-profile fable-xhigh: "
     "lead=anthropic-oauth/claude-fable-5 effort=xhigh fast=false; "
-    "worker=openai-oauth/gpt-5.6-sol effort=medium fast=true; "
+    "worker=openai-oauth/gpt-5.6-terra effort=high fast=true; "
     "heavy-worker=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
     "reviewer=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
     "debugger=openai-oauth/gpt-5.6-sol effort=max fast=true; "
-    "explorer=openai-oauth/gpt-5.6-luna effort=low fast=true; "
-    "refusal-fallback=anthropic-oauth/claude-opus-4-8 effort=xhigh fast=false"
+    "explorer=openai-oauth/gpt-5.6-luna effort=low fast=true"
 )
-FALLBACK_ENV = {
-    "MIXDOG_REFUSAL_FALLBACK_PROVIDER": "anthropic-oauth",
-    "MIXDOG_REFUSAL_FALLBACK_MODEL": "claude-opus-4-8",
-    "MIXDOG_REFUSAL_FALLBACK_EFFORT": "xhigh",
-    "MIXDOG_REFUSAL_FALLBACK_FAST": "false",
-}
+HEADLESS_BENCH_MANDATE = (
+    "[Headless bench run: no user is present. Standing pre-approval covers this entire task - never draft a plan and wait for approval, never ask questions or end a turn waiting for a reply; decide and proceed until the task is verified complete or provably blocked. All other workflow rules, including delegation and review, apply unchanged.]\n\n"
+)
 OVERLAY_APPLIER = HARNESS_ROOT / "src_overlay_apply.mjs"
 
 
@@ -174,16 +170,16 @@ class RoutingProfileTests(unittest.TestCase):
 
     def test_profile_schema_and_exact_routes(self) -> None:
         validated = validate_profile_document(self.document)
-        self.assertEqual(set(validated["profiles"]), {"fable-xhigh"})
+        self.assertEqual(set(validated["profiles"]), {"fable-xhigh", "fable-high"})
         profile = load_route_profile("fable-xhigh")
         self.assertEqual(tuple(profile["routes"]), PROFILE_ROLES)
         self.assertEqual(
-            profile["refusalFallback"],
+            profile["leadFallback"],
             {
-                "provider": "anthropic-oauth",
-                "model": "claude-opus-4-8",
+                "provider": "openai-oauth",
+                "model": "gpt-5.6-sol",
                 "effort": "xhigh",
-                "fast": False,
+                "fast": True,
             },
         )
         self.assertEqual(
@@ -197,8 +193,8 @@ class RoutingProfileTests(unittest.TestCase):
                 },
                 "worker": {
                     "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
-                    "effort": "medium",
+                    "model": "gpt-5.6-terra",
+                    "effort": "high",
                     "fast": True,
                 },
                 "heavy-worker": {
@@ -242,12 +238,9 @@ class RoutingProfileTests(unittest.TestCase):
         non_boolean_fast = copy.deepcopy(self.document)
         non_boolean_fast["profiles"]["fable-xhigh"]["routes"]["worker"]["fast"] = "true"
         cases.append(non_boolean_fast)
-        missing_fallback = copy.deepcopy(self.document)
-        del missing_fallback["profiles"]["fable-xhigh"]["refusalFallback"]
-        cases.append(missing_fallback)
-        incomplete_fallback = copy.deepcopy(self.document)
-        del incomplete_fallback["profiles"]["fable-xhigh"]["refusalFallback"]["fast"]
-        cases.append(incomplete_fallback)
+        invalid_fallback = copy.deepcopy(self.document)
+        invalid_fallback["profiles"]["fable-xhigh"]["leadFallback"]["fast"] = "true"
+        cases.append(invalid_fallback)
         for malformed in cases:
             with self.subTest(malformed=malformed), self.assertRaises(RouteProfileError):
                 validate_profile_document(malformed)
@@ -350,7 +343,6 @@ class RoutingProfileTests(unittest.TestCase):
             merged["agent"]["modelSettings"]["keep/keep"],
             original["agent"]["modelSettings"]["keep/keep"],
         )
-        self.assertNotIn("refusalFallback", merged["agent"])
         self.assertEqual(merged["unrelated"], original["unrelated"])
 
     def test_real_runtime_helpers_resolve_merged_lead_and_agent_routes(self) -> None:
@@ -812,6 +804,7 @@ class SrcOverlayTests(unittest.TestCase):
             for path in (changed + untracked).split(b"\0")
             if path
         }
+        expected.discard("workflows/bench/WORKFLOW.md")
         self.assertEqual(discovered, expected)
 
 
@@ -853,8 +846,15 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         sys.modules.pop(module_name, None)
         return module
 
+    def test_adapter_defaults_to_stock_workflow_with_headless_mandate(self) -> None:
+        module = self.load_adapter_module()
+        agent = module.MixdogAgent()
+
+        self.assertEqual(agent._workflow, "default")
+        self.assertEqual(module.HEADLESS_BENCH_MANDATE, HEADLESS_BENCH_MANDATE)
+
     @staticmethod
-    async def capture_lead_env(module, profile, base_env):
+    async def capture_lead_env(module, profile, base_env, workflow="default"):
         captured = []
 
         class Environment:
@@ -863,12 +863,10 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             async def upload_file(self, source, destination):
                 return None
 
-        agent = module.MixdogAgent.__new__(module.MixdogAgent)
+        agent = module.MixdogAgent(workflow=workflow)
         agent._route_profile = profile
         agent._provider = None
         agent._effort = None
-        agent._workflow = "bench"
-
         async def exec_as_root(environment, *, command, env=None):
             return None
 
@@ -880,59 +878,49 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         await agent._run_lead(Environment(), "adapter task", None, base_env)
         return captured[0]
 
-    def test_profile_fallback_is_only_in_child_env_and_overrides_base_values(self) -> None:
+    def test_explicit_workflow_override_preserves_headless_mandate(self) -> None:
         module = self.load_adapter_module()
-        profile = load_route_profile("fable-xhigh")
-        profile_before = copy.deepcopy(profile)
-        stale_base = {
-            "BASE_SENTINEL": "preserved",
-            **{key: f"stale-{index}" for index, key in enumerate(FALLBACK_ENV)},
+        child_env = asyncio.run(
+            self.capture_lead_env(
+                module,
+                None,
+                {"BASE_SENTINEL": "preserved"},
+                workflow="custom",
+            )
+        )
+
+        self.assertEqual(child_env["MIXDOG_WORKFLOW"], "custom")
+        self.assertEqual(
+            child_env["MIXDOG_PROMPT"], HEADLESS_BENCH_MANDATE + "adapter task"
+        )
+
+    def test_profile_lead_fallback_is_plumbed_only_when_present(self) -> None:
+        module = self.load_adapter_module()
+        fallback = {
+            "provider": "openai-oauth",
+            "model": "gpt-5.6-sol",
+            "effort": "xhigh",
+            "fast": True,
         }
-        stale_base_before = copy.deepcopy(stale_base)
-        host_values = {key: f"host-{index}" for index, key in enumerate(FALLBACK_ENV)}
-
-        with mock.patch.dict(os.environ, host_values, clear=False):
-            child_env = asyncio.run(
-                self.capture_lead_env(module, profile, stale_base)
+        with_fallback = asyncio.run(
+            self.capture_lead_env(
+                module,
+                {"routes": {}, "leadFallback": fallback},
+                {"BASE_SENTINEL": "preserved"},
             )
-            self.assertEqual(
-                {key: os.environ[key] for key in FALLBACK_ENV}, host_values
+        )
+        without_fallback = asyncio.run(
+            self.capture_lead_env(
+                module,
+                {"routes": {}},
+                {"BASE_SENTINEL": "preserved"},
             )
+        )
 
         self.assertEqual(
-            child_env,
-            {
-                "BASE_SENTINEL": "preserved",
-                **FALLBACK_ENV,
-                "MIXDOG_PROMPT": "adapter task",
-                "MIXDOG_WORKFLOW": "bench",
-            },
+            json.loads(with_fallback["MIXDOG_LEAD_FALLBACK"]), fallback
         )
-        self.assertEqual(stale_base, stale_base_before)
-        self.assertEqual(profile, profile_before)
-
-    def test_no_profile_adds_no_fallback_child_env(self) -> None:
-        module = self.load_adapter_module()
-        base_env = {"BASE_SENTINEL": "preserved"}
-        host_values = {key: f"host-{index}" for index, key in enumerate(FALLBACK_ENV)}
-
-        with mock.patch.dict(os.environ, host_values, clear=False):
-            child_env = asyncio.run(
-                self.capture_lead_env(module, None, base_env)
-            )
-            self.assertEqual(
-                {key: os.environ[key] for key in FALLBACK_ENV}, host_values
-            )
-
-        self.assertEqual(
-            child_env,
-            {
-                "BASE_SENTINEL": "preserved",
-                "MIXDOG_PROMPT": "adapter task",
-                "MIXDOG_WORKFLOW": "bench",
-            },
-        )
-        self.assertEqual(base_env, {"BASE_SENTINEL": "preserved"})
+        self.assertNotIn("MIXDOG_LEAD_FALLBACK", without_fallback)
 
     def test_run_forbids_anthropic_refresh_without_serializing_trials(self) -> None:
         module = self.load_adapter_module()
@@ -1011,7 +999,6 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 mock.patch.object(
                     module, "_run_anthropic_preflight", side_effect=fake_preflight
                 ),
-                mock.patch.object(module, "HOST_BENCH_WORKFLOW", data / "missing"),
             ):
                 asyncio.run(agent._inject_credentials(Environment()))
 
@@ -1048,6 +1035,41 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertIn('exit "$status"', command)
         self.assertEqual(child_env, base_env)
 
+    def test_usage_totals_populate_supported_harbor_context_fields(self) -> None:
+        module = self.load_adapter_module()
+        agent = module.MixdogAgent.__new__(module.MixdogAgent)
+
+        class Result:
+            return_code = 0
+            stdout = json.dumps(
+                {
+                    "totals": {
+                        "inputTokens": 123,
+                        "cacheTokens": 45,
+                        "outputTokens": 67,
+                    }
+                }
+            )
+
+        class Environment:
+            async def exec(self, *, command):
+                self.command = command
+                return Result()
+
+        class Context:
+            n_input_tokens = None
+            n_cache_tokens = None
+            n_output_tokens = None
+
+        environment = Environment()
+        context = Context()
+        asyncio.run(agent._populate_usage_context(environment, context))
+        self.assertEqual(environment.command, "cat /logs/agent/usage.json")
+        self.assertEqual(
+            (context.n_input_tokens, context.n_cache_tokens, context.n_output_tokens),
+            (123, 45, 67),
+        )
+
     def test_installer_guarantees_gnu_timeout_on_every_package_manager_path(self) -> None:
         module = self.load_adapter_module()
         commands = []
@@ -1080,7 +1102,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         agent._route_profile = None
         agent._provider = None
         agent._effort = None
-        agent._workflow = "bench"
+        agent._workflow = "default"
 
         async def exec_as_root(environment, *, command, env=None):
             return None
@@ -1102,7 +1124,8 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         )
         self.assertIn("GNU coreutils", command)
         self.assertIn("node /opt/mixdog/lead_driver.mjs", command)
-        self.assertEqual(run_env["MIXDOG_PROMPT"], "fixture")
+        self.assertEqual(run_env["MIXDOG_PROMPT"], HEADLESS_BENCH_MANDATE + "fixture")
+        self.assertEqual(run_env["MIXDOG_WORKFLOW"], "default")
 
     @unittest.skipUnless(
         os.environ.get("MIXDOG_RUN_CONTAINER_PROBE") == "1",
@@ -1369,7 +1392,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             agent._mode = "lead"
             agent._provider = None
             agent._effort = None
-            agent._workflow = "bench"
+            agent._workflow = "default"
             commands = []
             agent_commands = []
 
@@ -1657,7 +1680,6 @@ export async function createMixdogSessionRuntime() {
                     "MIXDOG_PROVIDER": "anthropic-oauth",
                     "MIXDOG_MODEL": "claude-fixture",
                     "MIXDOG_PROMPT": "never completes",
-                    "MIXDOG_REFUSAL_FALLBACK_MODEL": "",
                     "MIXDOG_BOOT_JITTER_MS": "0",
                     "MIXDOG_DRIVER_DEADLINE_MS": "50",
                 },
@@ -1705,7 +1727,6 @@ export async function createMixdogSessionRuntime() {
                     "MIXDOG_PROVIDER": "anthropic-oauth",
                     "MIXDOG_MODEL": "claude-fixture",
                     "MIXDOG_PROMPT": "must not start",
-                    "MIXDOG_REFUSAL_FALLBACK_MODEL": "",
                     "MIXDOG_BOOT_JITTER_MS": "0",
                     "MIXDOG_DRIVER_DEADLINE_MS": "0",
                 },
@@ -1718,7 +1739,7 @@ export async function createMixdogSessionRuntime() {
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("run deadline exceeded before primary session", result.stderr)
 
-    def test_driver_rejects_late_refusal_fallback_before_start(self) -> None:
+    def test_driver_exits_86_after_late_lead_refusal(self) -> None:
         if shutil.which("node") is None:
             self.skipTest("Node.js is not installed")
         runtime_stub = """
@@ -1739,7 +1760,7 @@ export async function createMixdogSessionRuntime() {
     agentStatus() { return { agentJobs: [] }; },
     abort() {},
     async ask() {
-      process.stderr.write('[session] empty-final persisted stopReason=refusal\\n');
+      process.stderr.write('[session] empty-final persisted sessionId=late-fallback-primary detail=fixture stopReason=refusal\\n');
       return { result: { text: '' } };
     },
     async close() {
@@ -1771,8 +1792,6 @@ export async function createMixdogSessionRuntime() {
                     "MIXDOG_PROVIDER": "anthropic-oauth",
                     "MIXDOG_MODEL": "claude-primary",
                     "MIXDOG_PROMPT": "refuse",
-                    "MIXDOG_REFUSAL_FALLBACK_PROVIDER": "anthropic-oauth",
-                    "MIXDOG_REFUSAL_FALLBACK_MODEL": "claude-fallback",
                     "MIXDOG_BOOT_JITTER_MS": "0",
                     "MIXDOG_DRIVER_DEADLINE_MS": "40",
                 },
@@ -1782,36 +1801,27 @@ export async function createMixdogSessionRuntime() {
                 timeout=5,
             )
             self.assertEqual((data / "runtime-count").read_text(), "1")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("run deadline exceeded before refusal fallback", result.stderr)
-        self.assertNotIn("refusal-fallback:", result.stdout)
+        self.assertEqual(result.returncode, 86, result.stderr)
+        self.assertIn(
+            "refusal-restart: lead session terminated on refusal "
+            "(sess=late-fallback-primary); exiting 86 so Harbor retries a fresh trial",
+            result.stdout,
+        )
 
-    def test_false_fallback_fast_reaches_ephemeral_runtime_as_false(self) -> None:
+    def test_driver_relaunches_refused_lead_on_fallback_route(self) -> None:
         if shutil.which("node") is None:
             self.skipTest("Node.js is not installed")
-
         runtime_stub = """
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-
+import { mkdirSync, writeFileSync } from 'node:fs';
 let runtimeCount = 0;
-const dataDir = process.env.MIXDOG_DATA_DIR;
-
-export async function createMixdogSessionRuntime(options = {}) {
-  const callNumber = ++runtimeCount;
-  let selectedModel = options.model || process.env.MIXDOG_MODEL || 'primary';
-
-  if (String(options.model || '').startsWith('terminal-bench-refusal-')) {
-    const config = JSON.parse(readFileSync(dataDir + '/mixdog-config.json', 'utf8'));
-    const preset = config.agent.presets.find((item) => item.id === options.model);
-    const settings = config.agent.modelSettings[`${preset.provider}/${preset.model}`];
-    selectedModel = preset.model;
-    writeFileSync(
-      dataDir + '/fallback-observed.json',
-      JSON.stringify({ preset, settings }),
-    );
-  }
-
-  const sessionId = `stub-session-${callNumber}`;
+export async function createMixdogSessionRuntime({ model }) {
+  const count = ++runtimeCount;
+  const sessionId = `fallback-session-${count}`;
+  mkdirSync(process.env.MIXDOG_DATA_DIR + '/sessions', { recursive: true });
+  writeFileSync(
+    process.env.MIXDOG_DATA_DIR + `/sessions/${sessionId}.json`,
+    JSON.stringify({ id: sessionId, model, messages: [] }),
+  );
   return {
     sessionId,
     session: { id: sessionId, tools: [] },
@@ -1823,16 +1833,205 @@ export async function createMixdogSessionRuntime(options = {}) {
     abort() {},
     async close() {},
     async ask() {
-      mkdirSync(dataDir + '/sessions', { recursive: true });
-      writeFileSync(
-        `${dataDir}/sessions/${sessionId}.json`,
-        JSON.stringify({ model: selectedModel, tools: [] }),
-      );
-      if (callNumber === 1) {
-        process.stderr.write('[session] empty-final persisted stopReason=refusal\\n');
+      if (count === 1) {
+        process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
         return { result: { text: '' } };
       }
       return { result: { text: 'fallback completed' } };
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-refusal-fallback-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(runtime_stub, encoding="utf-8")
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            result = subprocess.run(
+                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "MIXDOG_SRC": str(src),
+                    "MIXDOG_DATA_DIR": str(data),
+                    "MIXDOG_PROVIDER": "anthropic-oauth",
+                    "MIXDOG_MODEL": "claude-primary",
+                    "MIXDOG_PROMPT": "fallback task",
+                    "MIXDOG_LEAD_FALLBACK": json.dumps({
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "xhigh",
+                        "fast": True,
+                    }),
+                    "MIXDOG_BOOT_JITTER_MS": "0",
+                    "MIXDOG_DRIVER_DEADLINE_MS": "-1",
+                },
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "refusal-fallback: relaunching lead on openai-oauth/gpt-5.6-sol effort=xhigh",
+            result.stdout,
+        )
+        self.assertIn('models: ["claude-primary","gpt-5.6-sol"]', result.stdout)
+
+    def test_driver_exits_86_when_fallback_also_refuses(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+        runtime_stub = """
+let runtimeCount = 0;
+export async function createMixdogSessionRuntime() {
+  const sessionId = `double-refusal-${++runtimeCount}`;
+  return {
+    sessionId,
+    session: { id: sessionId, tools: [] },
+    onNotification() {},
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    async close() {},
+    async ask() {
+      process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
+      return { result: { text: '' } };
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-double-refusal-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(runtime_stub, encoding="utf-8")
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            result = subprocess.run(
+                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "MIXDOG_SRC": str(src),
+                    "MIXDOG_DATA_DIR": str(data),
+                    "MIXDOG_PROMPT": "double refusal",
+                    "MIXDOG_LEAD_FALLBACK": json.dumps({
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "xhigh",
+                        "fast": True,
+                    }),
+                    "MIXDOG_BOOT_JITTER_MS": "0",
+                    "MIXDOG_DRIVER_DEADLINE_MS": "-1",
+                },
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            )
+        self.assertEqual(result.returncode, 86, result.stderr)
+        self.assertIn("refusal-gate: sid=double-refusal-2 refused=true", result.stdout)
+
+    def test_driver_exits_86_when_fallback_starts_after_deadline(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+        runtime_stub = """
+export async function createMixdogSessionRuntime() {
+  const sessionId = 'deadline-refusal-primary';
+  return {
+    sessionId,
+    session: { id: sessionId, tools: [] },
+    onNotification() {},
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    async close() {},
+    async ask() {
+      process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
+      return { result: { text: '' } };
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-fallback-deadline-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(runtime_stub, encoding="utf-8")
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            result = subprocess.run(
+                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "MIXDOG_SRC": str(src),
+                    "MIXDOG_DATA_DIR": str(data),
+                    "MIXDOG_PROMPT": "deadline refusal",
+                    "MIXDOG_LEAD_FALLBACK": json.dumps({
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "xhigh",
+                        "fast": True,
+                    }),
+                    "MIXDOG_BOOT_JITTER_MS": "0",
+                    "MIXDOG_DRIVER_DEADLINE_MS": "20",
+                },
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            )
+        self.assertEqual(result.returncode, 86, result.stderr)
+        self.assertIn(
+            "lead_driver: refusal fallback failed; exiting 86: "
+            "lead_driver: run deadline exceeded before primary session",
+            result.stderr,
+        )
+
+    def test_driver_exits_86_for_lead_refusal_with_streamed_narration(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+
+        runtime_stub = """
+import { writeFileSync } from 'node:fs';
+let runtimeCount = 0;
+const dataDir = process.env.MIXDOG_DATA_DIR;
+export async function createMixdogSessionRuntime() {
+  const sessionId = `stub-session-${++runtimeCount}`;
+  writeFileSync(dataDir + '/runtime-count', String(runtimeCount));
+  return {
+    sessionId,
+    session: { id: sessionId, tools: [] },
+    onNotification() {},
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    async close() {},
+    async ask(_message, { onTextDelta }) {
+      onTextDelta('interim narration');
+      process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
+      return { result: { text: '' } };
     },
   };
 }
@@ -1851,19 +2050,6 @@ export async function createMixdogSessionRuntime(options = {}) {
             (src / "session-runtime" / "workflow.mjs").write_text(
                 workflow_stub, encoding="utf-8"
             )
-            config_path = data / "mixdog-config.json"
-            original_config = (
-                json.dumps(
-                    {
-                        "agent": {"presets": [], "modelSettings": {}},
-                        "hostSentinel": {"unchanged": True},
-                    },
-                    indent=2,
-                )
-                + "\n"
-            )
-            config_path.write_text(original_config, encoding="utf-8")
-
             env = {
                 **os.environ,
                 "MIXDOG_SRC": str(src),
@@ -1871,12 +2057,8 @@ export async function createMixdogSessionRuntime(options = {}) {
                 "MIXDOG_PROVIDER": "anthropic-oauth",
                 "MIXDOG_MODEL": "claude-fable-5",
                 "MIXDOG_PROMPT": "stub task",
-                "MIXDOG_REFUSAL_FALLBACK_PROVIDER": "anthropic-oauth",
-                "MIXDOG_REFUSAL_FALLBACK_MODEL": "claude-opus-4-8",
-                "MIXDOG_REFUSAL_FALLBACK_EFFORT": "xhigh",
-                "MIXDOG_REFUSAL_FALLBACK_FAST": "false",
                 "MIXDOG_BOOT_JITTER_MS": "0",
-                "MIXDOG_DRIVER_DEADLINE_MS": "-1",
+                "MIXDOG_DRIVER_DEADLINE_MS": "100",
             }
             result = subprocess.run(
                 ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
@@ -1885,37 +2067,152 @@ export async function createMixdogSessionRuntime(options = {}) {
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                timeout=30,
+                timeout=5,
             )
 
-            self.assertEqual(result.returncode, 0, result.stderr)
-            fallback_line = next(
-                line
-                for line in result.stdout.splitlines()
-                if line.startswith("refusal-fallback:")
+            self.assertEqual((data / "runtime-count").read_text(), "1")
+        self.assertEqual(result.returncode, 86, result.stderr)
+        self.assertIn(
+            "refusal-restart: lead session terminated on refusal "
+            "(sess=stub-session-1); exiting 86 so Harbor retries a fresh trial",
+            result.stdout,
+        )
+
+    def test_driver_keeps_refusal_then_successful_resume(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+
+        runtime_stub = """
+let notify = null;
+let asks = 0;
+export async function createMixdogSessionRuntime() {
+  const sessionId = 'resume-after-refusal';
+  let activeSessionId = '';
+  return {
+    get sessionId() { return activeSessionId; },
+    get session() { return activeSessionId ? { id: activeSessionId, tools: [] } : undefined; },
+    onNotification(callback) { notify = callback; },
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    async close() {},
+    async ask() {
+      asks += 1;
+      if (asks === 1) {
+        process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
+        notify();
+        return { result: { text: '' } };
+      }
+      activeSessionId = sessionId;
+      return { result: { text: 'resume completed' } };
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-resume-after-refusal-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(
+                runtime_stub, encoding="utf-8"
             )
-            self.assertEqual(
-                fallback_line,
-                "refusal-fallback: primary route refused "
-                "(sess=stub-session-1); retrying with "
-                "anthropic-oauth/claude-opus-4-8 effort=xhigh fast=false",
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
             )
-            observed = json.loads(
-                (data / "fallback-observed.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(
-                {
-                    key: observed["preset"][key]
-                    for key in ("provider", "model", "effort")
+            result = subprocess.run(
+                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "MIXDOG_SRC": str(src),
+                    "MIXDOG_DATA_DIR": str(data),
+                    "MIXDOG_PROVIDER": "anthropic-oauth",
+                    "MIXDOG_MODEL": "claude-fixture",
+                    "MIXDOG_PROMPT": "resume after refusal",
+                    "MIXDOG_BOOT_JITTER_MS": "0",
+                    "MIXDOG_DRIVER_DEADLINE_MS": "100",
                 },
-                {
-                    "provider": "anthropic-oauth",
-                    "model": "claude-opus-4-8",
-                    "effort": "xhigh",
-                },
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
             )
-            self.assertIs(observed["settings"]["fast"], False)
-            self.assertEqual(config_path.read_text(encoding="utf-8"), original_config)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("refusal-restart:", result.stdout)
+        self.assertIn("resume completed", result.stdout)
+
+    def test_driver_exits_86_after_refusal_and_empty_resume(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+
+        runtime_stub = """
+let notify = null;
+let asks = 0;
+export async function createMixdogSessionRuntime() {
+  const sessionId = 'empty-resume-after-refusal';
+  return {
+    sessionId,
+    session: { id: sessionId, tools: [] },
+    onNotification(callback) { notify = callback; },
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    async close() {},
+    async ask() {
+      asks += 1;
+      if (asks === 1) {
+        process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
+        notify();
+      }
+      return { result: { text: '' } };
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-empty-resume-refusal-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(
+                runtime_stub, encoding="utf-8"
+            )
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            result = subprocess.run(
+                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "MIXDOG_SRC": str(src),
+                    "MIXDOG_DATA_DIR": str(data),
+                    "MIXDOG_PROVIDER": "anthropic-oauth",
+                    "MIXDOG_MODEL": "claude-fixture",
+                    "MIXDOG_PROMPT": "empty resume after refusal",
+                    "MIXDOG_BOOT_JITTER_MS": "0",
+                    "MIXDOG_DRIVER_DEADLINE_MS": "100",
+                },
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            )
+        self.assertEqual(result.returncode, 86, result.stderr)
+        self.assertIn(
+            "refusal-gate: sid=empty-resume-after-refusal refused=true",
+            result.stdout,
+        )
+        self.assertIn("refusal-restart:", result.stdout)
 
 
 class LauncherDryRunTests(unittest.TestCase):

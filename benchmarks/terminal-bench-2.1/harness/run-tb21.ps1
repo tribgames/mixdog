@@ -126,9 +126,6 @@ if ($hasRouteProfile) {
         $fast = if ($route.fast -eq $true) { "true" } else { "false" }
         $routeParts += "${role}=$($route.provider)/$($route.model) effort=$($route.effort) fast=$fast"
     }
-    $fallback = $resolvedProfile.refusalFallback
-    $fallbackFast = if ($fallback.fast -eq $true) { "true" } else { "false" }
-    $routeParts += "refusal-fallback=$($fallback.provider)/$($fallback.model) effort=$($fallback.effort) fast=$fallbackFast"
     "route-profile ${RouteProfile}: $($routeParts -join '; ')"
 }
 

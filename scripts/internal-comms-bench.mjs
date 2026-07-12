@@ -38,7 +38,6 @@ const RULE_FILES = [
   'agents/debugger/AGENT.md',
   'workflows/default/WORKFLOW.md',
   'workflows/solo/WORKFLOW.md',
-  'workflows/bench/WORKFLOW.md',
   'rules/lead/01-general.md',
   'rules/lead/02-channels.md',
   'rules/lead/lead-tool.md',
