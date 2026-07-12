@@ -382,7 +382,10 @@ export function createSessionFlow(bag) {
   // Shared clear body for idle auto-clear and the session_manage tool.
   // useCompaction=true mirrors auto-clear (summarize via configured
   // compactType, context carries forward); false is a plain /clear wipe.
-  async function performSessionClear({ verb, doneLabel, skipLabel, surface, useCompaction }) {
+  async function performSessionClear({
+    verb, doneLabel, skipLabel, surface, useCompaction,
+    compactTimeoutMs = AUTO_CLEAR_COMPACT_TIMEOUT_MS,
+  }) {
     flags.autoClearRunning = true;
     const startedAt = Date.now();
     // commandBusy blocks concurrent session commands (resume/newSession/
@@ -401,6 +404,7 @@ export function createSessionFlow(bag) {
         const compaction = runtime.getCompactionSettings();
         compactType = compaction.compactType || compaction.type || null;
       }
+      let clearResult;
       if (compactType) {
         // Bounded watchdog around the compacting clear. On timeout we throw so
         // the catch below keeps the conversation, surfaces a user-visible
@@ -410,21 +414,22 @@ export function createSessionFlow(bag) {
         // new auto-clear attempts until the abandoned promise settles, and on
         // late fulfillment we run the same post-success UI sync as the normal
         // path so the UI cannot diverge from a runtime session that actually
-        // got cleared. Late rejection is a no-op.
+        // got cleared. Late rejection or a false result is a no-op.
         const clearPromise = runtime.clear({ compactType, requireCompactSuccess: true });
         let timer = null;
         const timeout = new Promise((_, reject) => {
           timer = setTimeout(
-            () => reject(new Error(`compaction timed out after ${AUTO_CLEAR_COMPACT_TIMEOUT_MS}ms; auto-clear deferred to next idle`)),
-            AUTO_CLEAR_COMPACT_TIMEOUT_MS,
+            () => reject(new Error(`compaction timed out after ${compactTimeoutMs}ms; auto-clear deferred to next idle`)),
+            compactTimeoutMs,
           );
         });
         try {
-          await Promise.race([clearPromise, timeout]);
+          clearResult = await Promise.race([clearPromise, timeout]);
         } catch (raceError) {
           flags.autoClearInFlight = true;
           clearPromise.then(
-            () => {
+            (lateResult) => {
+              if (lateResult === false) return;
               if (getState().busy) {
                 // A turn started after commandBusy released; applying the
                 // cleared-session UI now would wipe items/queued and force
@@ -446,7 +451,10 @@ export function createSessionFlow(bag) {
           if (timer) clearTimeout(timer);
         }
       } else {
-        await runtime.clear({});
+        clearResult = await runtime.clear({});
+      }
+      if (clearResult === false) {
+        throw new Error('runtime clear returned false');
       }
       applyClearedSessionUi(doneLabel);
       return true;

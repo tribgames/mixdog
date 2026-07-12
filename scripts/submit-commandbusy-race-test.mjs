@@ -7,12 +7,39 @@ import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
 // command (commandBusy) or an auto-clear. Wires the real session-flow queue
 // (enqueue/drain) + the real submit() against a minimal bag whose set() mirrors
 // engine.mjs's commandBusy-release drain kick.
-function makeEngine({ autoClearBeforeSubmit } = {}) {
+function makeEngine({
+  autoClearBeforeSubmit,
+  autoClearEnabled = false,
+  runtimeClear = async () => true,
+} = {}) {
   let seq = 0;
   const executed = [];
-  let state = { queued: [], busy: false, commandBusy: false };
+  const providerRequests = [];
+  let resolveProviderDispatch;
+  const providerDispatch = new Promise((resolve) => { resolveProviderDispatch = resolve; });
+  let state = {
+    items: [{ kind: 'user', id: 'existing', text: 'existing prompt' }],
+    queued: [],
+    busy: false,
+    commandBusy: false,
+  };
   const bag = {
-    runtime: { id: null, consumePendingSessionReset: () => null },
+    runtime: {
+      id: 'session_1',
+      session: {
+        id: 'session_1',
+        messages: [{ role: 'user', content: 'existing prompt' }],
+        lastUsedAt: Date.now() - 1000,
+      },
+      getCompactionSettings: () => ({}),
+      clear: runtimeClear,
+      consumePendingSessionReset: () => null,
+      ask: async (text) => {
+        providerRequests.push(text);
+        resolveProviderDispatch(text);
+        return { result: { content: 'ok' }, session: bag.runtime.session };
+      },
+    },
     nextId: () => `id_${++seq}`,
     tuiDebug: () => {},
     flags: {},
@@ -30,12 +57,15 @@ function makeEngine({ autoClearBeforeSubmit } = {}) {
       if (released) queueMicrotask(() => { void bag.drain?.(); });
       return true;
     },
-    pushItem: () => {},
+    pushItem: (item) => { state = { ...state, items: [...state.items, item] }; },
     patchItem: () => {},
     replaceItems: (x) => x,
     pushNotice: () => {},
-    pushUserOrSyntheticItem: (text) => { executed.push(text); },
-    autoClearState: () => ({ enabled: false }),
+    pushUserOrSyntheticItem: (text, id) => {
+      executed.push(text);
+      state = { ...state, items: [...state.items, { kind: 'user', id, text }] };
+    },
+    autoClearState: () => ({ enabled: autoClearEnabled, idleMs: 0, minContextPercent: 0 }),
     agentStatusState: () => ({}),
     routeState: () => ({}),
     syncContextStats: () => {},
@@ -44,7 +74,10 @@ function makeEngine({ autoClearBeforeSubmit } = {}) {
     requeueEntriesFront: () => {},
     resetStatsAndSyncContext: () => {},
     flushDeferredExecutionPendingResumeKick: () => {},
-    runTurn: async () => 'ok',
+    runTurn: async (text) => {
+      await bag.runtime.ask(text);
+      return 'ok';
+    },
   };
   Object.assign(bag, createSessionFlow(bag));
   if (autoClearBeforeSubmit) bag.autoClearBeforeSubmit = autoClearBeforeSubmit;
@@ -53,6 +86,14 @@ function makeEngine({ autoClearBeforeSubmit } = {}) {
     api,
     bag,
     getExecuted: () => executed,
+    getProviderRequests: () => providerRequests,
+    waitForProviderDispatch: (timeoutMs = 250) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`provider dispatch timed out after ${timeoutMs}ms`)), timeoutMs);
+      providerDispatch.then((text) => {
+        clearTimeout(timer);
+        resolve(text);
+      }, reject);
+    }),
     getState: () => bag.getState(),
     mutateState: (mutator) => { mutator(state); },
   };
@@ -105,6 +146,57 @@ test('submit still enqueues when autoClearBeforeSubmit rejects', async () => {
   assert.equal(ok, true);
   await tick(); await tick();
   assert.deepEqual(getExecuted(), ['survives rejection'], 'rejected auto-clear must not lose the prompt');
+});
+
+test('runtime clear false skips auto-clear and sends the first post-failure prompt to the provider', async () => {
+  const {
+    api, bag, getExecuted, getProviderRequests, getState,
+  } = makeEngine({ autoClearEnabled: true, runtimeClear: async () => false });
+
+  assert.equal(api.submit('first after failed auto-clear'), true);
+  await tick(); await tick();
+
+  assert.deepEqual(getExecuted(), ['first after failed auto-clear'], 'user card remains visible');
+  assert.deepEqual(getProviderRequests(), ['first after failed auto-clear'], 'first post-failure input reaches provider');
+  assert.equal(getState().items.some((item) => item.label === 'Auto-clear skipped'), true);
+  assert.equal(getState().items.some((item) => item.label === 'Auto-clear complete'), false);
+  assert.equal(getState().items.some((item) => item.id === 'existing'), true, 'failed clear preserves the existing session UI');
+  assert.equal(bag.runtime.session.messages[0].content, 'existing prompt', 'failed clear preserves the runtime session');
+});
+
+test('late runtime clear false keeps the UI skipped and sends the first post-timeout prompt', async () => {
+  let resolveClear;
+  let harness;
+  const autoClearBeforeSubmit = () => harness.bag.performSessionClear({
+    verb: 'Auto-clearing idle conversation',
+    doneLabel: 'Auto-clear complete',
+    skipLabel: 'Auto-clear skipped',
+    surface: 'auto-clear',
+    useCompaction: true,
+    compactTimeoutMs: 5,
+  });
+  harness = makeEngine({
+    autoClearBeforeSubmit,
+    runtimeClear: () => new Promise((resolve) => { resolveClear = resolve; }),
+  });
+  harness.bag.runtime.getCompactionSettings = () => ({ compactType: 'summary' });
+
+  assert.equal(harness.api.submit('first after timed-out auto-clear'), true);
+  await harness.waitForProviderDispatch();
+  assert.equal(typeof resolveClear, 'function', 'compacting clear started');
+  assert.deepEqual(
+    harness.getProviderRequests(),
+    ['first after timed-out auto-clear'],
+    'first post-timeout input reaches provider before late clear settles',
+  );
+
+  resolveClear(false);
+  await tick(); await tick();
+
+  assert.equal(harness.getState().items.some((item) => item.label === 'Auto-clear skipped'), true);
+  assert.equal(harness.getState().items.some((item) => item.label === 'Auto-clear complete'), false);
+  assert.equal(harness.getState().items.some((item) => item.id === 'existing'), true, 'late false preserves the existing session UI');
+  assert.equal(harness.bag.runtime.session.messages[0].content, 'existing prompt', 'late false preserves the runtime session');
 });
 
 test('empty and whitespace submits are still rejected', () => {
