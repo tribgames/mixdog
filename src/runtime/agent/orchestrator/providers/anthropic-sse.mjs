@@ -111,6 +111,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
     let toolCalls = [];
     let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, raw: null };
     let stopReason = null;
+    let stopDetails;
     let buffer = '';
     let idleTimedOut = false;
     let firstMessageTimedOut = false;
@@ -546,6 +547,18 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                         if (event.delta?.stop_reason) {
                             stopReason = event.delta.stop_reason;
                         }
+                        if (event.delta && (event.delta.stop_details != null || event.delta.category != null)) {
+                            const details = event.delta.stop_details;
+                            stopDetails = details && typeof details === 'object' && !Array.isArray(details)
+                                ? {
+                                    ...details,
+                                    ...(event.delta.category != null ? { category: event.delta.category } : {}),
+                                }
+                                : {
+                                    ...(details != null ? { value: details } : {}),
+                                    ...(event.delta.category != null ? { category: event.delta.category } : {}),
+                                };
+                        }
                         if (event.usage) {
                             usage.outputTokens = event.usage.output_tokens || 0;
                             usage.raw = { ...(usage.raw || {}), ...event.usage };
@@ -615,6 +628,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             toolCalls: toolCalls.length ? toolCalls : undefined,
             usage,
             stopReason,
+            stopDetails,
             hasThinkingContent,
             contentBlockTypes: Array.from(contentBlockTypes),
             // Ordered extended-thinking blocks (verbatim thinking text +

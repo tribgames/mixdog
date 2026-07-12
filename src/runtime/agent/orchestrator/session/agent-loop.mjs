@@ -281,6 +281,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // the loop as an explicit empty termination instead.
     let _emptyNudgeStreak = 0;
     const EMPTY_NUDGE_MAX = 3;
+    let _refusalRetryUsed = false;
     let _maxOutputRecoveryCount = 0;
     const _maxOutputContentParts = [];
     // Claude Code parity: queued prompt/task notifications are attached after a
@@ -632,6 +633,19 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     maxOutputRecoveryAttempts: _maxOutputRecoveryCount,
                 };
                 break;
+            }
+            if (!hasContent && stopReason === 'refusal') {
+                if (_refusalRetryUsed) {
+                    process.stderr.write(`[loop] safety-classifier refusal persisted after one context-changing retry (sess=${sessionId || 'unknown'}); ending loop as refusal termination.\n`);
+                    break;
+                }
+                _refusalRetryUsed = true;
+                messages.push({
+                    role: 'user',
+                    content: '[mixdog-runtime] The previous completion was refused by the provider safety classifier (stopReason=refusal). Do not repeat it. Complete your assigned output within policy by omitting or reframing disallowed content; if no compliant output is possible, briefly state the refusal.',
+                    meta: { source: 'refusal-recovery', attempt: 1 },
+                });
+                continue;
             }
             if (!hasContent && !isHidden) {
                 _emptyNudgeStreak += 1;

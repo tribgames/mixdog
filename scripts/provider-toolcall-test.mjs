@@ -95,6 +95,29 @@ function anthropicSseResponse(events) {
     };
 }
 
+test('anthropic SSE exposes refusal stop details and category metadata', async () => {
+    const result = await anthropicParseSSEStream(
+        anthropicSseResponse([
+            { type: 'message_start', message: { model: 'claude-fable-5', usage: { input_tokens: 1 } } },
+            {
+                type: 'message_delta',
+                delta: {
+                    stop_reason: 'refusal',
+                    stop_details: { classifier: 'safety' },
+                    category: 'policy',
+                },
+                usage: { output_tokens: 0 },
+            },
+            { type: 'message_stop' },
+        ]),
+        null, () => {}, () => {}, () => {}, {}, null,
+    );
+
+    assert.equal(result.stopReason, 'refusal');
+    assert.deepEqual(result.stopDetails, { classifier: 'safety', category: 'policy' });
+    assert.equal(result.content, '');
+});
+
 function compatResponsesEventStream(events) {
     return {
         async *[Symbol.asyncIterator]() {

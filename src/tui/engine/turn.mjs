@@ -1103,6 +1103,13 @@ export function createRunTurn(bag) {
       } else {
         askResult = result;
         markPromptCommitted();
+        if (result?.terminationReason === 'refusal') {
+          pushNotice(
+            '모델이 안전 분류기(refusal)로 응답을 거부했습니다 — 다시 시도하거나 문구를 바꿔주세요.',
+            'warn',
+            { transcript: true },
+          );
+        }
 
         flushToolResults(session?.messages || [], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true });
         finalizeToolHeaders();

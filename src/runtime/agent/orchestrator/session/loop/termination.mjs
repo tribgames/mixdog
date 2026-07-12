@@ -43,6 +43,9 @@ export function classifyTerminationReason(response, {
         // on its own contract.
         return 'iteration_cap';
     }
+    if (_finalStopReason === 'refusal') {
+        return 'refusal';
+    }
     if (_finalOutputLimitStop || (!_finalHasContent && _finalIncompleteStop)) {
         // Exhausted token-cap recovery is abnormal even with preserved partial
         // text. pause_turn/OTHER retain their prior non-empty completion

@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { agentLoop } from '../src/runtime/agent/orchestrator/session/agent-loop.mjs';
+import { HIDDEN_AGENT_NAMES } from '../src/runtime/agent/orchestrator/session/loop/hidden-agents.mjs';
 
 function queuedProvider(responses, streamed = []) {
     const sent = [];
@@ -35,6 +36,7 @@ function queuedProvider(responses, streamed = []) {
 async function run(provider, messages = [{ role: 'user', content: 'answer fully' }], options = {}) {
     return agentLoop(provider, messages, 'fake-model', [], options.onToolCall, process.cwd(), {
         onTextDelta: options.onTextDelta,
+        session: options.session,
     });
 }
 
@@ -124,6 +126,53 @@ test('pause_turn and Gemini OTHER preserve prior non-empty semantics and do not 
         assert.equal(result.terminationReason, undefined, stopReason);
         assert.equal(Object.hasOwn(result, 'historyContent'), false, stopReason);
     }
+});
+
+test('empty safety refusal gets one context-changing retry, then terminates as refusal', async () => {
+    const provider = queuedProvider([
+        { content: '', stopReason: 'refusal', stopDetails: { category: 'safety' } },
+        { content: '', stopReason: 'refusal', stopDetails: { category: 'safety' } },
+    ]);
+    const messages = [{ role: 'user', content: 'answer fully' }];
+
+    const result = await run(provider, messages);
+
+    assert.equal(provider.sent.length, 2);
+    assert.equal(result.terminationReason, 'refusal');
+    assert.equal(messages.filter((message) => message?.meta?.source === 'refusal-recovery').length, 1);
+    assert.match(provider.sent[1].at(-1).content, /safety classifier/);
+    assert.match(provider.sent[1].at(-1).content, /within policy/);
+});
+
+test('one refusal retry can recover to a normal answer', async () => {
+    const provider = queuedProvider([
+        { content: '', stopReason: 'refusal' },
+        { content: 'compliant answer', stopReason: 'end_turn' },
+    ]);
+
+    const result = await run(provider);
+
+    assert.equal(provider.sent.length, 2);
+    assert.equal(result.content, 'compliant answer');
+    assert.equal(result.terminationReason, undefined);
+});
+
+test('hidden-agent empty refusal gets one retry, then terminates as refusal', async () => {
+    const hiddenAgent = HIDDEN_AGENT_NAMES.values().next().value;
+    assert.ok(hiddenAgent, 'expected at least one configured hidden agent');
+    const provider = queuedProvider([
+        { content: '', stopReason: 'refusal' },
+        { content: '', stopReason: 'refusal' },
+    ]);
+    const messages = [{ role: 'user', content: 'complete the assigned output' }];
+
+    const result = await run(provider, messages, { session: { agent: hiddenAgent } });
+
+    assert.equal(provider.sent.length, 2);
+    assert.equal(result.terminationReason, 'refusal');
+    assert.equal(messages.filter((message) => message?.meta?.source === 'refusal-recovery').length, 1);
+    assert.match(provider.sent[1].at(-1).content, /assigned output within policy/);
+    assert.doesNotMatch(provider.sent[1].at(-1).content, /answer the user/i);
 });
 
 test('non-output ProviderIncompleteError remains an error', async () => {

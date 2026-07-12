@@ -37,6 +37,8 @@ export function abnormalEmptyFinishError(result, agent) {
       // Only tagged for PUBLIC agents (hidden agents legitimately emit empty
       // terminal turns and are left untagged by the loop).
       return `agent '${agent}' finished without a final answer (stopReason=${stopReason ?? 'none'}, ${iterations} iterations, ${toolCallsTotal} tool calls)`;
+    case 'refusal':
+      return `agent '${agent}' response was refused by the safety classifier (${iterations} iterations, ${toolCallsTotal} tool calls)`;
     default:
       return null;
   }
