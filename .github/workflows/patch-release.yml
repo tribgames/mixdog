@@ -1,0 +1,280 @@
+# Build the mixdog-patch native binary for all five supported platforms and
+# publish them to the GitHub release for the pushed `patch-v*` tag, then rewrite
+# the bundled patch manifest (src/runtime/agent/orchestrator/tools/patch-manifest.json)
+# and commit it to the default branch.
+#
+# Trigger: push a `patch-v<major>.<minor>.<patch>` tag (e.g. patch-v0.7.19).
+# The tag version must match native/mixdog-patch Cargo.toml `version`.
+#
+# Flow: matrix build -> upload `mixdog-patch-<platformKey>[.exe]` (+ .sha256
+# sidecar) to the release -> aggregate job downloads every asset, computes the
+# authoritative sha256 per platform, rewrites the bundled manifest (with a
+# monotonic version guard mirroring build-runtime.yml), and pushes the commit
+# to the default branch. GITHUB_TOKEN is the only credential.
+
+name: Patch Release
+
+on:
+  push:
+    tags:
+      - "patch-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # Fail fast BEFORE any build/upload: the pushed tag is untrusted input, so
+  # it is passed via env and quoted in bash (never interpolated into a command
+  # line). Rejects malformed tags and any tag/Cargo.toml version drift so no
+  # release asset is ever produced for a mismatched or garbage tag.
+  gate:
+    name: gate-tag-version
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate tag semver and Cargo.toml version parity
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG_PATTERN='^patch-v[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ ! "$TAG" =~ $TAG_PATTERN ]]; then
+            echo "::error::Malformed release tag '${TAG}' — expected patch-v<major>.<minor>.<patch> (strict semver)."
+            exit 1
+          fi
+          TAG_VERSION=${TAG#patch-v}
+          CARGO_VERSION=$(grep -m1 -E '^version = "[^"]+"' native/mixdog-patch/Cargo.toml \
+            | sed -E 's/^version = "([^"]+)".*/\1/')
+          if [[ -z "$CARGO_VERSION" ]]; then
+            echo "::error::Could not read package version from native/mixdog-patch/Cargo.toml."
+            exit 1
+          fi
+          if [[ "$TAG_VERSION" != "$CARGO_VERSION" ]]; then
+            echo "::error::Tag version ${TAG_VERSION} != native/mixdog-patch/Cargo.toml version ${CARGO_VERSION}."
+            exit 1
+          fi
+          echo "Gate OK: tag ${TAG} matches Cargo.toml version ${CARGO_VERSION}."
+
+  build:
+    name: build-${{ matrix.platformKey }}
+    needs: gate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # win32-x64: native MSVC build on the Windows runner.
+          - platformKey: win32-x64
+            target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            ext: ".exe"
+          # linux-x64: native build on the x64 Ubuntu runner.
+          - platformKey: linux-x64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            ext: ""
+          # linux-arm64: native build on the free GitHub-hosted ARM64 runner
+          # (public repos). aarch64-unknown-linux-gnu is the host target there,
+          # so no cross toolchain is required.
+          - platformKey: linux-arm64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+            ext: ""
+          # darwin-x64: cross-target build on the Apple-silicon macOS runner.
+          - platformKey: darwin-x64
+            target: x86_64-apple-darwin
+            runner: macos-14
+            ext: ""
+          # darwin-arm64: native build on the Apple-silicon macOS runner.
+          - platformKey: darwin-arm64
+            target: aarch64-apple-darwin
+            runner: macos-14
+            ext: ""
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-patch/target
+          key: patch-cargo-${{ matrix.target }}-${{ hashFiles('native/mixdog-patch/Cargo.lock') }}
+
+      - name: Build release binary
+        working-directory: native/mixdog-patch
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Stage asset and checksum (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          BIN="native/mixdog-patch/target/${{ matrix.target }}/release/mixdog-patch${{ matrix.ext }}"
+          ASSET="mixdog-patch-${{ matrix.platformKey }}${{ matrix.ext }}"
+          cp "$BIN" "dist/${ASSET}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            ( cd dist && sha256sum "$ASSET" > "${ASSET}.sha256" )
+          else
+            ( cd dist && shasum -a 256 "$ASSET" > "${ASSET}.sha256" )
+          fi
+          ls -lh dist/
+
+      - name: Stage asset and checksum (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $Bin   = "native/mixdog-patch/target/${{ matrix.target }}/release/mixdog-patch${{ matrix.ext }}"
+          $Asset = "mixdog-patch-${{ matrix.platformKey }}${{ matrix.ext }}"
+          Copy-Item $Bin "dist/$Asset"
+          $Hash = (Get-FileHash "dist/$Asset" -Algorithm SHA256).Hash.ToLower()
+          "$Hash  $Asset" | Set-Content -NoNewline -Path "dist/$Asset.sha256" -Encoding ascii
+          Get-ChildItem dist
+
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/mixdog-patch-${{ matrix.platformKey }}${{ matrix.ext }}
+            dist/mixdog-patch-${{ matrix.platformKey }}${{ matrix.ext }}.sha256
+
+  manifest:
+    name: rewrite-patch-manifest
+    needs: build
+    if: ${{ needs.build.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: patch-manifest-sync
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Generate and commit against the branch that bundles the manifest,
+          # even though this workflow was started from a patch-v* tag.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Download release binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'mixdog-patch-*' --dir assets --clobber
+          ls -l assets
+
+      - name: Rewrite and commit bundled patch manifest
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          ASSET_DIR: assets
+        run: |
+          set -euo pipefail
+          MANIFEST=src/runtime/agent/orchestrator/tools/patch-manifest.json
+          TAG_PATTERN='^patch-v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if [[ ! "$TAG" =~ $TAG_PATTERN ]]; then
+            echo "Skipping patch manifest sync: malformed release tag ${TAG}"
+            exit 0
+          fi
+          INCOMING_VERSION=${TAG#patch-v}
+
+          # Monotonic guard: never roll the bundled manifest back to an older
+          # version. Mirrors the build-runtime.yml manifest-sync guard.
+          if [[ -f "$MANIFEST" ]]; then
+            CURRENT_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('$MANIFEST','utf8')).version || ''" 2>/dev/null || echo "")
+            if [[ -n "$CURRENT_VERSION" ]]; then
+              OLDEST=$(printf '%s\n%s\n' "$INCOMING_VERSION" "$CURRENT_VERSION" | sort -V | head -n1)
+              if [[ "$INCOMING_VERSION" != "$CURRENT_VERSION" && "$OLDEST" == "$INCOMING_VERSION" ]]; then
+                echo "Skipping stale patch manifest sync: incoming ${INCOMING_VERSION} is older than bundled ${CURRENT_VERSION}."
+                exit 0
+              fi
+            fi
+          fi
+
+          # Rewrite the manifest from the downloaded release binaries. sha256 is
+          # computed from each asset (authoritative), not trusted from sidecars.
+          node --input-type=module <<'NODE'
+          import { createReadStream, existsSync, writeFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+
+          const MANIFEST = 'src/runtime/agent/orchestrator/tools/patch-manifest.json';
+          const TAG = process.env.TAG;
+          const REPO = process.env.GH_REPO;
+          const ASSET_DIR = process.env.ASSET_DIR || 'assets';
+          const VERSION = TAG.replace(/^patch-v/, '');
+
+          // platformKey (process.platform-process.arch) -> release asset filename.
+          const PLATFORMS = {
+            'darwin-arm64': 'mixdog-patch-darwin-arm64',
+            'darwin-x64': 'mixdog-patch-darwin-x64',
+            'linux-arm64': 'mixdog-patch-linux-arm64',
+            'linux-x64': 'mixdog-patch-linux-x64',
+            'win32-x64': 'mixdog-patch-win32-x64.exe',
+          };
+
+          function sha256(file) {
+            return new Promise((res, rej) => {
+              const h = createHash('sha256');
+              const s = createReadStream(file);
+              s.on('error', rej);
+              s.on('data', (c) => h.update(c));
+              s.on('end', () => res(h.digest('hex')));
+            });
+          }
+
+          const assets = {};
+          const missing = [];
+          for (const [key, name] of Object.entries(PLATFORMS)) {
+            const file = `${ASSET_DIR}/${name}`;
+            if (!existsSync(file)) { missing.push(name); continue; }
+            assets[key] = {
+              url: `https://github.com/${REPO}/releases/download/${TAG}/${name}`,
+              sha256: await sha256(file),
+            };
+          }
+          if (missing.length) {
+            console.error(`Missing release asset(s), refusing partial manifest: ${missing.join(', ')}`);
+            process.exit(1);
+          }
+
+          const manifest = {
+            version: VERSION,
+            _comment: 'Rewritten by .github/workflows/patch-release.yml on each tagged release. assets maps platformKey (process.platform-process.arch, e.g. win32-x64, linux-x64, darwin-arm64) to { url, sha256 } of the mixdog-patch binary on the GitHub release. A local cargo build under native/mixdog-patch/target/release always takes precedence; otherwise the binary is fetched per this manifest into the data dir (apply is native-only — no JS apply engine).',
+            assets,
+          };
+          writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
+          console.log(`Wrote ${MANIFEST} (version ${VERSION})`);
+          NODE
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          if git diff --cached --quiet -- "$MANIFEST"; then
+            echo "Bundled patch manifest is already current."
+            exit 0
+          fi
+          git commit -m "chore(patch): sync manifest for ${TAG}"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
