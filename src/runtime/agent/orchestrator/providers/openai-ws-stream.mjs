@@ -14,6 +14,7 @@
  * openai-oauth-ws.mjs re-exports.
  */
 import { randomBytes } from 'crypto';
+import { performance } from 'node:perf_hooks';
 import {
     extractCachedTokens,
     appendAgentTrace,
@@ -250,6 +251,12 @@ export async function _streamResponse({
     const errLabel = _wsErrLabel(traceProvider);
     const socket = entry.socket;
     enableSessionTransportTracking(state?.sessionId);
+    // An already-open (possibly pooled) socket proves transport availability;
+    // response.created/reasoning/text/tool events independently satisfy the
+    // semantic deadline.
+    if (socket?.readyState === WebSocket.OPEN) {
+        markSessionTransportActivity(state?.sessionId);
+    }
     const preResponseCreatedMs = _positiveInt(_timeouts?.preResponseCreatedMs, WS_PRE_RESPONSE_CREATED_MS);
     const interChunkMs = _positiveInt(_timeouts?.interChunkMs, WS_INTER_CHUNK_MS);
     // First-MEANINGFUL-frame deadline. Distinct from preResponseCreatedMs (a
@@ -422,6 +429,7 @@ export async function _streamResponse({
         toolCalls.push(call);
         midState.emittedToolCall = true;
         try { onToolCall?.(call); } catch {}
+        try { onStreamDelta?.('tool'); } catch {}
     };
     const relayLeakText = (delta) => {
         if (!leakGuard.enabled) {
@@ -430,17 +438,22 @@ export async function _streamResponse({
                 if (state) state.emittedText = true;
                 try { onTextDelta(delta); } catch {}
             }
-            return;
+            if (delta) {
+                try { onStreamDelta?.('text'); } catch {}
+            }
+            return { text: !!delta, tool: false };
         }
         const { text, calls } = leakGuard.push(delta);
         if (text) {
             content += text;
+            try { onStreamDelta?.('text'); } catch {}
             if (onTextDelta) {
                 if (state) state.emittedText = true;
                 try { onTextDelta(text); } catch {}
             }
         }
         for (const c of calls) dispatchLeakedCall(c);
+        return { text: !!text, tool: calls.length > 0 };
     };
     const flushLeak = () => {
         if (!leakGuard.enabled) return;
@@ -763,6 +776,11 @@ export async function _streamResponse({
         };
 
         messageHandler = (data) => {
+            if (midState.sendSpan && midState.sendStartedAt != null
+                && midState.sendSpanAttemptFirstEvent !== true) {
+                midState.sendSpanAttemptFirstEvent = true;
+                midState.sendSpan.firstEventMs += performance.now() - midState.sendStartedAt;
+            }
             resetIdle();
             // resetIdle() above resets the SINGLE inter-chunk idle timer on
             // EVERY received frame — response.created, metadata,
@@ -798,6 +816,11 @@ export async function _streamResponse({
             switch (event.type) {
                 case 'response.created':
                     midState.sawResponseCreated = true;
+                    if (midState.sendSpan && midState.sendStartedAt != null
+                        && midState.sendSpanAttemptResponseCreated !== true) {
+                        midState.sendSpanAttemptResponseCreated = true;
+                        midState.sendSpan.preResponseCreatedMs += performance.now() - midState.sendStartedAt;
+                    }
                     if (event.response?.model) model = event.response.model;
                     if (event.response?.id) responseId = event.response.id;
                     // Server ack (first event). resetIdle() at the top of
@@ -807,21 +830,20 @@ export async function _streamResponse({
                     // first-meaningful watchdog (keepalive/metadata frames do
                     // NOT reach this case, so they never clear it).
                     clearFirstMeaningfulWatchdog();
+                    try { onStreamDelta?.('semantic'); } catch {}
                     // Do not arm semantic idle until actual model progress.
                     // Transport-only reasoning heartbeats are bounded by the
                     // outer first-visible ceiling instead.
                     break;
                 case 'response.output_text.delta':
-                    try {
+                    if (event.delta) try {
                         if (!_firstDeltaEmitted) {
                             _firstDeltaEmitted = true;
                             if (process.env.MIXDOG_DEBUG_AGENT) {
                                 process.stderr.write(`[agent-trace] ws-first-delta sinceStreaming=${Date.now() - _streamingStart}ms\n`);
                             }
                         }
-                        onStreamDelta?.();
                     } catch {}
-                    bumpSemanticIdle();
                     // Live text relay (gateway): forward the raw text chunk so
                     // the client renders first tokens before the final replay.
                     // Tool-call/argument deltas intentionally stay off this path.
@@ -832,7 +854,10 @@ export async function _streamResponse({
                     // Routed through the leaked-tool-call guard: appends to
                     // `content`, forwards visible text via onTextDelta, and
                     // recovers/dispatches any leaked known-tool call.
-                    relayLeakText(event.delta || '');
+                    {
+                        const progress = relayLeakText(event.delta || '');
+                        if (progress?.text || progress?.tool) bumpSemanticIdle();
+                    }
                     break;
                 case 'response.reasoning_text.delta':
                 case 'response.reasoning_summary_text.delta':
@@ -841,7 +866,7 @@ export async function _streamResponse({
                     // Only non-empty reasoning text is model progress. Empty
                     // deltas remain transport activity via resetIdle() above.
                     if (event.delta) {
-                        try { onStreamDelta?.(); } catch {}
+                        try { onStreamDelta?.('reasoning'); } catch {}
                         bumpSemanticIdle();
                     }
                     break;
@@ -869,17 +894,18 @@ export async function _streamResponse({
                     // timer so long server-side tool latency after item-added
                     // (before any arg delta) is not mistaken for a silent stall.
                     resetSemanticIdle();
+                    try { onStreamDelta?.(_toolInFlight ? 'tool' : 'semantic'); } catch {}
                     break;
                 case 'response.function_call_arguments.delta':
                     markActiveToolItem(null, event.item_id);
                     _toolInFlight = true;
-                    try { onStreamDelta?.(); } catch {}
+                    try { onStreamDelta?.('tool'); } catch {}
                     bumpSemanticIdle();
                     break;
                 case 'response.custom_tool_call_input.delta':
                     markActiveToolItem(null, event.item_id);
                     _toolInFlight = true;
-                    try { onStreamDelta?.(); } catch {}
+                    try { onStreamDelta?.('tool'); } catch {}
                     bumpSemanticIdle();
                     break;
                 case 'response.function_call_arguments.done': {
@@ -935,7 +961,7 @@ export async function _streamResponse({
                             _deferred: true,
                         });
                     }
-                    try { onStreamDelta?.(); } catch {}
+                    try { onStreamDelta?.('tool'); } catch {}
                     bumpSemanticIdle();
                     break;
                 }
@@ -992,6 +1018,13 @@ export async function _streamResponse({
                     // Item-done is genuine lifecycle progress — reset semantic
                     // idle so latency before the next item/args does not stall.
                     resetSemanticIdle();
+                    try {
+                        onStreamDelta?.(
+                            event.item?.type === 'reasoning'
+                                ? 'reasoning'
+                                : (_toolInFlight || /tool|function_call/.test(event.item?.type || '') ? 'tool' : 'semantic'),
+                        );
+                    } catch {}
                     break;
                 case 'response.completed': {
                     const completedServiceTier = event.response?.service_tier || event.response?.serviceTier || '';
@@ -1016,6 +1049,7 @@ export async function _streamResponse({
                     }
                     if (!model && event.response?.model) model = event.response.model;
                     if (!responseId && event.response?.id) responseId = event.response.id;
+                    let reportedBundleProgress = false;
                     if (event.response?.output) {
                         for (const item of event.response.output) {
                             pushResponseItem(item);
@@ -1030,9 +1064,18 @@ export async function _streamResponse({
                                         if (leakGuard.enabled) {
                                             const { text, calls } = leakGuard.push(c.text || '', true);
                                             content += text;
+                                            if (text) {
+                                                try { onStreamDelta?.('text'); } catch {}
+                                                reportedBundleProgress = true;
+                                            }
                                             for (const lc of calls) dispatchLeakedCall(lc);
+                                            if (calls.length) reportedBundleProgress = true;
                                         } else {
                                             content += c.text || '';
+                                            if (c.text) {
+                                                try { onStreamDelta?.('text'); } catch {}
+                                                reportedBundleProgress = true;
+                                            }
                                         }
                                         pushOutputTextAnnotations(c);
                                     }
@@ -1043,15 +1086,29 @@ export async function _streamResponse({
                                     if (c.type === 'output_text') pushOutputTextAnnotations(c);
                                 }
                             }
-                            if (item.type === 'web_search_call') pushWebSearchCall(item);
-                            if (item.type === 'tool_search_call') pushToolSearchCall(item);
-                            if (item.type === 'custom_tool_call') pushCustomToolCall(item);
+                            if (item.type === 'web_search_call') {
+                                pushWebSearchCall(item);
+                                try { onStreamDelta?.('tool'); } catch {}
+                                reportedBundleProgress = true;
+                            }
+                            if (item.type === 'tool_search_call') {
+                                pushToolSearchCall(item);
+                                try { onStreamDelta?.('tool'); } catch {}
+                                reportedBundleProgress = true;
+                            }
+                            if (item.type === 'custom_tool_call') {
+                                pushCustomToolCall(item);
+                                try { onStreamDelta?.('tool'); } catch {}
+                                reportedBundleProgress = true;
+                            }
                             // Salvage path: some streams emit reasoning only
                             // inside the final response.completed.output
                             // bundle (no per-item .done event). Dedup by id.
                             if (item.type === 'reasoning'
                                 && !reasoningItems.some(r => r.id === item.id)) {
                                 pushReasoningItem(item);
+                                try { onStreamDelta?.('reasoning'); } catch {}
+                                reportedBundleProgress = true;
                             }
                             // Salvage path for function_call: when
                             // arguments.done fired before (or without) a
@@ -1072,8 +1129,13 @@ export async function _streamResponse({
                                         emitToolCallDedupe(tc);
                                     }
                                 }
+                                try { onStreamDelta?.('tool'); } catch {}
+                                reportedBundleProgress = true;
                             }
                         }
+                    }
+                    if (!reportedBundleProgress) {
+                        try { onStreamDelta?.('semantic'); } catch {}
                     }
                     // Salvage validation. Any deferred call still missing
                     // id/name would propagate to the next turn as a
@@ -1209,7 +1271,7 @@ export async function _streamResponse({
                         // Only non-empty reasoning deltas are model progress;
                         // empty variants remain transport activity only.
                         if (event.delta) {
-                            try { onStreamDelta?.(); } catch {}
+                            try { onStreamDelta?.('reasoning'); } catch {}
                             bumpSemanticIdle();
                         }
                     }
@@ -1290,13 +1352,19 @@ export async function _streamResponse({
         socket.on('message', messageHandler);
         socket.on('close', closeHandler);
         socket.on('error', errorHandler);
+        tracePingHandler = () => {
+            markSessionTransportActivity(midState.sessionId);
+            if (WS_TRACE_ENABLED) _writeWsLifecycleTrace('ping');
+        };
+        tracePongHandler = () => {
+            markSessionTransportActivity(midState.sessionId);
+            if (WS_TRACE_ENABLED) _writeWsLifecycleTrace('pong');
+        };
+        socket.on('ping', tracePingHandler);
+        socket.on('pong', tracePongHandler);
         if (WS_TRACE_ENABLED) {
             traceOpenHandler = () => _writeWsLifecycleTrace('open');
-            tracePingHandler = () => _writeWsLifecycleTrace('ping');
-            tracePongHandler = () => _writeWsLifecycleTrace('pong');
             socket.on('open', traceOpenHandler);
-            socket.on('ping', tracePingHandler);
-            socket.on('pong', tracePongHandler);
             if (socket.readyState === WebSocket.OPEN) _writeWsLifecycleTrace('open');
         }
         armPreStreamWatchdog();

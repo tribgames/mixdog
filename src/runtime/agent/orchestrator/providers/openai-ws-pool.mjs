@@ -9,6 +9,7 @@
 import WebSocket from 'ws';
 import { errText } from '../../../shared/err-text.mjs';
 import { createHash, randomBytes } from 'crypto';
+import { performance } from 'node:perf_hooks';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
@@ -377,7 +378,7 @@ function _armLiveness(poolKey, entry) {
 // for a server event that will never arrive. Tag any failure with
 // `wsSendFailed=true` so _classifyMidstreamError routes the next attempt
 // through a fresh socket.
-export function _sendFrame(entry, frame) {
+export function _sendFrame(entry, frame, sendSpan = null) {
     return new Promise((resolve, reject) => {
         const socket = entry?.socket;
         if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -387,12 +388,17 @@ export function _sendFrame(entry, frame) {
             return;
         }
         let payload;
+        const serializeStart = performance.now();
         try { payload = JSON.stringify(frame); }
         catch (e) {
             const err = e instanceof Error ? e : new Error(String(e));
             err.wsSendFailed = true;
             reject(err);
             return;
+        }
+        if (sendSpan && typeof sendSpan === 'object') {
+            sendSpan.requestBuildSerializationMs = (sendSpan.requestBuildSerializationMs || 0)
+                + (performance.now() - serializeStart);
         }
         _dumpFrame(payload);
         try {

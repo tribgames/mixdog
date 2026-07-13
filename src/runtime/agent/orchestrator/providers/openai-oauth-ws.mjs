@@ -24,6 +24,7 @@
  * parsing, and tracing.
  */
 import { createHash } from 'crypto';
+import { performance } from 'node:perf_hooks';
 import {
     traceAgentFetch,
     traceAgentSse,
@@ -76,6 +77,7 @@ export {
     parseToolSearchArgs,
     _streamResponse,
     _cacheObservation as _cacheObservationForTest,
+    _cacheContinuityResetReason as _cacheContinuityResetReasonForTest,
     _warmupContinuityTrace as _warmupContinuityTraceForTest,
 };
 
@@ -412,7 +414,7 @@ export function _withCodexWsClientMetadata(frame, entry, enabled, context = {}) 
     };
 }
 
-function _cacheObservation({ entry, result }) {
+function _cacheObservation({ entry, result, continuityResetReason = null }) {
     const inputTokens = _num(result?.usage?.inputTokens, 0);
     const promptTokens = _num(result?.usage?.promptTokens, 0) || inputTokens;
     const cachedTokens = _num(result?.usage?.cachedTokens, 0);
@@ -421,7 +423,11 @@ function _cacheObservation({ entry, result }) {
     const promptThreshold = _envPositiveInt('MIXDOG_OAI_CACHE_MISS_PROMPT_TOKENS', 4096);
     const dropRatio = _envRatio('MIXDOG_OAI_CACHE_MISS_DROP_RATIO', 0.6);
     const dropThreshold = Math.floor(previousMaxCached * dropRatio);
-    const wasWarm = previousMaxCached >= warmThreshold;
+    // A full-frame chain break (most commonly compaction/input-prefix rewrite)
+    // starts a new prompt shape. Comparing its small new prompt against the
+    // old shape's lifetime high-water creates a "cache drop" on every following
+    // iteration until the new transcript grows past 60% of the old one.
+    const wasWarm = !continuityResetReason && previousMaxCached >= warmThreshold;
     const cacheRatio = promptTokens > 0 ? cachedTokens / promptTokens : null;
     const zeroMiss = wasWarm && promptTokens >= promptThreshold && cachedTokens === 0;
     const partialDrop = wasWarm
@@ -443,12 +449,41 @@ function _cacheObservation({ entry, result }) {
         dropThreshold,
         cacheRatio,
         actualMiss,
+        continuityResetReason,
         missReason: zeroMiss
             ? 'warm_session_zero_cached_tokens'
             : partialDrop
                 ? 'warm_session_cached_tokens_dropped'
                 : null,
     };
+}
+
+function _requestInputExtends(previousInput, currentInput) {
+    if (!Array.isArray(previousInput) || !Array.isArray(currentInput)) return false;
+    if (currentInput.length < previousInput.length) return false;
+    return previousInput.every(
+        (item, index) => _stableStringify(item) === _stableStringify(currentInput[index]),
+    );
+}
+
+function _cacheContinuityResetReason({ mode, deltaReason, entry, body }) {
+    if (mode === 'delta') return null;
+    if (deltaReason && !['no_anchor', 'full_forced', 'full_default'].includes(deltaReason)) {
+        return deltaReason;
+    }
+    // ws-full bypasses _computeDelta's structural comparisons and reports only
+    // full_default. Re-run the two cheap snapshot checks so compaction or any
+    // other prompt rewrite still retires the old prompt's cache high-water.
+    if (deltaReason !== 'full_default' || !entry?.lastResponseId) return null;
+    const currentSansInput = _stableStringify(_sansInput(body));
+    if (entry.lastRequestSansInput && currentSansInput !== entry.lastRequestSansInput) {
+        return 'request_properties_changed';
+    }
+    if (Array.isArray(entry.lastRequestInput)
+        && !_requestInputExtends(entry.lastRequestInput, Array.isArray(body?.input) ? body.input : [])) {
+        return 'input_prefix_mismatch';
+    }
+    return null;
 }
 
 // Warmup→first-real continuity trace (Codex prewarm_websocket parity
@@ -495,6 +530,7 @@ export async function _acquireWithRetry({
     codexHeaders,
     forceFresh,
     onRetry,
+    onBackoffSlept,
     externalSignal,
     _acquire = acquireWebSocket,
     _sleepFn = _defaultSleep,
@@ -560,8 +596,10 @@ export async function _acquireWithRetry({
             } catch {}
             // Sleep is abort-aware: an abort during backoff rejects immediately
             // instead of burning the remaining wait.
-            if (externalSignal) {
-                await new Promise((resolve, reject) => {
+            const sleepStart = performance.now();
+            try {
+                if (externalSignal) {
+                    await new Promise((resolve, reject) => {
                     const t = setTimeout(() => {
                         externalSignal.removeEventListener('abort', onAbort);
                         resolve();
@@ -573,9 +611,12 @@ export async function _acquireWithRetry({
                     };
                     if (externalSignal.aborted) { onAbort(); return; }
                     externalSignal.addEventListener('abort', onAbort, { once: true });
-                });
-            } else {
-                await _sleepFn(backoff);
+                    });
+                } else {
+                    await _sleepFn(backoff);
+                }
+            } finally {
+                try { onBackoffSlept?.(performance.now() - sleepStart); } catch {}
             }
         }
     }
@@ -624,6 +665,7 @@ export async function sendViaWebSocket({
     _streamFn = _streamResponse,
     _sendFrameFn = _sendFrame,
     _sleepFn = _defaultSleep,
+    _sendSpanTraceFn = appendAgentTrace,
 }) {
     // Bounded mid-stream retry: if an attempt's stream dies after
     // response.created but before response.completed from a transient cause
@@ -678,12 +720,53 @@ export async function sendViaWebSocket({
     const codexHandshakeHeaders = useCodexWsClientMetadata
         ? _codexWsCompatibilityHeaders({ ...codexMetadataContext, handshake: true })
         : null;
+    // One compact row per logical iteration. Values aggregate all handshake
+    // and mid-stream attempts, including warmup, without retaining request data.
+    const sendSpan = {
+        poolAcquireMs: 0,
+        requestBuildSerializationMs: 0,
+        preResponseCreatedMs: 0,
+        firstEventMs: 0,
+        retryBackoffMs: 0,
+        handshakeRetries: 0,
+        acquireAttempts: 0,
+        acquireMode: null,
+        emitted: false,
+    };
+    const emitSendSpan = (outcome) => {
+        if (sendSpan.emitted) return;
+        sendSpan.emitted = true;
+        const payload = {
+            provider: traceProvider,
+            model: useModel,
+            transport: 'websocket',
+            acquire_mode: sendSpan.acquireMode || 'failed',
+            acquire_attempts: sendSpan.acquireAttempts,
+            handshake_retries: sendSpan.handshakeRetries,
+            pool_acquire_ms: sendSpan.poolAcquireMs,
+            request_build_serialization_ms: sendSpan.requestBuildSerializationMs,
+            pre_response_created_ms: sendSpan.preResponseCreatedMs,
+            first_event_ms: sendSpan.firstEventMs,
+            retry_backoff_ms: sendSpan.retryBackoffMs,
+            outcome,
+        };
+        try {
+            _sendSpanTraceFn({
+                sessionId: poolKey,
+                iteration,
+                kind: 'send_spans',
+                ...payload,
+                payload,
+            });
+        } catch {}
+    };
 
     for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
-        const handshakeStart = Date.now();
+        const handshakeStart = performance.now();
         let acquired;
         let handshakeRetries = 0;
         const handshakeRetryClassifiers = [];
+        sendSpan.acquireAttempts += 1;
         try { onStageChange?.('requesting'); } catch {}
         try {
             acquired = await _acquireWithRetryFn({
@@ -703,17 +786,20 @@ export async function sendViaWebSocket({
                 maxAttempts: (fastFallback && attemptIndex === 0) ? 1 : HANDSHAKE_MAX_ATTEMPTS,
                 onRetry: (info) => {
                     handshakeRetries += 1;
+                    sendSpan.handshakeRetries += 1;
                     if (info?.classifier) handshakeRetryClassifiers.push(info.classifier);
                 },
+                onBackoffSlept: (ms) => { sendSpan.retryBackoffMs += ms; },
             });
         } catch (err) {
+            sendSpan.poolAcquireMs += performance.now() - handshakeStart;
             const classifier = err?.retryClassifier || (err?.code === 'EWSACQUIRETIMEOUT' ? 'acquire_timeout' : null);
             const classifiers = [...handshakeRetryClassifiers];
             if (classifier && !classifiers.includes(classifier)) classifiers.push(classifier);
             if (err?.httpStatus != null || classifier || handshakeRetries > 0 || classifiers.length > 0) {
                 traceAgentFetch({
                     sessionId: poolKey,
-                    headersMs: Date.now() - handshakeStart,
+                    headersMs: performance.now() - handshakeStart,
                     httpStatus: Number(err?.httpStatus || 0),
                     provider: traceProvider,
                     model: useModel,
@@ -727,11 +813,15 @@ export async function sendViaWebSocket({
             // the caller's turn actually tripped on).
             if (attemptIndex > 0 && firstAttemptError) {
                 try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
+                emitSendSpan('error');
                 throw _stampTool(_stampLiveText(firstAttemptError));
             }
+            emitSendSpan('error');
             throw _stampTool(_stampLiveText(err));
         }
         const { entry, reused } = acquired;
+        sendSpan.poolAcquireMs += performance.now() - handshakeStart;
+        sendSpan.acquireMode = entry?.ephemeral ? 'ephemeral' : (reused ? 'reused' : 'new');
         // Re-seed the retry attempt's fresh entry with the prior attempt's
         // last successful anchor so _computeDelta sees a non-null
         // lastInputPrefixHash and prev_response_id, keeping the same xAI
@@ -746,7 +836,7 @@ export async function sendViaWebSocket({
         }
         traceAgentFetch({
             sessionId: poolKey,
-            headersMs: Date.now() - handshakeStart,
+            headersMs: performance.now() - handshakeStart,
             httpStatus: reused ? 0 : 101,
             provider: traceProvider,
             model: useModel,
@@ -801,6 +891,7 @@ export async function sendViaWebSocket({
             // has no prior request state. A reused pooled socket with a live
             // chain must go straight to the real request.
             if (warmupBody && typeof warmupBody === 'object' && attemptIndex === 0 && !entry.lastResponseId) {
+                const warmupBuildStart = performance.now();
                 // Codex WS prewarm parity (opt-in): codex's prewarm frame is a
                 // minimal generate:false request that omits transport-only
                 // fields (stream/background) on the wire (prewarm_websocket,
@@ -824,7 +915,8 @@ export async function sendViaWebSocket({
                 const wireWarmupFrame = _withCodexWsClientMetadata(warmupFrame, entry, useCodexWsClientMetadata, warmupMetadataContext);
                 wireFrameHadTurnState = !!wireWarmupFrame?.client_metadata?.['x-codex-turn-state'];
                 wireFrameMetadataTrace = _metadataTrace(wireWarmupFrame?.client_metadata);
-                await _sendFrameFn(entry, wireWarmupFrame);
+                sendSpan.requestBuildSerializationMs += performance.now() - warmupBuildStart;
+                await _sendFrameFn(entry, wireWarmupFrame, sendSpan);
                 const warmupStart = Date.now();
                 const warmupState = {
                     attemptIndex,
@@ -835,6 +927,8 @@ export async function sendViaWebSocket({
                     model: useModel,
                     traceProvider,
                     warmup: true,
+                    sendSpan,
+                    sendStartedAt: performance.now(),
                 };
                 warmupResult = await _streamFn({
                     entry,
@@ -914,6 +1008,7 @@ export async function sendViaWebSocket({
                     lastInputPrefixHash: null,
                 }
                 : entry;
+            const requestBuildStart = performance.now();
             const delta = _computeDelta({ entry: deltaEntry, body: requestBody, traceProvider });
             ({ mode, frame } = delta);
             deltaReason = delta.reason || null;
@@ -959,10 +1054,13 @@ export async function sendViaWebSocket({
                 const reason = externalSignal.reason;
                 throw reason instanceof Error ? reason : new Error('Aborted');
             }
-            await _sendFrameFn(entry, wireFrame);
+            sendSpan.requestBuildSerializationMs += performance.now() - requestBuildStart;
+            await _sendFrameFn(entry, wireFrame, sendSpan);
+            midState.sendSpan = sendSpan;
+            midState.sendStartedAt = performance.now();
 
             if (process.env.MIXDOG_DEBUG_AGENT) {
-                process.stderr.write(`[agent-trace] ws-streaming-start sinceAcquire=${Date.now() - handshakeStart}ms\n`);
+                process.stderr.write(`[agent-trace] ws-streaming-start sinceAcquire=${Math.round(performance.now() - handshakeStart)}ms\n`);
             }
             try { onStageChange?.('streaming'); } catch {}
             result = await _streamFn({
@@ -1034,7 +1132,15 @@ export async function sendViaWebSocket({
                     if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(line);
                     emittedProgress.push(line);
                 } catch {}
-                await _sleepWithAbort(backoff, externalSignal, _sleepFn);
+                const sleepStart = performance.now();
+                try {
+                    await _sleepWithAbort(backoff, externalSignal, _sleepFn);
+                } catch (sleepErr) {
+                    sendSpan.retryBackoffMs += performance.now() - sleepStart;
+                    emitSendSpan('error');
+                    throw sleepErr;
+                }
+                sendSpan.retryBackoffMs += performance.now() - sleepStart;
                 continue;
             }
             // Not retryable, OR we've already exhausted the retry budget.
@@ -1056,8 +1162,10 @@ export async function sendViaWebSocket({
                         firstAttemptError.suppressed = list;
                     }
                 } catch {}
+                emitSendSpan('error');
                 throw _stampTool(_stampLiveText(firstAttemptError));
             }
+            emitSendSpan('error');
             throw _stampTool(_stampLiveText(err));
         }
         const liveModel = result.model || useModel;
@@ -1099,6 +1207,12 @@ export async function sendViaWebSocket({
         const priorEntryResponseId = typeof entry?.lastResponseId === 'string' && entry.lastResponseId.length > 0
             ? entry.lastResponseId
             : null;
+        const cacheContinuityResetReason = _cacheContinuityResetReason({
+            mode,
+            deltaReason,
+            entry,
+            body: requestBody,
+        });
         if (result.responseId && keepResponseChain) {
             entry.lastResponseId = result.responseId;
             entry.lastRequestSansInput = _stableStringify(_sansInput(requestBody));
@@ -1124,7 +1238,11 @@ export async function sendViaWebSocket({
         // warmup usage in first (R18) made prompt_tokens spike on it=1 and
         // then "shrink" on it=2, faking prefix-rewrite/cache-drop signals in
         // every warmup session (debugger 2026-07-03).
-        const cacheObservation = _cacheObservation({ entry, result });
+        const cacheObservation = _cacheObservation({
+            entry,
+            result,
+            continuityResetReason: cacheContinuityResetReason,
+        });
         if (warmupResult?.usage) {
             result.usage = _combineUsageWithWarmup(result.usage, warmupResult.usage);
         }
@@ -1207,10 +1325,13 @@ export async function sendViaWebSocket({
                 });
             } catch {}
         }
-        entry.promptCacheMaxCachedTokens = Math.max(
-            _num(entry.promptCacheMaxCachedTokens, 0),
-            cacheObservation.cachedTokens,
-        );
+        // Rebase after a genuine provider retreat so one eviction produces one
+        // diagnostic instead of a long run of duplicate "dropped" rows. The
+        // request that exposed the retreat has already rebuilt the prefix; its
+        // observed cached count is the correct baseline for recovery.
+        entry.promptCacheMaxCachedTokens = (cacheObservation.actualMiss || cacheObservation.continuityResetReason)
+            ? cacheObservation.cachedTokens
+            : Math.max(_num(entry.promptCacheMaxCachedTokens, 0), cacheObservation.cachedTokens);
         // Early-session cache-miss ledger (first up-to-3 real requests on this
         // socket) for the warmup→first-real continuity trace below. Warmup
         // itself is excluded — this block only runs on the real send.
@@ -1340,6 +1461,7 @@ export async function sendViaWebSocket({
         // Leave a breadcrumb on the result so downstream callers can observe
         // that a retry was used (0 = first-try success, up to 2 for ws_1006/1011).
         try { Object.defineProperty(out, '__midstreamRetries', { value: attemptIndex, enumerable: false }); } catch {}
+        emitSendSpan('ok');
         return out;
     }
     // Unreachable — the loop either returns or throws above.

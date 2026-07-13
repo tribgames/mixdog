@@ -36,6 +36,7 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/openai-ws-delta.mjs';
 import {
     _cacheObservationForTest,
+    _cacheContinuityResetReasonForTest,
 } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 import {
     _withCodexWsClientMetadata,
@@ -1679,6 +1680,27 @@ test('openai oauth ws cache observation detects warm zero and partial retreats',
     });
     assert.equal(healthy.actualMiss, false);
     assert.equal(healthy.missReason, null);
+
+    const compacted = _cacheObservationForTest({
+        entry: { promptCacheMaxCachedTokens: 255_488 },
+        result: { usage: { inputTokens: 21_066, promptTokens: 21_066, cachedTokens: 8_704 } },
+        continuityResetReason: 'input_prefix_mismatch',
+    });
+    assert.equal(compacted.actualMiss, false, 'intentional prompt rewrite must reset the old high-water');
+    assert.equal(compacted.wasWarm, false);
+
+    const previousInput = [{ type: 'message', role: 'user', content: 'old long transcript' }];
+    const rewrittenBody = { model: 'gpt-5.5', input: [{ type: 'message', role: 'user', content: 'compact summary' }] };
+    assert.equal(_cacheContinuityResetReasonForTest({
+        mode: 'full',
+        deltaReason: 'full_default',
+        entry: {
+            lastResponseId: 'resp_old',
+            lastRequestSansInput: _stableStringify(_sansInput(rewrittenBody)),
+            lastRequestInput: previousInput,
+        },
+        body: rewrittenBody,
+    }), 'input_prefix_mismatch', 'ws-full must detect prompt rewrites hidden by full_default');
 });
 
 // === 10. OpenAI transport-policy switch (MIXDOG_OAI_TRANSPORT) ==============

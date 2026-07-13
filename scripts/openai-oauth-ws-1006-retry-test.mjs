@@ -51,6 +51,32 @@ test('pre-response 1006 opens a fresh WS and replays the same request', async ()
     assert.equal(result.__midstreamRetries, 1);
 });
 
+test('successful iteration emits one compact send-spans row', async () => {
+    const rows = [];
+    const result = await sendViaWebSocket(wsArgs({
+        _sendSpanTraceFn: (row) => rows.push(row),
+        _acquireWithRetryFn: async (opts) => {
+            opts.onRetry?.({ classifier: 'timeout' });
+            opts.onRetry?.({ classifier: 'timeout' });
+            return { entry: entry(), reused: true };
+        },
+        _streamFn: async ({ state }) => {
+            state.sendSpan.firstEventMs += 7;
+            state.sendSpan.preResponseCreatedMs += 9;
+            return { content: 'ok', model: 'gpt-5.5', toolCalls: [], usage: {}, closeSocket: true };
+        },
+    }));
+    assert.equal(result.content, 'ok');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].kind, 'send_spans');
+    assert.equal(rows[0].payload.acquire_mode, 'reused');
+    assert.equal(rows[0].payload.acquire_attempts, 1);
+    assert.equal(rows[0].payload.handshake_retries, 2);
+    assert.equal(rows[0].payload.first_event_ms, 7);
+    assert.equal(rows[0].payload.pre_response_created_ms, 9);
+    assert.equal('body' in rows[0].payload, false);
+});
+
 test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async () => {
     const savedEnv = Object.fromEntries([
         'MIXDOG_OAI_TRANSPORT',
