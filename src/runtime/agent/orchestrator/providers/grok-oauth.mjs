@@ -584,6 +584,120 @@ export async function ensureLatestGrokModel(provider) {
 
 let _modelRefreshInFlight = null;
 
+// Grok's gRPC tool registry rejects a root anyOf/oneOf when even one branch is
+// not an object. Keep this adapter local to OAuth Grok requests: other
+// providers may support the original union schema. Tool definitions are never
+// mutated, so callers can safely reuse them for later requests.
+function schemasDeepEqual(left, right) {
+    if (Object.is(left, right)) return true;
+    if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+    if (Array.isArray(left) || Array.isArray(right)) {
+        return Array.isArray(left) && Array.isArray(right)
+            && left.length === right.length
+            && left.every((value, index) => schemasDeepEqual(value, right[index]));
+    }
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    return leftKeys.length === rightKeys.length
+        && leftKeys.every((key, index) => key === rightKeys[index]
+            && schemasDeepEqual(left[key], right[key]));
+}
+
+function pureAnyOfAlternatives(schema) {
+    return schema && typeof schema === 'object' && !Array.isArray(schema)
+        && Object.keys(schema).length === 1
+        && Array.isArray(schema.anyOf)
+        ? schema.anyOf
+        : [schema];
+}
+
+function mergeGrokObjectBranchProperties(objectBranches) {
+    const properties = {};
+    for (const branch of objectBranches) {
+        for (const [name, schema] of Object.entries(branch.properties || {})) {
+            if (!Object.prototype.hasOwnProperty.call(properties, name)) {
+                properties[name] = schema;
+                continue;
+            }
+            if (schemasDeepEqual(properties[name], schema)) continue;
+            const alternatives = [
+                ...pureAnyOfAlternatives(properties[name]),
+                ...pureAnyOfAlternatives(schema),
+            ];
+            const deduped = alternatives.reduce(
+                (unique, alternative) => unique.some(item => schemasDeepEqual(item, alternative))
+                    ? unique
+                    : [...unique, alternative],
+                [],
+            );
+            properties[name] = deduped.length === 1 ? deduped[0] : { anyOf: deduped };
+        }
+    }
+    return properties;
+}
+
+function normalizeGrokToolSchema(schema) {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)
+        || (!Array.isArray(schema.anyOf) && !Array.isArray(schema.oneOf))) {
+        return schema;
+    }
+
+    const { anyOf, oneOf, ...root } = schema;
+    const branches = [...(Array.isArray(anyOf) ? anyOf : []), ...(Array.isArray(oneOf) ? oneOf : [])];
+    const objectBranches = branches.filter((branch) => branch && typeof branch === 'object' && !Array.isArray(branch)
+        && (branch.type === 'object'
+            || (Array.isArray(branch.type) && branch.type.includes('object'))
+            || (branch.properties && typeof branch.properties === 'object')));
+
+    // A function's arguments must be an object even if its original union has
+    // no explicit object alternative. The permissive fallback still retains
+    // root-level metadata such as description and additionalProperties.
+    if (!objectBranches.length) {
+        return {
+            ...root,
+            type: 'object',
+            ...(!Object.prototype.hasOwnProperty.call(root, 'additionalProperties')
+                ? { additionalProperties: true }
+                : {}),
+        };
+    }
+
+    const properties = objectBranches.some(branch => branch.properties) || root.properties
+        ? {
+            ...mergeGrokObjectBranchProperties(objectBranches),
+            ...(root.properties || {}),
+        }
+        : undefined;
+    const branchRequiredInEvery = (Array.isArray(objectBranches[0].required) ? objectBranches[0].required : [])
+        .filter(key => objectBranches.every(branch => Array.isArray(branch.required) && branch.required.includes(key)));
+    const required = [...new Set([
+        ...(Array.isArray(root.required) ? root.required : []),
+        ...branchRequiredInEvery,
+    ])];
+    const { properties: _rootProperties, required: _rootRequired, ...rootWithoutPropertiesOrRequired } = root;
+    const mergedObjectBranches = Object.assign({}, ...objectBranches);
+    const {
+        properties: _branchProperties,
+        required: _branchRequired,
+        ...mergedObjectBranchesWithoutPropertiesOrRequired
+    } = mergedObjectBranches;
+    return {
+        ...mergedObjectBranchesWithoutPropertiesOrRequired,
+        ...rootWithoutPropertiesOrRequired,
+        type: 'object',
+        ...(properties ? { properties } : {}),
+        ...(required.length ? { required } : {}),
+    };
+}
+
+function normalizeGrokToolSchemas(tools) {
+    if (!Array.isArray(tools)) return tools;
+    return tools.map((tool) => {
+        const inputSchema = normalizeGrokToolSchema(tool?.inputSchema);
+        return inputSchema === tool?.inputSchema ? tool : { ...tool, inputSchema };
+    });
+}
+
 export class GrokOAuthProvider {
     // OpenAI-compatible usage: prompt_tokens includes cached. See registry.mjs.
     static inputExcludesCache = false;
@@ -697,6 +811,7 @@ export class GrokOAuthProvider {
         );
         const tokens = await this.ensureAuth();
         const inner = this._ensureInner(tokens.access_token, useModel);
+        const grokTools = normalizeGrokToolSchemas(tools);
         try {
             // Call _doSend directly, bypassing OpenAICompatProvider.send()'s
             // own 401 handler — that one reloads a static apiKey from config,
@@ -704,7 +819,7 @@ export class GrokOAuthProvider {
             // Caller's model passes through (or catalog-top default), with
             // retired aliases normalized. api.x.ai exposes the full grok-4.x
             // catalog to this token — no single-model lock.
-            return await inner._doSend(messages, useModel, tools, sendOpts);
+            return await inner._doSend(messages, useModel, grokTools, sendOpts);
         } catch (err) {
             // Refresh-and-retry only on 401 (stale/expired access token).
             // Resolve the status from the structured field (falling back to the
@@ -717,7 +832,7 @@ export class GrokOAuthProvider {
                 process.stderr.write('[grok-oauth] 401, force-refreshing token...\n');
                 const fresh = await this.ensureAuth({ forceRefresh: true });
                 const retryInner = this._ensureInner(fresh.access_token, useModel);
-                return await retryInner._doSend(messages, useModel, tools, sendOpts);
+                return await retryInner._doSend(messages, useModel, grokTools, sendOpts);
             }
             throw err;
         }
