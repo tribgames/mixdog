@@ -263,12 +263,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
   const [panelTransitionEpoch, setPanelTransitionEpoch] = useState(0);
   const [panelInkMaskEpoch, setPanelInkMaskEpoch] = useState(0);
-  // Windows Terminal/conhost scrolls the alt-screen (auto-wrap/DECAWM) when the
-  // bottom-right cell is written. WT_SESSION is also set when the UI runs under
-  // a Unix-ish shell hosted by Windows Terminal, where process.platform is not
-  // necessarily win32 but the terminal behavior is still Windows-like.
-  const windowsLikeTerminal = process.platform === 'win32' || Boolean(process.env.WT_SESSION);
-  const rightSafetyColumns = windowsLikeTerminal ? 1 : 0;
+  // Keep a universal one-cell margin at the right edge: terminals may clip or
+  // wrap their final cell, including macOS terminals rendering rounded borders.
+  const rightSafetyColumns = 1;
   const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
   // scrollOffset = how many transcript ROWS we've scrolled UP from the bottom
   // (0 = pinned to the latest, showing the newest content). Mouse wheel adjusts

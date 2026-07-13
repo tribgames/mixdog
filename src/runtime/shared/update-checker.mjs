@@ -13,8 +13,8 @@
  * the child exits, reporting the resolved version on success.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { resolvePluginData } from './plugin-paths.mjs';
@@ -199,18 +199,48 @@ export async function checkLatestVersion({ force = false, dataDir } = {}) {
  * `-WindowStyle Hidden` style flags that antivirus heuristics flag).
  */
 export function npmCliJsPath() {
-  const execDir = dirname(process.execPath);
-  const candidates = [
-    // Windows: npm ships beside node.exe.
-    join(execDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-    // Unix layout: <prefix>/bin/node → <prefix>/lib/node_modules/npm.
-    join(execDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-  ];
   // When launched via npm itself, npm_execpath is authoritative.
   const envPath = process.env.npm_execpath;
-  if (envPath && /npm-cli\.js$/i.test(envPath)) candidates.unshift(envPath);
+  const candidates = envPath && /npm-cli\.js$/i.test(envPath) ? [envPath] : [];
+  const execDirs = [dirname(process.execPath)];
+  try {
+    const realExecDir = dirname(realpathSync(process.execPath));
+    if (!execDirs.includes(realExecDir)) execDirs.push(realExecDir);
+  } catch { /* retain the raw executable path */ }
+
+  for (const execDir of execDirs) {
+    // Windows: npm ships beside node.exe.
+    candidates.push(join(execDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'));
+    // Unix layout: <prefix>/bin/node → <prefix>/lib/node_modules/npm.
+    candidates.push(join(execDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'));
+    // Homebrew: <prefix>/bin/node → <prefix>/libexec/lib/node_modules/npm.
+    candidates.push(join(execDir, '..', 'libexec', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'));
+  }
   for (const candidate of candidates) {
     try { if (existsSync(candidate)) return candidate; } catch { /* keep looking */ }
+  }
+
+  // Last resort: npm shims on PATH commonly resolve into npm's package bin dir.
+  const pathDirs = (process.env.PATH || process.env.Path || '').split(delimiter);
+  for (const pathDir of pathDirs) {
+    if (!pathDir) continue;
+    const npmPaths = process.platform === 'win32'
+      ? [join(pathDir, 'npm'), join(pathDir, 'npm.cmd')]
+      : [join(pathDir, 'npm')];
+    for (const npmPath of npmPaths) {
+      try {
+        if (!existsSync(npmPath)) continue;
+        const resolvedNpm = realpathSync(npmPath);
+        const npmBinDir = dirname(resolvedNpm);
+        if (
+          basename(npmBinDir) !== 'bin'
+          || basename(dirname(npmBinDir)) !== 'npm'
+          || basename(dirname(dirname(npmBinDir))) !== 'node_modules'
+        ) continue;
+        const cliJs = join(npmBinDir, 'npm-cli.js');
+        if (existsSync(cliJs)) return cliJs;
+      } catch { /* keep looking */ }
+    }
   }
   return null;
 }
