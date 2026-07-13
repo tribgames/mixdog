@@ -212,10 +212,21 @@ jobs:
 
   aggregate:
     name: aggregate-manifest
-    needs: build
+    needs: [gate, build]
+    if: ${{ always() && needs.gate.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    concurrency:
+      group: runtime-manifest-sync
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Generate and commit against the branch that bundles the manifest,
+          # even when this workflow was started from a runtime-v* tag.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -238,3 +249,54 @@ jobs:
         with:
           name: runtime-manifest
           path: dist/runtime-manifest.json
+
+      # Directly updating the default branch is simpler and more reliable than
+      # an auto-PR that can remain unmerged. GITHUB_TOKEN is the only credential.
+      # The concurrency group may cancel an older pending aggregate; that is
+      # acceptable because this step's monotonic tag guard prevents rollback.
+      - name: Sync bundled manifest to default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          MANIFEST=src/runtime/memory/data/runtime-manifest.json
+          TAG_PATTERN='^runtime-v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if [[ ! "$RELEASE_TAG" =~ $TAG_PATTERN ]]; then
+            echo "Skipping manifest sync: incoming release tag is malformed: ${RELEASE_TAG}"
+            exit 0
+          fi
+
+          git fetch origin "$DEFAULT_BRANCH"
+          if ! git cat-file -e "origin/${DEFAULT_BRANCH}:${MANIFEST}" 2>/dev/null; then
+            echo "No bundled manifest exists on ${DEFAULT_BRANCH}; proceeding with repair sync."
+          elif ! CURRENT_TAG=$(git show "origin/${DEFAULT_BRANCH}:${MANIFEST}" |
+            node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).release_tag" 2>/dev/null); then
+            echo "Bundled manifest is unreadable; proceeding with repair sync."
+          elif [[ ! "$CURRENT_TAG" =~ $TAG_PATTERN ]]; then
+            echo "Bundled release tag is missing or malformed (${CURRENT_TAG:-missing}); proceeding with repair sync."
+          else
+            CURRENT_VERSION=${CURRENT_TAG#runtime-v}
+            INCOMING_VERSION=${RELEASE_TAG#runtime-v}
+            OLDEST_VERSION=$(printf '%s\n%s\n' "$INCOMING_VERSION" "$CURRENT_VERSION" |
+              sort -V | head -n 1)
+
+            if [[ "$INCOMING_VERSION" != "$CURRENT_VERSION" &&
+                  "$OLDEST_VERSION" == "$INCOMING_VERSION" ]]; then
+              echo "Skipping stale manifest sync: incoming ${RELEASE_TAG} is older than bundled ${CURRENT_TAG}."
+              exit 0
+            fi
+          fi
+
+          if git diff --quiet -- "$MANIFEST"; then
+            echo "Bundled runtime manifest is already current."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          git commit -m "chore(runtime): sync manifest for ${RELEASE_TAG}"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:${DEFAULT_BRANCH}"

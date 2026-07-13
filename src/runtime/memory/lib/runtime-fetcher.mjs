@@ -37,7 +37,6 @@ const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('../data/runtime-manifest.js
 
 // GitHub raw URL fallback — used only when no cached or bundled manifest exists.
 const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/memory/data/runtime-manifest.json'
-const LEGACY_RUNTIME_RELEASE_REPOSITORY = 'trib-plugin/mixdog'
 
 // ---------------------------------------------------------------------------
 // Platform key
@@ -183,7 +182,7 @@ function runtimeAssetUrlCandidates(url) {
     .split(/[\s,;]+/u)
     .map((repo) => repo.trim())
     .filter(Boolean)
-  for (const repo of [...overrides, LEGACY_RUNTIME_RELEASE_REPOSITORY]) {
+  for (const repo of overrides) {
     if (repo && repo !== releaseRepo) add(value.replace(`/github.com/${releaseRepo}/`, `/github.com/${repo}/`))
   }
   return out

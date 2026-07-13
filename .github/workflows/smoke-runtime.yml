@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to test (e.g. runtime-v0.4.0)"
+        description: "Release tag override (leave blank to use the bundled manifest)"
         required: false
-        default: "runtime-v0.4.0"
+        default: ""
       release_repository:
-        description: "Release repository override (e.g. trib-plugin/mixdog for legacy runtime-v0.4.0)"
+        description: "Release repository override (e.g. owner/repository)"
         required: false
         default: ""
   workflow_run:
@@ -39,10 +39,34 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Resolve runtime release tag
+        id: runtime
+        shell: bash
+        env:
+          TAG_OVERRIDE: ${{ inputs.tag }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+
+          const manifest = JSON.parse(
+            readFileSync('src/runtime/memory/data/runtime-manifest.json', 'utf8')
+          );
+          const tag = process.env.TAG_OVERRIDE || manifest.release_tag;
+          if (typeof tag !== 'string' || tag.length === 0) {
+            throw new Error('No workflow tag override or bundled manifest release_tag');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\n`);
+          console.log(`Testing runtime release tag: ${tag}`);
+          NODE
+
       - name: Negative tests (unix)
         if: runner.os != 'Windows'
         env:
-          TAG: ${{ inputs.tag || 'runtime-v0.4.0' }}
+          TAG: ${{ steps.runtime.outputs.tag }}
           OS: ${{ matrix.os }}
           ARCH: ${{ matrix.arch }}
           RUNTIME_RELEASE_REPOSITORY: ${{ inputs.release_repository }}
@@ -51,7 +75,7 @@ jobs:
       - name: Negative tests (windows)
         if: runner.os == 'Windows'
         env:
-          TAG: ${{ inputs.tag || 'runtime-v0.4.0' }}
+          TAG: ${{ steps.runtime.outputs.tag }}
           OS: ${{ matrix.os }}
           ARCH: ${{ matrix.arch }}
           RUNTIME_RELEASE_REPOSITORY: ${{ inputs.release_repository }}

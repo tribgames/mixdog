@@ -3,13 +3,13 @@
 // Aggregator step run after all matrix build jobs succeed.
 // Reads release assets via gh CLI, filters mixdog-runtime-*.tar.gz,
 // fetches sha256 from .sha256 sidecar files, and emits runtime-manifest.json
-// to both dist/ and src/runtime/memory/data/ (for the auto-PR).
+// to both dist/ and src/runtime/memory/data/ (for the workflow branch sync).
 //
 // Environment:
 //   GITHUB_TOKEN  — PAT or GITHUB_TOKEN secret with contents:read
 //   RELEASE_TAG   — e.g. "runtime-v0.4.0" (falls back to process.argv[2])
 //   GITHUB_REPOSITORY — auto-set by Actions (e.g. "owner/repo")
-//   RUNTIME_RELEASE_REPOSITORY — override repo for gh commands (legacy trib-plugin/mixdog)
+//   RUNTIME_RELEASE_REPOSITORY — override repo for gh commands
 
 import { execSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -77,23 +77,23 @@ for (const t of tarballs) {
 async function fetchSha256(sha256AssetName, _downloadUrl) {
   // Try matching .sha256 sidecar from the asset list first
   const sidecar = assets.find(a => a.name === sha256AssetName);
-  if (sidecar) {
-    // Download the sidecar file text
-    try {
-      const tmpDir = resolve(tmpdir(), 'mixdog-manifest-sha256');
-      mkdirSync(tmpDir, { recursive: true });
-      execSync(
-        `gh release download ${RELEASE_TAG} --repo ${REPO} --pattern ${sha256AssetName} --dir "${tmpDir}" --clobber`,
-        { encoding: 'utf8', env: process.env }
-      );
-      const content = readFileSync(resolve(tmpDir, sha256AssetName), 'utf8').trim();
-      // Format: "<hex>  <filename>"
-      return content.split(/\s+/)[0];
-    } catch (e) {
-      console.warn(`Could not download sidecar ${sha256AssetName}: ${e.message}`);
-    }
+  if (!sidecar) {
+    throw new Error(`Missing required checksum sidecar: ${sha256AssetName}`);
   }
-  return 'TBD'; // fallback if sidecar not present
+
+  const tmpDir = resolve(tmpdir(), 'mixdog-manifest-sha256');
+  mkdirSync(tmpDir, { recursive: true });
+  execSync(
+    `gh release download ${RELEASE_TAG} --repo ${REPO} --pattern ${sha256AssetName} --dir "${tmpDir}" --clobber`,
+    { encoding: 'utf8', env: process.env }
+  );
+  const content = readFileSync(resolve(tmpDir, sha256AssetName), 'utf8').trim();
+  // Format: "<hex>  <filename>"
+  const checksum = content.split(/\s+/)[0];
+  if (!/^[a-f0-9]{64}$/i.test(checksum)) {
+    throw new Error(`Invalid checksum in sidecar ${sha256AssetName}: ${checksum}`);
+  }
+  return checksum.toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -118,12 +118,29 @@ for (const tarball of tarballs) {
   };
 }
 
-// Ensure all expected platforms are present (fill missing with TBD)
+// A partial release must never produce a publishable or bundled manifest.
 const EXPECTED = ['linux-x64', 'linux-arm64', 'darwin-x64', 'darwin-arm64', 'win32-x64'];
+const missing = EXPECTED.filter(p => !assetsMap[p]);
+if (missing.length > 0) {
+  console.error(`Missing required runtime asset(s): ${missing.join(', ')}`);
+  process.exit(1);
+}
+
 for (const p of EXPECTED) {
-  if (!assetsMap[p]) {
-    console.warn(`WARNING: No asset found for platform ${p} — filling with TBD`);
-    assetsMap[p] = { url: 'TBD', sha256: 'TBD', size: 0 };
+  const asset = assetsMap[p];
+  let url;
+  try {
+    url = new URL(asset.url);
+  } catch {
+    console.error(`Invalid asset URL for ${p}: ${asset.url}`);
+    process.exit(1);
+  }
+  if (url.protocol !== 'https:' ||
+      !/^[a-f0-9]{64}$/.test(asset.sha256) ||
+      !Number.isSafeInteger(asset.size) ||
+      asset.size <= 0) {
+    console.error(`Invalid release metadata for ${p}: ${JSON.stringify(asset)}`);
+    process.exit(1);
   }
 }
 

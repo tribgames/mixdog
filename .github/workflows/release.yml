@@ -37,6 +37,93 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Verify bundled runtime release assets
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { readFile } from 'node:fs/promises';
+
+          const manifestPath = 'src/runtime/memory/data/runtime-manifest.json';
+          const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+          const expectedPlatforms = [
+            'linux-x64',
+            'linux-arm64',
+            'darwin-x64',
+            'darwin-arm64',
+            'win32-x64',
+          ];
+
+          if (!manifest.release_tag || !manifest.assets || typeof manifest.assets !== 'object') {
+            throw new Error(`${manifestPath} is missing release_tag or assets`);
+          }
+
+          const missing = expectedPlatforms.filter((platform) => !manifest.assets[platform]);
+          if (missing.length) {
+            throw new Error(`Bundled runtime manifest is missing: ${missing.join(', ')}`);
+          }
+
+          async function downloadAndVerify(platform, asset) {
+            console.log(`Downloading and verifying ${platform} (${asset.size} bytes)`);
+            const response = await fetch(asset.url, {
+              redirect: 'follow',
+              headers: { 'User-Agent': 'mixdog-release-asset-guard' },
+              signal: AbortSignal.timeout(300_000),
+            });
+            if (!response.ok || !response.body) {
+              await response.body?.cancel();
+              throw new Error(`download failed with HTTP ${response.status}`);
+            }
+
+            const hash = createHash('sha256');
+            let downloaded = 0;
+            for await (const chunk of response.body) {
+              hash.update(chunk);
+              downloaded += chunk.byteLength;
+            }
+
+            const digest = hash.digest('hex');
+            if (downloaded !== asset.size) {
+              throw new Error(`size mismatch (manifest ${asset.size}, downloaded ${downloaded})`);
+            }
+            if (digest.toLowerCase() !== asset.sha256.toLowerCase()) {
+              throw new Error(`sha256 mismatch (manifest ${asset.sha256}, downloaded ${digest})`);
+            }
+          }
+
+          for (const [platform, asset] of Object.entries(manifest.assets)) {
+            if (typeof asset.url !== 'string' || new URL(asset.url).protocol !== 'https:') {
+              throw new Error(`${platform}: invalid HTTPS asset URL`);
+            }
+            if (!/^[a-f0-9]{64}$/i.test(asset.sha256)) {
+              throw new Error(`${platform}: invalid sha256`);
+            }
+            if (!Number.isSafeInteger(asset.size) || asset.size <= 0) {
+              throw new Error(`${platform}: invalid size`);
+            }
+
+            let lastError;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                await downloadAndVerify(platform, asset);
+                lastError = undefined;
+                break;
+              } catch (error) {
+                lastError = error;
+                console.warn(`${platform}: attempt ${attempt}/3 failed: ${error.message}`);
+                if (attempt < 3) {
+                  const delay = attempt === 1 ? 2_000 : 6_000;
+                  await new Promise(resolve => setTimeout(resolve, delay));
+                }
+              }
+            }
+            if (lastError) {
+              throw new Error(`${platform}: verification failed after 3 attempts: ${lastError.message}`);
+            }
+          }
+
+          console.log(`Verified all bundled runtime assets for ${manifest.release_tag}.`);
+          NODE
+
       - name: Install
         run: npm ci
 
