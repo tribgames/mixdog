@@ -174,7 +174,13 @@ class RoutingProfileTests(unittest.TestCase):
         validated = validate_profile_document(self.document)
         self.assertEqual(
             set(validated["profiles"]),
-            {"opus-xhigh", "sol-xhigh", "fable-xhigh", "fable-high"},
+            {
+                "opus-xhigh",
+                "sol-xhigh",
+                "fable-xhigh",
+                "fable-opus-heavy-xhigh",
+                "fable-high",
+            },
         )
         profile = load_route_profile("fable-xhigh")
         self.assertEqual(tuple(profile["routes"]), PROFILE_ROLES)
@@ -225,6 +231,22 @@ class RoutingProfileTests(unittest.TestCase):
                     "model": "gpt-5.6-luna",
                     "effort": "low",
                     "fast": True,
+                },
+            },
+        )
+        fable_opus_heavy_profile = load_route_profile("fable-opus-heavy-xhigh")
+        self.assertEqual(
+            fable_opus_heavy_profile,
+            {
+                **profile,
+                "routes": {
+                    **profile["routes"],
+                    "heavy-worker": {
+                        "provider": "anthropic-oauth",
+                        "model": "claude-opus-4-8",
+                        "effort": "xhigh",
+                        "fast": False,
+                    },
                 },
             },
         )
