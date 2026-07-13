@@ -49,6 +49,7 @@ export function createProviderSetupPicker({
     let setup = options.preloadedSetup && typeof options.preloadedSetup === 'object'
       ? options.preloadedSetup
       : null;
+    options.preloadedSetup = null;
     if (!setup) {
       setPicker({
         title: options.title || 'Providers',
