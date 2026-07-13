@@ -88,7 +88,10 @@ function providerNameOf(provider) {
 // undefined so the default-ratio fallback still applies.
 export function preserveBufferConfigFields(cfg = {}) {
     const out = {};
-    for (const key of ['bufferPercent', 'bufferPct', 'bufferRatio', 'bufferFraction']) {
+    for (const key of [
+        'bufferPercent', 'bufferPct', 'bufferRatio', 'bufferFraction',
+        'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction',
+    ]) {
         const n = Number(cfg?.[key]);
         if (Number.isFinite(n) && n > 0) out[key] = n;
     }
@@ -207,7 +210,7 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
 }
 export function compactTriggerForSession(session, boundaryTokens) {
     // Delegates to the shared session-compaction policy (context-utils):
-    // agent semantic -> 90% (default buffer), main/user -> 100% (boundary),
+    // agent semantic -> 90% (default buffer), main/user -> 75% (default),
     // truly-explicit sub-boundary limit wins.
     return resolveSessionCompactPolicy(session, boundaryTokens).triggerTokens;
 }

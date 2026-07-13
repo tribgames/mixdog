@@ -358,8 +358,11 @@ function contextSummaryResult(state, count) {
 
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
 export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
-export const MAIN_COMPACTION_TRIGGER_RATIO = 0.95;
+// Main/user recall-fasttrack compacts at 95% by default. Lower triggers remain
+// opt-in through the mainBuffer* configuration and MIXDOG_MAIN_COMPACT_BUFFER_*.
+export const DEFAULT_MAIN_COMPACTION_BUFFER_RATIO = 0.05;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
+const MAX_BUFFER_INPUT_RATIO = 0.999_999;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
 const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
 
@@ -384,11 +387,11 @@ export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACT
 export function resolveBufferRatioCandidate(percentInputs = [], ratioInputs = []) {
     for (const raw of percentInputs) {
         const n = Number(raw);
-        if (Number.isFinite(n) && n > 0) return Math.min(1, n / 100);
+        if (Number.isFinite(n) && n > 0) return Math.min(MAX_BUFFER_INPUT_RATIO, n / 100);
     }
     for (const raw of ratioInputs) {
         const n = Number(raw);
-        if (Number.isFinite(n) && n > 0) return n > 1 ? n / 100 : n;
+        if (Number.isFinite(n) && n > 0) return Math.min(MAX_BUFFER_INPUT_RATIO, n > 1 ? n / 100 : n);
     }
     return null;
 }
@@ -399,6 +402,42 @@ export function resolveCompactBufferRatio(cfg = {}) {
         [cfg.bufferRatio, cfg.bufferFraction, process.env.MIXDOG_AGENT_COMPACT_BUFFER_RATIO],
     );
     return normalizeCompactionBufferRatio(resolved, DEFAULT_COMPACTION_BUFFER_RATIO);
+}
+
+// Main/user settings are deliberately separate from the semantic-agent buffer:
+// `buffer*` and MIXDOG_AGENT_COMPACT_BUFFER_* remain agent-only controls.
+// Source precedence is config before environment; within each source the fixed
+// unit precedence is tokens, percent, then ratio. Invalid/zero values are
+// ignored, and percent/ratio inputs are capped below 100%/1.0.
+function positiveTokenCandidate(values = []) {
+    for (const value of values) {
+        const tokens = positiveTokenInt(value);
+        if (tokens) return tokens;
+    }
+    return null;
+}
+
+function resolveMainBufferSetting(cfg = {}) {
+    const configTokens = positiveTokenCandidate([cfg.mainBufferTokens, cfg.mainBuffer]);
+    if (configTokens) return { tokens: configTokens };
+    const configRatio = resolveBufferRatioCandidate(
+        [cfg.mainBufferPercent, cfg.mainBufferPct],
+        [cfg.mainBufferRatio, cfg.mainBufferFraction],
+    );
+    if (configRatio !== null) return { ratio: configRatio };
+
+    const envTokens = positiveTokenCandidate([process.env.MIXDOG_MAIN_COMPACT_BUFFER_TOKENS]);
+    if (envTokens) return { tokens: envTokens };
+    const envRatio = resolveBufferRatioCandidate(
+        [process.env.MIXDOG_MAIN_COMPACT_BUFFER_PERCENT],
+        [process.env.MIXDOG_MAIN_COMPACT_BUFFER_RATIO],
+    );
+    return envRatio === null ? null : { ratio: envRatio };
+}
+
+export function resolveMainCompactBufferRatio(cfg = {}) {
+    const setting = resolveMainBufferSetting(cfg);
+    return setting?.ratio ?? DEFAULT_MAIN_COMPACTION_BUFFER_RATIO;
 }
 
 export function compactionBufferTokensForBoundary(boundaryTokens, opts = {}) {
@@ -483,6 +522,18 @@ export function resolveCompactBufferTokens(boundaryTokens, cfg = {}, opts = {}) 
     });
 }
 
+export function resolveMainCompactBufferTokens(boundaryTokens, cfg = {}, opts = {}) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    const setting = resolveMainBufferSetting(cfg);
+    const configured = setting?.tokens || 0;
+    if (!boundary) return configured || positiveTokenInt(opts.defaultTokens) || DEFAULT_COMPACTION_BUFFER_TOKENS;
+    return compactionBufferTokensForBoundary(boundary, {
+        explicitTokens: configured,
+        ratio: setting?.ratio ?? DEFAULT_MAIN_COMPACTION_BUFFER_RATIO,
+        maxRatio: opts.maxRatio ?? MAX_COMPACTION_BUFFER_RATIO,
+    });
+}
+
 export function resolveCompactTriggerTokens(sessionOrConfig = {}, boundaryTokens = 0) {
     return resolveSessionCompactPolicy(sessionOrConfig, boundaryTokens).triggerTokens;
 }
@@ -495,8 +546,8 @@ export function resolveCompactTriggerTokens(sessionOrConfig = {}, boundaryTokens
 //     (trigger = limit) for every session type;
 //   - agent-owned semantic sessions otherwise keep the default early-trigger
 //     buffer (config-driven, default 10% -> compact at 90% of the boundary);
-//   - main/user recall-fasttrack sessions keep 5% headroom and compact at 95%
-//     of the effective boundary.
+//   - main/user recall-fasttrack sessions use their independently configurable
+//     buffer (default 25% -> compact at 75% of the effective boundary).
 // Returns the sanitized explicit limit (null when absent/legacy full-window)
 // plus triggerTokens / bufferTokens / bufferRatio for the given boundary.
 export function resolveSessionCompactPolicy(sessionOrConfig = {}, boundaryTokens = 0) {
@@ -507,7 +558,9 @@ export function resolveSessionCompactPolicy(sessionOrConfig = {}, boundaryTokens
             autoCompactTokenLimit: null,
             triggerTokens: null,
             bufferTokens: 0,
-            bufferRatio: resolveCompactBufferRatio(cfg),
+            bufferRatio: isAgentOwner(sessionOrConfig)
+                ? resolveCompactBufferRatio(cfg)
+                : resolveMainCompactBufferRatio(cfg),
         };
     }
     const rawLimit = positiveTokenInt(sessionOrConfig?.autoCompactTokenLimit ?? cfg?.autoCompactTokenLimit);
@@ -518,7 +571,7 @@ export function resolveSessionCompactPolicy(sessionOrConfig = {}, boundaryTokens
     } else if (isAgentOwner(sessionOrConfig)) {
         triggerTokens = Math.max(1, boundary - resolveCompactBufferTokens(boundary, cfg));
     } else {
-        triggerTokens = Math.max(1, Math.floor(boundary * MAIN_COMPACTION_TRIGGER_RATIO));
+        triggerTokens = Math.max(1, boundary - resolveMainCompactBufferTokens(boundary, cfg));
     }
     const bufferTokens = Math.max(0, boundary - triggerTokens);
     const bufferRatio = bufferTokens / boundary;

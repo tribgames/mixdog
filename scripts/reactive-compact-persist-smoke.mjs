@@ -83,6 +83,9 @@ const session = {
   contextWindow: 12_000,
   rawContextWindow: 12_000,
   compactBoundaryTokens: 12_000,
+  // Keep this fixture on the reactive-overflow path; main/user now compacts at
+  // 75% by default, while this explicit sub-boundary limit remains authoritative.
+  autoCompactTokenLimit: 11_500,
   compaction: { auto: true, semantic: true, type: 1, compactType: 1, lastStage: 'compacting' },
   cwd: process.cwd(),
   sessionStartMetaInjected: true,
@@ -107,9 +110,9 @@ try {
 // exact "memory pipeline broken" condition the fail-safe must cover. Assert the
 // fail-safe: recall-fasttrack aborts rather than dropping head behind a false
 // "Full history is in memory" notice, so no context is silently lost and the
-// overflow is surfaced instead of being masked by an empty summary shell.
-assert(threw, 'askSession should surface overflow error');
-assert(thrownCode === 'AGENT_CONTEXT_OVERFLOW', `expected AGENT_CONTEXT_OVERFLOW, got ${thrownCode}`);
+// compaction failure is surfaced instead of being masked by an empty summary shell.
+assert(threw, 'askSession should surface compaction failure');
+assert(thrownCode === 'AGENT_COMPACT_FAILED', `expected AGENT_COMPACT_FAILED, got ${thrownCode}`);
 // Recall-fasttrack aborted (memory failed), so the reactive retry never produced
 // a smaller transcript to re-send: exactly one failing main send, no LLM compact.
 assert(mainSendCount === 1, `expected 1 main send (reactive retry aborted by fail-safe), got ${mainSendCount}`);
@@ -135,6 +138,7 @@ assert(
   'current user turn should remain in persisted transcript',
 );
 assert(reloaded.compaction?.lastStage === 'overflow_failed', `compaction lastStage should be overflow_failed, got ${reloaded.compaction?.lastStage}`);
-assert(reloaded.providerState === undefined, 'providerState should clear after reactive compact abort');
+assert(reloaded.providerState?.xaiResponses?.previousResponseId === 'stale-after-compact',
+  'providerState should remain when a failed reactive compact leaves the transcript unchanged');
 
 process.stdout.write('reactive-compact-persist smoke passed ✓\n');

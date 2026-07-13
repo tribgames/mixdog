@@ -67,6 +67,35 @@ function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
 //   opts.profile — pre-resolved profile (bypasses router; used by async
 //     callers who already ran AgentRuntime.resolve()).
 //   opts.providerCacheOpts — pre-resolved cache options merged into ask() sendOpts.
+export function initialCompactionConfig(compaction = {}, contextMeta = {}) {
+    return {
+        auto: compaction?.auto !== false,
+        prune: compaction?.prune === true,
+        semantic: compaction?.semantic ?? 'auto',
+        type: normalizeCompactType(compaction?.type ?? compaction?.compactType ?? compaction?.compact_type, DEFAULT_COMPACT_TYPE),
+        compactType: normalizeCompactType(compaction?.type ?? compaction?.compactType ?? compaction?.compact_type, DEFAULT_COMPACT_TYPE),
+        model: compaction?.model || null,
+        timeoutMs: positiveContextWindow(compaction?.timeoutMs),
+        tailTurns: positiveContextWindow(compaction?.tailTurns),
+        bufferTokens: positiveContextWindow(compaction?.bufferTokens ?? compaction?.buffer),
+        mainBufferTokens: positiveContextWindow(compaction?.mainBufferTokens ?? compaction?.mainBuffer),
+        // Preserve percent/ratio-named config so the shared policy can honor
+        // both agent semantic and main/user recall-fasttrack buffer settings.
+        ...preserveBufferConfigFields(compaction),
+        keepTokens: positiveContextWindow(compaction?.keepTokens ?? compaction?.keep?.tokens),
+        preserveRecentTokens: positiveContextWindow(compaction?.preserveRecentTokens),
+        reservedTokens: positiveContextWindow(compaction?.reservedTokens),
+        recallIngestLimit: positiveContextWindow(compaction?.recallIngestLimit),
+        recallChunkLimit: positiveContextWindow(compaction?.recallChunkLimit ?? compaction?.recallLimit),
+        recallCycle1BatchSize: positiveContextWindow(compaction?.recallCycle1BatchSize),
+        recallRowsPerSession: positiveContextWindow(compaction?.recallRowsPerSession),
+        recallWindowSize: positiveContextWindow(compaction?.recallWindowSize),
+        recallConcurrency: positiveContextWindow(compaction?.recallConcurrency),
+        recallCycle1DeadlineMs: positiveContextWindow(compaction?.recallCycle1DeadlineMs),
+        boundaryTokens: contextMeta.compactBoundaryTokens,
+    };
+}
+
 export function createSession(opts) {
     const presetObj = opts.preset && typeof opts.preset === 'object' ? opts.preset : null;
 
@@ -295,33 +324,7 @@ export function createSession(opts) {
         effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,
         autoCompactTokenLimit: contextMeta.autoCompactTokenLimit,
         compactBoundaryTokens: contextMeta.compactBoundaryTokens,
-        compaction: {
-            auto: opts.compaction?.auto !== false,
-            prune: opts.compaction?.prune === true,
-            semantic: opts.compaction?.semantic ?? 'auto',
-            type: normalizeCompactType(opts.compaction?.type ?? opts.compaction?.compactType ?? opts.compaction?.compact_type, DEFAULT_COMPACT_TYPE),
-            compactType: normalizeCompactType(opts.compaction?.type ?? opts.compaction?.compactType ?? opts.compaction?.compact_type, DEFAULT_COMPACT_TYPE),
-            model: opts.compaction?.model || null,
-            timeoutMs: positiveContextWindow(opts.compaction?.timeoutMs),
-            tailTurns: positiveContextWindow(opts.compaction?.tailTurns),
-            bufferTokens: positiveContextWindow(opts.compaction?.bufferTokens ?? opts.compaction?.buffer),
-            // Preserve percent/ratio-named buffer config so the manager/loop/
-            // contextStatus parsers (which read bufferPercent/bufferPct/
-            // bufferRatio/bufferFraction) can honor it. createSession previously
-            // only stored bufferTokens, silently dropping a configured percent.
-            ...preserveBufferConfigFields(opts.compaction),
-            keepTokens: positiveContextWindow(opts.compaction?.keepTokens ?? opts.compaction?.keep?.tokens),
-            preserveRecentTokens: positiveContextWindow(opts.compaction?.preserveRecentTokens),
-            reservedTokens: positiveContextWindow(opts.compaction?.reservedTokens),
-            recallIngestLimit: positiveContextWindow(opts.compaction?.recallIngestLimit),
-            recallChunkLimit: positiveContextWindow(opts.compaction?.recallChunkLimit ?? opts.compaction?.recallLimit),
-            recallCycle1BatchSize: positiveContextWindow(opts.compaction?.recallCycle1BatchSize),
-            recallRowsPerSession: positiveContextWindow(opts.compaction?.recallRowsPerSession),
-            recallWindowSize: positiveContextWindow(opts.compaction?.recallWindowSize),
-            recallConcurrency: positiveContextWindow(opts.compaction?.recallConcurrency),
-            recallCycle1DeadlineMs: positiveContextWindow(opts.compaction?.recallCycle1DeadlineMs),
-            boundaryTokens: contextMeta.compactBoundaryTokens,
-        },
+        compaction: initialCompactionConfig(opts.compaction, contextMeta),
         tools,
         preset: toolPreset,
         // Persisted so the deferred call-through gate (deferred-call-through.mjs

@@ -55,8 +55,8 @@ function assert(condition, message) {
     `sub-boundary explicit limit should be preserved, got ${meta.autoCompactTokenLimit}`);
 }
 
-// 3) compactTriggerForSession: main/user (non-agent) recall-fasttrack keeps 5%
-//    headroom (95% trigger); a truly-explicit
+// 3) compactTriggerForSession: main/user (non-agent) recall-fasttrack keeps
+//    the default 5% headroom (95% trigger); a truly-explicit
 //    sub-boundary autoCompactTokenLimit still wins. Agent-owned semantic
 //    sessions keep the default 10% buffer (90%).
 {
@@ -71,14 +71,16 @@ function assert(condition, message) {
   assert(agentExplicit === 150000, `agent sub-boundary explicit limit should be the trigger, got ${agentExplicit}`);
 }
 
-// 4) A configured bufferPercent flows into the trigger for agent-owned sessions;
-//    main/user sessions use their fixed 5% headroom.
+// 4) Generic bufferPercent remains agent-only; main/user use their own
+//    configurable mainBufferPercent setting.
 {
   const boundary = 200000;
   const agentTrigger = compactTriggerForSession({ owner: 'agent', compaction: { bufferPercent: 5 } }, boundary);
   assert(agentTrigger === 190000, `agent bufferPercent 5 should yield trigger 190000, got ${agentTrigger}`);
   const userTrigger = compactTriggerForSession({ compaction: { bufferPercent: 5 } }, boundary);
-  assert(userTrigger === 190000, `main/user should keep 5% headroom and trigger at 190000, got ${userTrigger}`);
+  assert(userTrigger === 190000, `main/user should ignore agent bufferPercent and trigger at 190000, got ${userTrigger}`);
+  const userConfigured = compactTriggerForSession({ compaction: { mainBufferPercent: 15 } }, boundary);
+  assert(userConfigured === 170000, `main/user mainBufferPercent 15 should trigger at 170000, got ${userConfigured}`);
 }
 
 // 5) Legacy/zero buffer telemetry migration is an agent-path concern (the
@@ -106,7 +108,7 @@ function assert(condition, message) {
     compaction: { boundaryTokens: boundary, triggerTokens: 180000, bufferTokens: 20000, bufferRatio: 0.1 },
   }, boundary);
   assert(userTelemetry === 190000,
-    `main/user should ignore buffer telemetry and keep 5% headroom at 190000, got ${userTelemetry}`);
+    `main/user should ignore agent buffer telemetry and keep 5% headroom at 190000, got ${userTelemetry}`);
 }
 
 // 6) preserveBufferConfigFields copies only finite-positive percent/ratio fields.

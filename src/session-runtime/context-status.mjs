@@ -7,6 +7,7 @@ import {
   summarizeContextMessages,
   toolSchemaSignature,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
+import { resolveWorkerCompactPolicy } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
 import { estimateToolSchemaBreakdown } from './tool-catalog.mjs';
 
 // Live /context gauge computation + its self-owned memoization cache. Extracted
@@ -125,15 +126,18 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     // the gauge numerator.
     const usedTokens = estimatedContextTokens;
     const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
-    // Use the same shared compact-policy math as manager/loop. Do not trust
-    // persisted trigger telemetry as an independent policy input: it is an
-    // output snapshot and was the source of repeated /context false positives.
-    // Shared session-compaction policy (same math as manager/loop): agent-owned
-    // semantic sessions report/fire at 90% of the boundary; main/user
-    // recall-fasttrack report/fire on the boundary itself (100%).
-    const compactPolicy = resolveSessionCompactPolicy(session || {}, compactBoundaryTokens);
+    // Use the worker policy when a boundary is available so target/reserve
+    // headroom, trigger, buffer tokens, and buffer ratio stay identical to the
+    // auto-compact decision. Fall back only for incomplete session metadata.
+    const workerCompactPolicy = resolveWorkerCompactPolicy(session, tools);
+    const compactPolicy = workerCompactPolicy?.boundaryTokens
+      ? workerCompactPolicy
+      : resolveSessionCompactPolicy(session || {}, compactBoundaryTokens);
     const compactTriggerTokens = compactPolicy.triggerTokens || 0;
     const compactBufferTokens = compactPolicy.bufferTokens || 0;
+    const compactBufferRatio = Number.isFinite(compactPolicy.bufferRatio)
+      ? compactPolicy.bufferRatio
+      : null;
     const value = {
       sessionId: session?.id || null,
       provider: route.provider,
@@ -155,6 +159,7 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
         boundaryTokens: compactBoundaryTokens || null,
         triggerTokens: compactTriggerTokens || null,
         bufferTokens: compactBufferTokens || null,
+        bufferRatio: compactBufferRatio,
         currentEstimatedTokens: estimatedContextTokens,
         lastApiRequestTokens: lastContextTokens || 0,
         lastApiRequestStale: lastUsageStale,

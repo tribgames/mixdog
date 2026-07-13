@@ -189,6 +189,11 @@ export function createSettingsApi({
         next.type = compactType;
         next.compactType = compactType;
       }
+      // These controls apply only to main/user recall-fasttrack sessions;
+      // agent-owned semantic sessions retain their existing `buffer*` policy.
+      for (const key of ['mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction']) {
+        if (hasOwn(input, key)) next[key] = input[key];
+      }
       const nextConfig = { ...config };
       nextConfig.compaction = normalizeCompactionConfig(next, { memoryEnabled: memoryEnabled() });
       saveConfigAndAdopt(nextConfig);

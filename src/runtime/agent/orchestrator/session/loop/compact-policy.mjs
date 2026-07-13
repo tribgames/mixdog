@@ -81,6 +81,32 @@ function resolveCompactKeepTokens(cfg = {}) {
         || envTokenInt('MIXDOG_AGENT_COMPACT_KEEP_TOKENS')
         || DEFAULT_COMPACTION_KEEP_TOKENS;
 }
+
+function compactTriggerMarginTokens(boundaryTokens) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) return 1;
+    return Math.max(1, Math.min(1_024, Math.floor(boundary * 0.01)));
+}
+
+function legacyCompactTargetBudget(boundaryTokens, targetTokens, reserveTokens) {
+    const boundary = positiveTokenInt(boundaryTokens);
+    if (!boundary) return null;
+    return Math.max(1, Math.min(boundary, targetTokens + reserveTokens));
+}
+
+function compactTargetBudgetForTrigger(boundaryTokens, targetTokens, reserveTokens, triggerTokens, singleShot = false, force = false) {
+    const legacyTarget = legacyCompactTargetBudget(boundaryTokens, targetTokens, reserveTokens);
+    const trigger = positiveTokenInt(triggerTokens);
+    // Degenerate reserve/window combinations cannot leave any post-compact
+    // headroom. Keep the legacy target and let the caller compact once only,
+    // rather than inventing a zero/negative margin that would immediately loop.
+    if (singleShot || !trigger) return legacyTarget;
+    const boundedTarget = Math.max(1, Math.min(legacyTarget, trigger - 1));
+    // Forced/manual compaction must retain a viable legacy budget when the
+    // strict no-repeat clamp would consume all non-reserve working space.
+    return force && boundedTarget <= reserveTokens ? legacyTarget : boundedTarget;
+}
+
 export function resolveWorkerCompactPolicy(sessionRef, tools) {
     if (!sessionRef) return null;
     const cfg = sessionRef.compaction || {};
@@ -95,19 +121,37 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     if (!boundaryTokens) return null;
     const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
     // Shared session-compaction policy (context-utils): agent semantic keeps the
-    // default early-trigger buffer (90%); main/user keep 5% headroom (95%);
+    // default early-trigger buffer (90%); main/user use their independently
+    // configurable 25% default headroom (75%);
     // a truly-explicit sub-boundary limit wins. explicitAutoCompactTokenLimit
     // is the sanitized (null when legacy full-window) value so telemetry never
     // re-persists a boundary-collapsing limit.
     const policy = resolveSessionCompactPolicy(sessionRef, compactBoundaryTokens);
     const explicitAutoCompactTokenLimit = policy.autoCompactTokenLimit;
-    const bufferTokens = policy.bufferTokens;
-    const bufferRatio = policy.bufferRatio;
-    const triggerTokens = policy.triggerTokens;
     const configuredReserve = positiveTokenInt(cfg.reservedTokens)
         || envTokenInt('MIXDOG_AGENT_COMPACT_RESERVED_TOKENS')
         || 0;
     const requestReserve = estimateRequestReserveTokens(tools);
+    const reserveTokens = requestReserve + configuredReserve;
+    const compactTargetTokens = resolveCompactTargetTokens(compactBoundaryTokens, cfg) || compactBoundaryTokens;
+    const legacyTargetBudget = legacyCompactTargetBudget(compactBoundaryTokens, compactTargetTokens, reserveTokens);
+    // Reserve is included in every next-send pressure calculation, so its
+    // relationship to the actual trigger (not the raw boundary) determines
+    // whether a post-compact transcript can ever fall below the trigger.
+    const singleShot = reserveTokens >= policy.triggerTokens;
+    // Main/user recall-fasttrack must not compact into its next trigger. Keep a
+    // 1%-of-boundary (up to 1,024-token) gap above the effective post-compact
+    // target. Explicit sub-boundary limits and agent semantic triggers retain
+    // their established precedence/behavior.
+    const minMainTrigger = Math.min(
+        compactBoundaryTokens,
+        (legacyTargetBudget || 0) + compactTriggerMarginTokens(compactBoundaryTokens),
+    );
+    const triggerTokens = !singleShot && !isAgentOwner(sessionRef) && !explicitAutoCompactTokenLimit
+        ? Math.max(policy.triggerTokens, minMainTrigger)
+        : policy.triggerTokens;
+    const bufferTokens = Math.max(0, compactBoundaryTokens - triggerTokens);
+    const bufferRatio = bufferTokens / compactBoundaryTokens;
     const keepTokens = resolveCompactKeepTokens(cfg);
     const compactType = resolveCompactTypeSetting(sessionRef, cfg);
     return {
@@ -119,6 +163,8 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         triggerTokens,
         bufferTokens,
         bufferRatio,
+        compactTargetTokens,
+        singleShot,
         contextWindow,
         rawContextWindow: positiveTokenInt(sessionRef.rawContextWindow ?? cfg.rawContextWindow) || contextWindow,
         effectiveContextWindowPercent: Number.isFinite(Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent))
@@ -131,7 +177,7 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         tailTurns: positiveTokenInt(cfg.tailTurns) || envTokenInt('MIXDOG_AGENT_COMPACT_TAIL_TURNS') || 2,
         keepTokens,
         preserveRecentTokens: positiveTokenInt(cfg.preserveRecentTokens) || envTokenInt('MIXDOG_AGENT_COMPACT_PRESERVE_RECENT_TOKENS') || keepTokens,
-        reserveTokens: requestReserve + configuredReserve,
+        reserveTokens,
         requestReserveTokens: requestReserve,
         configuredReserveTokens: configuredReserve,
         toolSchemaSignature: toolSchemaSignature(tools),
@@ -257,8 +303,20 @@ export function compactTargetBudget(policy) {
     const boundary = positiveTokenInt(policy?.boundaryTokens);
     if (!boundary) return null;
     const reserve = Math.max(0, Number(policy?.reserveTokens) || 0);
-    const targetEffective = resolveCompactTargetTokens(boundary, policy) || boundary;
-    return Math.max(1, Math.min(boundary, targetEffective + reserve));
+    const targetEffective = positiveTokenInt(policy?.compactTargetTokens)
+        || resolveCompactTargetTokens(boundary, policy)
+        || boundary;
+    const trigger = positiveTokenInt(policy?.triggerTokens);
+    const singleShot = policy?.singleShot === true
+        || (trigger > 0 && reserve >= trigger);
+    return compactTargetBudgetForTrigger(
+        boundary,
+        targetEffective,
+        reserve,
+        trigger,
+        singleShot,
+        policy?.force === true,
+    );
 }
 export function shouldCompactForSession(messageTokensEst, policy, {
     forceReactive = false,
@@ -267,7 +325,14 @@ export function shouldCompactForSession(messageTokensEst, policy, {
     pressureTokens,
 } = {}) {
     if (!policy?.auto || !policy.boundaryTokens) return false;
+    // send-with-recovery permits exactly one context-overflow retry per send
+    // (`contextOverflowRetryUsed`), so this can consume at most one additional
+    // reactive compact after a one-shot attempt; a second overflow is surfaced.
     if (forceReactive) return true;
+    // A reserve at/above the trigger (or a one-token boundary)
+    // can never satisfy target < trigger. Permit one legacy compact attempt,
+    // then suppress automatic repeats until an operator intervenes.
+    if (policy.singleShot === true && sessionRef?.compaction?.singleShotConsumed === true) return false;
     if (messageTokensEst === null) return true;
     const pressure = Number.isFinite(Number(pressureTokens))
         ? Number(pressureTokens)
@@ -339,6 +404,9 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
             ? Math.max(0, Math.round(Number(meta.durationMs)))
             : null,
         compactCount: (prev.compactCount || 0) + (changed ? 1 : 0),
+        singleShotConsumed: policy.singleShot === true && meta.stage === 'compacting'
+            ? true
+            : prev.singleShotConsumed === true,
     };
     if (changed) {
         const changedAt = Date.now();

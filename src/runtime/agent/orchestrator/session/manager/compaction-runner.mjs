@@ -20,8 +20,6 @@ import { executeInternalTool } from '../../internal-tools.mjs';
 import { truncateToKb, DIGEST_DEFAULT_MAX_KB } from '../loop/recall-fasttrack.mjs';
 import {
     positiveContextWindow,
-    compactTriggerForSession,
-    compactTargetBudget,
     semanticCompactionEnabledForSession,
     compactTypeForSession,
 } from './context-meta.mjs';
@@ -29,7 +27,11 @@ import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 import { pruneOffloadSession } from '../tool-result-offload.mjs';
 import { _getPendingMessagesForSession } from './pending-messages.mjs';
 import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
-import { invalidateProviderContextBaseline } from '../loop/compact-policy.mjs';
+import {
+    compactTargetBudget as compactTargetBudgetForPolicy,
+    invalidateProviderContextBaseline,
+    resolveWorkerCompactPolicy,
+} from '../loop/compact-policy.mjs';
 
 // 'compacting' is a transient in-flight stage written just before semantic /
 // recall-fasttrack compaction runs. If the process crashes or only partially
@@ -47,6 +49,16 @@ export function normalizeStaleCompactingStage(session) {
     c.inProgress = false;
     c.lastCheckedAt = Date.now();
     return true;
+}
+
+// Manual/auto-clear compaction needs the same threshold and post-compact
+// target math as the loop, even when automatic compaction is disabled.
+export function resolveSessionCompactionPolicy(session) {
+    if (!session) return null;
+    return resolveWorkerCompactPolicy({
+        ...session,
+        compaction: { ...(session.compaction || {}), auto: true },
+    }, session.tools || []);
 }
 function addCompactUsageToSession(session, usage) {
     if (!session || !usage) return;
@@ -241,17 +253,23 @@ export async function runSessionCompaction(session, opts = {}) {
     // MIXDOG_AGENT_COMPACT_RESERVED_TOKENS env). The old request-only value left
     // the manual / auto-clear compact budget without the configured headroom the
     // loop path reserves, so a compacted transcript could overflow on next send.
-    const requestReserveTokens = estimateRequestReserveTokens(session.tools || []);
-    const configuredReserveTokens = positiveContextWindow(session.compaction?.reservedTokens)
-        || positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS)
-        || 0;
-    const reserveTokens = requestReserveTokens + configuredReserveTokens;
+    const alignedPolicy = resolveSessionCompactionPolicy(session);
+    const requestReserveTokens = alignedPolicy?.requestReserveTokens
+        ?? estimateRequestReserveTokens(session.tools || []);
+    const configuredReserveTokens = alignedPolicy?.configuredReserveTokens
+        ?? positiveContextWindow(session.compaction?.reservedTokens)
+        ?? positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS)
+        ?? 0;
+    const reserveTokens = alignedPolicy?.reserveTokens ?? (requestReserveTokens + configuredReserveTokens);
     const beforeMessageTokens = estimateMessagesTokens(messages);
-    const triggerTokens = compactTriggerForSession(session, boundary)
-        || positiveContextWindow(session.compaction?.triggerTokens)
+    const triggerTokens = alignedPolicy?.triggerTokens
         || boundary;
-    const bufferTokens = Math.max(0, boundary - triggerTokens);
-    const bufferRatio = boundary ? (bufferTokens / boundary) : resolveCompactBufferRatio(session.compaction || {});
+    const bufferTokens = alignedPolicy?.bufferTokens ?? Math.max(0, boundary - triggerTokens);
+    const bufferRatio = alignedPolicy?.bufferRatio
+        ?? (boundary ? (bufferTokens / boundary) : resolveCompactBufferRatio(session.compaction || {}));
+    const targetBudgetTokens = alignedPolicy
+        ? (compactTargetBudgetForPolicy({ ...alignedPolicy, force }) || boundary)
+        : boundary;
     const pressureTokens = estimateTranscriptContextUsage(messages, session.tools || []);
     const beforeTokens = pressureTokens;
     const compactType = compactTypeForSession(session);
@@ -271,13 +289,11 @@ export async function runSessionCompaction(session, opts = {}) {
         bufferRatio,
         boundaryTokens: boundary,
         budgetTokens: boundary,
-        targetBudgetTokens: boundary,
+        targetBudgetTokens,
         reserveTokens,
         semanticCompact: false,
     };
-    const budgetSourceTokens = force ? Math.max(pressureTokens, triggerTokens) : pressureTokens;
-    const compactBudget = compactTargetBudget(boundary, reserveTokens, budgetSourceTokens);
-    const budget = compactBudget || boundary;
+    const budget = targetBudgetTokens;
     try { await opts.onStageChange?.('compacting'); } catch { /* best-effort */ }
     const provider = opts.provider || getProvider(session.provider) || null;
     let compacted;

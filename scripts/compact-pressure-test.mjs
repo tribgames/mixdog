@@ -14,18 +14,23 @@ import {
     recordProviderContextBaseline,
     resolveCompactionPressureTokens,
     rememberCompactTelemetry,
+    compactTargetBudget,
     resolveWorkerCompactPolicy,
     shouldCompactForSession,
 } from '../src/runtime/agent/orchestrator/session/loop/compact-policy.mjs';
+import { initialCompactionConfig } from '../src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
+import { resolveSessionCompactionPolicy } from '../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs';
+import { sendWithRecovery } from '../src/runtime/agent/orchestrator/session/send-with-recovery.mjs';
 
 function policyFor(session) {
     return resolveWorkerCompactPolicy(session, []);
 }
 
-test('Lead/main auto-compaction triggers at 95% of the effective boundary', () => {
+test('Lead/main auto-compaction uses an independent configurable early buffer', () => {
     const leadPolicy = policyFor({ contextWindow: 100_000, compaction: {} });
     assert.equal(leadPolicy.triggerTokens, 95_000);
     assert.equal(leadPolicy.bufferTokens, 5_000);
+    assert.equal(leadPolicy.bufferRatio, 0.05);
 
     const noReserve = { ...leadPolicy, reserveTokens: 0 };
     assert.equal(shouldCompactForSession(94_999, noReserve), false);
@@ -33,6 +38,182 @@ test('Lead/main auto-compaction triggers at 95% of the effective boundary', () =
 
     const agentPolicy = policyFor({ owner: 'agent', contextWindow: 100_000, compaction: {} });
     assert.equal(agentPolicy.triggerTokens, 90_000, 'agent default 10% headroom must remain unchanged');
+    assert.equal(agentPolicy.bufferTokens, 10_000);
+    assert.equal(agentPolicy.bufferRatio, 0.1);
+
+    const configured = policyFor({ contextWindow: 100_000, compaction: { mainBufferPercent: 15 } });
+    assert.equal(configured.triggerTokens, 85_000);
+    assert.equal(configured.bufferTokens, 15_000);
+    assert.equal(configured.bufferRatio, 0.15);
+
+    const oldEnv = {
+        tokens: process.env.MIXDOG_MAIN_COMPACT_BUFFER_TOKENS,
+        percent: process.env.MIXDOG_MAIN_COMPACT_BUFFER_PERCENT,
+        ratio: process.env.MIXDOG_MAIN_COMPACT_BUFFER_RATIO,
+    };
+    try {
+        process.env.MIXDOG_MAIN_COMPACT_BUFFER_PERCENT = '20';
+        const envConfigured = policyFor({ contextWindow: 100_000, compaction: {} });
+        assert.equal(envConfigured.triggerTokens, 80_000);
+        assert.equal(envConfigured.bufferTokens, 20_000);
+        assert.equal(envConfigured.bufferRatio, 0.2);
+
+        delete process.env.MIXDOG_MAIN_COMPACT_BUFFER_PERCENT;
+        process.env.MIXDOG_MAIN_COMPACT_BUFFER_RATIO = '0.1';
+        const envRatioConfigured = policyFor({ contextWindow: 100_000, compaction: {} });
+        assert.equal(envRatioConfigured.bufferTokens, 10_000, 'env ratio must configure the main buffer');
+
+        process.env.MIXDOG_MAIN_COMPACT_BUFFER_TOKENS = '10000';
+        process.env.MIXDOG_MAIN_COMPACT_BUFFER_RATIO = '0.1';
+        const envTokenConfigured = policyFor({ contextWindow: 100_000, compaction: {} });
+        assert.equal(envTokenConfigured.bufferTokens, 10_000, 'env tokens must beat env percent/ratio');
+        assert.equal(envTokenConfigured.triggerTokens, 90_000);
+
+        const configBeatsEnv = policyFor({
+            contextWindow: 100_000,
+            compaction: { mainBufferRatio: 0.15 },
+        });
+        assert.equal(configBeatsEnv.bufferTokens, 15_000, 'config ratio must beat all env units');
+
+        const configTokenWins = policyFor({
+            contextWindow: 100_000,
+            compaction: { mainBufferTokens: 12_000, mainBufferPercent: 15, mainBufferRatio: 0.1 },
+        });
+        assert.equal(configTokenWins.bufferTokens, 12_000, 'config tokens must beat config percent/ratio');
+
+        const clamped = policyFor({
+            contextWindow: 100_000,
+            compaction: { mainBufferPercent: 250, mainBufferRatio: 0.1 },
+        });
+        assert.equal(clamped.bufferTokens, 25_000, 'buffer percent must cap at the configured 25% maximum');
+    } finally {
+        for (const [name, value] of Object.entries({
+            MIXDOG_MAIN_COMPACT_BUFFER_TOKENS: oldEnv.tokens,
+            MIXDOG_MAIN_COMPACT_BUFFER_PERCENT: oldEnv.percent,
+            MIXDOG_MAIN_COMPACT_BUFFER_RATIO: oldEnv.ratio,
+        })) {
+            if (value === undefined) delete process.env[name];
+            else process.env[name] = value;
+        }
+    }
+});
+
+test('fresh session compaction config preserves main buffer fields', () => {
+    const config = initialCompactionConfig({
+        mainBufferTokens: 12_000,
+        mainBufferPercent: 15,
+        mainBufferRatio: 0.2,
+        mainBufferFraction: 0.1,
+    }, { compactBoundaryTokens: 80_000 });
+    assert.equal(config.mainBufferTokens, 12_000);
+    assert.equal(config.mainBufferPercent, 15);
+    assert.equal(config.mainBufferRatio, 0.2);
+    assert.equal(config.mainBufferFraction, 0.1);
+    assert.equal(config.boundaryTokens, 80_000);
+});
+
+test('small main boundary leaves a margin above the post-compact target', () => {
+    const session = {
+        contextWindow: 8_000,
+        compaction: { reservedTokens: 2_000 },
+        tools: [],
+        messages: [],
+    };
+    const policy = policyFor(session);
+    const target = compactTargetBudget(policy);
+    assert.ok(policy.triggerTokens > target,
+        `trigger ${policy.triggerTokens} must exceed post-compact target ${target}`);
+    assert.equal(shouldCompactForSession(target - policy.reserveTokens, policy), false,
+        'reaching the post-compact target must not immediately re-trigger compaction');
+    const { contextStatus } = createContextStatus({
+        getSession: () => session,
+        getRoute: () => ({ provider: 'openai', model: 'test-model' }),
+        getCurrentCwd: () => '',
+        getMode: () => 'default',
+    });
+    const statusCompact = contextStatus().compaction;
+    assert.equal(statusCompact.triggerTokens, policy.triggerTokens);
+    assert.equal(statusCompact.bufferTokens, policy.bufferTokens);
+    assert.equal(statusCompact.bufferRatio, policy.bufferRatio);
+    const manualPolicy = resolveSessionCompactionPolicy(session);
+    assert.equal(manualPolicy.triggerTokens, policy.triggerTokens);
+    assert.equal(compactTargetBudget(manualPolicy), target);
+});
+
+test('degenerate main budgets use a documented single-shot fallback', () => {
+    const reserveAtTrigger = {
+        contextWindow: 100_000,
+        // Explicit sub-boundary limit fixes the trigger at 90k while reserve
+        // remains below the context boundary.
+        autoCompactTokenLimit: 90_000,
+        compaction: { reservedTokens: 91_000 },
+        tools: [],
+    };
+    const reserveAtTriggerPolicy = policyFor(reserveAtTrigger);
+    assert.equal(reserveAtTriggerPolicy.singleShot, true,
+        'reserve at/above the actual trigger must be single-shot even below the boundary');
+    assert.equal(compactTargetBudget(reserveAtTriggerPolicy), reserveAtTriggerPolicy.boundaryTokens,
+        'automatic single-shot keeps the legacy target budget');
+    assert.equal(compactTargetBudget({ ...reserveAtTriggerPolicy, force: true }), reserveAtTriggerPolicy.boundaryTokens,
+        'forced manual compaction must retain the viable legacy target budget');
+
+    const overReserved = {
+        contextWindow: 8_000,
+        compaction: { reservedTokens: 20_000 },
+        tools: [],
+    };
+    const overReservedPolicy = policyFor(overReserved);
+    assert.equal(overReservedPolicy.singleShot, true);
+    assert.equal(compactTargetBudget(overReservedPolicy), 8_000,
+        'reserve at or above the boundary must retain the legacy bounded target');
+    assert.equal(shouldCompactForSession(0, overReservedPolicy, { sessionRef: overReserved }), true);
+    rememberCompactTelemetry(overReserved, overReservedPolicy, { stage: 'compacting' });
+    assert.equal(shouldCompactForSession(0, overReservedPolicy, { sessionRef: overReserved }), false,
+        'single-shot fallback must suppress automatic repeats');
+
+    const oneToken = { contextWindow: 1, compaction: {}, tools: [] };
+    const oneTokenPolicy = policyFor(oneToken);
+    assert.ok(oneTokenPolicy.reserveTokens >= oneTokenPolicy.triggerTokens);
+    assert.equal(oneTokenPolicy.singleShot, true,
+        'the request reserve, not the one-token boundary itself, makes this degenerate');
+    assert.equal(oneTokenPolicy.triggerTokens, 1);
+    assert.equal(compactTargetBudget(oneTokenPolicy), 1);
+
+    // The reactive retry is explicitly bounded by send-with-recovery's
+    // contextOverflowRetryUsed flag: forceReactive may admit this one retry
+    // after the consumed one-shot, but no second retry is scheduled.
+    assert.equal(shouldCompactForSession(0, reserveAtTriggerPolicy, {
+        sessionRef: { compaction: { singleShotConsumed: true } },
+        forceReactive: true,
+    }), true, 'the one bounded reactive retry remains available after one-shot consumption');
+});
+
+test('a one-shot overflow receives only one reactive compact retry', async () => {
+    const overflow = new Error('context length exceeded');
+    const ctx = {
+        provider: { send: async () => { throw overflow; } },
+        messages: [{ role: 'user', content: 'overflowing prompt' }],
+        model: 'test-model',
+        sendTools: [],
+        tools: [],
+        opts: {},
+        sessionId: 'single-shot-reactive-test',
+        sessionRef: {
+            contextWindow: 100_000,
+            autoCompactTokenLimit: 90_000,
+            compaction: { reservedTokens: 91_000 },
+        },
+        nextIteration: 1,
+    };
+    assert.deepEqual(await sendWithRecovery({
+        ...ctx,
+        contextOverflowRetryUsed: false,
+    }), { action: 'retry' });
+    await assert.rejects(
+        sendWithRecovery({ ...ctx, contextOverflowRetryUsed: true }),
+        err => err?.code === 'AGENT_CONTEXT_OVERFLOW',
+        'a second overflow after the reactive compact must surface instead of retrying again',
+    );
 });
 
 test('image payload bytes do not inflate live gauge or fallback compaction estimates', () => {
@@ -82,8 +263,10 @@ test('image payload bytes do not inflate live gauge or fallback compaction estim
         `image-aware live gauge must remain below compaction threshold, got ${status.usedTokens}`);
     assert.ok(status.usedTokens < status.contextWindow,
         `raw base64 must not pin the live gauge at 100%, got ${status.usedTokens}/${status.contextWindow}`);
+    assert.equal(status.compaction.bufferRatio, 0.05,
+        'context status buffer ratio must match the shared compaction policy');
 
-    recordProviderContextBaseline(session, messages, { inputTokens: 80_000, outputTokens: 0 });
+    recordProviderContextBaseline(session, messages, { inputTokens: 70_000, outputTokens: 0 });
     const policy = { ...policyFor(session), reserveTokens: 0 };
     assert.equal(
         shouldCompactForSession(fallbackEstimate, policy, { messages, sessionRef: session }),
@@ -329,7 +512,7 @@ test('thinking-only continuation without assistant replay excludes provider outp
     recordProviderContextBaseline(session, messages, {
         inputTokens: 5_000,
         outputTokens: 2_000,
-        cachedTokens: 88_000,
+        cachedTokens: 68_000,
         cacheWriteTokens: 1_000,
     }, { boundary: 'request' });
     const nudge = {
@@ -340,7 +523,7 @@ test('thinking-only continuation without assistant replay excludes provider outp
 
     const wholeEstimate = estimateMessagesTokens(messages);
     const pressure = compactionTelemetryPressureTokens(wholeEstimate, policy, { messages, sessionRef: session });
-    const expectedPressure = 94_000 + estimateMessagesTokens([nudge]);
+    const expectedPressure = 74_000 + estimateMessagesTokens([nudge]);
     assert.equal(pressure, expectedPressure, 'unreplayed output must be removed while the later nudge is estimated');
     assert.equal(shouldCompactForSession(wholeEstimate, policy, {
         messages,
