@@ -63,7 +63,8 @@ function usageColor(pct) {
 
 function ProgressBar({ value = 0, total = 0, width = 24 }) {
   const pct = percent(value, total) ?? 0;
-  const safeWidth = Math.max(8, Math.floor(width));
+  const safeWidth = Math.max(0, Math.floor(width));
+  if (safeWidth === 0) return null;
   const filled = Math.max(0, Math.min(safeWidth, Math.round((pct / 100) * safeWidth)));
   const empty = safeWidth - filled;
   return (
@@ -103,20 +104,35 @@ function semanticTokens(semantic, names) {
   return names.reduce((sum, name) => sum + finiteNumber(semantic?.[name]?.tokens), 0);
 }
 
-function CategoryItem({ label, tokens, total, width }) {
-  const labelWidth = Math.min(11, Math.max(7, Math.floor(width * 0.22)));
+function CategoryItem({ label, tokens, total, width, meta = '' }) {
+  const rowWidth = Math.max(0, Math.floor(width));
+  const labelWidth = Math.min(11, Math.max(7, Math.floor(rowWidth * 0.22)));
   const pctWidth = 6;
-  const tokenWidth = 7;
-  const barWidth = Math.max(6, Math.min(20, width - labelWidth - pctWidth - tokenWidth - 4));
+  let tokenWidth = 7;
+  let barWidth = Math.max(6, Math.min(20, rowWidth - labelWidth - pctWidth - tokenWidth - 4));
+  const structuralWidth = labelWidth + 1 + pctWidth + 1;
+  let overflow = Math.max(0, structuralWidth + barWidth + tokenWidth - rowWidth);
+  const barReduction = Math.min(barWidth, overflow);
+  barWidth = Math.max(0, barWidth - barReduction);
+  overflow -= barReduction;
+  tokenWidth = Math.max(0, tokenWidth - overflow);
+  const fixedWidth = labelWidth + 1 + pctWidth + barWidth + 1 + tokenWidth;
+  const metaWidth = meta ? Math.max(0, rowWidth - fixedWidth - 1) : 0;
   const pct = percent(tokens, total);
   return (
-    <Box flexDirection="row" width={width}>
+    <Box flexDirection="row" width={rowWidth}>
       <Text color={theme.subtle}>{padCells(truncateText(label, labelWidth), labelWidth)}</Text>
       <Text color={theme.inactive}> </Text>
       <Text color={usageColor(pct)}>{padCells(percentLabel(tokens, total), pctWidth)}</Text>
       <ProgressBar value={tokens} total={total} width={barWidth} />
       <Text color={theme.inactive}> </Text>
-      <Text color={theme.text}>{padCells(formatTokens(tokens), tokenWidth)}</Text>
+      <Text color={theme.text}>{padCells(truncateText(formatTokens(tokens), tokenWidth), tokenWidth)}</Text>
+      {metaWidth > 0 ? (
+        <>
+          <Text color={theme.inactive}> </Text>
+          <Text color={theme.inactive} dimColor>{truncateText(meta, metaWidth)}</Text>
+        </>
+      ) : null}
     </Box>
   );
 }
@@ -196,7 +212,7 @@ function ContextUsageView({ detail, columns }) {
   const categories = [
     { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant']), meta: '' },
     { label: 'Tools', tokens: builtInToolTokens, meta: `${tools.active || 0}/${tools.count || 0} active${builtInToolCount ? ` · ${builtInToolCount} defs` : ''}` },
-    { label: 'MCP', tokens: bucketTokens(schema, ['mcp']), meta: `${mcp.connected || 0}/${mcp.configured || 0} servers` },
+    { label: 'MCP', tokens: bucketTokens(schema, ['mcp']), meta: `${mcp.connected || 0}/${mcp.configured || 0} servers · ${mcp.tools || 0} tools` },
     { label: 'Skills', tokens: bucketTokens(schema, ['skills']), meta: `${extensions.skills || 0} skills` },
     { label: 'Memory', tokens: semanticTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']), meta: 'core + recall tools' },
     { label: 'Session', tokens: sessionTokens, meta: 'workspace · environment' },

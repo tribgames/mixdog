@@ -11,6 +11,18 @@ import {
 } from './tool-catalog.mjs';
 import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
 
+export function splitToolStatusCounts(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const regular = list.filter((row) => row?.kind !== 'mcp' && row?.kind !== 'skill');
+  const mcp = list.filter((row) => row?.kind === 'mcp');
+  return {
+    count: regular.length,
+    activeCount: regular.filter((row) => row.active).length,
+    mcpToolCount: mcp.length,
+    activeMcpToolCount: mcp.filter((row) => row.active).length,
+  };
+}
+
 // Turn execution (ask) + session-manage/tool-surface/agent surfaces. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
 // and the runtime injects live getters/setters for the mutable session/mode/
@@ -311,13 +323,13 @@ export function createSessionTurnApi(deps) {
       const activeNames = new Set((surface?.tools || []).map((tool) => tool?.name).filter(Boolean));
       const needle = clean(query).toLowerCase();
       const rows = catalog.map((tool) => toolRow(tool, activeNames)).filter((row) => row.name);
+      const counts = splitToolStatusCounts(rows);
       const tools = needle
         ? rows.filter((row) => toolSearchMatches(row, needle))
         : rows;
       return {
         mode: getMode(),
-        count: rows.length,
-        activeCount: rows.filter((row) => row.active).length,
+        ...counts,
         tools,
         activeTools: sortedNamesByMeasuredUsage(activeNames),
         discoveredTools: sortedNamesByMeasuredUsage(surface?.deferredDiscoveredTools || []),

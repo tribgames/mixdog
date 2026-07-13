@@ -4,6 +4,13 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
 
+// Config keys must compare the same cwd spelling on read and write. Windows
+// paths are case-insensitive, so canonicalize their resolved form to lowercase.
+export function normalizeMcpProjectPathKey(cwd) {
+  const path = resolve(cwd || '.');
+  return process.platform === 'win32' ? path.toLowerCase() : path;
+}
+
 // Project-local MCP ingress: read `.mcp.json` from the project root and return
 // a cleaned { name: cfg } map. Best-effort — never throws. Accepts either the
 // standard `{ mcpServers: {...} }` shape or a bare name->cfg map. Self-ref

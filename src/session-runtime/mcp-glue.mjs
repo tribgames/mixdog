@@ -6,13 +6,16 @@
 import { resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { clean } from './session-text.mjs';
-import { readProjectMcpServers } from './plugin-mcp.mjs';
+import { normalizeMcpProjectPathKey, readProjectMcpServers } from './plugin-mcp.mjs';
 
 // Cache project-local `.mcp.json` reads by path + mtime so repeated mcpStatus()
 // calls skip existsSync+readFileSync+JSON.parse when the file is unchanged.
 // Invalidated automatically on any mtime change (or create/delete via mtime=0).
 const projectMcpCache = new Map();
 const PROJECT_MCP_CACHE_MAX = 32;
+export function invalidateProjectMcpCache(cwd) {
+  projectMcpCache.delete(resolve(cwd || '.', '.mcp.json'));
+}
 function mcpDisabled() {
   return /^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_MCP || ''));
 }
@@ -57,8 +60,17 @@ export function createMcpGlue({
     const configured = config?.mcpServers && typeof config.mcpServers === 'object'
       ? config.mcpServers
       : {};
+    const projectKey = normalizeMcpProjectPathKey(getCurrentCwd());
+    const overrides = config?.mcpProjectOverrides?.[projectKey];
+    const foldedConfigured = {};
+    for (const [name, cfg] of Object.entries(configured)) {
+      const override = overrides?.[name];
+      foldedConfigured[name] = typeof override?.enabled === 'boolean'
+        ? { ...cfg, enabled: override.enabled }
+        : cfg;
+    }
     const project = cachedProjectMcpServers(getCurrentCwd());
-    const servers = { ...configured, ...project };
+    const servers = { ...foldedConfigured, ...project };
     const sources = {};
     for (const name of Object.keys(configured)) sources[name] = 'config';
     for (const name of Object.keys(project)) sources[name] = 'project';

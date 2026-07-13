@@ -18,7 +18,9 @@ import {
   pluginMcpEnableScript,
   resolveContainedPluginPath,
   setProjectMcpServerEnabled,
+  normalizeMcpProjectPathKey,
 } from './plugin-mcp.mjs';
+import { invalidateProjectMcpCache } from './mcp-glue.mjs';
 
 // MCP servers, skills, plugins, hooks, and memory/recall surfaces. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
@@ -137,7 +139,19 @@ export function createResourceApi(deps) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
       delete current[serverName];
-      saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
+      const currentOverrides = nextConfig.mcpProjectOverrides && typeof nextConfig.mcpProjectOverrides === 'object'
+        ? nextConfig.mcpProjectOverrides
+        : {};
+      const mcpProjectOverrides = {};
+      for (const [projectKey, serverOverrides] of Object.entries(currentOverrides)) {
+        if (!serverOverrides || typeof serverOverrides !== 'object' || Array.isArray(serverOverrides)) continue;
+        const nextServerOverrides = { ...serverOverrides };
+        delete nextServerOverrides[serverName];
+        if (Object.keys(nextServerOverrides).length > 0) {
+          mcpProjectOverrides[projectKey] = nextServerOverrides;
+        }
+      }
+      saveConfigAndAdopt({ ...nextConfig, mcpServers: current, mcpProjectOverrides });
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       const session = getSession();
@@ -152,11 +166,13 @@ export function createResourceApi(deps) {
       // A project-local `.mcp.json` entry WINS over config for this name, so the
       // durable toggle must land in whichever file actually drives the server.
       // For project-sourced servers, persist the `enabled` flag into `.mcp.json`
-      // (the mtime bump invalidates the project cache), then run the same
+      // then explicitly invalidate the project cache (mtime granularity is not
+      // reliable for same-tick writes), before running the same
       // background connect/recreate chain used for config servers.
       const shadowRow = mcpStatus().servers.find((s) => s.name === serverName);
       if (shadowRow && shadowRow.source === 'project') {
         setProjectMcpServerEnabled(getCurrentCwd(), serverName, want);
+        invalidateProjectMcpCache(getCurrentCwd());
         return scheduleMcpToggle(serverName, want);
       }
       const nextConfig = { ...getConfig() };
@@ -166,12 +182,29 @@ export function createResourceApi(deps) {
       if (!Object.prototype.hasOwnProperty.call(current, serverName)) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
-      // Adopt + persist config synchronously (fast) so intent is durable, then
+      // Keep the global server definition single-source; only this project's
+      // enabled override is adopted + persisted synchronously (fast), then
       // hand the heavy connect/close/recreate to the per-server background
       // chain. Return that chain's promise so callers can settle the picker on
       // completion, but the store no longer blocks on it.
-      current[serverName] = { ...(current[serverName] || {}), enabled: want };
-      saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
+      const projectKey = normalizeMcpProjectPathKey(getCurrentCwd());
+      const currentOverrides = nextConfig.mcpProjectOverrides && typeof nextConfig.mcpProjectOverrides === 'object'
+        ? nextConfig.mcpProjectOverrides
+        : {};
+      const projectOverrides = currentOverrides[projectKey] && typeof currentOverrides[projectKey] === 'object'
+        ? currentOverrides[projectKey]
+        : {};
+      cfgMod.markMcpProjectOverrideDirty(projectKey, serverName, want);
+      saveConfigAndAdopt({
+        ...nextConfig,
+        mcpProjectOverrides: {
+          ...currentOverrides,
+          [projectKey]: {
+            ...projectOverrides,
+            [serverName]: { enabled: want },
+          },
+        },
+      });
       return scheduleMcpToggle(serverName, want);
     },
     skillsStatus() {

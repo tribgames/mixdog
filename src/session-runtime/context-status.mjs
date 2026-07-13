@@ -10,6 +10,27 @@ import {
 import { resolveWorkerCompactPolicy } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
 import { estimateToolSchemaBreakdown } from './tool-catalog.mjs';
 
+const DEFERRED_CATALOG_TOOL_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);
+
+// Mirrors the tool-list portion of the Anthropic adapters without changing
+// their wire serialization. Other native-deferred providers expose the
+// catalog through BP1/system content, which is already metered there.
+export function requestSerializedToolsForContext(session, provider) {
+  const activeTools = Array.isArray(session?.tools) ? session.tools : [];
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  if (!DEFERRED_CATALOG_TOOL_PROVIDERS.has(normalizedProvider)
+    || session?.deferredNativeTools !== true
+    || activeTools.length === 0) {
+    return activeTools;
+  }
+  const activeNames = new Set(activeTools.map((tool) => String(tool?.name || '').trim()).filter(Boolean));
+  const catalog = Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [];
+  const deferredTools = catalog
+    .filter((tool) => tool?.name && !activeNames.has(String(tool.name)))
+    .map((tool) => ({ ...tool, deferLoading: true }));
+  return deferredTools.length ? [...activeTools, ...deferredTools] : activeTools;
+}
+
 // Live /context gauge computation + its self-owned memoization cache. Extracted
 // verbatim from the runtime API object; the runtime injects live getters for
 // the mutable session/route/cwd/mode locals. The cache (key + value) is owned
@@ -19,7 +40,15 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
   let contextStatusCacheKey = null;
   let contextStatusCacheValue = null;
 
-  function contextStatusCacheKeyFor({ messages, tools, messagesRevision, toolsSignature }) {
+  function contextStatusCacheKeyFor({
+    messages,
+    tools,
+    messagesRevision,
+    toolsSignature,
+    requestProvider,
+    requestToolCount,
+    requestToolsSignature,
+  }) {
     const session = getSession();
     const route = getRoute();
     const compaction = session?.compaction || {};
@@ -40,6 +69,9 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
       tools,
       toolCount: tools.length,
       toolsSignature,
+      requestProvider,
+      requestToolCount,
+      requestToolsSignature,
       contextWindow: session?.contextWindow || null,
       rawContextWindow: session?.rawContextWindow || null,
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
@@ -90,22 +122,33 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     const liveTurnMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
     const messages = liveTurnMessages || (Array.isArray(session?.messages) ? session.messages : []);
     const tools = Array.isArray(session?.tools) ? session.tools : [];
+    const requestProvider = session?.provider || route.provider;
+    const requestTools = requestSerializedToolsForContext(session, requestProvider);
     const messagesRevision = contextMessagesRevision(messages);
     const toolsSignature = toolSchemaSignature(tools);
-    const cacheKey = contextStatusCacheKeyFor({ messages, tools, messagesRevision, toolsSignature });
+    const requestToolsSignature = toolSchemaSignature(requestTools);
+    const cacheKey = contextStatusCacheKeyFor({
+      messages,
+      tools,
+      messagesRevision,
+      toolsSignature,
+      requestProvider,
+      requestToolCount: requestTools.length,
+      requestToolsSignature,
+    });
     if (contextStatusCacheValue && sameContextStatusCacheKey(cacheKey, contextStatusCacheKey)) {
       return contextStatusCacheValue;
     }
 
     const messageSummary = summarizeContextMessages(messages);
-    const toolSchemaTokens = estimateToolSchemaTokens(tools);
-    const toolSchemaBreakdown = estimateToolSchemaBreakdown(tools);
-    const requestReserveTokens = estimateRequestReserveTokens(tools);
+    const toolSchemaTokens = estimateToolSchemaTokens(requestTools);
+    const toolSchemaBreakdown = estimateToolSchemaBreakdown(requestTools);
+    const requestReserveTokens = estimateRequestReserveTokens(requestTools);
     const requestOverheadTokens = Math.max(0, requestReserveTokens - toolSchemaTokens);
     const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
     const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
     const lastContextTokens = Number(session?.lastContextTokens || 0);
-    const estimatedContextTokens = estimateTranscriptContextUsage(messages, tools, {
+    const estimatedContextTokens = estimateTranscriptContextUsage(messages, requestTools, {
       messageCount: messageSummary.count,
       estimatedMessageTokens: messageSummary.estimatedTokens,
     });

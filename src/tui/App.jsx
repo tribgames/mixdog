@@ -1496,7 +1496,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   };
 
   const openContextPicker = () => {
-    const tools = store.toolsStatus?.() || { activeCount: 0, count: 0, activeTools: [] };
+    const tools = store.toolsStatus?.() || {
+      activeCount: 0,
+      count: 0,
+      mcpToolCount: 0,
+      activeMcpToolCount: 0,
+      activeTools: [],
+    };
     const mcp = store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 };
     const skills = store.skillsStatus?.() || { count: 0 };
     const plugins = store.pluginsStatus?.() || { count: 0 };
@@ -1504,6 +1510,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     const usage = context.usage || {};
     const messages = context.messages || {};
     const request = context.request || {};
+    const schemaBreakdown = request.toolSchemaBreakdown || {};
+    const schemaTokensFor = (buckets) => buckets.reduce(
+      (sum, bucket) => sum + Number(schemaBreakdown?.[bucket]?.tokens || 0),
+      0,
+    );
+    const builtInToolSchemaTokens = schemaTokensFor(['code', 'web', 'mutation', 'channels', 'setup', 'other']);
+    const mcpToolSchemaTokens = schemaTokensFor(['mcp']);
     const compaction = context.compaction || {};
     const windowTokens = Number(context.contextWindow || state.contextWindow || context.rawContextWindow || state.rawContextWindow || 0);
     const rawWindowTokens = Number(context.rawContextWindow || state.rawContextWindow || windowTokens || 0);
@@ -1593,7 +1606,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       {
         value: 'tools',
         label: 'Tools',
-        description: `${fmt(request.toolSchemaTokens)} schema tokens (${pct(request.toolSchemaTokens)}) · ${tools.activeCount || 0}/${tools.count || 0} active`,
+        description: `${fmt(builtInToolSchemaTokens)} schema tokens (${pct(builtInToolSchemaTokens)}) · ${tools.activeCount || 0}/${tools.count || 0} active`,
         _action: 'tools',
       },
       {
@@ -1667,7 +1680,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           semantic: messages.semantic,
         },
         tools: {
-          schemaTokens: request.toolSchemaTokens,
+          schemaTokens: builtInToolSchemaTokens,
           active: tools.activeCount,
           count: tools.count,
         },
@@ -1699,6 +1712,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           connected: mcp.connectedCount,
           configured: mcp.configuredCount,
           failed: mcp.failedCount,
+          tools: tools.mcpToolCount,
+          activeTools: tools.activeMcpToolCount,
+          schemaTokens: mcpToolSchemaTokens,
         },
       },
       rows: contextRows,

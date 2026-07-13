@@ -185,6 +185,29 @@ function hasKeys(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0;
 }
 
+// Process-local write intent for project MCP overrides. A loaded config contains
+// snapshots for every project, but only entries toggled by this process may
+// override a newer value read from disk inside the save lock.
+const dirtyMcpProjectOverrides = new Map();
+let mcpProjectOverrideDirtySeq = 0;
+function mcpProjectOverrideDirtyKey(projectKey, serverName) {
+    return `${String(projectKey)}\u0000${String(serverName)}`;
+}
+export function markMcpProjectOverrideDirty(projectKey, serverName, enabled) {
+    const pairKey = mcpProjectOverrideDirtyKey(projectKey, serverName);
+    dirtyMcpProjectOverrides.set(pairKey, {
+        enabled: enabled !== false,
+        seq: ++mcpProjectOverrideDirtySeq,
+    });
+}
+function clearDurablySavedMcpProjectOverrides(appliedDirty) {
+    for (const { pairKey, seq } of appliedDirty) {
+        if (dirtyMcpProjectOverrides.get(pairKey)?.seq === seq) {
+            dirtyMcpProjectOverrides.delete(pairKey);
+        }
+    }
+}
+
 function normalizeSearchRoute(route) {
     if (!route || typeof route !== 'object' || Array.isArray(route))
         return null;
@@ -456,6 +479,9 @@ export function loadConfig(options = {}) {
             return {
                 providers: mergedProviders,
                 mcpServers,
+                mcpProjectOverrides: raw.mcpProjectOverrides && typeof raw.mcpProjectOverrides === 'object' && !Array.isArray(raw.mcpProjectOverrides)
+                    ? raw.mcpProjectOverrides
+                    : {},
                 presets: normalizedPresets,
                 default: raw.default || null,
                 maintenance: { ...DEFAULT_MAINTENANCE, ...migratedMaint },
@@ -489,6 +515,7 @@ export function loadConfig(options = {}) {
     return {
         ...defaults,
         mcpServers: {},
+        mcpProjectOverrides: {},
         presets: DEFAULT_PRESETS.map(p => ({ ...p })),
         default: null,
         maintenance: { ...DEFAULT_MAINTENANCE },
@@ -556,7 +583,7 @@ export async function patchSkillsDisabledAsync(disabledNames) {
     return nextSkills;
 }
 
-function buildAgentSaveBuilder(config) {
+function buildAgentSaveBuilder(config, appliedDirty) {
     // Strip ephemeral defaults from providers but preserve any unknown
     // per-provider subkey so future schema additions round-trip through the
     // setup UI without changes here. apiKey is intentionally omitted —
@@ -590,40 +617,79 @@ function buildAgentSaveBuilder(config) {
     // Build the replacement from `existingRaw` — the section read INSIDE the
     // file lock — not a snapshot taken before it, so unmanaged keys written by
     // a concurrent instance survive the save (lost-update guard).
-    return (existingRaw) => ({
-        ...existingRaw,
-        guide: config.guide || existingRaw.guide || undefined,
-        providers: persistedProviders,
-        mcpServers: config.mcpServers || {},
-        presets,
-        default: config.default || null,
-        maintenance: config.maintenance || {},
-        workflowRoutes,
-        searchRoute: normalizeSearchRoute(config.searchRoute),
-        fastModels: config.fastModels || {},
-        modelSettings: config.modelSettings || {},
-        onboarding: config.onboarding || {},
-        agents: config.agents || {},
-        workflow: config.workflow || { active: 'default' },
-        agentMaintenance: config.agentMaintenance || {},
-        profile: normalizeProfileConfig(config.profile),
-        skills: normalizeSkillsConfig(config.skills),
-        autoClear: config.autoClear || {},
-        compaction: config.compaction || {},
-        trajectory: config.trajectory || {},
-        runtime: config.runtime || {},
-        shell: config.shell || {},
-        update: config.update || {},
-        recap: config.recap || {},
-        modules: config.modules || existingRaw.modules || {},
-    });
+    return (existingRaw) => {
+        const mcpServers = config.mcpServers || {};
+        const diskOverrides = existingRaw.mcpProjectOverrides && typeof existingRaw.mcpProjectOverrides === 'object'
+            ? existingRaw.mcpProjectOverrides
+            : {};
+        const memoryOverrides = config.mcpProjectOverrides && typeof config.mcpProjectOverrides === 'object'
+            ? config.mcpProjectOverrides
+            : {};
+        const mcpProjectOverrides = {};
+        for (const projectKey of new Set([...Object.keys(diskOverrides), ...Object.keys(memoryOverrides)])) {
+            const diskProject = diskOverrides[projectKey] && typeof diskOverrides[projectKey] === 'object'
+                ? diskOverrides[projectKey]
+                : {};
+            const memoryProject = memoryOverrides[projectKey] && typeof memoryOverrides[projectKey] === 'object'
+                ? memoryOverrides[projectKey]
+                : {};
+            // Disk wins for untouched snapshot entries. Only an override this
+            // process explicitly toggled may replace the in-lock disk value.
+            const mergedProject = { ...memoryProject, ...diskProject };
+            for (const serverName of Object.keys(memoryProject)) {
+                const pairKey = mcpProjectOverrideDirtyKey(projectKey, serverName);
+                const dirty = dirtyMcpProjectOverrides.get(pairKey);
+                if (dirty) {
+                    const appliedValue = { enabled: dirty.enabled };
+                    mergedProject[serverName] = appliedValue;
+                    appliedDirty.push({ pairKey, seq: dirty.seq, appliedValue });
+                }
+            }
+            for (const serverName of Object.keys(mergedProject)) {
+                if (!Object.prototype.hasOwnProperty.call(mcpServers, serverName)) delete mergedProject[serverName];
+            }
+            if (Object.keys(mergedProject).length > 0) mcpProjectOverrides[projectKey] = mergedProject;
+        }
+        return {
+            ...existingRaw,
+            guide: config.guide || existingRaw.guide || undefined,
+            providers: persistedProviders,
+            mcpServers,
+            mcpProjectOverrides,
+            presets,
+            default: config.default || null,
+            maintenance: config.maintenance || {},
+            workflowRoutes,
+            searchRoute: normalizeSearchRoute(config.searchRoute),
+            fastModels: config.fastModels || {},
+            modelSettings: config.modelSettings || {},
+            onboarding: config.onboarding || {},
+            agents: config.agents || {},
+            workflow: config.workflow || { active: 'default' },
+            agentMaintenance: config.agentMaintenance || {},
+            profile: normalizeProfileConfig(config.profile),
+            skills: normalizeSkillsConfig(config.skills),
+            autoClear: config.autoClear || {},
+            compaction: config.compaction || {},
+            trajectory: config.trajectory || {},
+            runtime: config.runtime || {},
+            shell: config.shell || {},
+            update: config.update || {},
+            recap: config.recap || {},
+            modules: config.modules || existingRaw.modules || {},
+        };
+    };
 }
 export function saveConfig(config) {
-    persistAgentConfig(buildAgentSaveBuilder(config));
+    const appliedDirty = [];
+    persistAgentConfig(buildAgentSaveBuilder(config, appliedDirty));
+    clearDurablySavedMcpProjectOverrides(appliedDirty);
 }
 // Async twin used by the debounced config-save flush timer.
 export async function saveConfigAsync(config) {
-    await persistAgentConfigAsync(buildAgentSaveBuilder(config));
+    const appliedDirty = [];
+    await persistAgentConfigAsync(buildAgentSaveBuilder(config, appliedDirty));
+    clearDurablySavedMcpProjectOverrides(appliedDirty);
 }
 // --- Preset helpers ---
 // preset shape: { id, name, type: 'agent', provider, model, effort?, fast?, tools? }
