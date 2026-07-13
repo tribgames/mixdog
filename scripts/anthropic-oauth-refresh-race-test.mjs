@@ -25,6 +25,7 @@ const { AnthropicOAuthProvider } = await import(
     '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs'
 );
 const {
+    DEFAULT_CLI_VERSION,
     _saveCredentialsFile,
     loadCredentials,
     loadCredentialsFromPath,
@@ -47,6 +48,64 @@ function writeCredentials({ accessToken, refreshToken, expiresAt }, path = crede
         },
     });
 }
+
+test('refresh uses the current CLI identity and returns a neutral sanitized 403', async () => {
+    const accessToken = 'fixture-access-must-not-leak';
+    const refreshToken = 'fixture-refresh-must-not-leak';
+    writeCredentials({
+        accessToken,
+        refreshToken,
+        expiresAt: Date.now() + 1_000,
+    });
+    const before = readFileSync(credentialsPath, 'utf8');
+    const originalFetch = globalThis.fetch;
+    let request = null;
+    globalThis.fetch = async (url, options) => {
+        request = { url, options };
+        return {
+            ok: false,
+            status: 403,
+            async text() {
+                return JSON.stringify({
+                    error: 'forbidden',
+                    accessToken,
+                    refresh_token: refreshToken,
+                    echoed: `Bearer ${accessToken}`,
+                });
+            },
+        };
+    };
+    try {
+        assert.equal(DEFAULT_CLI_VERSION, '2.1.207');
+        await assert.rejects(
+            refreshOAuthCredentials(loadCredentials()),
+            (err) => {
+                assert.match(err.message, /token refresh 403/);
+                assert.match(err.message, /claude-cli\/2\.1\.207/);
+                assert.match(err.message, /Possible causes include OAuth client compatibility/);
+                assert.match(err.message, /account or scope policy/);
+                assert.match(err.message, /proxy\/VPN\/WAF/);
+                assert.match(err.message, /regional endpoint restrictions/);
+                assert.match(err.message, /Verify the account has Claude Code access and the required scopes/);
+                assert.match(err.message, /MIXDOG_CLI_VERSION/);
+                assert.match(err.message, /retry sign-in via \/providers/);
+                assert.doesNotMatch(err.message, /rejected the OAuth client identity/);
+                assert.doesNotMatch(err.message, /fixture-access-must-not-leak/);
+                assert.doesNotMatch(err.message, /fixture-refresh-must-not-leak/);
+                return true;
+            },
+        );
+        assert.equal(
+            request.options.headers['user-agent'],
+            'claude-cli/2.1.207 (external, sdk-cli)',
+        );
+        assert.equal(request.options.redirect, 'error');
+        assert.equal(JSON.parse(request.options.body).refresh_token, refreshToken);
+        assert.equal(readFileSync(credentialsPath, 'utf8'), before);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
 
 test('parallel host preflights refresh once and snapshot the leased generation', async () => {
     writeCredentials({

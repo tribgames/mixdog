@@ -738,7 +738,6 @@ export async function createEngineSession({
     autoClearState, agentStatusState, baseRouteState, routeState, syncContextStats,
     presentNextToolApproval, finishToolApproval, denyAllToolApprovals, requestToolApproval,
     patchToolCardResult, flushToolResults,
-    clearExecutionDedupState,
     kickExecutionPendingResume, flushDeferredExecutionPendingResumeKick, scheduleExecutionPendingResumeKick, discardExecutionPendingResume, updateAgentJobCard, subscribeRuntimeNotifications,
   });
   Object.assign(bag, createSessionFlow(bag));

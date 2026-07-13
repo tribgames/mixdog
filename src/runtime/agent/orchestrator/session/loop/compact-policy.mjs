@@ -3,9 +3,11 @@
 // runRecallFastTrackCompact stays in the loop (it drives the recall pipeline
 // against live session state).
 import {
+    contextMessagesSignature,
     estimateMessagesTokens,
     estimateRequestReserveTokens,
     resolveSessionCompactPolicy,
+    toolSchemaSignature,
 } from '../context-utils.mjs';
 import {
     compactTypeIsRecallFastTrack,
@@ -132,6 +134,7 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         reserveTokens: requestReserve + configuredReserve,
         requestReserveTokens: requestReserve,
         configuredReserveTokens: configuredReserve,
+        toolSchemaSignature: toolSchemaSignature(tools),
     };
 }
 /** Transcript + request reserve fallback used until an aligned provider baseline exists. */
@@ -159,13 +162,20 @@ function providerPressureTokens(sessionRef, usage) {
  * covers. Later pressure checks add estimates only for messages after this
  * baseline, matching Claude Code's actual-usage-plus-growth accounting.
  */
-export function recordProviderContextBaseline(sessionRef, messages, usage, { boundary = 'complete' } = {}) {
+export function recordProviderContextBaseline(sessionRef, messages, usage, {
+    boundary = 'complete',
+    sendTools = sessionRef?.tools,
+} = {}) {
     if (!sessionRef || !Array.isArray(messages)) return false;
     const tokens = providerPressureTokens(sessionRef, usage);
     if (!tokens) return false;
     sessionRef.contextPressureBaselineTokens = tokens;
     sessionRef.contextPressureBaselineOutputTokens = Math.max(0, Math.round(Number(usage?.outputTokens) || 0));
     sessionRef.contextPressureBaselineMessageCount = messages.length;
+    sessionRef.contextPressureBaselinePrefixSignature = contextMessagesSignature(messages);
+    sessionRef.contextPressureBaselineProvider = sessionRef.provider || null;
+    sessionRef.contextPressureBaselineModel = sessionRef.model || null;
+    sessionRef.contextPressureBaselineToolSignature = toolSchemaSignature(sendTools);
     // provider_send usage arrives before the response's assistant message is
     // appended. Mark that request boundary so pressure resolution skips the
     // first subsequent assistant representation: its output (including opaque
@@ -183,11 +193,15 @@ export function invalidateProviderContextBaseline(sessionRef) {
     sessionRef.contextPressureBaselineOutputTokens = null;
     sessionRef.contextPressureBaselineMessageCount = null;
     sessionRef.contextPressureBaselineBoundary = null;
+    sessionRef.contextPressureBaselinePrefixSignature = null;
+    sessionRef.contextPressureBaselineProvider = null;
+    sessionRef.contextPressureBaselineModel = null;
+    sessionRef.contextPressureBaselineToolSignature = null;
     sessionRef.contextPressureBaselineUpdatedAt = null;
     sessionRef.lastContextTokensStaleAfterCompact = true;
 }
 
-function providerBaselinePressureTokens(messages, sessionRef) {
+function providerBaselinePressureTokens(messages, sessionRef, policy) {
     if (!Array.isArray(messages) || !sessionRef
         || sessionRef.lastContextTokensStaleAfterCompact === true) return null;
     let tokens = positiveTokenInt(sessionRef.contextPressureBaselineTokens);
@@ -196,7 +210,11 @@ function providerBaselinePressureTokens(messages, sessionRef) {
     const baselineAt = Number(sessionRef.contextPressureBaselineUpdatedAt || 0);
     const compactAt = Number(sessionRef.compaction?.lastChangedAt || sessionRef.compaction?.lastCompactAt || 0);
     if (!tokens || !Number.isInteger(count) || count < 0 || count > messages.length
-        || (compactAt > 0 && baselineAt > 0 && baselineAt < compactAt)) return null;
+        || (compactAt > 0 && baselineAt > 0 && baselineAt < compactAt)
+        || sessionRef.contextPressureBaselineProvider !== (sessionRef.provider || null)
+        || sessionRef.contextPressureBaselineModel !== (sessionRef.model || null)
+        || sessionRef.contextPressureBaselineToolSignature !== policy?.toolSchemaSignature
+        || sessionRef.contextPressureBaselinePrefixSignature !== contextMessagesSignature(messages, count)) return null;
     if (sessionRef.contextPressureBaselineBoundary === 'request') {
         const assistantOffset = messages.slice(count).findIndex(message => message?.role === 'assistant');
         if (assistantOffset >= 0) {
@@ -213,14 +231,14 @@ function providerBaselinePressureTokens(messages, sessionRef) {
         const growth = count < messages.length
             ? estimateMessagesTokens(messages.slice(count))
             : 0;
-        return Math.max(0, tokens + growth);
+        return Math.max(0, tokens + growth + Math.max(0, Number(policy?.configuredReserveTokens) || 0));
     } catch {
         return null;
     }
 }
 
 export function resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
-    return providerBaselinePressureTokens(messages, sessionRef)
+    return providerBaselinePressureTokens(messages, sessionRef, policy)
         ?? compactPressureTokens(messageTokensEst, policy);
 }
 

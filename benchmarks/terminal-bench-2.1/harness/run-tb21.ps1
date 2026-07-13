@@ -14,6 +14,8 @@ param(
     [string]$Effort = "",
     # Complete per-role routing table, applied to the disposable config copy.
     [string]$RouteProfile = "",
+    # Explicit workflow override; empty preserves the stock default.
+    [string]$Workflow = "",
     # Auto-retry count for trials that die before/around the agent run
     # (RuntimeError, NonZeroAgentExitCodeError, docker daemon death, ...).
     # Harbor's default exclude list keeps AgentTimeout/Verifier errors OUT of
@@ -29,6 +31,7 @@ $hasProvider = -not [string]::IsNullOrWhiteSpace($Provider)
 $hasModel = -not [string]::IsNullOrWhiteSpace($Model)
 $hasEffort = -not [string]::IsNullOrWhiteSpace($Effort)
 $hasRouteProfile = -not [string]::IsNullOrWhiteSpace($RouteProfile)
+$hasWorkflow = -not [string]::IsNullOrWhiteSpace($Workflow)
 if ($hasRouteProfile -and ($hasProvider -or $hasModel -or $hasEffort)) {
     throw "RouteProfile cannot be combined with Provider, Model, or Effort."
 }
@@ -47,7 +50,19 @@ if ($hasRouteProfile) {
         $available = @($profileDoc.profiles.PSObject.Properties.Name) -join ", "
         throw "Unknown RouteProfile '$RouteProfile'. Available: $available"
     }
-    $resolvedProfile = $profileProperty.Value
+    # Use the harness validator as the single source of truth before doing any
+    # preflight work or constructing a Harbor invocation. ConvertFrom-Json
+    # alone accepts missing/extra route fields and weakly compares booleans to
+    # schemaVersion 1, so it is not sufficient validation.
+    $validatorPath = Join-Path $PSScriptRoot "routing_profiles.py"
+    $validationCode = 'import json, runpy, sys; from pathlib import Path; module = runpy.run_path(sys.argv[1]); print(json.dumps(module["load_route_profile"](sys.argv[2], Path(sys.argv[3])), separators=(",", ":")))'
+    $validatedProfileJson = @(
+        & python -c $validationCode $validatorPath $RouteProfile $profilePath 2>&1
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "Invalid RouteProfile '$RouteProfile': $($validatedProfileJson -join [Environment]::NewLine)"
+    }
+    $resolvedProfile = ($validatedProfileJson -join [Environment]::NewLine) | ConvertFrom-Json
 }
 # Windows: harbor/rich read+write UTF-8 content (agent logs, box-drawing
 # glyphs); the cp949 default codec crashed a full run mid-flight. Force
@@ -104,6 +119,7 @@ foreach ($t in (Expand-Tasks $Exclude)) { $harborArgs += @("-x", $t) }
 if ($hasModel) { $harborArgs += @("-m", $Model) }
 if ($hasProvider) { $harborArgs += @("--ak", "provider=$Provider") }
 if ($Effort) { $harborArgs += @("--ak", "effort=$Effort") }
+if ($hasWorkflow) { $harborArgs += @("--ak", "workflow=$Workflow") }
 foreach ($item in $AgentEnv) {
     foreach ($entry in ($item -split ",")) {
         if ($entry -notmatch "^[A-Za-z_][A-Za-z0-9_]*=.+$") {

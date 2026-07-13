@@ -1,6 +1,7 @@
 import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
 import { isAgentOwner } from '../agent-owner.mjs';
+import { contentImageDescriptors, contentToText } from '../providers/media-normalization.mjs';
 
 // ---------------------------------------------------------------------------
 // Conservative, Unicode-aware token estimator.
@@ -26,6 +27,8 @@ function readSafetyMultiplier() {
     return 1.1;
 }
 const TOKEN_ESTIMATE_SAFETY_MULTIPLIER = readSafetyMultiplier();
+export const IMAGE_VISUAL_TOKEN_ALLOWANCE = 4_096;
+const IMAGE_TILE_TOKEN_ALLOWANCE = 512;
 
 // Per-code-point token-cost weight. Tuned to overcount, not match exactly.
 function codePointTokenWeight(cp) {
@@ -72,12 +75,59 @@ export function estimateTokens(text) {
     if (s.length === 0) return 0;
     let weighted = 0;
     for (const ch of s) weighted += codePointTokenWeight(ch.codePointAt(0));
+    // Encoded blobs, minified JSON and generated identifiers do not get the
+    // word/whitespace merges that make prose approach chars/4. Long printable
+    // ASCII runs are commonly 0.5-0.8 tokens/byte; retain a conservative floor
+    // for those runs without penalizing ordinary spaced prose.
+    let denseAsciiFloor = 0;
+    for (const match of s.matchAll(/[\x21-\x7e]{16,}/g)) {
+        denseAsciiFloor += match[0].length * 0.75;
+    }
+    const encodedWords = s.match(/\b(?=[A-Za-z0-9]{8,}\b)(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]+\b/g) || [];
+    if (encodedWords.length >= 3) {
+        // Encoded/generated identifiers are often wrapped at short columns or
+        // separated by spaces. Their individual runs can stay below the long-
+        // run threshold while still receiving almost no prose-style BPE merges.
+        const encodedChars = encodedWords.reduce((sum, word) => sum + word.length, 0);
+        denseAsciiFloor = Math.max(
+            denseAsciiFloor,
+            (encodedChars * 0.75) + ((s.length - encodedChars) * 0.25),
+        );
+    }
+    const lines = s.split(/\r?\n/).filter(line => line.trim());
+    const nonWhitespace = s.match(/\S/g)?.length || 0;
+    const structural = s.match(/[\[\]{}":,=<>|\\]/g)?.length || 0;
+    const jsonLikeLines = lines.filter(line => /^\s*[\[{].*[\]}],?\s*$/.test(line)).length;
+    if (lines.length >= 3 && nonWhitespace > 0
+        && (jsonLikeLines >= Math.ceil(lines.length / 2) || structural / nonWhitespace >= 0.12)) {
+        // JSONL, compact tables and generated line protocols can consist
+        // entirely of short runs while still tokenizing like minified data.
+        denseAsciiFloor = Math.max(denseAsciiFloor, (nonWhitespace * 0.7) + ((s.length - nonWhitespace) * 0.25));
+    }
     const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
-    return Math.ceil(Math.max(weighted, asciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
+    return Math.ceil(Math.max(weighted, asciiFloor, denseAsciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
+}
+
+function nativeBlocksEstimateText(value) {
+    const list = Array.isArray(value) ? value : [value];
+    return list.map((block) => {
+        const images = contentImageDescriptors(block);
+        if (images.length) {
+            return JSON.stringify(images.map(({ width, height, detail }) => ({
+                type: 'image', width, height, detail,
+            })));
+        }
+        try { return JSON.stringify(block); }
+        catch { return String(block ?? ''); }
+    }).join('\n');
 }
 export function messageEstimateText(m) {
     if (!m || typeof m !== 'object') return '';
-    let text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '');
+    // Multimodal image payloads remain on the live message for provider sends,
+    // but their base64/data-url JSON is not text and must not dominate local
+    // context estimates. Use the same media-aware text projection for every
+    // estimate consumer (live gauge, compaction fallback, and summaries).
+    let text = contentToText(m.content, '');
     if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
         try { text += `\n${JSON.stringify(m.toolCalls)}`; }
         catch { text += `\n[${m.toolCalls.length} tool calls]`; }
@@ -86,14 +136,47 @@ export function messageEstimateText(m) {
     // signature / redacted data) and are re-sent on tool-continuation turns, so
     // they consume real input tokens. Count them or trim/compact undercounts.
     if (m.role === 'assistant' && Array.isArray(m.thinkingBlocks) && m.thinkingBlocks.length) {
-        try { text += `\n${JSON.stringify(m.thinkingBlocks)}`; }
-        catch { text += `\n[${m.thinkingBlocks.length} thinking blocks]`; }
+        text += `\n${nativeBlocksEstimateText(m.thinkingBlocks)}`;
+    }
+    // Some provider adapters replay their native assistant representation
+    // instead of content/toolCalls. Project it through the media normalizer so
+    // text/tool metadata and opaque reasoning are counted without base64 image
+    // bytes dominating the estimate.
+    if (m.role === 'assistant' && Array.isArray(m.assistantBlocks) && m.assistantBlocks.length) {
+        text += `\n${nativeBlocksEstimateText(m.assistantBlocks)}`;
+    }
+    if (m.role === 'assistant' && Array.isArray(m.reasoningItems) && m.reasoningItems.length) {
+        text += `\n${nativeBlocksEstimateText(m.reasoningItems)}`;
     }
     if (m.role === 'tool' && m.toolCallId) text += `\n${m.toolCallId}`;
     return text;
 }
+function imageDescriptorAllowance(descriptor) {
+    if (descriptor.width && descriptor.height) {
+        const tiles = Math.ceil(descriptor.width / 512) * Math.ceil(descriptor.height / 512);
+        // Caller-supplied dimensions/detail are not uniformly preserved by all
+        // provider normalizers, so they may raise the allowance for a known
+        // multi-tile image but can never lower the conservative unknown-image
+        // fallback. This avoids trusting metadata the provider never sees.
+        return Math.max(IMAGE_VISUAL_TOKEN_ALLOWANCE, IMAGE_TILE_TOKEN_ALLOWANCE * (tiles + 1));
+    }
+    // Unknown-size auto/high images may be tiled by the provider. A single
+    // 1k allowance is optimistic for common screenshots and documents.
+    return IMAGE_VISUAL_TOKEN_ALLOWANCE;
+}
+function messageImageDescriptors(m) {
+    if (!m || typeof m !== 'object') return [];
+    return [
+        ...contentImageDescriptors(m.content),
+        ...(m.role === 'assistant' ? contentImageDescriptors(m.assistantBlocks) : []),
+    ];
+}
+function messageImageAllowance(m) {
+    if (!m || typeof m !== 'object') return 0;
+    return messageImageDescriptors(m).reduce((sum, descriptor) => sum + imageDescriptorAllowance(descriptor), 0);
+}
 export function estimateMessageTokens(m) {
-    return estimateTokens(messageEstimateText(m)) + 4;
+    return estimateTokens(messageEstimateText(m)) + messageImageAllowance(m) + 4;
 }
 export function estimateMessagesTokens(messages) {
     return messages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
@@ -112,28 +195,11 @@ const contextMessageMemo = new WeakMap();
 const contextTranscriptMemo = new WeakMap();
 
 function contextValueFingerprint(value) {
-    if (typeof value === 'string') return { value, entries: null };
-    if (Array.isArray(value)) return {
-        value,
-        entries: value.map(contextBlockFingerprint),
-    };
-    return value && typeof value === 'object'
-        ? { value, entries: [contextBlockFingerprint(value)] }
-        : { value, entries: null };
-}
-
-function contextBlockFingerprint(block) {
-    if (!block || typeof block !== 'object') return { value: block };
-    const fn = block.function;
     return {
-        value: block,
-        text: typeof block.text === 'string' ? block.text : null,
-        content: typeof block.content === 'string' ? block.content : null,
-        args: typeof block.args === 'string' ? block.args : null,
-        arguments: block.arguments,
-        input: typeof block.input === 'string' ? block.input : null,
-        function: fn,
-        functionArguments: typeof fn?.arguments === 'string' ? fn.arguments : null,
+        value,
+        snapshot: typeof value === 'string'
+            ? value
+            : `${nativeBlocksEstimateText(value)}\0${JSON.stringify(contentImageDescriptors(value))}`,
     };
 }
 
@@ -145,6 +211,7 @@ function contextMessageFingerprint(message) {
             toolCalls: contextValueFingerprint(null),
             thinkingBlocks: contextValueFingerprint(null),
             assistantBlocks: contextValueFingerprint(null),
+            reasoningItems: contextValueFingerprint(null),
             toolCallId: null,
         };
     }
@@ -154,30 +221,13 @@ function contextMessageFingerprint(message) {
         toolCalls: contextValueFingerprint(message.toolCalls),
         thinkingBlocks: contextValueFingerprint(message.thinkingBlocks),
         assistantBlocks: contextValueFingerprint(message.assistantBlocks),
+        reasoningItems: contextValueFingerprint(message.reasoningItems),
         toolCallId: message?.toolCallId || null,
     };
 }
 
 function sameContextValueFingerprint(a, b) {
-    if (!a || !b || a.value !== b.value) return false;
-    if (a.entries === null || b.entries === null) return a.entries === b.entries;
-    if (a.entries.length !== b.entries.length) return false;
-    for (let index = 0; index < a.entries.length; index += 1) {
-        if (!sameContextBlockFingerprint(a.entries[index], b.entries[index])) return false;
-    }
-    return true;
-}
-
-function sameContextBlockFingerprint(a, b) {
-    return !!a && !!b
-        && a.value === b.value
-        && a.text === b.text
-        && a.content === b.content
-        && a.args === b.args
-        && Object.is(a.arguments, b.arguments)
-        && a.input === b.input
-        && a.function === b.function
-        && a.functionArguments === b.functionArguments;
+    return !!a && !!b && a.value === b.value && a.snapshot === b.snapshot;
 }
 
 function sameContextMessageFingerprint(a, b) {
@@ -186,6 +236,7 @@ function sameContextMessageFingerprint(a, b) {
         && sameContextValueFingerprint(a.toolCalls, b.toolCalls)
         && sameContextValueFingerprint(a.thinkingBlocks, b.thinkingBlocks)
         && sameContextValueFingerprint(a.assistantBlocks, b.assistantBlocks)
+        && sameContextValueFingerprint(a.reasoningItems, b.reasoningItems)
         && a.toolCallId === b.toolCallId;
 }
 
@@ -197,7 +248,7 @@ function contextMessageContribution(message) {
     }
     const role = ['system', 'user', 'assistant', 'tool'].includes(fingerprint.role) ? fingerprint.role : 'other';
     const text = messageEstimateText(message);
-    const tokens = estimateTokens(text) + 4;
+    const tokens = estimateTokens(text) + messageImageAllowance(message) + 4;
     const contribution = {
         role,
         tokens,
@@ -511,7 +562,7 @@ export function summarizeContextMessages(messages) {
     if (!Array.isArray(messages)) return contextSummaryResult(emptyContextSummaryState(), 0);
     let cached = contextTranscriptMemo.get(messages);
     if (!cached || messages.length < cached.count) {
-        cached = { count: 0, contributions: [], state: emptyContextSummaryState() };
+        cached = { count: 0, contributions: [], state: emptyContextSummaryState(), revision: 0 };
         contextTranscriptMemo.set(messages, cached);
     }
     for (let index = 0; index < messages.length; index += 1) {
@@ -521,10 +572,40 @@ export function summarizeContextMessages(messages) {
         if (previous) applyContextMessageContribution(cached.state, previous, -1);
         cached.contributions[index] = contribution;
         applyContextMessageContribution(cached.state, contribution, 1);
+        cached.revision += 1;
     }
     cached.contributions.length = messages.length;
     cached.count = messages.length;
     return contextSummaryResult(cached.state, messages.length);
+}
+
+// A stable warm-cache generation for consumers that cache a derived view of
+// the whole transcript. summarizeContextMessages() must run first so mutations
+// to any entry, not merely the tail, advance the generation.
+export function contextMessagesRevision(messages) {
+    if (!Array.isArray(messages)) return 0;
+    summarizeContextMessages(messages);
+    return contextTranscriptMemo.get(messages)?.revision || 0;
+}
+
+// Hash only estimator/provider-visible projections. In particular, images
+// contribute their visual count but never their raw data-url/base64 bytes.
+export function contextMessagesSignature(messages, count = messages?.length) {
+    const list = Array.isArray(messages) ? messages : [];
+    const end = Math.max(0, Math.min(list.length, Number.isInteger(count) ? count : list.length));
+    const hash = createHash('sha256');
+    for (let index = 0; index < end; index += 1) {
+        const message = list[index];
+        hash.update(JSON.stringify([
+            message?.role || '',
+            message?.toolCallId || '',
+            messageEstimateText(message),
+            messageImageAllowance(message),
+            messageImageDescriptors(message),
+        ]));
+        hash.update('\0');
+    }
+    return hash.digest('hex');
 }
 
 // Per-request overhead the provider injects that never appears in the
@@ -535,35 +616,13 @@ const REQUEST_OVERHEAD_TOKENS = 512;
 const toolSchemaTokenMemo = new WeakMap();
 const requestReserveTokenMemo = new WeakMap();
 
-function sameToolArrayEntries(cached, tools) {
-    if (!cached || cached.entries.length !== tools.length) return false;
-    for (let index = 0; index < tools.length; index += 1) {
-        const entry = cached.entries[index];
-        const tool = tools[index];
-        if (entry.tool !== tool
-            || entry.name !== tool?.name
-            || entry.description !== tool?.description
-            || entry.inputSchema !== tool?.inputSchema
-            || entry.input_schema !== tool?.input_schema
-            || entry.parameters !== tool?.parameters
-            || entry.schema !== tool?.schema) return false;
-    }
-    return true;
+function serializeToolSchemas(tools) {
+    try { return JSON.stringify(Array.isArray(tools) ? tools : []); }
+    catch { return (Array.isArray(tools) ? tools : []).map(t => String(t?.name ?? '')).join(''); }
 }
 
-function cacheToolArrayValue(tools, value) {
-    return {
-        entries: tools.map((tool) => ({
-            tool,
-            name: tool?.name,
-            description: tool?.description,
-            inputSchema: tool?.inputSchema,
-            input_schema: tool?.input_schema,
-            parameters: tool?.parameters,
-            schema: tool?.schema,
-        })),
-        value,
-    };
+export function toolSchemaSignature(tools) {
+    return createHash('sha256').update(serializeToolSchemas(tools)).digest('hex');
 }
 
 /**
@@ -576,13 +635,12 @@ function cacheToolArrayValue(tools, value) {
  */
 export function estimateToolSchemaTokens(tools) {
     if (!Array.isArray(tools) || tools.length === 0) return 0;
+    const signature = toolSchemaSignature(tools);
     const cached = toolSchemaTokenMemo.get(tools);
-    if (sameToolArrayEntries(cached, tools)) return cached.value;
-    let text = '';
-    try { text = JSON.stringify(tools); }
-    catch { text = tools.map(t => String(t?.name ?? '')).join(''); }
+    if (cached?.signature === signature) return cached.value;
+    const text = serializeToolSchemas(tools);
     const tokens = estimateTokens(text);
-    toolSchemaTokenMemo.set(tools, cacheToolArrayValue(tools, tokens));
+    toolSchemaTokenMemo.set(tools, { signature, value: tokens });
     return tokens;
 }
 
@@ -594,10 +652,11 @@ export function estimateToolSchemaTokens(tools) {
  */
 export function estimateRequestReserveTokens(tools) {
     if (!Array.isArray(tools)) return estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
+    const signature = toolSchemaSignature(tools);
     const cached = requestReserveTokenMemo.get(tools);
-    if (sameToolArrayEntries(cached, tools)) return cached.value;
+    if (cached?.signature === signature) return cached.value;
     const reserve = estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
-    requestReserveTokenMemo.set(tools, cacheToolArrayValue(tools, reserve));
+    requestReserveTokenMemo.set(tools, { signature, value: reserve });
     return reserve;
 }
 

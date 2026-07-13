@@ -145,6 +145,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     let lastUsage;
     let firstTurnUsage;
     let response;
+    let lastSendTools = tools;
     let contextOverflowRetryUsed = false;
     // Set when the hard iteration-cap break below fires. Consumed at the final
     // return to tag terminationReason='iteration_cap' so a worker that exhausts
@@ -436,6 +437,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const sendTools = _capFinalToolsDisabled
             ? tools
             : (forcedFirstToolDef && toolCallsTotal === 0 ? [forcedFirstToolDef] : tools);
+        lastSendTools = sendTools;
         // Eager-dispatch queue: when the provider streams a tool-call event,
         // start read-only tools immediately so execution overlaps with the
         // remaining SSE parse. Writes and unknown tools wait until send()
@@ -573,6 +575,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     // additive — callers that ignore these fields keep working.
                     deltaCachedRead: response.usage.cachedTokens || 0,
                     deltaCacheWrite: response.usage.cacheWriteTokens || 0,
+                    sendTools,
                     ts: Date.now(),
                 });
             } catch { /* best-effort — never break the loop */ }
@@ -765,6 +768,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         ...response,
         usage: lastUsage || response.usage,
         lastTurnUsage: response.usage,
+        lastSendTools,
         firstTurnUsage: firstTurnUsage || response.usage,
         iterations,
         toolCallsTotal,

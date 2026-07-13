@@ -53,7 +53,10 @@ const OAUTH_SUCCESS_REDIRECT_URL = process.env.ANTHROPIC_OAUTH_SUCCESS_REDIRECT_
 const OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
 
-export const DEFAULT_CLI_VERSION = '2.1.77';
+// Anthropic's token edge validates the Claude Code client identity. Keep this
+// fallback aligned with the current official CLI while retaining the env
+// override for seats where Claude Code is updated ahead of Mixdog.
+export const DEFAULT_CLI_VERSION = '2.1.207';
 
 export function resolveCliVersion() {
     return process.env.MIXDOG_CLI_VERSION
@@ -210,14 +213,41 @@ export function _normalizeExpiresAt(value) {
     return value < 1e12 ? value * 1000 : value;
 }
 
-export function _scrubTokens(text) {
-    return String(text || '')
-        .replace(/Bearer [A-Za-z0-9._\-]+/g, 'Bearer [REDACTED]')
+export function _scrubTokens(text, secretValues = []) {
+    let scrubbed = String(text || '')
+        .replace(/Bearer [A-Za-z0-9._\-]+/gi, 'Bearer [REDACTED]')
         .replace(/sk-ant-[A-Za-z0-9._\-]+/g, '[REDACTED]')
         .replace(/"access[Tt]oken"\s*:\s*"[^"]+"/g, '"accessToken":"[REDACTED]"')
         .replace(/"refresh[Tt]oken"\s*:\s*"[^"]+"/g, '"refreshToken":"[REDACTED]"')
         .replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token":"[REDACTED]"')
         .replace(/"refresh_token"\s*:\s*"[^"]+"/g, '"refresh_token":"[REDACTED]"');
+    // Token services sometimes echo submitted values in non-JSON diagnostics.
+    // Scrub the exact request secrets as a final guard without logging them.
+    for (const secret of secretValues) {
+        if (typeof secret === 'string' && secret) {
+            scrubbed = scrubbed.split(secret).join('[REDACTED]');
+        }
+    }
+    return scrubbed;
+}
+
+function _tokenEndpointError(operation, status, text, secretValues = []) {
+    const safeDetail = _scrubTokens(text, secretValues)
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 500);
+    const detail = safeDetail ? `: ${safeDetail}` : '';
+    const compatibility = status === 403
+        ? (
+            ` Anthropic returned HTTP 403 for a request sent as claude-cli/${resolveCliVersion()}.`
+            + ' Possible causes include OAuth client compatibility, account or scope policy,'
+            + ' an intercepting proxy/VPN/WAF, or regional endpoint restrictions.'
+            + ' Verify the account has Claude Code access and the required scopes;'
+            + ' update Mixdog or set MIXDOG_CLI_VERSION to the installed official Claude Code version;'
+            + ' then retry sign-in via /providers without an intercepting network layer if applicable.'
+        )
+        : '';
+    return new Error(`${operation} ${status}${detail}.${compatibility}`);
 }
 
 export function isAnthropicOAuthRefreshDisabled() {
@@ -261,7 +291,15 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
         try { json = text ? JSON.parse(text) : null; } catch { /* handled below */ }
         if (!res.ok) {
             const isInvalidGrant = text.includes('invalid_grant') || json?.error === 'invalid_grant';
-            throw Object.assign(new Error(`token refresh ${res.status}: ${_scrubTokens(text).slice(0, 200)}`), { isInvalidGrant });
+            throw Object.assign(
+                _tokenEndpointError(
+                    'token refresh',
+                    res.status,
+                    text,
+                    [creds.refreshToken, creds.accessToken],
+                ),
+                { isInvalidGrant },
+            );
         }
 
         const accessToken = json?.access_token || json?.accessToken;
@@ -495,7 +533,12 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
     });
     if (!tokenRes.ok) {
         const text = await tokenRes.text().catch(() => '');
-        throw new Error(`[anthropic-oauth] token exchange ${tokenRes.status}: ${_scrubTokens(text).slice(0, 500)}`);
+        throw _tokenEndpointError(
+            '[anthropic-oauth] token exchange',
+            tokenRes.status,
+            text,
+            [cleanCode, pkce.verifier, state],
+        );
     }
     const json = await tokenRes.json();
     const accessToken = json?.access_token || json?.accessToken;

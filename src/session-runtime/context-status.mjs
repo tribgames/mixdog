@@ -2,8 +2,10 @@ import {
   estimateRequestReserveTokens,
   estimateToolSchemaTokens,
   estimateTranscriptContextUsage,
+  contextMessagesRevision,
   resolveSessionCompactPolicy,
   summarizeContextMessages,
+  toolSchemaSignature,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import { estimateToolSchemaBreakdown } from './tool-catalog.mjs';
 
@@ -16,7 +18,7 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
   let contextStatusCacheKey = null;
   let contextStatusCacheValue = null;
 
-  function contextStatusCacheKeyFor({ messages, tools }) {
+  function contextStatusCacheKeyFor({ messages, tools, messagesRevision, toolsSignature }) {
     const session = getSession();
     const route = getRoute();
     const compaction = session?.compaction || {};
@@ -30,11 +32,13 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
       mode: getMode(),
       messages,
       messageCount: messages.length,
+      messagesRevision,
       lastMessage,
       lastMessageRole: lastMessage?.role || null,
       lastMessageContent: lastMessage?.content || null,
       tools,
       toolCount: tools.length,
+      toolsSignature,
       contextWindow: session?.contextWindow || null,
       rawContextWindow: session?.rawContextWindow || null,
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
@@ -85,7 +89,9 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     const liveTurnMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
     const messages = liveTurnMessages || (Array.isArray(session?.messages) ? session.messages : []);
     const tools = Array.isArray(session?.tools) ? session.tools : [];
-    const cacheKey = contextStatusCacheKeyFor({ messages, tools });
+    const messagesRevision = contextMessagesRevision(messages);
+    const toolsSignature = toolSchemaSignature(tools);
+    const cacheKey = contextStatusCacheKeyFor({ messages, tools, messagesRevision, toolsSignature });
     if (contextStatusCacheValue && sameContextStatusCacheKey(cacheKey, contextStatusCacheKey)) {
       return contextStatusCacheValue;
     }

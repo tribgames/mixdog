@@ -20,6 +20,7 @@ from unittest import mock
 
 BENCH_ROOT = Path(__file__).resolve().parents[2]
 HARNESS_ROOT = BENCH_ROOT / "harness"
+REPO_ROOT = BENCH_ROOT.parents[1]
 sys.path.insert(0, str(BENCH_ROOT))
 
 from harness.routing_profiles import (  # noqa: E402
@@ -170,7 +171,10 @@ class RoutingProfileTests(unittest.TestCase):
 
     def test_profile_schema_and_exact_routes(self) -> None:
         validated = validate_profile_document(self.document)
-        self.assertEqual(set(validated["profiles"]), {"fable-xhigh", "fable-high"})
+        self.assertEqual(
+            set(validated["profiles"]),
+            {"opus-xhigh", "sol-xhigh", "fable-xhigh", "fable-high"},
+        )
         profile = load_route_profile("fable-xhigh")
         self.assertEqual(tuple(profile["routes"]), PROFILE_ROLES)
         self.assertEqual(
@@ -223,12 +227,130 @@ class RoutingProfileTests(unittest.TestCase):
                 },
             },
         )
+        opus_profile = load_route_profile("opus-xhigh")
+        self.assertEqual(
+            opus_profile,
+            {
+                "leadFallback": {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "fast": True,
+                },
+                "routes": {
+                    "lead": {
+                        "provider": "anthropic-oauth",
+                        "model": "claude-opus-4-8",
+                        "effort": "xhigh",
+                        "fast": False,
+                    },
+                    "worker": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-terra",
+                        "effort": "high",
+                        "fast": True,
+                    },
+                    "heavy-worker": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "xhigh",
+                        "fast": True,
+                    },
+                    "reviewer": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "xhigh",
+                        "fast": True,
+                    },
+                    "debugger": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "max",
+                        "fast": True,
+                    },
+                    "explorer": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-luna",
+                        "effort": "low",
+                        "fast": True,
+                    },
+                },
+            },
+        )
+        fable_high_profile = load_route_profile("fable-high")
+        self.assertEqual(
+            fable_high_profile,
+            {
+                "leadFallback": {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "fast": True,
+                },
+                "routes": {
+                    "lead": {
+                        "provider": "anthropic-oauth",
+                        "model": "claude-fable-5",
+                        "effort": "high",
+                        "fast": False,
+                    },
+                    "worker": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-terra",
+                        "effort": "high",
+                        "fast": True,
+                    },
+                    "heavy-worker": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "high",
+                        "fast": True,
+                    },
+                    "reviewer": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "xhigh",
+                        "fast": True,
+                    },
+                    "debugger": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "max",
+                        "fast": True,
+                    },
+                    "explorer": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-luna",
+                        "effort": "low",
+                        "fast": True,
+                    },
+                },
+            },
+        )
+        sol_profile = load_route_profile("sol-xhigh")
+        self.assertEqual(tuple(sol_profile["routes"]), PROFILE_ROLES)
+        self.assertNotIn("leadFallback", sol_profile)
+        self.assertEqual(
+            sol_profile["routes"],
+            {
+                **opus_profile["routes"],
+                "lead": {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "fast": True,
+                },
+            },
+        )
 
     def test_schema_rejects_malformed_documents(self) -> None:
         cases = []
         wrong_version = copy.deepcopy(self.document)
         wrong_version["schemaVersion"] = 2
         cases.append(wrong_version)
+        boolean_version = copy.deepcopy(self.document)
+        boolean_version["schemaVersion"] = True
+        cases.append(boolean_version)
         missing_role = copy.deepcopy(self.document)
         del missing_role["profiles"]["fable-xhigh"]["routes"]["reviewer"]
         cases.append(missing_role)
@@ -488,6 +610,66 @@ class RoutingProfileTests(unittest.TestCase):
 
     def test_bench_overlay_includes_mandatory_lead_brief_contract(self) -> None:
         self.assertIn("rules/lead/lead-brief.md", STATIC_SRC_OVERLAY_FILES)
+
+    def test_bench_overlay_includes_solo_review_workflow(self) -> None:
+        self.assertIn(
+            "workflows/solo-review/WORKFLOW.md", STATIC_SRC_OVERLAY_FILES
+        )
+
+    def test_solo_review_workflow_is_discovered_and_normalized(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+        script = r"""
+import { resolve } from 'node:path';
+import {
+  createWorkflowHelpers,
+  normalizeWorkflowId,
+} from './src/session-runtime/workflow.mjs';
+function readMarkdownDocument(raw) {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (!match) return { frontmatter: {}, body: raw };
+  const frontmatter = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const key = line.slice(0, colon).trim();
+    const value = line.slice(colon + 1).trim().replace(/^"(.*)"$/, '$1');
+    frontmatter[key] = value;
+  }
+  return { frontmatter, body: match[2].trim() };
+}
+const helpers = createWorkflowHelpers({
+  rootDir: resolve('src'),
+  dataDir: resolve('.nonexistent-workflow-test-data'),
+  readMarkdownDocument,
+  normalizeAgentPermissionOrNone: (value) => value,
+});
+const pack = helpers.listWorkflowPacks().find(({ id }) => id === 'solo-review');
+console.log(JSON.stringify({
+  normalized: normalizeWorkflowId(' Solo Review '),
+  pack: pack && { id: pack.id, name: pack.name, agents: pack.agents },
+}));
+"""
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "normalized": "solo-review",
+                "pack": {
+                    "id": "solo-review",
+                    "name": "Solo Review",
+                    "agents": ["reviewer"],
+                },
+            },
+        )
 
 
 class SrcOverlayTests(unittest.TestCase):
@@ -878,18 +1060,18 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         await agent._run_lead(Environment(), "adapter task", None, base_env)
         return captured[0]
 
-    def test_explicit_workflow_override_preserves_headless_mandate(self) -> None:
+    def test_explicit_solo_review_workflow_preserves_headless_mandate(self) -> None:
         module = self.load_adapter_module()
         child_env = asyncio.run(
             self.capture_lead_env(
                 module,
                 None,
                 {"BASE_SENTINEL": "preserved"},
-                workflow="custom",
+                workflow="solo-review",
             )
         )
 
-        self.assertEqual(child_env["MIXDOG_WORKFLOW"], "custom")
+        self.assertEqual(child_env["MIXDOG_WORKFLOW"], "solo-review")
         self.assertEqual(
             child_env["MIXDOG_PROMPT"], HEADLESS_BENCH_MANDATE + "adapter task"
         )
@@ -1814,21 +1996,23 @@ export async function createMixdogSessionRuntime() {
         runtime_stub = """
 import { mkdirSync, writeFileSync } from 'node:fs';
 let runtimeCount = 0;
-export async function createMixdogSessionRuntime({ model }) {
+export async function createMixdogSessionRuntime({ provider, model }) {
   const count = ++runtimeCount;
   const sessionId = `fallback-session-${count}`;
   mkdirSync(process.env.MIXDOG_DATA_DIR + '/sessions', { recursive: true });
-  writeFileSync(
+  const route = { provider, model };
+  const persist = () => writeFileSync(
     process.env.MIXDOG_DATA_DIR + `/sessions/${sessionId}.json`,
-    JSON.stringify({ id: sessionId, model, messages: [] }),
+    JSON.stringify({ id: sessionId, model, route, messages: [] }),
   );
+  persist();
   return {
     sessionId,
     session: { id: sessionId, tools: [] },
     onNotification() {},
     async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
+    async setEffort(effort) { route.effort = effort; persist(); },
+    async setFast(fast) { route.fast = fast; persist(); },
     agentStatus() { return { agentJobs: [] }; },
     abort() {},
     async close() {},
@@ -1876,6 +2060,20 @@ export async function createMixdogSessionRuntime({ model }) {
                 text=True,
                 encoding="utf-8",
                 timeout=5,
+            )
+            fallback_session = json.loads(
+                (data / "sessions" / "fallback-session-2.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                fallback_session["route"],
+                {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "fast": True,
+                },
             )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
@@ -2223,14 +2421,16 @@ class LauncherDryRunTests(unittest.TestCase):
             raise unittest.SkipTest("PowerShell is not installed")
         cls.script = HARNESS_ROOT / "run-tb21.ps1"
 
-    def run_launcher(self, *args: str) -> subprocess.CompletedProcess[str]:
+    def run_launcher(
+        self, *args: str, script: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 self.powershell,
                 "-NoProfile",
                 "-NonInteractive",
                 "-File",
-                str(self.script),
+                str(script or self.script),
                 "-JobsDir",
                 "route-profile-dry-run",
                 "-DryRun",
@@ -2248,6 +2448,16 @@ class LauncherDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[0], EXPECTED_AUDIT_LINE)
         self.assertIn("--ak route_profile=fable-xhigh", result.stdout)
+        self.assertNotIn("workflow=", result.stdout)
+
+    def test_solo_review_dry_run_plumbs_explicit_workflow(self) -> None:
+        result = self.run_launcher(
+            "-Workflow", "solo-review", "-RouteProfile", "fable-xhigh"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[0], EXPECTED_AUDIT_LINE)
+        self.assertIn("--ak workflow=solo-review", result.stdout)
+        self.assertIn("--ak route_profile=fable-xhigh", result.stdout)
 
     def test_launcher_rejects_unknown_profile_and_conflicts(self) -> None:
         unknown = self.run_launcher("-RouteProfile", "unknown")
@@ -2263,6 +2473,29 @@ class LauncherDryRunTests(unittest.TestCase):
         )
         self.assertNotEqual(conflict.returncode, 0)
         self.assertIn("cannot be combined", conflict.stderr)
+
+    def test_launcher_fully_validates_selected_profile_before_preflight(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-launcher-validation-") as temp:
+            harness = Path(temp) / "harness"
+            harness.mkdir()
+            script = harness / "run-tb21.ps1"
+            shutil.copy2(self.script, script)
+            shutil.copy2(HARNESS_ROOT / "routing_profiles.py", harness)
+            malformed = copy.deepcopy(
+                json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+            )
+            malformed["profiles"]["fable-high"]["routes"]["worker"]["fast"] = "true"
+            (harness / "route_profiles.json").write_text(
+                json.dumps(malformed), encoding="utf-8"
+            )
+
+            result = self.run_launcher(
+                "-RouteProfile", "fable-high", script=script
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("fast must be boolean", result.stderr)
+        self.assertNotIn("Terminal-Bench src overlay preflight", result.stderr)
 
 
 if __name__ == "__main__":

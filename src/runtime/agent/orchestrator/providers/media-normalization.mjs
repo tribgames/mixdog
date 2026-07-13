@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const DEFAULT_IMAGE_MIME = 'image/png';
 
 function cleanMimeType(value) {
@@ -96,6 +98,9 @@ function contentParts(content) {
     if (content && typeof content === 'object' && Array.isArray(content.content)) {
         return content.content;
     }
+    if (content && typeof content === 'object'
+        && (imageUrlFromPart(content) || imageFileIdFromPart(content)
+            || imageFileUriFromPart(content) || geminiInlineInfo(content))) return [content];
     return null;
 }
 
@@ -108,9 +113,61 @@ function jsonFallbackFromPart(block) {
 }
 
 export function contentHasImage(content) {
+    return contentImageCount(content) > 0;
+}
+
+export function contentImageCount(content) {
+    return contentImageDescriptors(content).length;
+}
+
+function positiveDimension(...values) {
+    for (const value of values) {
+        const number = Number(value);
+        if (Number.isFinite(number) && number > 0) return number;
+    }
+    return null;
+}
+
+function imageIdentity(kind, value, mimeType = '') {
+    return createHash('sha256')
+        .update(`${kind}\0${mimeType}\0`)
+        .update(String(value || ''))
+        .digest('hex');
+}
+
+function imageDescriptor(part) {
+    if (!part || typeof part !== 'object') return null;
+    const info = imageInfo(part);
+    const inline = geminiInlineInfo(part);
+    const url = imageUrlFromPart(part);
+    const fileId = imageFileIdFromPart(part);
+    const fileUri = imageFileUriFromPart(part);
+    if (!info && !inline && !url && !fileId && !fileUri) return null;
+    const imageUrl = part.image_url && typeof part.image_url === 'object' ? part.image_url : null;
+    const source = part.source && typeof part.source === 'object' ? part.source : null;
+    const inlineData = part.inlineData || part.inline_data;
+    const dimensions = part.dimensions && typeof part.dimensions === 'object' ? part.dimensions : null;
+    const width = positiveDimension(part.width, dimensions?.width, imageUrl?.width, source?.width, inlineData?.width);
+    const height = positiveDimension(part.height, dimensions?.height, imageUrl?.height, source?.height, inlineData?.height);
+    const detail = String(part.detail ?? imageUrl?.detail ?? source?.detail ?? inlineData?.detail ?? 'auto').toLowerCase();
+    if (info || inline) {
+        const raw = info || inline;
+        return {
+            identity: imageIdentity('inline', raw.data, raw.mimeType),
+            width,
+            height,
+            detail,
+        };
+    }
+    if (fileId) return { identity: imageIdentity('file-id', fileId), width, height, detail };
+    if (fileUri) return { identity: imageIdentity('file-uri', fileUri.fileUri, fileUri.mimeType), width, height, detail };
+    return { identity: imageIdentity('url', url), width, height, detail };
+}
+
+export function contentImageDescriptors(content) {
     const parts = contentParts(content);
-    if (!parts) return false;
-    return parts.some((part) => !!imageUrlFromPart(part) || !!imageFileIdFromPart(part) || !!imageFileUriFromPart(part) || !!geminiInlineInfo(part));
+    if (!parts) return [];
+    return parts.map(imageDescriptor).filter(Boolean);
 }
 
 export function contentToText(content, fallback = '') {

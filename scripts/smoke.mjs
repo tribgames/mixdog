@@ -95,7 +95,7 @@ runNode(['--input-type=module', '-e', `
     stats: { currentContextTokens: 0 },
     agentJobs: [{ task_id: 'task_statusline_smoke', status: 'running', tag: 'bench-agent', startedAt: new Date().toISOString() }],
   });
-  if (!line.includes('Running') || !line.includes('bench-agent')) throw new Error('statusline must render live agent task state: ' + JSON.stringify(line));
+  if (!line.includes('Running 1 Agent') || line.includes('bench-agent')) throw new Error('statusline must render live agent count without task tags: ' + JSON.stringify(line));
 `], 'statusline live agent task smoke', { env: isolatedStatuslineEnv });
 
 runNode(['--input-type=module', '-e', `

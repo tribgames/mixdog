@@ -38,6 +38,7 @@ STATIC_SRC_OVERLAY_FILES = (
     "runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
     "rules/shared/01-tool.md",
     "agents/reviewer/AGENT.md",
+    "workflows/solo-review/WORKFLOW.md",
 )
 SNAPSHOT_MANIFEST = "manifest.json"
 SNAPSHOT_FILES_DIR = "files"

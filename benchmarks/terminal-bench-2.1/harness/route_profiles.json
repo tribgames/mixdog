@@ -1,6 +1,92 @@
 {
   "schemaVersion": 1,
   "profiles": {
+    "opus-xhigh": {
+      "leadFallback": {
+        "provider": "openai-oauth",
+        "model": "gpt-5.6-sol",
+        "effort": "xhigh",
+        "fast": true
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": true
+        }
+      }
+    },
+    "sol-xhigh": {
+      "routes": {
+        "lead": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": true
+        }
+      }
+    },
     "fable-xhigh": {
       "leadFallback": {
         "provider": "openai-oauth",

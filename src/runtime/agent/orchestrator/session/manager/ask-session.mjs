@@ -341,7 +341,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                                 promptTokens: d.deltaPrompt,
                                 cachedTokens: d.deltaCachedRead,
                                 cacheWriteTokens: d.deltaCacheWrite,
-                            }, { boundary: 'request' });
+                            }, { boundary: 'request', sendTools: d.sendTools });
                         }
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
@@ -482,7 +482,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             applyAskTerminalUsageTotals(session, result, {
                 skipTotalsIfIncremental: runtime?.usageMetricsTurnIncremental === true,
             });
-            recordProviderContextBaseline(session, session.messages, result.lastTurnUsage || result.usage);
+            recordProviderContextBaseline(session, session.messages, result.lastTurnUsage || result.usage, {
+                sendTools: result.lastSendTools,
+            });
             // Agent Runtime cache stats — record hit/miss after every successful
             // ask so the registry reflects all agent traffic, not just
             // maintenance cycles. Guarded against any agent-runtime error so

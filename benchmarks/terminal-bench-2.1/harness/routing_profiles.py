@@ -86,7 +86,7 @@ def validate_profile_document(document: Any) -> dict[str, Any]:
         raise RouteProfileError(
             "routing profile document must contain only schemaVersion and profiles"
         )
-    if document["schemaVersion"] != 1:
+    if type(document["schemaVersion"]) is not int or document["schemaVersion"] != 1:
         raise RouteProfileError(
             f"unsupported routing profile schemaVersion: {document['schemaVersion']!r}"
         )
