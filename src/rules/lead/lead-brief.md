@@ -8,12 +8,13 @@
   `Task:`. Never infer exactness from a task name, file count, or perceived
   difficulty.
 - All other fields are optional task-specific deltas: `Anchors:`
-  `Allow/Forbid:` `Deliver:` `Verify:`. Omit any that add no information.
+  `Allow/Forbid:` `Deliver:`. Omit any that add no information.
 - Anchors: `file:line` + one-line conclusion; never log/code bodies. Specify
   outcome, not method unless required. `Deliver:` gives shape/size, never a long
-  handoff. Referenced spec/test beats its summary.
-- Preserve the exact same `Task:` across Worker -> Debugger -> Reviewer. Never
-  summarize, rewrite, or replace it when handing the scope to the next role.
+  handoff. The original request and official spec/test acceptance criteria beat
+  their brief summary.
+- Each role independently constructs a role-appropriate, lossless `Task:` from
+  the original request and official spec/test acceptance criteria.
 - Full brief only for fresh spawn/`respawned: true`; live follow-ups are delta.
   Dead-tag send is cold: re-supply anchors.
 - Never `send` mid-run; batch one follow-up after completion; interrupt only to

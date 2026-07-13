@@ -62,7 +62,7 @@ const leadTool = readSrc('rules', 'lead', 'lead-tool.md');
 const core = readSrc('rules', 'agent', '00-core.md');
 const common = readSrc('rules', 'agent', '00-common.md');
 const skip = readSrc('rules', 'agent', '20-skip-protocol.md');
-const OPTIONAL_BRIEF_FIELDS = ['Anchors:', 'Allow/Forbid:', 'Deliver:', 'Verify:'];
+const OPTIONAL_BRIEF_FIELDS = ['Anchors:', 'Allow/Forbid:', 'Deliver:'];
 const TOKEN_PRINCIPLE = /minimum (?:characters|chars), maximum (?:information|info)/i;
 function requireAll(text, label, patterns) {
   for (const pattern of patterns) assert(pattern.test(normalize(text).toLowerCase()), `${label}: missing ${pattern}`);
@@ -71,16 +71,21 @@ assert(TOKEN_PRINCIPLE.test(normalize(leadBrief)), 'lead-brief.md: brief must st
 assert(leadBrief.includes('Task:'), 'lead-brief.md: brief must require labeled field Task:');
 assert(!leadBrief.includes('Goal:'), 'lead-brief.md: Goal: must be replaced by Task:');
 for (const field of OPTIONAL_BRIEF_FIELDS) assert(leadBrief.includes(field), `lead-brief.md: brief missing optional labeled field ${field}`);
+assert(!leadBrief.includes('Verify:'), 'lead-brief.md: must not prescribe Verify:');
+assert(
+  !/copy a prior role(?:'s)? brief|worker\s*(?:->|→)\s*debugger\s*(?:->|→)\s*reviewer|\blead\s*\/\s*worker\b/i.test(leadBrief),
+  'lead-brief.md: must not restore cross-role Task copying or lineage',
+);
 requireAll(leadBrief, 'Lead brief task', [
   /`task:` is mandatory and lossless/, /intent/, /required outcomes/, /negative outcomes/,
   /completion\/stop boundary/, /all other fields are optional task-specific deltas/,
   /preserve user-supplied exact targets and exact replacements\/outputs in `task:`/,
   /never infer exactness from a task name, file count, or perceived difficulty/,
-  /exact same `task:` across worker -> debugger -> reviewer/,
-  /never summarize, rewrite, or replace it/,
+  /each role independently constructs a role-appropriate, lossless `task:` from/,
+  /the original request and official spec\/test acceptance criteria/,
 ]);
 assert(/role-known|already (?:owns|knows)|wasted cost|wasted/i.test(normalize(leadBrief)), 'lead-brief.md: brief must ban restating known rules/background as cost');
-assert(/spec\/test beats its summary/i.test(normalize(leadBrief)), 'lead-brief.md: spec/test must beat summary');
+assert(/original request and official spec\/test acceptance criteria/i.test(normalize(leadBrief)), 'lead-brief.md: original request and official acceptance criteria must beat summary');
 requireAll(leadBrief, 'Lead brief lifecycle', [
   /full brief only for fresh spawn\/`respawned: true`/, /live follow-ups are delta/,
   /dead-tag send is cold: re-supply anchors/, /never `send` mid-run/,
@@ -109,6 +114,15 @@ const roles = {
   'reviewer/AGENT.md': readSrc('agents', 'reviewer', 'AGENT.md'),
   'debugger/AGENT.md': readSrc('agents', 'debugger', 'AGENT.md'),
 };
+const reviewerRole = roles['reviewer/AGENT.md'];
+assert(
+  !/construct the review\s*`task:` independently/i.test(reviewerRole),
+  'reviewer/AGENT.md: must not restore Reviewer-specific Task construction',
+);
+assert(
+  !/treat prior reports as unverified claims rather than evidence/i.test(reviewerRole),
+  'reviewer/AGENT.md: must not restore prior-report framing',
+);
 
 // Semantic contracts deliberately avoid prose snapshots.
 function snapshot(actual, expected, label) {
@@ -208,9 +222,12 @@ Self-verify each checkpoint and the final slice with shell (targeted test/build)
   'reviewer/AGENT.md': `# Reviewer
 Independent regression/risk review agent.
 
-Review the approved intent, diff, and tests with independent judgment. Prioritize
-actionable correctness, regression, security, and verification risks; inspect
-affected boundaries. Do not reimplement the change or report non-risky nits.
+Review the diff and tests with independent judgment. Prioritize actionable
+correctness, regression, security, and verification risks; inspect affected
+boundaries. Do not reimplement the change or report non-risky nits. Independently
+evaluate the final deliverable with a critical lens, actively seeking errors,
+unsupported assumptions, and counterexamples before confirming.
+
 Report findings first, severity-ordered, with one line per \`file:line\`. If clean,
 say so in one line and include only material residual risk.
 
