@@ -24,6 +24,7 @@
 import { loadConfig } from '../config.mjs';
 import { resolveRuntimeSpec } from '../config.mjs';
 import { getHiddenAgent, resolveAgentSessionPermission } from '../internal-agents.mjs';
+import { isKnownProvider } from '../../../../standalone/provider-admin.mjs';
 import { prepareAgentSession } from './session-builder.mjs';
 import {
     askSession,
@@ -163,9 +164,30 @@ export function resolveHiddenRoleSchemaAllowedTools(hidden) {
  *     against config.presets for backward compatibility.
  *   - null — unresolved.
  *
- * Hidden roles read their slot from `maint[maintKey || slot]`; the cycle1/2/3
- * agents share one knob via the `maintKey: 'memory'` override.
+ * Explore and memory hidden roles mirror public spawning precedence:
+ * `agents.<role>` (including legacy `agents.maintenance`) → workflow route →
+ * maintenance route → Main. The cycle1/2/3 agents share the memory knob via
+ * their `maintKey: 'memory'` override. Scheduler and webhook are unchanged.
  */
+const DEFAULT_AGENT_ROUTE_PROVIDER = 'anthropic-oauth';
+
+function normalizeMaintenanceCandidate(candidate, config) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return candidate || null;
+    const configuredProvider = String(config?.defaultProvider || '').trim();
+    const fallbackProvider = isKnownProvider(configuredProvider)
+        ? configuredProvider
+        : DEFAULT_AGENT_ROUTE_PROVIDER;
+    const provider = String(candidate.provider || fallbackProvider).trim();
+    const model = String(candidate.model || '').trim();
+    if (!provider || !model) return null;
+    return {
+        provider,
+        model,
+        effort: String(candidate.effort || '').trim() || undefined,
+        fast: candidate.fast === true,
+    };
+}
+
 export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfgIn = null }) {
     if (preset) return preset;
     if (optsPreset) return optsPreset;
@@ -175,7 +197,22 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
         try {
             const config = cfgIn || loadConfig({ secrets: false });
             const maint = config?.maintenance || {};
-            return maint[hidden.maintKey || hidden.slot] ?? null;
+            const key = hidden.maintKey || hidden.slot;
+            const role = key === 'explore' ? 'explore' : (key === 'memory' ? 'maintainer' : '');
+            const workflowSlot = key === 'explore' ? 'explorer' : (key === 'memory' ? 'memory' : '');
+            if (!role) return maint[key] ?? null;
+            const candidates = [
+                role ? config?.agents?.[role] : null,
+                key === 'memory' ? config?.agents?.maintenance : null,
+                workflowSlot ? config?.workflowRoutes?.[workflowSlot] : null,
+                maint[key],
+                role ? config?.default : null,
+            ];
+            for (const candidate of candidates) {
+                const route = normalizeMaintenanceCandidate(candidate, config);
+                if (route) return route;
+            }
+            return null;
         } catch { return null; }
     }
     return null;

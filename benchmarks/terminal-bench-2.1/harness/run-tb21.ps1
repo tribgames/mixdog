@@ -78,12 +78,15 @@ $env:PYTHONPATH = $benchRoot
 # Freeze the complete source union before Harbor starts. Every trial uploads
 # only this immutable snapshot; the adapter verifies it again before apply.
 $snapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-src-" + [guid]::NewGuid().ToString("N"))
+$fallbackStateRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-fallback-" + [guid]::NewGuid().ToString("N"))
+$harborExitCode = 0
 try {
     $overlayPreflight = & python -m harness.src_overlay --output $snapshotRoot 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Terminal-Bench src overlay preflight failed: $($overlayPreflight -join [Environment]::NewLine)"
     }
     $env:MIXDOG_TB_SRC_SNAPSHOT = $snapshotRoot
+    $env:MIXDOG_TB_FALLBACK_STATE_DIR = $fallbackStateRoot
 
 $harborArgs = @(
     "run",
@@ -156,11 +159,19 @@ for ($i = 0; $i -lt ($displayArgs.Count - 1); $i++) {
 "harbor $($displayArgs -join ' ')"
 if (-not $DryRun) {
     harbor @harborArgs
+    $harborExitCode = $LASTEXITCODE
 }
 }
 finally {
     Remove-Item Env:MIXDOG_TB_SRC_SNAPSHOT -ErrorAction SilentlyContinue
+    Remove-Item Env:MIXDOG_TB_FALLBACK_STATE_DIR -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $snapshotRoot) {
         Remove-Item -LiteralPath $snapshotRoot -Recurse -Force
     }
+    if (Test-Path -LiteralPath $fallbackStateRoot) {
+        Remove-Item -LiteralPath $fallbackStateRoot -Recurse -Force
+    }
+}
+if ($harborExitCode -ne 0) {
+    exit $harborExitCode
 }

@@ -345,7 +345,7 @@ function buildCorpus(rows, { limit, sinceTs, agentFilter }) {
 }
 
 function scoreCorpus(cases) {
-  // A single健全 index: sum of flagged cases per KPI (lower is better).
+  // A single health index: sum of flagged cases per KPI (lower is better).
   const summary = {};
   let flaggedCases = 0;
   for (const k of FLAG_KEYS) summary[k] = cases.filter((c) => c.flags.includes(k)).length;

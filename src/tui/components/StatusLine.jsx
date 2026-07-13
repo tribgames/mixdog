@@ -8,6 +8,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
+import { rgbSgr } from '../../ui/ansi.mjs';
 import { displayModelName, shortenModelName } from '../../ui/model-display.mjs';
 import { theme, surfaceBackground } from '../theme.mjs';
 import {
@@ -116,7 +117,7 @@ function scheduleBootFullRetry(backoffMsRef, nextAttemptAtRef) {
 function ansiRgb(value, fallback) {
   const match = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(String(value || '').replace(/\s+/g, ''));
   if (!match) return fallback;
-  return `\x1b[38;2;${match[1]};${match[2]};${match[3]}m`;
+  return rgbSgr(match[1], match[2], match[3]);
 }
 
 // SGR escapes derived from the active theme. Resolved per call (not captured at
@@ -124,11 +125,11 @@ function ansiRgb(value, fallback) {
 // render. `theme` is mutated in-place on switch.
 function statusColors() {
   return {
-    STATUS: ansiRgb(theme.statusText, '\x1b[38;2;198;198;198m'),
-    SUBTLE: ansiRgb(theme.statusSubtle, '\x1b[38;2;136;136;136m'),
-    SUCCESS: ansiRgb(theme.success, '\x1b[38;2;0;170;75m'),
-    WARNING: ansiRgb(theme.warning, '\x1b[38;2;255;193;7m'),
-    ERROR: ansiRgb(theme.error, '\x1b[38;2;220;70;88m'),
+    STATUS: ansiRgb(theme.statusText, rgbSgr(198, 198, 198)),
+    SUBTLE: ansiRgb(theme.statusSubtle, rgbSgr(136, 136, 136)),
+    SUCCESS: ansiRgb(theme.success, rgbSgr(0, 170, 75)),
+    WARNING: ansiRgb(theme.warning, rgbSgr(255, 193, 7)),
+    ERROR: ansiRgb(theme.error, rgbSgr(220, 70, 88)),
   };
 }
 

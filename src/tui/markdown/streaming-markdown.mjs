@@ -7,6 +7,8 @@ import { configureMarked, hasMarkdownSyntax } from './render-ansi.mjs';
 import { trimPartialClosingFences, findOpenFenceStart } from './stream-fence.mjs';
 
 const stablePrefixByStreamKey = new Map();
+// Reuse the current normalized-text split across measure → render → harvest.
+const resolvedPartsByStreamKey = new Map();
 const STABLE_PREFIX_LRU_MAX = 32;
 
 /** Lockstep with App streaming row estimate (leading/trailing newline trim). */
@@ -35,6 +37,25 @@ function getStablePrefixKey(key) {
   stablePrefixByStreamKey.delete(key);
   stablePrefixByStreamKey.set(key, value);
   return value;
+}
+
+function getResolvedPartsKey(key, text) {
+  if (!key) return null;
+  const entry = resolvedPartsByStreamKey.get(key);
+  if (!entry || entry.text !== text) return null;
+  return entry.parts;
+}
+
+function cacheResolvedPartsKey(key, text, parts) {
+  if (!key) return parts;
+  if (resolvedPartsByStreamKey.has(key)) resolvedPartsByStreamKey.delete(key);
+  resolvedPartsByStreamKey.set(key, { text, parts });
+  while (resolvedPartsByStreamKey.size > STABLE_PREFIX_LRU_MAX) {
+    const oldest = resolvedPartsByStreamKey.keys().next().value;
+    if (oldest === undefined) break;
+    resolvedPartsByStreamKey.delete(oldest);
+  }
+  return parts;
 }
 
 function hasOpenFence(text) {
@@ -93,35 +114,40 @@ export function balanceStreamingMarkdown(text) {
 
 export function resetStreamingMarkdownStablePrefix(streamKey) {
   if (streamKey == null || streamKey === '') return;
-  stablePrefixByStreamKey.delete(String(streamKey));
+  const key = String(streamKey);
+  stablePrefixByStreamKey.delete(key);
+  resolvedPartsByStreamKey.delete(key);
 }
 
 export function resetAllStreamingMarkdownStablePrefixes() {
   stablePrefixByStreamKey.clear();
+  resolvedPartsByStreamKey.clear();
 }
 
 export function resolveStreamingMarkdownParts(text, streamKey) {
   const t = streamingLayoutText(text);
   const key = streamKey == null || streamKey === '' ? null : String(streamKey);
+  const cachedParts = getResolvedPartsKey(key, t);
+  if (cachedParts) return cachedParts;
 
   if (!t) {
     if (key) stablePrefixByStreamKey.delete(key);
-    return {
+    return cacheResolvedPartsKey(key, t, {
       plain: true,
       stablePrefix: '',
       unstableSuffix: '',
       unstableForRender: '',
-    };
+    });
   }
 
   if (!hasMarkdownSyntax(t)) {
     if (key) stablePrefixByStreamKey.delete(key);
-    return {
+    return cacheResolvedPartsKey(key, t, {
       plain: true,
       stablePrefix: '',
       unstableSuffix: t,
       unstableForRender: t,
-    };
+    });
   }
 
   let stablePrefix = key ? getStablePrefixKey(key) : '';
@@ -141,13 +167,13 @@ export function resolveStreamingMarkdownParts(text, streamKey) {
     if (key && openPrefix) touchStablePrefixKey(key, openPrefix);
     else if (key) stablePrefixByStreamKey.delete(key);
     const unstableSuffix = t.substring(openPrefix.length);
-    return {
+    return cacheResolvedPartsKey(key, t, {
       plain: false,
       openFence: true,
       stablePrefix: openPrefix,
       unstableSuffix,
       unstableForRender: unstableSuffix,
-    };
+    });
   }
 
   try {
@@ -179,10 +205,10 @@ export function resolveStreamingMarkdownParts(text, streamKey) {
   if (isWhitespaceOnlyText(stablePrefix)) stablePrefix = '';
 
   const unstableSuffix = t.substring(stablePrefix.length);
-  return {
+  return cacheResolvedPartsKey(key, t, {
     plain: false,
     stablePrefix,
     unstableSuffix,
     unstableForRender: balanceStreamingMarkdown(unstableSuffix),
-  };
+  });
 }

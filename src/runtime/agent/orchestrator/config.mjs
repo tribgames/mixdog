@@ -7,6 +7,20 @@ import {
     hasGrokOAuthCredentials,
 } from './providers/oauth-credential-probes.mjs';
 
+// Keep config loading free of standalone provider-admin and its provider
+// runtimes. These identifiers mirror that module's static catalog, assembled
+// solely from the lightweight config/provider constants already imported here.
+const CONFIG_PROVIDER_IDS = new Set([
+    ...Object.keys(AGENT_PROVIDER_ENV),
+    ...Object.keys(OPENAI_COMPAT_PRESETS),
+    'openai-oauth',
+    'anthropic-oauth',
+    'grok-oauth',
+]);
+function isConfiguredProviderId(provider) {
+    return CONFIG_PROVIDER_IDS.has(String(provider || '').trim());
+}
+
 // Thin wrapper around resolvePluginData so callers in this orchestrator tree
 // can import a single helper without reaching into shared/.
 export function getPluginData() {
@@ -18,15 +32,12 @@ export function getPluginData() {
 // Canonical maintenance defaults. Single source of truth — imported by
 // llm/index.mjs and setup-server.mjs so UI/runtime cannot drift from config.
 //
-// Every hidden maintenance slot carries a CONCRETE preset here, so
-// resolvePresetName() (agent-dispatch) always resolves a model directly from
-// `maint[slot]` — no shared `defaultPreset` fallback is needed or used.
-// Memory cycles + Lead helper fan-out (explore/cycle1/cycle2/cycle3) and
-// entry-driven dispatch (scheduler/webhook) all default to `haiku`. The three
-// memory cycles (chunker / re-scorer / core reviewer) share ONE `memory`
-// preset knob — the cycle agents stay separate (cycle1/2/3-agent, distinct
-// slots and invokedBy) but resolve their model from `maint.memory` via the
-// `maintKey` override on their hidden-role entries.
+// Explore and Maintainer start without a route so they dynamically inherit the
+// Main route. Explicit `maintenance.explore` / `maintenance.memory` choices
+// remain supported. The memory cycles (chunker / re-scorer / core reviewer)
+// share the optional `memory` preset knob — the cycle agents stay separate
+// (cycle1/2/3-agent, distinct slots and invokedBy) but resolve their model from
+// `maint.memory` via the `maintKey` override on their hidden-role entries.
 // scheduler/webhook still let a per-entry config.json model win first (the
 // caller passes it explicitly via opts.preset); the haiku default below only
 // applies when an entry omits its own model.
@@ -129,8 +140,6 @@ const _HAIKU_ROUTE = Object.freeze({
     model: resolveAnthropicFamilyModel('haiku'),
 });
 export const DEFAULT_MAINTENANCE = Object.freeze({
-    explore: { ..._HAIKU_ROUTE },
-    memory: { ..._HAIKU_ROUTE },
     scheduler: { ..._HAIKU_ROUTE },
     webhook: { ..._HAIKU_ROUTE },
 });
@@ -201,12 +210,18 @@ function normalizeSearchRoute(route) {
 // is resolved against the config.presets array (the legacy lookup) and rewritten
 // to a route. Unresolvable strings are dropped so the DEFAULT_MAINTENANCE route
 // fills the slot. `presets` is the normalized preset array for legacy lookup.
-function migrateMaintenanceRoutes(rawMaint, presets) {
+function migrateMaintenanceRoutes(rawMaint, presets, defaultProvider) {
     const out = {};
     const list = Array.isArray(presets) ? presets : [];
+    const configuredProvider = String(defaultProvider || '').trim();
+    const fallbackProvider = isConfiguredProviderId(configuredProvider)
+        ? configuredProvider
+        : 'anthropic-oauth';
     for (const [slot, value] of Object.entries(rawMaint || {})) {
         if (value && typeof value === 'object' && !Array.isArray(value)) {
-            const provider = normalizeAgentProviderId(value.provider);
+            const provider = normalizeAgentProviderId(
+                value.provider || ((slot === 'explore' || slot === 'memory') ? fallbackProvider : ''),
+            );
             const model = String(value.model || '').trim();
             if (provider && model) {
                 const route = { provider, model };
@@ -437,7 +452,7 @@ export function loadConfig(options = {}) {
             delete workflowRoutes.search;
             // Migrate legacy preset-name maintenance slots to direct routes,
             // then overlay onto the route-shaped defaults.
-            const migratedMaint = migrateMaintenanceRoutes(rawMaint, normalizedPresets);
+            const migratedMaint = migrateMaintenanceRoutes(rawMaint, normalizedPresets, raw.defaultProvider);
             return {
                 providers: mergedProviders,
                 mcpServers,

@@ -985,10 +985,12 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
         // the execution policy on Windows PowerShell; pwsh on macOS/Linux
         // accepts the parameter as a no-op, so it is safe unconditionally.
         "    $argList = @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $innerPath)",
-        // -WindowStyle is a Windows-only Start-Process parameter; pwsh on
-        // macOS/Linux throws "not supported on this platform". Add it only on win32.
+        // Do not set WindowStyle: Hidden creates a separate transient conhost.
+        // On Windows, explicitly reuse the wrapper's CREATE_NO_WINDOW console.
+        // NoNewWindow is unavailable on non-Windows pwsh, so only add it for
+        // Windows (where $IsWindows is absent/null in Windows PowerShell 5.1).
         '    $spArgs = @{ FilePath = $exe; ArgumentList = $argList; RedirectStandardOutput = $stdoutPath; RedirectStandardError = $stderrPath; PassThru = $true }',
-        '    if ($IsWindows -or $null -eq $IsWindows) { $spArgs[\'WindowStyle\'] = \'Hidden\' }',
+        '    if ($IsWindows -or $null -eq $IsWindows) { $spArgs[\'NoNewWindow\'] = $true }',
         '    $p = Start-Process @spArgs',
         '    if ($timeoutMs -gt 0 -and -not $p.WaitForExit($timeoutMs)) {',
         // Kill the whole process TREE, not just the direct child: Start-Process
@@ -1039,8 +1041,8 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
     // No `-WindowStyle Hidden` CLI switch: windowsHide:true on the spawn below
     // already gives CREATE_NO_WINDOW, and the visible command-line token trips
     // Defender's hidden-PowerShell dropper signature (PowhidSubExec). The
-    // in-wrapper Start-Process WindowStyle=Hidden (above) stays — it lives in
-    // the staged .ps1, not on the command line, and is still needed there.
+    // in-wrapper Start-Process uses Windows-only NoNewWindow to reuse this
+    // hidden console rather than creating a transient conhost window.
     // `-ExecutionPolicy` only applies to Windows PowerShell; build per-platform.
     const isWin = process.platform === 'win32';
     const wrapperArgs = ['-NoLogo', '-NoProfile', '-NonInteractive'];

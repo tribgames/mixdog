@@ -1016,7 +1016,13 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         class BaseInstalledAgent:
             pass
 
+        class NonZeroAgentExitCodeError(RuntimeError):
+            pass
+
         stubs["harbor.agents.installed.base"].BaseInstalledAgent = BaseInstalledAgent
+        stubs[
+            "harbor.agents.installed.base"
+        ].NonZeroAgentExitCodeError = NonZeroAgentExitCodeError
         stubs["harbor.agents.installed.base"].with_prompt_template = lambda func: func
         stubs["harbor.environments.base"].BaseEnvironment = object
         stubs["harbor.models.agent.context"].AgentContext = object
@@ -1034,6 +1040,28 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         self.assertEqual(agent._workflow, "default")
         self.assertEqual(module.HEADLESS_BENCH_MANDATE, HEADLESS_BENCH_MANDATE)
+
+    def test_installer_uses_repository_version_unless_explicitly_overridden(self) -> None:
+        module = self.load_adapter_module()
+        repository_version = json.loads(
+            (REPO_ROOT / "package.json").read_text(encoding="utf-8")
+        )["version"]
+        commands = []
+
+        async def exec_as_root(environment, *, command, env=None):
+            commands.append(command)
+
+        default_agent = module.MixdogAgent()
+        override_agent = module.MixdogAgent(mixdog_version="fixture")
+        default_agent.exec_as_root = exec_as_root
+        override_agent.exec_as_root = exec_as_root
+        asyncio.run(default_agent.install(object()))
+        asyncio.run(override_agent.install(object()))
+
+        self.assertEqual(default_agent._mixdog_version, repository_version)
+        self.assertEqual(override_agent._mixdog_version, "fixture")
+        self.assertIn(f"mixdog@{repository_version}", commands[1])
+        self.assertIn("mixdog@fixture", commands[3])
 
     @staticmethod
     async def capture_lead_env(module, profile, base_env, workflow="default"):
@@ -1076,7 +1104,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             child_env["MIXDOG_PROMPT"], HEADLESS_BENCH_MANDATE + "adapter task"
         )
 
-    def test_profile_lead_fallback_is_plumbed_only_when_present(self) -> None:
+    def test_profile_fallback_is_not_inlined_into_primary_attempt(self) -> None:
         module = self.load_adapter_module()
         fallback = {
             "provider": "openai-oauth",
@@ -1099,16 +1127,266 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(
-            json.loads(with_fallback["MIXDOG_LEAD_FALLBACK"]), fallback
-        )
+        self.assertNotIn("MIXDOG_LEAD_FALLBACK", with_fallback)
         self.assertNotIn("MIXDOG_LEAD_FALLBACK", without_fallback)
+
+    def test_retry_attempt_selects_fallback_and_success_clears_marker(self) -> None:
+        module = self.load_adapter_module()
+        fallback = {
+            "provider": "openai-oauth",
+            "model": "gpt-5.6-sol",
+            "effort": "xhigh",
+            "fast": True,
+        }
+        with tempfile.TemporaryDirectory(prefix="mixdog-fallback-state-") as temp:
+            class Environment:
+                session_id = "collision-safe-trial__AbC123"
+
+            agent = module.MixdogAgent.__new__(module.MixdogAgent)
+            agent.model_name = None
+            agent._route_profile_name = "fixture"
+            agent._route_profile = {"routes": {}, "leadFallback": fallback}
+            agent._mode = "lead"
+            calls = []
+
+            async def inject(environment):
+                return None
+
+            async def run_lead(
+                environment, instruction, model, base_env, *, lead_route=None
+            ):
+                calls.append(copy.deepcopy(lead_route))
+                if len(calls) == 1:
+                    raise module.NonZeroAgentExitCodeError(
+                        "Command failed (exit 86): fixture"
+                    )
+
+            agent._inject_credentials = inject
+            agent._run_lead = run_lead
+            agent._populate_usage_context = mock.AsyncMock()
+            with mock.patch.dict(
+                os.environ, {module.FALLBACK_STATE_ENV: temp}, clear=False
+            ):
+                with self.assertRaisesRegex(
+                    module.NonZeroAgentExitCodeError, "exit 86"
+                ):
+                    asyncio.run(agent.run("task", Environment(), None))
+                markers = list(Path(temp).glob("*.retry"))
+                self.assertEqual(len(markers), 1)
+                asyncio.run(agent.run("task", Environment(), None))
+                self.assertEqual(list(Path(temp).glob("*.retry")), [])
+
+        self.assertEqual(calls, [None, fallback])
+
+    def test_retry_marker_requires_anchored_harbor_exit_exception(self) -> None:
+        module = self.load_adapter_module()
+        self.assertFalse(
+            module.MixdogAgent._is_retry_exit(
+                RuntimeError("diagnostic mentions Command failed (exit 86): nested")
+            )
+        )
+        self.assertFalse(
+            module.MixdogAgent._is_retry_exit(
+                module.NonZeroAgentExitCodeError(
+                    "Command failed (exit 186): unrelated"
+                )
+            )
+        )
+        self.assertTrue(
+            module.MixdogAgent._is_retry_exit(
+                module.NonZeroAgentExitCodeError(
+                    "Command failed (exit 86): exact"
+                )
+            )
+        )
+
+    def test_real_harbor_retry_queue_recreates_attempts_and_honors_exhaustion(
+        self,
+    ) -> None:
+        try:
+            from harbor.models.job.config import RetryConfig
+            from harbor.trial.queue import TrialQueue
+            from harbor.trial.trial import Trial
+        except ImportError as exc:
+            if os.environ.get("MIXDOG_HARBOR_QUEUE_CHILD") == "1":
+                self.fail(f"Harbor tool interpreter cannot import its package: {exc}")
+            uv_roots = (
+                Path.home() / "AppData" / "Roaming" / "uv" / "tools" / "harbor",
+                Path.home() / ".local" / "share" / "uv" / "tools" / "harbor",
+                Path.home()
+                / "Library"
+                / "Application Support"
+                / "uv"
+                / "tools"
+                / "harbor",
+            )
+            interpreters = [
+                candidate
+                for root in uv_roots
+                for candidate in (
+                    root / "Scripts" / "python.exe",
+                    root / "bin" / "python",
+                )
+                if candidate.is_file()
+            ]
+            if not interpreters:
+                self.skipTest("installed Harbor unavailable")
+            child = subprocess.run(
+                [
+                    str(interpreters[0]),
+                    "-m",
+                    "unittest",
+                    (
+                        "harness.tests.test_routing_profiles."
+                        "AdapterRunEnvironmentTests."
+                        "test_real_harbor_retry_queue_recreates_attempts_and_honors_exhaustion"
+                    ),
+                ],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "PYTHONPATH": str(BENCH_ROOT),
+                    "MIXDOG_HARBOR_QUEUE_CHILD": "1",
+                },
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=30,
+            )
+            self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+            return
+
+        module = self.load_adapter_module()
+        fallback = {
+            "provider": "openai-oauth",
+            "model": "gpt-5.6-sol",
+            "effort": "xhigh",
+            "fast": True,
+        }
+
+        async def exercise_queue(state_root, session_id, failures, max_retries):
+            routes = []
+            trial_objects = []
+            starting_budgets = []
+
+            class Environment:
+                default_user = None
+
+                def __init__(self):
+                    self.session_id = session_id
+
+            class FakeTrial:
+                def __init__(self, config, attempt):
+                    self.paths = types.SimpleNamespace(
+                        trial_dir=Path(state_root) / "deleted-trial-dir"
+                    )
+                    self.paths.trial_dir.mkdir(parents=True, exist_ok=True)
+                    self.config = config
+                    self.attempt = attempt
+                    self.budget = 100
+
+                def add_hook(self, event, hook):
+                    return None
+
+                async def run(self):
+                    starting_budgets.append(self.budget)
+                    agent = module.MixdogAgent.__new__(module.MixdogAgent)
+                    agent.model_name = None
+                    agent._route_profile_name = "fixture"
+                    agent._route_profile = {
+                        "routes": {},
+                        "leadFallback": fallback,
+                    }
+                    agent._mode = "lead"
+                    agent._provider = None
+                    agent._effort = None
+                    agent._workflow = "default"
+                    agent._inject_credentials = mock.AsyncMock()
+                    agent._populate_usage_context = mock.AsyncMock()
+
+                    async def run_lead(
+                        environment,
+                        instruction,
+                        model,
+                        base_env,
+                        *,
+                        lead_route=None,
+                    ):
+                        routes.append(copy.deepcopy(lead_route))
+                        self.budget = 0
+                        if self.attempt < failures:
+                            raise module.NonZeroAgentExitCodeError(
+                                "Command failed (exit 86): queue fixture"
+                            )
+
+                    agent._run_lead = run_lead
+                    try:
+                        await agent.run("queue task", Environment(), None)
+                    except module.NonZeroAgentExitCodeError as exc:
+                        return types.SimpleNamespace(
+                            exception_info=types.SimpleNamespace(
+                                exception_type=type(exc).__name__
+                            )
+                        )
+                    return types.SimpleNamespace(exception_info=None)
+
+            async def create_trial(config):
+                trial = FakeTrial(config, len(trial_objects))
+                trial_objects.append(trial)
+                return trial
+
+            queue = TrialQueue(
+                n_concurrent=1,
+                retry_config=RetryConfig(
+                    max_retries=max_retries,
+                    min_wait_sec=0,
+                    max_wait_sec=0,
+                ),
+            )
+            config = types.SimpleNamespace(trial_name=session_id)
+            with (
+                mock.patch.object(Trial, "create", side_effect=create_trial),
+                mock.patch.dict(
+                    os.environ,
+                    {module.FALLBACK_STATE_ENV: str(state_root)},
+                    clear=False,
+                ),
+            ):
+                result = await queue._execute_trial_with_retries(config)
+            return result, routes, trial_objects, starting_budgets
+
+        with tempfile.TemporaryDirectory(prefix="mixdog-real-queue-") as temp:
+            root = Path(temp)
+            success = asyncio.run(
+                exercise_queue(root / "success", "queue-success", 1, 2)
+            )
+            result, routes, trials, budgets = success
+            self.assertIsNone(result.exception_info)
+            self.assertEqual(routes, [None, fallback])
+            self.assertEqual(len({id(trial) for trial in trials}), 2)
+            self.assertEqual(budgets, [100, 100])
+            self.assertEqual(list((root / "success").glob("*.retry")), [])
+
+            exhausted = asyncio.run(
+                exercise_queue(root / "exhausted", "queue-exhausted", 99, 2)
+            )
+            result, routes, trials, budgets = exhausted
+            self.assertEqual(
+                result.exception_info.exception_type,
+                "NonZeroAgentExitCodeError",
+            )
+            self.assertEqual(routes, [None, fallback, fallback])
+            self.assertEqual(len(trials), 3)
+            self.assertEqual(budgets, [100, 100, 100])
+            self.assertEqual(
+                len(list((root / "exhausted").glob("*.retry"))), 1
+            )
 
     def test_run_forbids_anthropic_refresh_without_serializing_trials(self) -> None:
         module = self.load_adapter_module()
 
         class Environment:
-            pass
+            session_id = "refresh-test"
 
         agent = module.MixdogAgent.__new__(module.MixdogAgent)
         agent.model_name = None
@@ -1120,7 +1398,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         async def inject(environment):
             return None
 
-        async def run_lead(environment, instruction, model, base_env):
+        async def run_lead(
+            environment, instruction, model, base_env, *, lead_route=None
+        ):
             captured.append(base_env)
 
         agent._inject_credentials = inject
@@ -1811,6 +2091,26 @@ class SrcOverlayFilesystemIntegrationTests(unittest.TestCase):
 
 
 class LeadDriverBehaviorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._prior_context_utils_url = os.environ.get("MIXDOG_CONTEXT_UTILS_URL")
+        os.environ["MIXDOG_CONTEXT_UTILS_URL"] = (
+            REPO_ROOT
+            / "src"
+            / "runtime"
+            / "agent"
+            / "orchestrator"
+            / "session"
+            / "context-utils.mjs"
+        ).as_uri()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        if cls._prior_context_utils_url is None:
+            os.environ.pop("MIXDOG_CONTEXT_UTILS_URL", None)
+        else:
+            os.environ["MIXDOG_CONTEXT_UTILS_URL"] = cls._prior_context_utils_url
+
     def test_driver_deadline_bounds_the_initial_turn(self) -> None:
         if shutil.which("node") is None:
             self.skipTest("Node.js is not installed")
@@ -1964,6 +2264,7 @@ export async function createMixdogSessionRuntime() {
             (src / "session-runtime" / "workflow.mjs").write_text(
                 workflow_stub, encoding="utf-8"
             )
+            audit_path = root / "refusal-brief-audit.json"
             result = subprocess.run(
                 ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
                 cwd=BENCH_ROOT,
@@ -1976,6 +2277,7 @@ export async function createMixdogSessionRuntime() {
                     "MIXDOG_PROMPT": "refuse",
                     "MIXDOG_BOOT_JITTER_MS": "0",
                     "MIXDOG_DRIVER_DEADLINE_MS": "40",
+                    "MIXDOG_BRIEF_AUDIT_LOG": str(audit_path),
                 },
                 capture_output=True,
                 text=True,
@@ -1983,14 +2285,15 @@ export async function createMixdogSessionRuntime() {
                 timeout=5,
             )
             self.assertEqual((data / "runtime-count").read_text(), "1")
+            self.assertTrue(audit_path.exists())
         self.assertEqual(result.returncode, 86, result.stderr)
         self.assertIn(
-            "refusal-restart: lead session terminated on refusal "
+            "refusal-restart: API refusal "
             "(sess=late-fallback-primary); exiting 86 so Harbor retries a fresh trial",
             result.stdout,
         )
 
-    def test_driver_relaunches_refused_lead_on_fallback_route(self) -> None:
+    def test_driver_never_relaunches_refused_lead_in_process(self) -> None:
         if shutil.which("node") is None:
             self.skipTest("Node.js is not installed")
         runtime_stub = """
@@ -2061,26 +2364,23 @@ export async function createMixdogSessionRuntime({ provider, model }) {
                 encoding="utf-8",
                 timeout=5,
             )
-            fallback_session = json.loads(
-                (data / "sessions" / "fallback-session-2.json").read_text(
+            primary_session = json.loads(
+                (data / "sessions" / "fallback-session-1.json").read_text(
                     encoding="utf-8"
                 )
             )
             self.assertEqual(
-                fallback_session["route"],
+                primary_session["route"],
                 {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
-                    "effort": "xhigh",
-                    "fast": True,
+                    "provider": "anthropic-oauth",
+                    "model": "claude-primary",
                 },
             )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
-            "refusal-fallback: relaunching lead on openai-oauth/gpt-5.6-sol effort=xhigh",
-            result.stdout,
-        )
-        self.assertIn('models: ["claude-primary","gpt-5.6-sol"]', result.stdout)
+            self.assertFalse(
+                (data / "sessions" / "fallback-session-2.json").exists()
+            )
+        self.assertEqual(result.returncode, 86, result.stderr)
+        self.assertNotIn("refusal-fallback:", result.stdout)
 
     def test_driver_exits_86_when_fallback_also_refuses(self) -> None:
         if shutil.which("node") is None:
@@ -2140,7 +2440,7 @@ export async function createMixdogSessionRuntime() {
                 timeout=5,
             )
         self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn("refusal-gate: sid=double-refusal-2 refused=true", result.stdout)
+        self.assertIn("refusal-gate: sid=double-refusal-1 refused=true", result.stdout)
 
     def test_driver_exits_86_when_fallback_starts_after_deadline(self) -> None:
         if shutil.which("node") is None:
@@ -2199,11 +2499,7 @@ export async function createMixdogSessionRuntime() {
                 timeout=5,
             )
         self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn(
-            "lead_driver: refusal fallback failed; exiting 86: "
-            "lead_driver: run deadline exceeded before primary session",
-            result.stderr,
-        )
+        self.assertNotIn("refusal fallback", result.stderr)
 
     def test_driver_exits_86_for_lead_refusal_with_streamed_narration(self) -> None:
         if shutil.which("node") is None:
@@ -2271,7 +2567,7 @@ export async function createMixdogSessionRuntime() {
             self.assertEqual((data / "runtime-count").read_text(), "1")
         self.assertEqual(result.returncode, 86, result.stderr)
         self.assertIn(
-            "refusal-restart: lead session terminated on refusal "
+            "refusal-restart: API refusal "
             "(sess=stub-session-1); exiting 86 so Harbor retries a fresh trial",
             result.stdout,
         )
@@ -2412,6 +2708,385 @@ export async function createMixdogSessionRuntime() {
         )
         self.assertIn("refusal-restart:", result.stdout)
 
+    def test_tiny_finals_retry_but_substantive_final_succeeds(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+        runtime_stub = """
+export async function createMixdogSessionRuntime() {
+  const sessionId = 'final-size-fixture';
+  return {
+    sessionId,
+    session: { id: sessionId, tools: [] },
+    onNotification() {},
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    async close() {},
+    async ask() { return { result: { text: process.env.FIXTURE_FINAL } }; },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-final-size-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(
+                runtime_stub, encoding="utf-8"
+            )
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            results = {}
+            for final in ("R", "!", "OK", "ordinary substantive final"):
+                results[final] = subprocess.run(
+                    ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                    cwd=BENCH_ROOT,
+                    env={
+                        **os.environ,
+                        "MIXDOG_SRC": str(src),
+                        "MIXDOG_DATA_DIR": str(data),
+                        "MIXDOG_PROMPT": "fixture",
+                        "MIXDOG_BOOT_JITTER_MS": "0",
+                        "MIXDOG_DRIVER_DEADLINE_MS": "-1",
+                        "FIXTURE_FINAL": final,
+                    },
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=5,
+                )
+        for final in ("R", "!", "OK"):
+            self.assertEqual(results[final].returncode, 86, results[final].stderr)
+            self.assertIn("tiny final public response", results[final].stdout)
+        self.assertEqual(
+            results["ordinary substantive final"].returncode,
+            0,
+            results["ordinary substantive final"].stderr,
+        )
+
+    def test_close_hang_or_reject_cannot_mask_final_outcome(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+        runtime_stub = """
+export async function createMixdogSessionRuntime() {
+  const sessionId = `close-${process.env.FIXTURE_GATE}-${process.env.FIXTURE_CLOSE}`;
+  return {
+    sessionId,
+    session: { id: sessionId, tools: [] },
+    onNotification() {},
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    close() {
+      if (process.env.FIXTURE_CLOSE === 'reject') {
+        return Promise.reject(new Error('fixture close rejected'));
+      }
+      return new Promise(() => {});
+    },
+    async ask() {
+      if (process.env.FIXTURE_GATE === 'refusal') {
+        process.stderr.write(
+          `[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`
+        );
+        return { result: { text: '' } };
+      }
+      if (process.env.FIXTURE_GATE === 'tiny') {
+        return { result: { text: 'OK' } };
+      }
+      return { result: { text: 'ordinary substantive final' } };
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-close-outcome-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(
+                runtime_stub, encoding="utf-8"
+            )
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            results = {}
+            for gate in ("refusal", "tiny", "substantive"):
+                for close_behavior in ("hang", "reject"):
+                    results[(gate, close_behavior)] = subprocess.run(
+                        ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                        cwd=BENCH_ROOT,
+                        env={
+                            **os.environ,
+                            "MIXDOG_SRC": str(src),
+                            "MIXDOG_DATA_DIR": str(data),
+                            "MIXDOG_PROMPT": "fixture",
+                            "MIXDOG_BOOT_JITTER_MS": "0",
+                            "MIXDOG_DRIVER_DEADLINE_MS": "-1",
+                            "MIXDOG_CLOSE_GRACE_MS": "5",
+                            "FIXTURE_GATE": gate,
+                            "FIXTURE_CLOSE": close_behavior,
+                        },
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        timeout=5,
+                    )
+
+        for gate in ("refusal", "tiny"):
+            for close_behavior in ("hang", "reject"):
+                result = results[(gate, close_behavior)]
+                self.assertEqual(result.returncode, 86, result.stderr)
+                expected = (
+                    "API refusal"
+                    if gate == "refusal"
+                    else "tiny final public response"
+                )
+                self.assertIn(f"refusal-restart: {expected}", result.stdout)
+        for close_behavior in ("hang", "reject"):
+            result = results[("substantive", close_behavior)]
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("ordinary substantive final", result.stdout)
+
+    def test_driver_stall_exits_for_fresh_retry_without_second_runtime(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+        runtime_stub = """
+import { readFileSync, writeFileSync } from 'node:fs';
+const countPath = process.env.MIXDOG_DATA_DIR + '/runtime-count';
+let rejectAsk;
+let holdOpen;
+export async function createMixdogSessionRuntime() {
+  let count = 0;
+  try { count = Number(readFileSync(countPath, 'utf8')); } catch {}
+  writeFileSync(countPath, String(count + 1));
+  return {
+    sessionId: 'stall-fixture',
+    session: { id: 'stall-fixture', tools: [] },
+    onNotification() {},
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() { return false; },
+    close() {
+      clearInterval(holdOpen);
+      return new Promise(() => {});
+    },
+    ask() {
+      holdOpen = setInterval(() => {}, 1000);
+      return new Promise((_resolve, reject) => { rejectAsk = reject; });
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        with tempfile.TemporaryDirectory(prefix="mixdog-stall-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            data = root / "data"
+            (src / "session-runtime").mkdir(parents=True)
+            data.mkdir()
+            (src / "mixdog-session-runtime.mjs").write_text(
+                runtime_stub, encoding="utf-8"
+            )
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            audit_path = root / "stall-brief-audit.json"
+            result = subprocess.run(
+                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "MIXDOG_SRC": str(src),
+                    "MIXDOG_DATA_DIR": str(data),
+                    "MIXDOG_PROMPT": "stall",
+                    "MIXDOG_BOOT_JITTER_MS": "0",
+                    "MIXDOG_DRIVER_DEADLINE_MS": "-1",
+                    "MIXDOG_STALL_MS": "1",
+                    "MIXDOG_STALL_POLL_MS": "5",
+                    "MIXDOG_STALL_CLOSE_GRACE_MS": "5",
+                    "MIXDOG_BRIEF_AUDIT_LOG": str(audit_path),
+                },
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            )
+            self.assertEqual((data / "runtime-count").read_text(), "1")
+            self.assertTrue(audit_path.exists())
+        self.assertEqual(result.returncode, 86, result.stderr)
+        self.assertIn("stalled turn is refusal-equivalent", result.stderr)
+
+    def test_brief_audit_reports_structural_findings_without_failing(self) -> None:
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is not installed")
+        runtime_stub = r"""
+const leadId = 'brief-audit-lead';
+const clean = process.env.FIXTURE_AUDIT === 'clean';
+const dirtyCalls = [
+  { agent: 'worker', tag: 'impl', prompt: 'Task: shared-secret-task\nVerify: secret-command' },
+  { agent: 'review', tag: 'review', prompt: '', message: 'Task: shared-secret-task\nDeliver: secret-review' },
+  { agent: 'debugger', tag: 'debug', prompt: 'Anchors: secret-debug' },
+  { agent: 'heavy', tag: 'heavy', cwd: 'worker', file: 'briefs/heavy.txt' },
+  { agent: 'explorer', tag: 'scan', prompt: 'Task: secret-scan\nAnchors: Worker→Debugger→Reviewer' },
+  { agent: 'worker', tag: 'no-brief' },
+];
+const cleanCalls = [
+  { agent: 'review', tag: 'review-a', prompt: 'Task: secret-clean-review' },
+  { agent: 'reviewer', tag: 'review-b', prompt: 'Task: secret-clean-review' },
+];
+const calls = clean ? cleanCalls : dirtyCalls;
+const resumedCalls = clean
+  ? [{ agent: 'reviewer', tag: 'review-a', message: 'Task: secret-clean-followup' }]
+  : [{ agent: 'worker', tag: 'impl', message: 'Task: secret-resumed-impl' }];
+const lead = {
+  id: leadId,
+  cwd: process.env.FIXTURE_CWD,
+  tools: [{ name: 'agent' }],
+  messages: [],
+};
+export async function createMixdogSessionRuntime() {
+  let notify = () => {};
+  let askCount = 0;
+  return {
+    sessionId: leadId,
+    session: lead,
+    cwd: process.env.FIXTURE_CWD,
+    onNotification(callback) { notify = callback; },
+    async setWorkflow() {},
+    async setEffort() {},
+    async setFast() {},
+    agentStatus() { return { agentJobs: [] }; },
+    abort() {},
+    async close() {},
+    async ask(_message, options) {
+      const batch = askCount === 0 ? calls : resumedCalls;
+      const runtimeCalls = batch.map((call, index) => ({
+        id: `call-${askCount}-${index}`,
+        name: 'agent',
+        arguments: { type: 'spawn', ...call },
+      }));
+      await options.onToolCall?.(0, runtimeCalls);
+      for (const call of runtimeCalls) {
+        call.arguments.prompt = 'Task: post-event-compacted-brief';
+        delete call.arguments.message;
+        delete call.arguments.file;
+      }
+      askCount += 1;
+      if (askCount === 1) queueMicrotask(() => notify());
+      return { result: { text: 'ordinary substantive final' } };
+    },
+  };
+}
+"""
+        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
+        results = {}
+        with tempfile.TemporaryDirectory(prefix="mixdog-brief-audit-") as temp:
+            root = Path(temp)
+            src = root / "src"
+            (src / "session-runtime").mkdir(parents=True)
+            (src / "mixdog-session-runtime.mjs").write_text(
+                runtime_stub, encoding="utf-8"
+            )
+            (src / "session-runtime" / "workflow.mjs").write_text(
+                workflow_stub, encoding="utf-8"
+            )
+            for fixture in ("clean", "findings"):
+                data = root / fixture
+                data.mkdir()
+                file_brief = (
+                    "Task: secret-heavy-file\n"
+                    "Deliver: secret-file-delivery\n"
+                )
+                (data / "worker" / "briefs").mkdir(parents=True)
+                (data / "worker" / "briefs" / "heavy.txt").write_bytes(
+                    file_brief.encode()
+                )
+                audit_path = root / f"{fixture}-brief-audit.json"
+                result = subprocess.run(
+                    ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
+                    cwd=BENCH_ROOT,
+                    env={
+                        **os.environ,
+                        "MIXDOG_SRC": str(src),
+                        "MIXDOG_DATA_DIR": str(data),
+                        "MIXDOG_PROMPT": "fixture",
+                        "MIXDOG_BOOT_JITTER_MS": "0",
+                        "MIXDOG_DRIVER_DEADLINE_MS": "3000",
+                        "MIXDOG_BRIEF_AUDIT_LOG": str(audit_path),
+                        "FIXTURE_AUDIT": fixture,
+                        "FIXTURE_CWD": str(data),
+                    },
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=5,
+                )
+                results[fixture] = (result, json.loads(audit_path.read_text()))
+
+        clean_result, clean_audit = results["clean"]
+        self.assertEqual(clean_result.returncode, 0, clean_result.stderr)
+        self.assertEqual(clean_audit["schemaVersion"], 1)
+        self.assertEqual(clean_audit["findingCount"], 0)
+        self.assertEqual(clean_audit["leadAgentCallCount"], 3)
+        self.assertEqual(
+            [call["tag"] for call in clean_audit["calls"]].count("review-a"), 2
+        )
+        self.assertTrue(
+            all(len(call["callPromptSha256"]) == 64 for call in clean_audit["calls"])
+        )
+
+        findings_result, findings_audit = results["findings"]
+        self.assertEqual(findings_result.returncode, 0, findings_result.stderr)
+        self.assertEqual(
+            findings_audit["issueCounts"],
+            {
+                "task_omission": 1,
+                "verify_prescription": 1,
+                "legacy_role_lineage": 1,
+                "cross_role_task_reuse": 2,
+            },
+        )
+        self.assertEqual(findings_audit["findingCount"], 5)
+        self.assertEqual(findings_audit["leadAgentCallCount"], 6)
+        self.assertNotIn(
+            "no-brief", [call["tag"] for call in findings_audit["calls"]]
+        )
+        self.assertEqual(
+            [call["tag"] for call in findings_audit["calls"]].count("impl"), 2
+        )
+        heavy_call = next(
+            call for call in findings_audit["calls"] if call["tag"] == "heavy"
+        )
+        self.assertEqual(
+            heavy_call["callPromptSha256"],
+            __import__("hashlib").sha256(file_brief.encode()).hexdigest(),
+        )
+        self.assertIn("brief-audit v1 calls=6 findings=5", findings_result.stdout)
+        serialized = json.dumps(findings_audit) + findings_result.stdout
+        for raw_brief_fragment in (
+            "shared-secret-task",
+            "secret-command",
+            "secret-review",
+            "secret-debug",
+            "secret-heavy",
+            "secret-file-delivery",
+            "secret-scan",
+            "secret-resumed-impl",
+            "post-event-compacted-brief",
+        ):
+            self.assertNotIn(raw_brief_fragment, serialized)
+
 
 class LauncherDryRunTests(unittest.TestCase):
     @classmethod
@@ -2496,6 +3171,69 @@ class LauncherDryRunTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fast must be boolean", result.stderr)
         self.assertNotIn("Terminal-Bench src overlay preflight", result.stderr)
+
+    def test_launcher_propagates_native_harbor_exit_and_cleans_state(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-launcher-native-") as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            capture = root / "state-paths.txt"
+            if os.name == "nt":
+                (bin_dir / "python.cmd").write_text(
+                    "@exit /b 0\n", encoding="utf-8"
+                )
+                (bin_dir / "harbor.cmd").write_text(
+                    "@mkdir \"%MIXDOG_TB_SRC_SNAPSHOT%\"\n"
+                    "@mkdir \"%MIXDOG_TB_FALLBACK_STATE_DIR%\"\n"
+                    f"@echo %MIXDOG_TB_SRC_SNAPSHOT%>\"{capture}\"\n"
+                    f"@echo %MIXDOG_TB_FALLBACK_STATE_DIR%>>\"{capture}\"\n"
+                    "@exit /b 37\n",
+                    encoding="utf-8",
+                )
+            else:
+                (bin_dir / "python").write_text(
+                    "#!/bin/sh\nexit 0\n", encoding="utf-8"
+                )
+                (bin_dir / "harbor").write_text(
+                    "#!/bin/sh\n"
+                    'mkdir -p "$MIXDOG_TB_SRC_SNAPSHOT" '
+                    '"$MIXDOG_TB_FALLBACK_STATE_DIR"\n'
+                    f'printf "%s\\n%s\\n" "$MIXDOG_TB_SRC_SNAPSHOT" '
+                    f'"$MIXDOG_TB_FALLBACK_STATE_DIR" > "{capture}"\n'
+                    "exit 37\n",
+                    encoding="utf-8",
+                )
+                (bin_dir / "python").chmod(0o755)
+                (bin_dir / "harbor").chmod(0o755)
+
+            result = subprocess.run(
+                [
+                    self.powershell,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    str(self.script),
+                    "-JobsDir",
+                    "native-exit-fixture",
+                ],
+                cwd=BENCH_ROOT,
+                env={
+                    **os.environ,
+                    "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
+                },
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=30,
+            )
+            state_paths = [
+                Path(line.strip())
+                for line in capture.read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual(result.returncode, 37, result.stderr)
+        self.assertEqual(len(state_paths), 2)
+        self.assertTrue(all(not path.exists() for path in state_paths))
 
 
 if __name__ == "__main__":

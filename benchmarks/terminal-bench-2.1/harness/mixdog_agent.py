@@ -24,11 +24,16 @@ import json
 import os
 import shlex
 import asyncio
+import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
 
-from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
+from harbor.agents.installed.base import (
+    BaseInstalledAgent,
+    NonZeroAgentExitCodeError,
+    with_prompt_template,
+)
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
@@ -45,8 +50,12 @@ from .src_overlay import (
     load_src_snapshot,
 )
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 # Version of mixdog to install from npm when a local tarball is not supplied.
-DEFAULT_MIXDOG_VERSION = "0.9.40"
+# Keep this aligned with the source tree used by the overlay.
+DEFAULT_MIXDOG_VERSION = json.loads(
+    (_REPO_ROOT / "package.json").read_text(encoding="utf-8")
+)["version"]
 # No hard-coded model/workflow defaults: with neither a Harbor -m override nor
 # an explicit kwarg, the runtime boots the user's configured route + active
 # workflow from the copied mixdog-config.json.
@@ -66,10 +75,12 @@ CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
 # Full-Lead-session driver, uploaded next to the creds and run with node.
 CONTAINER_LEAD_DRIVER = f"{CONTAINER_DATA_DIR}/lead_driver.mjs"
 HOST_LEAD_DRIVER = Path(__file__).with_name("lead_driver.mjs")
+FALLBACK_RETRY_EXIT_CODE = 86
+FALLBACK_STATE_ENV = "MIXDOG_TB_FALLBACK_STATE_DIR"
 # Repo-src overlay: the static compatibility manifest is unioned with every
 # Git modified/untracked src file, then copied over the npm-installed package.
 # Paths are relative to src/ and to <npm root -g>/mixdog/src/.
-_REPO_SRC = Path(__file__).resolve().parents[3] / "src"
+_REPO_SRC = _REPO_ROOT / "src"
 SRC_OVERLAY_FILES = STATIC_SRC_OVERLAY_FILES
 HOST_SRC_OVERLAY_APPLIER = Path(__file__).with_name("src_overlay_apply.mjs")
 CONTAINER_SRC_OVERLAY_APPLIER = f"{CONTAINER_DATA_DIR}/src_overlay_apply.mjs"
@@ -473,11 +484,79 @@ class MixdogAgent(BaseInstalledAgent):
             "MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS": "120000",
             "MIXDOG_STALL_FIRST_BYTE_ABORT_S": "150",
         }
+        fallback_route = (
+            self._route_profile.get("leadFallback")
+            if self._route_profile is not None
+            else None
+        )
+        fallback_marker = (
+            self._fallback_marker_path(environment, fallback_route)
+            if fallback_route is not None
+            else None
+        )
+        use_fallback = fallback_marker is not None and fallback_marker.is_file()
         if self._mode == "worker":
             await self._run_worker(environment, instruction, model, base_env)
         else:
-            await self._run_lead(environment, instruction, model, base_env)
+            try:
+                await self._run_lead(
+                    environment,
+                    instruction,
+                    model,
+                    base_env,
+                    lead_route=fallback_route if use_fallback else None,
+                )
+            except Exception as exc:
+                if (
+                    fallback_marker is not None
+                    and self._is_retry_exit(exc)
+                    and not use_fallback
+                ):
+                    self._create_fallback_marker(fallback_marker)
+                raise
+            else:
+                if fallback_marker is not None:
+                    fallback_marker.unlink(missing_ok=True)
         await self._populate_usage_context(environment, context)
+
+    @staticmethod
+    def _is_retry_exit(exc: Exception) -> bool:
+        return isinstance(exc, NonZeroAgentExitCodeError) and str(exc).startswith(
+            f"Command failed (exit {FALLBACK_RETRY_EXIT_CODE}):"
+        )
+
+    @staticmethod
+    def _fallback_marker_path(environment, route: dict) -> Path:
+        session_id = str(getattr(environment, "session_id", "") or "").strip()
+        if not session_id:
+            raise RuntimeError(
+                "Harbor environment has no session_id for fallback-attempt state"
+            )
+        root_value = os.environ.get(FALLBACK_STATE_ENV)
+        root = (
+            Path(root_value)
+            if root_value
+            else Path(tempfile.gettempdir()) / f"mixdog-tb-fallback-{os.getpid()}"
+        )
+        identity = json.dumps(
+            {"sessionId": session_id, "route": route},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        name = hashlib.sha256(identity.encode("utf-8")).hexdigest() + ".retry"
+        return root / name
+
+    @staticmethod
+    def _create_fallback_marker(marker: Path) -> None:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            descriptor = os.open(
+                marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+        except FileExistsError:
+            return
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write("fallback\n")
 
     async def _populate_usage_context(self, environment, context) -> None:
         """Best-effort copy of the driver's aggregate usage into Harbor."""
@@ -521,7 +600,9 @@ class MixdogAgent(BaseInstalledAgent):
             env=base_env,
         )
 
-    async def _run_lead(self, environment, instruction, model, base_env):
+    async def _run_lead(
+        self, environment, instruction, model, base_env, *, lead_route=None
+    ):
         # Upload the Lead-session driver, then run it against the globally
         # installed package (src under `npm root -g`/mixdog). Prompt/provider/
         # model/workflow travel via env so the instruction needs no quoting.
@@ -543,18 +624,19 @@ class MixdogAgent(BaseInstalledAgent):
         }
         # Only set overrides when explicitly requested; otherwise the driver
         # boots the user's configured route + active workflow.
-        if model:
+        if lead_route is not None:
+            run_env["MIXDOG_PROVIDER"] = lead_route["provider"]
+            run_env["MIXDOG_MODEL"] = lead_route["model"]
+            run_env["MIXDOG_EFFORT"] = lead_route["effort"]
+            run_env["MIXDOG_FAST"] = "1" if lead_route["fast"] else "0"
+        elif model:
             run_env["MIXDOG_MODEL"] = model
-        if self._provider:
+        if lead_route is None and self._provider:
             run_env["MIXDOG_PROVIDER"] = self._provider
-        if self._effort:
+        if lead_route is None and self._effort:
             run_env["MIXDOG_EFFORT"] = self._effort
         if self._workflow:
             run_env["MIXDOG_WORKFLOW"] = self._workflow
-        if self._route_profile and "leadFallback" in self._route_profile:
-            run_env["MIXDOG_LEAD_FALLBACK"] = json.dumps(
-                self._route_profile["leadFallback"], separators=(",", ":")
-            )
         lead_pipeline = (
             "mkdir -p /logs/agent; "
             'export MIXDOG_SRC="$(npm root -g)/mixdog/src"; '

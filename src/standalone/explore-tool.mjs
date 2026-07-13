@@ -1,7 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { makeAgentDispatch } from '../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
+import { makeAgentDispatch, resolveMaintenanceRoute } from '../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
 import { initProviders } from '../runtime/agent/orchestrator/providers/registry.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
@@ -195,10 +195,13 @@ function exploreResultCacheEnabled() {
     && !/^(?:0|false|off|no)$/i.test(String(process.env.MIXDOG_EXPLORE_RESULT_CACHE || '1'));
 }
 
-function exploreResultCacheKey({ cwd, presetName, query }) {
+export function exploreResultCacheKey({ cwd, route, query }) {
   return JSON.stringify({
     cwd: String(cwd || ''),
-    presetName: String(presetName || ''),
+    provider: clean(route?.provider),
+    model: clean(route?.model),
+    effort: clean(route?.effort),
+    fast: route?.fast === true,
     query: String(query || ''),
   });
 }
@@ -211,13 +214,14 @@ function findConfigPreset(config, presetName) {
     || null;
 }
 
-async function ensureExploreProviderReady(config) {
-  const route = config?.maintenance?.explore;
-  // Route object ({provider,model}) is the current shape; a string is a
-  // legacy preset NAME resolved against config.presets.
-  const provider = (route && typeof route === 'object')
-    ? clean(route.provider)
-    : clean(findConfigPreset(config, route)?.provider);
+export function resolveExploreRoute(config) {
+  const routeOrName = resolveMaintenanceRoute({ agent: 'explorer', config });
+  if (routeOrName && typeof routeOrName === 'object') return routeOrName;
+  return findConfigPreset(config, routeOrName);
+}
+
+async function ensureExploreProviderReady(config, route) {
+  const provider = clean(route?.provider);
   if (!provider) return;
   const providers = { ...(config?.providers || {}) };
   providers[provider] = { ...(providers[provider] || {}), enabled: true };
@@ -411,11 +415,8 @@ async function runExploreSync(args = {}, ctx = {}) {
   scheduleExploreCodeGraphPrewarm(resolvedCwd);
   scheduleExploreFindPrewarm(resolvedCwd);
   const config = loadConfig();
-  await ensureExploreProviderReady(config);
-  const route = config?.maintenance?.explore;
-  const presetName = (route && typeof route === 'object')
-    ? `${clean(route.provider)}/${clean(route.model)}`
-    : (route || '');
+  const route = resolveExploreRoute(config);
+  await ensureExploreProviderReady(config, route);
   // Turn budget is enforced BOTH ways: the prompt contract (rules/agent/
   // 30-explorer.md, "hard max 3 tool turns, expected 1") steers the model,
   // and maxLoopIterations mechanically backstops it — live traces showed
@@ -439,7 +440,7 @@ async function runExploreSync(args = {}, ctx = {}) {
   // query resolves without delay regardless of index.
   const stagger = working.length > 1 ? EXPLORE_FANOUT_STAGGER_MS : 0;
   const settled = await Promise.allSettled(working.map((q, i) => {
-    const key = exploreResultCacheKey({ cwd: resolvedCwd, presetName, query: q });
+    const key = exploreResultCacheKey({ cwd: resolvedCwd, route, query: q });
     return runExploreCached(key, () => {
       const delay = (stagger > 0 && i > 0) ? new Promise((r) => setTimeout(r, stagger)) : null;
       return delay

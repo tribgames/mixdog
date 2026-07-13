@@ -1119,7 +1119,7 @@ export function createRunTurn(bag) {
         markPromptCommitted();
         if (result?.terminationReason === 'refusal') {
           pushNotice(
-            '모델이 안전 분류기(refusal)로 응답을 거부했습니다 — 다시 시도하거나 문구를 바꿔주세요.',
+            'The model refused to respond (safety refusal) — retry or rephrase your prompt.',
             'warn',
             { transcript: true },
           );

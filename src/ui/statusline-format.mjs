@@ -5,7 +5,7 @@
  * bar/segment formatters, small numeric helpers, and the TUI-independent
  * formatElapsed() replica. No behavior change — statusline.mjs re-imports these.
  */
-import { colorEnabled, rgb } from './ansi.mjs';
+import { colorEnabled, rgb, rgbSgr } from './ansi.mjs';
 import { displayModelName, shortenModelName } from './model-display.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 
@@ -23,12 +23,12 @@ function sgr(code) {
 
 export const R = sgr('0');
 export const B = sgr('1');
-export const D = sgr('38;2;136;136;136');
-export const GRN = sgr('38;2;0;170;75');
-export const YLW = sgr('38;2;255;193;7');
-export const RED = sgr('38;2;220;70;88');
-export const CYN = sgr('38;2;136;136;136');
-export const GREY = sgr('38;2;136;136;136');
+export const D = colorEnabled() ? rgbSgr(136, 136, 136) : '';
+export const GRN = colorEnabled() ? rgbSgr(0, 170, 75) : '';
+export const YLW = colorEnabled() ? rgbSgr(255, 193, 7) : '';
+export const RED = colorEnabled() ? rgbSgr(220, 70, 88) : '';
+export const CYN = colorEnabled() ? rgbSgr(136, 136, 136) : '';
+export const GREY = colorEnabled() ? rgbSgr(136, 136, 136) : '';
 
 export function terminalColumns() {
   const cols = Number(process.stdout?.columns);

@@ -352,7 +352,11 @@ export function useTranscriptWindow({
   // measuredRowsVersion bumps, the row index absorbs the growth (idEntry.rows ==
   // the new measured height) and the live estimate matches it, so delta → 0.
   if (scrolledUp && !followingRef.current) {
-    const growth = streamingTailMountedGrowth(transcriptItems, frameColumns, toolOutputExpanded);
+    const growth = streamingTailMountedGrowth(
+      streamingTailItem ? [streamingTailItem] : transcriptItems,
+      frameColumns,
+      toolOutputExpanded,
+    );
     // Only compensate when the tail is actually mounted in the rendered slice
     // (viewport + overscan). Off-slice it is represented by a row-index-sized
     // bottom spacer that does NOT physically grow this frame, so shifting the

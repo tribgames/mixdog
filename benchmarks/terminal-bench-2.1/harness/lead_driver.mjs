@@ -12,12 +12,12 @@
 //   MIXDOG_PROVIDER  OPTIONAL provider override; unset => use configured route
 //   MIXDOG_MODEL     OPTIONAL model override; unset => use configured route
 //   MIXDOG_EFFORT    OPTIONAL effort override (low/medium/high/xhigh)
-//   MIXDOG_LEAD_FALLBACK OPTIONAL JSON route used once after a Lead refusal
 //   MIXDOG_WORKFLOW  OPTIONAL workflow override; unset => use configured active
 //   MIXDOG_PROMPT    the task instruction
 
 import { pathToFileURL } from 'node:url';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   mkdirSync,
   readdirSync,
@@ -36,10 +36,158 @@ import {
 } from 'node:fs/promises';
 
 const USAGE_LOG = '/logs/agent/usage.json';
+const BRIEF_AUDIT_LOG = process.env.MIXDOG_BRIEF_AUDIT_LOG || '/logs/agent/brief-audit.json';
+const BRIEF_AUDIT_SCHEMA_VERSION = 1;
+const BRIEF_ISSUE_CODES = Object.freeze([
+  'task_omission',
+  'verify_prescription',
+  'legacy_role_lineage',
+  'cross_role_task_reuse',
+]);
+const AGENT_ROLE_ALIASES = new Map([
+  ['explorer', 'explore'],
+  ['explore', 'explore'],
+  ['maint', 'maintainer'],
+  ['maintenance', 'maintainer'],
+  ['memory', 'maintainer'],
+  ['maintainer', 'maintainer'],
+  ['worker', 'worker'],
+  ['heavy', 'heavy-worker'],
+  ['heavyworker', 'heavy-worker'],
+  ['heavy-worker', 'heavy-worker'],
+  ['review', 'reviewer'],
+  ['reviewer', 'reviewer'],
+  ['debug', 'debugger'],
+  ['debugger', 'debugger'],
+  ['web', 'web-researcher'],
+  ['web-researcher', 'web-researcher'],
+]);
+const LEGACY_ROLE_TOKEN = '(?:lead|worker|heavy[- ]?worker|debug(?:ger)?|review(?:er)?|explor(?:e|er)|maint(?:ainer|enance)?|web(?:-researcher)?)';
+const LEGACY_ROLE_LINEAGE_RE = new RegExp(
+  `\\b${LEGACY_ROLE_TOKEN}\\b\\s*(?:→|->|=>|/|>)\\s*\\b${LEGACY_ROLE_TOKEN}\\b`,
+  'i',
+);
 const toolCallHighWater = new Map();
 let usageMirrorInFlight = false;
 let usageMirrorStopped = false;
 let usageMirrorTimer = null;
+
+const briefText = (value) => String(value ?? '').replace(/\r\n?/g, '\n').trim();
+const briefHash = (value) => createHash('sha256').update(String(value ?? '')).digest('hex');
+const canonicalAgentRole = (value) => {
+  const key = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return AGENT_ROLE_ALIASES.get(key) || key;
+};
+const taskField = (value) => {
+  const match = briefText(value).match(/(?:^|\n)Task:[ \t]*([^\n]*)(?:\n|$)/);
+  return match && match[1].trim() ? match[1].trim() : '';
+};
+const hasVerifyField = (value) => /(?:^|\n)Verify:[^\n]*(?:\n|$)/.test(briefText(value));
+const hasLegacyRoleLineage = (value) => LEGACY_ROLE_LINEAGE_RE.test(briefText(value));
+const toolArguments = (call) => {
+  const value = call?.input ?? call?.arguments;
+  if (value && typeof value === 'object') return value;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+const resolveSpawnBrief = (args, callerCwd) => {
+  // Keep this aligned with agent-tool resolvePrompt(): prompt wins over
+  // message before trimming, while file contents remain byte-for-byte text.
+  const prompt = String(args.prompt || args.message || '').trim();
+  const file = String(args.file || '').trim();
+  if (prompt && file) return null;
+  if (prompt) return prompt;
+  if (!file) return null;
+  const baseCwd = resolve(String(callerCwd || '').trim() || process.cwd());
+  const workerCwd = String(args.cwd || '').trim()
+    ? resolve(baseCwd, String(args.cwd).trim())
+    : baseCwd;
+  return readFileSync(resolve(workerCwd, file), 'utf8');
+};
+const briefAuditCalls = [];
+const captureBriefAuditCalls = (calls, callerCwd) => {
+  for (const call of calls || []) {
+    try {
+      if (call?.name !== 'agent') continue;
+      const args = toolArguments(call);
+      if (String(args.type || 'spawn') !== 'spawn') continue;
+      const callPrompt = resolveSpawnBrief(args, callerCwd);
+      // Invalid, missing, and unreadable brief inputs never become worker
+      // briefs; agent-tool will report those tool errors separately.
+      if (callPrompt === null) continue;
+      const task = taskField(callPrompt);
+      const hasVerify = hasVerifyField(callPrompt);
+      const issues = [];
+      if (!task) issues.push('task_omission');
+      if (hasVerify) issues.push('verify_prescription');
+      if (hasLegacyRoleLineage(callPrompt)) issues.push('legacy_role_lineage');
+      // Retain hashes and structural facts only. The runtime brief itself is
+      // deliberately discarded before onToolCall returns.
+      briefAuditCalls.push({
+        role: canonicalAgentRole(args.agent),
+        tag: String(args.tag || ''),
+        callPromptSha256: briefHash(callPrompt),
+        taskSha256: task ? briefHash(task) : null,
+        hasTask: Boolean(task),
+        hasVerify,
+        issues,
+      });
+    } catch { /* brief auditing never changes trial execution */ }
+  }
+};
+
+const briefAuditDocument = () => {
+  const records = briefAuditCalls.map((record) => ({
+    ...record,
+    issues: [...record.issues],
+  }));
+  const rolesByTask = new Map();
+  for (const record of records) {
+    if (!record.taskSha256) continue;
+    if (!rolesByTask.has(record.taskSha256)) rolesByTask.set(record.taskSha256, new Set());
+    rolesByTask.get(record.taskSha256).add(record.role);
+  }
+  for (const record of records) {
+    if (record.taskSha256 && rolesByTask.get(record.taskSha256)?.size > 1) {
+      record.issues.push('cross_role_task_reuse');
+    }
+    record.issues.sort((a, b) => BRIEF_ISSUE_CODES.indexOf(a) - BRIEF_ISSUE_CODES.indexOf(b));
+  }
+
+  const issueCounts = Object.fromEntries(BRIEF_ISSUE_CODES.map((code) => [code, 0]));
+  for (const record of records) {
+    for (const code of record.issues) issueCounts[code] += 1;
+  }
+  return {
+    schemaVersion: BRIEF_AUDIT_SCHEMA_VERSION,
+    leadAgentCallCount: records.length,
+    findingCount: Object.values(issueCounts).reduce((sum, count) => sum + count, 0),
+    issueCounts,
+    calls: records,
+  };
+};
+
+const writeBriefAudit = () => {
+  try {
+    const audit = briefAuditDocument();
+    mkdirSync(dirname(BRIEF_AUDIT_LOG), { recursive: true });
+    const tmp = `${BRIEF_AUDIT_LOG}.tmp-${process.pid}`;
+    writeFileSync(tmp, JSON.stringify(audit, null, 2) + '\n');
+    renameSync(tmp, BRIEF_AUDIT_LOG);
+    process.stdout.write(
+      `brief-audit v${audit.schemaVersion} calls=${audit.leadAgentCallCount} findings=${audit.findingCount} `
+      + BRIEF_ISSUE_CODES.map((code) => `${code}=${audit.issueCounts[code]}`).join(' ')
+      + '\n',
+    );
+  } catch (error) {
+    process.stdout.write(`brief-audit unavailable: ${error?.message || error}\n`);
+  }
+};
 
 const finiteTokenCount = (value) => {
   const number = Number(value);
@@ -170,6 +318,9 @@ const modUrl = (rel) => pathToFileURL(SRC.replace(/[\\/]+$/, '') + '/' + rel).hr
 
 const { createMixdogSessionRuntime } = await import(modUrl('mixdog-session-runtime.mjs'));
 const { normalizeWorkflowId } = await import(modUrl('session-runtime/workflow.mjs'));
+const contextUtilsUrl = process.env.MIXDOG_CONTEXT_UTILS_URL
+  || modUrl('runtime/agent/orchestrator/session/context-utils.mjs');
+const { estimateTokens } = await import(contextUtilsUrl);
 
 // Only override when explicitly provided. With both unset,
 // createMixdogSessionRuntime() resolves the user's configured default route
@@ -178,34 +329,14 @@ const { normalizeWorkflowId } = await import(modUrl('session-runtime/workflow.mj
 const provider = process.env.MIXDOG_PROVIDER || undefined;
 const model = process.env.MIXDOG_MODEL || undefined;
 const effort = process.env.MIXDOG_EFFORT || '';
+const fast = process.env.MIXDOG_FAST === undefined
+  ? undefined
+  : process.env.MIXDOG_FAST === '1';
 const workflow = process.env.MIXDOG_WORKFLOW || '';
 const prompt = process.env.MIXDOG_PROMPT || '';
-const parseFallbackRoute = (raw) => {
-  if (!raw) return null;
-  try {
-    const route = JSON.parse(raw);
-    if (
-      !route
-      || typeof route !== 'object'
-      || Array.isArray(route)
-      || Object.keys(route).sort().join(',') !== 'effort,fast,model,provider'
-      || typeof route.provider !== 'string'
-      || !route.provider.trim()
-      || typeof route.model !== 'string'
-      || !route.model.trim()
-      || !['low', 'medium', 'high', 'xhigh', 'max'].includes(route.effort)
-      || typeof route.fast !== 'boolean'
-    ) return null;
-    return route;
-  } catch {
-    return null;
-  }
-};
-const fallbackRoute = parseFallbackRoute(process.env.MIXDOG_LEAD_FALLBACK);
-// Refusal restart policy: if the primary Lead session terminates on an
-// API-level refusal, relaunch one full Lead session on the configured fallback
-// route. Without a valid fallback, or if that session also refuses, exit 86 so
-// Harbor retries the task as a fresh trial with a full task budget.
+// Refusal-equivalent outcomes always leave this process with the Harbor retry
+// code. The adapter, not this driver, selects the fallback on the next fresh
+// trial attempt.
 // Driver loop deadline. Only a runaway-loop guard: the REAL per-task time
 // limit is enforced by Harbor (AgentTimeoutError), so this can sit far above
 // every task budget. The old fixed 30min cut long tasks (caffe-cifar-10)
@@ -227,7 +358,12 @@ const BOOT_JITTER_MS = Number(process.env.MIXDOG_BOOT_JITTER_MS ?? 30_000);
 // for STALL_MS, abort that turn and retry it in the SAME session instead of
 // burning the whole Harbor budget inside a hung request.
 const STALL_MS = Number(process.env.MIXDOG_STALL_MS || 6 * 60_000);
-const MAX_STALL_RETRIES = Number(process.env.MIXDOG_STALL_RETRIES || 2);
+const STALL_POLL_MS = Number(process.env.MIXDOG_STALL_POLL_MS || 15_000);
+const CLOSE_GRACE_MS = Number(
+  process.env.MIXDOG_CLOSE_GRACE_MS
+  ?? process.env.MIXDOG_STALL_CLOSE_GRACE_MS
+  ?? 1_000,
+);
 usageMirrorTimer = setInterval(() => { void mirrorUsageAsync(); }, 30_000);
 usageMirrorTimer.unref?.();
 void mirrorUsageAsync();
@@ -238,6 +374,12 @@ void mirrorUsageAsync();
 // not surface stopReason through ask(), so retain the terminated session IDs
 // from the in-process stderr stream and match the returned lead session.
 const refusalSessionIds = new Set();
+class RefusalEquivalentError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'RefusalEquivalentError';
+  }
+}
 const _origErrWrite = process.stderr.write.bind(process.stderr);
 process.stderr.write = (chunk, enc, cb) => {
   try {
@@ -303,7 +445,7 @@ const driveSession = async (route) => {
   let wake = null;
   let lastProgressAt = Date.now();
   let stallAborted = false;
-  let stallRetries = 0;
+  let rejectStalledAsk = null;
 
   rt.onNotification(() => {
     queueMicrotask(() => {
@@ -314,16 +456,19 @@ const driveSession = async (route) => {
     return false;
   });
 
-  // Watchdog: abort the CURRENT turn when no progress arrived for STALL_MS.
-  // askOnce() catches the abort and retries the same message (bounded).
+  // A driver-level stall invalidates this attempt. Harbor must recreate the
+  // trial so fallback gets a fresh runtime and full task budget.
   stallTimer = setInterval(() => {
     if (!busy || STALL_MS <= 0) return;
     if (Date.now() - lastProgressAt <= STALL_MS) return;
     stallAborted = true;
     lastProgressAt = Date.now();
     process.stderr.write(`lead_driver: stall watchdog abort (no progress ${STALL_MS}ms)\n`);
+    rejectStalledAsk?.(new RefusalEquivalentError(
+      `lead_driver: stalled turn is refusal-equivalent (no progress ${STALL_MS}ms)`,
+    ));
     try { rt.abort?.('driver-stall'); } catch { /* abort is best-effort */ }
-  }, 15_000);
+  }, STALL_POLL_MS);
   stallTimer.unref?.();
 
   const askOnce = async (msg) => {
@@ -339,13 +484,20 @@ const driveSession = async (route) => {
         onTextDelta: (c) => { t += c; touch(); },
         onReasoningDelta: touch,
         onStreamDelta: touch,
-        onToolCall: touch,
+        onToolCall: (_iter, calls) => {
+          captureBriefAuditCalls(calls, rt.cwd || rt.session?.cwd || process.cwd());
+          touch();
+        },
         onToolResult: touch,
       });
+      const stallPromise = new Promise((_, reject) => {
+        rejectStalledAsk = reject;
+      });
       const resultPromise = RUN_DEADLINE < 0
-        ? askPromise
+        ? Promise.race([askPromise, stallPromise])
         : Promise.race([
             askPromise,
+            stallPromise,
             new Promise((_, reject) => {
               askDeadlineTimer = setTimeout(() => {
                 deadlineAborted = true;
@@ -369,18 +521,15 @@ const driveSession = async (route) => {
           { cause: err },
         );
       }
-      // Stall-abort recovery: retry the SAME message in the same session; the
-      // transcript keeps prior turns, so a retry resumes rather than restarts.
-      if (stallAborted && stallRetries < MAX_STALL_RETRIES) {
-        stallAborted = false;
-        stallRetries += 1;
-        busy = false;
-        process.stderr.write(`lead_driver: retrying stalled turn (${stallRetries}/${MAX_STALL_RETRIES})\n`);
-        return await askOnce(msg);
+      if (stallAborted) {
+        throw new RefusalEquivalentError(
+          `lead_driver: stalled turn is refusal-equivalent (no progress ${STALL_MS}ms)`,
+        );
       }
       throw err;
     } finally {
       if (askDeadlineTimer) clearTimeout(askDeadlineTimer);
+      rejectStalledAsk = null;
       busy = false;
     }
   };
@@ -459,49 +608,65 @@ const driveSession = async (route) => {
       if (!lifecycleCompleted) {
         try { rt.abort?.('bench-lifecycle-error'); } catch { /* best-effort */ }
       }
+      let closeGraceTimer;
       try {
-        await rt.close('bench-exit');
+        await Promise.race([
+          Promise.resolve().then(() => rt.close('bench-exit')),
+          new Promise((resolve) => {
+            closeGraceTimer = setTimeout(resolve, Math.max(0, CLOSE_GRACE_MS));
+          }),
+        ]);
       } catch (closeError) {
-        if (lifecycleCompleted) throw closeError;
         process.stderr.write(
-          `lead_driver: runtime close after failure also failed: ${closeError?.message || closeError}\n`,
+          `lead_driver: runtime close failed (ignored): ${closeError?.message || closeError}\n`,
         );
+      } finally {
+        if (closeGraceTimer) clearTimeout(closeGraceTimer);
       }
     }
   }
 };
 
 const sids = [];
-let { text, sid } = await driveSession({ provider, model, effort });
+let text;
+let sid;
+try {
+  ({ text, sid } = await driveSession({ provider, model, effort, fast }));
+} catch (error) {
+  // Runtime events already contain the complete audit evidence; no persistence
+  // or close completion is required to emit the fallback artifact.
+  writeBriefAudit();
+  if (error instanceof RefusalEquivalentError) {
+    process.stderr.write(`${error.message}; exiting 86 so Harbor retries a fresh trial\n`);
+    usageMirrorStopped = true;
+    if (usageMirrorTimer) clearInterval(usageMirrorTimer);
+    mirrorUsageSync();
+    process.exit(86);
+  }
+  throw error;
+}
 sids.push(sid);
+writeBriefAudit();
 
-// Restart only when the PRIMARY lead session's ID has an API-level refusal
-// marker. A sub-agent refusal has a different session ID and does not restart
-// an otherwise-completed Lead run.
+// Only the Lead session's API marker counts; sub-agent refusals have other IDs.
+// Tiny final public responses are refusal-equivalent based solely on the
+// shared estimator applied to trimmed result.text, never aggregate usage.
 const refusalGateHit = refusalSessionIds.has(sid);
-process.stdout.write(`refusal-gate: sid=${sid} refused=${refusalGateHit}\n`);
-if (refusalGateHit) {
-  process.stdout.write(`refusal-restart: lead session terminated on refusal (sess=${sid}); exiting 86 so Harbor retries a fresh trial\n`);
-  if (!fallbackRoute) process.exit(86);
-
+const finalText = String(text ?? '').trim();
+const finalTokens = estimateTokens(finalText);
+const tinyFinalGateHit = finalTokens <= 1;
+process.stdout.write(
+  `refusal-gate: sid=${sid} refused=${refusalGateHit} finalTokens=${finalTokens} tinyFinal=${tinyFinalGateHit}\n`,
+);
+if (refusalGateHit || tinyFinalGateHit) {
+  const reason = refusalGateHit ? 'API refusal' : 'tiny final public response';
   process.stdout.write(
-    `refusal-fallback: relaunching lead on ${fallbackRoute.provider}/${fallbackRoute.model} effort=${fallbackRoute.effort}\n`,
+    `refusal-restart: ${reason} (sess=${sid}); exiting 86 so Harbor retries a fresh trial\n`,
   );
-  try {
-    ({ text, sid } = await driveSession(fallbackRoute));
-  } catch (error) {
-    process.stderr.write(
-      `lead_driver: refusal fallback failed; exiting 86: ${error?.message || error}\n`,
-    );
-    process.exit(86);
-  }
-  sids.push(sid);
-  const fallbackRefusalGateHit = refusalSessionIds.has(sid);
-  process.stdout.write(`refusal-gate: sid=${sid} refused=${fallbackRefusalGateHit}\n`);
-  if (fallbackRefusalGateHit) {
-    process.stdout.write(`refusal-restart: lead session terminated on refusal (sess=${sid}); exiting 86 so Harbor retries a fresh trial\n`);
-    process.exit(86);
-  }
+  usageMirrorStopped = true;
+  if (usageMirrorTimer) clearInterval(usageMirrorTimer);
+  mirrorUsageSync();
+  process.exit(86);
 }
 
 // Sanity: extract the model(s) the runtime actually used from the session

@@ -15,6 +15,7 @@ import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { scheduleRenderFrameAck } from './engine/render-timing.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
+import { rgbSgr } from '../ui/ansi.mjs';
 import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 import { displayWidth } from './display-width.mjs';
@@ -259,10 +260,10 @@ function resolveTuiStderrLogPath() {
     || join(process.env.MIXDOG_RUNTIME_ROOT || join(tmpdir(), 'mixdog'), 'mixdog-tui.stderr.log');
 }
 
-/** `rgb(r,g,b)` → truecolor SGR prefix ('' when unparsable). */
+/** `rgb(r,g,b)` → supported RGB SGR prefix ('' when unparsable). */
 function ansiFg(rgb) {
   const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(String(rgb || ''));
-  return m ? `\x1b[38;2;${m[1]};${m[2]};${m[3]}m` : '';
+  return m ? rgbSgr(m[1], m[2], m[3]) : '';
 }
 
 /**

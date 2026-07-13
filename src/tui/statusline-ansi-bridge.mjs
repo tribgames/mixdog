@@ -6,6 +6,8 @@
  * normalizes that at display time so `/theme` can re-tone without touching ui/.
  */
 
+import { rgbToAnsi256 } from '../ui/ansi.mjs';
+
 const RESET = '\x1b[0m';
 
 /** Truecolor SGR sequences emitted by the shared statusline stack (not theme). */
@@ -21,6 +23,14 @@ export const STATUSLINE_CANONICAL_TRUECOLOR = Object.freeze({
 
 function truecolorSgr(r, g, b) {
   return `\x1b[38;2;${r};${g};${b}m`;
+}
+
+function ansi256Sgr(r, g, b) {
+  return `\x1b[38;5;${rgbToAnsi256(r, g, b)}m`;
+}
+
+function canonicalSgrVariants(rgb) {
+  return [truecolorSgr(...rgb), ansi256Sgr(...rgb)];
 }
 
 function footerLocalNum(value) {
@@ -139,13 +149,13 @@ export function applyDefaultStatusForegroundAfterReset(text, STATUS, reset = RES
 export function remapCanonicalStatuslineTruecolor(text, colors) {
   const c = STATUSLINE_CANONICAL_TRUECOLOR;
   const pairs = [
-    [truecolorSgr(...c.statusText), colors.STATUS],
-    [truecolorSgr(...c.subtle), colors.SUBTLE],
-    [truecolorSgr(...c.success), colors.SUCCESS],
-    [truecolorSgr(...c.successBright), colors.SUCCESS],
-    [truecolorSgr(...c.warning), colors.WARNING],
-    [truecolorSgr(...c.warningBright), colors.WARNING],
-    [truecolorSgr(...c.error), colors.ERROR],
+    ...canonicalSgrVariants(c.statusText).map((from) => [from, colors.STATUS]),
+    ...canonicalSgrVariants(c.subtle).map((from) => [from, colors.SUBTLE]),
+    ...canonicalSgrVariants(c.success).map((from) => [from, colors.SUCCESS]),
+    ...canonicalSgrVariants(c.successBright).map((from) => [from, colors.SUCCESS]),
+    ...canonicalSgrVariants(c.warning).map((from) => [from, colors.WARNING]),
+    ...canonicalSgrVariants(c.warningBright).map((from) => [from, colors.WARNING]),
+    ...canonicalSgrVariants(c.error).map((from) => [from, colors.ERROR]),
   ];
   let out = String(text || '');
   for (const [from, to] of pairs) {

@@ -22,7 +22,7 @@ import { randomBytes, createHash } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
-import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
@@ -178,6 +178,10 @@ function getOwnTokenPath() {
     const dir = getPluginData();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     return join(dir, 'grok-oauth.json');
+}
+
+function getRefreshLockPath() {
+    return `${getOwnTokenPath()}.refresh.lock`;
 }
 
 // expires_at may arrive as a unix number or an ISO-8601 string. Normalize both
@@ -369,32 +373,53 @@ async function _postRefresh(tokens) {
     }
 }
 
-// 16 mixdog processes share one grok-oauth.json and xAI rotates refresh
-// tokens single-use. Re-read the store immediately before the network POST so
-// a peer's just-completed rotation is adopted instead of spending our
-// (now-stale) refresh_token; on invalid_grant, re-read once and retry with a
-// peer-rotated refresh_token before propagating.
+// Mixdog processes share one grok-oauth.json and xAI rotates refresh tokens
+// single-use. Hold a cross-process lease across the re-read, exchange, and
+// atomic save so only one process can spend a generation.
 async function refreshTokens(tokens, { force = false } = {}) {
     if (!tokens?.refresh_token) {
         throw new Error('[grok-oauth] refresh token not available — open /providers in mixdog to sign in again');
     }
-    const disk = _loadOwnTokens();
-    const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
-    if (disk?.access_token && disk.access_token !== tokens.access_token
-        && (!disk.expires_at || disk.expires_at >= validAfter)) {
-        return disk;
-    }
-    try {
-        return await _postRefresh(tokens);
-    } catch (err) {
-        if (err?.isInvalidGrant) {
-            const rotated = _loadOwnTokens();
-            if (rotated?.refresh_token && rotated.refresh_token !== tokens.refresh_token) {
-                return await _postRefresh(rotated);
-            }
+
+    return withFileLock(getRefreshLockPath(), async () => {
+        const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
+        const disk = _loadOwnTokens();
+        // A waiter that entered with the prior generation adopts the winner's
+        // persisted, valid token instead of rotating it again. xAI may rotate
+        // only the refresh token while reissuing the same access token.
+        const diskGenerationChanged = disk?.access_token
+            && (disk.access_token !== tokens.access_token
+                || disk.refresh_token !== tokens.refresh_token);
+        if (diskGenerationChanged
+            && (!disk.expires_at || disk.expires_at >= validAfter)) {
+            return disk;
         }
-        throw err;
-    }
+
+        const current = disk || tokens;
+        try {
+            return await _postRefresh(current);
+        } catch (err) {
+            if (err?.isInvalidGrant) {
+                // A writer that does not participate in this lease may still
+                // have won the rotation while the request was in flight.
+                // Adopt its valid generation; only exchange it when it cannot
+                // satisfy this caller.
+                const rotated = _loadOwnTokens();
+                if (rotated?.refresh_token && rotated.refresh_token !== current.refresh_token) {
+                    if (rotated.access_token
+                        && (!rotated.expires_at || rotated.expires_at >= validAfter)) {
+                        return rotated;
+                    }
+                    return await _postRefresh(rotated);
+                }
+            }
+            throw err;
+        }
+    }, {
+        timeoutMs: 120_000,
+        staleMs: 120_000,
+        secret: true,
+    });
 }
 
 // --- Model catalog cache (24h disk TTL) ---

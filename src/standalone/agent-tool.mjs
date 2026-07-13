@@ -92,6 +92,70 @@ const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIME
 const SPAWN_STAGGER_MS = envTimeoutMs('MIXDOG_SPAWN_STAGGER_MS', 0);
 const TAG_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_TAG_TOMBSTONES = 500;
+
+/**
+ * Resolve the route for a public agent spawn. Explore and Maintainer inherit
+ * Main only after their explicit agent, workflow, and maintenance routes.
+ */
+export function resolveAgentSpawnPreset(config, args = {}) {
+  if (args.provider && args.model) {
+    return {
+      presetName: args.preset || '__direct__',
+      preset: {
+        id: '__direct__',
+        name: '__DIRECT__',
+        type: 'agent',
+        provider: clean(args.provider),
+        model: clean(args.model),
+        effort: clean(args.effort) || undefined,
+        fast: args.fast === true,
+        tools: 'full',
+      },
+    };
+  }
+
+  const agentName = normalizeAgentName(args.agent);
+  const configuredDefault = clean(config?.defaultProvider);
+  const fallbackProvider = configuredDefault && isKnownProvider(configuredDefault)
+    ? configuredDefault
+    : DEFAULT_PROVIDER;
+  const workflowSlot = agentName === 'explore' ? 'explorer'
+    : (agentName === 'maintainer' ? 'memory' : '');
+  const maintenanceSlot = agentName === 'explore' ? 'explore'
+    : (agentName === 'maintainer' ? 'memory' : '');
+  const agentRoute = !clean(args.preset)
+    ? (normalizeAgentRoute(config?.agents?.[agentName], fallbackProvider)
+      || (agentName === 'maintainer' ? normalizeAgentRoute(config?.agents?.maintenance, fallbackProvider) : null)
+      || normalizeAgentRoute(config?.workflowRoutes?.[workflowSlot], fallbackProvider)
+      || normalizeAgentRoute(config?.maintenance?.[maintenanceSlot], fallbackProvider))
+    : null;
+  if (agentRoute) {
+    return {
+      presetName: agentPresetName(agentName),
+      preset: {
+        id: `agent-${agentName}`,
+        name: agentPresetName(agentName),
+        type: 'agent',
+        provider: agentRoute.provider,
+        model: agentRoute.model,
+        effort: agentRoute.effort,
+        fast: agentRoute.fast === true,
+        tools: 'full',
+      },
+    };
+  }
+
+  const mainPreset = !clean(args.preset) && (agentName === 'explore' || agentName === 'maintainer')
+    ? findPreset(config, config?.default)
+    : null;
+  if (mainPreset) return { presetName: mainPreset.id || mainPreset.name, preset: mainPreset };
+
+  const presetName = clean(args.preset) || DEFAULT_AGENT_PRESETS[agentName];
+  if (!presetName) throw new Error(`agent: agent "${agentName}" has no model assignment`);
+  const preset = findPreset(config, presetName) || synthesizePreset(config, presetName);
+  if (!preset) throw new Error(`agent: preset "${presetName}" not found`);
+  return { presetName, preset };
+}
 let lastSpawnStartAt = 0;
 async function waitForSpawnStagger() {
   if (SPAWN_STAGGER_MS <= 0) return;
@@ -741,55 +805,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   // chain-gate defaults to the spawn-prep cap (see provider-init.mjs comments).
   const { ensureProvider } = createProviderInit(reg, DEFAULT_SPAWN_PREP_TIMEOUT_MS);
 
-  function resolvePreset(config, args) {
-    if (args.provider && args.model) {
-      return {
-        presetName: args.preset || '__direct__',
-        preset: {
-          id: '__direct__',
-          name: '__DIRECT__',
-          type: 'agent',
-          provider: clean(args.provider),
-          model: clean(args.model),
-          effort: clean(args.effort) || undefined,
-          fast: args.fast === true,
-          tools: 'full',
-        },
-      };
-    }
-
-    const agentName = normalizeAgentName(args.agent);
-    const configuredDefault = clean(config?.defaultProvider);
-    const fallbackProvider = configuredDefault && isKnownProvider(configuredDefault)
-      ? configuredDefault
-      : DEFAULT_PROVIDER;
-    const agentRoute = !clean(args.preset)
-      ? (normalizeAgentRoute(config?.agents?.[agentName], fallbackProvider)
-        || (agentName === 'maintainer' ? normalizeAgentRoute(config?.agents?.maintenance, fallbackProvider) : null))
-      : null;
-    if (agentRoute) {
-      return {
-        presetName: agentPresetName(agentName),
-        preset: {
-          id: `agent-${agentName}`,
-          name: agentPresetName(agentName),
-          type: 'agent',
-          provider: agentRoute.provider,
-          model: agentRoute.model,
-          effort: agentRoute.effort,
-          fast: agentRoute.fast === true,
-          tools: 'full',
-        },
-      };
-    }
-
-    const presetName = clean(args.preset) || DEFAULT_AGENT_PRESETS[agentName];
-    if (!presetName) throw new Error(`agent: agent "${agentName}" has no model assignment`);
-    const preset = findPreset(config, presetName) || synthesizePreset(config, presetName);
-    if (!preset) throw new Error(`agent: preset "${presetName}" not found`);
-    return { presetName, preset };
-  }
-
   function list({ scanSessions = false, context = {} } = {}) {
     refreshTagsFromSessions({ scanSessions, context });
     const now = Date.now();
@@ -1175,7 +1190,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     if (!agent) throw new Error('agent spawn: agent is required');
     const agentPermission = readAgentFrontmatterPermission(agent, dataDir, STANDALONE_SOURCE_ROOT);
     const agentPerm = normalizeAgentPermission(agentPermission) || null;
-    const { presetName, preset } = resolvePreset(config, args);
+    const { presetName, preset } = resolveAgentSpawnPreset(config, args);
     await ensureProvider(config, preset.provider);
     if (prepState?.timedOut) {
       throw new Error('agent spawn prep timed out before session bind');

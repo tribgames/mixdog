@@ -12,7 +12,7 @@
  * The decision is computed once at import time but can be recomputed via
  * `refreshColorSupport()` (used by tests / when output is rebound).
  */
-import { stdout, env } from 'node:process';
+import { stdout, env, platform } from 'node:process';
 
 let COLOR_ENABLED = computeColorEnabled();
 
@@ -39,12 +39,92 @@ export function colorEnabled() {
 const ESC = '\x1b[';
 const RESET = `${ESC}0m`;
 
+/**
+ * Whether the terminal can render 24-bit SGR colors.
+ *
+ * Apple Terminal is the one explicit negative because it advertises a normal
+ * xterm TERM while not implementing truecolor. Unknown terminals retain the
+ * historical truecolor default.
+ */
+export function supportsTruecolor(environment = env, platformName = platform) {
+  const termProgram = String(environment?.TERM_PROGRAM || '').trim().toLowerCase();
+  if (termProgram === 'apple_terminal') return false;
+
+  const colorTerm = String(environment?.COLORTERM || '').trim().toLowerCase();
+  if (colorTerm === 'truecolor' || colorTerm === '24bit') return true;
+  if (environment?.WT_SESSION !== undefined && environment.WT_SESSION !== '') return true;
+  if (['iterm.app', 'wezterm', 'ghostty', 'vscode'].includes(termProgram)) return true;
+  if (/(?:direct|truecolor)/i.test(String(environment?.TERM || ''))) return true;
+  if (platformName === 'win32') return true;
+  return true;
+}
+
+const ANSI_256_CUBE_LEVELS = Object.freeze([0, 95, 135, 175, 215, 255]);
+
+function colorByte(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(255, Math.round(n))) : 0;
+}
+
+function nearestCubeLevel(value) {
+  let best = 0;
+  let bestDistance = Infinity;
+  for (let i = 0; i < ANSI_256_CUBE_LEVELS.length; i++) {
+    const distance = Math.abs(value - ANSI_256_CUBE_LEVELS[i]);
+    if (distance < bestDistance) {
+      best = i;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+/** Convert an RGB triplet to the nearest stable xterm 256-color palette index. */
+export function rgbToAnsi256(r, g, b) {
+  const red = colorByte(r);
+  const green = colorByte(g);
+  const blue = colorByte(b);
+
+  const redLevel = nearestCubeLevel(red);
+  const greenLevel = nearestCubeLevel(green);
+  const blueLevel = nearestCubeLevel(blue);
+  const cubeRed = ANSI_256_CUBE_LEVELS[redLevel];
+  const cubeGreen = ANSI_256_CUBE_LEVELS[greenLevel];
+  const cubeBlue = ANSI_256_CUBE_LEVELS[blueLevel];
+  const cubeDistance = ((red - cubeRed) ** 2)
+    + ((green - cubeGreen) ** 2)
+    + ((blue - cubeBlue) ** 2);
+
+  const average = (red + green + blue) / 3;
+  const grayLevel = Math.max(0, Math.min(23, Math.round((average - 8) / 10)));
+  const grayValue = 8 + (grayLevel * 10);
+  const grayDistance = ((red - grayValue) ** 2)
+    + ((green - grayValue) ** 2)
+    + ((blue - grayValue) ** 2);
+
+  if (grayDistance < cubeDistance) return 232 + grayLevel;
+  return 16 + (36 * redLevel) + (6 * greenLevel) + blueLevel;
+}
+
+/** Raw RGB SGR prefix, downsampled to 256 colors when truecolor is unavailable. */
+export function rgbSgr(r, g, b, background = false) {
+  const channel = background ? 48 : 38;
+  if (supportsTruecolor()) return `${ESC}${channel};2;${r};${g};${b}m`;
+  return `${ESC}${channel};5;${rgbToAnsi256(r, g, b)}m`;
+}
+
+function supportedSgrOpen(open) {
+  const match = /^(38|48);2;([^;]+);([^;]+);([^;]+)$/.exec(String(open));
+  if (!match || supportsTruecolor()) return open;
+  return `${match[1]};5;${rgbToAnsi256(match[2], match[3], match[4])}`;
+}
+
 /** Build a `(text) => string` wrapper for the given SGR open code(s). */
 function sgr(open) {
-  const openSeq = `${ESC}${open}m`;
   return (text) => {
     if (!COLOR_ENABLED) return String(text ?? '');
     const s = String(text ?? '');
+    const openSeq = `${ESC}${supportedSgrOpen(open)}m`;
     // Re-open after any nested reset so composed styles survive concatenation.
     return openSeq + s.replace(/\x1b\[0m/g, RESET + openSeq) + RESET;
   };
@@ -84,9 +164,9 @@ export const bgGray = sgr('100');
 export const bgBlack = sgr('40');
 export const bgBlue = sgr('44');
 
-// --- Truecolor (24-bit) -----------------------------------------------------
-// The TUI palette uses explicit rgb() values. 16-color SGR can't reproduce them, so we emit
-// 24-bit SGR. Honors NO_COLOR / TTY exactly like the named helpers above.
+// --- RGB colors --------------------------------------------------------------
+// Emit 24-bit SGR where supported, otherwise use the nearest 256-color entry.
+// Honors NO_COLOR / TTY exactly like the named helpers above.
 
 /** Foreground truecolor wrapper: `rgb(215,119,87)('x')`. */
 export function rgb(r, g, b) {

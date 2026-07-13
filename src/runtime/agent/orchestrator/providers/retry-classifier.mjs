@@ -325,7 +325,11 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   }
   if (!state.sawResponseCreated) {
     const closeCode = Number(err?.wsCloseCode || state.wsCloseCode || 0)
-    if (closeCode !== 1011 && closeCode !== 1012) return null
+    // An abnormal close before response.created has not produced any response
+    // bytes to the caller. It is therefore safe to reconnect and replay under
+    // the normal ws_1006 bounded retry policy (text/tool emission was denied
+    // above before reaching this gate).
+    if (closeCode !== 1006 && closeCode !== 1011 && closeCode !== 1012) return null
   }
   if (state.userAbort) return null
 
