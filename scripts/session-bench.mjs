@@ -52,6 +52,9 @@ const opts = {
 };
 
 function defaultTracePath() {
+  if (process.env.MIXDOG_AGENT_TRACE_PATH) {
+    return resolve(process.env.MIXDOG_AGENT_TRACE_PATH);
+  }
   const data = process.env.MIXDOG_DATA_DIR || resolvePluginData() || resolve(homedir(), '.mixdog', 'data');
   return resolve(data, 'history', 'agent-trace.jsonl');
 }

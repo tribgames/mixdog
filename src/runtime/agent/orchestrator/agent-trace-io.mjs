@@ -23,6 +23,7 @@ let _serviceUrl = null;
 let _serviceAdvertPort = null;
 let _flushInFlight = false;
 let _localTracePath = null;
+let _localTraceIsExplicit = false;
 let _localTraceBuffer = [];
 let _localTraceTimer = null;
 let _localTraceFlushInFlight = false;
@@ -93,6 +94,12 @@ function _rotateLocalTraceIfNeeded(path) {
     }
 }
 
+function _ensureLocalTraceDirectory(path) {
+    // The path may outlive an ephemeral runtime directory. Recreate its parent
+    // at flush time rather than relying on the one-time path resolution.
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+}
+
 function _resolveLocalTracePath() {
     if (process.env.MIXDOG_AGENT_TRACE_LOCAL_DISABLE === '1') return null;
     if (_localTracePath) return _localTracePath;
@@ -104,9 +111,10 @@ function _resolveLocalTracePath() {
     try {
         _localTracePath = explicit
             || join(getPluginData(), 'history', 'agent-trace.jsonl');
+        _localTraceIsExplicit = Boolean(explicit);
         // R4 data-at-rest: trace rows may carry tool payloads / prompts;
         // clamp dir to owner-only on POSIX (advisory on Windows).
-        mkdirSync(dirname(_localTracePath), { recursive: true, mode: 0o700 });
+        _ensureLocalTraceDirectory(_localTracePath);
         return _localTracePath;
     } catch {
         return null;
@@ -142,10 +150,15 @@ function _flushLocalTrace() {
     const chunk = _localTraceBuffer.join('');
     _localTraceBuffer = [];
     try {
+        _ensureLocalTraceDirectory(path);
         // Throttle rotation stat checks to avoid unnecessary statSync calls
         // on every flush. First flush (_lastRotateCheckMs === 0) always checks.
         const now = Date.now();
-        if (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS) {
+        // Explicit sinks can have many short-lived headless writers. Keep that
+        // shared file append-only so no writer can rename it out from under a
+        // peer or from session-bench while scoring.
+        if (!_localTraceIsExplicit
+            && (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS)) {
             _rotateLocalTraceIfNeeded(path);
             _lastRotateCheckMs = now;
         }
@@ -183,8 +196,10 @@ function _flushLocalTraceSync() {
     const chunk = _localTraceBuffer.join('');
     _localTraceBuffer = [];
     try {
+        _ensureLocalTraceDirectory(path);
         const now = Date.now();
-        if (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS) {
+        if (!_localTraceIsExplicit
+            && (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS)) {
             _rotateLocalTraceIfNeeded(path);
             _lastRotateCheckMs = now;
         }

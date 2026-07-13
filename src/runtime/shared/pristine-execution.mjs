@@ -20,6 +20,9 @@ import {
 const contractPath = fileURLToPath(
   new URL('./pristine-execution-contract.json', import.meta.url),
 );
+const patchManifestPath = fileURLToPath(
+  new URL('../agent/orchestrator/tools/patch-manifest.json', import.meta.url),
+);
 
 export const PRISTINE_EXECUTION_CONTRACT = Object.freeze(
   JSON.parse(readFileSync(contractPath, 'utf8')),
@@ -116,6 +119,44 @@ function hostDataDir(env) {
     ? resolve(env.MIXDOG_HOME)
     : join(homedir(), '.mixdog');
   return join(home, 'data');
+}
+
+function patchPlatformKey() {
+  const os = process.platform === 'win32' ? 'win32' : process.platform;
+  return `${os}-${process.arch}`;
+}
+
+export function seedVerifiedPatchBinaryCache(
+  sourceDataDir,
+  dataDir,
+  { manifestPath = patchManifestPath } = {},
+) {
+  try {
+    const sourcePatchDir = join(sourceDataDir, 'patch-bin');
+    const manifestBytes = readFileSync(manifestPath);
+    const manifest = JSON.parse(manifestBytes.toString('utf8'));
+    const asset = manifest?.assets?.[patchPlatformKey()];
+    const version = String(manifest?.version || '');
+    const expectedSha256 = clean(asset?.sha256).toLowerCase();
+    if (!/^[A-Za-z0-9._-]+$/.test(version) || !/^[a-f0-9]{64}$/.test(expectedSha256)) return false;
+
+    const binaryName = `mixdog-patch-${version}${process.platform === 'win32' ? '.exe' : ''}`;
+    const sourceBinary = join(sourcePatchDir, binaryName);
+    if (!existsSync(sourceBinary)) return false;
+    const binaryBytes = readFileSync(sourceBinary);
+    const actualSha256 = createHash('sha256').update(binaryBytes).digest('hex');
+    if (actualSha256 !== expectedSha256) return false;
+
+    const targetPatchDir = join(dataDir, 'patch-bin');
+    mkdirSync(targetPatchDir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(targetPatchDir, binaryName), binaryBytes, { mode: 0o700 });
+    writeFileSync(join(targetPatchDir, 'manifest.json'), manifestBytes, { mode: 0o600 });
+    return true;
+  } catch {
+    // A missing, stale, or malformed host cache is optional acceleration only.
+    // Leave the pristine runtime empty so the normal fetch path handles it.
+    return false;
+  }
 }
 
 function auditDocument({
@@ -219,6 +260,7 @@ export function createPristineExecutionBoundary({
 
   try {
     const sourceDataDir = hostDataDir(hostEnv);
+    seedVerifiedPatchBinaryCache(sourceDataDir, dataDir);
     const approvedNames = new Set(contract.approvedExecutionEnv || []);
     for (const name of Object.keys(approvedExecutionEnv || {})) {
       if (!approvedNames.has(name)) {

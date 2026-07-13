@@ -18,9 +18,10 @@
 // vs codex/claude (tree-total vs solo) is a separate future mode; codex/claude
 // runners are left as slots.
 import { execFile, execFileSync, spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-role.mjs')).href;
@@ -349,12 +350,28 @@ const _mo = resolveModelOpts(argValue('--model', null), argValue('--provider', n
 // A/B knobs -> child env. --read-max-lines is a convenience for the read-policy
 // bench; --env KEY=VAL (repeatable) passes any override verbatim.
 const _env = {};
+let ownedBenchTraceDir = null;
+function cleanupOwnedBenchTrace() {
+  if (!ownedBenchTraceDir) return;
+  const dir = ownedBenchTraceDir;
+  ownedBenchTraceDir = null;
+  rmSync(dir, { recursive: true, force: true });
+}
 const _readMax = argValue('--read-max-lines', null);
 if (_readMax) _env.MIXDOG_READ_MAX_LINES = String(_readMax);
 for (let i = 0; i < process.argv.length; i++) {
   if (process.argv[i] === '--env' && process.argv[i + 1]) {
     const eq = process.argv[i + 1].indexOf('=');
     if (eq > 0) _env[process.argv[i + 1].slice(0, eq)] = process.argv[i + 1].slice(eq + 1);
+  }
+}
+if (runnerName === 'mixdog' && !_env.MIXDOG_AGENT_TRACE_PATH) {
+  if (process.env.MIXDOG_AGENT_TRACE_PATH) {
+    _env.MIXDOG_AGENT_TRACE_PATH = process.env.MIXDOG_AGENT_TRACE_PATH;
+  } else {
+    ownedBenchTraceDir = mkdtempSync(join(tmpdir(), 'mixdog-bench-trace-'));
+    _env.MIXDOG_AGENT_TRACE_PATH = join(ownedBenchTraceDir, 'agent-trace.jsonl');
+    process.once('exit', cleanupOwnedBenchTrace);
   }
 }
 const opts = {
@@ -483,4 +500,6 @@ if (jsonMode) {
     console.log(`group: wall=${Math.round((g.wall_ms || 0) / 1000)}s turns=${g.turns} tools=${g.tool_calls} tpt=${g.tools_per_turn} tool_ms=${Math.round((g.total_tool_ms || 0) / 1000)}s cache=${Math.round((g.cache_ratio || 0) * 100)}% antipatterns=${g.antipatterns}`);
   }
 }
-if (roundResult.task_complete === false || roundResult.score_complete === false) process.exit(1);
+const incomplete = roundResult.task_complete === false || roundResult.score_complete === false;
+cleanupOwnedBenchTrace();
+if (incomplete) process.exit(1);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -24,6 +25,7 @@ import {
   PRISTINE_EXECUTION_CONTRACT,
   buildMinimalPristineConfig,
   createPristineExecutionBoundary,
+  seedVerifiedPatchBinaryCache,
   validateExplicitPristineRoute,
 } from '../src/runtime/shared/pristine-execution.mjs';
 
@@ -214,6 +216,57 @@ test('boundary binds only provider auth, copies only its catalog, and cleans all
   }
 });
 
+test('verified patch cache seeding copies only a binary matching the bundled manifest', () => {
+  const host = fixtureHost();
+  const patchDir = join(host.data, 'patch-bin');
+  const targetData = join(host.root, 'target-data');
+  const manifestPath = join(host.root, 'patch-manifest.json');
+  const platform = `${process.platform === 'win32' ? 'win32' : process.platform}-${process.arch}`;
+  const version = 'fixture';
+  const binaryName = `mixdog-patch-${version}${process.platform === 'win32' ? '.exe' : ''}`;
+  const binary = Buffer.from('verified native patch fixture');
+  const manifest = {
+    version,
+    assets: {
+      [platform]: {
+        url: 'https://example.invalid/mixdog-patch',
+        sha256: createHash('sha256').update(binary).digest('hex'),
+      },
+    },
+  };
+  const previousData = process.env.MIXDOG_DATA_DIR;
+  try {
+    mkdirSync(patchDir, { recursive: true });
+    writeFileSync(join(patchDir, binaryName), binary);
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    assert.equal(
+      seedVerifiedPatchBinaryCache(host.data, targetData, { manifestPath }),
+      true,
+    );
+    assert.deepEqual(
+      readdirSync(join(targetData, 'patch-bin')).sort(),
+      [binaryName, 'manifest.json'].sort(),
+    );
+    assert.deepEqual(readFileSync(join(targetData, 'patch-bin', binaryName)), binary);
+    assert.deepEqual(
+      readFileSync(join(targetData, 'patch-bin', 'manifest.json')),
+      Buffer.from(JSON.stringify(manifest)),
+    );
+
+    writeFileSync(join(patchDir, binaryName), 'corrupt');
+    const corruptTarget = join(host.root, 'corrupt-target-data');
+    assert.equal(
+      seedVerifiedPatchBinaryCache(host.data, corruptTarget, { manifestPath }),
+      false,
+    );
+    assert.equal(existsSync(join(corruptTarget, 'patch-bin')), false);
+  } finally {
+    if (previousData === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousData;
+    rmSync(host.root, { recursive: true, force: true });
+  }
+});
+
 test('API-key auth is captured only for the selected provider and approved overrides are explicit', () => {
   const previous = {
     openai: process.env.OPENAI_API_KEY,
@@ -324,7 +377,10 @@ test('API-key 401 recovery modules cannot reload general behavioral config', () 
 test('runHeadlessRole audits the isolated boundary and never invokes a provider in this test', async () => {
   const host = fixtureHost();
   const previousData = process.env.MIXDOG_DATA_DIR;
+  const previousTrace = process.env.MIXDOG_AGENT_TRACE_PATH;
+  const tracePath = join(host.root, 'bench-trace', 'agent-trace.jsonl');
   process.env.MIXDOG_DATA_DIR = host.data;
+  process.env.MIXDOG_AGENT_TRACE_PATH = tracePath;
   let ephemeralRoot;
   let spawnArgs;
   const errors = [];
@@ -343,6 +399,7 @@ test('runHeadlessRole audits the isolated boundary and never invokes a provider 
       write: () => {},
       writeErr: (text) => errors.push(text),
       agentRunnerFactory: async (_cwd, boundary) => {
+        const { appendAgentTrace } = await import('../src/runtime/agent/orchestrator/agent-trace.mjs');
         factoryCalls += 1;
         ephemeralRoot = process.env.MIXDOG_HOME;
         assert.deepEqual(Object.keys(boundary.loadConfig().providers), ['openai-oauth']);
@@ -355,6 +412,10 @@ test('runHeadlessRole audits the isolated boundary and never invokes a provider 
           async execute(args) {
             if (args.type === 'spawn') {
               spawnArgs = args;
+              appendAgentTrace({
+                kind: 'headless-pristine-trace-test',
+                session_id: 'sess_headless_pristine_trace',
+              });
               return 'fixture completed without provider';
             }
             if (args.type === 'close') {
@@ -374,6 +435,7 @@ test('runHeadlessRole audits the isolated boundary and never invokes a provider 
     assert.match(errors.join(''), /pristine-execution-audit v1/);
     assert.match(errors.join(''), /personal-files=0/);
     assert.equal(existsSync(ephemeralRoot), false);
+    assert.match(readFileSync(tracePath, 'utf8'), /"session_id":"sess_headless_pristine_trace"/);
     assert.equal(closeKeptSignalHandler, true);
     assert.equal(boundaryCleanupKeptSignalHandler, true);
     assert.equal(process.listenerCount('SIGTERM'), signalListenerBaseline);
@@ -392,6 +454,8 @@ test('runHeadlessRole audits the isolated boundary and never invokes a provider 
   } finally {
     if (previousData === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousData;
+    if (previousTrace === undefined) delete process.env.MIXDOG_AGENT_TRACE_PATH;
+    else process.env.MIXDOG_AGENT_TRACE_PATH = previousTrace;
     rmSync(host.root, { recursive: true, force: true });
   }
 });
@@ -407,7 +471,10 @@ function childExit(child, label) {
 }
 
 test('headless child signals close the runner and remove the pristine boundary', async () => {
-  for (const [signal, expectedCode] of [['SIGTERM', 143], ['SIGHUP', 129]]) {
+  for (const [signal, expectedCode, hangClose] of [
+    ['SIGTERM', 143, true],
+    ['SIGHUP', 129, false],
+  ]) {
     const host = fixtureHost();
     const readyPath = join(host.root, `${signal}.ready`);
     const rootPath = join(host.root, `${signal}.root`);
@@ -432,6 +499,7 @@ await runHeadlessRole({
       }
       if (args.type === 'close') {
         writeFileSync(process.env.CLOSED_PATH, 'closed');
+        if (process.env.HANG_CLOSE === '1') return new Promise(() => {});
         return '';
       }
       return new Promise(() => {});
@@ -449,6 +517,7 @@ await runHeadlessRole({
           ROOT_PATH: rootPath,
           CLOSED_PATH: closedPath,
           TEST_SIGNAL: signal,
+          HANG_CLOSE: hangClose ? '1' : '0',
         },
         stdio: ['ignore', 'ignore', 'pipe'],
       });
@@ -541,4 +610,5 @@ test('Terminal-Bench and Node consume the same pristine contract document', () =
     assert.ok(!PRISTINE_EXECUTION_CONTRACT.approvedExecutionEnv.includes(behavioralName));
     assert.ok(PRISTINE_EXECUTION_CONTRACT.benchmarkRouteEnv.includes(behavioralName));
   }
+  assert.ok(PRISTINE_EXECUTION_CONTRACT.approvedExecutionEnv.includes('MIXDOG_AGENT_TRACE_PATH'));
 });
