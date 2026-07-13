@@ -160,6 +160,11 @@ const RUNNERS = {
     return { sessionId: extractSessionId(raw), ok, ms: Date.now() - started, raw };
   },
   async mixdog(task, opts) {
+    if (!opts.provider || !opts.model) {
+      throw new Error(
+        'mixdog headless runner requires explicit --provider and --model (or a model alias)',
+      );
+    }
     const driver = [
       `import { runHeadlessRole } from ${JSON.stringify(HEADLESS)};`,
       `const out = [];`,

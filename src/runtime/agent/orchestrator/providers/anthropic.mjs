@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { loadConfig } from '../config.mjs';
+import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
 import { classifyError, midstreamBackoffFor, sleepWithAbort, withRetry, retryAfterMsFromError } from './retry-classifier.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
@@ -538,11 +538,11 @@ export class AnthropicProvider {
     }
     reloadApiKey() {
         try {
-            const freshConfig = loadConfig();
-            const cfg = freshConfig.providers?.[this.name] || freshConfig.providers?.anthropic;
-            const newKey = cfg?.apiKey || this.config.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
+            const newKey = getAgentApiKey(this.name)
+                || this.config.apiKey
+                || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
             if (newKey) {
-                this.config = { ...(this.config || {}), ...(cfg || {}), apiKey: newKey };
+                this.config = { ...(this.config || {}), apiKey: newKey };
                 const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders({ toolSearch: true });
                 this.client = new (loadAnthropic())({
                     apiKey: newKey,
@@ -564,7 +564,7 @@ export class AnthropicProvider {
         } catch (err) {
             if (err.message && (err.message.includes('401') || err.message.includes('403'))
                 && !err.liveTextEmitted && !err.emittedToolCall && !err.unsafeToRetry) {
-                process.stderr.write(`[provider] Auth error, re-reading config...\n`);
+                process.stderr.write(`[provider] Auth error, re-reading provider authentication...\n`);
                 this.reloadApiKey();
                 return await this._doSend(messages, model, tools, sendOpts);
             }

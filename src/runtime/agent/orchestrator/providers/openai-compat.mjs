@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { loadConfig } from '../config.mjs';
+import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { withRetry } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
@@ -152,13 +152,11 @@ export class OpenAICompatProvider {
     }
     reloadApiKey() {
         try {
-            const freshConfig = loadConfig();
-            const cfg = freshConfig.providers?.[this.name];
             const preset = PRESETS[this.name];
-            const newKey = cfg?.apiKey || this.config.apiKey;
-            const baseURL = assertSafeBaseURL(cfg?.baseURL || this.config.baseURL || preset?.baseURL || 'http://localhost:8080/v1', this.name);
+            const newKey = getAgentApiKey(this.name) || this.config.apiKey;
+            const baseURL = assertSafeBaseURL(this.config.baseURL || preset?.baseURL || 'http://localhost:8080/v1', this.name);
             if (newKey) {
-                this.config = { ...(this.config || {}), ...(cfg || {}), apiKey: newKey, baseURL };
+                this.config = { ...(this.config || {}), apiKey: newKey, baseURL };
                 this.baseURL = baseURL;
                 this.apiKey = newKey;
                 this.defaultHeaders = { ...(preset?.extraHeaders || {}), ...(this.config.extraHeaders || {}) };
@@ -180,7 +178,7 @@ export class OpenAICompatProvider {
                 if (err.liveTextEmitted === true || err.emittedToolCall === true || err.unsafeToRetry === true) {
                     throw err;
                 }
-                process.stderr.write(`[provider] Auth error, re-reading config...\n`);
+                process.stderr.write(`[provider] Auth error, re-reading provider authentication...\n`);
                 this.reloadApiKey();
                 return await this._doSend(messages, model, tools, sendOpts);
             }

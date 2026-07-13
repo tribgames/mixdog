@@ -3,31 +3,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { ensureProcessListenerHeadroom } from './runtime/shared/process-listener-headroom.mjs';
+import {
+  classifyCliInvocation,
+  parseHeadlessRoleCommand,
+} from './headless-command.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// --workflow is consumed (with its value) but ignored on the headless role
-// path: workflow selection is Lead-session-scoped. Accepting it keeps a
-// mistakenly passed `--workflow X` from leaking "X" into the role message.
-const VALUE_OPTIONS = new Set(['--provider', '--model', '--effort', '--workflow']);
-const FLAG_OPTIONS = new Set(['--readonly', '--help', '-h', '--plain', '--react', '--remote', '--onboarding']);
-const HEADLESS_FLAG_OPTIONS = new Set(['--fast']);
-const HEADLESS_ROLE_ALIASES = new Map([
-  ['explorer', 'explore'],
-  ['explore', 'explore'],
-  ['maint', 'maintainer'],
-  ['maintenance', 'maintainer'],
-  ['maintainer', 'maintainer'],
-  ['worker', 'worker'],
-  ['heavy', 'heavy-worker'],
-  ['heavyworker', 'heavy-worker'],
-  ['heavy-worker', 'heavy-worker'],
-  ['review', 'reviewer'],
-  ['reviewer', 'reviewer'],
-  ['debug', 'debugger'],
-  ['debugger', 'debugger'],
-  ['web', 'web-researcher'],
-  ['web-researcher', 'web-researcher'],
-]);
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
 const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
 
@@ -49,55 +30,7 @@ function bootProfile(event, fields = {}) {
   try { process.stderr.write(`${parts.join(' ')}\n`); } catch {}
 }
 
-function unknownOption(argv) {
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (VALUE_OPTIONS.has(arg)) {
-      i += 1;
-      continue;
-    }
-    if (FLAG_OPTIONS.has(arg)) continue;
-    if (HEADLESS_FLAG_OPTIONS.has(arg)) continue;
-    if (String(arg || '').startsWith('-')) return arg;
-  }
-  return null;
-}
-
-function positionalArgs(argv) {
-  const out = [];
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (VALUE_OPTIONS.has(arg)) {
-      i += 1;
-      continue;
-    }
-    if (FLAG_OPTIONS.has(arg)) continue;
-    if (HEADLESS_FLAG_OPTIONS.has(arg)) continue;
-    if (String(arg || '').startsWith('-')) continue;
-    out.push(arg);
-  }
-  return out;
-}
-
-function normalizeHeadlessAgent(value) {
-  const key = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
-  return HEADLESS_ROLE_ALIASES.get(key) || null;
-}
-
-export function parseHeadlessRoleCommand(argv = []) {
-  const args = positionalArgs(argv);
-  if (args.length === 0) return null;
-
-  if (String(args[0] || '').toLowerCase() === 'role') {
-    return { error: 'usage: mixdog <role> <message...>' };
-  }
-
-  const agent = normalizeHeadlessAgent(args[0]);
-  if (!agent) return null;
-  const message = args.slice(1).join(' ').trim();
-  if (!message) return { error: `usage: mixdog ${args[0]} <message...>` };
-  return { agent, message };
-}
+export { parseHeadlessRoleCommand };
 
 /**
  * mixdog launcher.
@@ -107,57 +40,49 @@ export function parseHeadlessRoleCommand(argv = []) {
  * from this entry point.
  */
 export async function run(argv = []) {
-  bootProfile('run:start', { argv: argv.join(',') });
-  const badOption = unknownOption(argv);
-  if (badOption) {
-    process.stderr.write(`mixdog: unknown option ${badOption}\n`);
+  const invocation = classifyCliInvocation(argv);
+  // Headless commands establish their own audited environment after route
+  // validation; do not let an inherited MIXDOG_BOOT_PROFILE affect that path.
+  if (invocation.kind !== 'headless' && invocation.skipHostPrelude !== true) {
+    bootProfile('run:start', { argv: argv.join(',') });
+  }
+  if (invocation.kind === 'error') {
+    process.stderr.write(`mixdog: ${invocation.error}\n`);
     return 1;
   }
-
-  const provIdx = argv.indexOf('--provider');
-  const modelIdx = argv.indexOf('--model');
-  const effortIdx = argv.indexOf('--effort');
-  const toolMode = argv.includes('--readonly') ? 'readonly' : 'full';
-  const remote = argv.includes('--remote');
-  const forceOnboarding = argv.includes('--onboarding');
-  const opts = {
-    provider: provIdx >= 0 ? argv[provIdx + 1] : undefined,
-    model: modelIdx >= 0 ? argv[modelIdx + 1] : undefined,
-    effort: effortIdx >= 0 ? argv[effortIdx + 1] : undefined,
-    fast: argv.includes('--fast'),
-    toolMode,
-    remote,
-    forceOnboarding,
-  };
+  const opts = invocation.options;
 
   // `--help` / `-h`: keep this path tiny; do not import the REPL/runtime stack.
-  if (argv.includes('--help') || argv.includes('-h')) {
+  if (invocation.kind === 'help') {
     const { printHelp } = await import('./help.mjs');
     printHelp();
     return 0;
   }
 
   // `--plain`: the OLD readline REPL, kept as a strangler fallback.
-  if (argv.includes('--plain')) {
+  if (invocation.kind === 'plain') {
     const { runRepl } = await import('./repl.mjs');
     return await runRepl(opts);
   }
 
-  if (argv.includes('--react')) {
+  if (invocation.kind === 'react') {
     process.stderr.write('mixdog: --react was removed; run `mixdog` for the canonical TUI.\n');
     return 1;
   }
 
-  const headless = parseHeadlessRoleCommand(argv);
-  if (headless?.error) {
-    process.stderr.write(`mixdog: ${headless.error}\n`);
-    return 1;
-  }
-  if (headless) {
+  if (invocation.kind === 'headless') {
+    const { validateExplicitPristineRoute } = await import(
+      './runtime/shared/pristine-execution.mjs'
+    );
+    const routeError = validateExplicitPristineRoute(opts);
+    if (routeError) {
+      process.stderr.write(`mixdog: ${routeError}\n`);
+      return 1;
+    }
     const { runHeadlessRole } = await import('./headless-role.mjs');
     return await runHeadlessRole({
-      agent: headless.agent,
-      message: headless.message,
+      agent: invocation.headless.agent,
+      message: invocation.headless.message,
       provider: opts.provider,
       model: opts.model,
       effort: opts.effort,

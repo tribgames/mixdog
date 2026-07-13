@@ -9,11 +9,12 @@
  */
 import { createHash } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { getPluginData } from '../config.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
-import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { makeModelCache } from './model-cache.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
@@ -171,6 +172,10 @@ export async function ensureLatestCodexModel(provider) {
 }
 
 function getOwnTokenPath() {
+    const bound = boundProviderAuthPath('openai-oauth');
+    if (bound) return resolve(bound);
+    const explicit = process.env.OPENAI_OAUTH_CREDENTIALS_PATH;
+    if (explicit) return resolve(explicit);
     const dir = getPluginData();
     if (!existsSync(dir))
         mkdirSync(dir, { recursive: true });
@@ -254,6 +259,9 @@ function loadTokens() {
 function saveTokens(tokens) {
     const target = getOwnTokenPath();
     writeJsonAtomicSync(target, tokens, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+}
+function getRefreshLockPath() {
+    return `${getOwnTokenPath()}.refresh.lock`;
 }
 
 export function forgetOpenAIOAuthCredentials() {
@@ -682,7 +690,7 @@ export class OpenAIOAuthProvider {
         }
 
         const startingTokens = this.tokens || disk;
-        _oauthRefreshInFlight = (async () => {
+        _oauthRefreshInFlight = withFileLock(getRefreshLockPath(), async () => {
             const latest = loadTokens() || startingTokens;
             const latestValidAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
             if (latest?.access_token && latest.access_token !== currentToken
@@ -720,7 +728,7 @@ export class OpenAIOAuthProvider {
                 }
                 throw new Error(`OpenAI OAuth token refresh failed (${msg}). Re-authenticate via provider login.`);
             }
-        })().finally(() => { _oauthRefreshInFlight = null; });
+        }).finally(() => { _oauthRefreshInFlight = null; });
 
         this.tokens = await _oauthRefreshInFlight;
         return this.tokens;

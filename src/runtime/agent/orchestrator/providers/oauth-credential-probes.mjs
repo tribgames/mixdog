@@ -58,7 +58,10 @@ export function hasAnthropicOAuthCredentials() {
 
 export function hasOpenAIOAuthCredentials() {
   return memoProbe('openai-oauth', () => {
-    const paths = [join(resolvePluginData(), 'openai-oauth.json')];
+    const paths = [
+      process.env.OPENAI_OAUTH_CREDENTIALS_PATH,
+      join(resolvePluginData(), 'openai-oauth.json'),
+    ].filter(Boolean);
     for (const path of paths) {
         const raw = readJsonIfExists(path);
         if (raw?.access_token && raw?.refresh_token) return true;
@@ -69,7 +72,13 @@ export function hasOpenAIOAuthCredentials() {
 
 export function hasGrokOAuthCredentials() {
   return memoProbe('grok-oauth', () => {
-    const own = readJsonIfExists(join(resolvePluginData(), 'grok-oauth.json'));
-    return !!(own?.access_token && own?.refresh_token);
+    const paths = [
+      process.env.GROK_OAUTH_CREDENTIALS_PATH,
+      join(resolvePluginData(), 'grok-oauth.json'),
+    ].filter(Boolean);
+    return paths.some((path) => {
+      const own = readJsonIfExists(path);
+      return !!(own?.access_token && own?.refresh_token);
+    });
   });
 }

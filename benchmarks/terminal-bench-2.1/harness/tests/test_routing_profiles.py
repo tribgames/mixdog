@@ -27,6 +27,7 @@ from harness.routing_profiles import (  # noqa: E402
     PROFILE_PATH,
     PROFILE_ROLES,
     RouteProfileError,
+    build_benchmark_config,
     format_resolved_routes,
     load_route_profile,
     merge_route_profile,
@@ -466,6 +467,43 @@ class RoutingProfileTests(unittest.TestCase):
             original["agent"]["modelSettings"]["keep/keep"],
         )
         self.assertEqual(merged["unrelated"], original["unrelated"])
+
+    def test_benchmark_config_contains_only_profile_routes_and_workflow(self) -> None:
+        profile = load_route_profile("fable-xhigh")
+        config = build_benchmark_config(profile, "solo-review")
+        agent = config["agent"]
+
+        self.assertEqual(set(config), {"agent"})
+        self.assertEqual(
+            set(agent),
+            {
+                "providers",
+                "presets",
+                "default",
+                "workflow",
+                "workflowRoutes",
+                "agents",
+                "modelSettings",
+                "mcpServers",
+            },
+        )
+        self.assertEqual(agent["workflow"], {"active": "solo-review"})
+        self.assertEqual(agent["mcpServers"], {})
+        self.assertEqual(agent["workflowRoutes"], {"lead": profile["routes"]["lead"]})
+        self.assertNotIn("memory", agent["workflowRoutes"])
+        self.assertEqual(
+            set(agent["providers"]), {"anthropic-oauth", "openai-oauth"}
+        )
+        serialized = json.dumps(config)
+        for personal_key in (
+            "profile",
+            "plugins",
+            "channels",
+            "sessions",
+            "memory",
+            "outputStyle",
+        ):
+            self.assertNotIn(f'"{personal_key}"', serialized)
 
     def test_real_runtime_helpers_resolve_merged_lead_and_agent_routes(self) -> None:
         if shutil.which("node") is None:
@@ -1414,8 +1452,31 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             captured[0]["MIXDOG_DRIVER_DEADLINE_MS"],
             str(module.LEAD_INNER_DEADLINE_MS),
         )
+        self.assertEqual(captured[0]["MIXDOG_DISABLE_MCP"], "1")
+        self.assertEqual(captured[0]["MIXDOG_DISABLE_SKILLS"], "1")
+        self.assertEqual(captured[0]["MIXDOG_BOOT_CORE_MEMORY"], "0")
+        self.assertEqual(captured[0]["MIXDOG_DISABLE_CHANNEL_START"], "1")
+        self.assertEqual(
+            {
+                key: captured[0][key]
+                for key in module.PRISTINE_GUARD_ENV
+            },
+            module.PRISTINE_GUARD_ENV,
+        )
+        approved = set(module.PRISTINE_CONTRACT["approvedExecutionEnv"])
+        guarded = set(module.PRISTINE_GUARD_ENV)
+        auth = {"ANTHROPIC_OAUTH_CREDENTIALS_PATH"}
+        boundary = {"MIXDOG_DATA_DIR", "MIXDOG_HOME"}
+        self.assertTrue(
+            {
+                key
+                for key in captured[0]
+                if key.startswith("MIXDOG_")
+            }
+            <= approved | guarded | auth | boundary
+        )
 
-    def test_injection_uploads_preflight_snapshot_not_mutable_host_credentials(self) -> None:
+    def test_injection_is_allowlisted_and_emits_non_secret_pristine_audit(self) -> None:
         module = self.load_adapter_module()
         with tempfile.TemporaryDirectory(prefix="mixdog-credential-inject-") as temp:
             data = Path(temp)
@@ -1423,7 +1484,28 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             host_bytes = b'{"claudeAiOauth":{"accessToken":"host-fixture"}}'
             snapshot_bytes = b'{"claudeAiOauth":{"accessToken":"snapshot-fixture"}}'
             host_credentials.write_bytes(host_bytes)
-            (data / "mixdog-config.json").write_text("{}", encoding="utf-8")
+            (data / "openai-oauth.json").write_text(
+                '{"access_token":"openai-fixture"}', encoding="utf-8"
+            )
+            (data / "anthropic-oauth-models.json").write_text(
+                '{"models":[]}', encoding="utf-8"
+            )
+            (data / "openai-oauth-models.json").write_text(
+                '{"models":[]}', encoding="utf-8"
+            )
+            personal_files = {
+                "mixdog-config.json": '{"hostSecret":"must-not-copy"}',
+                "grok-oauth.json": '{"access_token":"unselected"}',
+                "profile.json": '{"title":"personal"}',
+                "plugins/registry.json": '{"plugins":[]}',
+                "sessions/personal.json": '{"messages":[]}',
+                "memory/core.json": '{"memory":"personal"}',
+                "channels/discord.json": '{"token":"personal"}',
+            }
+            for relative, content in personal_files.items():
+                path = data / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
             uploads = {}
             preflight_calls = []
 
@@ -1434,7 +1516,10 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                     uploads[destination] = Path(source).read_bytes()
 
             agent = module.MixdogAgent.__new__(module.MixdogAgent)
-            agent._route_profile = None
+            agent._route_profile_name = "fable-xhigh"
+            agent._route_profile = load_route_profile("fable-xhigh")
+            agent._workflow = "default"
+            agent._mode = "lead"
 
             async def exec_as_root(environment, *, command, env=None):
                 return None
@@ -1469,6 +1554,39 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 uploads[module.CONTAINER_CREDS_PATH], snapshot_bytes
             )
             self.assertEqual(host_credentials.read_bytes(), host_bytes)
+            uploaded_names = {
+                Path(destination).name for destination in uploads
+            }
+            self.assertEqual(
+                uploaded_names,
+                {
+                    "mixdog-config.json",
+                    "anthropic-oauth-credentials.json",
+                    "openai-oauth.json",
+                    "anthropic-oauth-models.json",
+                    "openai-oauth-models.json",
+                    module.PERSONAL_STATE_AUDIT_NAME,
+                },
+            )
+            generated_config = json.loads(
+                uploads[f"{module.CONTAINER_DATA_DIR}/mixdog-config.json"]
+            )
+            self.assertEqual(
+                generated_config,
+                build_benchmark_config(agent._route_profile, "default"),
+            )
+            self.assertNotIn("must-not-copy", json.dumps(generated_config))
+            audit = json.loads(
+                uploads[module.CONTAINER_PERSONAL_STATE_AUDIT]
+            )
+            self.assertEqual(audit["personalState"]["behavioralStateFilesCopied"], 0)
+            self.assertFalse(audit["personalState"]["hostConfigRead"])
+            self.assertTrue(
+                all(value is False for value in audit["featuresEnabled"].values())
+            )
+            serialized_audit = json.dumps(audit)
+            for secret in ("host-fixture", "snapshot-fixture", "openai-fixture"):
+                self.assertNotIn(secret, serialized_audit)
 
     def test_worker_command_enforces_lease_derived_whole_run_timeout(self) -> None:
         module = self.load_adapter_module()
@@ -1480,8 +1598,20 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         agent.exec_as_agent = exec_as_agent
         base_env = {"SENTINEL": "preserved"}
+        worker_route = {
+            "provider": "openai-oauth",
+            "model": "gpt-worker",
+            "effort": "high",
+            "fast": True,
+        }
         asyncio.run(
-            agent._run_worker(object(), "fixture instruction", "fixture-model", base_env)
+            agent._run_worker(
+                object(),
+                "fixture instruction",
+                "fixture-model",
+                base_env,
+                worker_route=worker_route,
+            )
         )
 
         command, child_env = captured[0]
@@ -1495,6 +1625,10 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertIn("whole-process deadline exceeded", command)
         self.assertIn("process group terminated before OAuth lease expiry", command)
         self.assertIn('exit "$status"', command)
+        self.assertIn(
+            "mixdog --provider openai-oauth --model gpt-worker --effort high --fast worker",
+            command,
+        )
         self.assertEqual(child_env, base_env)
 
     def test_usage_totals_populate_supported_harbor_context_fields(self) -> None:

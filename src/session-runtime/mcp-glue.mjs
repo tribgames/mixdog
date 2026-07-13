@@ -13,6 +13,9 @@ import { readProjectMcpServers } from './plugin-mcp.mjs';
 // Invalidated automatically on any mtime change (or create/delete via mtime=0).
 const projectMcpCache = new Map();
 const PROJECT_MCP_CACHE_MAX = 32;
+function mcpDisabled() {
+  return /^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_MCP || ''));
+}
 function cachedProjectMcpServers(cwd) {
   const path = resolve(cwd || '.', '.mcp.json');
   let mtimeMs = 0;
@@ -48,6 +51,8 @@ export function createMcpGlue({
   // (precedence: project > user config). `sources[name]` records each server's
   // origin ('config' | 'project') for status reporting.
   function resolveEffectiveMcpServers() {
+    // Benchmark/embedding guard: do not even inspect project `.mcp.json`.
+    if (mcpDisabled()) return { servers: {}, sources: {} };
     const config = getConfig();
     const configured = config?.mcpServers && typeof config.mcpServers === 'object'
       ? config.mcpServers
@@ -61,6 +66,9 @@ export function createMcpGlue({
   }
 
   function mcpStatus() {
+    if (mcpDisabled()) {
+      return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };
+    }
     const { servers: configured, sources } = resolveEffectiveMcpServers();
     const connected = new Map((mcpClient.getMcpServerStatus?.() || []).map((row) => [row.name, row]));
     const failures = new Map((state.mcpFailures || []).map((row) => [row.name, row]));
@@ -129,6 +137,13 @@ export function createMcpGlue({
   }
 
   async function connectConfiguredMcp({ reset = false, only = null, enabled = true } = {}) {
+    if (mcpDisabled()) {
+      ++state.mcpConnectGeneration;
+      state.mcpFailures = [];
+      if (only) await mcpClient.disconnectMcpServer?.(only);
+      else await mcpClient.disconnectAll?.();
+      return mcpStatus();
+    }
     // Scoped single-server toggle: non-superseding. It must NEVER cancel a
     // pending full {reset} (cwd-change/boot). So do not bump the generation;
     // just wait for any in-flight run, then bail if a newer full reset has

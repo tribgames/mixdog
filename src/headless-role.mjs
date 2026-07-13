@@ -1,8 +1,13 @@
 import { stdout, stderr } from 'node:process';
-import { createStandaloneAgent } from './standalone/agent-tool.mjs';
-import * as cfgMod from './runtime/agent/orchestrator/config.mjs';
-import * as reg from './runtime/agent/orchestrator/providers/registry.mjs';
-import * as mgr from './runtime/agent/orchestrator/session/manager.mjs';
+import {
+  createPristineExecutionBoundary,
+  formatPristineExecutionAudit,
+  validateExplicitPristineRoute,
+} from './runtime/shared/pristine-execution.mjs';
+import {
+  installProcessSignalCleanup,
+  waitWithTimeout,
+} from './runtime/shared/process-shutdown.mjs';
 
 const TERMINAL_STATUS_RE = /^status:\s*(completed|failed|error|cancelled|canceled)\b/im;
 const FAILURE_STATUS_RE = /^status:\s*(failed|error|cancelled|canceled)\b/im;
@@ -40,10 +45,27 @@ export function buildHeadlessSpawnArgs({ agent, tag, cwd, message, provider, mod
   return spawnArgs;
 }
 
-function buildAgentRunner(cwd) {
+const HEADLESS_CLOSE_TIMEOUT_MS = 5000;
+const HEADLESS_SHUTDOWN_TIMEOUT_MS = 6000;
+
+async function buildAgentRunner(cwd, boundary) {
+  // Import runtime/config modules only after MIXDOG_DATA_DIR and all behavioral
+  // guards point at the ephemeral pristine boundary.
+  const [
+    { createStandaloneAgent },
+    cfgMod,
+    reg,
+    mgr,
+  ] = await Promise.all([
+    import('./standalone/agent-tool.mjs'),
+    import('./runtime/agent/orchestrator/config.mjs'),
+    import('./runtime/agent/orchestrator/providers/registry.mjs'),
+    import('./runtime/agent/orchestrator/session/manager.mjs'),
+  ]);
   return createStandaloneAgent({
     cfgMod: {
-      loadConfig: cfgMod.loadConfig,
+      // Never call the general loader here: it scans every OS-keychain provider.
+      loadConfig: boundary.loadConfig,
       resolveRuntimeSpec: cfgMod.resolveRuntimeSpec,
     },
     reg,
@@ -63,6 +85,7 @@ export async function runHeadlessRole({
   cwd = process.cwd(),
   write = (text) => stdout.write(text),
   writeErr = (text) => stderr.write(text),
+  agentRunnerFactory = buildAgentRunner,
 } = {}) {
   const cleanAgent = clean(agent);
   const cleanMessage = clean(message);
@@ -74,8 +97,12 @@ export async function runHeadlessRole({
     writeErr('mixdog: message is required\n');
     return 1;
   }
+  const routeError = validateExplicitPristineRoute({ provider, model, effort, fast });
+  if (routeError) {
+    writeErr(`mixdog: ${routeError}\n`);
+    return 1;
+  }
 
-  const agentRunner = buildAgentRunner(cwd);
   const tag = makeTag(cleanAgent);
   const context = {
     invocationSource: 'headless',
@@ -94,9 +121,45 @@ export async function runHeadlessRole({
     fast,
   });
 
+  let boundary = null;
+  let agentRunner = null;
+  let signalCleanup = null;
+  let cleanupPromise = null;
   let taskId = null;
   let lastOutput = '';
+  const cleanup = (reason = 'headless-exit') => {
+    if (cleanupPromise) return cleanupPromise;
+    cleanupPromise = (async () => {
+      try {
+        if (agentRunner) {
+          await waitWithTimeout(
+            agentRunner.execute({ type: 'close', tag }, context),
+            HEADLESS_CLOSE_TIMEOUT_MS,
+            'headless agent close',
+          );
+        }
+      } catch {
+        // Boundary cleanup is mandatory even when the runtime close hangs.
+      } finally {
+        boundary?.cleanup();
+      }
+    })();
+    return cleanupPromise;
+  };
   try {
+    try {
+      boundary = createPristineExecutionBoundary({ provider, model, effort, fast });
+    } catch (error) {
+      writeErr(`mixdog: ${error?.message || error}\n`);
+      return 1;
+    }
+    writeErr(`${formatPristineExecutionAudit(boundary.audit)}\n`);
+    signalCleanup = installProcessSignalCleanup({
+      name: 'mixdog-headless',
+      timeoutMs: HEADLESS_SHUTDOWN_TIMEOUT_MS,
+      cleanup,
+    });
+    agentRunner = await agentRunnerFactory(cwd, boundary);
     const started = await agentRunner.execute(spawnArgs, context);
     lastOutput = clean(started);
     taskId = taskIdFromOutput(started);
@@ -115,9 +178,9 @@ export async function runHeadlessRole({
     return FAILURE_STATUS_RE.test(lastOutput) ? 1 : 0;
   } finally {
     try {
-      await agentRunner.execute({ type: 'close', tag }, context);
-    } catch {
-      // Best-effort cleanup only; the command result above is the useful signal.
+      await cleanup('headless-exit');
+    } finally {
+      signalCleanup?.uninstall();
     }
   }
 }

@@ -19,7 +19,7 @@ import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
-import { loadConfig } from '../config.mjs';
+import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import {
     resolveProviderCacheKey,
     resolveProviderPromptCacheLane,
@@ -57,17 +57,15 @@ export class OpenAIDirectProvider {
         return k;
     }
     // Auth-recovery mirror of openai-compat.reloadApiKey: on a 401/403 the key
-    // was likely rotated in config after this provider instance was built, so
-    // re-read providers.openai.apiKey from disk before the single retry.
+    // was likely rotated after this provider instance was built, so re-read
+    // only OpenAI's environment/keychain sources before the single retry.
     // Returns the fresh key (or null if none) — no client to rebuild here since
     // the WS/HTTP transports take the key per-call via the `auth` object.
     reloadApiKey() {
         try {
-            const freshConfig = loadConfig();
-            const cfg = freshConfig.providers?.openai;
-            const newKey = cfg?.apiKey || this.config.apiKey;
+            const newKey = getAgentApiKey('openai') || this.config.apiKey;
             if (newKey) {
-                this.config = { ...(this.config || {}), ...(cfg || {}), apiKey: newKey };
+                this.config = { ...(this.config || {}), apiKey: newKey };
                 return newKey;
             }
         } catch { /* best effort */ }
@@ -185,7 +183,7 @@ export class OpenAIDirectProvider {
             const unsafeToRetry = err?.liveTextEmitted === true
                 || err?.emittedToolCall === true
                 || err?.unsafeToRetry === true;
-            // (1) 401/403 → reload apiKey from config and retry once over WS.
+            // (1) 401/403 → reload only OpenAI auth and retry once over WS.
             //     shouldFallbackTransport denies 401/403, so this branch owns
             //     its own guard.
             if ((status === 401 || status === 403) && !unsafeToRetry) {

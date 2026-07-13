@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "configFileName": "mixdog-config.json",
+  "guardEnv": {
+    "MIXDOG_DISABLE_MCP": "1",
+    "MIXDOG_DISABLE_SKILLS": "1",
+    "MIXDOG_BOOT_CORE_MEMORY": "0",
+    "MIXDOG_DISABLE_CHANNEL_START": "1",
+    "MIXDOG_SKIP_USER_DATA_BACKUP": "1",
+    "MIXDOG_DISABLE_STAGED_INSTALL": "1",
+    "MIXDOG_DISABLE_STAGED_SWAP": "1"
+  },
+  "approvedExecutionEnv": [
+    "MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED",
+    "MIXDOG_DRIVER_DEADLINE_MS",
+    "MIXDOG_DISABLE_PROVIDER_WARMUP",
+    "MIXDOG_DISABLE_MODEL_PREFETCH",
+    "MIXDOG_DISABLE_MODEL_CATALOG_WARMUP",
+    "MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS",
+    "MIXDOG_STALL_FIRST_BYTE_ABORT_S"
+  ],
+  "benchmarkRouteEnv": [
+    "MIXDOG_PROMPT",
+    "MIXDOG_PROVIDER",
+    "MIXDOG_MODEL",
+    "MIXDOG_EFFORT",
+    "MIXDOG_FAST",
+    "MIXDOG_WORKFLOW"
+  ],
+  "oauthProviders": {
+    "anthropic-oauth": {
+      "credentialFile": "anthropic-oauth-credentials.json",
+      "credentialPathEnv": "ANTHROPIC_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "anthropic-oauth-models.json"
+    },
+    "openai-oauth": {
+      "credentialFile": "openai-oauth.json",
+      "credentialPathEnv": "OPENAI_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "openai-oauth-models.json"
+    },
+    "grok-oauth": {
+      "credentialFile": "grok-oauth.json",
+      "credentialPathEnv": "GROK_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "grok-oauth-models.json"
+    }
+  },
+  "apiKeyProviders": {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "xai": "XAI_API_KEY",
+    "opencode-go": "OPENCODE_API_KEY"
+  },
+  "personalStateCounters": [
+    "behavioralStateFilesCopied",
+    "memoryFilesCopied",
+    "sessionFilesCopied",
+    "userProfileFilesCopied",
+    "pluginStateFilesCopied",
+    "channelStateFilesCopied",
+    "otherPersonalStateFilesCopied"
+  ],
+  "disabledFeatures": [
+    "mcpSources",
+    "skills",
+    "bundledSkillSeeding",
+    "coreMemoryBoot",
+    "channelStart",
+    "plugins",
+    "userProfiles",
+    "priorSessions"
+  ]
+}

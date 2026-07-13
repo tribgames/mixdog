@@ -9,6 +9,10 @@ import {
 } from '../../../shared/markdown-frontmatter.mjs';
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
 
+function skillsDisabled() {
+    return /^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_SKILLS || ''));
+}
+
 // --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
 // Project-local:  <cwd>/.mixdog/<kind>
 // Data-local:     <mixdogData>/<kind>   (standalone default: ~/.mixdog/data/<kind>)
@@ -80,6 +84,7 @@ function pluginSkillDirs() {
  * Full content loaded on demand via loadSkillContent().
  */
 export function collectSkills(cwd) {
+    if (skillsDisabled()) return [];
     // When cwd is null/missing (e.g. agent maintenance callers that pass
     // cwd:null on purpose so provider-cache shards don't fork per caller
     // workspace), skip project-scoped skills entirely — DO NOT fall back
@@ -144,6 +149,7 @@ export function isSkillDisabled(name, config = null) {
 }
 
 export function filterSkillsExcludingDisabled(skills, config = null) {
+    if (skillsDisabled()) return [];
     const disabled = getDisabledSkillNameSet(config);
     if (!disabled.size) return Array.isArray(skills) ? skills : [];
     return (Array.isArray(skills) ? skills : []).filter((s) => {
@@ -160,6 +166,7 @@ const _skillsCache = new Map();
 const _mtimeCache = new Map();
 const _MTIME_TTL_MS = 2000;
 export function collectSkillsCached(cwd) {
+    if (skillsDisabled()) return [];
     const key = cwd ?? '';
     const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
     // Same mixdog-owned dirs collectSkills() reads, used as the freshness gate.
@@ -278,6 +285,7 @@ function compactSkillManifestText(value, max = 180) {
  * Full SKILL.md content is still loaded only through Skill(name).
  */
 export function buildSkillManifest(skills, { limit = 80 } = {}) {
+    if (skillsDisabled()) return '';
     const list = (Array.isArray(skills) ? skills : [])
         .map((skill) => ({
             name: String(skill?.name || '').trim(),
@@ -507,6 +515,7 @@ let _skillToolDefsCache = null;
  *   behaviour.
  */
 export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {}) {
+    if (skillsDisabled()) return [];
     if (!ownerIsAgentSession && !skills.length) return [];
     if (_skillToolDefsCache) return _skillToolDefsCache;
     _skillToolDefsCache = [

@@ -139,6 +139,59 @@ def load_route_profile(
     return copy.deepcopy(profiles[profile_name])
 
 
+def build_benchmark_config(
+    profile: dict[str, Any], workflow: str = "default"
+) -> dict[str, Any]:
+    """Build a deterministic config containing benchmark-owned routing only."""
+    validate_profile_document(
+        {"schemaVersion": 1, "profiles": {"selected": copy.deepcopy(profile)}}
+    )
+    selected_workflow = str(workflow or "").strip() or "default"
+    routes = profile["routes"]
+    lead_route = copy.deepcopy(routes["lead"])
+    providers = {
+        route["provider"]
+        for route in routes.values()
+    }
+    if "leadFallback" in profile:
+        providers.add(profile["leadFallback"]["provider"])
+    provider_config = {
+        provider: {
+            "enabled": True,
+            **({"websocket": True} if provider == "openai-oauth" else {}),
+        }
+        for provider in sorted(providers)
+    }
+    return {
+        "agent": {
+            "providers": provider_config,
+            "presets": [
+                {
+                    "id": PROFILE_LEAD_PRESET_ID,
+                    "name": "TERMINAL BENCH ROUTE PROFILE LEAD",
+                    "type": "agent",
+                    "tools": "full",
+                    **copy.deepcopy(lead_route),
+                }
+            ],
+            "default": PROFILE_LEAD_PRESET_ID,
+            "workflow": {"active": selected_workflow},
+            "workflowRoutes": {"lead": copy.deepcopy(lead_route)},
+            "agents": {
+                config_key: copy.deepcopy(routes[role])
+                for role, config_key in AGENT_CONFIG_KEYS.items()
+            },
+            "modelSettings": {
+                f"{lead_route['provider']}/{lead_route['model']}": {
+                    "effort": lead_route["effort"],
+                    "fast": lead_route["fast"],
+                }
+            },
+            "mcpServers": {},
+        }
+    }
+
+
 def reject_profile_conflicts(
     profile_name: str | None,
     *,

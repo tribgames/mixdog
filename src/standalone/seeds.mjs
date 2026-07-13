@@ -22,6 +22,7 @@ export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
 // user data skills dir, but only when the target dir does not already exist —
 // never overwrite user-owned skill dirs.
 export function seedBundledSkills({ rootDir, dataDir }) {
+  if (/^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_SKILLS || ''))) return;
   const bundledDir = join(rootDir, 'defaults', 'skills');
   if (!existsSync(bundledDir)) return;
   const targetRoot = join(dataDir, 'skills');

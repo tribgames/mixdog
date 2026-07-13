@@ -38,9 +38,9 @@ from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 from .routing_profiles import (
+    build_benchmark_config,
     format_resolved_routes,
     load_route_profile,
-    merge_route_profile,
     reject_profile_conflicts,
 )
 from .src_overlay import (
@@ -56,9 +56,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MIXDOG_VERSION = json.loads(
     (_REPO_ROOT / "package.json").read_text(encoding="utf-8")
 )["version"]
-# No hard-coded model/workflow defaults: with neither a Harbor -m override nor
-# an explicit kwarg, the runtime boots the user's configured route + active
-# workflow from the copied mixdog-config.json.
+# Terminal-Bench always boots a benchmark-owned route profile and the stock
+# default workflow unless an explicit workflow is selected.
 
 # Prepended to the Lead instruction because the stock default workflow pauses
 # for interactive approval. Keep this narrow: broad execution directives
@@ -81,6 +80,12 @@ FALLBACK_STATE_ENV = "MIXDOG_TB_FALLBACK_STATE_DIR"
 # Git modified/untracked src file, then copied over the npm-installed package.
 # Paths are relative to src/ and to <npm root -g>/mixdog/src/.
 _REPO_SRC = _REPO_ROOT / "src"
+PRISTINE_CONTRACT = json.loads(
+    (_REPO_SRC / "runtime/shared/pristine-execution-contract.json").read_text(
+        encoding="utf-8"
+    )
+)
+PRISTINE_GUARD_ENV = PRISTINE_CONTRACT["guardEnv"]
 SRC_OVERLAY_FILES = STATIC_SRC_OVERLAY_FILES
 HOST_SRC_OVERLAY_APPLIER = Path(__file__).with_name("src_overlay_apply.mjs")
 CONTAINER_SRC_OVERLAY_APPLIER = f"{CONTAINER_DATA_DIR}/src_overlay_apply.mjs"
@@ -107,19 +112,18 @@ LEAD_INNER_DEADLINE_MS = (
     PROCESS_RUN_DEADLINE_S - LEAD_CLEANUP_GRACE_S
 ) * 1000
 
-# Boot files copied from the host data dir into the container so the in-container
-# runtime uses the user's REAL daily setup. mixdog-config.json defines the route
-# + active workflow + sub-agent routing; the glob'd files carry the provider
-# credentials (anthropic/openai/grok oauth) and model catalogs those routes need.
-# All are transferred via docker cp (upload_file) — never through shell args/logs.
-BOOT_FILE_NAMES = ["mixdog-config.json"]
-BOOT_FILE_GLOBS = [
-    "*-credentials.json",   # anthropic-oauth-credentials.json, ...
-    "*-oauth.json",         # openai-oauth.json, grok-oauth.json
-    "*-models.json",        # per-provider model caches (incl. *-oauth-models.json)
-    "litellm-catalog.json",
-    "modelsdev-catalog.json",
-]
+# Exact allow-list for provider material. Host config and behavioral state are
+# never read, globbed, merged, or copied.
+PROVIDER_CREDENTIAL_FILES = {
+    provider: entry["credentialFile"]
+    for provider, entry in PRISTINE_CONTRACT["oauthProviders"].items()
+}
+PROVIDER_MODEL_CATALOG_FILES = {
+    provider: entry["modelCatalogFile"]
+    for provider, entry in PRISTINE_CONTRACT["oauthProviders"].items()
+}
+PERSONAL_STATE_AUDIT_NAME = "personal-state-audit.json"
+CONTAINER_PERSONAL_STATE_AUDIT = f"/logs/agent/{PERSONAL_STATE_AUDIT_NAME}"
 
 
 def _host_data_dir() -> Path:
@@ -141,22 +145,32 @@ def _host_credentials_path() -> Path:
     return _host_data_dir() / "anthropic-oauth-credentials.json"
 
 
-def _collect_boot_files() -> dict[str, Path]:
-    """{container_filename: host_path} for config + provider creds + model caches."""
+def _collect_provider_files(providers: set[str]) -> dict[str, Path]:
+    """Collect exact credential/catalog files for selected route providers."""
     data_dir = _host_data_dir()
     files: dict[str, Path] = {}
-    for name in BOOT_FILE_NAMES:
-        p = data_dir / name
-        if p.is_file():
-            files[name] = p
-    for pattern in BOOT_FILE_GLOBS:
-        for p in sorted(data_dir.glob(pattern)):
-            if p.is_file():
-                files[p.name] = p
-    # Honor an explicit creds-path override even if it lives outside data_dir.
-    override = os.environ.get("ANTHROPIC_OAUTH_CREDENTIALS_PATH")
-    if override and Path(override).is_file():
-        files["anthropic-oauth-credentials.json"] = Path(override)
+    unsupported = sorted(set(providers) - set(PROVIDER_CREDENTIAL_FILES))
+    if unsupported:
+        raise RuntimeError(
+            "pristine benchmark credential injection does not support provider(s): "
+            + ", ".join(unsupported)
+        )
+    for provider in sorted(providers):
+        credential_name = PROVIDER_CREDENTIAL_FILES[provider]
+        credential_path = (
+            _host_credentials_path()
+            if provider == "anthropic-oauth"
+            else data_dir / credential_name
+        )
+        if not credential_path.is_file():
+            raise RuntimeError(
+                f"required {provider} credentials are unavailable; sign in on the host"
+            )
+        files[credential_name] = credential_path
+        catalog_name = PROVIDER_MODEL_CATALOG_FILES[provider]
+        catalog_path = data_dir / catalog_name
+        if catalog_path.is_file():
+            files[catalog_name] = catalog_path
     return files
 
 
@@ -184,6 +198,8 @@ def _run_anthropic_preflight(host_creds: Path, snapshot_path: Path) -> None:
     )
     if result.returncode != 0:
         detail = (result.stderr or "preflight process exited without diagnostics").strip()
+        for private_path in (host_creds, snapshot_path):
+            detail = detail.replace(str(private_path), "<credential-file>")
         raise RuntimeError(detail)
     if not snapshot_path.is_file():
         raise RuntimeError(
@@ -249,8 +265,8 @@ class MixdogAgent(BaseInstalledAgent):
         self._provider = provider
         # None => use the configured route effort; e.g. --ak effort=xhigh.
         self._effort = effort
-        # A profile is merged into a generated copy of the host config. The host
-        # file is never opened for writing.
+        # A selected profile is rendered into a benchmark-owned minimal config.
+        # Host config is never read.
         self._route_profile_name = route_profile
         self._route_profile = (
             load_route_profile(route_profile) if route_profile else None
@@ -298,74 +314,116 @@ class MixdogAgent(BaseInstalledAgent):
         )
 
     async def _inject_credentials(self, environment: BaseEnvironment) -> None:
-        host_creds = _host_credentials_path()
-        if not host_creds.is_file():
+        if self._route_profile is None:
             raise RuntimeError(
-                f"mixdog OAuth credentials not found at {host_creds}. "
-                "Sign in on the host (mixdog /providers) or set "
-                "ANTHROPIC_OAUTH_CREDENTIALS_PATH."
+                "Terminal-Bench pristine mode requires a selected route_profile"
             )
-        credential_snapshot_dir = tempfile.TemporaryDirectory(
-            prefix="mixdog-tb-anthropic-lease-"
-        )
-        credential_snapshot = (
-            Path(credential_snapshot_dir.name) / "anthropic-oauth-credentials.json"
-        )
+        routes = self._route_profile["routes"]
+        if self._mode == "worker":
+            required_providers = {routes["worker"]["provider"]}
+        else:
+            required_providers = {
+                route["provider"] for route in routes.values()
+            }
+            fallback = self._route_profile.get("leadFallback")
+            if fallback:
+                required_providers.add(fallback["provider"])
+        boot_files = _collect_provider_files(required_providers)
+        credential_snapshot_dir = None
+        generated_dir = tempfile.TemporaryDirectory(prefix="mixdog-tb-pristine-")
         try:
-            await asyncio.to_thread(
-                _run_anthropic_preflight, host_creds, credential_snapshot
+            if "anthropic-oauth" in required_providers:
+                credential_snapshot_dir = tempfile.TemporaryDirectory(
+                    prefix="mixdog-tb-anthropic-lease-"
+                )
+                credential_snapshot = (
+                    Path(credential_snapshot_dir.name)
+                    / "anthropic-oauth-credentials.json"
+                )
+                await asyncio.to_thread(
+                    _run_anthropic_preflight,
+                    boot_files["anthropic-oauth-credentials.json"],
+                    credential_snapshot,
+                )
+                # Never distribute the mutable host file. Every trial receives
+                # the owner-only snapshot written inside the serialized lease.
+                boot_files["anthropic-oauth-credentials.json"] = credential_snapshot
+
+            generated_root = Path(generated_dir.name)
+            generated_config = generated_root / "mixdog-config.json"
+            config = build_benchmark_config(
+                self._route_profile, self._workflow
             )
-        except Exception:
-            credential_snapshot_dir.cleanup()
-            raise
-        boot_files = _collect_boot_files()
-        # Never distribute the mutable host file. Every trial receives the
-        # exact owner-only snapshot written inside the serialized host lease.
-        boot_files["anthropic-oauth-credentials.json"] = credential_snapshot
-        if "mixdog-config.json" not in boot_files:
-            credential_snapshot_dir.cleanup()
-            raise RuntimeError(
-                f"mixdog-config.json not found in {_host_data_dir()}; cannot boot "
-                "the user's configured setup."
+            config_bytes = (
+                json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+            ).encode("utf-8")
+            generated_config.write_bytes(config_bytes)
+            credential_count = sum(
+                name in PROVIDER_CREDENTIAL_FILES.values()
+                for name in boot_files
             )
-        await self.exec_as_root(environment, command=f"mkdir -p {CONTAINER_DATA_DIR}")
-        # Generate a benchmark-only config copy before docker cp. Other boot
-        # files still upload directly; no host setup file is ever modified.
-        generated_dir = None
-        try:
-            if self._route_profile is not None:
-                host_config_path = boot_files["mixdog-config.json"]
-                try:
-                    host_config = json.loads(host_config_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError) as exc:
-                    raise RuntimeError(
-                        f"cannot read host mixdog config {host_config_path}: {exc}"
-                    ) from exc
-                merged_config = merge_route_profile(host_config, self._route_profile)
-                generated_dir = tempfile.TemporaryDirectory(
-                    prefix="mixdog-tb-route-"
-                )
-                generated_config = Path(generated_dir.name) / "mixdog-config.json"
-                generated_config.write_text(
-                    json.dumps(merged_config, indent=2, ensure_ascii=False) + "\n",
-                    encoding="utf-8",
-                )
-                boot_files = {**boot_files, "mixdog-config.json": generated_config}
-                print(
-                    format_resolved_routes(
-                        self._route_profile_name, self._route_profile
-                    ),
-                    flush=True,
-                )
+            catalog_count = sum(
+                name in PROVIDER_MODEL_CATALOG_FILES.values()
+                for name in boot_files
+            )
+            audit = {
+                "schemaVersion": 1,
+                "mode": "terminal-bench-pristine",
+                "routeProfile": self._route_profile_name,
+                "workflow": self._workflow,
+                "configSha256": hashlib.sha256(config_bytes).hexdigest(),
+                "providerIds": sorted(required_providers),
+                "injectedCredentialFileCount": credential_count,
+                "injectedModelCatalogFileCount": catalog_count,
+                "personalState": {
+                    "hostConfigRead": False,
+                    **{
+                        name: 0
+                        for name in PRISTINE_CONTRACT["personalStateCounters"]
+                    },
+                },
+                "featuresEnabled": {
+                    name: False
+                    for name in PRISTINE_CONTRACT["disabledFeatures"]
+                },
+            }
+            generated_audit = generated_root / PERSONAL_STATE_AUDIT_NAME
+            generated_audit.write_text(
+                json.dumps(audit, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            await self.exec_as_root(
+                environment,
+                command=(
+                    f"rm -rf {CONTAINER_DATA_DIR} && "
+                    f"mkdir -p {CONTAINER_DATA_DIR} /logs/agent"
+                ),
+            )
+            upload_files = {"mixdog-config.json": generated_config, **boot_files}
             # docker cp each file — token bytes never appear in a shell command/log.
-            for name, host_path in boot_files.items():
+            for name, host_path in upload_files.items():
                 await environment.upload_file(
                     host_path, f"{CONTAINER_DATA_DIR}/{name}"
                 )
+            await environment.upload_file(
+                generated_audit, CONTAINER_PERSONAL_STATE_AUDIT
+            )
+            print(
+                format_resolved_routes(
+                    self._route_profile_name, self._route_profile
+                ),
+                flush=True,
+            )
+            print(
+                "personal-state-audit v1 personal-files=0 host-config=0 "
+                "mcp=0 skills=0 core-memory=0 channels=0 "
+                f"credentials={credential_count} catalogs={catalog_count}",
+                flush=True,
+            )
         finally:
-            if generated_dir is not None:
-                generated_dir.cleanup()
-            credential_snapshot_dir.cleanup()
+            generated_dir.cleanup()
+            if credential_snapshot_dir is not None:
+                credential_snapshot_dir.cleanup()
         await self._inject_src_overlay(environment)
         # Own/secure the copied setup so the user mixdog can read it; OAuth
         # refresh is explicitly forbidden below. default_user None => root.
@@ -373,7 +431,10 @@ class MixdogAgent(BaseInstalledAgent):
         if user is not None:
             await self.exec_as_root(
                 environment,
-                command=f"chown -R {shlex.quote(str(user))} {CONTAINER_DATA_DIR}",
+                command=(
+                    f"chown -R {shlex.quote(str(user))} "
+                    f"{CONTAINER_DATA_DIR} /logs/agent"
+                ),
             )
         await self.exec_as_root(
             environment,
@@ -453,6 +514,7 @@ class MixdogAgent(BaseInstalledAgent):
         await self._inject_credentials(environment)
 
         base_env = {
+            **PRISTINE_GUARD_ENV,
             "ANTHROPIC_OAUTH_CREDENTIALS_PATH": CONTAINER_CREDS_PATH,
             "MIXDOG_DATA_DIR": CONTAINER_DATA_DIR,
             # Non-interactive: never open a browser / onboarding from the container.
@@ -467,6 +529,9 @@ class MixdogAgent(BaseInstalledAgent):
             "MIXDOG_DISABLE_PROVIDER_WARMUP": "1",
             "MIXDOG_DISABLE_MODEL_PREFETCH": "1",
             "MIXDOG_DISABLE_MODEL_CATALOG_WARMUP": "1",
+            # Pristine benchmark boundary: no project/config MCP, no skill
+            # discovery/seeding/tool surface, no personal core-memory boot, and
+            # no channel startup.
             # Bench-only decision cadence: cap explicit sync shell timeouts at
             # 2 min (blocking window), so promote-on-timeout delivers the
             # partial-output decision point early. Uniform time policy — no
@@ -496,7 +561,13 @@ class MixdogAgent(BaseInstalledAgent):
         )
         use_fallback = fallback_marker is not None and fallback_marker.is_file()
         if self._mode == "worker":
-            await self._run_worker(environment, instruction, model, base_env)
+            await self._run_worker(
+                environment,
+                instruction,
+                model,
+                base_env,
+                worker_route=self._route_profile["routes"]["worker"],
+            )
         else:
             try:
                 await self._run_lead(
@@ -584,13 +655,32 @@ class MixdogAgent(BaseInstalledAgent):
             # failures are all intentionally non-fatal.
             return
 
-    async def _run_worker(self, environment, instruction, model, base_env):
-        # Worker path still needs an explicit route; fall back to a sane model.
-        model = model or "claude-sonnet-4-5"
+    async def _run_worker(
+        self, environment, instruction, model, base_env, *, worker_route=None
+    ):
+        # A selected profile owns the direct-worker route just as it owns every
+        # Lead-spawned role route.
+        provider = (
+            worker_route["provider"]
+            if worker_route is not None
+            else self._provider or "anthropic-oauth"
+        )
+        model = (
+            worker_route["model"]
+            if worker_route is not None
+            else model or "claude-sonnet-4-5"
+        )
+        route_args = ""
+        if worker_route is not None:
+            route_args = (
+                f" --effort {shlex.quote(worker_route['effort'])}"
+                + (" --fast" if worker_route["fast"] else "")
+            )
         escaped_instruction = shlex.quote(instruction)
         worker_pipeline = (
             "mkdir -p /logs/agent; "
-            f"mixdog --provider anthropic-oauth --model {shlex.quote(model)} "
+            f"mixdog --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
+            f"{route_args} "
             f"worker {escaped_instruction} "
             "2>&1 | tee /logs/agent/mixdog.txt"
         )

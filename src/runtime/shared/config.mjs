@@ -14,6 +14,17 @@ import {
   loadLatestMixdogConfigFromBackup,
   hasUserDataInitMarker,
 } from './user-data-guard.mjs'
+import {
+  AGENT_PROVIDER_ENV,
+  AGENT_PROVIDER_ENV_ALIASES,
+  getAgentApiKey,
+} from './provider-api-key.mjs'
+
+export {
+  AGENT_PROVIDER_ENV,
+  AGENT_PROVIDER_ENV_ALIASES,
+  getAgentApiKey,
+}
 
 const _require = createRequire(import.meta.url)
 const { getSecret: _getSecret, setSecret: _setSecret, deleteSecret: _deleteSecret, hasSecret: _hasSecret } = _require('../../lib/keychain-cjs.cjs')
@@ -451,40 +462,6 @@ export function getTelegramToken() {
  */
 export function getWebhookAuthtoken() {
   return _readSecret(SECRET_ACCOUNTS.webhookAuth)
-}
-
-// Standard provider env names take precedence so existing OPENAI_API_KEY-style
-// exports keep working, then MIXDOG_AGENT_<P>_APIKEY, then the OS keychain.
-// SSOT for agent API-key providers: setup-server.mjs and config-merge.mjs import
-// this so UI key-presence detection uses the exact same predicate the runtime
-// loads from. Add a provider here and every path picks it up.
-export const AGENT_PROVIDER_ENV = Object.freeze({
-  openai: 'OPENAI_API_KEY', anthropic: 'ANTHROPIC_API_KEY', gemini: 'GEMINI_API_KEY',
-  deepseek: 'DEEPSEEK_API_KEY', xai: 'XAI_API_KEY', 'opencode-go': 'OPENCODE_API_KEY',
-})
-
-// Last-resort env aliases honored AFTER the standard env / MIXDOG_AGENT_* /
-// keychain sources. GROK_API_KEY is the established xAI alias elsewhere in the
-// repo (search discovery, xai-api/grok-oauth backends), so honoring it here
-// keeps provider discovery and dispatch resolving the same credential.
-export const AGENT_PROVIDER_ENV_ALIASES = Object.freeze({
-  xai: ['GROK_API_KEY'],
-})
-
-/**
- * Returns the API key for an agent provider.
- * Priority: <PROVIDER>_API_KEY env -> MIXDOG_AGENT_<PROVIDER>_APIKEY -> keychain('agent.<provider>.apiKey') -> alias env (e.g. GROK_API_KEY for xai) -> null.
- * Never reads mixdog-config.json — provider keys are keychain-only.
- */
-export function getAgentApiKey(provider) {
-  const std = AGENT_PROVIDER_ENV[provider]
-  if (std && process.env[std]) return process.env[std]
-  const fromStore = _readSecret(SECRET_ACCOUNTS.agentApiKey(provider))
-  if (fromStore) return fromStore
-  for (const alias of AGENT_PROVIDER_ENV_ALIASES[provider] || []) {
-    if (process.env[alias]) return process.env[alias]
-  }
-  return null
 }
 
 export function getOpenAIUsageSessionKey() {

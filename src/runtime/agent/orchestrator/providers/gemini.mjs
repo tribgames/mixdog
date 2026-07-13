@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { loadConfig } from '../config.mjs';
+import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage, appendAgentTrace } from '../agent-trace.mjs';
@@ -151,14 +151,14 @@ export class GeminiProvider {
 
     reloadApiKey() {
         try {
-            const freshConfig = loadConfig();
-            const cfg = freshConfig.providers?.gemini;
-            const newKey = cfg?.apiKey || process.env.GEMINI_API_KEY;
+            const newKey = getAgentApiKey('gemini')
+                || this.config?.apiKey
+                || process.env.GEMINI_API_KEY;
             if (newKey) {
                 // Keep this.config in sync so REST/cache paths (which read the
                 // key via _getApiKey() → this.config.apiKey) don't keep using
                 // the stale key after a rotation; genAI alone is not enough.
-                this.config = { ...(this.config || {}), ...(cfg || {}), apiKey: newKey };
+                this.config = { ...(this.config || {}), apiKey: newKey };
                 this.genAI = new GoogleGenerativeAI(newKey);
             }
         } catch { /* best effort */ }
@@ -481,7 +481,7 @@ export class GeminiProvider {
                 if (err.liveTextEmitted === true || err.emittedToolCall === true || err.unsafeToRetry === true) {
                     throw err;
                 }
-                process.stderr.write(`[provider] Auth error, re-reading config...\n`);
+                process.stderr.write(`[provider] Auth error, re-reading provider authentication...\n`);
                 this.reloadApiKey();
                 return await this._doSend(messages, model, tools, sendOpts);
             }

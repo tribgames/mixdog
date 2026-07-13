@@ -1051,7 +1051,7 @@ export async function createMixdogSessionRuntime({
   const toolsStartedAt = performance.now();
   const standaloneTools = [
     TOOL_SEARCH_TOOL,
-    SKILL_TOOL,
+    ...(envFlag('MIXDOG_DISABLE_SKILLS') ? [] : [SKILL_TOOL]),
     CWD_TOOL,
     SESSION_MANAGE_TOOL,
     EXPLORE_TOOL,

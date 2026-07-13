@@ -11,6 +11,7 @@ import { join, resolve } from 'path';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 
@@ -71,6 +72,8 @@ function _pushUnique(list, value) {
 }
 
 export function credentialCandidates() {
+    const bound = boundProviderAuthPath('anthropic-oauth');
+    if (bound) return [resolve(bound)];
     const explicit = process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH;
     if (explicit) return [resolve(explicit)];
     return [DEFAULT_CREDENTIALS_PATH];

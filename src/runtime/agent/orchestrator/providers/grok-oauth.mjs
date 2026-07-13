@@ -20,9 +20,10 @@
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
@@ -175,6 +176,10 @@ async function fetchDiscovery() {
 
 // --- Token store ---
 function getOwnTokenPath() {
+    const bound = boundProviderAuthPath('grok-oauth');
+    if (bound) return resolve(bound);
+    const explicit = process.env.GROK_OAUTH_CREDENTIALS_PATH;
+    if (explicit) return resolve(explicit);
     const dir = getPluginData();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     return join(dir, 'grok-oauth.json');
