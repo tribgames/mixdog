@@ -9,8 +9,6 @@ import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listene
 
 ensureProcessListenerHeadroom(64);
 
-const EXPLORE_NO_RELOOKUP_CONTRACT = 'Every returned requested path:line freezes the LOCATION only; read/code_graph detail inspection is valid when content was not returned; never re-locate it, and search only unresolved facets.';
-
 // Ported from the original mixdog tool-defs.mjs `explore` entry.
 // `aiWrapped` is dropped: in the standalone build there is no aiWrapped
 // dispatch hub — execution is wired directly in the runtime executor below
@@ -20,7 +18,7 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: `Broad/uncertain locator with no known path; use after input-state classification for repo anchors or out-of-repo/machine-wide locations. Hardened find searches dot-directories. Array = independent targets; array-first, facets in one query[] (max 8, parallel), never rephrasings. ${EXPLORE_NO_RELOOKUP_CONTRACT}`,
+  description: 'Locator for broad/uncertain targets with no known path, repo or machine-wide (dot dirs included). Array = independent targets: query[] fans out facets (max 8), never rephrasings.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -52,11 +50,15 @@ const EXPLORE_RESULT_CACHE_TTL_MS = (() => {
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 5 * 60_000;
 })();
 // Hard ceiling for one explorer compute. The dispatch-level watchdog is the
-// primary abort; this race is the last line of defence so a wedged compute can
-// never hang the awaiting tool call (and its cache key) forever.
+// primary abort; this race + its AbortController is the last line of defence so
+// a wedged compute can never hang the awaiting tool call (and its cache key)
+// forever. Default 60s (was 10min): a locator sub-session that has not produced
+// anchors within a minute is wedged, and holding the tool call open longer only
+// delays the caller and risks the compute outliving the turn. The
+// MIXDOG_EXPLORE_HARD_TIMEOUT_MS override (including 0 = disabled) is preserved.
 export const EXPLORE_COMPUTE_HARD_TIMEOUT_MS = (() => {
   const raw = Number(process.env.MIXDOG_EXPLORE_HARD_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 10 * 60_000;
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 60_000;
 })();
 const EXPLORE_RESULT_CACHE = new Map(); // key -> { ts, value?, promise? }
 // Fan-out launch stagger: when >1 query, dispatch the first sub-session
@@ -72,17 +74,93 @@ const EXPLORE_FANOUT_STAGGER_MS = (() => {
   return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
 })();
 
-function withExploreHardTimeout(promise) {
-  if (!(EXPLORE_COMPUTE_HARD_TIMEOUT_MS > 0)) return promise;
-  let timer = null;
-  const timeout = new Promise((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`explorer timed out after ${EXPLORE_COMPUTE_HARD_TIMEOUT_MS}ms`)),
-      EXPLORE_COMPUTE_HARD_TIMEOUT_MS,
-    );
-    if (typeof timer.unref === 'function') timer.unref();
+// Build a promise that rejects the MOMENT `signal` aborts (immediately if it is
+// already aborted), plus a `cancel` to detach the listener once the caller has
+// settled by another path. This is what makes a canceled/timed-out explore
+// reject RIGHT AWAY even when the underlying compute is non-cooperative (ignores
+// its AbortSignal) instead of hanging until the wall-clock timeout fires.
+function abortRejectionPromise(signal) {
+  let cancel = () => {};
+  const promise = new Promise((_resolve, reject) => {
+    if (!(signal instanceof AbortSignal)) return; // never settles
+    const onAbort = () => {
+      const reason = signal.reason;
+      reject(reason instanceof Error ? reason : new Error(String(reason ?? 'explore aborted')));
+    };
+    if (signal.aborted) { onAbort(); return; }
+    signal.addEventListener('abort', onAbort, { once: true });
+    cancel = () => { try { signal.removeEventListener('abort', onAbort); } catch { /* ignore */ } };
   });
-  return Promise.race([promise, timeout]).finally(() => { if (timer) clearTimeout(timer); });
+  return { promise, cancel };
+}
+
+// Arm the wall-clock hard timeout (default 60s; MIXDOG_EXPLORE_HARD_TIMEOUT_MS
+// override incl. 0 = disabled): when it fires it ABORTS `controller` — which
+// both tears down a cooperative compute (child dispatch + provider call) AND,
+// via abortRejectionPromise(controller.signal), rejects the awaiting call.
+// Returns a disposer that clears the timer.
+function armExploreHardTimeout(controller, timeoutMs = EXPLORE_COMPUTE_HARD_TIMEOUT_MS) {
+  if (!(timeoutMs > 0)) return () => {};
+  const timer = setTimeout(() => {
+    try { controller.abort(new Error(`explorer timed out after ${timeoutMs}ms`)); } catch { /* ignore */ }
+  }, timeoutMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  return () => clearTimeout(timer);
+}
+
+// Cascade a parent AbortSignal into a compute controller (immediately if the
+// parent is already aborted). Returns a detach fn for the listener, or null.
+function linkParentAbort(parentSignal, controller) {
+  if (!(parentSignal instanceof AbortSignal)) return null;
+  const onParentAbort = () => {
+    try { controller.abort(parentSignal.reason); } catch { try { controller.abort(); } catch { /* ignore */ } }
+  };
+  if (parentSignal.aborted) { onParentAbort(); return null; }
+  parentSignal.addEventListener('abort', onParentAbort, { once: true });
+  return () => { try { parentSignal.removeEventListener('abort', onParentAbort); } catch { /* ignore */ } };
+}
+
+// Interruptible stagger delay: resolves after `ms`, but REJECTS the instant
+// `signal` aborts (or immediately if already aborted) so a canceled fan-out
+// cancels the pending stagger BEFORE it dispatches the (now-pointless) child.
+// Exported for focused stagger-cancellation regression tests.
+export function exploreStaggerDelay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const rejectCanceled = () => {
+      const reason = signal?.reason;
+      reject(reason instanceof Error ? reason : new Error(String(reason ?? 'explore canceled')));
+    };
+    if (signal instanceof AbortSignal && signal.aborted) { rejectCanceled(); return; }
+    const timer = setTimeout(() => { cleanup(); resolve(); }, ms);
+    if (typeof timer.unref === 'function') timer.unref();
+    const onAbort = () => { cleanup(); rejectCanceled(); };
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (signal instanceof AbortSignal) { try { signal.removeEventListener('abort', onAbort); } catch { /* ignore */ } }
+    };
+    if (signal instanceof AbortSignal) signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+// Run one explorer compute under an AbortController that fires on EITHER the
+// caller's cancellation (parentSignal) OR the wall-clock hard timeout, and RACE
+// the compute against that abort so a canceled/timed-out call rejects
+// IMMEDIATELY (it never waits on a non-cooperative compute). The compute
+// receives the controller signal and threads it into the child dispatch so the
+// abort tears down every child + its provider call at once. This is the
+// single-caller path (cache disabled / non-shared); the shared-cache path uses
+// startSharedCompute + subscribeToSharedCompute so one caller's cancellation
+// never poisons the other subscribers. Exported for focused regression tests.
+export function runExploreComputeWithAbort(compute, parentSignal = null, timeoutMs = EXPLORE_COMPUTE_HARD_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const detachParent = linkParentAbort(parentSignal, controller);
+  const disarm = armExploreHardTimeout(controller, timeoutMs);
+  const { promise: aborted } = abortRejectionPromise(controller.signal);
+  const computePromise = Promise.resolve().then(() => compute(controller.signal));
+  return Promise.race([computePromise, aborted]).finally(() => {
+    disarm();
+    if (detachParent) detachParent();
+  });
 }
 
 function escapeXml(str) {
@@ -124,7 +202,13 @@ function resolveExploreCwd(input, callerCwd) {
 
 function settledExplorerResult(result, cwd = null) {
   if (result?.status !== 'fulfilled') {
-    return { ok: false, text: `[explorer error] ${result?.reason?.message || String(result?.reason)}` };
+    const message = result?.reason?.message || String(result?.reason);
+    // The hard deadline has one caller-visible convention regardless of
+    // whether it expires during provider warmup or child dispatch.
+    if (/^explorer timed out after \d+ms$/.test(message)) {
+      return { ok: true, text: 'EXPLORATION_FAILED' };
+    }
+    return { ok: false, text: `[explorer error] ${message}` };
   }
   const text = cleanExplorerText(typeof result.value === 'string' ? result.value : responseText(result.value), cwd);
   if (!text) return { ok: false, text: '[explorer error] empty response' };
@@ -220,12 +304,34 @@ export function resolveExploreRoute(config) {
   return findConfigPreset(config, routeOrName);
 }
 
-async function ensureExploreProviderReady(config, route) {
+export async function ensureExploreProviderReady(config, route, signal = null, init = initProviders) {
   const provider = clean(route?.provider);
   if (!provider) return;
   const providers = { ...(config?.providers || {}) };
   providers[provider] = { ...(providers[provider] || {}), enabled: true };
-  await initProviders(providers);
+    await init(providers, { signal });
+}
+
+// Race provider warmup against the caller's cancellation so an ESC landing
+// DURING provider init returns IMMEDIATELY (and no child dispatch follows)
+// instead of finishing warmup and then spinning up subs it must tear down.
+// Returns true when the caller canceled (already-aborted up front, or aborted
+// before/at warmup completion), false when the provider is ready to dispatch. A
+// genuine provider-init failure (not a cancel) still propagates. Exported for
+// focused provider-init cancellation regression tests.
+export async function awaitExploreProviderReadyOrCancel(readyPromise, parentSignal) {
+  if (!(parentSignal instanceof AbortSignal)) { await readyPromise; return false; }
+  if (parentSignal.aborted) return true;
+  const { promise: aborted, cancel } = abortRejectionPromise(parentSignal);
+  try {
+    await Promise.race([readyPromise, aborted]);
+  } catch (err) {
+    if (parentSignal.aborted) return true; // canceled during warmup
+    throw err; // a real init failure still surfaces to the caller
+  } finally {
+    cancel();
+  }
+  return parentSignal.aborted;
 }
 
 function scheduleExploreCodeGraphPrewarm(cwd) {
@@ -260,43 +366,119 @@ function getCachedExploreResult(key) {
   return null;
 }
 
-async function runExploreCached(key, compute) {
-  const cached = getCachedExploreResult(key);
-  if (cached !== null) return cached;
-  if (!exploreResultCacheEnabled()) return await withExploreHardTimeout(compute());
-  const entry = EXPLORE_RESULT_CACHE.get(key);
-  if (entry?.promise) {
-    // Pending in-flight dedup — but never trust a pending entry forever: a
-    // compute that outlived the hard timeout is wedged (its own race should
-    // have rejected); drop the poisoned key and recompute fresh.
-    if (!(EXPLORE_COMPUTE_HARD_TIMEOUT_MS > 0) || Date.now() - entry.ts <= EXPLORE_COMPUTE_HARD_TIMEOUT_MS) {
-      return await entry.promise;
-    }
-    EXPLORE_RESULT_CACHE.delete(key);
+function trimExploreResultCache() {
+  while (EXPLORE_RESULT_CACHE.size > EXPLORE_RESULT_CACHE_MAX_ENTRIES) {
+    const oldest = EXPLORE_RESULT_CACHE.keys().next().value;
+    if (!oldest) break;
+    EXPLORE_RESULT_CACHE.delete(oldest);
   }
-  const promise = Promise.resolve()
-    .then(() => withExploreHardTimeout(compute()))
+}
+
+// Start ONE shared, caller-agnostic compute for `key`. Its AbortController is
+// driven ONLY by the wall-clock hard timeout (a shared deadline) and by the
+// subscriber ref-count reaching zero (see subscribeToSharedCompute) — NEVER by a
+// single subscriber's cancellation. So one caller canceling can neither abort
+// the shared compute nor poison the OTHER subscribers. On success the pending
+// entry is replaced by a value entry; on timeout/failure the entry is purged
+// (identity-guarded) so a future call recomputes instead of awaiting a dead
+// promise (which is exactly what surfaces later as an empty tool result).
+function startSharedCompute(key, compute, timeoutMs = EXPLORE_COMPUTE_HARD_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const entry = { ts: Date.now(), controller, subscribers: new Set(), promise: null };
+  const disarm = armExploreHardTimeout(controller, timeoutMs);
+  const { promise: aborted } = abortRejectionPromise(controller.signal);
+  const computePromise = Promise.resolve().then(() => compute(controller.signal));
+  entry.promise = Promise.race([computePromise, aborted])
     .then((value) => {
+      // Identity-guard EVERY eventual write: only cache/purge when THIS entry is
+      // still the live one. A hard-timeout TTL eviction (runExploreCached) may
+      // have retired us and started a fresh compute; a late resolve from the
+      // retired compute must NEVER overwrite that newer entry (stale overwrite).
+      if (EXPLORE_RESULT_CACHE.get(key) !== entry) return value;
       const text = typeof value === 'string' ? value : responseText(value);
       const cleaned = cleanExplorerText(text);
       if (cleaned && cleaned !== 'EXPLORATION_FAILED') {
         EXPLORE_RESULT_CACHE.set(key, { ts: Date.now(), value: text });
-        while (EXPLORE_RESULT_CACHE.size > EXPLORE_RESULT_CACHE_MAX_ENTRIES) {
-          const oldest = EXPLORE_RESULT_CACHE.keys().next().value;
-          if (!oldest) break;
-          EXPLORE_RESULT_CACHE.delete(oldest);
-        }
+        trimExploreResultCache();
       } else {
         EXPLORE_RESULT_CACHE.delete(key);
       }
       return value;
     })
     .catch((err) => {
-      EXPLORE_RESULT_CACHE.delete(key);
+      // Canceled / timed-out / failed shared compute: purge the pending entry
+      // (only when it is still ours) so a later call recomputes fresh instead of
+      // awaiting a dead promise that would surface as "no tool output".
+      if (EXPLORE_RESULT_CACHE.get(key) === entry) EXPLORE_RESULT_CACHE.delete(key);
       throw err;
-    });
-  EXPLORE_RESULT_CACHE.set(key, { ts: Date.now(), promise });
-  return await promise;
+    })
+    .finally(() => { disarm(); });
+  EXPLORE_RESULT_CACHE.set(key, entry);
+  return entry;
+}
+
+// Subscribe ONE caller (with its OWN signal) to a shared compute. The
+// subscriber's await is raced against its own cancellation so a canceled caller
+// is RELEASED IMMEDIATELY (never left waiting on the shared promise). When the
+// LAST subscriber cancels, the shared compute is aborted and its entry purged;
+// while any subscriber remains the shared compute keeps running for them, so one
+// caller's cancellation never disturbs the unaffected subscribers.
+function subscribeToSharedCompute(key, entry, subscriberSignal) {
+  const token = {};
+  entry.subscribers.add(token);
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const detach = () => {
+      if (subscriberSignal instanceof AbortSignal) {
+        try { subscriberSignal.removeEventListener('abort', onAbort); } catch { /* ignore */ }
+      }
+    };
+    const settle = (fn, val) => {
+      if (done) return;
+      done = true;
+      entry.subscribers.delete(token);
+      detach();
+      fn(val);
+    };
+    function onAbort() {
+      const reason = subscriberSignal?.reason;
+      const err = reason instanceof Error ? reason : new Error(String(reason ?? 'explore canceled'));
+      settle(reject, err);
+      if (entry.subscribers.size === 0) {
+        // Last subscriber gone: tear the shared compute down and purge the entry
+        // so a future call recomputes instead of reusing an abandoned promise.
+        try { entry.controller.abort(err); } catch { /* ignore */ }
+        if (EXPLORE_RESULT_CACHE.get(key) === entry) EXPLORE_RESULT_CACHE.delete(key);
+      }
+    }
+    if (subscriberSignal instanceof AbortSignal) {
+      if (subscriberSignal.aborted) { onAbort(); return; }
+      subscriberSignal.addEventListener('abort', onAbort, { once: true });
+    }
+    entry.promise.then((v) => settle(resolve, v), (e) => settle(reject, e));
+  });
+}
+
+export async function runExploreCached(key, compute, parentSignal = null, timeoutMs = EXPLORE_COMPUTE_HARD_TIMEOUT_MS) {
+  const cached = getCachedExploreResult(key);
+  if (cached !== null) return cached;
+  if (!exploreResultCacheEnabled()) return await runExploreComputeWithAbort(compute, parentSignal);
+  let entry = EXPLORE_RESULT_CACHE.get(key);
+  if (entry?.promise
+    && EXPLORE_COMPUTE_HARD_TIMEOUT_MS > 0
+    && Date.now() - entry.ts > EXPLORE_COMPUTE_HARD_TIMEOUT_MS) {
+    // A pending entry that outlived the hard timeout is wedged — ABORT its
+    // compute (tearing down any in-flight child dispatch + provider call) and
+    // drop it, then recompute rather than subscribe to a promise that may never
+    // settle (which later surfaces as an empty "no tool output" result). The
+    // abort + identity-guarded writes in startSharedCompute guarantee the
+    // retired compute can never overwrite the fresh entry with a stale value.
+    if (EXPLORE_RESULT_CACHE.get(key) === entry) EXPLORE_RESULT_CACHE.delete(key);
+    try { entry.controller?.abort(new Error('explore pending entry evicted after hard timeout')); } catch { /* ignore */ }
+    entry = null;
+  }
+  if (!entry?.promise) entry = startSharedCompute(key, compute, timeoutMs);
+  return await subscribeToSharedCompute(key, entry, parentSignal);
 }
 
 function responseText(response) {
@@ -404,6 +586,13 @@ async function runExploreSync(args = {}, ctx = {}) {
   const queries = normalizeExploreQueries(args.query);
   if (queries.length === 0) return fail('query is required (one or more non-empty strings)');
 
+  // Already-canceled call: short-circuit BEFORE any provider warmup / dispatch
+  // so a canceled explore never spins up child sub-sessions it must immediately
+  // tear down (and never continues into a dead "no tool output" state).
+  if (ctx.signal instanceof AbortSignal && ctx.signal.aborted) {
+    return fail('explore canceled before dispatch');
+  }
+
   let working = queries;
   let capNotice = '';
   if (working.length > MAX_FANOUT_QUERIES) {
@@ -416,7 +605,8 @@ async function runExploreSync(args = {}, ctx = {}) {
   scheduleExploreFindPrewarm(resolvedCwd);
   const config = loadConfig();
   const route = resolveExploreRoute(config);
-  await ensureExploreProviderReady(config, route);
+  const parentSignal = ctx.signal instanceof AbortSignal ? ctx.signal : null;
+  if (parentSignal?.aborted) return fail('explore canceled before dispatch');
   // Turn budget is enforced BOTH ways: the prompt contract (rules/agent/
   // 30-explorer.md, "hard max 3 tool turns, expected 1") steers the model,
   // and maxLoopIterations mechanically backstops it — live traces showed
@@ -439,14 +629,25 @@ async function runExploreSync(args = {}, ctx = {}) {
   // provider prompt-cache write. Index 0 fires immediately; a cached-result
   // query resolves without delay regardless of index.
   const stagger = working.length > 1 ? EXPLORE_FANOUT_STAGGER_MS : 0;
+  // Caller cancellation (ESC / owner-session abort) cascades into every child
+  // dispatch: the per-compute AbortController links this signal (and the hard
+  // timeout) so aborting the explore tool call tears down all fan-out subs and
+  // their provider calls at once.
   const settled = await Promise.allSettled(working.map((q, i) => {
     const key = exploreResultCacheKey({ cwd: resolvedCwd, route, query: q });
-    return runExploreCached(key, () => {
-      const delay = (stagger > 0 && i > 0) ? new Promise((r) => setTimeout(r, stagger)) : null;
-      return delay
-        ? delay.then(() => llm({ prompt: buildExplorerPrompt(q) }))
-        : llm({ prompt: buildExplorerPrompt(q) });
-    });
+    return runExploreCached(key, async (computeSignal) => {
+      // Provider initialization is part of the timed compute: a wedged init
+      // must consume the same 60s wall-clock budget as dispatch, never block
+      // runExplore before its hard-timeout AbortController has been armed.
+      await ensureExploreProviderReady(config, route, computeSignal);
+      // Interruptible stagger: if the compute signal aborts during the delay,
+      // exploreStaggerDelay rejects and the (now-pointless) child dispatch is
+      // never launched.
+      const delay = (stagger > 0 && i > 0) ? exploreStaggerDelay(stagger, computeSignal) : null;
+      return await (delay
+        ? delay.then(() => llm({ prompt: buildExplorerPrompt(q), parentSignal: computeSignal }))
+        : llm({ prompt: buildExplorerPrompt(q), parentSignal: computeSignal }));
+    }, parentSignal);
   }));
 
   const fatal = fatalExploreError(settled);
@@ -456,4 +657,11 @@ async function runExploreSync(args = {}, ctx = {}) {
   const allFailed = settled.every((r) => !settledExplorerResult(r, resolvedCwd).ok);
   const out = capNotice + merged;
   return allFailed ? fail(out) : ok(out);
+}
+
+// Test-only hook: inspect the explore result cache so cancellation/timeout
+// regression tests can assert poisoned entries are purged. Not part of the
+// runtime surface.
+export function __exploreResultCacheForTest() {
+  return EXPLORE_RESULT_CACHE;
 }

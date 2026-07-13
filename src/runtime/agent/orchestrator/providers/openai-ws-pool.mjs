@@ -306,6 +306,14 @@ function _isOpen(entry) {
     return entry?.socket?.readyState === WebSocket.OPEN;
 }
 
+function _setTransportReferenced(entry, referenced) {
+    const transport = entry?.socket?._socket;
+    try {
+        if (referenced) transport?.ref?.();
+        else transport?.unref?.();
+    } catch {}
+}
+
 function _clearLiveness(entry) {
     if (entry?.pingTimer) {
         clearInterval(entry.pingTimer);
@@ -697,6 +705,7 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
             // front makes the find() above skip it; on probe failure it is
             // evicted (removed from arr) so the loop continues cleanly.
             idle.busy = true;
+            _setTransportReferenced(idle, true);
             if (WS_PING_ENABLED && Date.now() - (idle.lastAliveAt || 0) >= WS_LIVENESS_STALE_MS) {
                 const alive = await _pingProbe(idle, WS_PONG_TIMEOUT_MS);
                 if (!alive) {
@@ -809,6 +818,9 @@ export function releaseWebSocket({ entry, poolKey, keep }) {
     entry.lastAliveAt = Date.now();
     _scheduleIdleClose(poolKey, entry);
     if (WS_PING_ENABLED) _armLiveness(poolKey, entry);
+    // Idle pooled sockets retain reuse state without retaining the process.
+    // acquireWebSocket re-refs the transport before probing or handing it out.
+    _setTransportReferenced(entry, false);
 }
 
 // Drain-complete fence — set true once _closeAllPooledSockets runs so any
