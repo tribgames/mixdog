@@ -39,6 +39,29 @@ function trimOrNull(v) {
   return s === '' ? null : s
 }
 
+export function normalizeCoreInput(input = {}, options = {}) {
+  const summary = trimOrNull(input.summary ?? input.content)
+  const element = trimOrNull(input.element) ?? (summary ? summary.slice(0, CORE_ELEMENT_MAX) : null)
+  const suppliedCategory = trimOrNull(input.category)
+  const category = (suppliedCategory ?? 'fact').toLowerCase()
+  const errors = []
+
+  if (options.requireElement && !element) errors.push('element required')
+  if (options.requireSummary && !summary) errors.push('summary required')
+  if (options.requireCategory && !suppliedCategory) errors.push('category required')
+  if (element && element.length > CORE_ELEMENT_MAX) {
+    errors.push(`element too long (${element.length}/${CORE_ELEMENT_MAX} chars, remove ${element.length - CORE_ELEMENT_MAX})`)
+  }
+  if (summary && summary.length > CORE_SUMMARY_MAX) {
+    errors.push(`summary too long (${summary.length}/${CORE_SUMMARY_MAX} chars, remove ${summary.length - CORE_SUMMARY_MAX})`)
+  }
+  if (suppliedCategory && !VALID_CAT.has(category)) {
+    errors.push(`invalid category "${category}". Valid: ${[...VALID_CAT].join(', ')}`)
+  }
+
+  return { element, summary, category, suppliedCategory, errors }
+}
+
 function _getDb(dataDir) {
   if (!dataDir) throw new Error('core-memory: dataDir required')
   const db = getDatabase(dataDir)
@@ -206,21 +229,14 @@ export async function listCore(dataDir, projectId = null) {
   return r.rows
 }
 
-export async function addCore(dataDir, { element, summary, category }, projectId) {
+export async function addCore(dataDir, input, projectId) {
   if (projectId === undefined) throw new Error('addCore: projectId required — pass null for COMMON pool, or slug string for scoped pool')
-  const el = trimOrNull(element)
-  const sm = trimOrNull(summary) ?? el
-  if (!el || !sm) throw new Error('add requires element and summary')
-  if (el.length > CORE_ELEMENT_MAX) {
-    throw new Error(`core element too long (${el.length}/${CORE_ELEMENT_MAX} chars, remove ${el.length - CORE_ELEMENT_MAX}) — element is a short key/title, not content.`)
-  }
-  if (sm.length > CORE_SUMMARY_MAX) {
-    throw new Error(`core summary too long (${sm.length}/${CORE_SUMMARY_MAX} chars, remove ${sm.length - CORE_SUMMARY_MAX}) — 1 fact in 1-2 sentences; move procedures/multi-step/code to recap or docs.`)
-  }
-  const cat = (trimOrNull(category) ?? 'fact').toLowerCase()
-  if (!VALID_CAT.has(cat)) {
-    throw new Error(`invalid category "${cat}". Valid: ${[...VALID_CAT].join(', ')}`)
-  }
+  const { element: el, summary: sm, category: cat, errors } = normalizeCoreInput(input, {
+    requireElement: true,
+    requireSummary: true,
+    requireCategory: true,
+  })
+  if (errors.length) throw new Error(errors.join('; '))
   const db = _getDb(dataDir)
   const now = Date.now()
   await _backfillNullEmbeddings(db)
@@ -299,18 +315,22 @@ export async function editCore(dataDir, id, patch) {
   const db = _getDb(dataDir)
   const cur = (await db.query(`SELECT * FROM core_entries WHERE id = $1`, [numId])).rows[0]
   if (!cur) throw new Error(`no entry with id=${numId}`)
-  const newElement = trimOrNull(patch.element) ?? cur.element
-  const newSummary = trimOrNull(patch.summary) ?? cur.summary
-  const newCategoryRaw = trimOrNull(patch.category)
-  const newCategory = newCategoryRaw ? newCategoryRaw.toLowerCase() : cur.category
-  if (!VALID_CAT.has(newCategory)) {
-    throw new Error(`invalid category "${newCategory}". Valid: ${[...VALID_CAT].join(', ')}`)
-  }
+  const incoming = normalizeCoreInput(patch)
+  const newElement = incoming.element ?? cur.element
+  const newSummary = incoming.summary ?? cur.summary
+  const newCategory = incoming.suppliedCategory ? incoming.category : cur.category
+  const { errors } = normalizeCoreInput({
+    element: newElement,
+    summary: newSummary,
+    category: newCategory,
+  }, {
+    requireElement: true,
+    requireSummary: true,
+    requireCategory: true,
+  })
+  if (errors.length) throw new Error(errors.join('; '))
   if (newElement === cur.element && newSummary === cur.summary && newCategory === cur.category) {
     throw new Error('no change')
-  }
-  if (newSummary && newSummary.length > CORE_SUMMARY_MAX) {
-    throw new Error(`core summary too long (${newSummary.length}/${CORE_SUMMARY_MAX} chars, remove ${newSummary.length - CORE_SUMMARY_MAX}) — 1 fact in 1-2 sentences; move procedures/multi-step/code to recap or docs.`)
   }
   const now = Date.now()
   const textChanged = newElement !== cur.element || newSummary !== cur.summary

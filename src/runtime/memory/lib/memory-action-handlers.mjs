@@ -33,8 +33,9 @@ import {
   promoteCoreCandidate,
   dismissCoreCandidate,
   CORE_SUMMARY_MAX,
+  normalizeCoreInput,
 } from './core-memory-store.mjs'
-import { resolveProjectScope } from './project-id-resolver.mjs'
+import { resolveProjectId, resolveProjectScope } from './project-id-resolver.mjs'
 import { resolvePluginData } from '../../shared/plugin-paths.mjs'
 import { getMetaValue, isBootstrapComplete } from './memory.mjs'
 
@@ -57,6 +58,7 @@ export function createMemoryActionHandlers({
   getCycle3CallLlm,
   ingestTranscriptFile,
   cwdFromTranscriptPath,
+  editCoreImpl = editCore,
 }) {
   const DATA_DIR = dataDir
 
@@ -643,16 +645,43 @@ export function createMemoryActionHandlers({
       }
       // Local trim helper — the manage-block trimOrNull at :1807 is scoped to
       // that branch and unreachable from here.
-      // Normalize project_id: 'common' (case-insensitive) or null → null (COMMON pool); non-empty string → slug.
+      // Only the explicit string "common" selects the COMMON pool. Core add
+      // validates missing, null, and blank project_id below; edits use the
+      // target entry's stored pool.
       const hasProjectIdKey = Object.prototype.hasOwnProperty.call(args, 'project_id')
+      const projectIdText = typeof args.project_id === 'string' ? args.project_id.trim() : ''
       const projectId = (() => {
-        if (!hasProjectIdKey || args.project_id == null) return null
-        const s = String(args.project_id).trim()
-        if (s === '' || s.toLowerCase() === 'common') return null
-        if (s === '*') return '*'
-        return s
+        if (projectIdText.toLowerCase() === 'common') return null
+        return projectIdText || null
       })()
       try {
+        if (op === 'add' || op === 'edit') {
+          const normalized = normalizeCoreInput(args, {
+            requireElement: true,
+            requireSummary: true,
+            requireCategory: true,
+          })
+          const errors = [...normalized.errors]
+          if (op === 'add') {
+            if (!hasProjectIdKey || !projectIdText) {
+              const inferredProjectId = typeof args.cwd === 'string' && args.cwd
+                ? resolveProjectId(args.cwd)
+                : null
+              errors.unshift(
+                `project_id required — pass "common" for COMMON pool, or project slug like "owner/repo" for scoped pool` +
+                (typeof inferredProjectId === 'string' && /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)?$/.test(inferredProjectId)
+                  ? ` (cwd suggests "${inferredProjectId}")`
+                  : ''),
+              )
+            } else if (projectId === '*') {
+              errors.unshift('project_id "*" only valid for op="list"')
+            }
+          }
+          if (errors.length) {
+            return { text: `core ${op}: ${errors.join('; ')}`, isError: true }
+          }
+          args = { ...args, element: normalized.element, summary: normalized.summary, category: normalized.category }
+        }
         if (projectId === '*' && op !== 'list') {
           return { text: `core ${op}: project_id "*" only valid for op="list"`, isError: true }
         }
@@ -681,14 +710,11 @@ export function createMemoryActionHandlers({
           return { text: lines.join('\n') }
         }
         if (op === 'add') {
-          if (!hasProjectIdKey) {
-            return { text: 'core add: project_id required — pass "common" for COMMON pool, or project slug like "owner/repo" for scoped pool', isError: true }
-          }
           const entry = await addCore(coreDataDir, args, projectId)
           return { text: `core added (id=${entry.id}): [${entry.category}] ${entry.element} — ${entry.summary.slice(0, 200)}` }
         }
         if (op === 'edit') {
-          const entry = await editCore(coreDataDir, args.id, args)
+          const entry = await editCoreImpl(coreDataDir, args.id, args)
           return { text: `core edited (id=${entry.id}): [${entry.category}] ${entry.element} — ${entry.summary.slice(0, 200)}` }
         }
         if (op === 'delete') {
