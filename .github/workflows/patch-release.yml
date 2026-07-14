@@ -58,9 +58,50 @@ jobs:
           fi
           echo "Gate OK: tag ${TAG} matches Cargo.toml version ${CARGO_VERSION}."
 
+  test:
+    name: test-native-patch
+    needs: gate
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install Node dependencies from lockfile
+        run: npm ci
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-patch/target
+          key: patch-test-cargo-${{ hashFiles('native/mixdog-patch/Cargo.lock') }}
+
+      - name: Run locked native patch tests
+        working-directory: native/mixdog-patch
+        run: cargo test --locked
+
+      - name: Build release binary for wire integration
+        working-directory: native/mixdog-patch
+        run: cargo build --release --locked
+
+      - name: Run native EDIT wire integration
+        env:
+          MIXDOG_EDIT_NATIVE_BIN: ${{ github.workspace }}/native/mixdog-patch/target/release/mixdog-patch
+        run: npm run test:native-edit-wire
+
   build:
     name: build-${{ matrix.platformKey }}
-    needs: gate
+    needs: test
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false

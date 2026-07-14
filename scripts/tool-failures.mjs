@@ -94,20 +94,33 @@ const rows = files.flatMap(readRows)
   .filter((row) => !agentFilter || String(row.agent || '-') === agentFilter)
   .filter((row) => !categoryFilter || rowCategory(row) === categoryFilter)
   .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
-const recent = rows.slice(-limit);
+const isCommandExit = (row) => rowCategory(row) === 'command-exit';
+const actionableRows = rows.filter((row) => !isCommandExit(row));
+const commandExitRows = rows.filter(isCommandExit);
+// Limit each partition independently so a burst of ordinary command exits
+// cannot crowd runtime/actionable failures out of the displayed report.
+const actionableRecent = actionableRows.slice(-limit);
+const commandExitRecent = commandExitRows.slice(-limit);
+const recent = [...actionableRecent, ...commandExitRecent]
+  .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
 const byTool = new Map();
 const byCategory = new Map();
+const actionableByTool = new Map();
+const commandExitByTool = new Map();
 for (const row of recent) {
   const tool = rowTool(row);
   const category = rowCategory(row);
   inc(byTool, tool);
   inc(byCategory, `${tool} / ${category}`);
+  inc(isCommandExit(row) ? commandExitByTool : actionableByTool, tool);
 }
 
 if (jsonMode) {
   console.log(JSON.stringify({
     shown: recent.length,
     matched: rows.length,
+    actionable_failures: { shown: actionableRecent.length, matched: actionableRows.length },
+    command_exits: { shown: commandExitRecent.length, matched: commandExitRows.length },
     since: sinceTs ? new Date(sinceTs).toISOString() : null,
     filters: {
       tool: toolFilter,
@@ -116,13 +129,17 @@ if (jsonMode) {
     },
     sources: files.filter(existsSync),
     tools: Object.fromEntries([...byTool.entries()].sort((a, b) => b[1] - a[1])),
+    actionable_tools: Object.fromEntries([...actionableByTool.entries()].sort((a, b) => b[1] - a[1])),
+    command_exit_tools: Object.fromEntries([...commandExitByTool.entries()].sort((a, b) => b[1] - a[1])),
     categories: Object.fromEntries([...byCategory.entries()].sort((a, b) => b[1] - a[1])),
     rows: recent,
   }, null, 2));
   process.exit(0);
 }
 
-console.log(`tool failures: ${recent.length}/${rows.length} shown`);
+console.log(`actionable failures: ${actionableRecent.length}/${actionableRows.length} shown`);
+console.log(`command exits: ${commandExitRecent.length}/${commandExitRows.length} shown (retained)`);
+console.log(`rows: ${recent.length}/${rows.length} shown`);
 if (sinceTs) console.log(`since: ${new Date(sinceTs).toISOString()}`);
 const filterParts = [
   toolFilter ? `tool=${toolFilter}` : '',
@@ -131,7 +148,8 @@ const filterParts = [
 ].filter(Boolean);
 if (filterParts.length) console.log(`filters: ${filterParts.join(', ')}`);
 if (files.length > 0) console.log(`sources: ${files.filter(existsSync).join(', ') || '(none)'}`);
-console.log(`tools: ${[...byTool.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(', ') || '(none)'}`);
+console.log(`actionable tools: ${[...actionableByTool.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(', ') || '(none)'}`);
+console.log(`command-exit tools: ${[...commandExitByTool.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(', ') || '(none)'}`);
 console.log(`categories: ${[...byCategory.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(', ') || '(none)'}`);
 for (const row of recent) {
   const tool = rowTool(row);

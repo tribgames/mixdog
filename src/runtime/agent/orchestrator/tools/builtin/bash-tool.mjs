@@ -181,6 +181,32 @@ export function formatShellToolFailure(message) {
     return `Error: [shell-tool-failed] ${text}`;
 }
 
+export function _shellFailureStatus(result, timeout) {
+    // Prefer the signal reported by the process. `killed` is only a fallback
+    // for platforms (notably taskkill on Windows) that close without one.
+    const signal = result.signal || (result.killed ? 'SIGKILL' : null);
+    const exitCode = signal ? null : result.exitCode;
+    const shellToolFailed = result.failurePhase === 'tool' || !!result.outputCaptureError;
+    const killCause = result.killCause || null;
+    const causeDetail = killCause ? ` cause: ${killCause}` : '';
+    const signalDetail = signal ? ` signal: ${signal}` : '';
+    const timeoutHint = result.timedOut
+        ? ` — command killed after ${timeout} ms; if it legitimately needs longer, retry with a larger timeout`
+        : '';
+    const statusDetail = shellToolFailed
+        ? `[${result.outputCaptureError ? 'output capture failed' : (result.failureReason || 'tool failed')}${causeDetail}${signalDetail}]`
+        : (result.timedOut
+            ? `[timeout: ${timeout}ms${signalDetail || ' signal: unknown'}${causeDetail}]${timeoutHint}`
+            : (signal
+                ? `[signal: ${signal}${causeDetail}]`
+                : (exitCode !== 0 && exitCode !== null ? `[exit code: ${exitCode}]` : '')));
+    return { signal, exitCode, shellToolFailed, statusDetail };
+}
+
+export function _composeShellFailure(statusMarker, errorPrefix, warningBlock, payload) {
+    return `${errorPrefix}${statusMarker}${warningBlock ? `\n${warningBlock}` : ''}\n\n${payload}`;
+}
+
 export async function executeBashTool(args, workDir, options = {}) {
     const requestedCwd = args.cwd ?? args.workdir;
     const cwdResult = resolveOptionalCwd(requestedCwd, workDir);
@@ -539,12 +565,9 @@ export async function executeBashTool(args, workDir, options = {}) {
         }
         const stdout = stripAnsi(result.stdout || '');
         const stderr = stripAnsi(result.stderr || '');
-        const signal = result.timedOut
-            ? 'SIGTERM'
-            : (result.killed ? 'SIGKILL' : (result.signal || null));
-        const exitCode = signal ? null : result.exitCode;
+        const failureStatus = _shellFailureStatus(result, timeout);
+        const { signal, exitCode, shellToolFailed } = failureStatus;
         const benignExitOne = _isBenignSearchExitOne(command, exitCode, signal, stderr);
-        const shellToolFailed = result.failurePhase === 'tool' || !!result.outputCaptureError;
         const shellRunFailed = !shellToolFailed && (!!signal || (exitCode !== 0 && exitCode !== null && !benignExitOne));
         const isReallyErrored = shellToolFailed || shellRunFailed;
         const _driftNote = '';
@@ -556,16 +579,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         // Timeout marker carries an inline recovery hint so the caller can
         // act in one round (increase ceiling or detach) instead of repeating
         // the same command and hitting the same wall.
-        const timeoutHint = result.timedOut
-            ? ` — command killed after ${timeout} ms; if it legitimately needs longer, retry with a larger timeout`
-            : '';
-        const statusDetail = shellToolFailed
-            ? `[${result.outputCaptureError ? 'output capture failed' : (result.failureReason || 'tool failed')}]`
-            : (result.timedOut
-                ? `[timeout: ${timeout}ms signal: ${signal || 'SIGTERM'}]${timeoutHint}`
-                : (signal
-                    ? `[signal: ${signal}]`
-                    : (shellRunFailed ? `[exit code: ${exitCode}]` : '')));
+        const statusDetail = failureStatus.statusDetail;
         const statusMarker = shellToolFailed
             ? `[shell-tool-failed] ${statusDetail}`
             : (shellRunFailed ? `[shell-run-failed] ${statusDetail}` : '');
@@ -602,7 +616,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             wmicRewrite?.note || '',
         ].filter(Boolean).join('\n');
         const payload = `${body}${stderrBlock}${spillBlock}${_driftNote}`;
-        if (statusMarker) return _prependDestructiveWarning(command, `${errorPrefix}${warningBlock ? `${warningBlock}\n` : ''}${statusMarker}\n\n${payload}`);
+        if (statusMarker) return _prependDestructiveWarning(command, _composeShellFailure(statusMarker, errorPrefix, warningBlock, payload));
         return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
     }
     finally {

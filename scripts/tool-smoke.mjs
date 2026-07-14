@@ -30,6 +30,7 @@ import {
   shouldRecordObservedForProvider,
 } from '../src/runtime/agent/orchestrator/agent-runtime/cache-strategy.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
+import { executeFuzzyFindTool } from '../src/runtime/agent/orchestrator/tools/builtin/list-tool.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { normaliseReadLineWindowArgs } from '../src/runtime/agent/orchestrator/tools/builtin/read-args.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
@@ -53,6 +54,7 @@ import { composeSystemPrompt } from '../src/runtime/agent/orchestrator/context/c
 import { setInternalToolsProvider } from '../src/runtime/agent/orchestrator/internal-tools.mjs';
 import { prepareAgentSession } from '../src/runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import { resolveHiddenRoleSchemaAllowedTools } from '../src/runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
+import { assertCodeGraphDescriptionContract } from './code-graph-description-contract.mjs';
 import { getHiddenAgent, resolveAgentSessionPermission } from '../src/runtime/agent/orchestrator/internal-agents.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -497,8 +499,8 @@ const findOut = await executeBuiltinTool('find', {
 }, root);
 assertOk('find', findOut, /scripts[\\/]tool-smoke\.mjs/i);
 
-// find query[] batch: fan-out must emit one section per query in caller order
-// and share the broad enumeration sweep across queries (single-flight dedup).
+// End-to-end find query[] batch: fan-out must emit one section per query in
+// caller order.
 const findBatchOut = await executeBuiltinTool('find', {
   query: ['tool smoke', 'smoke'],
   path: '.',
@@ -516,6 +518,48 @@ const findBatchOut = await executeBuiltinTool('find', {
   }
   if (!/scripts[\\/]tool-smoke\.mjs/i.test(s)) {
     throw new Error(`find query[] sections must carry match bodies:\n${s.slice(0, 600)}`);
+  }
+}
+
+// Exercise the test-only rg seam directly so this verifies the in-flight
+// single-flight rather than merely observing cached output from the real tree.
+// TTL=0 rules out persistent broad-enumeration cache reuse; the delayed listing
+// keeps both exact-name workers concurrent while the first sweep is in flight.
+{
+  const previousFindEnumCacheTtl = process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS;
+  const firstQuery = 'tool-smoke-single-flight-first.mjs';
+  const secondQuery = 'tool-smoke-single-flight-second.mjs';
+  const firstPath = `fixtures/${firstQuery}`;
+  const secondPath = `fixtures/${secondQuery}`;
+  let broadEnumerationCalls = 0;
+  process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS = '0';
+  try {
+    const singleFlightOut = await executeFuzzyFindTool({
+      query: [firstQuery, secondQuery],
+      path: '.',
+      head_limit: 5,
+    }, root, {
+      __runRg: async () => {
+        broadEnumerationCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return `${firstPath}\n${secondPath}\n`;
+      },
+    });
+    const s = String(singleFlightOut);
+    const iA = s.indexOf(`# find ${firstQuery}`);
+    const iB = s.indexOf(`# find ${secondQuery}`);
+    if (broadEnumerationCalls !== 1) {
+      throw new Error(`find query[] must share exactly one broad enumeration, got ${broadEnumerationCalls}`);
+    }
+    if (iA < 0 || iB < 0 || !(iA < iB)) {
+      throw new Error(`find query[] seam must preserve section order:\n${s}`);
+    }
+    if (!s.slice(iA, iB).includes(firstPath) || !s.slice(iB).includes(secondPath)) {
+      throw new Error(`find query[] seam must retain both exact-name bodies:\n${s}`);
+    }
+  } finally {
+    if (previousFindEnumCacheTtl === undefined) delete process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS;
+    else process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS = previousFindEnumCacheTtl;
   }
 }
 
@@ -2039,7 +2083,8 @@ const nativeToolCountAfterFirstLoad = nativeToolSearchSession.tools.length;
 const nativeRepeatResult = JSON.parse(__renderToolSearchForTest({ select: 'shell,recall' }, nativeToolSearchSession, 'full'));
 if (nativeRepeatResult.loaded.length
   || !['shell', 'task', 'recall'].every((name) => nativeRepeatResult.alreadyActive.includes(name))
-  || nativeRepeatResult.nativeToolSearch
+  || nativeRepeatResult.nativeToolSearch?.toolReferences?.length
+  || nativeRepeatResult.nativeToolSearch?.openaiTools?.length
   || nativeToolSearchSession.tools.length !== nativeToolCountAfterFirstLoad) {
   throw new Error(`repeated native load_tool must report already-active without reinjection: ${JSON.stringify(nativeRepeatResult)}`);
 }
@@ -2266,8 +2311,38 @@ const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.
 if (!/pattern\[\] batches variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
-if (!/content search/i.test(grepTool?.description || '')) {
-  throw new Error('grep description must state its content-search contract');
+const grepPredicateNegator = /\b(?:no|not|never|cannot|can(?:not|'t)|does(?:\s+not|n't)|do(?:\s+not|n't)|did(?:\s+not|n't)|unable(?:\s+|-)to|fail(?:s|ed|ing)?(?:\s*[-–]\s*|\s+)to|without|forbid(?:s|den)?|prohibit(?:s|ed|ing)?)(?:\s+\w+){0,2}\s+/i;
+const hasPositiveGrepSequence = (description, pattern, negatedPredicate) => {
+  const match = description.match(pattern);
+  return Boolean(match) && !(negatedPredicate?.test(match[0]));
+};
+const grepRoutingVerb = '(?:us(?:e|es|ed|ing)|rout(?:e|es|ed|ing)|target(?:s|ed|ing)?)';
+const grepRouteRelation = `(?:\\s*→\\s*|\\s+\\b${grepRoutingVerb}\\b(?:\\s+(?:to|via|with))?\\s+)\\bgrep\\b`;
+const grepGroupedRoutePattern = new RegExp(`\\bliteral\\b\\s*(?:or|and|/)\\s*\\bregex\\b(?:(?![.;]|→|\\b${grepRoutingVerb}\\b)[\\s\\S]){0,80}?${grepRouteRelation}`, 'i');
+const grepRoutePattern = (subject, alternateSubject) => new RegExp(`\\b${subject}\\b(?:(?![.;]|→|\\b(?:${alternateSubject}|${grepRoutingVerb})\\b)[\\s\\S]){0,80}?${grepRouteRelation}`, 'i');
+const grepNegatedRoute = new RegExp(`${grepPredicateNegator.source}\\bgrep\\b`, 'i');
+const hasGrepDescriptionContract = (description) => (
+  (hasPositiveGrepSequence(description, grepGroupedRoutePattern, grepNegatedRoute)
+    || (hasPositiveGrepSequence(description, grepRoutePattern('literal', 'regex'), grepNegatedRoute)
+      && hasPositiveGrepSequence(description, grepRoutePattern('regex', 'literal'), grepNegatedRoute)))
+  && hasPositiveGrepSequence(description, /\bnonzero\b[\s\S]{0,80}?\bcontent_with_context\b[\s\S]{0,80}?\bresolve\w*\b/i, new RegExp(`${grepPredicateNegator.source}\\bresolve\\w*\\b`, 'i'))
+  && hasPositiveGrepSequence(description, /\bonly\b[\s\S]{0,80}?\bzero(?:\s*\/\s*|\s+or\s+)error\b[\s\S]{0,80}?\bchange\w*\b[\s\S]{0,80}?\btoken(?:s)?\b[\s\S]{0,80}?\bscope\b/i, new RegExp(`${grepPredicateNegator.source}\\bchange\\w*\\b`, 'i'))
+  && hasPositiveGrepSequence(description, /\bfiles_with_matches(?:\s*\/\s*|\s+and\s+)count\b[\s\S]{0,80}?\bexistence\b[\s\S]{0,80}?\bmodes?\b/i, new RegExp(`${grepPredicateNegator.source}\\bexistence\\s+modes?\\b`, 'i'))
+);
+const grepDescriptionProbe = 'literal and regex → grep; nonzero content_with_context resolves; only zero/error results may change tokens and scope; files_with_matches/count are existence modes.';
+const grepEquivalentPositiveProbe = 'literal and regex use grep; nonzero content_with_context returns not an empty result and resolves; only zero/error results may change tokens and scope; files_with_matches/count are existence modes.';
+const grepSeparateClausePositiveProbe = 'literal uses grep; regex routes to grep; nonzero content_with_context resolves; only zero/error results may change tokens and scope; files_with_matches/count are existence modes.';
+const grepPolarityMutations = [
+  grepDescriptionProbe.replace('literal and regex → grep', 'literal → read; regex → grep'),
+  grepDescriptionProbe.replace('literal and regex → grep', 'literal targets read, while regex uses grep'),
+  grepDescriptionProbe.replace('literal and regex → grep', 'literal and regex do not use grep'),
+  grepDescriptionProbe.replace('resolves', 'does not resolve'),
+  grepDescriptionProbe.replace('resolves', 'fails to resolve'),
+  grepDescriptionProbe.replace('may change', 'cannot change'),
+  grepDescriptionProbe.replace('are existence modes', 'are never existence modes'),
+];
+if (!hasGrepDescriptionContract(grepTool?.description || '') || !hasGrepDescriptionContract(grepEquivalentPositiveProbe) || !hasGrepDescriptionContract(grepSeparateClausePositiveProbe) || grepPolarityMutations.some(hasGrepDescriptionContract)) {
+  throw new Error('grep description must state its literal/regex locator, resolution qualifiers, and result-mode contract');
 }
 if (!/Glob filter/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
@@ -2287,15 +2362,57 @@ const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
 if (!/exact glob patterns/i.test(globTool?.description || '')) {
   throw new Error('glob description must route exact-pattern unknown paths before read/grep/list');
 }
-if (!/unknown partial paths\/names/i.test(findTool?.description || '') || !/verifies paths for grep\/glob/i.test(findTool?.description || '')) {
-  throw new Error('find description must advertise unverified path/name lookup and verified outputs');
+const findClauseNegator = '(?:not|never|(?:do|does|did)\\s+not|(?:do|does|did)n\'t|(?:is|are|was|were)\\s+not|(?:is|are|was|were)n\'t|should\\s+not|shouldn\'t|must\\s+not|mustn\'t|can(?:not|\\s+not)|can\'t|could\\s+not|couldn\'t|will\\s+not|won\'t|fail(?:s|ed|ing)?\\s+to)';
+const findPredicateModifiers = '(?:\\s+(?:necessarily|generally|strictly|really|simply|always|still|currently|typically|ordinarily|be|been|being|considered|deemed|regarded)){0,3}';
+const hasPositiveFindClause = (description, positive, negated) => positive.test(description) && !negated.test(description);
+const findUnknownPathsPattern = /\b(?:fuzzy\s+)?(?:lookup|find)\b(?:\s+[\w']+){0,3}\s+only\s+for\s+unknown\s+partial\s+paths\/names\b/i;
+const findUnknownPathsNegation = new RegExp(`\\b${findClauseNegator}${findPredicateModifiers}\\s+(?:use\\s+)?(?:fuzzy\\s+)?(?:lookup|find)\\b(?:\\s+[\\w']+){0,3}\\s+only\\s+for\\s+unknown\\s+partial\\s+paths\\/names|\\b(?:fuzzy\\s+)?(?:lookup|find)\\b(?:\\s+[\\w']+){0,3}\\s+${findClauseNegator}${findPredicateModifiers}\\s+only\\s+for\\s+unknown\\s+partial\\s+paths\\/names`, 'i');
+const findRootExclusionPattern = /\b(?:not\s+for|excludes?)\s+(?:the\s+)?project\s+root\s+(?:or|and)\s+already-verified\s+roots\b|\b(?:the\s+)?project\s+root\s+(?:or|and)\s+already-verified\s+roots\s+(?:are\s+)?excluded\b|\balready-verified\s+roots\s+(?:or|and)\s+(?:the\s+)?project\s+root\s+(?:are\s+)?excluded\b/i;
+const findRootExclusionNegation = new RegExp(`\\b${findClauseNegator}${findPredicateModifiers}\\s+exclude\\s+(?:the\\s+)?(?:project\\s+root|already-verified\\s+roots)\\b|\\b(?:project\\s+root\\s+(?:or|and)\\s+already-verified\\s+roots|already-verified\\s+roots\\s+(?:or|and)\\s+project\\s+root|project\\s+root|already-verified\\s+roots)\\s+(?:(?:is|are|was|were)\\s+)?${findClauseNegator}${findPredicateModifiers}\\s+excluded\\b`, 'i');
+const findVerifiedPathsPattern = /\b(?:output|returned)\s+paths\b(?:\s+[\w']+){0,4}\s+verified\s+(?:downstream|for\s+downstream\s+use)\b|\bdownstream\s+paths\b(?:\s+[\w']+){0,4}\s+verified\b|\bpaths\b(?:\s+[\w']+){0,4}\s+verified\s+(?:downstream|for\s+downstream\s+use)\b/i;
+const findVerifiedPathsNegation = new RegExp(`\\b(?:output|returned|downstream)\\s+paths\\b(?:\\s+[\\w']+){0,4}\\s+${findClauseNegator}${findPredicateModifiers}\\s+verified\\b|\\bpaths\\b(?:\\s+[\\w']+){0,4}\\s+${findClauseNegator}${findPredicateModifiers}\\s+verified\\b|\\b(?:output|returned|downstream)\\s+paths\\b(?:\\s+[\\w']+){0,4}\\s+unverified\\b`, 'i');
+const findFileContentsPattern = /\b(?:not\s+for|excludes?)\s+file\s+contents\b|\bfile\s+contents\b(?:\s+[\w']+){0,3}\s+excluded\b/i;
+const findFileContentsNegation = new RegExp(`\\b${findClauseNegator}${findPredicateModifiers}\\s+exclude\\s+file\\s+contents\\b|\\bfile\\s+contents\\s+(?:(?:is|are|was|were)\\s+)?${findClauseNegator}${findPredicateModifiers}\\s+excluded\\b`, 'i');
+const hasFindDescriptionContract = (description) => (
+  hasPositiveFindClause(description, findUnknownPathsPattern, findUnknownPathsNegation)
+  && hasPositiveFindClause(description, findRootExclusionPattern, findRootExclusionNegation)
+  && hasPositiveFindClause(description, findVerifiedPathsPattern, findVerifiedPathsNegation)
+  && hasPositiveFindClause(description, findFileContentsPattern, findFileContentsNegation)
+);
+const findDescriptionProbe = 'Fuzzy lookup only for unknown partial paths/names; excludes project root and already-verified roots. Output paths are verified downstream. Not for file contents.';
+const findEquivalentPositiveProbe = 'File contents are excluded. Paths verified downstream are returned. Already-verified roots and project root are excluded. Lookup is only for unknown partial paths/names.';
+const findPolarityMutations = [
+  findDescriptionProbe.replace('Fuzzy lookup only', 'Do not use fuzzy lookup only'),
+  findDescriptionProbe.replace('excludes project root', 'does not exclude project root'),
+  findDescriptionProbe.replace('Output paths are verified downstream', 'Downstream paths not verified'),
+  findDescriptionProbe.replace('Not for file contents', 'Does not exclude file contents'),
+  findDescriptionProbe.replace('Fuzzy lookup only', 'Fuzzy lookup is not only'),
+  findDescriptionProbe.replace('excludes project root', 'should not exclude project root'),
+  findDescriptionProbe.replace('excludes project root', 'must not exclude project root'),
+  findDescriptionProbe.replace('excludes project root', 'can not exclude project root'),
+  findDescriptionProbe.replace('Output paths are verified downstream', 'Output paths cannot be verified downstream'),
+  findDescriptionProbe.replace('Not for file contents', 'File contents must not be excluded'),
+  findDescriptionProbe.replace('Output paths are verified downstream', 'Output paths are verified'),
+  findDescriptionProbe.replace('Fuzzy lookup only', 'Fuzzy lookup isn\'t only'),
+  findDescriptionProbe.replace('excludes project root and already-verified roots', 'project root and already-verified roots shouldn\'t be excluded'),
+  findDescriptionProbe.replace('Output paths are verified downstream', 'Output paths can\'t be verified downstream'),
+  findDescriptionProbe.replace('Not for file contents', 'File contents aren\'t excluded'),
+  findDescriptionProbe.replace('Fuzzy lookup only', 'Lookup isn\'t necessarily only'),
+  findDescriptionProbe.replace('Output paths are verified downstream', 'Output paths shouldn\'t be considered verified downstream'),
+];
+if (!hasFindDescriptionContract(findTool?.description || '') || !hasFindDescriptionContract(findEquivalentPositiveProbe) || findPolarityMutations.some(hasFindDescriptionContract)) {
+  throw new Error('find description must limit lookup to unknown partial paths/names, exclude roots and file contents, and return verified paths');
 }
 if (!/List directory entries/i.test(listTool?.description || '') || !/path\[\]/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
   throw new Error('list description must require verified directories and locator-first unknown dirs');
 }
-if (!/symbol modes use symbols\[\]/i.test(codeGraphProps.mode?.description || '') || !/symbols \(file outline\) use files\[\]/i.test(codeGraphProps.mode?.description || '') || !/one symbols\[\] call/i.test(codeGraphProps.symbols?.description || '')) {
-  throw new Error('code_graph schema fields must stay compact and repo-local');
-}
+const codeGraphModeDescription = codeGraphProps.mode?.description || '';
+const codeGraphSymbolsDescription = codeGraphProps.symbols?.description || '';
+assertCodeGraphDescriptionContract({
+  description: codeGraphDescription,
+  modeDescription: codeGraphModeDescription,
+  symbolsDescription: codeGraphSymbolsDescription,
+});
 
 const longToolSearchText = compactToolSearchDescription(`${patchDescription}\n${patchDescription}`);
 if (longToolSearchText.length > 220 || /\n/.test(longToolSearchText)) {

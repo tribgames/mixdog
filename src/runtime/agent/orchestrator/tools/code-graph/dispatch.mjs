@@ -50,6 +50,7 @@ function _collectGraphSymbolList(args) {
 }
 
 const CODE_GRAPH_FILE_BATCH_CAP = 20;
+const _AGGREGATE_FILE_WILDCARD_RE = /[*?[\]{}]/;
 
 // Absorb: file/files arriving as a JSON-stringified array
 // (file:"[\"a.mjs\",\"b.mjs\"]") — parse to a real array so the graph lookup
@@ -74,26 +75,77 @@ function _normalizeGraphFileArgs(args) {
   if (fileArr) { out.files = Array.isArray(out.files) ? [...fileArr, ...out.files] : fileArr; delete out.file; }
   if (filesArr) out.files = filesArr;
   // Collapse a lone entry back to the single-file field for the fast path.
-  if (Array.isArray(out.files) && out.files.length === 1 && !out.file) {
+  if (Array.isArray(out.files) && out.files.length === 1 && !out.file && !filesArr) {
     out.file = out.files[0];
     delete out.files;
   }
   return out;
 }
 
-function _collectGraphFileList(args) {
+function _collectGraphFileList(args, { cap = true } = {}) {
   const split = (s) => String(s || '').split(/,+/).map((t) => t.trim()).filter(Boolean);
   const list = [...new Set([
     ...(Array.isArray(args?.files) ? args.files.map((f) => String(f || '').trim()).filter(Boolean) : []),
     ...(typeof args?.files === 'string' ? split(args.files) : []),
     ...(typeof args?.file === 'string' && args.file.trim() ? [args.file.trim()] : []),
   ])];
-  if (list.length > CODE_GRAPH_FILE_BATCH_CAP) {
+  if (cap && list.length > CODE_GRAPH_FILE_BATCH_CAP) {
     const capped = list.slice(0, CODE_GRAPH_FILE_BATCH_CAP);
     capped._capped = true;
     return capped;
   }
   return list;
+}
+
+function _hasAggregateFileArgs(args) {
+  return (Array.isArray(args?.files) && args.files.some((f) => String(f || '').trim()))
+    || (typeof args?.files === 'string' && args.files.trim());
+}
+
+// An invalid caller cwd may be recovered for an explicit files aggregate only
+// when every supplied anchor points at the same detectable project. Do not use
+// the batch cap here: an omitted anchor could belong to another project.
+function _resolveAggregateFileProjectRoot(args, baseCwd) {
+  if (!_hasAggregateFileArgs(args)) return null;
+  // Comma-delimited strings are parsed for normal batch dispatch, but are not
+  // unambiguous enough to select a project root. JSON array strings have
+  // already been normalized to an actual array above.
+  if (typeof args?.files === 'string' && args.files.includes(',')) return null;
+  const files = _collectGraphFileList(args, { cap: false });
+  // Recovery cannot silently discard anchors that normal batch dispatch caps.
+  if (files.length > CODE_GRAPH_FILE_BATCH_CAP) return null;
+  const roots = new Set();
+  for (const file of files) {
+    // Never infer a root from a glob-shaped anchor, including a literal file
+    // whose name contains a glob metacharacter.
+    if (_AGGREGATE_FILE_WILDCARD_RE.test(file)) return null;
+    const abs = isAbsolute(file) ? pathResolve(file) : pathResolve(baseCwd, file);
+    if (!existsSync(abs)) return null;
+    let isDirectory = false;
+    try { isDirectory = statSync(abs).isDirectory(); } catch { return null; }
+    const root = isDirectory ? _findDirProjectRoot(abs) : _resolveFileProjectRoot(abs);
+    if (!root) return null;
+    roots.add(pathResolve(root));
+    if (roots.size > 1) return null;
+  }
+  return roots.size === 1 ? [...roots][0] : null;
+}
+
+// Aggregate recovery resolves relative anchors against the caller's original
+// cwd. Keep those resolved paths when dispatching under the recovered root;
+// otherwise codeGraph resolves them a second time below that root.
+function _absolutizeAggregateFileArgs(args, baseCwd) {
+  const absolutize = (file) => {
+    const trimmed = String(file || '').trim();
+    return trimmed && !isAbsolute(trimmed) ? pathResolve(baseCwd, trimmed) : file;
+  };
+  return {
+    ...args,
+    file: typeof args?.file === 'string' ? absolutize(args.file) : args?.file,
+    files: Array.isArray(args?.files)
+      ? args.files.map(absolutize)
+      : (typeof args?.files === 'string' ? absolutize(args.files) : args?.files),
+  };
 }
 
 async function codeGraph(args, cwd, signal = null, options = {}) {
@@ -539,8 +591,21 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
     delete args.file;
   }
   const fileArg = (args && typeof args.file === 'string' && args.file.trim()) ? args.file.trim() : '';
+  const hasAggregateFileArgs = _hasAggregateFileArgs(args);
   let effectiveCwd = baseCwd;
-  if (fileArg) {
+  const baseProjectRoot = _findDirProjectRoot(baseCwd);
+  if (hasAggregateFileArgs && !baseProjectRoot) {
+    const aggregateRoot = _resolveAggregateFileProjectRoot(args, baseCwd);
+    if (!aggregateRoot) {
+      throw new Error(
+        `${name}: cwd '${baseCwd}' is not inside a project and aggregate file anchors do not all `
+        + `exist under exactly one detectable project root. Refusing to index an arbitrary tree.`,
+      );
+    }
+    effectiveCwd = aggregateRoot;
+    args = _absolutizeAggregateFileArgs(args, baseCwd);
+  }
+  if (fileArg && !hasAggregateFileArgs) {
     const abs = isAbsolute(fileArg) ? pathResolve(fileArg) : pathResolve(baseCwd, fileArg);
     if (!existsSync(abs)) {
       const elsewhere = findFileByBasename(pathResolve(baseCwd), abs);

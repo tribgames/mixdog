@@ -406,6 +406,9 @@ export class ExecResult {
     this.signal = opts.signal || null;
     this.timedOut = opts.timedOut === true;
     this.killed = opts.killed === true;
+    // Why mixdog initiated a tree kill. Keep this separate from `signal`,
+    // which is the process-reported termination signal (SIGTERM/SIGKILL).
+    this.killCause = opts.killCause || null;
     this.stdoutPath = opts.stdoutPath || null;
     this.stdoutFileSize = opts.stdoutFileSize || 0;
     this.stderrPath = opts.stderrPath || null;
@@ -463,7 +466,40 @@ async function _spawnShellWithRetry({ shell, argv, spawnOptions, shellArg, cwd }
     let attempt = 0;
     for (;;) {
       try {
-        return spawn(shell, argv, spawnOptions);
+        const child = spawn(shell, argv, spawnOptions);
+        // spawn() reports ENOENT/EACCES on nextTick. Keep a guard listener
+        // attached from the same synchronous frame as spawn(), and do not
+        // resolve this helper until the child emits `spawn`. The caller adopts
+        // the guard atomically (new listener first, guard removal second), so
+        // there is never an unhandled-error window across either await.
+        let bufferedError = null;
+        const guardError = (err) => { bufferedError = bufferedError || err; };
+        child.on('error', guardError);
+        try {
+          await new Promise((resolveSpawn, rejectSpawn) => {
+            const onSpawn = () => {
+              child.removeListener('error', onError);
+              resolveSpawn();
+            };
+            const onError = (err) => {
+              child.removeListener('spawn', onSpawn);
+              rejectSpawn(err);
+            };
+            child.once('spawn', onSpawn);
+            child.once('error', onError);
+          });
+        } catch (err) {
+          child.removeListener('error', guardError);
+          throw err;
+        }
+        return {
+          child,
+          adoptErrorHandler(handler) {
+            child.on('error', handler);
+            child.removeListener('error', guardError);
+            if (bufferedError) handler(bufferedError);
+          },
+        };
       } catch (err) {
         try {
           console.error('[shell-spawn-retry] ' + JSON.stringify({
@@ -507,6 +543,12 @@ export function execShellCommand({
     const taskOutput = new TaskOutput(taskId);
     let timedOut = false;
     let killed = false;
+    let killCause = null;
+    let failurePhase = null;
+    let failureReason = null;
+    let spawnError = null;
+    let pendingChildError = null;
+    let settle = null;
     let settled = false;
     let timer = null;
     let abortHandler = null;
@@ -535,7 +577,9 @@ export function execShellCommand({
     // outside the timeout branch. Function declaration so callers placed
     // above settle()'s const definition still resolve via hoisting; the
     // 5 s deadline always fires after settle is constructed.
-    function _treeKillForceSettle() {
+    function _treeKillForceSettle(cause) {
+      killed = true;
+      killCause = killCause || cause || 'runtime-guard';
       treeKill(child);
       const _killDeadline = setTimeout(() => {
         if (settled) return;
@@ -574,7 +618,7 @@ export function execShellCommand({
       const argv = Array.isArray(shellArgs) && shellArgs.length > 0
         ? [...shellArgs, _spawnCommand]
         : [shellArg, _spawnCommand];
-      child = await _spawnShellWithRetry({
+      const spawned = await _spawnShellWithRetry({
         shell,
         argv,
         shellArg,
@@ -597,6 +641,14 @@ export function execShellCommand({
         // semantics, so it stays off there.
         detached: process.platform !== 'win32',
         },
+      });
+      child = spawned.child;
+      spawned.adoptErrorHandler((err) => {
+        spawnError = spawnError || err;
+        failurePhase = 'tool';
+        failureReason = 'spawn failed';
+        if (settle) settle(1, null);
+        else pendingChildError = pendingChildError || err;
       });
       startChildGuardian({
         childPid: child.pid,
@@ -624,8 +676,7 @@ export function execShellCommand({
     // before spawn returned (synchronous reentry from a parent abort), so
     // the child doesn't run for the full timeoutMs window.
     if (abortSignal && abortSignal.aborted) {
-      killed = true;
-      _treeKillForceSettle();
+      _treeKillForceSettle('cancellation');
     }
 
     child.stdout.setEncoding('utf-8');
@@ -640,13 +691,12 @@ export function execShellCommand({
     // by a successful exit code on a truncated capture.
     const _abortOnCaptureError = () => {
       if (taskOutput.writeError && !killed && !settled && !autoBackgrounded) {
-        killed = true;
-        _treeKillForceSettle();
+        _treeKillForceSettle('output-capture-error');
       }
     };
 
     let sizeWatchdog = null;
-    const settle = async (exitCode, signal) => {
+    settle = async (exitCode, signal) => {
       if (settled || autoBackgrounded) return;
       settled = true;
       if (timer) {
@@ -678,6 +728,7 @@ export function execShellCommand({
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
       try { stderr = await taskOutput.getStderr(); }
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
+      if (spawnError && !stderr) stderr = String(spawnError.message || spawnError);
       // Inline-only path: nothing spilled. Nothing to clean up.
       // Spilled but tiny: drop the files — outputFilePath would duplicate
       // the inline body. Spilled and large: keep the files, caller renders
@@ -698,6 +749,7 @@ export function execShellCommand({
           signal,
           timedOut,
           killed,
+          killCause,
           stdoutPath: taskOutput.spilled ? taskOutput.stdoutPath : null,
           stdoutFileSize: taskOutput.stdoutFileSize,
           stderrPath: taskOutput.spilled ? taskOutput.stderrPath : null,
@@ -705,6 +757,8 @@ export function execShellCommand({
           taskId,
           partialOutput,
           outputCaptureError: taskOutput.writeError,
+          failurePhase,
+          failureReason,
         }),
       );
     };
@@ -715,7 +769,7 @@ export function execShellCommand({
     // after stdio is fully drained, so getStdout()/getStderr() see the
     // complete capture.
     child.once('close', (code, signal) => settle(code, signal));
-    child.once('error', () => settle(1, null));
+    if (pendingChildError) settle(1, null);
     // 'close' only fires after stdio drains; a forked grandchild that
     // inherited stdout/stderr fds can hold them open past direct-child
     // exit and stall settle() until timeoutMs. 'exit' fires on direct
@@ -801,8 +855,12 @@ export function execShellCommand({
       // is honored by the kill path too.)
       if (!job) {
         autoBackgrounded = false;
-        if (reason === 'timeout') timedOut = true; else killed = true;
-        _treeKillForceSettle();
+        if (reason === 'timeout') {
+          timedOut = true;
+          _treeKillForceSettle('timeout');
+        } else {
+          _treeKillForceSettle('background-adoption-failed');
+        }
         return;
       }
       // Wire the lifecycle: on close, write the exit-code file FIRST then
@@ -815,14 +873,6 @@ export function execShellCommand({
           try { writeFileSync(job.donePath, ''); } catch {}
         });
       }
-      // Adoption committed. If a cancel already fired (before or during the
-      // adoption window), bring the now-adopted child down via its jobId so the
-      // promotion can't outlive a user abort. Idempotent with the still-attached
-      // abort handler's treeKill.
-      if (abortSignal && abortSignal.aborted) {
-        try { killShellJob(job.jobId); } catch {}
-        try { treeKill(child); } catch {}
-      }
       // Snapshot the partial output captured so far for the immediate result.
       let stdout = '';
       let stderr = '';
@@ -831,6 +881,33 @@ export function execShellCommand({
       try { stderr = await taskOutput.getStderr(); }
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
       const jobId = job ? job.jobId : null;
+      // Re-check after the awaited capture reads: cancellation can race after
+      // adoption commits. Never report that cancelled process as a successful
+      // still-running background task.
+      if (abortSignal && abortSignal.aborted) {
+        killed = true;
+        killCause = 'cancellation';
+        try { killShellJob(jobId); } catch {}
+        try { treeKill(child); } catch {}
+        resolve(new ExecResult({
+          stdout,
+          stderr,
+          exitCode: null,
+          signal: child.signalCode || null,
+          timedOut: false,
+          killed: true,
+          killCause,
+          stdoutPath,
+          stdoutFileSize: taskOutput.stdoutFileSize,
+          stderrPath: taskOutput.spilled ? taskOutput.stderrPath : null,
+          stderrFileSize: taskOutput.stderrFileSize,
+          taskId,
+          partialOutput: true,
+          outputCaptureError: taskOutput.writeError,
+          backgrounded: false,
+        }));
+        return;
+      }
       const secs = Math.max(0, Math.round((Date.now() - _startMs) / 1000));
       const _verb = reason === 'timeout'
         ? `moved to background at timeout after ${secs}s`
@@ -880,7 +957,7 @@ export function execShellCommand({
           return;
         }
         timedOut = true;
-        _treeKillForceSettle();
+        _treeKillForceSettle('timeout');
       }, timeoutMs);
       if (timer.unref) timer.unref();
     }
@@ -921,16 +998,14 @@ export function execShellCommand({
       if (settled || autoBackgrounded) return;
       _abortOnCaptureError();
       if (taskOutput.totalDiskBytes() > SHELL_OUTPUT_DISK_CAP) {
-        killed = true;
-        _treeKillForceSettle();
+        _treeKillForceSettle('output-limit');
       }
     }, SIZE_WATCHDOG_INTERVAL_MS);
     if (sizeWatchdog.unref) sizeWatchdog.unref();
 
     if (abortSignal) {
       abortHandler = () => {
-        killed = true;
-        _treeKillForceSettle();
+        _treeKillForceSettle('cancellation');
       };
       try {
         abortSignal.addEventListener('abort', abortHandler, { once: true });

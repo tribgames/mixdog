@@ -13,6 +13,7 @@ import {
   isEagerDispatchable,
   isToolCallDedupEligible,
 } from '../src/runtime/agent/orchestrator/session/loop/tool-helpers.mjs';
+import { assertCodeGraphDescriptionContract } from './code-graph-description-contract.mjs';
 
 test('explore per-query prompt contains only escaped query XML', () => {
   const prompt = buildExplorerPrompt('display model usage show usage model_usage provider_usage session cache usage state');
@@ -95,9 +96,19 @@ test('explorer locator policy retains its compact behavioral contract', () => {
 });
 
 test('canonical schemas advertise safe batching without changing tool shapes', () => {
-  const graph = readFileSync(new URL('../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs', import.meta.url), 'utf8');
+  const graph = CODE_GRAPH_TOOL_DEFS[0];
   const patch = readFileSync(new URL('../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs', import.meta.url), 'utf8');
-  assert.match(graph, /Batch symbols\[\]\/files\[\] by mode/i);
+  const mode = graph?.inputSchema?.properties?.mode?.description || '';
+  const description = graph?.description || '';
+  const symbols = graph?.inputSchema?.properties?.symbols?.description || '';
+  assert.doesNotThrow(() => assertCodeGraphDescriptionContract({
+    description,
+    modeDescription: mode,
+    symbolsDescription: symbols,
+  }));
+  assert.deepEqual(graph?.inputSchema?.required, ['mode']);
+  assert.equal(graph?.inputSchema?.properties?.file, undefined);
+  assert.equal(graph?.inputSchema?.properties?.symbol, undefined);
   assert.match(patch, /one patch/i);
   assert.match(patch, /one file block per target/i);
 });

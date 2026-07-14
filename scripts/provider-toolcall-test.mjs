@@ -55,6 +55,7 @@ import { parseSSEStream as anthropicParseSSEStream } from '../src/runtime/agent/
 import { _buildRequestBodyForCacheSmoke } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { _test as _anthropicApiKeyTest } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import { _toAnthropicMessagesForTest } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
+import { _test as _anthropicOAuthTest } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import {
     EFFORT_BETA_HEADER,
     LEGACY_EFFORT_BUDGET,
@@ -158,6 +159,27 @@ test('Anthropic native deferred result retains tool_reference history and defer_
     assert.equal(compacted.tools.find((tool) => tool.name === 'mcp__demo__ping')?.defer_loading, true);
     const apiKeyCompacted = _anthropicApiKeyTest.deferredAnthropicTools(base, [], { session });
     assert.equal(apiKeyCompacted.find((tool) => tool.name === 'mcp__demo__ping')?.deferLoading, true);
+});
+
+test('Anthropic API-key and OAuth preserve root properties across compound schemas', () => {
+    const properties = {
+        pattern: { type: 'string' },
+        path: { type: 'string' },
+    };
+    const branches = [
+            { required: ['pattern'] },
+            { required: ['path'] },
+    ];
+    for (const compoundKey of ['oneOf', 'anyOf', 'allOf']) {
+        const schema = { type: 'object', properties, [compoundKey]: branches };
+        const expected = { type: 'object', properties };
+        const apiKey = _anthropicApiKeyTest.sanitizeInputSchema(schema, 'grep');
+        const oauth = _anthropicOAuthTest.sanitizeInputSchema(schema, 'grep');
+
+        assert.deepEqual(apiKey, expected, `API-key ${compoundKey}`);
+        assert.deepEqual(oauth, expected, `OAuth ${compoundKey}`);
+        assert.deepEqual(apiKey, oauth, `${compoundKey} parity`);
+    }
 });
 
 test('OpenAI native provider-tag switches keep tool_search call/output paired', () => {

@@ -231,7 +231,7 @@ function resolveMaxTokens(model) {
 }
 
 // Test-only escape hatch for scripts/anthropic-maxtokens-test.mjs.
-export const _test = { resolveMaxTokens, deferredAnthropicTools };
+export const _test = { resolveMaxTokens, deferredAnthropicTools, sanitizeInputSchema: _sanitizeInputSchema };
 
 const MIN_THINKING_BUDGET = 1024;
 const THINKING_OUTPUT_RESERVE = 1024;
@@ -252,7 +252,7 @@ function _sanitizeInputSchema(schema, toolName) {
     }
     const compound = schema.oneOf || schema.anyOf || schema.allOf;
     if (!compound) return structuredClone(schema);
-    const mergedProps = {};
+    const mergedProps = { ...(schema.properties && typeof schema.properties === 'object' ? schema.properties : {}) };
     const branchDescs = [];
     for (const branch of Array.isArray(compound) ? compound : []) {
         if (branch && typeof branch === 'object' && branch.properties) {

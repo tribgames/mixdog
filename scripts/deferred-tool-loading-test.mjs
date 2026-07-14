@@ -10,6 +10,7 @@ import {
 } from '../src/session-runtime/tool-catalog.mjs';
 import { prepareDeferredToolCallThrough } from '../src/runtime/agent/orchestrator/session/loop/deferred-call-through.mjs';
 import { buildRequestBody } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
+import { _buildRequestBodyForCacheSmoke as buildAnthropicRequestBody } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 
 const schema = { type: 'object', properties: {} };
 const catalog = [
@@ -68,8 +69,84 @@ test('OpenAI first/repeated load uses history schemas and keeps base tools/cache
   const repeated = JSON.parse(renderToolSearch({ names: ['mcp__demo__ping'] }, session, 'full'));
   assert.deepEqual(repeated.loaded, []);
   assert.deepEqual(repeated.alreadyActive, ['mcp__demo__ping']);
+  assert.deepEqual(repeated.nativeToolSearch.toolReferences, []);
   assert.deepEqual(repeated.nativeToolSearch.openaiTools, []);
   assert.equal(JSON.stringify(session.tools), baseTools);
+
+  const repeatedFollowup = buildRequestBody([
+    ...history,
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{
+        id: 'search-2',
+        name: 'load_tool',
+        arguments: { names: ['mcp__demo__ping'] },
+        nativeType: 'tool_search_call',
+      }],
+    },
+    {
+      role: 'tool',
+      toolCallId: 'search-2',
+      content: repeated.nativeToolSearch.summary,
+      nativeToolSearch: repeated.nativeToolSearch,
+    },
+  ], 'gpt-5.4', session.tools, { sessionId: session.id, session });
+  const repeatedOutput = repeatedFollowup.input.at(-1);
+  assert.equal(JSON.stringify(repeatedFollowup.tools), JSON.stringify(firstBody.tools));
+  assert.equal(repeatedFollowup.prompt_cache_key, firstBody.prompt_cache_key);
+  assert.equal(repeatedFollowup.input.at(-2).type, 'tool_search_call');
+  assert.equal(repeatedOutput.type, 'tool_search_output');
+  assert.deepEqual(repeatedOutput.tools, []);
+});
+
+test('Anthropic repeated native loads retain an empty provider envelope', () => {
+  const session = { provider: 'anthropic-oauth', tools: [], messages: [] };
+  applyDeferredToolSurface(session, 'full', catalog, { provider: session.provider });
+  const first = JSON.parse(renderToolSearch({ names: ['mcp__demo__ping'] }, session, 'full'));
+  const before = JSON.stringify(session.tools);
+  const repeated = JSON.parse(renderToolSearch({ names: ['mcp__demo__ping'] }, session, 'full'));
+
+  assert.deepEqual(first.nativeToolSearch.toolReferences, ['mcp__demo__ping']);
+  assert.deepEqual(repeated.loaded, []);
+  assert.deepEqual(repeated.alreadyActive, ['mcp__demo__ping']);
+  assert.deepEqual(repeated.nativeToolSearch.toolReferences, []);
+  assert.deepEqual(repeated.nativeToolSearch.openaiTools, []);
+  assert.equal(JSON.stringify(session.tools), before);
+  assert.equal(session.deferredCallableTools.includes('mcp__demo__ping'), true);
+  assert.equal(session.deferredDiscoveredTools.includes('mcp__demo__ping'), true);
+
+  const body = buildAnthropicRequestBody([
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'load-a1', name: 'load_tool', arguments: { names: ['mcp__demo__ping'] } }],
+    },
+    {
+      role: 'tool',
+      toolCallId: 'load-a1',
+      content: first.nativeToolSearch.summary,
+      nativeToolSearch: first.nativeToolSearch,
+    },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'load-a2', name: 'load_tool', arguments: { names: ['mcp__demo__ping'] } }],
+    },
+    {
+      role: 'tool',
+      toolCallId: 'load-a2',
+      content: repeated.nativeToolSearch.summary,
+      nativeToolSearch: repeated.nativeToolSearch,
+    },
+  ], 'claude-sonnet-4-6', session.tools, { session });
+  const results = body.messages.flatMap((message) => (
+    Array.isArray(message.content) ? message.content.filter((block) => block.type === 'tool_result') : []
+  ));
+  assert.deepEqual(results.map((block) => block.tool_use_id), ['load-a1', 'load-a2']);
+  assert.deepEqual(results[0].content, [{ type: 'tool_reference', tool_name: 'mcp__demo__ping' }]);
+  assert.equal(results[1].content, 'Already active: mcp__demo__ping');
+  assert.equal(body.tools.find((tool) => tool.name === 'mcp__demo__ping')?.defer_loading, true);
 });
 
 test('OpenAI API-key path accepts its own native tool_search_output history', () => {

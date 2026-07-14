@@ -1637,9 +1637,6 @@ fn count_aligned_overlapping(view: &NormView, needle: &[char]) -> usize {
             && match_is_char_aligned(view, i, needle.len())
         {
             n += 1;
-            if n > 1 {
-                return n;
-            }
         }
         i += 1;
     }

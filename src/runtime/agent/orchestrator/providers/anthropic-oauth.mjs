@@ -246,7 +246,7 @@ function _sanitizeInputSchema(schema, toolName) {
     // None of the branches' required lists are hoisted — callers that relied
     // on discriminated-union semantics will still function; the model simply
     // receives a union of the property surface with no hard-required constraint.
-    const mergedProps = {};
+    const mergedProps = { ...(schema.properties && typeof schema.properties === 'object' ? schema.properties : {}) };
     const branchDescs = [];
     for (const branch of Array.isArray(compound) ? compound : []) {
         if (branch && typeof branch === 'object' && branch.properties) {
@@ -1353,4 +1353,4 @@ export { parseSSEStream, _classifyMidstreamError, ANTHROPIC_MAX_MIDSTREAM_RETRIE
 
 // Test-only escape hatch for scripts/tool-smoke.mjs to verify the
 // catalog-driven max-tokens resolution without duplicating its logic.
-export const _test = { resolveMaxTokens, deferredAnthropicTools };
+export const _test = { resolveMaxTokens, deferredAnthropicTools, sanitizeInputSchema: _sanitizeInputSchema };

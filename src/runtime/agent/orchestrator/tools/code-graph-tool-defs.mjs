@@ -3,7 +3,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
     name: 'code_graph',
     title: 'Code Graph',
     annotations: { title: 'Code Graph', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false, compressibleLossless: true },
-    description: 'Repo code structure/flow over verified source files only. IDs→graph; literal/zero→grep. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search. Unsupported target arrays are omitted, never silently mixed. Batch symbols[]/files[] by mode.',
+    description: 'Repo code structure/flow over verified source files only. IDs→graph; literal/zero→grep. File modes take files[]; symbol modes find_symbol/symbol_search/search/references/callers/callees take symbols[]. Exact identifiers use find_symbol/references/callers/callees and keywords use symbol_search/search. Unsupported target arrays are omitted, never silently mixed. Batch targets per mode.',
     inputSchema: {
       type: 'object',
       properties: {

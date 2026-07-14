@@ -70,30 +70,35 @@ function nativePatchPersistent() {
   return /^(1|true|yes|server|persistent)$/i.test(nativePatchMode());
 }
 
-export function nativePatchBinPath() {
+export function nativePatchBinPath(options = {}) {
   if (process.env.MIXDOG_PATCH_NATIVE_BIN) return process.env.MIXDOG_PATCH_NATIVE_BIN;
   // Local cargo build first, then a fetched/cached prebuilt; absence is
   // a hard error at dispatch (no JS fallback in native-only mode).
-  if (existsSync(NATIVE_PATCH_DEFAULT_BIN)) return NATIVE_PATCH_DEFAULT_BIN;
-  return findCachedPatchBinary(getPluginData()) || NATIVE_PATCH_DEFAULT_BIN;
+  const defaultBin = options.defaultBin || NATIVE_PATCH_DEFAULT_BIN;
+  if (existsSync(defaultBin)) return defaultBin;
+  const dataDir = options.dataDir || getPluginData();
+  return findCachedPatchBinary(dataDir, options.fetcherOptions) || defaultBin;
 }
 
-export async function ensureNativePatchBinaryAvailable() {
+export async function ensureNativePatchBinaryAvailable(options = {}) {
   if (!nativePatchEnabled()) {
     throw new Error('apply_patch: native engine disabled via MIXDOG_PATCH_NATIVE; set it to "auto" or "1" to apply patches.');
   }
-  const current = nativePatchBinPath();
+  const current = nativePatchBinPath(options);
   if (existsSync(current)) return current;
   if (process.env.MIXDOG_PATCH_NATIVE_BIN) {
     throw new Error(`apply_patch: native patch binary not found at MIXDOG_PATCH_NATIVE_BIN=${current}.`);
   }
   try {
-    const fetched = await ensurePatchBinary(getPluginData());
+    const fetched = await ensurePatchBinary(
+      options.dataDir || getPluginData(),
+      options.fetcherOptions,
+    );
     if (fetched && existsSync(fetched)) return fetched;
   } catch (err) {
     throw new Error(`apply_patch: native patch binary unavailable — ${err?.message || String(err)}`);
   }
-  const resolved = nativePatchBinPath();
+  const resolved = nativePatchBinPath(options);
   if (existsSync(resolved)) return resolved;
   throw new Error(`apply_patch: native patch binary not found at ${resolved}.`);
 }

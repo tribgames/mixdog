@@ -245,15 +245,26 @@ export function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
 }
 
 function classifyToolFailure(resultText, toolName) {
-    const text = String(resultText ?? '').toLowerCase();
-    if (/\[shell-tool-failed\]/i.test(String(resultText ?? ''))) return 'tool-call/failure';
-    if (/\[shell-run-failed\]/i.test(String(resultText ?? ''))) {
-        if (/timeout|timed out|aborted|interrupted/.test(text)) return 'timeout/abort';
+    const raw = String(resultText ?? '');
+    const text = raw.toLowerCase();
+    // Shell renderers put the machine-readable status on the leading line.
+    // Only inspect that marker: command text and stderr frequently contain
+    // words such as "timeout" or "aborted" and must not rewrite a real exit
+    // code into a runtime failure category.
+    const leading = raw.split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line && !line.startsWith('⚠️ '))
+        ?.replace(/^Error:\s*/i, '') || '';
+    if (/^\[shell-tool-failed\](?:\s|$)/i.test(leading)) return 'tool-call/failure';
+    if (/^\[shell-run-failed\](?:\s|$)/i.test(leading)) {
+        if (/\[timeout:|cause:\s*(?:timeout|cancellation)\b/i.test(leading)) return 'timeout/abort';
+        if (/cause:\s*(?:output-limit|output-capture-error|background-adoption-failed)\b/i.test(leading)) return 'runtime/failure';
+        if (/\[signal:\s*[^\]]+/i.test(leading)) return 'process/signal';
         return 'command-exit';
     }
     if (/requires either|invalid arguments|unknown parameter|must be|schema|expected|required|old_string is .*>=/.test(text)) return 'schema/args';
     if (/not in allow-list|not allowed/.test(text)) return 'permission';
-    if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(String(resultText ?? ''))) return 'command-exit';
+    if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(raw)) return 'command-exit';
     if (/enoent|cannot find|not found at this path|path does not exist|no such file|file not found in graph|unreadable/.test(text)) return 'path/enoent';
     if (/timed out|timeout|interrupted|aborted/.test(text)) return 'timeout/abort';
     if (/hunk rejected|patch failed|context mismatch|expected first old\/context|context not found/.test(text)) return 'patch/context';
