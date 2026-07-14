@@ -49,7 +49,7 @@ export function createQueryHandlers({
   // Raw-row priority lookup for narrow-window queries. Raw rows (is_root=0,
   // chunk_root IS NULL) are inserted immediately by ingestTranscriptFile before
   // cycle1 runs, so they always carry the freshest turns in the DB.
-  async function readRawRowsInWindow(db, tsFromMs, tsToMs, hardLimit = 10, { projectScope, sessionId, terms } = {}) {
+  async function readRawRowsInWindow(db, tsFromMs, tsToMs, hardLimit = 10, { projectScope, sessionId, terms, minHits: minHitsOverride } = {}) {
     try {
       // Composable WHERE assembly (mirrors retrieveEntries' filter semantics so
       // raw and chunked legs stay in filter parity: projectScope AND sessionId
@@ -78,7 +78,9 @@ export function createQueryHandlers({
         // into the page. 1-2 term queries keep single-hit contains semantics —
         // short Korean queries are often exactly two meaningful tokens and a
         // 2-of-2 requirement silently emptied the raw leg for them.
-        const minHits = terms.length >= 3 ? 2 : 1
+        const minHits = Number.isFinite(Number(minHitsOverride))
+          ? Math.max(1, Math.floor(Number(minHitsOverride)))
+          : (terms.length >= 3 ? 2 : 1)
         where.push(`(${clauses.join(' + ')}) >= ${minHits}`)
       }
       params.push(hardLimit)
@@ -722,7 +724,7 @@ export function createQueryHandlers({
       // Deterministic tie-breaker: equal MAX(ts) across sessions would let the
       // LIMIT/OFFSET window skip or duplicate a session between offset pages
       // without a stable secondary sort.
-      const sessSql = `SELECT session_id, MAX(ts) AS last_ts
+      const sessSql = `SELECT session_id, MIN(ts) AS first_ts, MAX(ts) AS last_ts
                        FROM entries
                        WHERE ${selWhere.join(' AND ')}
                        GROUP BY session_id
@@ -732,6 +734,7 @@ export function createQueryHandlers({
       // 2) per selected session, fetch its newest rows (roots+members, sort by
       //    date) plus the fresh raw window, capped at PER_SESSION_ROW_CAP.
       const allRows = []
+      const sessionMeta = new Map()
       for (const s of sessRows) {
         const sid = String(s?.session_id || '').trim()
         if (!sid) continue
@@ -743,7 +746,24 @@ export function createQueryHandlers({
         const sRows = await retrieveEntries(db, sf)
         let merged = sRows
         if (includeRaw) {
-          const rawRows = await readRawRowsInWindow(db, null, Date.now(), perSessionFetchCap, { projectScope, sessionId: sid, terms: queryTerms })
+          let rawRows
+          if (queryTerms.length > 0) {
+            // Keep a full unfiltered recency window for the newest-row floor,
+            // while separately retaining the deeper term-matched raw window.
+            const [recentRawRows, matchedRawRows] = await Promise.all([
+              readRawRowsInWindow(db, null, Date.now(), perSessionFetchCap, { projectScope, sessionId: sid, terms: [] }),
+              readRawRowsInWindow(db, null, Date.now(), perSessionFetchCap, { projectScope, sessionId: sid, terms: queryTerms, minHits: 1 }),
+            ])
+            const rawIds = new Set()
+            rawRows = [...recentRawRows, ...matchedRawRows].filter((r) => {
+              const id = Number(r.id)
+              if (rawIds.has(id)) return false
+              rawIds.add(id)
+              return true
+            })
+          } else {
+            rawRows = await readRawRowsInWindow(db, null, Date.now(), perSessionFetchCap, { projectScope, sessionId: sid, terms: [] })
+          }
           const seenIds = new Set(sRows.map((r) => Number(r.id)))
           for (const r of sRows) if (Array.isArray(r.members)) for (const m of r.members) seenIds.add(Number(m.id))
           // readRawRowsInWindow carries no category filter, so a category-
@@ -768,14 +788,37 @@ export function createQueryHandlers({
             merged.sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0) || (Number(b.id) || 0) - (Number(a.id) || 0))
           }
         }
+        const fetchedCount = merged.length
+        let queryFiltered = false
         if (queryTerms.length > 0) {
-          merged = merged.filter(matchesQueryTerms)
+          const newestRows = merged.slice(0, 3)
+          const newestIds = new Set(newestRows.map((r) => r.id))
+          const matchedRows = merged.filter(matchesQueryTerms)
+          // A topic query must not obscure a session's latest activity: keep
+          // its three newest rows, then use term matches for the remaining
+          // display slots without duplicating rows already kept for recency.
+          merged = [...newestRows, ...matchedRows.filter((r) => !newestIds.has(r.id))]
+          // Only mark query filtering when its floor+match union actually
+          // excludes fetched rows. The later display cap is independent.
+          queryFiltered = merged.length < fetchedCount
         }
         merged = merged.slice(0, PER_SESSION_ROW_CAP)
+        sessionMeta.set(sid, {
+          minTs: Number(s.first_ts),
+          maxTs: Number(s.last_ts),
+          fetchedCount,
+          shownCount: merged.length,
+          queryFiltered,
+        })
         for (const r of merged) allRows.push(r)
       }
       const _currentSessionHint = String(args?.currentSessionId || '').trim()
-      return { text: recallCapPrefix + renderSessionGroupedLines(allRows, { currentSessionId: _currentSessionHint, recencyOrder: true, spanHeaders: true }) }
+      return { text: recallCapPrefix + renderSessionGroupedLines(allRows, {
+        currentSessionId: _currentSessionHint,
+        recencyOrder: true,
+        spanHeaders: true,
+        sessionMeta,
+      }) }
     }
 
     const filters = { limit: limit + offset }

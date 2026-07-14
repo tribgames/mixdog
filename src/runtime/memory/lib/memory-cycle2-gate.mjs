@@ -11,11 +11,10 @@ import { __mixdogMemoryLog, throwIfAborted, resourceDir } from './memory-cycle2-
 
 export const CYCLE2_ACTIVE_TARGET_CAP = 100
 
-// Minimum number of active (promoted) rows cycle2 must preserve. When the
-// active pool is at or below this floor, active recheck/demotion is skipped
-// and no archiving path may push active below it — prevents draining the
-// pool to zero. Configurable via config.active_floor.
-export const CYCLE2_ACTIVE_MIN_FLOOR = 20
+// Default active-row floor for cycle2. It is zero so rolling active rechecks
+// always run; protection from archive verdicts is opt-in via
+// config.active_floor.
+export const CYCLE2_ACTIVE_MIN_FLOOR = 0
 
 // Status-based verb whitelist. 3-tier policy: pending → active/archived,
 // active → active/archived/update/merge.
@@ -224,6 +223,15 @@ export function loadCurrentRulesDigest() {
       }
     } catch {}
   }
+  const workflows = join(resourceDir(), 'workflows')
+  try {
+    if (existsSync(workflows)) {
+      for (const dir of readdirSync(workflows).sort()) {
+        const workflow = join(workflows, dir, 'WORKFLOW.md')
+        if (existsSync(workflow)) sources.push(workflow)
+      }
+    }
+  } catch {}
   const parts = []
   for (const p of sources) {
     try {

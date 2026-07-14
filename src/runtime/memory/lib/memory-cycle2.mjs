@@ -259,16 +259,19 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   // over-cap path was historically the ONLY one that re-examined active.
   // Reserve a bounded slice of batch slots for the stalest active rows so
   // rule-duplicate / drifted promotions are archived continuously instead of
-  // sitting forever un-rechecked. Bounded count + reviewed_at rotation
-  // prevents eroding the set to zero (the original over-cap-only concern):
+  // sitting forever un-rechecked. Bounded count + reviewed_at rotation keep
+  // each cycle's exposure small (with the default floor of 0 the pool CAN
+  // erode to zero over repeated cycles if the gate keeps archiving; set
+  // config.active_floor to retain a hard minimum):
   // only the oldest few are re-judged per cycle, and the gate — shown
   // {{CURRENT_RULES}} — keeps genuine A/B entries and archives only
   // restatements. Embedding dedup is skipped on purpose: rule restatements
   // are often cross-language paraphrases whose cosine never clears the merge
   // threshold, but the LLM gate catches the semantic overlap.
-  // Floor guard: when the active pool is at/below the minimum floor, skip the
-  // rolling active recheck entirely so demotions cannot drain it further.
-  const activeRecheckQuota = (reviewActiveRows || activeCount <= activeFloor)
+  // Rolling active recheck always runs outside the over-cap broad review,
+  // including when the active pool is small. Floor protection is opt-in via
+  // config.active_floor and is enforced by the shared floor guard below.
+  const activeRecheckQuota = reviewActiveRows
     ? 0
     : Math.max(0, Math.min(Number(config.active_recheck_quota ?? 8), batchSize - 1))
   const pendingLimit = batchSize - activeRecheckQuota

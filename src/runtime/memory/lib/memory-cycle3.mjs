@@ -112,7 +112,30 @@ function coreText(core) {
   return `${core?.element || ''}\n${core?.summary || ''}`
 }
 
-function isSafeConservativeUpdate(current, action) {
+function hasSubstantialNonLatinScript(value) {
+  const text = String(value ?? '')
+  const letters = text.match(/\p{L}/gu) || []
+  const latinLetters = letters.filter((letter) => /\p{Script=Latin}/u.test(letter))
+  const nonLatinLetters = letters.length - latinLetters.length
+  return nonLatinLetters >= 3 && nonLatinLetters >= letters.length * 0.3
+}
+
+function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return null
+  let dot = 0
+  let aNorm = 0
+  let bNorm = 0
+  for (let i = 0; i < a.length; i++) {
+    if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) return null
+    dot += a[i] * b[i]
+    aNorm += a[i] ** 2
+    bNorm += b[i] ** 2
+  }
+  if (aNorm === 0 || bNorm === 0) return null
+  return dot / Math.sqrt(aNorm * bNorm)
+}
+
+async function isSafeConservativeUpdate(current, action) {
   if (!current || !action?.element || !action?.summary) return { ok: false, reason: 'missing text' }
   const newElement = normalizeComparable(action.element)
   const newSummary = normalizeComparable(action.summary)
@@ -123,11 +146,23 @@ function isSafeConservativeUpdate(current, action) {
   const newText = `${action.element}\n${action.summary}`
   const oldLen = normalizeComparable(oldText).length
   const newLen = normalizeComparable(newText).length
-  if (oldLen > 0 && newLen > oldLen + 20) return { ok: false, reason: 'rewrite expands entry' }
-
   const sim = charDice(oldText, newText)
-  if (sim < 0.28) return { ok: false, reason: `rewrite drift sim=${sim.toFixed(2)}` }
-  return { ok: true, reason: 'safe compression' }
+  const crossLanguageRewrite = sim < 0.28 && hasSubstantialNonLatinScript(oldText)
+  if (!crossLanguageRewrite) {
+    if (oldLen > 0 && newLen > oldLen + 20) return { ok: false, reason: 'rewrite expands entry' }
+    if (sim < 0.28) return { ok: false, reason: `rewrite drift sim=${sim.toFixed(2)}` }
+    return { ok: true, reason: 'safe compression' }
+  }
+
+  try {
+    const [oldEmbedding, newEmbedding] = await Promise.all([embedText(oldText), embedText(newText)])
+    const cosine = cosineSimilarity(oldEmbedding, newEmbedding)
+    if (cosine == null) return { ok: false, reason: 'cross-language embedding invalid' }
+    if (cosine < 0.6) return { ok: false, reason: `cross-language semantic drift cosine=${cosine.toFixed(2)}` }
+    return { ok: true, reason: `safe cross-language rewrite cosine=${cosine.toFixed(2)}` }
+  } catch (err) {
+    return { ok: false, reason: `cross-language embedding failed: ${err?.message || 'unknown error'}` }
+  }
 }
 
 function findElementConflict(coreById, currentId, element, projectId) {
@@ -659,7 +694,7 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
     }
     if (a.verb === 'update') {
       proposed.updated++
-      const safety = conservative ? isSafeConservativeUpdate(coreById.get(a.id), a) : { ok: true, reason: 'confirmed' }
+      const safety = conservative ? await isSafeConservativeUpdate(coreById.get(a.id), a) : { ok: true, reason: 'confirmed' }
       const conflictId = conservative
         ? findElementConflict(coreById, a.id, a.element, coreById.get(a.id)?.project_id ?? null)
         : null

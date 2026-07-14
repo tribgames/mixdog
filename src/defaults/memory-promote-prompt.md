@@ -47,9 +47,10 @@ Use `why|A` for durable cross-session invariants (L1/L2). Use `why|B` for L3
 current-map entries: one-line project-landscape summaries, live long-running
 goals, and environment anchors documented nowhere else. `why` is validation
 evidence only; it is
-not stored. `core_summary` is injected into Core Memory, so keep it one
-self-contained clause, <=120 chars. For `merge`, `why` and `core` may use the
-survivor `target_row`.
+not stored. `core_summary` is injected into Core Memory, so write it in ENGLISH
+regardless of source language as one compact, self-contained clause, <=120
+chars. Keep code identifiers, paths, and commands verbatim. For `merge`, `why`
+and `core` may use the survivor `target_row`.
 
 Allowed primary verbs:
 

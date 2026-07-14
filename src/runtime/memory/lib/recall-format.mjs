@@ -336,10 +336,16 @@ function spanHeaderSuffix(minTs, maxTs, n) {
 // group's lines are globally ts-desc: without it a chunk root's members (stored
 // ts-ASC) interleave with raw rows and invert the visible timeline within a
 // session (e.g. 04:33 rendered above 04:41).
-export function renderSessionGroupedLines(rows, { currentSessionId, recencyOrder = false, spanHeaders = false } = {}) {
-  if (!rows || rows.length === 0) return '(no results)'
+export function renderSessionGroupedLines(rows, { currentSessionId, recencyOrder = false, spanHeaders = false, sessionMeta } = {}) {
+  const hasSessionMeta = spanHeaders && Number(sessionMeta?.size) > 0
+  if ((!rows || rows.length === 0) && !hasSessionMeta) return '(no results)'
   const groups = new Map()
-  for (const r of rows) {
+  // Seed selected sessions so an entirely query-filtered session still
+  // reports its real activity span and filtering status.
+  if (hasSessionMeta) {
+    for (const sid of sessionMeta.keys()) groups.set(sid, [])
+  }
+  for (const r of rows || []) {
     const sid = String(r?.session_id || '').trim()
     const key = sid || '(no session)'
     if (!groups.has(key)) groups.set(key, [])
@@ -356,11 +362,20 @@ export function renderSessionGroupedLines(rows, { currentSessionId, recencyOrder
     for (const [sid, groupRows] of groups) {
       const mark = current && sid === current ? ' (current)' : ''
       const label = sid === '(no session)' ? sid : `session ${shortSessionLabel(sid)}`
+      const meta = sessionMeta?.get?.(sid)
       const tsAll = collectGroupTs(groupRows)
-      const suffix = tsAll.length
-        ? ` ${spanHeaderSuffix(Math.min(...tsAll), Math.max(...tsAll), groupRows.length)}`
+      const minTs = Number(meta?.minTs)
+      const maxTs = Number(meta?.maxTs)
+      const hasActivitySpan = Number.isFinite(minTs) && Number.isFinite(maxTs)
+      const suffix = hasActivitySpan
+        ? ` ${spanHeaderSuffix(minTs, maxTs, groupRows.length)}`
+        : tsAll.length
+          ? ` ${spanHeaderSuffix(Math.min(...tsAll), Math.max(...tsAll), groupRows.length)}`
         : ` (${groupRows.length} entries)`
-      parts.push(`## ${label}${mark}${suffix}`)
+      const filterNote = meta?.queryFiltered
+        ? ` · query-filtered ${meta.shownCount}/${meta.fetchedCount} rows`
+        : ''
+      parts.push(`## ${label}${mark}${suffix}${filterNote}`)
       const bodyStr = renderEntryLines(groupRows, { recencyOrder })
       const bodyLines = bodyStr === '(no results)'
         ? []

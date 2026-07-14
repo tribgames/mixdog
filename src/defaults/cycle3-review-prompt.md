@@ -23,7 +23,9 @@ CORE is durable standing knowledge that lands in one of three layers:
 - **L3 — Current map:** one-line project-landscape summaries, live long-running
   goals, environment anchors documented nowhere else.
 
-Every entry should be ONE short clause (≤120 chars). CORE is not a log.
+Every entry must be ONE compact ENGLISH clause (≤120 chars), regardless of
+source language. Keep identifiers, paths, and exact phrases coined by the user
+verbatim. CORE is not a log.
 
 ## The distinction that decides every verdict
 
@@ -48,8 +50,10 @@ or inconclusive, keep the CORE entry.
 
 ## Verdicts
 
-- `keep` — durable and already one short clause.
-- `update` — durable but verbose or multi-sentence → rewrite as one ≤120-char clause.
+- `keep` — durable and already one compact ENGLISH clause.
+- `update` — durable but verbose, multi-sentence, or non-English → rewrite as
+  one compact ≤120-char ENGLISH clause; keep identifiers, paths, and exact
+  phrases coined by the user verbatim.
 - `merge` — duplicates another entry → fold into the survivor (same project pool).
 - `reclassify` — the entry is filed under the WRONG project pool. Its subject
   clearly belongs to a different pool shown among the entries under review: a
@@ -81,7 +85,9 @@ or inconclusive, keep the CORE entry.
   `<id>|delete` with no reason, or any reason outside that set, is treated as
   "needs confirmation" and only removed on an explicit APPLY CYCLE3 run.
 
-A verbose durable entry is always `update`, never `keep`.
+A verbose, multi-sentence, or non-English durable entry is always `update`,
+never `keep`; rewrite it as a ≤120-char English clause while keeping
+identifiers, paths, and exact user-coined phrases verbatim.
 Delete is the rarest verdict. Prefer `keep` for durable rules/preferences and
 `update` for compression when the current behavior is still valid.
 Use `superseded` (not `delete`) when the entry WAS a valid durable rule/fact but
