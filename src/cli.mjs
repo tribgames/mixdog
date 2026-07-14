@@ -35,6 +35,7 @@ async function main() {
       const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), ...argv], {
         stdio: 'inherit',
         env: { ...process.env, MIXDOG_SWAP_REEXEC: '1' },
+        windowsHide: true,
       });
       if (!r.error) return Number.isInteger(r.status) ? r.status : 0;
     } catch { /* fall through to in-place run */ }

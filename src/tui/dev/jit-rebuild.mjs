@@ -16,6 +16,7 @@ export async function rebuildTuiFromSource() {
   const script = join(root, 'scripts', 'build-tui.mjs');
   const res = spawnSync(process.execPath, [script], {
     stdio: process.env.MIXDOG_TUI_DEV_VERBOSE ? 'inherit' : 'ignore',
+    windowsHide: true,
   });
   if (res.error) throw res.error;
   if (res.status !== 0) throw new Error(`build-tui exited with ${res.status}`);
