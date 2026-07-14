@@ -124,22 +124,22 @@ function estimateCompactionPromptTokens(input, perMessageChars) {
 }
 
 function previousSummaryBodyForCompactionPrompt(previousSummary) {
-    const text = String(previousSummary || '').trim();
-    if (!text) return '';
+    const text = String(previousSummary || '');
+    if (!text.trim()) return '';
     return stripNestedSummaryHeaderLines(text);
 }
 
 function priorSummaryNeedsNormalization(text) {
-    const body = String(text || '').trim();
-    if (!body) return false;
+    const body = String(text || '');
+    if (!body.trim()) return false;
     if (!/^##\s+/m.test(body)) return true;
     if (!summaryIsSchemaValid(body)) return true;
     return summaryHasUnrecognizedHeadings(body);
 }
 
 function normalizePriorSummaryForCompactionPrompt(fullBody) {
-    const text = String(fullBody || '').trim();
-    if (!text) return '';
+    const text = String(fullBody || '');
+    if (!text.trim()) return '';
     if (!priorSummaryNeedsNormalization(text)) return text;
     return repairSemanticSummary(text, { head: [], tail: [] });
 }
@@ -154,9 +154,9 @@ function fitPreviousSummaryForCompactionPrompt(input, perMessageChars, targetTok
         previousSummaryBodyForCompactionPrompt(input.previousSummary),
     );
     const withSummary = (summaryText) => {
-        const trimmed = String(summaryText || '').trim();
-        if (!trimmed) return { ...input, previousSummary: null };
-        return { ...input, previousSummary: trimmed };
+        const value = String(summaryText || '');
+        if (!value.trim()) return { ...input, previousSummary: null };
+        return { ...input, previousSummary: value };
     };
 
     if (estimateCompactionPromptTokens(withSummary(fullBody), perMessageChars) <= targetTokens) {
@@ -412,23 +412,162 @@ export const RECALL_TAIL_SHORT_TRUNCATION_MARKER = '[truncated]';
 
 const PRIOR_COMPACTED_CONTEXT_OPEN = '<prior-compacted-context>';
 const PRIOR_COMPACTED_CONTEXT_CLOSE = '</prior-compacted-context>';
+// Matches ONLY a structural wrapper BOUNDARY line — a line whose sole content is
+// the open or close tag (optionally surrounded by whitespace). It deliberately
+// does NOT match an inline occurrence embedded in real content (e.g. a user note
+// like "keep <prior-compacted-context> literal here"), so flattening the wrapper
+// can never splice words together or corrupt marker-like text. The production
+// wrapper is always emitted on its own line, so boundary-line stripping removes
+// every real wrapper while leaving inline literals verbatim.
+const PRIOR_COMPACTED_CONTEXT_BOUNDARY_RE = /^[ \t]*<\/?prior-compacted-context>[ \t]*$/;
 
-function formatPriorCompactedContextBlock(priorText) {
-    const prior = String(priorText || '').trim();
-    if (!prior) return '';
-    return `${PRIOR_COMPACTED_CONTEXT_OPEN}\n${prior}\n${PRIOR_COMPACTED_CONTEXT_CLOSE}`;
+// Strip the STRUCTURAL <prior-compacted-context> / </prior-compacted-context>
+// boundary lines from prior text so re-wrapping never nests, while preserving
+// any inline marker-like text inside real content exactly as written. Returns
+// the bare inner content with the blank lines the removed boundary lines leave
+// behind collapsed.
+export function stripPriorCompactedContextWrappers(text) {
+    const raw = String(text ?? '');
+    if (!raw) return '';
+    // Keep every non-structural byte, including leading/trailing and repeated
+    // newlines.  Removing only the structural line itself (not trim/collapse)
+    // preserves the layout of all remaining content.
+    return raw
+        .split('\n')
+        .filter((line) => !PRIOR_COMPACTED_CONTEXT_BOUNDARY_RE.test(line))
+        .join('\n');
+}
+
+// Remove only STRUCTURALLY IDENTICAL blank-line-separated blocks (byte-for-byte
+// repeats) so a prior context re-fed across many compaction cycles keeps every
+// distinct requirement/fact and cannot grow without bound. The dedupe is
+// content-preserving: the key is the block's EXACT text — internal whitespace is
+// never collapsed and meaningful block content is never trimmed — so distinct
+// strings such as `printf 'a  b'` and `printf 'a b'` are BOTH kept verbatim.
+// Only an exact repeat of a previously emitted block is dropped; blank
+// separators (whitespace-only splits) are skipped, never real content.
+function dedupePriorCompactedBlocks(text) {
+    const raw = String(text ?? '');
+    if (!raw.trim()) return '';
+    const seen = new Set();
+    const parts = raw.split(/(\n{2,})/);
+    const out = [];
+    let separator = '';
+    for (let i = 0; i < parts.length; i += 1) {
+        const part = parts[i];
+        if (i % 2 === 1) {
+            separator += part;
+            continue;
+        }
+        // Whitespace-only parts are layout, not a duplicate candidate.
+        if (!part.trim()) {
+            out.push(separator, part);
+            separator = '';
+            continue;
+        }
+        if (seen.has(part)) {
+            // Drop only the exact repeated structural block and its preceding
+            // separator; all retained text and whitespace stay byte-for-byte.
+            separator = '';
+            continue;
+        }
+        out.push(separator, part);
+        separator = '';
+        seen.add(part);
+    }
+    out.push(separator);
+    return out.join('');
+}
+
+// Canonicalize prior compacted context to AT MOST ONE wrapper: flatten any
+// nested/duplicated wrappers accumulated by earlier cycles, dedupe repeated
+// blocks, then wrap the surviving content exactly once. Repeated compaction can
+// therefore never nest or duplicate the prior context, each distinct
+// requirement/fact is preserved exactly once, and repeated-cycle token size
+// stays bounded.
+//
+// Optimization-safe empty-prior interpretation: when there is NO prior content
+// (empty / blank / boundary-tag-only input) this returns '' so the generated
+// summary carries ZERO wrappers instead of an empty
+// <prior-compacted-context></prior-compacted-context> pair. The production
+// summary body joins only non-empty parts (makeRecall*SummaryMessageParts), so
+// an empty wrapper cannot be carried and would only waste tokens. "Exactly one
+// wrapper" is thus realized as: exactly one when prior content exists, none when
+// it does not — and never more than one, never nested.
+export function formatPriorCompactedContextBlock(priorText) {
+    const flattened = dedupePriorCompactedBlocks(stripPriorCompactedContextWrappers(priorText));
+    if (!flattened) return '';
+    return `${PRIOR_COMPACTED_CONTEXT_OPEN}\n${flattened}\n${PRIOR_COMPACTED_CONTEXT_CLOSE}`;
 }
 
 export function stripNestedSummaryHeaderLines(text) {
-    const lines = String(text ?? '').split('\n');
+    const raw = String(text ?? '');
+    // A generated recall summary has a canonical, provenance-bearing shape:
+    //   header + "\n\n" + OPEN + "\n" + prior + "\n" + CLOSE + "\n\n" + recall
+    // Extracting it as lines loses ownership of a run of newlines: in
+    // `X\n` + join + live `X`, generic block dedupe cannot know that one
+    // newline belongs to X and must survive dropping the duplicate live X.
+    // Peel only the emitted wrapper/header/join bytes and retain the inner
+    // prior slice verbatim. The live recall is dropped only when it is the
+    // same payload the wrapper already carries.
+    const openMatch = /^[ \t]*<prior-compacted-context>[ \t]*\n/m.exec(raw);
+    if (openMatch) {
+        const closeRe = /\n[ \t]*<\/prior-compacted-context>[ \t]*(?=\n|$)/g;
+        closeRe.lastIndex = openMatch.index + openMatch[0].length;
+        const closeMatch = closeRe.exec(raw);
+        if (closeMatch) {
+            const prior = raw.slice(openMatch.index + openMatch[0].length, closeMatch.index);
+            const remainder = raw.slice(closeMatch.index + closeMatch[0].length);
+            // The only bytes between generated wrapper and live recall are
+            // this part-join's two newlines. Do not consume any other newline:
+            // those belong to either prior or live content.
+            const live = remainder.startsWith('\n\n') ? remainder.slice(2) : remainder;
+            if (!live || prior.trim() === live) return prior;
+            if (!prior) return live;
+            return `${prior}\n\n${live}`;
+        }
+    }
+
+    const lines = raw.split('\n');
     const out = [];
+    let followsStructuralHeader = false;
     for (const line of lines) {
-        if (line.startsWith(SUMMARY_PREFIX)) continue;
-        if (/^messages=\d+\s+(?:sha256=|compact_type=)/.test(line.trim())) continue;
-        if (/^compact_type=/.test(line.trim())) continue;
+        if (line.startsWith(SUMMARY_PREFIX)) {
+            followsStructuralHeader = true;
+            continue;
+        }
+        if (/^messages=\d+\s+(?:sha256=|compact_type=)/.test(line.trim())) {
+            followsStructuralHeader = true;
+            continue;
+        }
+        if (/^compact_type=/.test(line.trim())) {
+            followsStructuralHeader = true;
+            continue;
+        }
+        // Summary parts are joined with "\n\n".  The first empty line after
+        // stripped summary metadata is that join's structural separator, not
+        // prior content; retaining it makes every refeed gain a newline when
+        // formatPriorCompactedContextBlock wraps the result again.
+        if (followsStructuralHeader && line === '') {
+            followsStructuralHeader = false;
+            continue;
+        }
+        followsStructuralHeader = false;
+        // A prior summary re-fed as <previous-summary>/prior may still carry
+        // the canonical <prior-compacted-context> wrapper from an earlier
+        // cycle; drop those tag-only lines so the caller re-wraps exactly once
+        // (or treats the body as bare prior) instead of nesting.
+        if (/^<prior-compacted-context>$/.test(line.trim())) {
+            // The immediately preceding blank is the header→wrapper join from
+            // a generated summary. Remove only that wrapper-owned separator;
+            // blank lines inside the wrapper body remain untouched.
+            if (out.length > 0 && out[out.length - 1] === '') out.pop();
+            continue;
+        }
+        if (/^<\/prior-compacted-context>$/.test(line.trim())) continue;
         out.push(line);
     }
-    return out.join('\n').trim();
+    return out.join('\n');
 }
 
 function makeRecallFastTrackSummaryMessageParts(oldHistory, recallPart, priorPart, recallMeta = {}) {
@@ -444,7 +583,7 @@ function makeRecallFastTrackSummaryMessageParts(oldHistory, recallPart, priorPar
 
 export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}, priorPart = '') {
     const recall = String(recallText || '').trim();
-    const prior = String(priorPart || '').trim();
+    const prior = String(priorPart || '');
 
     let fittedPrior = prior;
     if (prior) {
@@ -594,7 +733,7 @@ function makeRecallRootsSummaryMessageParts(oldHistory, rootsPart, priorPart, re
 // blocks can only shrink (never grow) the serialized size, the minimal-drop
 // threshold is found via binary search on the drop count.
 export function fitRecallRootsMessage(oldHistory, recallText, remainingTokens, recallMeta = {}, priorPart = '') {
-    const prior = String(priorPart || '').trim();
+    const prior = String(priorPart || '');
 
     let fittedPrior = prior;
     if (prior) {

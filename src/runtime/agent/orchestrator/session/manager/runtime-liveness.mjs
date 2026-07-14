@@ -11,7 +11,9 @@
 // avoid a circular import back into manager.mjs.
 //
 // Entry shape: {
-//   stage, lastStreamDeltaAt, lastTransportAt, lastToolCall, lastError, updatedAt,
+//   stage, lastStreamDeltaAt, lastTransportAt, firstSemanticAt,
+//   lastSemanticAt, lastReasoningAt, lastVisibleTextAt, lastToolProtocolAt,
+//   lastToolCall, lastError, updatedAt,
 //   controller?: AbortController,  // set while an ask is in flight
 //   generation?: number,            // snapshot taken at ask start
 //   closed?: boolean,               // flipped by closeSession()
@@ -46,7 +48,19 @@ export function configureRuntimeLiveness(deps = {}) {
 export function _touchRuntime(id) {
     let entry = _runtimeState.get(id);
     if (!entry) {
-        entry = { stage: 'idle', lastStreamDeltaAt: null, lastTransportAt: null, lastToolCall: null, lastError: null, updatedAt: Date.now() };
+        entry = {
+            stage: 'idle',
+            lastStreamDeltaAt: null,
+            lastTransportAt: null,
+            firstSemanticAt: null,
+            lastSemanticAt: null,
+            lastReasoningAt: null,
+            lastVisibleTextAt: null,
+            lastToolProtocolAt: null,
+            lastToolCall: null,
+            lastError: null,
+            updatedAt: Date.now(),
+        };
         _runtimeState.set(id, entry);
     }
     return entry;
@@ -83,7 +97,7 @@ export function updateSessionStage(id, stage) {
     const entry = _touchRuntime(id);
     const now = Date.now();
     entry.stage = stage;
-    if (stage === 'connecting' || stage === 'requesting') {
+    if ((stage === 'connecting' || stage === 'requesting') && !entry.modelRequestStartedAt) {
         entry.modelRequestStartedAt = now;
     }
     entry.lastProgressAt = now;
@@ -107,6 +121,12 @@ export function markSessionAskStart(id) {
     entry.stage = 'connecting';
     entry.lastStreamDeltaAt = null;
     entry.lastTransportAt = null;
+    entry.firstSemanticAt = null;
+    entry.lastSemanticAt = null;
+    entry.lastReasoningAt = null;
+    entry.lastVisibleTextAt = null;
+    entry.lastToolProtocolAt = null;
+    entry.lastSemanticKind = null;
     entry.transportTrackingEnabled = false;
     entry.lastToolCall = null;
     entry.toolStartedAt = null;
@@ -157,7 +177,16 @@ export function markSessionTransportActivity(id) {
     entry.updatedAt = now;
     publishHeartbeat(id, now);
 }
-export async function markSessionStreamDelta(id) {
+function _normalizeModelProgressKind(kind) {
+    const value = typeof kind === 'string'
+        ? kind
+        : (kind && typeof kind.kind === 'string' ? kind.kind : 'semantic');
+    if (value === 'transport' || value === 'reasoning' || value === 'text' || value === 'tool') {
+        return value;
+    }
+    return 'semantic';
+}
+export async function markSessionStreamDelta(id, kind = 'semantic') {
     if (!id) return;
     // Non-creating lookup: a live ask ALWAYS has a runtime entry (markSessionAskStart
     // creates it before streaming begins). _touchRuntime would instead resurrect a
@@ -169,8 +198,22 @@ export async function markSessionStreamDelta(id) {
     // path). Skip a missing, tombstoned, or aborted entry — never refresh liveness.
     const entry = _runtimeState.get(id);
     if (!entry || entry.closed || entry.controller?.signal?.aborted) return;
+    const progressKind = _normalizeModelProgressKind(kind);
+    if (progressKind === 'transport') {
+        markSessionTransportActivity(id);
+        return;
+    }
     _stopToolActivityHeartbeat(id);
     const now = Date.now();
+    // Every semantic model event also proves transport health. The inverse is
+    // intentionally false: raw chunks/keepalives update only lastTransportAt.
+    entry.lastTransportAt = now;
+    if (!entry.firstSemanticAt) entry.firstSemanticAt = now;
+    entry.lastSemanticAt = now;
+    entry.lastSemanticKind = progressKind;
+    if (progressKind === 'reasoning') entry.lastReasoningAt = now;
+    if (progressKind === 'text') entry.lastVisibleTextAt = now;
+    if (progressKind === 'tool') entry.lastToolProtocolAt = now;
     entry.lastStreamDeltaAt = now;
     entry.lastProgressAt = now;
     // Only promote to 'streaming' if we were in a pre-stream stage; never downgrade
@@ -203,6 +246,11 @@ export function markSessionToolCall(id, toolName, selfDeadlineMs) {
         ? selfDeadlineMs
         : null;
     entry.toolStartedAt = Date.now();
+    entry.lastTransportAt = entry.toolStartedAt;
+    if (!entry.firstSemanticAt) entry.firstSemanticAt = entry.toolStartedAt;
+    entry.lastSemanticAt = entry.toolStartedAt;
+    entry.lastSemanticKind = 'tool';
+    entry.lastToolProtocolAt = entry.toolStartedAt;
     entry.lastProgressAt = entry.toolStartedAt;
     entry.updatedAt = entry.toolStartedAt;
     publishHeartbeat(id, entry.toolStartedAt);
@@ -303,33 +351,51 @@ export function getSessionProgressSnapshot(sessionId) {
     if (!entry) return null;
     const askStartedAt = entry.askStartedAt || 0;
     const modelRequestStartedAt = entry.modelRequestStartedAt || askStartedAt;
-    const firstActivityAt = Math.max(
-        entry.lastStreamDeltaAt || 0,
-        entry.toolStartedAt || 0,
-    );
+    const firstSemanticAt = entry.firstSemanticAt || 0;
+    const firstActivityAt = firstSemanticAt;
     const stage = entry.stage || 'idle';
-    const waitingStage = stage === 'connecting'
+    const activeModelStage = stage === 'connecting'
         || stage === 'requesting'
-        || (stage === 'streaming' && entry.transportTrackingEnabled === true);
-    const waitingForFirstActivity = Boolean(
+        || stage === 'streaming';
+    const waitingForTransport = Boolean(
         modelRequestStartedAt
-        && waitingStage
-        && (!firstActivityAt || firstActivityAt <= modelRequestStartedAt)
+        && activeModelStage
+        && !entry.lastTransportAt
+    );
+    const waitingForFirstSemantic = Boolean(
+        modelRequestStartedAt
+        && activeModelStage
+        && !firstSemanticAt
     );
     return {
         stage,
         askStartedAt,
         modelRequestStartedAt,
         firstActivityAt,
+        firstSemanticAt,
         lastTransportAt: entry.lastTransportAt || 0,
+        lastSemanticAt: entry.lastSemanticAt || 0,
+        lastSemanticKind: entry.lastSemanticKind || null,
+        lastReasoningAt: entry.lastReasoningAt || 0,
+        lastVisibleTextAt: entry.lastVisibleTextAt || 0,
+        lastToolProtocolAt: entry.lastToolProtocolAt || 0,
         lastStreamDeltaAt: entry.lastStreamDeltaAt || 0,
         toolStartedAt: entry.toolStartedAt || 0,
         currentTool: entry.lastToolCall || null,
         toolSelfDeadlineMs: entry.toolSelfDeadlineMs || 0,
         lastProgressAt: entry.lastProgressAt || 0,
         updatedAt: entry.updatedAt || 0,
-        hasFirstActivity: Boolean(firstActivityAt && (!askStartedAt || firstActivityAt >= askStartedAt)),
-        waitingForFirstActivity,
+        hasFirstActivity: Boolean(firstSemanticAt && (!askStartedAt || firstSemanticAt >= askStartedAt)),
+        hasFirstSemantic: Boolean(firstSemanticAt && (!askStartedAt || firstSemanticAt >= askStartedAt)),
+        hasVisibleProgress: Boolean(
+            (entry.lastVisibleTextAt && (!askStartedAt || entry.lastVisibleTextAt >= askStartedAt))
+            || (entry.lastToolProtocolAt && (!askStartedAt || entry.lastToolProtocolAt >= askStartedAt))
+        ),
+        waitingForTransport,
+        waitingForFirstSemantic,
+        // Backward-compatible alias for older status/watchdog consumers. It is
+        // semantic activity now, never generic transport.
+        waitingForFirstActivity: waitingForFirstSemantic,
     };
 }
 
@@ -404,6 +470,11 @@ export function linkParentSignalToSession(sessionId, parentSignal) {
     };
     if (parentSignal.aborted) {
         _unlinkParentAbortListener(entry);
+        // Retain the parent signal (listener null — nothing left to fire) so a
+        // later fresh-controller swap in askSession can DETECT this early abort
+        // and re-cascade it onto the new controller; otherwise the abort would
+        // be silently dropped and provider computation would run detached.
+        entry.parentAbortLink = { signal: parentSignal, listener: null };
         try { entry.controller.abort(abortReason()); } catch { /* ignore */ }
         return;
     }

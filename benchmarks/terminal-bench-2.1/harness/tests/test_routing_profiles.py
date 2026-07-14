@@ -3,17 +3,16 @@ from __future__ import annotations
 import ast
 import asyncio
 import copy
-import hashlib
 import importlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import types
 import unittest
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
@@ -36,11 +35,8 @@ from harness.routing_profiles import (  # noqa: E402
 )
 from harness.src_overlay import (  # noqa: E402
     SNAPSHOT_ENV,
-    STATIC_SRC_OVERLAY_FILES,
     SrcOverlayError,
     build_src_snapshot,
-    collect_src_overlay_files,
-    discover_git_src_files,
     load_src_snapshot,
 )
 
@@ -54,55 +50,8 @@ EXPECTED_AUDIT_LINE = (
     "explorer=openai-oauth/gpt-5.6-luna effort=low fast=true"
 )
 HEADLESS_BENCH_MANDATE = (
-    "[Headless bench run: no user is present. Standing pre-approval covers this entire task - never draft a plan and wait for approval, never ask questions or end a turn waiting for a reply; decide and proceed until the task is verified complete or provably blocked. All other workflow rules, including delegation and review, apply unchanged.]\n\n"
+    "[Headless bench run: no user is present. The user has pre-approved every stage of this task in advance - treat each plan, decision, and step as already approved, ask nothing, never end a turn waiting for a reply, and carry the task through to verified completion or a provable block. All other workflow rules, including delegation and review, apply unchanged.]\n\n"
 )
-OVERLAY_APPLIER = HARNESS_ROOT / "src_overlay_apply.mjs"
-
-
-def completed_git(stdout: bytes) -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess([], 0, stdout, b"")
-
-
-def snapshot_git_results(
-    porcelain_before: bytes, modes: bytes = b"", porcelain_after: bytes | None = None
-) -> list[subprocess.CompletedProcess]:
-    return [
-        completed_git(porcelain_before),
-        completed_git(modes),
-        completed_git(
-            porcelain_before if porcelain_after is None else porcelain_after
-        ),
-        completed_git(modes),
-    ]
-
-
-def write_staging(
-    root: Path, files: list[tuple[str, bytes, int]]
-) -> Path:
-    staging = root / "staging"
-    files_root = staging / "files"
-    files_root.mkdir(parents=True)
-    entries = []
-    for index, (relative, content, mode) in enumerate(files):
-        target = files_root.joinpath(*relative.split("/"))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
-        entries.append(
-            {
-                "index": index,
-                "path": relative,
-                "mode": mode,
-                "size": len(content),
-                "sha256": hashlib.sha256(content).hexdigest(),
-            }
-        )
-    (staging / "manifest.json").write_text(
-        json.dumps({"schemaVersion": 2, "files": entries}),
-        encoding="utf-8",
-    )
-    return staging
-
-
 def resolve_with_real_runtime(config: dict) -> dict:
     repo_root = BENCH_ROOT.parents[1]
     config_uri = (repo_root / "src/runtime/agent/orchestrator/config.mjs").as_uri()
@@ -179,7 +128,11 @@ class RoutingProfileTests(unittest.TestCase):
                 "sol-xhigh",
                 "fable-xhigh",
                 "fable-opus-heavy-xhigh",
+                "fable-sol-heavy-opus-reviewer-xhigh",
+                "fable-opus-heavy-sol-reviewer-xhigh",
                 "fable-high",
+                "fable-sol-workers-xhigh",
+                "fable-opus-workers-xhigh",
             },
         )
         profile = load_route_profile("fable-xhigh")
@@ -237,6 +190,42 @@ class RoutingProfileTests(unittest.TestCase):
         fable_opus_heavy_profile = load_route_profile("fable-opus-heavy-xhigh")
         self.assertEqual(
             fable_opus_heavy_profile,
+            {
+                **profile,
+                "routes": {
+                    **profile["routes"],
+                    "heavy-worker": {
+                        "provider": "anthropic-oauth",
+                        "model": "claude-opus-4-8",
+                        "effort": "xhigh",
+                        "fast": False,
+                    },
+                },
+            },
+        )
+        fable_sol_heavy_opus_reviewer_profile = load_route_profile(
+            "fable-sol-heavy-opus-reviewer-xhigh"
+        )
+        self.assertEqual(
+            fable_sol_heavy_opus_reviewer_profile,
+            {
+                **profile,
+                "routes": {
+                    **profile["routes"],
+                    "reviewer": {
+                        "provider": "anthropic-oauth",
+                        "model": "claude-opus-4-8",
+                        "effort": "xhigh",
+                        "fast": False,
+                    },
+                },
+            },
+        )
+        fable_opus_heavy_sol_reviewer_profile = load_route_profile(
+            "fable-opus-heavy-sol-reviewer-xhigh"
+        )
+        self.assertEqual(
+            fable_opus_heavy_sol_reviewer_profile,
             {
                 **profile,
                 "routes": {
@@ -349,6 +338,73 @@ class RoutingProfileTests(unittest.TestCase):
                     },
                 },
             },
+        )
+        fable_sol_workers_profile = load_route_profile("fable-sol-workers-xhigh")
+        self.assertEqual(
+            fable_sol_workers_profile,
+            {
+                **profile,
+                "routes": {
+                    **profile["routes"],
+                    "worker": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "xhigh",
+                        "fast": True,
+                    },
+                    "heavy-worker": {
+                        "provider": "openai-oauth",
+                        "model": "gpt-5.6-sol",
+                        "effort": "xhigh",
+                        "fast": True,
+                    },
+                },
+            },
+        )
+        fable_opus_workers_profile = load_route_profile("fable-opus-workers-xhigh")
+        self.assertEqual(
+            fable_opus_workers_profile,
+            {
+                **profile,
+                "routes": {
+                    **profile["routes"],
+                    "worker": {
+                        "provider": "anthropic-oauth",
+                        "model": "claude-opus-4-8",
+                        "effort": "xhigh",
+                        "fast": False,
+                    },
+                    "heavy-worker": {
+                        "provider": "anthropic-oauth",
+                        "model": "claude-opus-4-8",
+                        "effort": "xhigh",
+                        "fast": False,
+                    },
+                },
+            },
+        )
+        # The two Worker-model comparison profiles differ ONLY in the worker
+        # and heavy-worker routes; every other route stays identical, and each
+        # profile drives its worker and heavy-worker with the same model.
+        self.assertEqual(
+            {
+                role: fable_sol_workers_profile["routes"][role]
+                for role in PROFILE_ROLES
+                if role not in ("worker", "heavy-worker")
+            },
+            {
+                role: fable_opus_workers_profile["routes"][role]
+                for role in PROFILE_ROLES
+                if role not in ("worker", "heavy-worker")
+            },
+        )
+        self.assertEqual(
+            fable_sol_workers_profile["routes"]["worker"],
+            fable_sol_workers_profile["routes"]["heavy-worker"],
+        )
+        self.assertEqual(
+            fable_opus_workers_profile["routes"]["worker"],
+            fable_opus_workers_profile["routes"]["heavy-worker"],
         )
         sol_profile = load_route_profile("sol-xhigh")
         self.assertEqual(tuple(sol_profile["routes"]), PROFILE_ROLES)
@@ -492,7 +548,7 @@ class RoutingProfileTests(unittest.TestCase):
 
     def test_benchmark_config_contains_only_profile_routes_and_workflow(self) -> None:
         profile = load_route_profile("fable-xhigh")
-        config = build_benchmark_config(profile, "solo-review")
+        config = build_benchmark_config(profile, "default")
         agent = config["agent"]
 
         self.assertEqual(set(config), {"agent"})
@@ -509,7 +565,7 @@ class RoutingProfileTests(unittest.TestCase):
                 "mcpServers",
             },
         )
-        self.assertEqual(agent["workflow"], {"active": "solo-review"})
+        self.assertEqual(agent["workflow"], {"active": "default"})
         self.assertEqual(agent["mcpServers"], {})
         self.assertEqual(agent["workflowRoutes"], {"lead": profile["routes"]["lead"]})
         self.assertNotIn("memory", agent["workflowRoutes"])
@@ -668,23 +724,13 @@ class RoutingProfileTests(unittest.TestCase):
         ):
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
-    def test_bench_overlay_includes_mandatory_lead_brief_contract(self) -> None:
-        self.assertIn("rules/lead/lead-brief.md", STATIC_SRC_OVERLAY_FILES)
-
-    def test_bench_overlay_includes_solo_review_workflow(self) -> None:
-        self.assertIn(
-            "workflows/solo-review/WORKFLOW.md", STATIC_SRC_OVERLAY_FILES
-        )
-
-    def test_solo_review_workflow_is_discovered_and_normalized(self) -> None:
+    def test_solo_review_workflow_is_not_discovered_or_accepted(self) -> None:
         if shutil.which("node") is None:
             self.skipTest("Node.js is not installed")
         script = r"""
 import { resolve } from 'node:path';
-import {
-  createWorkflowHelpers,
-  normalizeWorkflowId,
-} from './src/session-runtime/workflow.mjs';
+import { createWorkflowHelpers } from './src/session-runtime/workflow.mjs';
+import { createWorkflowAgentsApi } from './src/session-runtime/workflow-agents-api.mjs';
 function readMarkdownDocument(raw) {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
   if (!match) return { frontmatter: {}, body: raw };
@@ -704,10 +750,26 @@ const helpers = createWorkflowHelpers({
   readMarkdownDocument,
   normalizeAgentPermissionOrNone: (value) => value,
 });
-const pack = helpers.listWorkflowPacks().find(({ id }) => id === 'solo-review');
+const discovered = helpers.listWorkflowPacks().some(({ id }) => id === 'solo-review');
+let saved = false;
+const api = createWorkflowAgentsApi({
+  getConfig: () => ({ workflow: { active: 'default' } }),
+  cfgMod: { getPluginData: () => resolve('.nonexistent-workflow-test-data') },
+  STANDALONE_DATA_DIR: resolve('.nonexistent-workflow-test-data'),
+  loadWorkflowPack: helpers.loadWorkflowPack,
+  saveConfigAndAdopt: () => { saved = true; },
+  workflowSummary: helpers.workflowSummary,
+});
+let rejected = '';
+try {
+  await api.setWorkflow('solo-review');
+} catch (error) {
+  rejected = error.message;
+}
 console.log(JSON.stringify({
-  normalized: normalizeWorkflowId(' Solo Review '),
-  pack: pack && { id: pack.id, name: pack.name, agents: pack.agents },
+  discovered,
+  rejected,
+  saved,
 }));
 """
         result = subprocess.run(
@@ -722,332 +784,156 @@ console.log(JSON.stringify({
         self.assertEqual(
             json.loads(result.stdout),
             {
-                "normalized": "solo-review",
-                "pack": {
-                    "id": "solo-review",
-                    "name": "Solo Review",
-                    "agents": ["reviewer"],
-                },
+                "discovered": False,
+                "rejected": 'workflow "solo-review" not found',
+                "saved": False,
             },
         )
 
 
-class SrcOverlayTests(unittest.TestCase):
-    def test_modified_untracked_union_snapshot_is_deduplicated_and_sorted(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-test-") as temp:
-            repo_src = Path(temp, "src")
-            for relative in ("z-static.mjs", "shared.mjs", "a-new.mjs"):
-                path = repo_src / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(relative, encoding="utf-8")
-            porcelain = b" M src/shared.mjs\0?? src/a-new.mjs\0"
-            completed = subprocess.CompletedProcess([], 0, porcelain, b"")
-            with mock.patch("harness.src_overlay.subprocess.run", return_value=completed):
-                overlay = collect_src_overlay_files(
-                    ("z-static.mjs", "shared.mjs", "shared.mjs"), repo_src
-                )
-        self.assertEqual(overlay, ("a-new.mjs", "shared.mjs", "z-static.mjs"))
+class SrcSnapshotTests(unittest.TestCase):
+    @staticmethod
+    def extract(snapshot, destination: Path) -> Path:
+        with tarfile.open(snapshot.archive_path, "r:") as archive:
+            archive.extractall(destination)
+        return destination / "src"
 
-    def test_snapshot_freezes_exact_bytes_size_and_sha256(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-test-") as temp:
+    def test_snapshot_captures_the_complete_local_tree_and_is_immutable(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-src-snapshot-") as temp:
             root = Path(temp)
-            repo_src = root / "src"
-            repo_src.mkdir()
-            (repo_src / "changed.mjs").write_bytes(b"frozen bytes\n")
-            porcelain = b" M src/changed.mjs\0"
-            with mock.patch(
-                "harness.src_overlay.subprocess.run",
-                side_effect=snapshot_git_results(porcelain),
-            ):
-                snapshot = build_src_snapshot(
-                    (), repo_src, root / "snapshot"
-                )
-            (repo_src / "changed.mjs").write_bytes(b"later mutation\n")
-            loaded = load_src_snapshot(snapshot.root)
-            self.assertEqual([entry.path for entry in loaded.entries], ["changed.mjs"])
-            entry = loaded.entries[0]
-            self.assertEqual(entry.size, len(b"frozen bytes\n"))
+            repo_src = root / "repo" / "src"
+            (repo_src / "committed").mkdir(parents=True)
+            (repo_src / "empty-local-directory").mkdir()
+            (repo_src / "committed" / "unchanged.mjs").write_bytes(b"committed")
+            (repo_src / "modified.mjs").write_bytes(b"local modification")
+            (repo_src / "untracked-addition.mjs").write_bytes(b"local addition")
+            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
+
+            (repo_src / "modified.mjs").write_bytes(b"later mutation")
+            (repo_src / "untracked-addition.mjs").unlink()
+            (repo_src / "later-addition.mjs").write_bytes(b"too late")
+
+            loaded = load_src_snapshot(snapshot.archive_path)
+            extracted = self.extract(loaded, root / "extracted")
             self.assertEqual(
-                entry.sha256,
-                "23d238dee01bfbb2ae59b9d21cce89282f89977ecf5f696f0da80f522cb17a8c",
+                {
+                    path.relative_to(extracted).as_posix(): path.read_bytes()
+                    for path in extracted.rglob("*")
+                    if path.is_file()
+                },
+                {
+                    "committed/unchanged.mjs": b"committed",
+                    "modified.mjs": b"local modification",
+                    "untracked-addition.mjs": b"local addition",
+                },
             )
-            self.assertEqual(snapshot.file_path(entry).read_bytes(), b"frozen bytes\n")
+            self.assertFalse((extracted / "locally-deleted.mjs").exists())
+            self.assertFalse((extracted / "later-addition.mjs").exists())
+            self.assertTrue((extracted / "empty-local-directory").is_dir())
+            self.assertTrue(snapshot.archive_path.is_file())
 
-    def test_exported_snapshot_supports_concurrent_read_only_loads(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-concurrent-") as temp:
+    def test_whole_tree_replacement_removes_stale_installed_files(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-src-replace-") as temp:
             root = Path(temp)
-            repo_src = root / "src"
-            reviewer = repo_src / "agents" / "reviewer" / "AGENT.md"
-            reviewer.parent.mkdir(parents=True)
-            reviewer.write_bytes(b"shared immutable reviewer snapshot\n")
-            with mock.patch(
-                "harness.src_overlay.subprocess.run",
-                side_effect=snapshot_git_results(b""),
-            ):
-                snapshot = build_src_snapshot(
-                    ("agents/reviewer/AGENT.md",), repo_src, root / "snapshot"
-                )
+            repo_src = root / "repo" / "src"
+            repo_src.mkdir(parents=True)
+            (repo_src / "kept.mjs").write_bytes(b"exact local bytes")
+            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
 
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                loaded = list(
-                    executor.map(
-                        lambda _: load_src_snapshot(snapshot.root),
-                        range(32),
-                    )
-                )
+            package_src = root / "package" / "src"
+            package_src.mkdir(parents=True)
+            (package_src / "kept.mjs").write_bytes(b"stale installed bytes")
+            (package_src / "locally-deleted.mjs").write_bytes(b"must disappear")
+            staging = root / "staging"
+            extracted = self.extract(snapshot, staging)
+            shutil.rmtree(package_src)
+            extracted.replace(package_src)
 
-            self.assertTrue(
-                all(
-                    item.entries == snapshot.entries
-                    and item.root == snapshot.root
-                    for item in loaded
-                )
-            )
+            self.assertEqual((package_src / "kept.mjs").read_bytes(), b"exact local bytes")
+            self.assertFalse((package_src / "locally-deleted.mjs").exists())
 
-    def test_snapshot_load_accepts_same_file_with_different_permission_metadata(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-identity-") as temp:
+    def test_snapshot_rejects_unsafe_and_non_regular_archive_members(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-src-snapshot-") as temp:
             root = Path(temp)
-            staging = write_staging(
-                root, [("agents/reviewer/AGENT.md", b"reviewer\n", 0o644)]
-            )
-            target = staging / "files" / "agents" / "reviewer" / "AGENT.md"
-            actual = os.lstat(target)
-            permissions = actual.st_mode & 0o777
-            different_permissions = 0o444 if permissions != 0o444 else 0o644
-            pathname_info = types.SimpleNamespace(
-                st_mode=(actual.st_mode & ~0o777) | different_permissions,
-                st_dev=actual.st_dev,
-                st_ino=actual.st_ino,
-            )
+            unsafe = root / "unsafe.tar"
+            with tarfile.open(unsafe, "w") as archive:
+                info = tarfile.TarInfo("../escape.mjs")
+                info.size = 0
+                archive.addfile(info)
+            with self.assertRaisesRegex(SrcOverlayError, "escapes|outside|unsafe"):
+                load_src_snapshot(unsafe)
 
-            with mock.patch(
-                "harness.src_overlay.os.lstat", return_value=pathname_info
-            ):
-                loaded = load_src_snapshot(staging)
+            linked = root / "linked.tar"
+            with tarfile.open(linked, "w") as archive:
+                src_info = tarfile.TarInfo("src")
+                src_info.type = tarfile.DIRTYPE
+                archive.addfile(src_info)
+                link_info = tarfile.TarInfo("src/link.mjs")
+                link_info.type = tarfile.SYMTYPE
+                link_info.linkname = "../outside.mjs"
+                archive.addfile(link_info)
+            with self.assertRaisesRegex(SrcOverlayError, "unsupported"):
+                load_src_snapshot(linked)
 
-            self.assertEqual(
-                [entry.path for entry in loaded.entries],
-                ["agents/reviewer/AGENT.md"],
-            )
-
-    def test_snapshot_load_rejects_changed_device_or_inode(self) -> None:
-        for changed_field in ("st_dev", "st_ino"):
-            with self.subTest(changed_field=changed_field), tempfile.TemporaryDirectory(
-                prefix="mixdog-overlay-identity-"
-            ) as temp:
-                root = Path(temp)
-                staging = write_staging(root, [("reviewer.md", b"reviewer\n", 0o644)])
-                target = staging / "files" / "reviewer.md"
-                actual = os.lstat(target)
-                pathname_info = types.SimpleNamespace(
-                    st_mode=actual.st_mode,
-                    st_dev=actual.st_dev + (changed_field == "st_dev"),
-                    st_ino=actual.st_ino + (changed_field == "st_ino"),
-                )
-
-                with mock.patch(
-                    "harness.src_overlay.os.lstat", return_value=pathname_info
-                ):
-                    with self.assertRaisesRegex(
-                        SrcOverlayError, "changed during snapshot"
-                    ):
-                        load_src_snapshot(staging)
-
-    def test_path_escape_and_non_src_git_paths_are_rejected(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-test-") as temp:
-            repo_src = Path(temp, "src")
-            repo_src.mkdir()
-            with self.assertRaisesRegex(SrcOverlayError, "escapes"):
-                collect_src_overlay_files(("../secret",), repo_src)
-            completed = subprocess.CompletedProcess(
-                [], 0, b"?? mixdog-config.json\0", b""
-            )
-            with mock.patch("harness.src_overlay.subprocess.run", return_value=completed):
-                with self.assertRaisesRegex(SrcOverlayError, "non-src"):
-                    discover_git_src_files(Path(temp))
-
-    def test_rename_copy_delete_and_unmerged_statuses_fail_closed(self) -> None:
-        cases = {
-            b"R  src/new.mjs\0src/old.mjs\0": "rename/copy",
-            b"C  src/copy.mjs\0src/original.mjs\0": "rename/copy",
-            b" D src/deleted.mjs\0": "deleted",
-            b"UU src/conflict.mjs\0": "unmerged",
-            b"AA src/conflict.mjs\0": "unmerged",
-        }
-        for porcelain, message in cases.items():
-            completed = subprocess.CompletedProcess([], 0, porcelain, b"")
-            with self.subTest(porcelain=porcelain), mock.patch(
-                "harness.src_overlay.subprocess.run", return_value=completed
-            ):
-                with self.assertRaisesRegex(SrcOverlayError, message):
-                    discover_git_src_files(Path("repo"))
-
-    def test_malformed_porcelain_records_fail_closed(self) -> None:
-        cases = (
-            b" M src/truncated.mjs",
-            b"M\0",
-            b"ZZ src/invalid.mjs\0",
-            b"   src/no-status.mjs\0",
-        )
-        for porcelain in cases:
-            completed = subprocess.CompletedProcess([], 0, porcelain, b"")
-            with self.subTest(porcelain=porcelain), mock.patch(
-                "harness.src_overlay.subprocess.run", return_value=completed
-            ):
-                with self.assertRaisesRegex(SrcOverlayError, "truncated|malformed|invalid"):
-                    discover_git_src_files(Path("repo"))
-
-    def test_source_symlink_swap_during_snapshot_fails_closed(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-race-") as temp:
+    def test_snapshot_rejects_local_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-src-snapshot-") as temp:
             root = Path(temp)
             repo_src = root / "src"
             repo_src.mkdir()
-            source = repo_src / "changed.mjs"
-            source.write_bytes(b"safe")
-            secret = root / "secret"
-            secret.write_bytes(b"must-not-snapshot")
-            completed = subprocess.CompletedProcess([], 0, b"", b"")
-            real_open = os.open
-            swapped = False
+            outside = root / "outside.mjs"
+            outside.write_bytes(b"outside")
+            try:
+                (repo_src / "linked.mjs").symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            with self.assertRaisesRegex(SrcOverlayError, "symlink"):
+                build_src_snapshot(repo_src, root / "rejected.tar")
 
-            def raced_open(path, flags):
-                nonlocal swapped
-                if Path(path) == source and not swapped:
-                    swapped = True
-                    source.unlink()
-                    source.symlink_to(secret)
-                return real_open(path, flags)
+    @unittest.skipIf(os.name == "nt", "Windows does not preserve POSIX execute bits")
+    def test_snapshot_preserves_executable_mode(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-src-mode-") as temp:
+            root = Path(temp)
+            repo_src = root / "src"
+            repo_src.mkdir()
+            executable = repo_src / "tool.mjs"
+            executable.write_bytes(b"#!/usr/bin/env node\n")
+            executable.chmod(0o755)
+            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
+            extracted = self.extract(snapshot, root / "extracted")
+            self.assertEqual(os.lstat(extracted / "tool.mjs").st_mode & 0o777, 0o755)
 
-            with (
-                mock.patch(
-                    "harness.src_overlay.subprocess.run",
-                    side_effect=[completed, completed],
+    def test_windows_uses_git_only_for_tracked_modes_not_file_selection(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-src-windows-mode-") as temp:
+            root = Path(temp)
+            repo_src = root / "src"
+            repo_src.mkdir()
+            (root / ".git").mkdir()
+            (repo_src / "tracked-tool.mjs").write_bytes(b"tracked")
+            (repo_src / "untracked-local.mjs").write_bytes(b"untracked")
+            git_result = subprocess.CompletedProcess(
+                [],
+                0,
+                (
+                    b"100755 deadbeef 0\tsrc/tracked-tool.mjs\0"
+                    b"100644 deadbeef 0\tsrc/locally-deleted.mjs\0"
                 ),
-                mock.patch("harness.src_overlay.os.open", side_effect=raced_open),
-            ):
-                with self.assertRaisesRegex(
-                    SrcOverlayError, "safely open|changed during snapshot"
-                ):
-                    build_src_snapshot(
-                        ("changed.mjs",), repo_src, root / "snapshot"
-                    )
-
-    def test_git_unavailable_and_failure_are_closed(self) -> None:
-        with mock.patch(
-            "harness.src_overlay.subprocess.run",
-            side_effect=FileNotFoundError("git missing"),
-        ):
-            with self.assertRaisesRegex(SrcOverlayError, "cannot discover"):
-                discover_git_src_files(Path("repo"))
-
-    def test_path_set_race_after_copy_fails_closed(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-path-race-") as temp:
-            root = Path(temp)
-            repo_src = root / "src"
-            repo_src.mkdir()
-            (repo_src / "one.mjs").write_bytes(b"one")
-            before = b" M src/one.mjs\0"
-            after = before + b"?? src/new.mjs\0"
-            with mock.patch(
-                "harness.src_overlay.subprocess.run",
-                side_effect=snapshot_git_results(before, porcelain_after=after),
-            ):
-                with self.assertRaisesRegex(SrcOverlayError, "path set changed"):
-                    build_src_snapshot((), repo_src, root / "snapshot")
-
-    def test_executable_mode_is_manifested_and_type_changes_are_rejected(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-mode-") as temp:
-            root = Path(temp)
-            repo_src = root / "src"
-            repo_src.mkdir()
-            source = repo_src / "tool.mjs"
-            source.write_bytes(b"tool")
-            source.chmod(0o755)
-            porcelain = b" M src/tool.mjs\0"
-            modes = b"100755 deadbeef 0\tsrc/tool.mjs\0"
-            with mock.patch(
-                "harness.src_overlay.subprocess.run",
-                side_effect=snapshot_git_results(porcelain, modes),
-            ):
-                snapshot = build_src_snapshot((), repo_src, root / "snapshot")
-            self.assertEqual(snapshot.entries[0].mode, 0o755)
-            self.assertEqual(
-                json.loads(snapshot.manifest_path.read_text(encoding="utf-8"))[
-                    "files"
-                ][0]["mode"],
-                0o755,
+                b"",
             )
-
-        type_change = completed_git(b" T src/type-change.mjs\0")
-        with mock.patch(
-            "harness.src_overlay.subprocess.run", return_value=type_change
-        ):
-            with self.assertRaisesRegex(SrcOverlayError, "type change"):
-                discover_git_src_files(Path("repo"))
-
-    def test_manifest_index_uses_utf8_order_for_supplementary_unicode(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-unicode-") as temp:
-            root = Path(temp)
-            repo_src = root / "src"
-            repo_src.mkdir()
-            names = ("\ue000.mjs", "\U00010000.mjs")
-            for name in names:
-                (repo_src / name).write_text(name, encoding="utf-8")
-            with mock.patch(
-                "harness.src_overlay.subprocess.run",
-                side_effect=snapshot_git_results(b""),
+            with (
+                mock.patch("harness.src_overlay.os.name", "nt"),
+                mock.patch(
+                    "harness.src_overlay.subprocess.run", return_value=git_result
+                ) as git,
             ):
-                snapshot = build_src_snapshot(names[::-1], repo_src, root / "snapshot")
-            self.assertEqual(
-                [(entry.index, entry.path) for entry in snapshot.entries],
-                [(0, "\ue000.mjs"), (1, "\U00010000.mjs")],
-            )
-        completed = subprocess.CompletedProcess([], 128, b"", b"not a repository")
-        with mock.patch("harness.src_overlay.subprocess.run", return_value=completed):
-            with self.assertRaisesRegex(SrcOverlayError, "not a repository"):
-                discover_git_src_files(Path("repo"))
+                snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
 
-    def test_current_working_tree_parity(self) -> None:
-        repo_root = BENCH_ROOT.parents[1]
-        discovered = set(discover_git_src_files(repo_root))
-        changed = subprocess.run(
-            [
-                "git",
-                "diff",
-                "--name-only",
-                "-z",
-                "--diff-filter=ACMRTUXB",
-                "HEAD",
-                "--",
-                "src/",
-            ],
-            cwd=repo_root,
-            check=True,
-            capture_output=True,
-        ).stdout
-        untracked = subprocess.run(
-            [
-                "git",
-                "ls-files",
-                "--others",
-                "--exclude-standard",
-                "-z",
-                "--",
-                "src/",
-            ],
-            cwd=repo_root,
-            check=True,
-            capture_output=True,
-        ).stdout
-        expected = {
-            os.fsdecode(path)[len("src/") :]
-            for path in (changed + untracked).split(b"\0")
-            if path
-        }
-        expected.discard("workflows/bench/WORKFLOW.md")
-        self.assertEqual(discovered, expected)
+            with tarfile.open(snapshot.archive_path, "r:") as archive:
+                members = {member.name: member for member in archive.getmembers()}
+            self.assertEqual(members["src/tracked-tool.mjs"].mode, 0o755)
+            self.assertEqual(members["src/untracked-local.mjs"].mode, 0o644)
+            self.assertNotIn("src/locally-deleted.mjs", members)
+            self.assertEqual(git.call_count, 1)
+            self.assertIn("ls-files", git.call_args.args[0])
 
 
 class AdapterRunEnvironmentTests(unittest.TestCase):
@@ -1148,18 +1034,17 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         await agent._run_lead(Environment(), "adapter task", None, base_env)
         return captured[0]
 
-    def test_explicit_solo_review_workflow_preserves_headless_mandate(self) -> None:
+    def test_default_workflow_preserves_headless_mandate(self) -> None:
         module = self.load_adapter_module()
         child_env = asyncio.run(
             self.capture_lead_env(
                 module,
                 None,
                 {"BASE_SENTINEL": "preserved"},
-                workflow="solo-review",
             )
         )
 
-        self.assertEqual(child_env["MIXDOG_WORKFLOW"], "solo-review")
+        self.assertEqual(child_env["MIXDOG_WORKFLOW"], "default")
         self.assertEqual(
             child_env["MIXDOG_PROMPT"], HEADLESS_BENCH_MANDATE + "adapter task"
         )
@@ -1546,11 +1431,11 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             async def exec_as_root(environment, *, command, env=None):
                 return None
 
-            async def inject_src_overlay(environment):
+            async def inject_src_snapshot(environment):
                 return None
 
             agent.exec_as_root = exec_as_root
-            agent._inject_src_overlay = inject_src_overlay
+            agent._inject_src_snapshot = inject_src_snapshot
 
             def fake_preflight(source, snapshot):
                 preflight_calls.append(source)
@@ -1794,456 +1679,44 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_src_overlay_uploads_exact_deterministic_relative_paths(self) -> None:
+    def test_src_snapshot_uploads_once_and_replaces_installed_src_whole(self) -> None:
         module = self.load_adapter_module()
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-upload-") as temp:
+        with tempfile.TemporaryDirectory(prefix="mixdog-src-upload-") as temp:
             root = Path(temp)
             repo_src = root / "src"
-            relative_paths = ("nested/beta.mjs", "alpha.mjs")
-            for relative in relative_paths:
-                path = repo_src / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(relative, encoding="utf-8")
-
+            repo_src.mkdir()
+            (repo_src / "kept.mjs").write_bytes(b"local")
+            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
             uploads = []
-            events = []
+            commands = []
 
             class Environment:
                 async def upload_file(self, source, destination):
                     uploads.append((Path(source), destination))
-                    events.append(("upload", destination))
 
             agent = module.MixdogAgent.__new__(module.MixdogAgent)
 
             async def exec_as_root(environment, *, command, env=None):
-                events.append(("command", command))
+                commands.append(command)
 
             agent.exec_as_root = exec_as_root
-            porcelain = b" M src/alpha.mjs\0?? src/nested/beta.mjs\0"
-            with mock.patch(
-                "harness.src_overlay.subprocess.run",
-                side_effect=snapshot_git_results(porcelain),
-            ):
-                snapshot = build_src_snapshot(
-                    ("alpha.mjs",), repo_src, root / "snapshot"
-                )
-            with (
-                mock.patch.dict(os.environ, {SNAPSHOT_ENV: str(snapshot.root)}),
-                mock.patch.object(module, "SRC_OVERLAY_FILES", ("alpha.mjs",)),
-            ):
-                asyncio.run(agent._inject_src_overlay(Environment()))
+            with mock.patch.dict(os.environ, {SNAPSHOT_ENV: str(snapshot.archive_path)}):
+                asyncio.run(agent._inject_src_snapshot(Environment()))
 
-        staging = f"{module.CONTAINER_DATA_DIR}/src-overlay"
         self.assertEqual(
             uploads,
-            [
-                (snapshot.manifest_path, f"{staging}/manifest.json"),
-                (
-                    module.HOST_SRC_OVERLAY_APPLIER,
-                    module.CONTAINER_SRC_OVERLAY_APPLIER,
-                ),
-                (
-                    snapshot.root / "files" / "alpha.mjs",
-                    f"{staging}/files/alpha.mjs",
-                ),
-                (
-                    snapshot.root / "files" / "nested" / "beta.mjs",
-                    f"{staging}/files/nested/beta.mjs",
-                ),
-            ],
+            [(snapshot.archive_path, module.CONTAINER_SRC_SNAPSHOT)],
         )
-        commands = [value for kind, value in events if kind == "command"]
-        self.assertFalse(any("find " in command for command in commands))
-        apply_index = next(
-            index
-            for index, event in enumerate(events)
-            if event[0] == "command" and "src_overlay_apply.mjs" in event[1]
-        )
-        self.assertLess(
-            max(index for index, event in enumerate(events) if event[0] == "upload"),
-            apply_index,
-        )
-        self.assertEqual(
-            [event for event in events[apply_index + 1 :] if event[0] == "upload"],
-            [],
-        )
-
-    def test_src_overlay_upload_failure_never_applies_partial_staging(self) -> None:
-        module = self.load_adapter_module()
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-upload-") as temp:
-            root = Path(temp)
-            repo_src = root / "src"
-            repo_src.mkdir()
-            for relative in ("first.mjs", "second.mjs"):
-                (repo_src / relative).write_text(relative, encoding="utf-8")
-
-            commands = []
-            upload_count = 0
-
-            class Environment:
-                async def upload_file(self, source, destination):
-                    nonlocal upload_count
-                    upload_count += 1
-                    if upload_count == 2:
-                        raise OSError("incomplete upload")
-
-            agent = module.MixdogAgent.__new__(module.MixdogAgent)
-
-            async def exec_as_root(environment, *, command, env=None):
-                commands.append(command)
-
-            agent.exec_as_root = exec_as_root
-            completed = subprocess.CompletedProcess([], 0, b"", b"")
-            with mock.patch(
-                "harness.src_overlay.subprocess.run",
-                side_effect=snapshot_git_results(b""),
-            ):
-                snapshot = build_src_snapshot(
-                    ("second.mjs", "first.mjs"), repo_src, root / "snapshot"
-                )
-            with (
-                mock.patch.dict(os.environ, {SNAPSHOT_ENV: str(snapshot.root)}),
-                mock.patch.object(
-                    module, "SRC_OVERLAY_FILES", ("first.mjs", "second.mjs")
-                ),
-            ):
-                with self.assertRaisesRegex(OSError, "incomplete upload"):
-                    asyncio.run(agent._inject_src_overlay(Environment()))
-
-        self.assertEqual(upload_count, 2)
-        self.assertFalse(any("src overlay applied" in command for command in commands))
-
-    def test_container_verifies_exact_staging_before_applying_any_target(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        module = self.load_adapter_module()
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-stage-") as temp:
-            root = Path(temp)
-            staging = write_staging(
-                root,
-                [
-                    ("first.mjs", b"expected", 0o644),
-                    ("second.mjs", b"second", 0o644),
-                ],
-            )
-            (staging / "files" / "unexpected.mjs").write_bytes(b"unexpected")
-            package_src = root / "package" / "src"
-            package_src.mkdir(parents=True)
-            (package_src / "first.mjs").write_bytes(b"original")
-            result = subprocess.run(
-                [
-                    "node",
-                    str(OVERLAY_APPLIER),
-                    "--staging",
-                    str(staging),
-                    "--src",
-                    str(package_src),
-                ],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-            )
-            first_after = (package_src / "first.mjs").read_bytes()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("path/count mismatch", result.stderr)
-        self.assertEqual(first_after, b"original")
-        self.assertNotIn("find", OVERLAY_APPLIER.read_text(encoding="utf-8"))
-
-    def test_container_rejects_staging_hash_mismatch_before_apply(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-stage-") as temp:
-            root = Path(temp)
-            staging = write_staging(
-                root,
-                [
-                    ("first.mjs", b"expected", 0o644),
-                    ("second.mjs", b"second", 0o644),
-                ],
-            )
-            (staging / "files" / "second.mjs").write_bytes(b"tampered")
-            package_src = root / "package" / "src"
-            package_src.mkdir(parents=True)
-            (package_src / "first.mjs").write_bytes(b"original")
-            result = subprocess.run(
-                [
-                    "node",
-                    str(OVERLAY_APPLIER),
-                    "--staging",
-                    str(staging),
-                    "--src",
-                    str(package_src),
-                ],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-            )
-            first_after = (package_src / "first.mjs").read_bytes()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("content mismatch: second.mjs", result.stderr)
-        self.assertEqual(first_after, b"original")
-
-    def test_apply_failure_is_nonzero_and_propagates_before_agent_run(self) -> None:
-        module = self.load_adapter_module()
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-apply-") as temp:
-            root = Path(temp)
-            repo_src = root / "src"
-            repo_src.mkdir()
-            (repo_src / "one.mjs").write_bytes(b"one")
-            completed = subprocess.CompletedProcess([], 0, b"", b"")
-            with mock.patch(
-                "harness.src_overlay.subprocess.run",
-                side_effect=snapshot_git_results(b""),
-            ):
-                snapshot = build_src_snapshot(
-                    ("one.mjs",), repo_src, root / "snapshot"
-                )
-
-            class Environment:
-                async def upload_file(self, source, destination):
-                    return None
-
-            agent = module.MixdogAgent.__new__(module.MixdogAgent)
-            agent.model_name = None
-            agent._route_profile_name = None
-            agent._route_profile = None
-            agent._mode = "lead"
-            agent._provider = None
-            agent._effort = None
-            agent._workflow = "default"
-            commands = []
-            agent_commands = []
-
-            async def exec_as_root(environment, *, command, env=None):
-                commands.append(command)
-                if "src_overlay_apply.mjs" in command:
-                    raise RuntimeError("apply command failed with exit 1")
-
-            async def exec_as_agent(environment, *, command, env=None):
-                agent_commands.append(command)
-
-            agent.exec_as_root = exec_as_root
-            agent.exec_as_agent = exec_as_agent
-            agent._inject_credentials = lambda environment: agent._inject_src_overlay(
-                environment
-            )
-            with (
-                mock.patch.dict(os.environ, {SNAPSHOT_ENV: str(snapshot.root)}),
-                mock.patch.object(module, "SRC_OVERLAY_FILES", ("one.mjs",)),
-            ):
-                with self.assertRaisesRegex(RuntimeError, "exit 1"):
-                    asyncio.run(agent.run("must not run", Environment(), None))
-        self.assertIn("src_overlay_apply.mjs", commands[-1])
-        self.assertEqual(agent_commands, [])
-
-
-class SrcOverlayFilesystemIntegrationTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        if shutil.which("node") is None:
-            raise unittest.SkipTest("Node.js is not installed")
-
-    def run_apply(
-        self,
-        staging: Path,
-        src: Path,
-        *,
-        extra_env: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess[str]:
-        command = [
-            "node",
-            str(OVERLAY_APPLIER),
-            "--staging",
-            str(staging),
-            "--src",
-            str(src),
-        ]
-        env = dict(os.environ)
-        if extra_env:
-            env.update(extra_env)
-        return subprocess.run(
-            command,
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=30,
-        )
-
-    def test_symlink_target_ancestor_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-fs-") as temp:
-            root = Path(temp)
-            src = root / "package" / "src"
-            outside = root / "outside"
-            src.mkdir(parents=True)
-            outside.mkdir()
-            try:
-                (src / "nested").symlink_to(outside, target_is_directory=True)
-            except OSError as exc:
-                self.skipTest(f"symlinks unavailable: {exc}")
-            staging = write_staging(
-                root, [("nested/file.mjs", b"replacement", 0o644)]
-            )
-            result = self.run_apply(staging, src)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("symlink", result.stderr)
-            self.assertFalse((outside / "file.mjs").exists())
-
-    def test_symlink_destination_and_directory_destination_are_rejected(self) -> None:
-        for destination_type in ("symlink", "directory"):
-            with self.subTest(destination_type=destination_type), tempfile.TemporaryDirectory(
-                prefix="mixdog-overlay-fs-"
-            ) as temp:
-                root = Path(temp)
-                src = root / "package" / "src"
-                src.mkdir(parents=True)
-                outside = root / "outside.mjs"
-                outside.write_bytes(b"outside")
-                target = src / "target.mjs"
-                if destination_type == "symlink":
-                    try:
-                        target.symlink_to(outside)
-                    except OSError as exc:
-                        self.skipTest(f"symlinks unavailable: {exc}")
-                else:
-                    target.mkdir()
-                staging = write_staging(
-                    root, [("target.mjs", b"replacement", 0o644)]
-                )
-                result = self.run_apply(staging, src)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(
-                    "symlink" if destination_type == "symlink" else "destination",
-                    result.stderr,
-                )
-                self.assertEqual(outside.read_bytes(), b"outside")
-
-    def test_hardlinked_destination_is_unlinked_and_recreated_single_link(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-fs-") as temp:
-            root = Path(temp)
-            src = root / "package" / "src"
-            src.mkdir(parents=True)
-            outside = root / "outside.mjs"
-            outside.write_bytes(b"preserved")
-            os.link(outside, src / "target.mjs")
-            staging = write_staging(
-                root, [("target.mjs", b"replacement", 0o644)]
-            )
-            result = self.run_apply(staging, src)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(outside.read_bytes(), b"preserved")
-            self.assertEqual((src / "target.mjs").read_bytes(), b"replacement")
-            self.assertEqual(os.lstat(src / "target.mjs").st_nlink, 1)
-
-    def test_manifest_index_handles_supplementary_unicode_without_node_sort(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-fs-") as temp:
-            root = Path(temp)
-            src = root / "package" / "src"
-            src.mkdir(parents=True)
-            staging = write_staging(
-                root,
-                [
-                    ("\ue000.mjs", b"bmp", 0o644),
-                    ("\U00010000.mjs", b"supplementary", 0o644),
-                ],
-            )
-            result = self.run_apply(staging, src)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((src / "\ue000.mjs").read_bytes(), b"bmp")
-            self.assertEqual(
-                (src / "\U00010000.mjs").read_bytes(), b"supplementary"
-            )
-
-    @unittest.skipIf(os.name == "nt", "Windows does not preserve POSIX executable mode")
-    def test_executable_mode_is_applied_exactly(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-fs-") as temp:
-            root = Path(temp)
-            src = root / "package" / "src"
-            src.mkdir(parents=True)
-            staging = write_staging(root, [("tool.mjs", b"tool", 0o755)])
-            result = self.run_apply(staging, src)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(os.lstat(src / "tool.mjs").st_mode & 0o777, 0o755)
-
-    def test_direct_apply_leaves_no_journal_backup_or_work_residue(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-fs-") as temp:
-            root = Path(temp)
-            src = root / "package" / "src"
-            src.mkdir(parents=True)
-            staging = write_staging(
-                root, [("nested/target.mjs", b"replacement", 0o644)]
-            )
-            result = self.run_apply(staging, src)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                sorted(path.name for path in src.parent.iterdir()), ["src"]
-            )
-
-    @unittest.skipIf(os.name == "nt", "Windows does not expose exact POSIX directory mode")
-    def test_restrictive_umask_cannot_change_created_directory_modes(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-umask-") as temp:
-            root = Path(temp)
-            src = root / "package" / "src"
-            src.mkdir(parents=True, mode=0o755)
-            src.chmod(0o755)
-            staging = write_staging(
-                root, [("new/deep/file.mjs", b"replacement", 0o644)]
-            )
-            result = self.run_apply(
-                staging,
-                src,
-                extra_env={"MIXDOG_OVERLAY_TEST_UMASK": "0077"},
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(os.lstat(src / "new").st_mode & 0o777, 0o755)
-            self.assertEqual(os.lstat(src / "new" / "deep").st_mode & 0o777, 0o755)
-            self.assertTrue(os.access(src / "new" / "deep", os.R_OK | os.W_OK | os.X_OK))
-
-    @unittest.skipUnless(
-        os.environ.get("MIXDOG_RUN_CONTAINER_PROBE") == "1",
-        "set MIXDOG_RUN_CONTAINER_PROBE=1 for disposable Linux probe",
-    )
-    def test_linux_disposable_container_symlink_and_mode_probe(self) -> None:
-        docker = shutil.which("docker")
-        if docker is None:
-            self.skipTest("Docker is unavailable")
-        with tempfile.TemporaryDirectory(prefix="mixdog-overlay-container-") as temp:
-            root = Path(temp)
-            staging = write_staging(
-                root, [("nested/tool.mjs", b"tool", 0o755)]
-            )
-            (root / "package" / "src").mkdir(parents=True)
-            command = (
-                "set -eu; "
-                "node /harness/src_overlay_apply.mjs "
-                "--staging /probe/staging --src /probe/package/src; "
-                "test \"$(stat -c %a /probe/package/src/nested)\" = 755; "
-                "test \"$(stat -c %a /probe/package/src/nested/tool.mjs)\" = 755; "
-                "mkdir -p /probe/package2/src /probe/outside; "
-                "ln -s /probe/outside /probe/package2/src/nested; "
-                "if node /harness/src_overlay_apply.mjs "
-                "--staging /probe/staging --src /probe/package2/src; then exit 9; fi"
-            )
-            result = subprocess.run(
-                [
-                    docker,
-                    "run",
-                    "--rm",
-                    "-v",
-                    f"{root}:/probe",
-                    "-v",
-                    f"{HARNESS_ROOT}:/harness:ro",
-                    "node:22-alpine",
-                    "sh",
-                    "-c",
-                    command,
-                ],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=120,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(commands), 1)
+        self.assertIn("trap cleanup_src_swap EXIT", commands[0])
+        self.assertIn("trap 'exit 1' HUP INT TERM", commands[0])
+        self.assertIn('mv "$PACKAGE/src" "$BACKUP"', commands[0])
+        self.assertIn('mv "$STAGING/src" "$PACKAGE/src"', commands[0])
+        self.assertIn('mv "$BACKUP" "$PACKAGE/src"', commands[0])
+        self.assertIn('rm -rf "$BACKUP" "$STAGING"', commands[0])
+        self.assertNotIn('rm -rf "$PACKAGE/src"', commands[0])
+        self.assertNotIn("manifest", commands[0])
+        self.assertNotIn("src_overlay_apply", commands[0])
 
 
 class LeadDriverBehaviorTests(unittest.TestCase):
@@ -3280,15 +2753,6 @@ class LauncherDryRunTests(unittest.TestCase):
         self.assertEqual(result.stdout.splitlines()[0], EXPECTED_AUDIT_LINE)
         self.assertIn("--ak route_profile=fable-xhigh", result.stdout)
         self.assertNotIn("workflow=", result.stdout)
-
-    def test_solo_review_dry_run_plumbs_explicit_workflow(self) -> None:
-        result = self.run_launcher(
-            "-Workflow", "solo-review", "-RouteProfile", "fable-xhigh"
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines()[0], EXPECTED_AUDIT_LINE)
-        self.assertIn("--ak workflow=solo-review", result.stdout)
-        self.assertIn("--ak route_profile=fable-xhigh", result.stdout)
 
     def test_launcher_rejects_unknown_profile_and_conflicts(self) -> None:
         unknown = self.run_launcher("-RouteProfile", "unknown")

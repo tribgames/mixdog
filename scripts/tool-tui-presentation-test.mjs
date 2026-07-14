@@ -20,6 +20,11 @@ import {
   appendAgentResponseTail,
   formatAgentResponseRaw,
 } from '../src/tui/engine/agent-response-tail.mjs';
+import {
+  agentArgsWithResultMetadata,
+  parseAgentJob,
+} from '../src/tui/engine/agent-envelope.mjs';
+import { agentActionTitle } from '../src/tui/components/tool-execution/surface-detail.mjs';
 
 test('tool action copy keeps Add/Delete patch verbs and human read offsets', () => {
   assert.equal(
@@ -40,6 +45,69 @@ test('Agent aggregation is batch-scoped and keeps category action wording', () =
     aggregateBucketForCategory('Agent', { agentBatch: 1 }),
     aggregateBucketForCategory('Agent', { agentBatch: 2 }),
   );
+});
+
+test('agent spawn cards retain resolved model metadata from split result envelopes', () => {
+  const parsed = parseAgentJob([
+    'agent task: task_worker_1',
+    'status: running',
+    'type: spawn',
+    'target: worker sess_worker_1',
+    'agent: worker',
+    'provider: openai-oauth',
+    'model: gpt-5.6-terra',
+    'preset: agent-worker',
+    'effort: high',
+  ].join('\n'));
+  const args = agentArgsWithResultMetadata({ type: 'spawn', agent: 'worker' }, parsed);
+
+  assert.equal(args.tag, 'worker');
+  assert.equal(args.provider, 'openai-oauth');
+  assert.equal(args.model, 'gpt-5.6-terra');
+  assert.equal(args.effort, 'high');
+  assert.equal(agentActionTitle(args), 'Spawn Worker (GPT-5.6-Terra, worker)');
+});
+
+test('agent model enrichment preserves explicit args and combined envelopes', () => {
+  const combined = parseAgentJob([
+    'agent task: task_worker_2',
+    'type: spawn',
+    'model: openai-oauth/gpt-5.6-terra',
+  ].join('\n'));
+  assert.equal(combined.provider, 'openai-oauth');
+  assert.equal(combined.model, 'gpt-5.6-terra');
+
+  const split = parseAgentJob([
+    'agent task: task_worker_3',
+    'provider: openai-oauth',
+    'model: gpt-5.6-terra',
+  ].join('\n'));
+  const explicit = agentArgsWithResultMetadata({
+    provider: 'anthropic',
+    model: 'claude-opus-4-6',
+  }, split);
+  assert.equal(explicit.provider, 'anthropic');
+  assert.equal(explicit.model, 'claude-opus-4-6');
+});
+
+test('non-agent task diagnostics do not enrich model args', () => {
+  const shellDiagnostics = parseAgentJob([
+    'task_id: shell_task_1',
+    'provider: openai-oauth',
+    'model: gpt-5.6-terra',
+  ].join('\n'));
+  const args = agentArgsWithResultMetadata({ type: 'shell' }, shellDiagnostics);
+
+  assert.equal(args.provider, undefined);
+  assert.equal(args.model, undefined);
+
+  const shellCombinedDiagnostics = parseAgentJob([
+    'task_id: shell_task_2',
+    'model: openai-oauth/gpt-5.6-terra',
+  ].join('\n'));
+  const combinedArgs = agentArgsWithResultMetadata({ type: 'shell' }, shellCombinedDiagnostics);
+  assert.equal(combinedArgs.provider, undefined);
+  assert.equal(combinedArgs.model, undefined);
 });
 
 test('terminal result statuses stay separate from tool-call failure accounting', () => {

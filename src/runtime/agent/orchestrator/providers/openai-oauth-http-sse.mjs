@@ -252,6 +252,7 @@ export async function sendViaHttpSse({
         throw new Error('OpenAI OAuth HTTP fallback returned no response body');
     }
 
+    try { onStreamDelta?.('transport'); } catch {}
     try { onStageChange?.('streaming'); } catch {}
     const sseStartedAt = Date.now();
     const reader = response.body.getReader();
@@ -266,6 +267,13 @@ export async function sendViaHttpSse({
     // partial response surface as success — so record the abort reason and
     // re-throw it after the loop unblocks (see below).
     let _streamAbortReason = null;
+    let _pendingReadReject = null;
+    const _rejectPendingRead = (err) => {
+        if (!_pendingReadReject) return;
+        const reject = _pendingReadReject;
+        _pendingReadReject = null;
+        reject(err);
+    };
     let _onTotalAbort = null;
     if (totalTimeout.signal) {
         _onTotalAbort = () => {
@@ -274,6 +282,7 @@ export async function sendViaHttpSse({
                 ? reason
                 : new Error('OpenAI OAuth HTTP fallback aborted');
             try { reader.cancel(_streamAbortReason).catch(() => {}); } catch {}
+            _rejectPendingRead(_streamAbortReason);
         };
         if (totalTimeout.signal.aborted) _onTotalAbort();
         else totalTimeout.signal.addEventListener('abort', _onTotalAbort, { once: true });
@@ -286,11 +295,17 @@ export async function sendViaHttpSse({
     const _clearSemanticIdle = () => {
         if (_semanticIdleTimer) { clearTimeout(_semanticIdleTimer); _semanticIdleTimer = null; }
     };
+    const semanticIdleOverrideMs = Number(opts?._semanticIdleTimeoutMs);
+    const semanticIdleMs = Number.isFinite(semanticIdleOverrideMs) && semanticIdleOverrideMs > 0
+        ? semanticIdleOverrideMs
+        : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+    const semanticIdleEnabled = (Number.isFinite(semanticIdleOverrideMs) && semanticIdleOverrideMs > 0)
+        || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
     const _armSemanticIdle = () => {
-        if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED || !(PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS > 0)) return;
+        if (!semanticIdleEnabled || !(semanticIdleMs > 0)) return;
         _clearSemanticIdle();
         _semanticIdleTimer = setTimeout(() => {
-            _streamAbortReason = streamStalledError('OpenAI OAuth HTTP fallback', PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, { emittedToolCall: emittedToolCallIds.size > 0 });
+            _streamAbortReason = streamStalledError('OpenAI OAuth HTTP fallback', semanticIdleMs, { emittedToolCall: emittedToolCallIds.size > 0 });
             // Partial-final recovery: attach the
             // streamed partial state so the agent loop can accept a wedged FINAL
             // no-tool summary as a successful partial-final instead of dropping
@@ -310,7 +325,8 @@ export async function sendViaHttpSse({
                 _streamAbortReason.partialModel = model || undefined;
             } catch { /* best-effort enrichment */ }
             try { reader.cancel(_streamAbortReason).catch(() => {}); } catch {}
-        }, PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS);
+            _rejectPendingRead(_streamAbortReason);
+        }, semanticIdleMs);
         try { _semanticIdleTimer.unref?.(); } catch {}
     };
     let buffer = '';
@@ -404,6 +420,7 @@ export async function sendViaHttpSse({
         };
         toolCalls.push(call);
         emitToolCall(call);
+        meaningful('tool');
     };
     const relayLeakText = (delta) => {
         if (!leakGuard.enabled) {
@@ -412,11 +429,13 @@ export async function sendViaHttpSse({
                 emittedText = true;
                 try { onTextDelta(delta); } catch {}
             }
+            if (delta) meaningful('text');
             return;
         }
         const { text, calls } = leakGuard.push(delta);
         if (text) {
             content += text;
+            meaningful('text');
             if (onTextDelta) {
                 emittedText = true;
                 try { onTextDelta(text); } catch {}
@@ -482,10 +501,10 @@ export async function sendViaHttpSse({
         toolCalls.push(call);
         emitToolCall(call);
     };
-    const meaningful = () => {
+    const meaningful = (kind = 'semantic') => {
         if (ttftMs == null) ttftMs = Date.now() - sseStartedAt;
         _armSemanticIdle();
-        try { onStreamDelta?.(); } catch {}
+        try { onStreamDelta?.(kind); } catch {}
     };
     const handleEvent = (event) => {
         if (!event || typeof event.type !== 'string') return;
@@ -493,14 +512,14 @@ export async function sendViaHttpSse({
             case 'response.created':
                 if (event.response?.model) model = event.response.model;
                 if (event.response?.id) responseId = event.response.id;
+                meaningful('semantic');
                 break;
             case 'response.output_text.delta':
-                meaningful();
                 relayLeakText(event.delta || '');
                 break;
             case 'response.reasoning_text.delta':
             case 'response.reasoning_summary_text.delta':
-                meaningful();
+                if (event.delta) meaningful('reasoning');
                 break;
             case 'response.output_item.added':
                 if (event.item?.type === 'function_call') {
@@ -537,16 +556,17 @@ export async function sendViaHttpSse({
                     markActiveToolItem(event.item);
                     _toolInFlight = true;
                 }
+                meaningful(_toolInFlight ? 'tool' : 'semantic');
                 break;
             case 'response.function_call_arguments.delta':
                 markActiveToolItem(null, event.item_id);
                 _toolInFlight = true;
-                meaningful();
+                meaningful('tool');
                 break;
             case 'response.function_call_arguments.done': {
                 const itemId = event.item_id || '';
                 const pending = pendingCalls.get(itemId);
-                if (pending?.kind === 'tool_search') { meaningful(); break; }
+                if (pending?.kind === 'tool_search') { meaningful('tool'); break; }
                 const call = {
                     id: pending?.callId || event.call_id || '',
                     name: pending?.name || event.name || '',
@@ -558,13 +578,13 @@ export async function sendViaHttpSse({
                     delete call._pendingItemId;
                     emitToolCall(call);
                 }
-                meaningful();
+                meaningful('tool');
                 break;
             }
             case 'response.custom_tool_call_input.delta':
                 markActiveToolItem(null, event.item_id);
                 _toolInFlight = true;
-                meaningful();
+                meaningful('tool');
                 break;
             case 'response.output_item.done': {
                 const item = event.item || {};
@@ -597,8 +617,10 @@ export async function sendViaHttpSse({
                     pushCustomToolCall(item);
                     clearActiveToolItem(item, item.id || '');
                     _toolInFlight = pendingCalls.size > 0 || activeToolItems.size > 0;
-                    meaningful();
                 }
+                meaningful(item.type === 'reasoning'
+                    ? 'reasoning'
+                    : (/tool|function_call/.test(item.type || '') ? 'tool' : 'semantic'));
                 break;
             }
             case 'response.completed': {
@@ -615,6 +637,7 @@ export async function sendViaHttpSse({
                         raw: serviceTier ? { ...resp.usage, service_tier: serviceTier } : resp.usage,
                     };
                 }
+                let reportedBundleProgress = false;
                 for (const item of resp.output || []) {
                     if (item.type === 'message') {
                         for (const part of item.content || []) {
@@ -627,22 +650,38 @@ export async function sendViaHttpSse({
                                 if (leakGuard.enabled) {
                                     const { text, calls } = leakGuard.push(part.text || '', true);
                                     content += text;
+                                    if (text) {
+                                        meaningful('text');
+                                        reportedBundleProgress = true;
+                                    }
                                     for (const c of calls) dispatchLeakedCall(c);
+                                    if (calls.length) reportedBundleProgress = true;
                                 } else {
                                     content += part.text || '';
+                                    if (part.text) {
+                                        meaningful('text');
+                                        reportedBundleProgress = true;
+                                    }
                                 }
                             }
                             if (part.type === 'output_text') _pushOutputTextAnnotations(part, citations, citationKeys);
                         }
                     } else if (item.type === 'reasoning') {
                         pushReasoningItem(item);
+                        meaningful('reasoning');
+                        reportedBundleProgress = true;
                     } else if (item.type === 'web_search_call') {
                         pushWebSearchCall(item);
+                        meaningful('tool');
+                        reportedBundleProgress = true;
                     } else if (item.type === 'tool_search_call') {
                         pushToolSearchCall(item);
+                        meaningful('tool');
+                        reportedBundleProgress = true;
                     } else if (item.type === 'custom_tool_call') {
                         pushCustomToolCall(item);
-                        meaningful();
+                        meaningful('tool');
+                        reportedBundleProgress = true;
                     } else if (item.type === 'function_call') {
                         // Match the still-pending placeholder by item id, or
                         // an already-recorded call by its canonical call_id —
@@ -667,8 +706,11 @@ export async function sendViaHttpSse({
                             toolCalls.push(call);
                             emitToolCall(call);
                         }
+                        meaningful('tool');
+                        reportedBundleProgress = true;
                     }
                 }
+                if (!reportedBundleProgress) meaningful('semantic');
                 completed = true;
                 break;
             }
@@ -754,8 +796,13 @@ export async function sendViaHttpSse({
                 throw reason instanceof Error ? reason : new Error('OpenAI OAuth HTTP fallback aborted');
             }
             if (_streamAbortReason) throw _streamAbortReason;
-            const { value, done } = await reader.read();
+            const { value, done } = await new Promise((resolve, reject) => {
+                _pendingReadReject = reject;
+                reader.read().then(resolve, reject);
+            });
+            _pendingReadReject = null;
             if (done) break;
+            try { onStreamDelta?.('transport'); } catch {}
             buffer += decoder.decode(value, { stream: true });
             const parsed = _sseEventsFromBuffer(buffer);
             buffer = parsed.rest;
@@ -786,6 +833,7 @@ export async function sendViaHttpSse({
         _stampToolSafety(err);
         throw err;
     } finally {
+        _pendingReadReject = null;
         _clearSemanticIdle();
         try { reader.releaseLock?.(); } catch {}
         if (_onTotalAbort && totalTimeout.signal) {

@@ -793,7 +793,6 @@ const _httpRouter = createHttpRouter({
   registerClient,
   deregisterClient,
   getDraining: () => _stopPromise != null,
-  getCycle1CallLlm,
   getTraceDb: () => _traceDb,
   setTraceDb: (v) => { _traceDb = v },
   ingestTranscriptFile,

@@ -1,6 +1,7 @@
 import {
   agentWatchdogPolicyActive,
   evaluateAgentWatchdogAbort,
+  resolveEffectiveToolRunningCeilingMs,
 } from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 
 const ACTIVE_RUNTIME_STAGES = new Set([
@@ -18,10 +19,26 @@ function positiveSeconds(now, ts) {
   return Math.max(0, Math.floor((now - n) / 1000));
 }
 
-export function formatAgentWatchdogSummary(policy) {
+export function formatAgentWatchdogSummary(policy, snapshot = null) {
   if (!policy || !agentWatchdogPolicyActive(policy)) return null;
+  const transportMs = policy.firstTransportMs ?? policy.firstResponseMs ?? 0;
+  const semanticMs = policy.firstSemanticMs ?? policy.firstVisibleCeilingMs ?? 0;
+  if (snapshot) {
+    if (snapshot.waitingForTransport && transportMs > 0) {
+      return `armed transport=${Math.round(transportMs / 1000)}s`;
+    }
+    if ((snapshot.waitingForFirstSemantic ?? snapshot.waitingForFirstActivity) && semanticMs > 0) {
+      return `armed semantic=${Math.round(semanticMs / 1000)}s`;
+    }
+    if (snapshot.stage === 'tool_running' && policy.toolRunningMs > 0) {
+      const effectiveMs = resolveEffectiveToolRunningCeilingMs(snapshot, policy);
+      return `armed tool=${Math.round(effectiveMs / 1000)}s`;
+    }
+    if (policy.idleStaleMs > 0) return `armed idle=${Math.round(policy.idleStaleMs / 1000)}s`;
+  }
   const parts = [];
-  if (policy.firstResponseMs > 0) parts.push(`first=${Math.round(policy.firstResponseMs / 1000)}s`);
+  if (transportMs > 0) parts.push(`transport=${Math.round(transportMs / 1000)}s`);
+  if (semanticMs > 0) parts.push(`semantic=${Math.round(semanticMs / 1000)}s`);
   if (policy.idleStaleMs > 0) parts.push(`idle=${Math.round(policy.idleStaleMs / 1000)}s`);
   if (policy.toolRunningMs > 0) parts.push(`tool=${Math.round(policy.toolRunningMs / 1000)}s`);
   return parts.length ? `armed ${parts.join(' ')}` : null;
@@ -55,7 +72,7 @@ export function buildAgentTaskProgressFields({
   const stage = cleanStage(runtimeStage || snapshot?.stage || sessionStatus || 'unknown');
   const workerStage = stage;
   const silentFor = resolveSilentForSeconds(now, snapshot, runtime);
-  const watchdog = formatAgentWatchdogSummary(policy);
+  const watchdog = formatAgentWatchdogSummary(policy, snapshot);
   const queued = Number.isFinite(Number(queuedFollowups)) && Number(queuedFollowups) > 0
     ? Math.floor(Number(queuedFollowups))
     : null;
@@ -96,13 +113,24 @@ function cleanStage(value) {
 }
 
 function describeLastProgress({ stage, snapshot, runtime, silentFor, lastToolCall, now }) {
-  if (snapshot?.waitingForFirstActivity) return 'awaiting first model response';
+  if (snapshot?.waitingForTransport) return 'awaiting model transport';
+  if (snapshot?.waitingForFirstSemantic ?? snapshot?.waitingForFirstActivity) {
+    return 'transport active; awaiting first model event';
+  }
   if (stage === 'tool_running') {
     const tool = cleanStage(lastToolCall);
     return tool && tool !== 'unknown' ? `tool: ${tool}` : 'tool running';
   }
   if (stage === 'connecting' || stage === 'requesting') return 'connecting to model';
   if (stage === 'streaming') {
+    if (snapshot?.lastSemanticKind === 'tool') return 'tool protocol progress';
+    if (snapshot?.lastSemanticKind === 'text') return 'visible model text';
+    if (snapshot?.lastSemanticKind === 'reasoning') {
+      return snapshot?.lastVisibleTextAt
+        ? 'model reasoning (hidden; visible output previously emitted)'
+        : 'model reasoning (hidden; no visible output yet)';
+    }
+    if (snapshot?.hasFirstSemantic) return 'model active (no visible output yet)';
     const streamSilent = positiveSeconds(
       now,
       snapshot?.lastStreamDeltaAt || runtime?.lastStreamDeltaAt || 0,
@@ -149,9 +177,25 @@ function describeAgentDiagnostic({
     return `idle, ${queued} follow-up${queued === 1 ? '' : 's'} queued`;
   }
 
-  if (snapshot?.waitingForFirstActivity) return 'waiting for first response';
+  if (policy) {
+    const abortErr = evaluateAgentWatchdogAbort(snapshot, now, policy);
+    if (abortErr) return `stale: ${abortErr.message.replace(/^agent /i, '')}`;
+  }
+
+  if (snapshot?.waitingForTransport) return 'waiting for model transport';
+  if (snapshot?.waitingForFirstSemantic ?? snapshot?.waitingForFirstActivity) {
+    return 'transport healthy; waiting for first semantic model event';
+  }
 
   if (stage === 'streaming') {
+    if (snapshot?.lastSemanticKind === 'tool') return 'tool protocol active';
+    if (snapshot?.lastSemanticKind === 'text') return 'visible text streaming';
+    if (snapshot?.lastSemanticKind === 'reasoning') {
+      return snapshot?.lastVisibleTextAt
+        ? 'hidden reasoning active; visible output previously emitted'
+        : 'hidden reasoning active; no visible output yet';
+    }
+    if (snapshot?.hasFirstSemantic) return 'model active; no visible output yet';
     const streamSilent = positiveSeconds(
       now,
       snapshot?.lastStreamDeltaAt || 0,
@@ -171,12 +215,7 @@ function describeAgentDiagnostic({
       now,
       policy,
     );
-    if (abortErr) {
-      return `stale: ${abortErr.message.replace(/^agent /i, '')}`;
-    }
-    if (silentFor >= 30) {
-      return `stale: no stream/tool progress for ${silentFor}s`;
-    }
+    if (abortErr) return `stale: ${abortErr.message.replace(/^agent /i, '')}`;
   }
 
   if (normalizedTask === 'running' && (stage === 'idle' || stage === 'done')) {

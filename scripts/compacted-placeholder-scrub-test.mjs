@@ -1,14 +1,11 @@
 #!/usr/bin/env node
-// Regression test for the pre-send compacted-placeholder invariant: no
-// provider-visible assistant toolCall may ship a `[mixdog compacted …]`
-// placeholder body that the model could copy back as apply_patch input.
-// scrubCompactedPlaceholderToolCalls is the single enforcement point invoked
-// by repairTranscriptBeforeProviderSend right before provider.send.
+// Regression tests for stable stored tool args: successful calls retain their
+// self-explanatory compacted marker, while failed calls can restore full bodies.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     compactToolCallsForHistory,
-    scrubCompactedPlaceholderToolCalls,
+    restoreToolCallBodyForId,
 } from '../src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs';
 import { repairTranscriptBeforeProviderSend } from '../src/runtime/agent/orchestrator/session/loop/transcript-repair.mjs';
 
@@ -26,52 +23,41 @@ test('compact leaves a placeholder patch body (precondition)', () => {
     assert.equal(msg.toolCalls[0].arguments.base_path, '/repo');
 });
 
-test('scrub drops the placeholder patch key, keeps other args', () => {
-    const msg = assistantWithCompactedPatch();
-    scrubCompactedPlaceholderToolCalls([msg]);
-    assert.equal('patch' in msg.toolCalls[0].arguments, false);
-    assert.equal(msg.toolCalls[0].arguments.base_path, '/repo');
-});
-
-test('scrub is recursive across nested batch body args', () => {
+test('nested body args retain their compacted markers', () => {
     const calls = [{
         id: 'call_2', name: 'edit',
         arguments: { edits: [{ path: 'a.js', old_string: BIG_PATCH, new_string: 'ok' }] },
     }];
     const msg = { role: 'assistant', content: '', toolCalls: compactToolCallsForHistory(calls) };
     assert.match(msg.toolCalls[0].arguments.edits[0].old_string, /^\[mixdog compacted /);
-    scrubCompactedPlaceholderToolCalls([msg]);
     const edit = msg.toolCalls[0].arguments.edits[0];
-    assert.equal('old_string' in edit, false);
     assert.equal(edit.path, 'a.js');
     assert.equal(edit.new_string, 'ok');
 });
 
-test('scrub leaves real (restored) patch bodies untouched', () => {
-    const real = '*** Begin Patch\n@@\n-a\n+b\n*** End Patch';
-    const msg = { role: 'assistant', content: '', toolCalls: [
-        { id: 'call_3', name: 'apply_patch', arguments: { patch: real } },
-    ] };
-    scrubCompactedPlaceholderToolCalls([msg]);
-    assert.equal(msg.toolCalls[0].arguments.patch, real);
+test('failed-call restore replaces the marker with the full original body', () => {
+    const originalCalls = [{
+        id: 'call_3', name: 'apply_patch', arguments: { patch: BIG_PATCH, base_path: '/repo' },
+    }];
+    const msg = {
+        role: 'assistant',
+        content: '',
+        toolCalls: compactToolCallsForHistory(originalCalls),
+    };
+    restoreToolCallBodyForId(msg, originalCalls, 'call_3');
+    assert.equal(msg.toolCalls[0].arguments.patch, BIG_PATCH);
+    assert.equal(msg.toolCalls[0].arguments.base_path, '/repo');
 });
 
-test('scrub ignores non-assistant / non-toolCall messages', () => {
-    const msgs = [
-        { role: 'user', content: 'hi' },
-        { role: 'tool', content: 'x', toolCallId: 'call_1' },
-        { role: 'assistant', content: 'text only' },
-    ];
-    assert.doesNotThrow(() => scrubCompactedPlaceholderToolCalls(msgs));
-});
-
-test('repairTranscriptBeforeProviderSend enforces the invariant end-to-end', () => {
+test('pre-send transcript repair does not mutate compacted tool-call args', () => {
     const msgs = [
         { role: 'user', content: 'do it' },
         assistantWithCompactedPatch('call_9'),
         { role: 'tool', content: 'applied', toolCallId: 'call_9' },
     ];
+    const argsBefore = structuredClone(msgs[1].toolCalls[0].arguments);
     repairTranscriptBeforeProviderSend(msgs, null);
     const asst = msgs.find((m) => m.role === 'assistant');
-    assert.equal('patch' in asst.toolCalls[0].arguments, false);
+    assert.deepEqual(asst.toolCalls[0].arguments, argsBefore);
+    assert.match(asst.toolCalls[0].arguments.patch, /^\[mixdog compacted patch: \d+ chars, sha256:[a-f0-9]{16}\]$/);
 });

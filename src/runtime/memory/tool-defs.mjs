@@ -8,7 +8,7 @@ export const TOOL_DEFS = [
     name: 'memory',
     title: 'Memory Cycle',
     annotations: { title: 'Memory Cycle', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    description: 'Core-memory mutation and status. Use recall for retrieval. Store durable user rules, preferences, and current-map facts only. Never store code/config/rules-file source-of-truth, one-off config or task decisions, measurements, or status snapshots. Add requires project_id, category, and summary; edit works by id alone; content aliases summary; element defaults to summary’s first 40 chars. One short clause per fact. No prior recall dedup needed — the cycle dedups.',
+    description: 'Core-memory mutation and status; use recall for retrieval. Store durable rules/preferences/facts, one short clause each — never transient task state. add requires project_id+category+summary; edit works by id alone.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -16,8 +16,7 @@ export const TOOL_DEFS = [
         op: { type: 'string', enum: ['add','edit','delete','list','candidates','promote','dismiss'], description: 'Mutation op. candidates/promote/dismiss drive core-memory proposal approval.' },
         id: { type: 'number', description: 'Exact memory id.' },
         element: { type: 'string', maxLength: 40, description: 'Memory key/title. Defaults to the first 40 chars of summary. Max 40 chars.' },
-        summary: { type: 'string', maxLength: 100, description: 'Memory content: one short fact, max 100 chars. content is an alias.' },
-        content: { type: 'string', maxLength: 100, description: 'Alias for summary; no auto-truncation.' },
+        summary: { type: 'string', maxLength: 100, description: 'Memory content: one short fact, max 100 chars.' },
         category: { type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'], description: 'Category.' },
         status: { type: 'string', enum: ['pending','active','archived'], description: 'Lifecycle status.' },
         limit: { type: 'number', description: 'Max rows/items.' },
@@ -32,7 +31,7 @@ export const TOOL_DEFS = [
     name: 'recall',
     title: 'Recall',
     annotations: { title: 'Recall', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    description: 'Retrieve stored memory/session history. Call when a task ties to prior work — resumes, continuations, or references to earlier decisions/messages. Do not call as a reflexive pre-step, to verify a just-made decision, or before storing memory. Query is topic/semantic search, not regex. Patterns: period:"last" browses recent sessions; +query narrows topic; sessionId without query for current session; period:"3h"/"30m"/"24h" for recent; YYYY-MM-DD, date ranges, or HH:MM~HH:MM for time windows; id for exact follow-up.',
+    description: 'Retrieve stored memory/session history for prior-work context (resumes, earlier decisions); not a reflexive pre-step. Query is topic/semantic, not regex; period selects the time window; id for exact follow-up.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -45,7 +44,6 @@ export const TOOL_DEFS = [
         category: { anyOf: [{ type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'] }, { type: 'array', items: { type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'] }, minItems: 1 }], description: 'Category filter.' },
         includeArchived: { type: 'boolean', description: 'Include archived entries.' },
         sessionId: { type: 'string', description: 'Scoped session id.' },
-        session_id: { type: 'string', description: 'Alias for sessionId.' },
         includeMembers: { type: 'boolean', description: 'Include chunk members in output; does not widen the search pool.' },
         includeRaw: { type: 'boolean', description: 'Include unchunked raw/episode rows.' },
         sessionOnly: { type: 'boolean', description: 'Search this session only.' },

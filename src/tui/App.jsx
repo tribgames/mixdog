@@ -1211,7 +1211,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
       return;
     }
     if (count === previousCount || dragRef.current.active) return;
-    if (scrollTargetRef.current <= transcriptBottomSlackRows || followingRef.current) followingRef.current = true;
+    if (scrollTargetRef.current === 0 || followingRef.current) followingRef.current = true;
   }, [state.items.length, resetTranscriptScroll]);
 
   // `exiting` removes the inline caret (PromptInput draws none when disabled) and
@@ -2887,12 +2887,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     1,
     viewportHeight - transcriptGuardRows - panelCloseMaskRows - welcomePromptHintRows - overlayHintBandRows,
   );
-  // Bottom-follow / pin semantics must NOT widen with the scroll-time guard, or
-  // the "pinned to tail" threshold would drift and streaming could freeze a row
-  // above bottom. Keep the slack anchored to the BASE (single) guard: if a stale
-  // pre-guard offset of 1 survives while no reading anchor is active, still treat
-  // the viewport as pinned to the live tail so streaming/tool output continues
-  // to auto-follow instead of freezing one row above bottom.
+  // Keep the keyboard-selection edge step anchored to the base guard. This is
+  // not a follow threshold: any positive wheel target is a reading position;
+  // only the true bottom may auto-follow a live tail.
   const transcriptBottomSlackRows = Math.max(0, baseGuardRows);
   transcriptBottomSlackRowsRef.current = transcriptBottomSlackRows;
   transcriptViewportRef.current = {

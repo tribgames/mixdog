@@ -12,10 +12,9 @@ Output only one digit-starting pipe verdict line per input id; no JSON, fences,
 prose, or preamble.
 
 CORE is durable standing knowledge: rules, preferences, identity, goals, and
-current system/structure descriptions—not a log. Each entry is one short
-clause (≤120 chars). Current rule/preference/live structure = durable; a past
-event (shipped version, measured value, made fix) = not durable. When unsure,
-keep.
+current system/structure descriptions—not a log. Each entry is one short clause
+(≤120 chars). Current rule/preference/live structure = durable; a past event =
+not durable. When unsure, keep.
 
 - `keep`: durable, already one short clause.
 - `update`: durable but verbose/multi-sentence; compress to one ≤120-char
@@ -33,5 +32,4 @@ Verbose durable is always `update`, never `keep`.
 IDs match input rows; never invent them. An `update` summary is one ≤120-char
 clause and its `element` is short. A `merge` retains `target_id`, absorbs
 sources, and stays within one `project_id`. Replace literal `|` with `/`;
-fields contain no newlines. Emit a verdict for every input row; start with a
-digit.
+fields contain no newlines. Emit a digit-starting verdict for every input row.

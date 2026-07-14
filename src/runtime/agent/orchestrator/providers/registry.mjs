@@ -56,27 +56,52 @@ function configSignature(cfg) {
     }
 }
 
-async function loadProviderExport(cacheKey, spec, exportName) {
+function abortError(signal) {
+    return signal?.reason instanceof Error ? signal.reason : new Error(String(signal?.reason || 'provider initialization aborted'));
+}
+
+function throwIfAborted(signal) {
+    if (signal?.aborted) throw abortError(signal);
+}
+
+function awaitWithAbort(promise, signal) {
+    if (!(signal instanceof AbortSignal)) return promise;
+    throwIfAborted(signal);
+    let listener = null;
+    const aborted = new Promise((_, reject) => {
+        listener = () => reject(abortError(signal));
+        signal.addEventListener('abort', listener, { once: true });
+    });
+    return Promise.race([promise, aborted]).finally(() => {
+        if (listener) {
+            try { signal.removeEventListener('abort', listener); } catch { /* ignore */ }
+        }
+    });
+}
+
+async function loadProviderExport(cacheKey, spec, exportName, signal = null) {
     if (!providerModulePromises.has(cacheKey)) {
         providerModulePromises.set(cacheKey, import(spec));
     }
-    const mod = await providerModulePromises.get(cacheKey);
+    const mod = await awaitWithAbort(providerModulePromises.get(cacheKey), signal);
+    throwIfAborted(signal);
     const value = mod?.[exportName];
     if (typeof value !== 'function') throw new Error(`provider export missing: ${exportName}`);
+    throwIfAborted(signal);
     providerCtors.set(cacheKey, value);
     return value;
 }
 
-async function loadProviderCtor(name) {
-    if (name === 'anthropic') return loadProviderExport('anthropic', './anthropic.mjs', 'AnthropicProvider');
-    if (name === 'gemini') return loadProviderExport('gemini', './gemini.mjs', 'GeminiProvider');
-    if (name === 'openai-oauth') return loadProviderExport('openai-oauth', './openai-oauth.mjs', 'OpenAIOAuthProvider');
-    if (name === 'anthropic-oauth') return loadProviderExport('anthropic-oauth', './anthropic-oauth.mjs', 'AnthropicOAuthProvider');
-    if (name === 'grok-oauth') return loadProviderExport('grok-oauth', './grok-oauth.mjs', 'GrokOAuthProvider');
-    if (name === 'openai') return loadProviderExport('openai', './openai-ws.mjs', 'OpenAIDirectProvider');
-    if (name === 'opencode-go') return loadProviderExport('opencode-go', './opencode-go.mjs', 'OpenCodeGoProvider');
+async function loadProviderCtor(name, signal = null) {
+    if (name === 'anthropic') return loadProviderExport('anthropic', './anthropic.mjs', 'AnthropicProvider', signal);
+    if (name === 'gemini') return loadProviderExport('gemini', './gemini.mjs', 'GeminiProvider', signal);
+    if (name === 'openai-oauth') return loadProviderExport('openai-oauth', './openai-oauth.mjs', 'OpenAIOAuthProvider', signal);
+    if (name === 'anthropic-oauth') return loadProviderExport('anthropic-oauth', './anthropic-oauth.mjs', 'AnthropicOAuthProvider', signal);
+    if (name === 'grok-oauth') return loadProviderExport('grok-oauth', './grok-oauth.mjs', 'GrokOAuthProvider', signal);
+    if (name === 'openai') return loadProviderExport('openai', './openai-ws.mjs', 'OpenAIDirectProvider', signal);
+    if (name === 'opencode-go') return loadProviderExport('opencode-go', './opencode-go.mjs', 'OpenCodeGoProvider', signal);
     if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name)) {
-        return loadProviderExport('openai-compat', './openai-compat.mjs', 'OpenAICompatProvider');
+        return loadProviderExport('openai-compat', './openai-compat.mjs', 'OpenAICompatProvider', signal);
     }
     throw new Error(`unknown enabled provider: ${name}`);
 }
@@ -88,11 +113,12 @@ function instantiateProvider(name, Ctor, cfg) {
     return new Ctor(cfg);
 }
 
-export async function initProviders(config) {
+export async function initProviders(config, { signal = null } = {}) {
+    throwIfAborted(signal);
     const sig = configSignature(config);
     // Coalesce: an identical config is already mid-init — attach to it.
     if (sig !== null && _inFlightPromise && _inFlightSig === sig) {
-        return _inFlightPromise;
+        return awaitWithAbort(_inFlightPromise, signal);
     }
     // Fast path: chain idle and the live registry already reflects this exact
     // config — nothing to tear down or rebuild.
@@ -103,7 +129,7 @@ export async function initProviders(config) {
     // signatures can never run their clear()+rebuild concurrently, regardless
     // of caller-side gating (agent-tool gateOnPrior may release a queued init
     // before the prior one settled). Errors do not poison the chain.
-    const run = () => _initProvidersUnsynchronized(config);
+    const run = () => _initProvidersUnsynchronized(config, signal);
     const next = _initChain.then(run, run);
     _initChain = next.then(() => {}, () => {});
     const settle = () => {
@@ -118,10 +144,11 @@ export async function initProviders(config) {
     );
     _inFlightSig = sig;
     _inFlightPromise = tracked;
-    return tracked;
+    return awaitWithAbort(tracked, signal);
 }
 
-async function _initProvidersUnsynchronized(config) {
+async function _initProvidersUnsynchronized(config, signal = null) {
+    throwIfAborted(signal);
     // Invariant: never wipe the live registry based on an empty / all-disabled
     // config. Without this guard, a stale `loadAgentConfig()` (e.g. mid-reload
     // or a transient FS hiccup) would land here as `{}` or `{...,enabled:false}`,
@@ -145,7 +172,8 @@ async function _initProvidersUnsynchronized(config) {
             return { name, inst: providers.get(name), sig };
         }
         try {
-            const Ctor = await loadProviderCtor(name);
+            const Ctor = await loadProviderCtor(name, signal);
+            throwIfAborted(signal);
             const inst = instantiateProvider(name, Ctor, cfg);
             return { name, inst, sig };
         }
@@ -155,6 +183,7 @@ async function _initProvidersUnsynchronized(config) {
         }
     }));
     for (const result of enabledResults) {
+        throwIfAborted(signal);
         if (!result) continue;
         if (result.error) throw result.error;
         next.set(result.name, result.inst);
@@ -182,6 +211,7 @@ async function _initProvidersUnsynchronized(config) {
             if (signatures.has(name)) nextSignatures.set(name, signatures.get(name));
         }
     }
+    throwIfAborted(signal);
     providers.clear();
     for (const [k, v] of next) providers.set(k, v);
     signatures.clear();

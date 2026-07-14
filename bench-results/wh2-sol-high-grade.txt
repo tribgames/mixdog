@@ -1,0 +1,66 @@
+snapshot: C:\Project\mixdog-bench-opus
+TASK DEBUG 20/20
+  PASS basic.jsonl/full/TZ=unset
+  PASS basic.jsonl/full/TZ=UTC
+  PASS basic.jsonl/full/TZ=Pacific/Kiritimati
+  PASS edge.jsonl/full/TZ=unset
+  PASS edge.jsonl/full/TZ=UTC
+  PASS edge.jsonl/full/TZ=Pacific/Kiritimati
+  PASS basic/bucket-boundary
+  PASS basic/actor-merge
+  PASS basic/durations
+  PASS basic/skipped
+  PASS edge/retry-retained
+  PASS edge/nfc-identity
+  PASS edge/negative-clamped
+  PASS edge/malformed-skipped
+  PASS edge/stable-order
+  PASS edge/schema
+  PASS cross-file/no-duplicate-core
+  PASS api/usage-exit2
+  PASS raw/no-stderr
+  PASS raw/final-newline
+TASK FEATURE 16/20
+  FAIL lib/declared-batch (got=["hello-world","hello-world-2","item","cafe","caf","item-2","item-3","launch","abcdefghijklmnopqrstuvwxyz123456","abcdefghijklmnopqrstuvwxyz1234-2"])
+  PASS lib/stable-collisions
+  PASS lib/punctuation-runs
+  FAIL lib/unicode-nfkc (got=["ello","hello"])
+  FAIL lib/combining-nfc (got=["re-sume","r-sum"])
+  PASS lib/degenerate
+  PASS lib/ordering
+  PASS lib/boundary-32
+  PASS lib/boundary-suffix
+  PASS lib/empty-array
+  FAIL lib/unicode-letters (got=["item"])
+  PASS lib/emoji-only
+  PASS lib/reject-number
+  PASS lib/reject-null
+  PASS cli/valid-exit0
+  PASS cli/raw-json-line
+  PASS cli/malformed-exit2
+  PASS cli/non-array-exit2
+  PASS cli/empty-stdin-exit2
+  PASS source/no-answer-leak
+TASK REFACTOR 20/20
+  PASS api/summarizeFile-export
+  PASS api/renderSummary-export
+  PASS api/value
+  PASS budget/read-once
+  PASS budget/injected-io-used
+  PASS frozen/bytes
+  PASS frozen/stderr-empty
+  PASS frozen/exit0
+  PASS api/usage-exit2
+  PASS structure/one-read-site
+  PASS structure/single-forward-pass
+  PASS structure/exactly-one-loop
+  PASS structure/no-array-pipeline
+  PASS structure/no-repeated-scan
+  PASS mutation/empty
+  PASS mutation/one
+  PASS mutation/order
+  PASS source/no-vector-read
+  PASS source/no-cross-file-dup
+  PASS api/render-direct
+TOTAL 56/60 93.3%
+SUMMARY {"snapshot":"C:\\Project\\mixdog-bench-opus","sections":{"debug":{"pass":20,"total":20},"feature":{"pass":16,"total":20},"refactor":{"pass":20,"total":20}},"pass":56,"total":60,"percent":93.3}

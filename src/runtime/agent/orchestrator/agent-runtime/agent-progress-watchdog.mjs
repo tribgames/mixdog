@@ -11,7 +11,7 @@ import {
     resolveAgentToolThresholdSeconds,
 } from '../stall-policy.mjs';
 
-const WATCHDOG_ABORT_RE = /^agent (?:first response stale|task stale|tool running stale)\s*\(/;
+const WATCHDOG_ABORT_RE = /^agent (?:first (?:transport|semantic response|response) stale|task stale|tool running stale)\s*\(/;
 
 /**
  * Typed abort error for the agent progress watchdog. Carrying a stable `name`
@@ -209,12 +209,12 @@ function resolveExplicitMs(value, fallback) {
 }
 
 export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
-    const firstResponseMs = resolveExplicitMs(
-        overrides.firstResponseTimeoutMs,
+    const firstTransportMs = resolveExplicitMs(
+        overrides.firstTransportTimeoutMs ?? overrides.firstResponseTimeoutMs,
         DEFAULT_FIRST_RESPONSE_TIMEOUT_MS,
     );
-    const firstVisibleCeilingMs = resolveExplicitMs(
-        overrides.firstVisibleTimeoutMs,
+    const firstSemanticMs = resolveExplicitMs(
+        overrides.firstSemanticTimeoutMs ?? overrides.firstVisibleTimeoutMs,
         DEFAULT_FIRST_VISIBLE_CEILING_MS,
     );
 
@@ -245,8 +245,12 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     const toolRunningMs = Math.max(0, Math.floor(toolRunningSec * 1000));
 
     return {
-        firstResponseMs,
-        firstVisibleCeilingMs,
+        firstTransportMs,
+        firstSemanticMs,
+        // Compatibility aliases for persisted/background metadata and callers
+        // using the previous option names.
+        firstResponseMs: firstTransportMs,
+        firstVisibleCeilingMs: firstSemanticMs,
         idleStaleMs,
         toolRunningMs,
     };
@@ -255,19 +259,21 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
 export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
     if (!snapshot || !policy) return null;
 
-    if (snapshot.waitingForFirstActivity) {
-        const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
-        const hasTransport = Boolean(
-            startedAt
-            && snapshot.lastTransportAt
-            && snapshot.lastTransportAt > startedAt
-        );
-        const ceilingMs = hasTransport
-            ? policy.firstVisibleCeilingMs
-            : policy.firstResponseMs;
-        if (ceilingMs > 0 && startedAt && now - startedAt > ceilingMs) {
-            return new AgentStallAbortError(`agent first response stale (${ceilingMs}ms)`);
-        }
+    const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
+    const firstTransportMs = policy.firstTransportMs ?? policy.firstResponseMs ?? 0;
+    const firstSemanticMs = policy.firstSemanticMs ?? policy.firstVisibleCeilingMs ?? 0;
+    // Independent fixed deadlines from request start. Transport can satisfy
+    // only the transport deadline; it never switches, extends, or resets the
+    // semantic-response deadline.
+    if (snapshot.waitingForTransport && firstTransportMs > 0 && startedAt
+        && now - startedAt > firstTransportMs) {
+        return new AgentStallAbortError(`agent first transport stale (${firstTransportMs}ms)`);
+    }
+    if ((snapshot.waitingForFirstSemantic ?? snapshot.waitingForFirstActivity)
+        && firstSemanticMs > 0 && startedAt && now - startedAt > firstSemanticMs) {
+        return new AgentStallAbortError(`agent first semantic response stale (${firstSemanticMs}ms)`);
+    }
+    if (snapshot.waitingForFirstSemantic ?? snapshot.waitingForFirstActivity) {
         return null;
     }
 
@@ -290,15 +296,7 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
         // is still caught after the grace window. Unknown/missing self-deadline
         // (selfDeadlineMs <= 0) keeps the plain toolRunningMs behavior. All
         // other tools are unaffected.
-        let ceilingMs = policy.toolRunningMs;
-        const selfDeadlineMs = Number(snapshot.toolSelfDeadlineMs);
-        if (
-            isSelfDeadlineTool(snapshot.currentTool)
-            && Number.isFinite(selfDeadlineMs)
-            && selfDeadlineMs > 0
-        ) {
-            ceilingMs = Math.max(policy.toolRunningMs, selfDeadlineMs + TOOL_SELF_DEADLINE_GRACE_MS);
-        }
+        const ceilingMs = resolveEffectiveToolRunningCeilingMs(snapshot, policy);
         if (now - snapshot.toolStartedAt > ceilingMs) {
             return new AgentStallAbortError(`agent tool running stale (${ceilingMs}ms)`);
         }
@@ -307,10 +305,25 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
     return null;
 }
 
+/** The exact tool ceiling enforced by evaluateAgentWatchdogAbort. */
+export function resolveEffectiveToolRunningCeilingMs(snapshot, policy) {
+    const policyMs = Number(policy?.toolRunningMs);
+    let ceilingMs = Number.isFinite(policyMs) && policyMs > 0 ? policyMs : 0;
+    const selfDeadlineMs = Number(snapshot?.toolSelfDeadlineMs);
+    if (
+        isSelfDeadlineTool(snapshot?.currentTool)
+        && Number.isFinite(selfDeadlineMs)
+        && selfDeadlineMs > 0
+    ) {
+        ceilingMs = Math.max(ceilingMs, selfDeadlineMs + TOOL_SELF_DEADLINE_GRACE_MS);
+    }
+    return ceilingMs;
+}
+
 export function agentWatchdogPolicyActive(policy) {
     if (!policy) return false;
-    return (policy.firstResponseMs > 0)
-        || (policy.firstVisibleCeilingMs > 0)
+    return ((policy.firstTransportMs ?? policy.firstResponseMs) > 0)
+        || ((policy.firstSemanticMs ?? policy.firstVisibleCeilingMs) > 0)
         || (policy.idleStaleMs > 0)
         || (policy.toolRunningMs > 0);
 }

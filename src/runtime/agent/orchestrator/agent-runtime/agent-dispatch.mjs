@@ -256,6 +256,40 @@ function maintenanceRouteToPreset(routeOrName, agent) {
  *   provider call tears down promptly (parent→child cascade).
  * @returns {(args: { prompt, preset?, sourceName? }) => Promise<string>}
  */
+// runtime-liveness keeps one parent link per session because askSession swaps
+// its controller at turn start.  Agent dispatch can have several independent
+// cancellation sources, so collapse them before installing that one link.
+// The first already-aborted source wins (in declaration order), retaining its
+// original reason instead of replacing it with a generic AbortError.
+export function composeAgentDispatchAbortSignal(signals) {
+    const sources = (Array.isArray(signals) ? signals : [])
+        .filter((signal) => signal instanceof AbortSignal);
+    if (sources.length === 0) return { signal: null, dispose: () => {} };
+    const controller = new AbortController();
+    const listeners = [];
+    const abortFrom = (signal) => {
+        if (controller.signal.aborted) return;
+        try { controller.abort(signal.reason); } catch { try { controller.abort(); } catch { /* ignore */ } }
+    };
+    for (const signal of sources) {
+        if (signal.aborted) {
+            abortFrom(signal);
+            break;
+        }
+        const listener = () => abortFrom(signal);
+        signal.addEventListener('abort', listener, { once: true });
+        listeners.push([signal, listener]);
+    }
+    return {
+        signal: controller.signal,
+        dispose: () => {
+            for (const [signal, listener] of listeners) {
+                try { signal.removeEventListener('abort', listener); } catch { /* ignore */ }
+            }
+        },
+    };
+}
+
 export function makeAgentDispatch(opts = {}) {
     if (!opts.agent || typeof opts.agent !== 'string') {
         throw new Error('[agent-dispatch] opts.agent is required');
@@ -375,14 +409,6 @@ export function makeAgentDispatch(opts = {}) {
         const _getProgressSnapshot = _managerMod?.getSessionProgressSnapshot;
         const _getLastProgressAt = _managerMod?.getSessionLastProgressAt;
         const _getSession = _managerMod?.getSession || getSession;
-        if (_linkSignal) {
-            if (opts.parentSignal instanceof AbortSignal) {
-                try { _linkSignal(session.id, opts.parentSignal); } catch { /* ignore */ }
-            }
-            if (callParentSignal instanceof AbortSignal) {
-                try { _linkSignal(session.id, callParentSignal); } catch { /* ignore */ }
-            }
-        }
         // Watchdog policy is split:
         // - firstResponseTimeoutMs cuts quickly only when the model produces no
         //   first stream/tool activity at all.
@@ -396,8 +422,17 @@ export function makeAgentDispatch(opts = {}) {
         const _idleController = (agentWatchdogPolicyActive(_watchdogPolicy) && _linkSignal)
             ? new AbortController()
             : null;
-        if (_idleController) {
-            try { _linkSignal(session.id, _idleController.signal); } catch { /* ignore */ }
+        // Do not link factory parent, per-call explore cancellation, and the
+        // watchdog one at a time: each link replaces the previous listener in
+        // runtime-liveness.  One composite survives askSession's controller
+        // swap and makes every source reach the provider call.
+        const _abortLink = composeAgentDispatchAbortSignal([
+            opts.parentSignal,
+            callParentSignal,
+            _idleController?.signal,
+        ]);
+        if (_linkSignal && _abortLink.signal) {
+            try { _linkSignal(session.id, _abortLink.signal); } catch { /* ignore */ }
         }
         // Watchdog blind spot guard: when the runtime snapshot is missing AND
         // no progress timestamp exists (pre-liveness hang, swept runtime), the
@@ -491,6 +526,7 @@ export function makeAgentDispatch(opts = {}) {
             try { closeSession(session.id, 'ephemeral-error'); } catch { /* ignore */ }
             throw err;
         } finally {
+            _abortLink.dispose();
             if (_idleTimer) {
                 try { clearInterval(_idleTimer); } catch { /* ignore */ }
             }

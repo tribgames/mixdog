@@ -1,11 +1,8 @@
 // --- Tool definitions for external models ---
 //
-// Ordered to match the previous hand-maintained tools.json entries so
-// build-tools-manifest reproduces the legacy ordering.
-// CANONICAL SOURCE for all tool annotations (compressible, readOnlyHint,
-// destructiveHint, etc.). tools.json is GENERATED from this array by
-// dev/scripts/build-tools-manifest.mjs — do not edit annotations in tools.json
-// directly. To verify sync: node dev/scripts/check-tools-sync.mjs
+// CANONICAL SOURCE for built-in tool schemas and annotations (compressible,
+// readOnlyHint, destructiveHint, etc.). Descriptions carry the tool CONTRACT
+// only (behavior + argument shapes); usage policy lives in rules/shared/01-tool.md.
 import {
     TOOL_ASYNC_EXECUTION_CONTRACT,
     TOOL_MANUAL_CONTROL_CONTRACT,
@@ -39,7 +36,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Mixdog Read',
         annotations: { title: 'Mixdog Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read verified file path(s); guessed path/name → find first. Array-first: batch paths/regions as real arrays in one call; put targets in path[] or {path,offset,limit}[] and read the whole logical unit. Content_with_context is actionable; do not page or re-read returned spans. Not for directory listing.',
+        description: 'Read file contents; guessed path/name → find first. Batch paths/regions as real arrays: path[] or {path,offset,limit}[] regions in one call. Not for directories.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -65,10 +62,10 @@ export const BUILTIN_TOOLS = [
                             minItems: 1,
                         },
                     ],
-                    description: 'Verified file path; use {path,offset,limit}[] targets. Pass arrays directly; JSON strings are legacy recovery only.',
+                    description: 'File path, or {path,offset,limit}[] regions. Pass real arrays, not JSON strings.',
                 },
-                offset: { type: 'number', minimum: 0, description: 'Numeric lines to skip; 0 starts at line 1. Continue with offset:N.' },
-                limit: { type: 'number', minimum: 1, description: 'Numeric max lines after offset.' },
+                offset: { type: 'number', minimum: 0, description: 'Lines to skip.' },
+                limit: { type: 'number', minimum: 1, description: 'Max lines after offset.' },
             },
             required: ['path'],
         },
@@ -77,13 +74,13 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Mixdog Shell',
         annotations: { title: 'Mixdog Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs or change system state; set shell: powershell or bash. Not for reading, listing or searching. Shell/write calls are serial; use ;/&& only for intentional in-command sequencing.${_shellSyntaxCheat} ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
+        description: `Run programs or change system state; not for reading, listing or searching. Shell/write calls are serial.${_shellSyntaxCheat} ${TOOL_ASYNC_EXECUTION_CONTRACT}`,
         inputSchema: {
             type: 'object',
             properties: {
                 command: { type: 'string', description: 'Command.' },
                 cwd: { type: 'string', description: 'Working directory; persists across calls. Omit to reuse; absolute path changes it.' },
-                timeout: { type: 'number', description: `Timeout ms. Default ${_shellDefaultTimeoutMs()} (${_shellDefaultTimeoutMs() / 60000} min) when omitted. On sync timeout the command is MOVED TO BACKGROUND (a task_id you can wait/status/read/cancel) and keeps running instead of being killed; an explicit timeout blocks for at most BASH_MAX_TIMEOUT_MS (default 10 min), and only its remainder beyond that cap is still enforced as a background deadline. Sleep-like commands and MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS opt out (killed with a [timeout] marker after blocking for the full explicit timeout). async/background runs with timeout omitted have NO timeout (run until done/cancelled); an explicit timeout is still enforced.` },
+                timeout: { type: 'number', description: `Timeout ms; default ${_shellDefaultTimeoutMs()}. On sync timeout the command moves to background as a task_id and keeps running; an explicit timeout then blocks at most BASH_MAX_TIMEOUT_MS, the remainder enforced as a background deadline. Sleep-like commands and MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS opt out of promotion: they block for the full explicit timeout, then are killed with a [timeout] marker. async with timeout omitted runs until done/cancelled; an explicit timeout is still enforced.` },
                 merge_stderr: { type: 'boolean', description: 'Merge stderr.' },
                 mode: { type: 'string', enum: ['sync', 'async'], description: executionModeSchemaDescription('sync') },
                 shell: { type: 'string', enum: ['bash', 'powershell'], description: 'Force shell. Windows defaults to PowerShell; bash = Git Bash/POSIX.' },
@@ -102,7 +99,6 @@ export const BUILTIN_TOOLS = [
                 task_id: { type: 'string', description: 'shell async task_id.' },
                 action: { type: 'string', enum: ['list', 'status', 'read', 'wait', 'cancel'], description: 'Action; avoid polling loops.' },
                 timeout_ms: { type: 'number', description: 'Wait timeout ms.' },
-                poll_ms: { type: 'number', description: 'Wait poll ms.' },
             },
             required: [],
         },
@@ -111,7 +107,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Quoted/non-identifier literal or regex→grep. Search in verified scope (project root counts as verified); guessed path fragment → find first. Omitted output_mode and content_with_context are contextual; a nonzero content_with_context result resolves that search concept—act directly, without regex tweaks, narrowing or re-search. Choose files_with_matches/count for existence; Only zero/error results may change tokens or scope. No path "." + guessed src/**.',
+        description: 'Quoted/non-identifier literal or regex→grep, over verified scopes (project root counts as verified); guessed path fragment → find first. A nonzero content_with_context result resolves that search concept; only zero/error results may change tokens or scope. files_with_matches/count are existence modes. No path "." + guessed src/**.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -120,27 +116,25 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Text/regex. Array = variants in one call; pattern[] batches tokens. path[] batches verified scopes only; file/span reads use read path[] regions.',
+                    description: 'Text/regex; pattern[] batches variants in one call. path[] batches verified scopes only; file/span reads use read path[] regions.',
                 },
                 path: {
                     anyOf: [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Verified file/dir or project root; guessed → find first.',
+                    description: 'File/dir scope(s).',
                 },
                 glob: {
                     anyOf: [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Glob filter; no guessed src/** under path ".".',
+                    description: 'Glob filter.',
                 },
-                output_mode: { type: 'string', enum: ['content_with_context', 'files_with_matches', 'count'], description: 'Omitted/contextual content; content_with_context; files_with_matches/count are existence modes. Legacy content is runtime-compatible, not public.' },
+                output_mode: { type: 'string', enum: ['content_with_context', 'files_with_matches', 'count'], description: 'content_with_context (default); files_with_matches/count for existence.' },
                 head_limit: { type: 'number', minimum: 0, description: 'Max results.' },
                 offset: { type: 'number', minimum: 0, description: 'Skip results for paging.' },
-                '-A': { type: 'number', minimum: 0, description: 'Lines after each match.' },
-                '-B': { type: 'number', minimum: 0, description: 'Lines before each match.' },
                 '-C': { type: 'number', minimum: 0, description: 'Lines before/after each match.' },
             },
             anyOf: [
@@ -153,7 +147,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Mixdog Glob',
         annotations: { title: 'Mixdog Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Exact glob from verified roots (project root is verified); guessed root/name → find first. Array-first: batch related pattern[]/path[]. No path "." + guessed src/**.',
+        description: 'Match exact glob patterns from verified base directories (project root is verified); guessed root/name → find first. Batch pattern[]/path[].',
         inputSchema: {
             type: 'object',
             properties: {
@@ -162,14 +156,14 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Exact glob pattern(s); batch related pattern[].',
+                    description: 'Glob pattern(s); pattern[] batches.',
                 },
                 path: {
                     anyOf: [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Verified base dir(s)/project root; guessed → find first; batch path[].',
+                    description: 'Base directory(ies); path[] batches.',
                 },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip entries.' },
@@ -181,7 +175,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Mixdog Find Files',
         annotations: { title: 'Mixdog Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Partial path/name lookup only for unknown partial paths/names (including dot dirs); verify roots before grep/glob. Not for the project root or already-verified roots. Output paths are verified downstream. Array-first: batch query[].',
+        description: 'Fuzzy lookup only for unknown partial paths/names (dot dirs included); not for the project root or already-verified roots. Output paths are verified downstream. Not for file contents.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -190,7 +184,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Partial path/name words, not contents; query[] batches lookups.',
+                    description: 'Partial path/name words; query[] batches.',
                 },
                 path: { type: 'string', description: 'Base directory.' },
                 head_limit: { type: 'number', description: 'Max paths.' },
@@ -202,7 +196,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'List verified directories (project root included); Guessed dir → find first. Array-first: batch independent dirs as path[].',
+        description: 'List directory entries; batch independent dirs as path[].',
         inputSchema: {
             type: 'object',
             properties: {
@@ -211,7 +205,7 @@ export const BUILTIN_TOOLS = [
                         { type: 'string' },
                         { type: 'array', items: { type: 'string' }, minItems: 1 },
                     ],
-                    description: 'Verified directory; path[] batches directories.',
+                    description: 'Directory; path[] batches.',
                 },
                 head_limit: { type: 'number', description: 'Max entries.' },
                 offset: { type: 'number', description: 'Skip N entries for paging.' },

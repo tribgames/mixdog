@@ -96,28 +96,18 @@ function bucketTokens(map, names) {
   return names.reduce((sum, name) => sum + finiteNumber(map?.[name]?.tokens), 0);
 }
 
-function bucketCount(map, names) {
-  return names.reduce((sum, name) => sum + finiteNumber(map?.[name]?.count), 0);
-}
-
 function semanticTokens(semantic, names) {
   return names.reduce((sum, name) => sum + finiteNumber(semantic?.[name]?.tokens), 0);
 }
 
-function CategoryItem({ label, tokens, total, width, meta = '' }) {
+function CategoryItem({ label, tokens, total, width }) {
   const rowWidth = Math.max(0, Math.floor(width));
   const labelWidth = Math.min(11, Math.max(7, Math.floor(rowWidth * 0.22)));
   const pctWidth = 6;
-  let tokenWidth = 7;
-  let barWidth = Math.max(6, Math.min(20, rowWidth - labelWidth - pctWidth - tokenWidth - 4));
   const structuralWidth = labelWidth + 1 + pctWidth + 1;
-  let overflow = Math.max(0, structuralWidth + barWidth + tokenWidth - rowWidth);
-  const barReduction = Math.min(barWidth, overflow);
-  barWidth = Math.max(0, barWidth - barReduction);
-  overflow -= barReduction;
-  tokenWidth = Math.max(0, tokenWidth - overflow);
-  const fixedWidth = labelWidth + 1 + pctWidth + barWidth + 1 + tokenWidth;
-  const metaWidth = meta ? Math.max(0, rowWidth - fixedWidth - 1) : 0;
+  const flexibleWidth = Math.max(0, rowWidth - structuralWidth);
+  const tokenWidth = Math.min(7, flexibleWidth);
+  const barWidth = Math.max(0, flexibleWidth - tokenWidth);
   const pct = percent(tokens, total);
   return (
     <Box flexDirection="row" width={rowWidth}>
@@ -127,12 +117,6 @@ function CategoryItem({ label, tokens, total, width, meta = '' }) {
       <ProgressBar value={tokens} total={total} width={barWidth} />
       <Text color={theme.inactive}> </Text>
       <Text color={theme.text}>{padCells(truncateText(formatTokens(tokens), tokenWidth), tokenWidth)}</Text>
-      {metaWidth > 0 ? (
-        <>
-          <Text color={theme.inactive}> </Text>
-          <Text color={theme.inactive} dimColor>{truncateText(meta, metaWidth)}</Text>
-        </>
-      ) : null}
     </Box>
   );
 }
@@ -172,13 +156,9 @@ function ContextUsageView({ detail, columns }) {
   const usage = detail?.usage || {};
   const compaction = detail?.compaction || {};
   const messages = detail?.messages || {};
-  const tools = detail?.tools || {};
-  const toolIo = detail?.toolIo || {};
   const request = detail?.request || {};
   const lastApi = detail?.lastApi || {};
   const cache = detail?.cache || {};
-  const extensions = detail?.extensions || {};
-  const mcp = detail?.mcp || {};
   const semantic = messages.semantic || {};
   const schema = request.toolSchemaBreakdown || {};
   const usedTokens = finiteNumber(usage.usedTokens);
@@ -189,7 +169,6 @@ function ContextUsageView({ detail, columns }) {
   const pctText = `${percentLabel(usedTokens, windowTokens)} used`;
   const barWidth = Math.max(12, Math.min(34, innerWidth - stringWidth(summaryText) - stringWidth(pctText) - 5));
   const builtInToolTokens = bucketTokens(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other']);
-  const builtInToolCount = bucketCount(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other']);
   const sessionTokens = semanticTokens(semantic, ['workspace', 'environment', 'other']);
   const compactionLine = metricValue([
     compaction.stage && compaction.stage !== 'pending' ? compaction.stage : '',
@@ -210,16 +189,15 @@ function ContextUsageView({ detail, columns }) {
     `cache ${cache.hitRate || 'N/A'}`,
   ]);
   const categories = [
-    { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant']), meta: '' },
-    { label: 'Tools', tokens: builtInToolTokens, meta: `${tools.active || 0}/${tools.count || 0} active${builtInToolCount ? ` · ${builtInToolCount} defs` : ''}` },
-    { label: 'MCP', tokens: bucketTokens(schema, ['mcp']), meta: `${mcp.connected || 0}/${mcp.configured || 0} servers · ${mcp.tools || 0} tools` },
-    { label: 'Skills', tokens: bucketTokens(schema, ['skills']), meta: `${extensions.skills || 0} skills` },
-    { label: 'Memory', tokens: semanticTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']), meta: 'core + recall tools' },
-    { label: 'Session', tokens: sessionTokens, meta: 'workspace · environment' },
-    { label: 'Workflow', tokens: semanticTokens(semantic, ['workflow']) + bucketTokens(schema, ['agents']), meta: 'workflow · agents' },
-    { label: 'System', tokens: semanticTokens(semantic, ['system']), meta: 'rules · role catalog' },
-    { label: 'Overhead', tokens: finiteNumber(request.overheadTokens), meta: 'request frame' },
-    { label: 'Tool I/O', tokens: semanticTokens(semantic, ['toolResults']), meta: `${toolIo.calls || 0} calls · ${toolIo.results || 0} results` },
+    { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant']) },
+    { label: 'Tools', tokens: builtInToolTokens },
+    { label: 'MCP', tokens: bucketTokens(schema, ['mcp']) },
+    { label: 'Skills', tokens: bucketTokens(schema, ['skills']) },
+    { label: 'Memory', tokens: semanticTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']) },
+    { label: 'Session', tokens: sessionTokens },
+    { label: 'Workflow', tokens: semanticTokens(semantic, ['workflow']) + bucketTokens(schema, ['agents']) },
+    { label: 'System', tokens: semanticTokens(semantic, ['system']) },
+    { label: 'Tool I/O', tokens: semanticTokens(semantic, ['toolResults']) },
   ];
 
   return (

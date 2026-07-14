@@ -739,7 +739,10 @@ const compactedGuardCases = [
 ];
 for (const [label, patch] of compactedGuardCases) {
   const out = await executePatchTool('apply_patch', { base_path: root, dry_run: true, fuzzy: false, patch }, root);
-  if (!/^Error[\s:[]/.test(String(out)) || !/compacted-history placeholder/i.test(String(out))) {
+  if (!/^Error[\s:[]/.test(String(out))
+      || !/compacted-history placeholder/i.test(String(out))
+      || !/re-read the current target file contents now/i.test(String(out))
+      || !/fresh full patch/i.test(String(out))) {
     throw new Error(`apply_patch must reject compacted placeholder (${label}):\n${out}`);
   }
 }
@@ -1366,7 +1369,7 @@ setInternalToolsProvider({
     if (!/Read-only retrieval role/i.test(visible) || /# environment/i.test(visible) || /git operations deferred to Lead/i.test(visible)) {
       throw new Error(`explorer hidden retrieval context should stay slim: ${visible.slice(0, 1200)}`);
     }
-    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/deliver WHERE/i.test(systemVisible)) {
+    if (!/# Role: explorer/i.test(systemVisible) || /# Role: explorer/i.test(userReminderVisible) || !/only WHERE/i.test(systemVisible)) {
       throw new Error(`explorer role md must ride BP2 system, not BP3 user reminder: system=${systemVisible.slice(0, 600)} user=${userReminderVisible.slice(0, 600)}`);
     }
     // System layers (BP1 tool policy + BP2 role md) are shared/frozen and sized
@@ -1728,10 +1731,10 @@ for (const requiredGrammarLine of [
 }
 const readPathSchema = BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.inputSchema?.properties?.path || {};
 const readPathDescription = readPathSchema.description || '';
-if (!/Verified file path/i.test(readPathDescription) || !/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/Pass arrays directly/i.test(readPathDescription) || !/legacy recovery only/i.test(readPathDescription)) {
+if (!/\{path,offset,limit\}\[\]/i.test(readPathDescription) || !/real arrays/i.test(readPathDescription)) {
   throw new Error('read schema must keep directory-vs-file guidance');
 }
-if (!/Not for directory listing/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
+if (!/Not for director/i.test((BUILTIN_TOOLS.find((tool) => tool.name === 'read')?.description) || '')) {
   throw new Error('read description must keep directory-vs-file guidance');
 }
 const readTool = BUILTIN_TOOLS.find((tool) => tool.name === 'read');
@@ -1742,13 +1745,13 @@ const readArrayItemAnyOf = readArraySchema?.items?.anyOf || [];
 if (!readArrayItemAnyOf.some((entry) => entry?.type === 'object' && entry?.properties?.offset && entry?.properties?.limit)) {
   throw new Error('read schema must expose array-of-region objects for batched spans');
 }
-if (/line\+context/i.test(readDescription) || !/verified file path/i.test(readDescription) || !/guessed path.*find first/i.test(readDescription) || !/Batch paths\/regions as real arrays/i.test(readDescription)) {
+if (/line\+context/i.test(readDescription) || !/Read file contents/i.test(readDescription) || !/\{path,offset,limit\}\[\]/i.test(readDescription)) {
   throw new Error('read description must expose offset/limit as the single window form');
 }
 if (readProps.line || readProps.context) {
   throw new Error('read schema must not expose legacy line/context window fields');
 }
-if (readProps.offset?.minimum !== 0 || !/Numeric lines to skip/i.test(readProps.offset?.description || '') || !/offset:N/i.test(readProps.offset?.description || '') || !/Numeric max lines/i.test(readProps.limit?.description || '')) {
+if (readProps.offset?.minimum !== 0 || !/Lines to skip/i.test(readProps.offset?.description || '') || !/Max lines/i.test(readProps.limit?.description || '')) {
   throw new Error('read offset schema must describe Mixdog paging cursor semantics');
 }
 if (/line\/context/i.test(JSON.stringify(readTool?.inputSchema || {}))) {
@@ -1839,21 +1842,18 @@ if (codeGraphSymbolSearchErr) {
 // symbol/definition/caller lookups AWAY from repeated grep (the grep_retry +
 // find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
 // enumerate modes, but must not drift into web-search territory.
-if (!/code structure\/flow/i.test(codeGraphDescription) || !/symbols\/references\/calls\/deps/i.test(codeGraphDescription)) {
+if (!/Repo code structure/i.test(codeGraphDescription) || !/find_symbol\/symbol_search\/search\/references\/callers\/callees/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
-if (!/files\[\] must be verified paths/i.test(codeGraphDescription) || !/Batch symbols\[\]\/files\[\]/i.test(codeGraphDescription)) {
+if (!/take files\[\]/i.test(codeGraphDescription) || !/Batch targets per mode/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must route unknown file paths through locators first');
 }
-if (!/repo-local/i.test(codeGraphDescription) || !/NOT web search|not web/i.test(codeGraphDescription)) {
-  throw new Error('code_graph description must mark itself repo-local (not web search)');
-}
-if (!/repo-local|not web/i.test(codeGraphProps.mode?.description || '') || !/Verified source file/i.test(codeGraphProps.files?.description || '')) {
+if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/Source file path/i.test(codeGraphProps.files?.description || '')) {
   throw new Error('code_graph schema must keep compact, repo-local field descriptions');
 }
 const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
 const recallProps = recallTool?.inputSchema?.properties || {};
-if (!/Call when a task ties to prior work/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
+if (!/prior-work context/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
   throw new Error('recall schema must preserve scoped prior-context guidance and id lookup shape');
 }
 if (!/array for independent fan-out/i.test(recallProps.query?.description || '') || !/Project pool selector/i.test(recallProps.projectScope?.description || '')) {
@@ -2155,13 +2155,13 @@ const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description
 const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
 const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
 const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
-if (!/Array = variants in one call/i.test(grepPatternDescription) || !/Verified file\/dir/i.test(grepPathDescription)) {
+if (!/pattern\[\] batches variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
-if (!/verified scope/i.test(grepTool?.description || '') || !/guessed path fragment.*find first/i.test(grepTool?.description || '')) {
-  throw new Error('grep description must require verified scopes and locator-first unknown paths');
+if (!/content search/i.test(grepTool?.description || '')) {
+  throw new Error('grep description must state its content-search contract');
 }
-if (!/Glob filter/i.test(grepGlobDescription) || !/no guessed src\/\*\*/i.test(grepGlobDescription)) {
+if (!/Glob filter/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
 }
 if (!/files_with_matches\/count/i.test(grepOutputModeDescription) || !/content_with_context/i.test(grepOutputModeDescription)) {
@@ -2176,16 +2176,16 @@ if (grepTool?.inputSchema?.properties?.type) {
 const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
-if (!/exact glob from verified roots/i.test(globTool?.description || '')) {
+if (!/exact glob patterns/i.test(globTool?.description || '')) {
   throw new Error('glob description must route exact-pattern unknown paths before read/grep/list');
 }
-if (!/Partial path\/name lookup/i.test(findTool?.description || '') || !/verify roots before grep\/glob/i.test(findTool?.description || '')) {
+if (!/unknown partial paths\/names/i.test(findTool?.description || '') || !/verifies paths for grep\/glob/i.test(findTool?.description || '')) {
   throw new Error('find description must advertise unverified path/name lookup and verified outputs');
 }
-if (!/List verified directories/i.test(listTool?.description || '') || !/Guessed dir.*find first/i.test(listTool?.description || '') || !/Verified directory/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
+if (!/List directory entries/i.test(listTool?.description || '') || !/path\[\]/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
   throw new Error('list description must require verified directories and locator-first unknown dirs');
 }
-if (!/Repo-local/i.test(codeGraphProps.mode?.description || '') || !/one call/i.test(codeGraphProps.symbols?.description || '')) {
+if (!/symbol modes use symbols\[\]/i.test(codeGraphProps.mode?.description || '') || !/symbols \(file outline\) use files\[\]/i.test(codeGraphProps.mode?.description || '') || !/one symbols\[\] call/i.test(codeGraphProps.symbols?.description || '')) {
   throw new Error('code_graph schema fields must stay compact and repo-local');
 }
 

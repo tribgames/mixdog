@@ -44,23 +44,32 @@ let commit = 0;
 const identity = (value) => value;
 const noop = () => {};
 
-function Harness({ text, step }) {
-  const [scrollOffset, setScrollOffset] = React.useState(INITIAL_SCROLL);
+function Harness({
+  text,
+  step,
+  initialScroll = INITIAL_SCROLL,
+  streamId = STREAM_ID,
+  releasedSelection = null,
+  onPaint = noop,
+  onFrame = noop,
+  recordFrame = true,
+}) {
+  const [scrollOffset, setScrollOffset] = React.useState(initialScroll);
   const [measuredRowsVersion, setMeasuredRowsVersion] = React.useState(0);
   const transcriptAnchorRef = React.useRef(null);
   const transcriptAnchorDirtyRef = React.useRef(true);
-  const scrollTargetRef = React.useRef(INITIAL_SCROLL);
-  const scrollPositionRef = React.useRef(INITIAL_SCROLL);
+  const scrollTargetRef = React.useRef(initialScroll);
+  const scrollPositionRef = React.useRef(initialScroll);
   const maxScrollRowsRef = React.useRef(0);
   const transcriptGeomRef = React.useRef({});
   const followingRef = React.useRef(false);
-  const dragRef = React.useRef({ active: false, rect: null });
+  const dragRef = React.useRef({ active: false, rect: releasedSelection });
   const transcriptViewportRef = React.useRef({ top: 0 });
   const selectionLayoutRef = React.useRef(null);
   const contentRef = React.useRef(null);
   const tailRef = React.useRef(null);
   const streamingTail = React.useMemo(() => ({
-    id: STREAM_ID,
+    id: streamId,
     kind: 'assistant',
     text,
     streaming: true,
@@ -100,7 +109,7 @@ function Harness({ text, step }) {
     transcriptViewportRef,
     selectionLayoutRef,
     withSelectionClip: identity,
-    paintSelectionRect: noop,
+    paintSelectionRect: onPaint,
     stopSmoothScroll: noop,
     measuredRowsVersion,
     setMeasuredRowsVersion,
@@ -121,7 +130,7 @@ function Harness({ text, step }) {
     const renderScrollOffset = transcriptWindow.effectiveScrollOffset;
     const visibleTopIndexed = transcriptWindow.totalRows - renderScrollOffset - VIEW_ROWS;
     const visibleTopPhysical = physicalRows - renderScrollOffset - VIEW_ROWS;
-    frames.push({
+    const frame = {
       commit: ++commit,
       step,
       char: text.at(-1) === '\n' ? '\\n' : (text.at(-1) || ''),
@@ -145,7 +154,9 @@ function Harness({ text, step }) {
       scrollTarget: scrollTargetRef.current,
       following: followingRef.current,
       anchor: transcriptAnchorRef.current?.id || '-',
-    });
+    };
+    if (recordFrame) frames.push(frame);
+    onFrame(frame);
   }, [step, text, measuredRowsVersion, transcriptWindow.totalRows, transcriptWindow.effectiveScrollOffset,
     transcriptAnchorRef, transcriptGeomRef]);
 
@@ -159,7 +170,7 @@ function Harness({ text, step }) {
         marginBottom={-transcriptWindow.effectiveScrollOffset}
       >
         {renderedTranscriptItems.map((item, index, all) => {
-          const hookRef = item.id === STREAM_ID ? combinedTailRef : transcriptMeasureRef(item);
+          const hookRef = item.id === streamId ? combinedTailRef : transcriptMeasureRef(item);
           return (
             <Box key={item.id} ref={hookRef} flexDirection="column" flexShrink={0}>
               <Item
@@ -294,6 +305,76 @@ if (dips.length > 0) {
 }
 if (suppressValues.size !== 1 || !suppressValues.has(true)) {
   throw new Error('repro unexpectedly toggled suppressMeasuredRowHeights');
+}
+
+const SELECTION_STREAM_ID = 'released-selection-tail';
+const releasedSelection = { mode: 'linear', x1: 0, y1: 3, x2: 4, y2: 3 };
+const selectionHarvests = [];
+const selectionFrames = [];
+streamingMeasuredRowsById.delete(SELECTION_STREAM_ID);
+const selectionInstance = render(
+  <Harness
+    text="seed"
+    step={0}
+    initialScroll={1}
+    streamId={SELECTION_STREAM_ID}
+    releasedSelection={releasedSelection}
+    recordFrame={false}
+    onPaint={(rect, options) => {
+      if (rect && options?.rememberText === false) selectionHarvests.push({ y1: rect.y1, y2: rect.y2 });
+    }}
+    onFrame={(frame) => selectionFrames.push(frame)}
+  />,
+  { stdout: fakeTty(COLUMNS, VIEW_ROWS), stderr: fakeTty(COLUMNS, VIEW_ROWS), stdin: fakeTty(COLUMNS, VIEW_ROWS), interactive: true, patchConsole: false, exitOnCtrlC: false, maxFps: 1000 },
+);
+await settle(selectionInstance);
+const harvestsBeforeGrowth = selectionHarvests.length;
+const framesBeforeGrowth = selectionFrames.length;
+selectionInstance.rerender(
+  <Harness
+    text={'seed\none\nsecond\nthird'}
+    step={1}
+    initialScroll={1}
+    streamId={SELECTION_STREAM_ID}
+    releasedSelection={releasedSelection}
+    recordFrame={false}
+    onPaint={(rect, options) => {
+      if (rect && options?.rememberText === false) selectionHarvests.push({ y1: rect.y1, y2: rect.y2 });
+    }}
+    onFrame={(frame) => selectionFrames.push(frame)}
+  />,
+);
+await settle(selectionInstance);
+selectionInstance.unmount();
+await selectionInstance.waitUntilExit();
+selectionInstance.cleanup();
+const growthFrames = selectionFrames.slice(framesBeforeGrowth);
+if (!growthFrames.some((frame) => frame.scrollTarget > 1)) {
+  throw new Error('released-selection repro did not apply anchored growth at offset 1');
+}
+const growthHarvests = selectionHarvests.slice(harvestsBeforeGrowth);
+const initialRenderOffset = selectionFrames[framesBeforeGrowth - 1]?.renderScrollOffset ?? 0;
+const maxGrowthRenderOffset = Math.max(
+  initialRenderOffset,
+  ...growthFrames.map((frame) => frame.renderScrollOffset),
+);
+const maxExpectedSelectionY = releasedSelection.y1 + maxGrowthRenderOffset - initialRenderOffset;
+const doubleCountedHarvest = growthHarvests.find(
+  (harvest) => harvest.y1 > maxExpectedSelectionY || harvest.y2 > maxExpectedSelectionY,
+);
+const finalHarvest = growthHarvests.at(-1);
+if (
+  doubleCountedHarvest
+  || !finalHarvest
+  || finalHarvest.y1 !== releasedSelection.y1
+  || finalHarvest.y2 !== releasedSelection.y2
+) {
+  throw new Error(`released selection harvested wrong row during anchored growth: ${JSON.stringify({
+    doubleCountedHarvest,
+    finalHarvest,
+    expectedFinal: releasedSelection,
+    maxExpectedSelectionY,
+  })}`);
 }
 console.log('tui-transcript-jitter-harness: ok');
 

@@ -134,14 +134,23 @@ requireAll(workflow, 'Default approval', [
   /initial\/additional\/changed requests reset planning/, /scope change needs a revised plan and fresh approval/,
   /no edits, state mutation, or delegation/,
 ]);
+const WORKER_HEAVY_ROUTING_CONTRACT = [
+  /select worker or heavy worker by solution and validation complexity/,
+  /worker owns work whose approach is established and whose correctness can be shown with a focused check/,
+  /heavy worker owns work requiring investigation to establish the approach, resolution of material uncertainty or dependencies, iteration across hypotheses or checkpoints, or multi-step, empirical, integration, or real-use validation/,
+];
+requireAll(workflow, 'Default Worker/Heavy Worker routing', WORKER_HEAVY_ROUTING_CONTRACT);
+assert(
+  !/fully\s+specified\s+artifact/i.test(workflow),
+  'Default: removed Worker routing criterion must not return',
+);
 const ROUTING_REVIEW_POLICY = [
-  /lead-direct work is allowed only for pure read\/analysis, git\/configuration/,
-  /user explicitly supplies both the exact target and exact replacement\/output/,
-  /never infer an exemption from a task name, file count, or perceived difficulty/,
-  /every other implementation, reverse engineering, debugging application, or artifact generation delegates to the matching agent/,
+  /lead-direct execution is limited to a conceptually one-step mechanical action with an immediate deterministic check/,
+  /routine configuration\/git work/,
+  /operational support for planning, delegation, or verification/,
+  /multiple steps must not be reframed as one command to fit this boundary/,
+  /work requiring implementation judgment, investigation, iteration, or artifact authoring delegates to worker or heavy worker/,
   /debugger owns diagnosis and reverse engineering/,
-  /worker applies an established bounded change or fully specified artifact/,
-  /heavy worker owns implementation that must establish the change through investigation or staged delivery/,
   /applying a debugger result is implementation, not diagnosis/,
   /review is exempt only for pure read\/analysis with no edit, artifact, or state mutation; git\/configuration; or a request where the user explicitly supplies both the exact target and exact replacement\/output\. every non-exempt mutation or artifact/,
   /every non-exempt mutation or artifact/,

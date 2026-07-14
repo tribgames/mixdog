@@ -1,7 +1,7 @@
 # Public Agent Constraints
 
-- Do not touch git/Ship. Refuse `git add`/`commit`/`push`/`stash`: `git
+- Never touch git/Ship. Refuse `git add`/`commit`/`push`/`stash` with `git
   operations deferred to Lead`.
-- Shell only verifies own edits (node --check, targeted test, build/lint): no
-  exploration, install, or state change beyond brief.
+- Use shell only to verify your edits; never explore, install, or change state
+  beyond the brief.
 - Overflow goes to a file; hand off path + fragments.

@@ -68,22 +68,21 @@ test('explorer locator policy retains its compact behavioral contract', () => {
   const rule = readFileSync(new URL('../src/rules/agent/30-explorer.md', import.meta.url), 'utf8');
   const policy = rule.replace(/\s+/g, ' ');
   const required = [
-    /Locator only:[\s\S]*WHERE \(`path:line`\), never WHY[\s\S]*You ARE `explore`; never[\s\S]*call it/i,
-    /ONLY grep\/find\/glob\/code_graph[\s\S]*`read`\/`list` are forbidden/i,
-    /Turn 1 \(`turn 1\/3`\)[\s\S]*gathers all known facets in ONE message[\s\S]*Broad\/uncertain is Explorer input[\s\S]*split it into concrete facets[\s\S]*apply the shared one-route\/batch contract[\s\S]*concept facets use grep[\s\S]*single-tool turn is valid[\s\S]*follow-up is only for unresolved pre-anchor\/\s*zero-hit facets/i,
-    /follow-up is only for unresolved pre-anchor\/\s*zero-hit facets under this budget/i,
-    /broad searches use `output_mode:"files_with_matches"`[\s\S]*`content_with_context` plus `head_limit` only on a path returned THIS session/i,
-    /Each pattern is one identifier or camel\/snake variant[\s\S]*spaces are only verbatim copied quoted\s*error\/log literals[\s\S]*Translate non-English queries to English identifiers first[\s\S]*non-ASCII only for quoted literals[\s\S]*Include concept synonyms[\s\S]*not prose phrases/i,
-    /Scope is session cwd; omit `path` freely[\s\S]*only from an exact find-returned path \(turn-2 recovery earliest\)[\s\S]*never guess or\s*invent directories[\s\S]*`path:"\."` with guessed `src\/\*\*`[\s\S]*After zero hits, change TOKENS\/scope, not wording\/guessed paths/i,
-    /anchor is any `path:line` with a query token\/synonym[\s\S]*code_graph hits[\s\S]*generic-only schema\/handler\/config\/resolver\/index\/error words are zero[\s\S]*Never re-locate an anchor[\s\S]*without `:line`[\s\S]*PRE-anchor/i,
-    /After every result[\s\S]*specific-token anchor means STOP and answer NOW[\s\S]*pre-anchors count as zero[\s\S]*Never re-confirm\/upgrade an anchor/i,
-    /sole legal follow-up[\s\S]*code-location query[\s\S]*only with pre-anchors[\s\S]*one scoped `content_with_context` grep with `head_limit` on those paths[\s\S]*If zero, remaining zero-anchor recovery turns are legal under the 3-turn budget but must change tokens\/scope[\s\S]*never a second minting hop, anchor upgrade, or fabricated\/estimated line/i,
-    /at most 3 turns \(expect 1\)[\s\S]*every tool message `turn N\/3`[\s\S]*normally two messages[\s\S]*third\/extra tool call[\s\S]*unless turn 1 has zero anchors[\s\S]*must change tokens\/scope/i,
-    /Single-hop exception[\s\S]*first matching entry\/definition anchors concept\/value\/\s*default[\s\S]*do not trace chains\/value-search[\s\S]*explicit flow or default-resolution query[\s\S]*entry anchor but not its resolved value[\s\S]*ONE resolving hop, then stop/i,
-    /Answer in ≤3 lines[\s\S]*`path:line — symbol — short reason`[\s\S]*Copy every cited `path:line` VERBATIM[\s\S]*THIS-session tool result[\s\S]*never estimate\/adjust\/recall/i,
-    /Code-location answers require `:line` on every line[\s\S]*`EXPLORATION_FAILED`[\s\S]*never a bare filename or vague prose/i,
-    /file\/dir-location queries[\s\S]*exact verified file\/dir path without `:line`[\s\S]*do not force a line\/failure/i,
-    /Emit `EXPLORATION_FAILED` only after the budget is spent with zero anchors[\s\S]*prefer a weak anchor to a false miss/i,
+    /Return only WHERE \(`path:line`\), never WHY[\s\S]*You ARE `explore`; never call it/i,
+    /only grep\/find\/glob\/code_graph[\s\S]*`read` and `list` are forbidden/i,
+    /Turn 1 \(`turn 1\/3`\) is the whole search[\s\S]*Split broad\/uncertain input into every known facet[\s\S]*one batch under the shared one-route contract[\s\S]*upstream producer\/derivation layer[\s\S]*SAME batch[\s\S]*Follow-up turns batch every unresolved facet in parallel[\s\S]*single-tool turn is allowed only when exactly one pre-anchor\/zero-hit facet remains/i,
+    /broad grep use `output_mode:"files_with_matches"`[\s\S]*`content_with_context` with `head_limit` only on paths returned this session/i,
+    /Each pattern is one identifier, camel\/snake variant, or concept synonym[\s\S]*never a prose phrase[\s\S]*Spaces and non-ASCII are allowed only in verbatim quoted error\/log literals[\s\S]*Translate other non-English queries to English identifiers/i,
+    /Scope is session cwd[\s\S]*For unverified `src` paths, use `find` first[\s\S]*never guess or invent directories[\s\S]*`path:"\."` with guessed `src\/\*\*`[\s\S]*exact find-returned path[\s\S]*no earlier than turn 2[\s\S]*After zero hits, change tokens or scope, never wording or guessed paths/i,
+    /anchor is a `path:line` containing a query token or synonym[\s\S]*code_graph hit[\s\S]*Generic terms without query specificity are zero[\s\S]*Never re-locate, reconfirm, or upgrade an anchor[\s\S]*path without `:line` is a pre-anchor and counts as zero/i,
+    /After every result, stop and answer on any specific-token anchor[\s\S]*mark a weak anchor `\?`/i,
+    /code-location query left only with pre-anchors[\s\S]*sole anchor-minting follow-up[\s\S]*one scoped `content_with_context` grep with `head_limit`[\s\S]*If it returns zero[\s\S]*changed tokens or scope[\s\S]*Never make a second minting hop or fabricate\/estimate a line/i,
+    /at most 3 turns[\s\S]*label every tool message `turn N\/3`[\s\S]*normally use one batch and one answer[\s\S]*Turns 2–3 are allowed only when turn 1 has zero anchors/i,
+    /first matching entry\/definition anchors a concept, value, or default[\s\S]*never trace its chain[\s\S]*explicit flow or default-resolution query[\s\S]*entry anchor but no resolved value[\s\S]*turn 2 for one resolving hop/i,
+    /Answer in at most 3 lines[\s\S]*`path:line — symbol — short reason`[\s\S]*Copy every cited `path:line` verbatim[\s\S]*tool result in this session[\s\S]*never estimate, adjust, or recall/i,
+    /Every code-location line requires `:line`[\s\S]*never return a bare filename or vague prose/i,
+    /file\/dir-location query may return an exact verified path without `:line`/i,
+    /Return `EXPLORATION_FAILED` only after spending the budget with zero anchors[\s\S]*prefer a weak anchor to a false miss/i,
   ];
   for (const behavior of required) assert.match(policy, behavior);
   assert.doesNotMatch(policy, /grep[^.]{0,120}\band\b[^.]{0,120}code_graph[^.]{0,120}\band\b[^.]{0,120}find/i);

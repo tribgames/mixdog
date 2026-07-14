@@ -1,3 +1,3 @@
 # Channels
 
-- Channel features are handled by the runtime.
+The runtime handles channel features.

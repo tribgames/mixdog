@@ -28,6 +28,7 @@ import { _mergePendingMessageEntries, drainPendingMessages } from './pending-mes
 import { persistIterationMetrics, applyAskTerminalUsageTotals } from './usage-metrics.mjs';
 import {
     updateSessionStage,
+    linkParentSignalToSession,
     markSessionAskStart,
     markSessionStreamDelta,
     markSessionDone,
@@ -164,11 +165,22 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         normalizeStaleCompactingStage(preSession);
         askGeneration = typeof preSession.generation === 'number' ? preSession.generation : 0;
         const runtime = _touchRuntime(sessionId);
+        // Preserve any parent-abort link agent-dispatch established BEFORE we
+        // swap in a fresh controller: replacing runtime.controller drops the
+        // abort state, so an already/early-aborted parent signal (user ESC /
+        // owner abort landing during setup) would be lost and provider
+        // computation would run detached. Capture the linked signal, install the
+        // fresh controller, then re-cascade it — aborting the new controller
+        // immediately when the parent already fired, or re-arming the listener.
+        const _linkedParentSignal = runtime.parentAbortLink?.signal;
         // Fresh controller per ask — the previous ask's controller may have aborted.
         runtime.controller = createAbortController();
         runtime.generation = askGeneration;
         runtime.closed = false;
         runtime.session = preSession;
+        if (_linkedParentSignal instanceof AbortSignal) {
+            linkParentSignalToSession(sessionId, _linkedParentSignal);
+        }
         markSessionAskStart(sessionId);
         // Preprocessing is inside try so provider-not-available / trim failures
         // fall into the catch and mark the session as errored rather than
@@ -389,9 +401,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         updateSessionStage(sessionId, stage);
                         try { askOpts?.onStageChange?.(stage); } catch {}
                     },
-                    onStreamDelta: () => {
-                        markSessionStreamDelta(sessionId).catch(() => {});
-                        try { askOpts?.onStreamDelta?.(); } catch {}
+                    onStreamDelta: (kind = 'semantic') => {
+                        markSessionStreamDelta(sessionId, kind).catch(() => {});
+                        // Raw transport is an internal health signal, not model
+                        // progress. Preserve the public callback's historical
+                        // semantic-only contract.
+                        if (kind !== 'transport') {
+                            try { askOpts?.onStreamDelta?.(kind); } catch {}
+                        }
                     },
                 }),
             );

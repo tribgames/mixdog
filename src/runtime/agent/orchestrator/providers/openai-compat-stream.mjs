@@ -102,10 +102,26 @@ function firstByteCompatStreamError(label) {
     return err;
 }
 
-async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, idleLabel, emittedToolCall } = {}) {
+async function nextAsyncWithWatchdog(iterator, {
+    signal,
+    idleMs,
+    idleDeadlineAt,
+    idleEnabled,
+    idleLabel,
+    emittedToolCall,
+} = {}) {
     let idleTimer = null;
     let idleReject = null;
     let idleTimedOut = false;
+    let iteratorCloseRequested = false;
+    const closeIterator = () => {
+        if (iteratorCloseRequested) return;
+        iteratorCloseRequested = true;
+        try {
+            const closing = iterator?.return?.();
+            if (closing && typeof closing.catch === 'function') closing.catch(() => {});
+        } catch { /* closing must never replace the watchdog/abort error */ }
+    };
     // Double-dispatch guard (reviewer High): if a tool call was already emitted
     // this stream, a stall must be unsafe-to-retry so withRetry() won't replay
     // the turn and re-run the side-effecting tool. `emittedToolCall` may be a
@@ -117,6 +133,10 @@ async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, id
     const armIdle = () => {
         if (!idleEnabled || !(idleMs > 0)) return;
         if (idleTimer) clearTimeout(idleTimer);
+        const deadline = Number(idleDeadlineAt);
+        const delayMs = Number.isFinite(deadline) && deadline > 0
+            ? Math.max(0, deadline - Date.now())
+            : idleMs;
         idleTimer = setTimeout(() => {
             idleTimedOut = true;
             // SEMANTIC idle abort: this timer is (re)armed only around waiting
@@ -125,12 +145,13 @@ async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, id
             // StreamStalledError so the retry-classifier treats it as a stream
             // failure (owner gets notified) rather than a user cancel.
             const e = streamStalledError(idleLabel || 'compat SSE', idleMs, { emittedToolCall: didEmitToolCall() });
+            closeIterator();
             if (idleReject) {
                 const r = idleReject;
                 idleReject = null;
                 r(e);
             }
-        }, idleMs);
+        }, delayMs);
         if (typeof idleTimer.unref === 'function') idleTimer.unref();
     };
     armIdle();
@@ -139,6 +160,7 @@ async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, id
             idleReject = reject;
             if (signal?.aborted) {
                 const reason = signal.reason;
+                closeIterator();
                 reject(reason instanceof Error ? reason : new Error('compat stream aborted'));
                 return;
             }
@@ -146,6 +168,7 @@ async function nextAsyncWithWatchdog(iterator, { signal, idleMs, idleEnabled, id
             if (signal) {
                 onAbort = () => {
                     const reason = signal.reason;
+                    closeIterator();
                     reject(reason instanceof Error ? reason : new Error('compat stream aborted'));
                 };
                 signal.addEventListener('abort', onAbort, { once: true });
@@ -293,14 +316,34 @@ function isMaxOutputIncompleteReason(reason) {
     return /^(?:max_output_tokens|max_tokens|length|output_token_limit)$/i.test(String(reason || '').trim());
 }
 
-export async function consumeCompatChatCompletionStream(stream, { signal, label, onStreamDelta, onToolCall, onTextDelta, parseToolCalls, knownToolNames } = {}) {
+export async function consumeCompatChatCompletionStream(stream, {
+    signal,
+    label,
+    onStreamDelta,
+    onToolCall,
+    onTextDelta,
+    parseToolCalls,
+    knownToolNames,
+    semanticIdleTimeoutMs,
+} = {}) {
+    // Reaching the consumer means the HTTP response/stream object exists.
+    // Record transport health without satisfying semantic model activity.
+    try { onStreamDelta?.('transport'); } catch {}
     const iterator = stream[Symbol.asyncIterator]();
     const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
-    const idleEnabled = PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
+    const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
+    const idleEnabled = idleOverrideEnabled || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
     // Per-event (last-event-relative) SEMANTIC idle: nextAsyncWithWatchdog arms
     // the timer only while awaiting the NEXT stream event, so a stream that
     // emits some deltas then goes silent trips it within the window.
-    const idleMs = PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+    const idleMs = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0
+        ? Number(semanticIdleTimeoutMs)
+        : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+    let semanticIdleDeadlineAt = 0;
+    const reportProgress = (kind) => {
+        if (kind !== 'transport') semanticIdleDeadlineAt = Date.now() + idleMs;
+        try { onStreamDelta?.(kind); } catch {}
+    };
     let sawFirstEvent = false;
     let content = '';
     let reasoningContent = '';
@@ -318,6 +361,14 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
     // Fix 2: one dedupe per stream, shared by the synthetic leaked-call
     // dispatch and every native emit so an identical (name,args) fires once.
     const _toolDedupe = createToolCallDedupe();
+    // Persistent stream state: leaked calls dispatch eagerly, before the final
+    // native parse. If the iterator later fails this latch makes the failure
+    // unsafe-to-retry so the eager side effect cannot run twice.
+    const streamEmitState = {
+        emittedToolCallKeys: new Set(),
+        emittedToolCall: false,
+        _toolDedupe,
+    };
     // Leaked tool-call guard: the model sometimes emits a tool call as plain
     // text (XML `<invoke>`/`<function_calls>` or gpt-oss harmony
     // `<|channel|>...to=functions.NAME...<|call|>`) inside `delta.content`
@@ -328,8 +379,8 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
     const leakGuard = createLeakGuard({ knownToolNames, harmony: true });
     const dispatchLeakedCall = (recovered) => {
         const call = synthLeakedOpenAICall(recovered);
-        const emitState = { emittedToolCallKeys: new Set(), _toolDedupe };
-        emitCompatToolCallOnce(emitState, call, onToolCall);
+        emitCompatToolCallOnce(streamEmitState, call, onToolCall);
+        reportProgress('tool');
         return call;
     };
     const leakedCalls = [];
@@ -337,6 +388,7 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
         const { text, calls } = leakGuard.push(delta);
         if (text) {
             content += text;
+            reportProgress('text');
             if (onTextDelta) {
                 emittedText = true;
                 try { onTextDelta(text); } catch {}
@@ -348,6 +400,7 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
         const { text, calls } = leakGuard.flush();
         if (text) {
             content += text;
+            reportProgress('text');
             if (onTextDelta) {
                 emittedText = true;
                 try { onTextDelta(text); } catch {}
@@ -362,21 +415,25 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
                 // first-byte timer (createTimeoutSignal already chains parent).
                 signal: sawFirstEvent ? signal : firstByteTimeout.signal,
                 idleMs,
-                idleEnabled: sawFirstEvent && idleEnabled,
+                idleDeadlineAt: semanticIdleDeadlineAt,
+                idleEnabled: sawFirstEvent && idleEnabled && semanticIdleDeadlineAt > 0,
                 idleLabel: `${label} SSE idle`,
                 // A stall after a tool call has already been dispatched (native
                 // or recovered-leaked) must be unsafe-to-retry (no double-run).
-                emittedToolCall: () => leakedCalls.length > 0 || toolAcc.size > 0,
+                emittedToolCall: () => streamEmitState.emittedToolCall || toolAcc.size > 0,
             });
             if (done) break;
             if (!sawFirstEvent) {
                 sawFirstEvent = true;
                 firstByteTimeout.cleanup();
             }
-            try { onStreamDelta?.(); } catch {}
+            try { onStreamDelta?.('transport'); } catch {}
             if (chunk?.id) responseId = chunk.id;
             if (chunk?.model) model = chunk.model;
             const choice = chunk?.choices?.[0];
+            if (typeof choice?.delta?.role === 'string' && choice.delta.role) {
+                reportProgress('semantic');
+            }
             if (choice?.delta?.content) {
                 // Live text relay (gateway): explicit assistant text delta,
                 // routed through the leaked-tool-call guard (which appends to
@@ -386,6 +443,7 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
                     relayText(choice.delta.content);
                 } else {
                     content += choice.delta.content;
+                    reportProgress('text');
                     if (onTextDelta) {
                         emittedText = true;
                         try { onTextDelta(choice.delta.content); } catch {}
@@ -394,6 +452,12 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
             }
             if (typeof choice?.delta?.reasoning_content === 'string') {
                 reasoningContent += choice.delta.reasoning_content;
+                if (choice.delta.reasoning_content) {
+                    reportProgress('reasoning');
+                }
+            }
+            if (Array.isArray(choice?.delta?.tool_calls) && choice.delta.tool_calls.length) {
+                reportProgress('tool');
             }
             mergeToolCallDelta(toolAcc, choice?.delta?.tool_calls, toolBucketState);
             if (choice?.finish_reason) stopReason = choice.finish_reason;
@@ -414,7 +478,7 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
                 err.pendingToolUse = toolAcc.size > 0 || leakedCalls.length > 0;
                 err.partialModel = model || undefined;
             } catch { /* best-effort */ }
-            throw err;
+            throw markUnsafeRetryIfToolEmitted(err, streamEmitState);
         }
         // Partial-final recovery: on a mid-stream stall, attach the
         // streamed partial state so the loop can accept a wedged FINAL no-tool
@@ -427,7 +491,7 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
                 err.partialModel = model || undefined;
             } catch { /* best-effort */ }
         }
-        throw err;
+        throw markUnsafeRetryIfToolEmitted(err, streamEmitState);
     } finally {
         firstByteTimeout.cleanup();
     }
@@ -450,7 +514,7 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
                 err.partialModel = model || undefined;
             } catch { /* best-effort */ }
         }
-        throw err;
+        throw markUnsafeRetryIfToolEmitted(err, streamEmitState);
     }
     const message = {
         content: content || null,
@@ -478,11 +542,10 @@ export async function consumeCompatChatCompletionStream(stream, { signal, label,
             try { err.message += ` finish_reason=${stopReason}`; } catch {}
         }
         if (emittedText) markErrorLiveTextEmitted(err);
-        throw err;
+        throw markUnsafeRetryIfToolEmitted(err, streamEmitState);
     }
     if (Array.isArray(toolCalls) && toolCalls.length) {
-        const emitState = { emittedToolCallKeys: new Set(), _toolDedupe };
-        for (const call of toolCalls) emitCompatToolCallOnce(emitState, call, onToolCall);
+        for (const call of toolCalls) emitCompatToolCallOnce(streamEmitState, call, onToolCall);
     }
     // Fold recovered leaked calls into the returned toolCalls so the dispatch
     // loop treats them exactly like native ones. They were already emitted via
@@ -534,19 +597,28 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
         case 'response.created':
             if (event.response?.model) state.model = event.response.model;
             if (event.response?.id) state.responseId = event.response.id;
+            try { onStreamDelta?.('semantic'); } catch {}
             break;
         case 'response.output_text.delta':
             state.sawOutput = true;
-            try { onStreamDelta?.(); } catch {}
             // Route assistant text through the leaked-tool-call guard (appends
             // to state.content, forwards visible text, recovers leaked calls).
             if (relayLeakText) relayLeakText(event.delta || '');
             else {
                 state.content += event.delta || '';
+                if (event.delta) {
+                    try { onStreamDelta?.('text'); } catch {}
+                }
                 if (event.delta && onTextDelta) {
                     state.emittedText = true;
                     try { onTextDelta(event.delta); } catch {}
                 }
+            }
+            break;
+        case 'response.reasoning_text.delta':
+        case 'response.reasoning_summary_text.delta':
+            if (event.delta) {
+                try { onStreamDelta?.('reasoning'); } catch {}
             }
             break;
         case 'response.output_item.added':
@@ -568,14 +640,14 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                 state.toolTracker?.mark(event.item);
                 state.toolInFlight = true;
             }
-            try { onStreamDelta?.(); } catch {}
+            try { onStreamDelta?.(state.toolInFlight ? 'tool' : 'semantic'); } catch {}
             break;
         case 'response.function_call_arguments.delta':
             // A tool call's args are streaming — mark tool work in-flight so a
             // mid-args stall is NEVER accepted as a text-only partial-final.
             state.toolTracker?.mark(null, event.item_id);
             state.toolInFlight = true;
-            try { onStreamDelta?.(); } catch {}
+            try { onStreamDelta?.('tool'); } catch {}
             break;
         case 'response.custom_tool_call_input.delta':
             // Custom-tool input streams before output_item.done records the call
@@ -583,7 +655,7 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             // final success (otherwise a tool-bearing turn looks text-only).
             state.toolTracker?.mark(null, event.item_id);
             state.toolInFlight = true;
-            try { onStreamDelta?.(); } catch {}
+            try { onStreamDelta?.('tool'); } catch {}
             break;
         case 'response.function_call_arguments.done': {
             const itemId = event.item_id || '';
@@ -599,7 +671,7 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             state.toolCalls.push(call);
             if (call.id && call.name) delete call._pendingItemId;
             emitCompatToolCallOnce(state, call, onToolCall);
-            try { onStreamDelta?.(); } catch {}
+            try { onStreamDelta?.('tool'); } catch {}
             break;
         }
         case 'response.output_item.done': {
@@ -638,7 +710,10 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                 state.toolTracker?.clear(item, item.id || '');
                 state.toolInFlight = state.pendingCalls.size > 0 || (state.toolTracker ? state.toolTracker.items.size > 0 : false);
             }
-            try { onStreamDelta?.(); } catch {}
+            const kind = item.type === 'reasoning'
+                ? 'reasoning'
+                : (/tool|function_call|web_search_call/.test(item.type || '') ? 'tool' : 'semantic');
+            try { onStreamDelta?.(kind); } catch {}
             break;
         }
         case 'response.completed': {
@@ -647,7 +722,20 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             state.completedResponse = resp;
             if (!state.model && resp.model) state.model = resp.model;
             if (!state.responseId && resp.id) state.responseId = resp.id;
-            if (!state.content) state.content = responseOutputText(resp);
+            let reportedBundleProgress = false;
+            if (!state.content) {
+                const fallbackText = responseOutputText(resp);
+                if (fallbackText) {
+                    if (relayLeakText) {
+                        const result = relayLeakText(fallbackText, true);
+                        reportedBundleProgress = !!(result?.text || result?.tool);
+                    } else {
+                        state.content = fallbackText;
+                        try { onStreamDelta?.('text'); } catch {}
+                        reportedBundleProgress = true;
+                    }
+                }
+            }
             for (const item of resp.output || []) {
                 if (item?.type === 'function_call') {
                     const itemId = item.id || '';
@@ -667,13 +755,27 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
                         state.toolCalls.push(call);
                         emitCompatToolCallOnce(state, call, onToolCall);
                     }
+                    try { onStreamDelta?.('tool'); } catch {}
+                    reportedBundleProgress = true;
                 } else if (item?.type === 'tool_search_call') {
                     pushToolSearchCall(item);
+                    try { onStreamDelta?.('tool'); } catch {}
+                    reportedBundleProgress = true;
                 } else if (item?.type === 'custom_tool_call') {
                     pushCustomToolCall(item);
+                    try { onStreamDelta?.('tool'); } catch {}
+                    reportedBundleProgress = true;
+                } else if (item?.type === 'reasoning') {
+                    try { onStreamDelta?.('reasoning'); } catch {}
+                    reportedBundleProgress = true;
+                } else if (item?.type === 'web_search_call') {
+                    try { onStreamDelta?.('tool'); } catch {}
+                    reportedBundleProgress = true;
                 }
             }
-            try { onStreamDelta?.(); } catch {}
+            if (!reportedBundleProgress) {
+                try { onStreamDelta?.('semantic'); } catch {}
+            }
             break;
         }
         case 'response.done':
@@ -748,12 +850,17 @@ export async function consumeCompatResponsesStream(stream, {
     parseResponsesToolCalls,
     responseOutputText,
     knownToolNames,
+    semanticIdleTimeoutMs,
 } = {}) {
+    try { onStreamDelta?.('transport'); } catch {}
     const iterator = stream[Symbol.asyncIterator]();
     const firstByteTimeout = createTimeoutSignal(signal, PROVIDER_FIRST_BYTE_TIMEOUT_MS, `${label} first byte`);
-    const idleEnabled = PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
+    const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
+    const idleEnabled = idleOverrideEnabled || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
     // Per-event (last-event-relative) SEMANTIC idle — see the Chat path note.
-    const idleMs = PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+    const idleMs = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0
+        ? Number(semanticIdleTimeoutMs)
+        : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
     const state = {
         content: '',
         model: '',
@@ -781,6 +888,11 @@ export async function consumeCompatResponsesStream(stream, {
         // has been forwarded. A later failure is non-retryable (rendered text
         // cannot be withdrawn; a retry would concatenate attempts).
         emittedText: false,
+        semanticIdleDeadlineAt: 0,
+    };
+    const reportProgress = (kind) => {
+        if (kind !== 'transport') state.semanticIdleDeadlineAt = Date.now() + idleMs;
+        try { onStreamDelta?.(kind); } catch {}
     };
     let sawFirstEvent = false;
     // Leaked tool-call guard for the Responses text stream. Same recovery as
@@ -792,18 +904,21 @@ export async function consumeCompatResponsesStream(stream, {
         const call = synthLeakedOpenAICall(recovered);
         emitCompatToolCallOnce(state, call, onToolCall);
         leakedCalls.push(call);
+        reportProgress('tool');
     };
     const relayLeakText = leakGuard.enabled
-        ? (delta) => {
-            const { text, calls } = leakGuard.push(delta);
+        ? (delta, final = false) => {
+            const { text, calls } = leakGuard.push(delta, final);
             if (text) {
                 state.content += text;
+                reportProgress('text');
                 if (onTextDelta) {
                     state.emittedText = true;
                     try { onTextDelta(text); } catch {}
                 }
             }
             for (const c of calls) dispatchLeakedCall(c);
+            return { text: !!text, tool: calls.length > 0 };
         }
         : null;
     const flushLeak = () => {
@@ -811,6 +926,7 @@ export async function consumeCompatResponsesStream(stream, {
         const { text, calls } = leakGuard.flush();
         if (text) {
             state.content += text;
+            reportProgress('text');
             if (onTextDelta) {
                 state.emittedText = true;
                 try { onTextDelta(text); } catch {}
@@ -818,13 +934,14 @@ export async function consumeCompatResponsesStream(stream, {
         }
         for (const c of calls) dispatchLeakedCall(c);
     };
-    const deps = { label, parseResponsesToolCalls, responseOutputText, onStreamDelta, onToolCall, onTextDelta, relayLeakText };
+    const deps = { label, parseResponsesToolCalls, responseOutputText, onStreamDelta: reportProgress, onToolCall, onTextDelta, relayLeakText };
     try {
         while (true) {
             const { value: event, done } = await nextAsyncWithWatchdog(iterator, {
                 signal: sawFirstEvent ? signal : firstByteTimeout.signal,
                 idleMs,
-                idleEnabled: sawFirstEvent && idleEnabled,
+                idleDeadlineAt: state.semanticIdleDeadlineAt,
+                idleEnabled: sawFirstEvent && idleEnabled && state.semanticIdleDeadlineAt > 0,
                 idleLabel: `${label} SSE idle`,
                 // Unsafe-to-retry once any tool call (native or recovered-leaked)
                 // has been emitted this stream — avoid a double side-effect.
@@ -835,6 +952,7 @@ export async function consumeCompatResponsesStream(stream, {
                 sawFirstEvent = true;
                 firstByteTimeout.cleanup();
             }
+            reportProgress('transport');
             handleCompatResponsesStreamEvent(event, state, deps);
         }
         flushLeak();

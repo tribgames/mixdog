@@ -70,8 +70,6 @@ import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRege
 // context-mode clamp by policy); only head_limit blocks are context-clamped.
 const GREP_AUTO_CONTEXT_LINES = 25;
 
-const MIXDOG_GREP_CASE_HINT_PROBE = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_GREP_CASE_HINT_PROBE || ''));
-
 function expandLegacyEscapedAlternationPattern(rawPattern) {
     if (typeof rawPattern !== 'string' || !rawPattern.includes('\\|')) return null;
     const parts = rawPattern.split('\\|').map((part) => part.trim()).filter(Boolean);
@@ -1097,7 +1095,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             // pre-offset matches) just means the window skipped past real
             // case-sensitive hits, so the hint would be misleading.
             const trueZeroMatch = offset === 0 && totalWindowed === 0;
-            if (MIXDOG_GREP_CASE_HINT_PROBE && trueZeroMatch && !caseInsensitive && patterns.length === 1 && /[A-Za-z]/.test(patterns[0])) {
+            if (trueZeroMatch && !caseInsensitive && patterns.length === 1 && /[A-Za-z]/.test(patterns[0])) {
                 try {
                     const probeArgs = buildGrepRgArgs({
                         patterns,

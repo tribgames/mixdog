@@ -6,8 +6,7 @@
  * memos, the same-frame anchor lock + capture, the per-commit Yoga height
  * harvest, bottom-follow/anchor post-commit sync, selection layout shift and
  * the scroll clamp. Scroll/anchor/drag refs stay App-owned (injected); this
- * hook owns the measurement maps, measuredRowsVersion and the totalRows/
- * preserved-delta bookkeeping refs.
+ * hook owns the measurement maps, measuredRowsVersion and totalRows bookkeeping.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -61,7 +60,6 @@ export function useTranscriptWindow({
   setMeasuredRowsVersion,
 }) {
   const transcriptTotalRowsRef = useRef(0);
-  const preservedScrollDeltaRef = useRef(0);
   // Pessimistic "committed" max-scroll for the IMMEDIATE wheel/keyboard clamp.
   // transcriptWindow.maxScrollRows is derived from the row index, which uses
   // ESTIMATED heights for rows in the mounted slice. On the frame a scroll-up
@@ -138,7 +136,7 @@ export function useTranscriptWindow({
     : null;
   const scrolledUpRowsForPin = Math.max(0, Number(scrollTargetRef.current) || 0);
   const transcriptPinnedForStreaming = followingRef.current
-    || scrolledUpRowsForPin <= transcriptBottomSlackRows;
+    || scrolledUpRowsForPin === 0;
   // Publish the pinned state to the streaming-tail estimator BEFORE resolving
   // tailSig / the row-index memo this render, so max(measuredFloor, liveEstimate)
   // applies while bottom-pinned (right geometry on first commit, no judder) and
@@ -156,7 +154,7 @@ export function useTranscriptWindow({
   );
   const transcriptStructureSig = `${revision}#${tailSig}`;
   const transcriptStreamingActive = !!streamingTailItem;
-  const scrolledUpForStreamingMeasure = scrolledUpRowsForPin > transcriptBottomSlackRows;
+  const scrolledUpForStreamingMeasure = scrolledUpRowsForPin > 0;
   const prevEstimateGeometry = transcriptGeomRef.current?.suppressMeasuredRowHeights === true;
   const hasStreamingReadingAnchor = !!transcriptAnchorRef.current
     || transcriptAnchorDirtyRef.current;
@@ -197,10 +195,10 @@ export function useTranscriptWindow({
   // (bottom-follow / pinned) or it cannot be aligned (anchor item gone).
   const hasReadingAnchor = !!transcriptAnchorRef.current && !transcriptAnchorDirtyRef.current;
   const scrolledUpRows = Math.max(0, Number(scrollTargetRef.current) || 0);
-  // "Genuinely scrolled up" = the viewport is above the bottom slack band. The
-  // bottom-follow / pinned path owns everything at-or-below the slack; anything
-  // above it is the user reading older transcript.
-  const scrolledUp = scrolledUpRows > transcriptBottomSlackRows;
+  // Any positive offset is a user reading position. Only the true bottom is
+  // pinned, so a wheel notch inside the former slack band cannot re-enable
+  // follow while a stream is appending rows.
+  const scrolledUp = scrolledUpRows > 0;
   // A genuine reading anchor wins even if followingRef is stale-true while the
   // user is scrolled up. The follow-arm SHOULD have been cleared when the anchor
   // was captured, but if it lingers true we must not fall through to the stale-
@@ -470,7 +468,7 @@ export function useTranscriptWindow({
     overlayHintAttachItemIndex = i;
     break;
   }
-  const transcriptTailPinned = Math.max(0, Number(transcriptWindow.effectiveScrollOffset) || 0) <= transcriptBottomSlackRows;
+  const transcriptTailPinned = Math.max(0, Number(transcriptWindow.effectiveScrollOffset) || 0) === 0;
   const overlayHintOnLastItem = overlayHintRequested
     && floatingPanelRows <= 0
     && transcriptWindow.bottomSpacerRows === 0
@@ -635,7 +633,7 @@ export function useTranscriptWindow({
     const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
     const currentOffset = Math.max(0, Number(scrollOffset) || 0);
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
-    const nearBottom = followingRef.current || currentTarget <= transcriptBottomSlackRows;
+    const nearBottom = followingRef.current || currentTarget === 0;
     const pinnedToBottom = nearBottom;
     // A genuine reading anchor must win over ordinary stream growth, but an
     // explicit follow arm (prompt submit / pinned bottom) must win over stale
@@ -731,22 +729,20 @@ export function useTranscriptWindow({
     stopSmoothScroll();
     scrollTargetRef.current = desired;
     scrollPositionRef.current = Math.max(0, Math.min(maxRows, currentPosition + appliedDelta));
-    preservedScrollDeltaRef.current += appliedDelta;
     setScrollOffset(Math.max(0, Math.round(desired)));
-  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, transcriptRowIndex, transcriptContentHeight, transcriptBottomSlackRows, scrollOffset, stopSmoothScroll]);
+  }, [transcriptWindow.totalRows, transcriptWindow.maxScrollRows, transcriptRowIndex, transcriptContentHeight, scrollOffset, stopSmoothScroll]);
   useLayoutEffect(() => {
-    if (transcriptBottomSlackRows <= 0) return;
     if (transcriptAnchorRef.current || transcriptAnchorDirtyRef.current || followingRef.current) return;
     const currentTarget = Math.max(0, Number(scrollTargetRef.current) || 0);
     const currentPosition = Math.max(0, Number(scrollPositionRef.current) || 0);
     const currentOffset = Math.max(0, Number(scrollOffset) || 0);
+    if (currentTarget !== 0) return;
     if (Math.max(currentTarget, currentPosition, currentOffset) === 0) return;
-    if (Math.max(currentTarget, currentPosition, currentOffset) > transcriptBottomSlackRows) return;
     stopSmoothScroll();
     scrollTargetRef.current = 0;
     scrollPositionRef.current = 0;
     setScrollOffset(0);
-  }, [transcriptBottomSlackRows, scrollOffset, stopSmoothScroll]);
+  }, [scrollOffset, stopSmoothScroll]);
   useLayoutEffect(() => {
     const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
     const next = {
@@ -755,11 +751,6 @@ export function useTranscriptWindow({
       totalRows: Math.max(0, Number(transcriptWindow.totalRows) || 0),
       scrollOffset: Math.max(0, Number(transcriptWindow.effectiveScrollOffset) || 0),
     };
-    const preservedDelta = Number(preservedScrollDeltaRef.current) || 0;
-    if (preservedDelta !== 0) {
-      next.scrollOffset = Math.max(0, next.scrollOffset + preservedDelta);
-      preservedScrollDeltaRef.current = 0;
-    }
     const previous = selectionLayoutRef.current;
     selectionLayoutRef.current = next;
     if (!previous || !dragRef.current.rect || dragRef.current.active) return;

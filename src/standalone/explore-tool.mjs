@@ -18,7 +18,7 @@ export const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Explore',
   annotations: { title: 'Explore', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  description: 'Locator for broad/uncertain targets with no known path, repo or machine-wide (dot dirs included). Array = independent targets: query[] fans out facets (max 8), never rephrasings.',
+  description: 'Locator for broad/uncertain targets with no known path, repo or machine-wide (dot dirs included). Array = independent targets: query[] fans out facets (max 8), never rephrasings. Every returned path:line freezes the LOCATION only; read/code_graph detail inspection is valid when content was not returned; never re-locate it — search only unresolved facets.',
   inputSchema: {
     type: 'object',
     properties: {

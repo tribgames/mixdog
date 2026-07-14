@@ -13,13 +13,11 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'load_tool: pure loader for deferred tools. Pass names:["exact_tool_name", ...] (deferred tool names/aliases) to load them; returns loaded / already-active / missing plus any MCP servers still connecting (retry next turn) or failed. No keyword search, no ranking, no listing. Deferred tools can also be called directly by name (they auto-load on first call).',
+  description: 'Load deferred tools by exact name via names[]; reports loaded/already-active/missing plus MCP servers still connecting or failed. Deferred tools also auto-load when called directly.',
   inputSchema: {
     type: 'object',
     properties: {
       names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact deferred tool names/aliases to load.' },
-      select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Legacy alias for names (accepts "select:a,b").' },
-      query: { type: 'string', description: 'Legacy: only "select:a,b" is honored (mapped to names); free-text keyword queries are rejected — this tool does not search.' },
     },
     additionalProperties: false,
   },

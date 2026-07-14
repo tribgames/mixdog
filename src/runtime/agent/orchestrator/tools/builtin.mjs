@@ -410,55 +410,6 @@ function capToolOutput(result, options = {}) {
     return `${head}\n... [tool-output truncated: ${Math.round(bytes / 1024)} KB -> ${Math.round(cap / 1024)} KB cap (tool_output_token_limit)] ...\n${tail}`;
 }
 
-const _GREP_SWEEP_NUDGE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_ENABLE_GREP_SWEEP_NUDGE || ''));
-const _GREP_SWEEP_MIN_CALLS = 20;
-const _GREP_SWEEP_MIN_UNIQUE = 16;
-const _grepSweepState = new Map();
-
-function _grepSweepTerms(pattern) {
-    const raw = Array.isArray(pattern) ? pattern.join('|') : String(pattern || '');
-    return [...new Set(raw
-        .split(/[|,\s()"'`[\]{}.*+?^$\\:-]+/g)
-        .map((s) => s.trim().toLowerCase())
-        .filter((s) => s.length >= 4))];
-}
-
-function _normalizeSweepPath(value) {
-    return String(value || '.')
-        .replace(/\\/g, '/')
-        .replace(/^([A-Za-z]):/, (_, d) => d.toLowerCase() + ':')
-        .replace(/\/+/g, '/')
-        .replace(/\/$/, '') || '.';
-}
-
-function _grepSweepKey(args = {}) {
-    const path = _normalizeSweepPath(args.path || '.');
-    const glob = Array.isArray(args.glob) ? args.glob.join(',') : String(args.glob || '');
-    const terms = _grepSweepTerms(args.pattern).slice(0, 3).join('|');
-    return `${path}::${glob}::${terms}`;
-}
-
-function _maybeAppendGrepSweepNudge(toolName, args, result, scope) {
-    if (!_GREP_SWEEP_NUDGE_ENABLED || toolName !== 'grep' || typeof result !== 'string') return result;
-    const key = scope || 'global';
-    const now = Date.now();
-    let state = _grepSweepState.get(key);
-    if (!state || now - state.lastTs > 10 * 60_000) {
-        state = { count: 0, unique: new Set(), lastTs: 0, nudged: false };
-        _grepSweepState.set(key, state);
-    }
-    state.count += 1;
-    state.unique.add(_grepSweepKey(args));
-    state.lastTs = now;
-    if (_grepSweepState.size > 256) {
-        const oldest = [..._grepSweepState.entries()].sort((a, b) => (a[1].lastTs || 0) - (b[1].lastTs || 0)).slice(0, 32);
-        for (const [oldKey] of oldest) _grepSweepState.delete(oldKey);
-    }
-    if (state.nudged || state.count < _GREP_SWEEP_MIN_CALLS || state.unique.size < _GREP_SWEEP_MIN_UNIQUE) return result;
-    state.nudged = true;
-    return `${result}\n\n[grep_sweep_hint] Many distinct grep searches were used in this session. Stop rewording search terms; synthesize from existing anchors or switch tools once (code_graph/find/read known regions).`;
-}
-
 export async function executeBuiltinTool(name, args, cwd, options = {}) {
     if (options.abortSignal && !options.signal) {
         options = { ...options, signal: options.abortSignal };
@@ -521,8 +472,7 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             return formatUnknownBuiltinToolMessage(name, args);
     }
     })();
-    const _withNudge = _maybeAppendGrepSweepNudge(toolName, args, _toolResult, readStateScope);
-    return capToolOutput(_appendClampNotices(args, _withNudge), options);
+    return capToolOutput(_appendClampNotices(args, _toolResult), options);
 }
 
 // Surface arg-guard clamp notices (args._clampNotices, see pushClampNotice in

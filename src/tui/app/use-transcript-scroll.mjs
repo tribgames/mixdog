@@ -451,10 +451,11 @@ export function useTranscriptScroll({
     // A manual scroll moves the reading position. Capture the new reading anchor
     // SYNCHRONOUSLY from the latest published geometry so the very next render
     // already locks to it — no one-frame "dirty" window where concurrent
-    // streaming growth could lurch the view. At/over the bottom, drop the anchor
-    // so the bottom-follow path owns the viewport again.
+    // streaming growth could lurch the view. Only at the true bottom drop the
+    // anchor so the bottom-follow path owns the viewport again: a positive
+    // wheel offset is an explicit reading position, even inside the old slack.
     if (appliedDelta !== 0) {
-      if (target <= Math.max(0, Number(transcriptBottomSlackRowsRef.current) || 0)) {
+      if (target === 0) {
         transcriptAnchorRef.current = null;
         transcriptAnchorDirtyRef.current = false;
       } else {

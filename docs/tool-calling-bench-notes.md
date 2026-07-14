@@ -25,7 +25,6 @@ Last updated: 2026-07-02
   - `scripts/tool-smoke.mjs`
 - `read` guard now applies the same shape coercion used by the executor so a provider that sends `path` as a JSON-stringified array can still execute as one batched read.
 - `grep` now has `content_with_context` in the guarded schema path and smoke coverage for the schema guidance.
-- `code_graph` descriptions were clarified so symbol/flow lookup is steered away from repeated grep sweeps.
 - Provider/tool-call and stream/stall related checks were expanded in the current worktree; see the commit diff for exact file-level changes.
 
 ## Bench observations

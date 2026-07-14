@@ -11,10 +11,14 @@ Use only grep/find/glob/code_graph; `read` and `list` are forbidden.
 
 Turn 1 (`turn 1/3`) is the whole search. Split broad/uncertain input into every
 known facet and send one batch under the shared one-route contract. Use
-`pattern[]` with 3–6 code-token variants for concept facets, `code_graph`
+`pattern[]` with 4–8 code-token variants for concept facets, `code_graph`
 `symbol_search` for symbol facets, and `find` `query[]` for unknown/broad
-targets or unverified path/name fragments. A single-tool turn is allowed only
-as a follow-up for an unresolved pre-anchor/zero-hit facet.
+targets or unverified path/name fragments. For a symptom/behavior query, add
+the upstream producer/derivation layer of the reported surface as extra facets
+in the SAME batch (more `pattern[]` variants or `code_graph` `symbol_search`),
+never as a later turn. Follow-up turns batch every unresolved facet in
+parallel; a single-tool turn is allowed only when exactly one
+pre-anchor/zero-hit facet remains.
 
 For broad grep use `output_mode:"files_with_matches"`. Use
 `content_with_context` with `head_limit` only on paths returned this session.

@@ -308,6 +308,9 @@ function num(v) {
 // only harness-neutral metric. Unknown models fall back to gpt-5.5 rates.
 const USD_PER_1M = {
   'gpt-5.5': { in: 5.00, cachedIn: 0.50, out: 30.00 },
+  'gpt-5.6-sol': { in: 5.00, cachedIn: 0.50, out: 30.00 },
+  'gpt-5.6-terra': { in: 2.50, cachedIn: 0.25, out: 15.00 },
+  'gpt-5.6-luna': { in: 1.00, cachedIn: 0.10, out: 6.00 },
   'claude-sonnet-5': { in: 2.00, cachedIn: 0.20, out: 10.00 },
   'claude-fable-5': { in: 5.00, cachedIn: 0.50, out: 25.00 },
 };

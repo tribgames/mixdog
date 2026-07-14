@@ -65,7 +65,7 @@ async function main() {
     ['Proceed without review', true],
   ]) assert(reviewSkipViolation(phrase) === expected, `review-skip detector case failed: ${phrase}`);
   const skipsReview = reviewSkipViolation(workflow);
-  assert(hasAll(lead, 'workflow permits delegation', 'use `agent`', 'implementation', 'research', 'review', 'debugging'), 'lead rules must conditionally direct scoped work to agents');
+  assert(hasAll(lead, 'write-role agents self-verify', 'cross-scope verification', 'benches', 'all git', 'current project/workspace'), 'lead tool rules must preserve verification, git, and workspace ownership');
   assert(hasAll(workflow, 'after approval', 'delegate', 'by default'), 'default workflow must delegate after approval');
   assert(hasAll(workflow, 'coordinates', 'git', '1-edit', '1-check'), 'default workflow must limit Lead direct work');
   assert(hasAll(workflow, 'implementation/research/debugging', 'matching agent'), 'default workflow must route other work to matching agents');

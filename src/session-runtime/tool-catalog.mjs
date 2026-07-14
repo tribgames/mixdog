@@ -2,7 +2,7 @@
 // tool_search ranking + auto-selection, and the session tool-surface
 // application/selection logic. Pure module (session objects passed in).
 import { clean, LATE_TOOL_ANNOUNCEMENT_SENTINEL } from './session-text.mjs';
-import { estimateToolSchemaTokens } from '../runtime/agent/orchestrator/session/context-utils.mjs';
+import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import { applyInitialDeferredToolManifestToBp1, buildDeferredToolManifest } from '../runtime/agent/orchestrator/context/collect.mjs';
 import { getMcpServerInstructionsMap } from '../runtime/agent/orchestrator/mcp/client.mjs';
 import {
@@ -40,7 +40,12 @@ function sameToolSchemaEntries(cached, tools) {
       || entry.inputSchema !== tool?.inputSchema
       || entry.input_schema !== tool?.input_schema
       || entry.parameters !== tool?.parameters
-      || entry.schema !== tool?.schema) return false;
+      || entry.schema !== tool?.schema
+      || entry.deferLoading !== tool?.deferLoading
+      || entry.defer_loading !== tool?.defer_loading
+      || entry.annotationsMixdogKind !== tool?.annotations?.mixdogKind
+      || entry.annotationsAgentHidden !== tool?.annotations?.agentHidden
+      || entry.wireSignature !== toolSchemaSignature([tool])) return false;
   }
   return true;
 }
@@ -54,6 +59,11 @@ function toolSchemaEntry(tool) {
     input_schema: tool?.input_schema,
     parameters: tool?.parameters,
     schema: tool?.schema,
+    deferLoading: tool?.deferLoading,
+    defer_loading: tool?.defer_loading,
+    annotationsMixdogKind: tool?.annotations?.mixdogKind,
+    annotationsAgentHidden: tool?.annotations?.agentHidden,
+    wireSignature: toolSchemaSignature([tool]),
   };
 }
 export const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
@@ -143,6 +153,7 @@ export function toolSchemaBucket(tool) {
   const kind = toolKind(tool);
   if (kind === 'mcp') return 'mcp';
   if (kind === 'skill') return 'skills';
+  if (kind === 'control') return 'control';
   if (name === 'memory' || name === 'recall' || name.includes('memory')) return 'memory';
   if (name === 'search' || name === 'web_fetch') return 'web';
   if (['read', 'grep', 'find', 'glob', 'list', 'code_graph', 'explore'].includes(name)) return 'code';

@@ -48,8 +48,8 @@ test('cycle2 preserves essential taxonomy, phases, rejects, formats, and fields'
     'Anything unclear or outside these concepts is `archived`',
     '`phase1_new_chunks` → `active` if clearly essential, otherwise `archived`',
     '`phase2_reevaluate` → `active` to promote, otherwise `archived`',
-    '`phase3_active_review` requires every-row verdict: default `archived`, or `active`, `update`, `merge`',
-    'silence is not keep', 'work narratives', 'static facts without behavior/user value',
+    '`phase3_active_review` requires an `archived`, `active`, `update`, or `merge` verdict for every row',
+    'defaults to `archived`', 'never treats silence as keep', 'work narratives', 'static facts without behavior/user value',
     'rule-system meta', 'resolved bug/fix logs', 'rule-file duplicates',
     'single-run measurements/counts/versions', 'session-scoped or in-progress decisions',
     '<id>|<verb>', '<id>|update|<element>|<summary>',
@@ -59,7 +59,7 @@ test('cycle2 preserves essential taxonomy, phases, rejects, formats, and fields'
     'complete sentences in input language', 'preserve important specifics verbatim',
     'omit actor/meta filler', '`rule > constraint > decision > fact > goal > preference > task > issue`',
     'Replace literal `|` with `/`', 'fields contain no newlines',
-    'For phase 3, emit one verdict per input row', 'start with a digit',
+    'Start every verdict with a digit',
   ])
 })
 
@@ -70,7 +70,7 @@ test('cycle3 preserves durable-event verdicts, formats, and exceptions', () => {
     'rules, preferences, identity, goals, and current system/structure descriptions—not a log',
     'Each entry is one short clause (≤120 chars)',
     'Current rule/preference/live structure = durable',
-    'past event (shipped version, measured value, made fix) = not durable', 'When unsure, keep',
+    'past event = not durable', 'When unsure, keep',
     '`keep`: durable, already one short clause',
     '`update`: durable but verbose/multi-sentence; compress to one ≤120-char clause',
     '`merge`: duplicate; fold into its survivor in the same project pool',
@@ -81,7 +81,7 @@ test('cycle3 preserves durable-event verdicts, formats, and exceptions', () => {
     'IDs match input rows; never invent them', 'summary is one ≤120-char clause',
     '`element` is short', 'retains `target_id`, absorbs sources, and stays within one `project_id`',
     'Replace literal `|` with `/`', 'fields contain no newlines',
-    'Emit a verdict for every input row', 'start with a digit',
+    'Emit a digit-starting verdict for every input row',
   ])
 })
 

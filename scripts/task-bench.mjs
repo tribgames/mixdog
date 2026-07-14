@@ -55,7 +55,6 @@ function scorecard(report) {
   const issues = Array.isArray(report.issues) ? report.issues : [];
   const antipatterns =
     (tools.read_fragmentation?.length || 0) +
-    (tools.grep_sweeps?.length || 0) +
     (tools.sequential_tool_clusters?.length || 0) +
     (tools.duplicates?.length || 0) +
     (tools.failed_repeats?.length || 0);
@@ -94,7 +93,6 @@ function scorecard(report) {
     issues: issues.length,
     issue_types: uniq(issues.map((i) => i?.type)),
     read_fragmentation_paths: uniq((tools.read_fragmentation || []).map((f) => f?.path)),
-    grep_sweep_count: (tools.grep_sweeps || []).length,
   };
 }
 

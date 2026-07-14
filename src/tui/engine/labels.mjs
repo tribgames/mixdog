@@ -50,7 +50,7 @@ export function compactEventDetail(event = {}) {
   const trigger = String(event.trigger || '').toLowerCase();
   if (trigger === 'reactive') parts.push('reactive');
   else if (trigger === 'manual') parts.push('manual');
-  const before = Number(event.beforeTokens ?? event.pressureTokens ?? 0);
+  const before = Number(event.pressureTokens ?? event.beforeTokens ?? 0);
   const after = Number(event.afterTokens ?? 0);
   const fmtTok = (n) => {
     const v = Number(n) || 0;

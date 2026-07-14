@@ -251,7 +251,16 @@ export function parseAgentJob(text) {
   const targetMatch = /^target:\s*(.+)$/m.exec(value);
   const agentMatch = /^agent:\s*(.+)$/m.exec(value);
   const presetMatch = /^preset:\s*(.+)$/m.exec(value);
-  const modelMatch = /^model:\s*([^/\s]+)\/(.+)$/m.exec(value);
+  // Spawn acknowledgements normally use `model: provider/model`, but agent
+  // completion envelopes carry the resolved route as separate provider/model
+  // fields. A generic tool result can also contain task_id/provider/model
+  // diagnostics, so only recognize either route shape on an agent envelope.
+  const isAgentEnvelope = /^agent task:\s*/mi.test(value)
+    || /^agent result\b/mi.test(value)
+    || /^surface:\s*agent\s*$/mi.test(value);
+  const providerMatch = isAgentEnvelope ? /^provider:\s*(.+)$/m.exec(value) : null;
+  const modelLineMatch = isAgentEnvelope ? /^model:\s*(.+)$/m.exec(value) : null;
+  const providerModelMatch = /^([^/\s]+)\/(.+)$/.exec(modelLineMatch?.[1]?.trim() || '');
   const effortMatch = /^effort:\s*(.+)$/m.exec(value);
   const fastMatch = /^fast:\s*(on|off|true|false)$/m.exec(value);
   return {
@@ -261,8 +270,8 @@ export function parseAgentJob(text) {
     target: (targetMatch?.[1] || '').trim(),
     agent: (agentMatch?.[1] || '').trim(),
     preset: (presetMatch?.[1] || '').trim(),
-    provider: (modelMatch?.[1] || '').trim(),
-    model: (modelMatch?.[2] || '').trim(),
+    provider: (providerMatch?.[1] || providerModelMatch?.[1] || '').trim(),
+    model: (providerModelMatch?.[2] || modelLineMatch?.[1] || '').trim(),
     effort: (effortMatch?.[1] || '').trim(),
     fast: fastMatch ? /^(on|true)$/i.test(fastMatch[1]) : undefined,
   };
@@ -284,8 +293,10 @@ export function agentArgsWithResultMetadata(args, parsed) {
   if (parsed.taskId) next.task_id = parsed.taskId;
   if (parsed.agent) next.agent = parsed.agent;
   if (parsed.preset) next.preset = parsed.preset;
-  if (parsed.provider) next.provider = parsed.provider;
-  if (parsed.model) next.model = parsed.model;
+  const hasExplicitProvider = [next.provider, next.providerId, next.provider_id]
+    .some((value) => String(value || '').trim());
+  if (parsed.provider && !hasExplicitProvider) next.provider = parsed.provider;
+  if (parsed.model && !String(next.model || '').trim()) next.model = parsed.model;
   if (parsed.effort) next.effort = parsed.effort;
   if (parsed.fast !== undefined) next.fast = parsed.fast;
   if (!next.tag && parsed.target) {

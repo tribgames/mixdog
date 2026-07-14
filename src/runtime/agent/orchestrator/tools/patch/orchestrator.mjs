@@ -363,7 +363,7 @@ async function apply_patch(args, cwd, options = {}) {
     throw new Error('apply_patch: "patch" is required (unified diff or V4A patch string)');
   }
   if (isCompactedPlaceholderPatch(patchStr)) {
-    throw new Error('patch body is a compacted-history placeholder ([mixdog compacted …]), not real patch content. Re-read the target file span and write a fresh patch; never resubmit compacted output as new tool input.');
+    throw new Error('patch body is a compacted-history placeholder ([mixdog compacted …]), not real patch content and cannot be executed. Re-read the current target file contents now, then construct and submit a fresh full patch from those contents. Do not reuse the marker, omit the patch argument, or reconstruct the old patch from history.');
   }
   const patchByteLen = Buffer.byteLength(patchStr, 'utf8');
   if (patchByteLen > APPLY_PATCH_MAX_BYTES) {

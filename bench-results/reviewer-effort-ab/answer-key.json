@@ -1,0 +1,65 @@
+[
+  {
+    "id": "REV-001",
+    "file": "src/runtime/shared/atomic-file.mjs",
+    "line": 38,
+    "severity": "Medium",
+    "category": "logic/boundary",
+    "description": "The retry loop stops after the final backoff without performing the corresponding last rename attempt.",
+    "grading_hint": "Look for the strict loop bound combined with indexing backoffs[attempt]; the last sleep is now wasted and one retry is lost."
+  },
+  {
+    "id": "REV-002",
+    "file": "src/runtime/agent/orchestrator/tools/shell-command.mjs",
+    "line": 79,
+    "severity": "Low",
+    "category": "misleading behavior change",
+    "description": "The fsync throttle default changed to 1500 ms while the public comment still promises a 1000 ms default.",
+    "grading_hint": "Compare the fallback passed to positiveIntEnv with the documented default immediately above it."
+  },
+  {
+    "id": "REV-003",
+    "file": "src/runtime/agent/orchestrator/tools/shell-command.mjs",
+    "line": 465,
+    "severity": "Medium",
+    "category": "resource leak",
+    "description": "Normal settlement marks the operation settled before cleanup, so the new guard prevents the progress interval from ever being cleared.",
+    "grading_hint": "Trace settle(): settled becomes true before _clearProgressTimer() calls this guarded cleanup."
+  },
+  {
+    "id": "REV-004",
+    "file": "src/runtime/agent/orchestrator/tools/shell-command.mjs",
+    "line": 516,
+    "severity": "High",
+    "category": "security",
+    "description": "An unescaped cwd is interpolated into shell source after policy scanning, allowing shell metacharacters in the directory value to inject commands.",
+    "grading_hint": "The policy checks only command, while cwd is later concatenated into commandWithCwd and passed to the shell."
+  },
+  {
+    "id": "REV-005",
+    "file": "src/runtime/agent/orchestrator/tools/shell-command.mjs",
+    "line": 727,
+    "severity": "High",
+    "category": "async race/lost update",
+    "description": "The exit-code write is started without awaiting it before the done marker is written, violating the completion protocol ordering.",
+    "grading_hint": "Consumers treat donePath as proof that exitPath is complete; the first write promise is not awaited."
+  },
+  {
+    "id": "REV-006",
+    "file": "src/runtime/agent/orchestrator/session/store.mjs",
+    "line": 578,
+    "severity": "High",
+    "category": "wrong fallback/data loss",
+    "description": "A failed or corrupt session read silently becomes a blank live session, which callers can subsequently persist over the original data.",
+    "grading_hint": "Inspect loadSession's catch fallback and follow its use by close/resume paths that save the returned object."
+  },
+  {
+    "id": "REV-007",
+    "file": "src/runtime/agent/orchestrator/session/manager.mjs",
+    "line": 2211,
+    "severity": "Medium",
+    "category": "logic/boundary",
+    "description": "The cleanup gate is inverted, so cleanup is skipped when the runtime is idle and runs only while some runtime work is active.",
+    "grading_hint": "Compare hasActiveRuntimeWork() with the cleanup function's intended idle-only execution."
+  }
+]

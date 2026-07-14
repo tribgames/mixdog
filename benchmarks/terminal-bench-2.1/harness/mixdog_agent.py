@@ -45,8 +45,6 @@ from .routing_profiles import (
 )
 from .src_overlay import (
     SNAPSHOT_ENV,
-    STATIC_SRC_OVERLAY_FILES,
-    build_src_snapshot,
     load_src_snapshot,
 )
 
@@ -63,7 +61,7 @@ DEFAULT_MIXDOG_VERSION = json.loads(
 # for interactive approval. Keep this narrow: broad execution directives
 # historically suppressed the default workflow's delegate-by-default behavior.
 HEADLESS_BENCH_MANDATE = (
-    "[Headless bench run: no user is present. Standing pre-approval covers this entire task - never draft a plan and wait for approval, never ask questions or end a turn waiting for a reply; decide and proceed until the task is verified complete or provably blocked. All other workflow rules, including delegation and review, apply unchanged.]\n\n"
+    "[Headless bench run: no user is present. The user has pre-approved every stage of this task in advance - treat each plan, decision, and step as already approved, ask nothing, never end a turn waiting for a reply, and carry the task through to verified completion or a provable block. All other workflow rules, including delegation and review, apply unchanged.]\n\n"
 )
 
 # Where the OAuth credentials file lands inside the container. Also used as
@@ -76,9 +74,7 @@ CONTAINER_LEAD_DRIVER = f"{CONTAINER_DATA_DIR}/lead_driver.mjs"
 HOST_LEAD_DRIVER = Path(__file__).with_name("lead_driver.mjs")
 FALLBACK_RETRY_EXIT_CODE = 86
 FALLBACK_STATE_ENV = "MIXDOG_TB_FALLBACK_STATE_DIR"
-# Repo-src overlay: the static compatibility manifest is unioned with every
-# Git modified/untracked src file, then copied over the npm-installed package.
-# Paths are relative to src/ and to <npm root -g>/mixdog/src/.
+# Every trial receives the same full local src archive captured before Harbor.
 _REPO_SRC = _REPO_ROOT / "src"
 PRISTINE_CONTRACT = json.loads(
     (_REPO_SRC / "runtime/shared/pristine-execution-contract.json").read_text(
@@ -86,9 +82,7 @@ PRISTINE_CONTRACT = json.loads(
     )
 )
 PRISTINE_GUARD_ENV = PRISTINE_CONTRACT["guardEnv"]
-SRC_OVERLAY_FILES = STATIC_SRC_OVERLAY_FILES
-HOST_SRC_OVERLAY_APPLIER = Path(__file__).with_name("src_overlay_apply.mjs")
-CONTAINER_SRC_OVERLAY_APPLIER = f"{CONTAINER_DATA_DIR}/src_overlay_apply.mjs"
+CONTAINER_SRC_SNAPSHOT = f"{CONTAINER_DATA_DIR}/src-snapshot.tar"
 HOST_ANTHROPIC_PREFLIGHT = Path(__file__).with_name("anthropic_oauth_preflight.mjs")
 BENCH_DRIVER_DEADLINE_MS = 180 * 60 * 1000
 ANTHROPIC_REFRESH_SKEW_MS = 5 * 60 * 1000
@@ -424,7 +418,7 @@ class MixdogAgent(BaseInstalledAgent):
             generated_dir.cleanup()
             if credential_snapshot_dir is not None:
                 credential_snapshot_dir.cleanup()
-        await self._inject_src_overlay(environment)
+        await self._inject_src_snapshot(environment)
         # Own/secure the copied setup so the user mixdog can read it; OAuth
         # refresh is explicitly forbidden below. default_user None => root.
         user = getattr(environment, "default_user", None)
@@ -445,61 +439,45 @@ class MixdogAgent(BaseInstalledAgent):
             ),
         )
 
-    async def _inject_src_overlay(self, environment: BaseEnvironment) -> None:
-        # The launcher supplies a frozen pre-Harbor snapshot. Direct adapter
-        # use builds the same snapshot synchronously before the first await.
-        owned_snapshot = None
-        snapshot_root = os.environ.get(SNAPSHOT_ENV)
-        try:
-            if snapshot_root:
-                snapshot = load_src_snapshot(Path(snapshot_root))
-            else:
-                owned_snapshot = tempfile.TemporaryDirectory(
-                    prefix="mixdog-tb-src-overlay-"
-                )
-                root = Path(owned_snapshot.name) / "snapshot"
-                snapshot = build_src_snapshot(SRC_OVERLAY_FILES, _REPO_SRC, root)
-            snapshot_paths = {entry.path for entry in snapshot.entries}
-            missing_static = set(SRC_OVERLAY_FILES) - snapshot_paths
-            if missing_static:
-                raise RuntimeError(
-                    "src snapshot omits static compatibility files: "
-                    + ", ".join(sorted(missing_static))
-                )
-            staging = f"{CONTAINER_DATA_DIR}/src-overlay"
-            await self.exec_as_root(
-                environment,
-                command=(
-                    f"rm -rf {shlex.quote(staging)} && "
-                    f"mkdir -p {shlex.quote(staging + '/files')}"
-                ),
+    async def _inject_src_snapshot(self, environment: BaseEnvironment) -> None:
+        # The launcher captures this once before Harbor creates any trials.
+        snapshot_path = os.environ.get(SNAPSHOT_ENV)
+        if not snapshot_path:
+            raise RuntimeError(
+                f"{SNAPSHOT_ENV} is required; run Terminal-Bench through run-tb21.ps1"
             )
-            await environment.upload_file(
-                snapshot.manifest_path, f"{staging}/manifest.json"
-            )
-            await environment.upload_file(
-                HOST_SRC_OVERLAY_APPLIER, CONTAINER_SRC_OVERLAY_APPLIER
-            )
-            for entry in snapshot.entries:
-                dest = f"{staging}/files/{entry.path}"
-                await self.exec_as_root(
-                    environment,
-                    command=f"mkdir -p {shlex.quote(dest.rsplit('/', 1)[0])}",
-                )
-                await environment.upload_file(snapshot.file_path(entry), dest)
-            await self.exec_as_root(
-                environment,
-                command=(
-                    "set -eu; "
-                    'SRC="$(npm root -g)/mixdog/src"; '
-                    f"node {shlex.quote(CONTAINER_SRC_OVERLAY_APPLIER)} "
-                    f"--staging {shlex.quote(staging)} --src \"$SRC\"; "
-                    'echo "src overlay applied"'
-                ),
-            )
-        finally:
-            if owned_snapshot is not None:
-                owned_snapshot.cleanup()
+        snapshot = load_src_snapshot(Path(snapshot_path))
+        await environment.upload_file(
+            snapshot.archive_path, CONTAINER_SRC_SNAPSHOT
+        )
+        await self.exec_as_root(
+            environment,
+            command=(
+                "set -eu; "
+                'PACKAGE="$(npm root -g)/mixdog"; '
+                'STAGING="$PACKAGE/.src-local-snapshot"; '
+                'BACKUP="$PACKAGE/.src-installed-backup"; '
+                'cleanup_src_swap() { '
+                'rm -rf "$STAGING"; '
+                'if [ -e "$BACKUP" ]; then '
+                'if [ ! -e "$PACKAGE/src" ]; then mv "$BACKUP" "$PACKAGE/src"; '
+                'else rm -rf "$BACKUP"; fi; fi; }; '
+                'trap cleanup_src_swap EXIT; '
+                "trap 'exit 1' HUP INT TERM; "
+                'if [ -e "$BACKUP" ]; then '
+                'if [ ! -e "$PACKAGE/src" ]; then mv "$BACKUP" "$PACKAGE/src"; '
+                'else rm -rf "$BACKUP"; fi; fi; '
+                'rm -rf "$STAGING"; mkdir -p "$STAGING"; '
+                f"tar -xf {shlex.quote(CONTAINER_SRC_SNAPSHOT)} -C \"$STAGING\"; "
+                'test -d "$STAGING/src"; '
+                'mv "$PACKAGE/src" "$BACKUP"; '
+                'if ! mv "$STAGING/src" "$PACKAGE/src"; then '
+                'mv "$BACKUP" "$PACKAGE/src"; exit 1; fi; '
+                'rm -rf "$BACKUP" "$STAGING"; '
+                'trap - EXIT HUP INT TERM; '
+                'echo "full local src snapshot installed"'
+            ),
+        )
 
     @with_prompt_template
     async def run(

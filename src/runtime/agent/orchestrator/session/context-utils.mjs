@@ -253,6 +253,7 @@ function contextMessageContribution(message) {
         role,
         tokens,
         reminderBuckets: null,
+        systemWorkflowTokens: 0,
         toolCallCount: 0,
         toolCallTokens: 0,
         toolResultCount: role === 'tool' ? 1 : 0,
@@ -269,6 +270,13 @@ function contextMessageContribution(message) {
         }
         buckets.otherTokens = Math.max(0, contribution.tokens - sectionTokens);
         contribution.reminderBuckets = buckets;
+    }
+    if (role === 'system') {
+        for (const section of splitMarkdownSections(text)) {
+            if (reminderSectionBucket(section) === 'workflow') {
+                contribution.systemWorkflowTokens += estimateTokens(section);
+            }
+        }
     }
     if (fingerprint.role === 'assistant' && Array.isArray(message?.toolCalls) && message.toolCalls.length) {
         contribution.toolCallCount = message.toolCalls.length;
@@ -317,7 +325,8 @@ function applyContextMessageContribution(state, contribution, direction) {
     state.rows[role].tokens += direction * tokens;
     if (role === 'system') {
         state.semantic.system.count += direction;
-        state.semantic.system.tokens += direction * tokens;
+        state.semantic.system.tokens += direction * (tokens - contribution.systemWorkflowTokens);
+        state.semantic.workflow.tokens += direction * contribution.systemWorkflowTokens;
     } else if (role === 'user') {
         if (contribution.reminderBuckets) {
             state.semantic.reminders.count += direction;
@@ -670,8 +679,19 @@ const toolSchemaTokenMemo = new WeakMap();
 const requestReserveTokenMemo = new WeakMap();
 
 function serializeToolSchemas(tools) {
-    try { return JSON.stringify(Array.isArray(tools) ? tools : []); }
-    catch { return (Array.isArray(tools) ? tools : []).map(t => String(t?.name ?? '')).join(''); }
+    const list = Array.isArray(tools) ? tools : [];
+    try {
+        return JSON.stringify(list.map(tool => {
+            const wireTool = {
+                name: tool?.name,
+                description: tool?.description,
+                input_schema: tool?.inputSchema ?? tool?.input_schema ?? tool?.parameters ?? tool?.schema,
+            };
+            if (tool?.deferLoading === true || tool?.defer_loading === true) wireTool.defer_loading = true;
+            return wireTool;
+        }));
+    }
+    catch { return list.map(t => String(t?.name ?? '')).join(''); }
 }
 
 export function toolSchemaSignature(tools) {

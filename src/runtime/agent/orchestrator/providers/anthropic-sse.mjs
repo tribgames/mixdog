@@ -83,6 +83,9 @@ function _anthropicSseError(event) {
 }
 
 export async function parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta, knownToolNames) {
+    // parseSSEStream is entered only after Anthropic returned an HTTP response.
+    // Headers prove transport health, but are not a semantic model event.
+    try { onStreamDelta?.('transport'); } catch {}
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     // SEMANTIC idle window: reset only by real model events (message/content/
@@ -159,7 +162,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
         toolCalls.push(call);
         if (state) state.emittedToolCall = true;
         try { onToolCall?.(call); } catch {}
-        try { onStreamDelta?.(); } catch {}
+        try { onStreamDelta?.('tool'); } catch {}
     };
 
     // Feed accumulated text through the scanner. On `final` nothing is held
@@ -172,6 +175,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
         leakFenceState = fenceState;
         if (emit) {
             content += emit;
+            try { onStreamDelta?.('text'); } catch {}
             if (onTextDelta) {
                 if (state) state.emittedText = true;
                 try { onTextDelta(emit); } catch {}
@@ -327,6 +331,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             }
             const { done, value } = chunk;
             if (done) break;
+            try { onStreamDelta?.('transport'); } catch {}
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
@@ -377,6 +382,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                     if (event.type === 'message_start' && event.message) {
                         clearFirstMessageTimer();
                         if (state) state.sawMessageStart = true;
+                        try { onStreamDelta?.('semantic'); } catch {}
                         if (event.message.model) model = event.message.model;
                         if (event.message.usage) {
                             usage.inputTokens = event.message.usage.input_tokens || 0;
@@ -405,6 +411,8 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                                     type: 'redacted_thinking',
                                     data: typeof block.data === 'string' ? block.data : '',
                                 });
+                                hasThinkingContent = true;
+                                try { onStreamDelta?.('reasoning'); } catch {}
                             } else {
                                 // Seed an ordered thinking block; deltas below
                                 // append text + signature into this same slot.
@@ -427,7 +435,6 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                         // ttftMs was always null and reported as 0ms.
                         if (state && !state.ttftAt) state.ttftAt = Date.now();
                         if (delta?.type === 'text_delta') {
-                            try { onStreamDelta?.(); } catch {}
                             // Live text relay (gateway): forward the explicit
                             // text chunk. thinking/signature/input_json deltas
                             // intentionally stay off this path.
@@ -449,6 +456,9 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                                 if (delta.text && onTextDelta) {
                                     if (state) state.emittedText = true;
                                     try { onTextDelta(delta.text); } catch {}
+                                }
+                                if (delta.text) {
+                                    try { onStreamDelta?.('text'); } catch {}
                                 }
                             }
                         }
@@ -474,14 +484,17 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                             } else {
                                 tb.signature += delta.signature || '';
                             }
-                            try { onStreamDelta?.(); } catch {}
+                            if ((delta.type === 'thinking_delta' && delta.thinking)
+                                || (delta.type === 'signature_delta' && delta.signature)) {
+                                try { onStreamDelta?.('reasoning'); } catch {}
+                            }
                         }
                         if (delta?.type === 'input_json_delta') {
                             const pending = pendingToolInputs.get(event.index);
                             if (pending) {
                                 pending.inputJson += delta.partial_json || '';
                             }
-                            try { onStreamDelta?.(); } catch {}
+                            try { onStreamDelta?.('tool'); } catch {}
                         }
                     }
 
@@ -539,7 +552,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                                 // pending promises by call.id so order is safe.
                                 try { onToolCall?.(call); } catch {}
                             }
-                            try { onStreamDelta?.(); } catch {}
+                            try { onStreamDelta?.('tool'); } catch {}
                         }
                     }
 

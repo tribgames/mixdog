@@ -1141,6 +1141,10 @@ export async function createMixdogSessionRuntime({
           routingSessionId: callerSessionId,
           clientHostPid: callerCtx?.clientHostPid || session?.clientHostPid || process.pid,
           notifyFn: notifyFnForSession(callerSessionId),
+          // Cascade caller cancellation (ESC / owner abort) into the explore
+          // fan-out so every child dispatch tears down immediately — same
+          // signal the adjacent native search already forwards.
+          signal: callerCtx?.signal || session?.controller?.signal,
         });
       }
       if (name === 'cwd') {
