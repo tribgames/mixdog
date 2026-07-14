@@ -543,11 +543,20 @@ const driveSession = async (route) => {
   };
 
   const anyWorkBusy = () => agentsBusy() || shellJobsBusy();
+  const throwIfLeadRefused = () => {
+    const sid = rt.sessionId || rt.session?.id || '';
+    if (sid && refusalSessionIds.has(sid)) {
+      throw new RefusalEquivalentError(
+        `lead_driver: lead session ${sid} terminated on API refusal`,
+      );
+    }
+  };
 
   if (BOOT_JITTER_MS > 0) {
     await new Promise((r) => setTimeout(r, Math.floor(Math.random() * BOOT_JITTER_MS)));
   }
   text = await askOnce(prompt);
+  throwIfLeadRefused();
   while (RUN_DEADLINE >= 0 && Date.now() < RUN_DEADLINE) {
     if (!kickDeferred) {
       for (;;) {
@@ -559,6 +568,7 @@ const driveSession = async (route) => {
           setTimeout(() => r(false), waitMs);
         });
         wake = null;
+        throwIfLeadRefused();
         if (kicked || kickDeferred) break;
         if (!anyWorkBusy()) break;
         if (Date.now() >= RUN_DEADLINE) break;
@@ -567,6 +577,7 @@ const driveSession = async (route) => {
     }
     kickDeferred = false;
     const t = await askOnce('');
+    throwIfLeadRefused();
     if (String(t || '').trim()) text = t;
   }
 

@@ -1917,9 +1917,8 @@ export async function createMixdogSessionRuntime() {
             self.assertTrue(audit_path.exists())
         self.assertEqual(result.returncode, 86, result.stderr)
         self.assertIn(
-            "refusal-restart: API refusal "
-            "(sess=late-fallback-primary); exiting 86 so Harbor retries a fresh trial",
-            result.stdout,
+            "lead_driver: lead session late-fallback-primary terminated on API refusal",
+            result.stderr,
         )
 
     def test_driver_never_relaunches_refused_lead_in_process(self) -> None:
@@ -2069,7 +2068,10 @@ export async function createMixdogSessionRuntime() {
                 timeout=5,
             )
         self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn("refusal-gate: sid=double-refusal-1 refused=true", result.stdout)
+        self.assertIn(
+            "lead_driver: lead session double-refusal-1 terminated on API refusal",
+            result.stderr,
+        )
 
     def test_driver_exits_86_when_fallback_starts_after_deadline(self) -> None:
         if shutil.which("node") is None:
@@ -2196,9 +2198,8 @@ export async function createMixdogSessionRuntime() {
             self.assertEqual((data / "runtime-count").read_text(), "1")
         self.assertEqual(result.returncode, 86, result.stderr)
         self.assertIn(
-            "refusal-restart: API refusal "
-            "(sess=stub-session-1); exiting 86 so Harbor retries a fresh trial",
-            result.stdout,
+            "lead_driver: lead session stub-session-1 terminated on API refusal",
+            result.stderr,
         )
 
     def test_driver_keeps_refusal_then_successful_resume(self) -> None:
@@ -2332,10 +2333,10 @@ export async function createMixdogSessionRuntime() {
             )
         self.assertEqual(result.returncode, 86, result.stderr)
         self.assertIn(
-            "refusal-gate: sid=empty-resume-after-refusal refused=true",
-            result.stdout,
+            "lead_driver: lead session empty-resume-after-refusal "
+            "terminated on API refusal",
+            result.stderr,
         )
-        self.assertIn("refusal-restart:", result.stdout)
 
     def test_tiny_finals_retry_but_substantive_final_succeeds(self) -> None:
         if shutil.which("node") is None:
@@ -2474,12 +2475,17 @@ export async function createMixdogSessionRuntime() {
             for close_behavior in ("hang", "reject"):
                 result = results[(gate, close_behavior)]
                 self.assertEqual(result.returncode, 86, result.stderr)
-                expected = (
-                    "API refusal"
-                    if gate == "refusal"
-                    else "tiny final public response"
-                )
-                self.assertIn(f"refusal-restart: {expected}", result.stdout)
+                if gate == "refusal":
+                    self.assertIn(
+                        "lead_driver: lead session "
+                        f"close-refusal-{close_behavior} terminated on API refusal",
+                        result.stderr,
+                    )
+                else:
+                    self.assertIn(
+                        "refusal-restart: tiny final public response",
+                        result.stdout,
+                    )
         for close_behavior in ("hang", "reject"):
             result = results[("substantive", close_behavior)]
             self.assertEqual(result.returncode, 0, result.stderr)
