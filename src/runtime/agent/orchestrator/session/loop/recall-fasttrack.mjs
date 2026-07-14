@@ -42,15 +42,17 @@ export function truncateToKb(text, maxKb) {
     const s = String(text || '');
     if (Buffer.byteLength(s, 'utf8') <= maxBytes) return s;
     const lines = s.split('\n');
+    const marker = '[digest truncated at ' + maxKb + 'KB]';
+    const contentBudget = maxBytes - Buffer.byteLength(marker, 'utf8');
     const out = [];
     let used = 0;
     for (const line of lines) {
         const cost = Buffer.byteLength(line, 'utf8') + 1;
-        if (used + cost > maxBytes) break;
+        if (used + cost > contentBudget) break;
         out.push(line);
         used += cost;
     }
-    return out.join('\n') + '\n[digest truncated at ' + maxKb + 'KB — pull the rest via recall]';
+    return out.length ? out.join('\n') + '\n' + marker : marker;
 }
 
 function buildRecallDigestText(sessionId, digestBody, maxKb) {
@@ -61,7 +63,6 @@ function buildRecallDigestText(sessionId, digestBody, maxKb) {
     // the model needs for a scoped recall.
     return [
         `[context compacted — session ${sessionId}]`,
-        `Full history is in memory — use the recall tool for details beyond this digest.`,
         `Recent digest (newest first):`,
         truncateToKb(digestBody, maxKb),
     ].join('\n');

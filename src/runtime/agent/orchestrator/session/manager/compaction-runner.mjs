@@ -213,7 +213,6 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
         querySha,
         recallText: [
             `session_id=${sessionId}`,
-            `Full history is in memory — use the recall tool for details beyond this digest.`,
             // Same byte cap as the loop digest path (recallDigestMaxKb,
             // default = shared tool-output limit) — without it the memory
             // renderer bounds the browse at ~200 rows × 1000 chars, letting a
