@@ -79,6 +79,9 @@ export function createAgentJobFeed({
   const terminalExecutionNotificationKeys = new Set();
   const terminalExecutionResponseKeys = new Set();
   const executionNotificationKeys = new Map();
+  const AGENT_STATUS_COALESCE_MS = 16;
+  let agentStatusRefreshTimer = null;
+  let agentStatusRefreshForce = false;
 
   const clearExecutionDedupState = () => {
     displayedExecutionNotificationKeys.clear();
@@ -261,7 +264,16 @@ export function createAgentJobFeed({
     if (!parsed?.taskId) return;
     const status = String(parsed.status || '').toLowerCase();
     const terminal = /^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
-    set(agentStatusState(terminal ? { force: true } : undefined));
+    agentStatusRefreshForce = agentStatusRefreshForce || terminal;
+    if (agentStatusRefreshTimer) return;
+    agentStatusRefreshTimer = setTimeout(() => {
+      agentStatusRefreshTimer = null;
+      if (getDisposed()) return;
+      const force = agentStatusRefreshForce;
+      agentStatusRefreshForce = false;
+      set(agentStatusState(force ? { force: true } : undefined));
+    }, AGENT_STATUS_COALESCE_MS);
+    agentStatusRefreshTimer.unref?.();
   }
 
   function subscribeRuntimeNotifications() {
@@ -399,7 +411,14 @@ export function createAgentJobFeed({
       return true;
     });
     return () => {
-      try { unsubscribe?.(); } finally { clearExecutionDedupState(); }
+      try {
+        unsubscribe?.();
+      } finally {
+        if (agentStatusRefreshTimer) clearTimeout(agentStatusRefreshTimer);
+        agentStatusRefreshTimer = null;
+        agentStatusRefreshForce = false;
+        clearExecutionDedupState();
+      }
     };
   }
 

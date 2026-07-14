@@ -95,6 +95,7 @@ import {
   TRANSCRIPT_WINDOW_MIN_ITEMS,
   TRANSCRIPT_WINDOW_OVERSCAN_ROWS,
   TRANSCRIPT_WINDOW_MAX_ITEMS,
+  TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS,
   SELECTION_PAINT_INTERVAL_MS,
   SCROLL_COALESCE_MS,
   PROMPT_HISTORY_LIMIT,
@@ -3161,6 +3162,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
                  rightTone={attachOverlayHint ? inputHintTone : 'info'}
                  rightMessageWidth={attachOverlayHint ? (guardHintWidth || transientStatusWidth || 24) : 24}
                  themeEpoch={state.themeEpoch || 0}
+                 streamingWindowRows={transcriptTailPinned && item.id === state.streamingTail?.id
+                   ? transcriptContentHeight + TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS
+                   : 0}
                />
              );
              // When measured-rows is on, wrap each row in a zero-cost flex column

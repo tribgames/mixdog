@@ -622,7 +622,7 @@ export function createMemoryActionHandlers({
                 // project=<pool> lets the UI thread project_id into the follow-up
                 // promote/dismiss call — matters under project_id:'*' listing where
                 // rows span pools. Uses the same COMMON/slug convention as op:'list'.
-                `id=${c.id} project=${c.project_id == null ? 'COMMON' : c.project_id} [${c.category}] score=${c.score == null ? '-' : c.score.toFixed(2)} ${c.element} — ${String(c.summary || '').slice(0, 200)} (${c.reason})`,
+                `id=${c.id} project=${c.project_id == null ? 'COMMON' : c.project_id} score=${c.score == null ? '-' : c.score.toFixed(2)} ${c.element} — ${String(c.summary || '').slice(0, 200)} (${c.reason})`,
               ).join('\n'),
             }
           }
@@ -634,11 +634,11 @@ export function createMemoryActionHandlers({
           if (op === 'promote') {
             const entry = await promoteCoreCandidate(coreDataDir, args.id, { ...args, scope })
             const mergeNote = entry.merged_with ? ` (merged into core id=${entry.merged_with}, sim=${entry.sim})` : ''
-            return { text: `core promoted candidate id=${args.id} → core id=${entry.id}${mergeNote}: [${entry.category}] ${entry.element}` }
+            return { text: `core promoted candidate id=${args.id} → core id=${entry.id}${mergeNote}: ${entry.element}` }
           }
           // dismiss
           const removed = await dismissCoreCandidate(coreDataDir, args.id, { scope })
-          return { text: `core candidate dismissed (id=${removed.id}): [${removed.category}] ${removed.element}` }
+          return { text: `core candidate dismissed (id=${removed.id}): ${removed.element}` }
         } catch (e) {
           return { text: `core ${op} failed: ${e.message}`, isError: true }
         }
@@ -656,10 +656,15 @@ export function createMemoryActionHandlers({
       })()
       try {
         if (op === 'add' || op === 'edit') {
-          const normalized = normalizeCoreInput(args, {
+          // Category is intentionally absent from the public memory schema.
+          // New direct entries use normalizeCoreInput's internal compatibility
+          // default; edits omit the field so editCore preserves the stored value.
+          const categoryFreeArgs = { ...args }
+          delete categoryFreeArgs.category
+          const normalized = normalizeCoreInput(categoryFreeArgs, {
             requireElement: true,
             requireSummary: true,
-            requireCategory: true,
+            requireCategory: false,
           })
           const errors = [...normalized.errors]
           if (op === 'add') {
@@ -680,7 +685,12 @@ export function createMemoryActionHandlers({
           if (errors.length) {
             return { text: `core ${op}: ${errors.join('; ')}`, isError: true }
           }
-          args = { ...args, element: normalized.element, summary: normalized.summary, category: normalized.category }
+          args = {
+            ...categoryFreeArgs,
+            element: normalized.element,
+            summary: normalized.summary,
+            ...(op === 'add' ? { category: normalized.category } : {}),
+          }
         }
         if (projectId === '*' && op !== 'list') {
           return { text: `core ${op}: project_id "*" only valid for op="list"`, isError: true }
@@ -689,7 +699,7 @@ export function createMemoryActionHandlers({
           if (projectId !== '*') {
             const entries = await listCore(coreDataDir, projectId)
             if (entries.length === 0) return { text: 'core: empty' }
-            return { text: entries.map(e => `id=${e.id} [${e.category}] ${e.element} — ${String(e.summary || '').slice(0, 200)}`).join('\n') }
+            return { text: entries.map(e => `id=${e.id} ${e.element} — ${String(e.summary || '').slice(0, 200)}`).join('\n') }
           }
           // Cross-pool listing — group by project_id, COMMON first
           const entries = await listCore(coreDataDir, '*')
@@ -704,22 +714,22 @@ export function createMemoryActionHandlers({
           for (const [key, rows] of groups) {
             lines.push(`${key === null ? 'COMMON' : key}:`)
             for (const e of rows) {
-              lines.push(`  id=${e.id} [${e.category}] ${e.element} — ${String(e.summary || '').slice(0, 200)}`)
+              lines.push(`  id=${e.id} ${e.element} — ${String(e.summary || '').slice(0, 200)}`)
             }
           }
           return { text: lines.join('\n') }
         }
         if (op === 'add') {
           const entry = await addCore(coreDataDir, args, projectId)
-          return { text: `core added (id=${entry.id}): [${entry.category}] ${entry.element} — ${entry.summary.slice(0, 200)}` }
+          return { text: `core added (id=${entry.id}): ${entry.element} — ${entry.summary.slice(0, 200)}` }
         }
         if (op === 'edit') {
           const entry = await editCoreImpl(coreDataDir, args.id, args)
-          return { text: `core edited (id=${entry.id}): [${entry.category}] ${entry.element} — ${entry.summary.slice(0, 200)}` }
+          return { text: `core edited (id=${entry.id}): ${entry.element} — ${entry.summary.slice(0, 200)}` }
         }
         if (op === 'delete') {
           const removed = await deleteCore(coreDataDir, args.id)
-          return { text: `core deleted (id=${removed.id}): [${removed.category}] ${removed.element}` }
+          return { text: `core deleted (id=${removed.id}): ${removed.element}` }
         }
       } catch (e) {
         return { text: `core ${op} failed: ${e.message}`, isError: true }

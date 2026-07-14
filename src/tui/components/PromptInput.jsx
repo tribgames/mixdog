@@ -49,6 +49,10 @@ import {
   isModifiedEnterSequence,
   isAnyModifiedEnterSequence,
 } from './prompt-input/edit-helpers.mjs';
+import {
+  cancelPromptImmediateFlush,
+  schedulePromptImmediateFlush,
+} from './prompt-input/immediate-render.mjs';
 
 // Windows Terminal IME composition can clip a glyph that starts exactly at the
 // left edge of the editable text node. The rounded prompt box already adds a
@@ -108,6 +112,7 @@ export function PromptInput({
   });
   const [, bumpCursorAnchorEpoch] = useState(0);
   const draftRef = useRef(draft);
+  const interruptActiveRef = useRef(interruptActive);
   const lastReportedValueRef = useRef(draft.value);
   // Bumped on every submit/draftOverride replace/unmount so an async paste
   // (clipboard read or onPasteText promise) that resolves after the draft
@@ -132,6 +137,7 @@ export function PromptInput({
   const undoRef = useRef({ past: [], future: [], lastPushAt: 0, lastValue: null });
   const { value, cursor } = draft;
   draftRef.current = draft;
+  interruptActiveRef.current = interruptActive;
   if (selectionRef) {
     const range = selectionRange(draft);
     selectionRef.current = range
@@ -158,29 +164,21 @@ export function PromptInput({
     }
   };
 
-  // commitDraft fires on every keystroke; a raw queueMicrotask(flushImmediate)
-  // per commit bypassed ink's maxFps and forced an unthrottled render for each
-  // char (a burst of paste/held-key edits = a render storm). Coalesce to a
-  // frame budget: flush the first keystroke immediately (no caret lag) and
-  // batch the rest to one flush per ~16ms, with a trailing flush so the final
-  // char of a burst always lands.
-  const FLUSH_INTERVAL_MS = 16;
+  // During an active turn, ink is already painting streaming updates at its
+  // 60fps budget. A second unthrottled input render competes with those frames
+  // and makes key echo slower, so busy input stays on ink's normal render path.
+  // Idle input keeps the leading+trailing immediate flush for crisp caret echo.
   const scheduleImmediateFlush = () => {
-    const t = flushThrottleRef.current;
-    const now = Date.now();
-    const elapsed = now - t.lastAt;
-    if (elapsed >= FLUSH_INTERVAL_MS) {
-      if (t.timer !== null) { clearTimeout(t.timer); t.timer = null; }
-      t.lastAt = now;
-      queueMicrotask(flushImmediate);
-    } else if (t.timer === null) {
-      t.timer = setTimeout(() => {
-        t.timer = null;
-        t.lastAt = Date.now();
-        flushImmediate();
-      }, FLUSH_INTERVAL_MS - elapsed);
-    }
+    schedulePromptImmediateFlush({
+      throttle: flushThrottleRef.current,
+      isSuppressed: () => interruptActiveRef.current,
+      flush: flushImmediate,
+    });
   };
+
+  useEffect(() => () => {
+    cancelPromptImmediateFlush(flushThrottleRef.current);
+  }, []);
 
   const commitDraft = (next, options = {}) => {
     const sameDraft = draftStateEqual(draftRef.current, next);

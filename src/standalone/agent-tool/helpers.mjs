@@ -1,14 +1,14 @@
-// Pure, dependency-light helpers extracted from the agent-tool facade. No
-// module-level mutable state lives here (the frontmatter perm cache and all
-// timers stay in the facade / their owner modules). Behavior-preserving:
-// function bodies are identical to the originals.
+// Dependency-light helpers extracted from the agent-tool facade.
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
   normalizeAgentPermissionOrNone,
   parseMarkdownFrontmatter,
 } from '../../runtime/shared/markdown-frontmatter.mjs';
-import { clearGatewaySessionRoute, writeGatewaySessionRoute } from '../../vendor/statusline/src/gateway/session-routes.mjs';
+import {
+  clearGatewaySessionRoute,
+  writeGatewaySessionRoutes,
+} from '../../vendor/statusline/src/gateway/session-routes.mjs';
 import { PRESET_ALIASES } from './tool-def.mjs';
 
 export function envTimeoutMs(name, fallback) {
@@ -99,14 +99,33 @@ export function bridgeRouteForStatusline(preset = {}) {
   return out;
 }
 
+const pendingAgentStatuslineRoutes = new Map();
+let pendingAgentStatuslineRouteFlush = null;
+
+export function flushAgentStatuslineRoutes() {
+  if (pendingAgentStatuslineRouteFlush) {
+    clearImmediate(pendingAgentStatuslineRouteFlush);
+    pendingAgentStatuslineRouteFlush = null;
+  }
+  if (pendingAgentStatuslineRoutes.size === 0) return false;
+  const entries = [...pendingAgentStatuslineRoutes.values()];
+  pendingAgentStatuslineRoutes.clear();
+  try { return writeGatewaySessionRoutes(entries); } catch { return false; }
+}
+
 export function writeAgentStatuslineRoute(sessionId, preset) {
   const route = bridgeRouteForStatusline(preset);
   if (!sessionId || !route) return false;
-  try { return writeGatewaySessionRoute(sessionId, route); } catch { return false; }
+  pendingAgentStatuslineRoutes.set(sessionId, { sessionId, route });
+  if (!pendingAgentStatuslineRouteFlush) {
+    pendingAgentStatuslineRouteFlush = setImmediate(flushAgentStatuslineRoutes);
+  }
+  return true;
 }
 
 export function clearAgentStatuslineRoute(sessionId) {
   if (!sessionId) return false;
+  pendingAgentStatuslineRoutes.delete(sessionId);
   try { return clearGatewaySessionRoute(sessionId); } catch { return false; }
 }
 

@@ -15,7 +15,12 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
-import { Markdown, StreamingMarkdown, resetStreamingMarkdownStablePrefix } from './Markdown.jsx';
+import {
+  Markdown,
+  StreamingMarkdown,
+  resetStreamingMarkdownStablePrefix,
+  windowPlainStreamingText,
+} from './Markdown.jsx';
 import { assistantBodyWidth } from '../markdown/table-layout.mjs';
 
 // `themeEpoch` is a memo-busting prop (threaded from App): the active theme
@@ -28,6 +33,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   columns = 80,
   themeEpoch = 0,
   assistantId,
+  streamingWindowRows = 0,
 }) {
   // The body column needs an EXPLICIT numeric width. Without it, ink/Yoga
   // measures the wrapped markdown body before the row's available width is
@@ -43,6 +49,9 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   }, [streaming, assistantId]);
 
   const bodyWidth = assistantBodyWidth(columns);
+  const renderText = streaming && streamingWindowRows > 0
+    ? windowPlainStreamingText(text, bodyWidth, streamingWindowRows)
+    : text;
   return (
     <Box flexDirection="row" marginTop={1}>
       <Box flexShrink={0} minWidth={2}>
@@ -50,7 +59,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
       </Box>
       <Box flexDirection="column" flexShrink={0} width={bodyWidth}>
         {streaming
-          ? <StreamingMarkdown themeEpoch={themeEpoch} columns={bodyWidth} streamKey={assistantId}>{text}</StreamingMarkdown>
+          ? <StreamingMarkdown themeEpoch={themeEpoch} columns={bodyWidth} streamKey={assistantId}>{renderText}</StreamingMarkdown>
           : <Markdown themeEpoch={themeEpoch} columns={bodyWidth}>{text}</Markdown>}
       </Box>
     </Box>

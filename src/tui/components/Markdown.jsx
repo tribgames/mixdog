@@ -28,6 +28,7 @@ export {
   resetStreamingMarkdownStablePrefix,
   resetAllStreamingMarkdownStablePrefixes,
   streamingLayoutText,
+  windowPlainStreamingText,
 } from '../markdown/streaming-markdown.mjs';
 export {
   measureMarkdownRenderedRows,
@@ -82,7 +83,11 @@ export function Markdown({ children, themeEpoch = 0, trimPartialFences = false, 
 export function StreamingMarkdown({ children, themeEpoch = 0, columns, streamKey }) {
   const parts = resolveStreamingMarkdownParts(children, streamKey);
   if (parts.plain) {
-    return <Markdown themeEpoch={themeEpoch} columns={columns}>{parts.unstableForRender}</Markdown>;
+    // Plain streaming text has no markdown tokens to style. Sending a growing
+    // multi-line tail through renderTokenAnsiSegments/marked on every delta
+    // reparses the whole response and dominates frame time; Ink can wrap the
+    // identical visible text directly.
+    return <Text color={theme.text} wrap="wrap">{parts.unstableForRender}</Text>;
   }
   return (
     <Box flexDirection="column" gap={1}>

@@ -5,6 +5,7 @@
 import { marked } from 'marked';
 import { configureMarked, hasMarkdownSyntax } from './render-ansi.mjs';
 import { trimPartialClosingFences, findOpenFenceStart } from './stream-fence.mjs';
+import { displayWidth } from '../display-width.mjs';
 
 const stablePrefixByStreamKey = new Map();
 // Reuse the current normalized-text split across measure → render → harvest.
@@ -14,6 +15,25 @@ const STABLE_PREFIX_LRU_MAX = 32;
 /** Lockstep with App streaming row estimate (leading/trailing newline trim). */
 export function streamingLayoutText(text) {
   return String(text ?? '').replace(/^\n+|\n+$/g, '');
+}
+
+export function windowPlainStreamingText(text, columns, maxRows) {
+  const value = streamingLayoutText(text);
+  const rowBudget = Math.max(0, Math.floor(Number(maxRows) || 0));
+  if (!value || rowBudget <= 0 || hasMarkdownSyntax(value)) return value;
+  const lines = value.split('\n');
+  const width = Math.max(1, Math.floor(Number(columns) || 80));
+  let rows = 0;
+  let start = lines.length;
+  while (start > 0) {
+    const line = lines[start - 1];
+    const lineRows = Math.max(1, Math.ceil(displayWidth(line) / width));
+    if (rows > 0 && rows + lineRows > rowBudget) break;
+    rows += lineRows;
+    start -= 1;
+    if (rows >= rowBudget) break;
+  }
+  return start > 0 ? lines.slice(start).join('\n') : value;
 }
 
 function isWhitespaceOnlyText(text) {

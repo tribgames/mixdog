@@ -140,10 +140,10 @@ class RoutingProfileTests(unittest.TestCase):
         self.assertEqual(
             profile["leadFallback"],
             {
-                "provider": "openai-oauth",
-                "model": "gpt-5.6-sol",
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
                 "effort": "xhigh",
-                "fast": True,
+                "fast": False,
             },
         )
         self.assertEqual(
@@ -244,10 +244,10 @@ class RoutingProfileTests(unittest.TestCase):
             opus_profile,
             {
                 "leadFallback": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
+                    "provider": "anthropic-oauth",
+                    "model": "claude-opus-4-8",
                     "effort": "xhigh",
-                    "fast": True,
+                    "fast": False,
                 },
                 "routes": {
                     "lead": {
@@ -294,10 +294,10 @@ class RoutingProfileTests(unittest.TestCase):
             fable_high_profile,
             {
                 "leadFallback": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
+                    "provider": "anthropic-oauth",
+                    "model": "claude-opus-4-8",
                     "effort": "xhigh",
-                    "fast": True,
+                    "fast": False,
                 },
                 "routes": {
                     "lead": {
@@ -1006,8 +1006,12 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         self.assertEqual(default_agent._mixdog_version, repository_version)
         self.assertEqual(override_agent._mixdog_version, "fixture")
-        self.assertIn(f"mixdog@{repository_version}", commands[1])
-        self.assertIn("mixdog@fixture", commands[3])
+        npm_commands = [
+            command for command in commands if "npm install -g" in command
+        ]
+        self.assertEqual(len(npm_commands), 2)
+        self.assertIn(f"mixdog@{repository_version}", npm_commands[0])
+        self.assertIn("mixdog@fixture", npm_commands[1])
 
     @staticmethod
     async def capture_lead_env(module, profile, base_env, workflow="default"):
@@ -1590,6 +1594,201 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertIn("apk add --no-cache curl bash coreutils", dependency_command)
         self.assertIn("yum install -y nodejs coreutils", dependency_command)
         self.assertIn("timeout --version | grep -q 'GNU coreutils'", dependency_command)
+
+    def test_installer_runs_uv_provisioning_as_a_separate_best_effort_step(self) -> None:
+        module = self.load_adapter_module()
+        commands = []
+        agent = module.MixdogAgent.__new__(module.MixdogAgent)
+        agent._mixdog_version = "fixture"
+
+        async def exec_as_root(environment, *, command, env=None):
+            commands.append(command)
+
+        agent.exec_as_root = exec_as_root
+        asyncio.run(agent.install(object()))
+
+        self.assertEqual(len(commands), 3)
+        self.assertEqual(commands[1], module._uv_provision_command())
+
+    def _run_uv_provision_fixture(
+        self,
+        *,
+        retry_all_errors: bool,
+        failures_before_success: int,
+        existing_uv: bool = False,
+        matching_uvx: bool = True,
+    ):
+        shell_candidates = [
+            shutil.which("bash"),
+            shutil.which("sh"),
+            str(Path(os.environ.get("ProgramFiles", "")) / "Git" / "bin" / "bash.exe"),
+            str(
+                Path(os.environ.get("LOCALAPPDATA", ""))
+                / "Programs"
+                / "Git"
+                / "bin"
+                / "bash.exe"
+            ),
+        ]
+        shell = None
+        for candidate in dict.fromkeys(shell_candidates):
+            if not candidate or not Path(candidate).is_file():
+                continue
+            probe = subprocess.run(
+                [candidate, "-c", "exit 0"],
+                capture_output=True,
+                timeout=5,
+            )
+            if probe.returncode == 0:
+                shell = candidate
+                break
+        if shell is None:
+            self.skipTest("working POSIX shell unavailable")
+        module = self.load_adapter_module()
+        temp = tempfile.TemporaryDirectory(prefix="mixdog-uv-provision-")
+        root = Path(temp.name)
+        home = root / "home"
+        uv_bin = home / ".local" / "bin"
+        fake_bin = root / "fake-bin"
+        fake_bin.mkdir(parents=True)
+        log = root / "curl.log"
+        curl = fake_bin / "curl"
+        curl.write_text(
+            """#!/bin/sh
+if [ "$1 $2" = "--retry-all-errors --version" ]; then
+  if [ "$SUPPORT_RETRY_ALL" = "1" ]; then echo "curl fixture"; exit 0; fi
+  exit 2
+fi
+printf '%s\n' "$*" >> "$CURL_LOG"
+count=0
+if [ -f "$CURL_COUNT" ]; then count=$(cat "$CURL_COUNT"); fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$CURL_COUNT"
+if [ "$CURL_FAILURES" -lt 0 ] || [ "$count" -le "$CURL_FAILURES" ]; then exit 6; fi
+output=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then shift; output=$1; break; fi
+  shift
+done
+cat > "$output" <<'INSTALLER'
+#!/bin/sh
+mkdir -p "$UV_INSTALL_DIR"
+printf '%s\n' '#!/bin/sh' "echo 'uv 0.9.5'" > "$UV_INSTALL_DIR/uv"
+printf '%s\n' '#!/bin/sh' "echo 'uvx 0.9.5'" > "$UV_INSTALL_DIR/uvx"
+chmod +x "$UV_INSTALL_DIR/uv" "$UV_INSTALL_DIR/uvx"
+INSTALLER
+""",
+            encoding="utf-8",
+        )
+        curl.chmod(0o755)
+        if existing_uv:
+            uv_bin.mkdir(parents=True)
+            (uv_bin / "uv").write_text(
+                "#!/bin/sh\necho 'uv 0.9.5'\n", encoding="utf-8"
+            )
+            (uv_bin / "uvx").write_text(
+                "#!/bin/sh\necho 'uvx 0.9.5'\n"
+                if matching_uvx
+                else "#!/bin/sh\necho 'uvx 0.8.0'\n",
+                encoding="utf-8",
+            )
+            (uv_bin / "uv").chmod(0o755)
+            (uv_bin / "uvx").chmod(0o755)
+        result = subprocess.run(
+            [
+                shell,
+                "-e",
+                "-c",
+                module._uv_provision_command(
+                    home.as_posix(), curl.as_posix()
+                ),
+            ],
+            env={
+                **os.environ,
+                "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                "SUPPORT_RETRY_ALL": "1" if retry_all_errors else "0",
+                "CURL_FAILURES": str(failures_before_success),
+                "CURL_LOG": str(log),
+                "CURL_COUNT": str(root / "curl.count"),
+            },
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=15,
+        )
+        return temp, home, log, result
+
+    def test_uv_provision_network_failure_is_nonfatal(self) -> None:
+        temp, home, log, result = self._run_uv_provision_fixture(
+            retry_all_errors=True, failures_before_success=-1
+        )
+        with temp:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("pre-provisioning unavailable", result.stderr)
+            self.assertFalse((home / ".local" / "bin" / "uv").exists())
+            self.assertEqual(
+                len(log.read_text(encoding="utf-8").splitlines()),
+                self.load_adapter_module().UV_BOOTSTRAP_ATTEMPTS,
+            )
+            self.assertIn(
+                "retry-all-errors",
+                (home / ".curlrc").read_text(encoding="utf-8"),
+            )
+
+    def test_uv_provision_old_curl_retries_transient_nonzero_and_recovers(self) -> None:
+        temp, home, log, result = self._run_uv_provision_fixture(
+            retry_all_errors=False, failures_before_success=2
+        )
+        with temp:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(
+                "retry-all-errors",
+                (home / ".curlrc").read_text(encoding="utf-8"),
+            )
+            self.assertNotIn(
+                "--retry-all-errors", log.read_text(encoding="utf-8")
+            )
+            self.assertEqual(len(log.read_text(encoding="utf-8").splitlines()), 3)
+            self.assertEqual(
+                (home / ".local" / "bin" / "uv").read_text(encoding="utf-8"),
+                "#!/bin/sh\necho 'uv 0.9.5'\n",
+            )
+            self.assertEqual(
+                (home / ".local" / "bin" / "uvx").read_text(encoding="utf-8"),
+                "#!/bin/sh\necho 'uvx 0.9.5'\n",
+            )
+
+    def test_uv_provision_rejects_stale_uvx_as_offline_installation(self) -> None:
+        temp, home, log, result = self._run_uv_provision_fixture(
+            retry_all_errors=False,
+            failures_before_success=-1,
+            existing_uv=True,
+            matching_uvx=False,
+        )
+        with temp:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("already available", result.stdout)
+            self.assertNotIn("provisioned", result.stdout)
+            self.assertEqual(
+                len(log.read_text(encoding="utf-8").splitlines()),
+                self.load_adapter_module().UV_BOOTSTRAP_ATTEMPTS,
+            )
+            self.assertFalse((home / ".local" / "bin" / "uvx").exists())
+
+    def test_uv_provision_reuses_correct_installation_offline(self) -> None:
+        temp, home, log, result = self._run_uv_provision_fixture(
+            retry_all_errors=True,
+            failures_before_success=-1,
+            existing_uv=True,
+        )
+        with temp:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("already available", result.stdout)
+            self.assertFalse(log.exists(), "offline reuse must not request installer")
+            self.assertEqual(
+                (home / ".local" / "bin" / "uv").read_text(encoding="utf-8"),
+                "#!/bin/sh\necho 'uv 0.9.5'\n",
+            )
 
     def test_lead_command_uses_the_same_os_process_group_boundary(self) -> None:
         module = self.load_adapter_module()

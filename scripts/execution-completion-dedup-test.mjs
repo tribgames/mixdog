@@ -155,3 +155,51 @@ test('bodyless failure preview does not suppress its later body', () => {
   deliver({ content: 'Async agent task task_fail completed.\n\nResult:\n> retry', meta: { type: 'background_task_result', execution_id: 'task_fail', status: 'finished' } });
   assert.equal(cardPushes(), 2, 'same-body retry remains idempotent');
 });
+
+test('parallel agent status bursts coalesce to one status snapshot per frame', async () => {
+  let handler = null;
+  let setCalls = 0;
+  const statusArgs = [];
+  const feed = createAgentJobFeed({
+    runtime: { onNotification: (fn) => { handler = fn; return () => {}; } },
+    getState: () => ({ busy: false }),
+    set: () => { setCalls += 1; },
+    nextId: () => 'id',
+    getDisposed: () => false,
+    patchItem: () => {},
+    enqueue: () => true,
+    drain: () => Promise.resolve(),
+    pushUserOrSyntheticItem: () => {},
+    makeQueueEntry: (text, opts = {}) => ({ text, ...opts }),
+    getPending: () => [],
+    agentStatusState: (args) => {
+      statusArgs.push(args);
+      return {};
+    },
+    displayedExecutionNotificationKeys: new Set(),
+    pushNotice: () => {},
+  });
+  const unsubscribe = feed.subscribeRuntimeNotifications();
+
+  for (let i = 0; i < 24; i += 1) {
+    handler({
+      content: `agent task: burst_${i}\nstatus: running`,
+      meta: { type: 'agent_task_status', execution_id: `burst_${i}`, status: 'running' },
+    });
+  }
+  assert.equal(setCalls, 0, 'burst stays deferred until the coalesce boundary');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(setCalls, 1);
+  assert.equal(statusArgs.length, 1);
+
+  for (let i = 0; i < 24; i += 1) {
+    handler({
+      content: `agent task: burst_${i}\nstatus: completed`,
+      meta: { type: 'agent_task_result', execution_id: `burst_${i}`, status: 'completed' },
+    });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(setCalls, 2);
+  assert.deepEqual(statusArgs.at(-1), { force: true }, 'terminal burst forces one fresh snapshot');
+  unsubscribe();
+});

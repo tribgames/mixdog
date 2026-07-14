@@ -8,7 +8,7 @@ export const TOOL_DEFS = [
     name: 'memory',
     title: 'Memory Cycle',
     annotations: { title: 'Memory Cycle', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    description: 'Core-memory mutation and status; use recall for retrieval. Store durable rules/preferences/facts, one compact ENGLISH clause each — never transient task state. add requires project_id+category+summary; edit works by id alone.',
+    description: 'Core-memory mutation and status; use recall for retrieval. Store durable rules/preferences/facts, one compact ENGLISH clause each — never transient task state. add requires project_id+summary; edit works by id alone.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -17,7 +17,6 @@ export const TOOL_DEFS = [
         id: { type: 'number', description: 'Exact memory id.' },
         element: { type: 'string', maxLength: 40, description: 'Memory key/title. Defaults to the first 40 chars of summary. Max 40 chars.' },
         summary: { type: 'string', maxLength: 100, description: 'Memory content: one short English clause, max 100 chars.' },
-        category: { type: 'string', enum: ['rule','constraint','decision','fact','goal','preference','task','issue'], description: 'Category.' },
         status: { type: 'string', enum: ['pending','active','archived'], description: 'Lifecycle status.' },
         limit: { type: 'number', description: 'Max rows/items.' },
         confirm: { type: 'string', description: 'Exact confirmation phrase for destructive actions.' },

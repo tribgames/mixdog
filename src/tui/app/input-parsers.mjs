@@ -98,14 +98,14 @@ export function parseMemoryCoreRows(text) {
         // meta column instead (blank for common).
         return null;
       }
-      const match = raw.match(/^id=(\d+)\s+\[([^\]]*)\]\s+(.+?)(?:\s+—\s+(.+))?$/);
+      const match = raw.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
       if (match) {
-        const [, id, category, element, summary = ''] = match;
+        const [, id, element, summary = ''] = match;
         return {
           value: `core-${id}`,
           // Display is summary-first: session injection only ever uses the
-          // summary sentence (buildSessionCoreMemoryPayload), so id/category/
-          // element are UI noise. They stay in the hidden _fields for
+          // summary sentence (buildSessionCoreMemoryPayload), so id/element
+          // are UI noise. The element stays in the hidden fields for
           // edit/delete plumbing.
           label: `#${id}`,
           meta: currentProjectId || '',
@@ -113,7 +113,6 @@ export function parseMemoryCoreRows(text) {
           _line: raw,
           _action: 'core-entry',
           _id: Number(id),
-          _category: category,
           _element: element,
           _summary: summary || element,
           _projectId: currentProjectId,
@@ -142,8 +141,8 @@ export function parseMemoryCandidateRows(text) {
   if (!trimmed || /^core candidates:\s*none$/i.test(trimmed)) return [];
   // Backend row shape (index.mjs ~3164), one candidate per line, no group
   // headers:
-  //   id=<n> project=<COMMON|slug> [<category>] score=<x.xx|-> <element> — <summary> (<reason>)
-  const rowPattern = /^id=(\d+)\s+project=(\S+)\s+\[([^\]]*)\]\s+score=(\S+)\s+(.+?)\s+—\s+(.+?)\s+\(([^)]*)\)$/;
+  //   id=<n> project=<COMMON|slug> score=<x.xx|-> <element> — <summary> (<reason>)
+  const rowPattern = /^id=(\d+)\s+project=(\S+)\s+score=(\S+)\s+(.+?)\s+—\s+(.+?)\s+\(([^)]*)\)$/;
   return trimmed
     .split('\n')
     .filter((line) => line.trim())
@@ -151,10 +150,10 @@ export function parseMemoryCandidateRows(text) {
       const raw = line.trim();
       const match = raw.match(rowPattern);
       if (match) {
-        const [, id, project, category, score, element, summary, reason] = match;
+        const [, id, project, score, element, summary, reason] = match;
         return {
           value: `candidate-${id}`,
-          label: `#${id} [${category}] ${element}`,
+          label: `#${id} ${element}`,
           meta: project === 'COMMON' ? 'common' : project,
           description: `${summary}${score !== '-' ? ` (score ${score})` : ''} — ${reason}`,
           _line: raw,

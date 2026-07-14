@@ -1127,6 +1127,78 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     }, notifyContext);
   }
 
+  const progressWatchdogs = new Map();
+  let progressWatchdogTimer = null;
+
+  function stopProgressWatchdogTimerIfIdle() {
+    if (progressWatchdogs.size > 0 || !progressWatchdogTimer) return;
+    try { clearInterval(progressWatchdogTimer); } catch {}
+    progressWatchdogTimer = null;
+  }
+
+  function checkProgressIdleWatchdog(state) {
+    const {
+      sessionId,
+      watchdogPolicy,
+      agent,
+      controller,
+      anchorTs,
+    } = state;
+    if (controller.signal?.aborted) {
+      progressWatchdogs.delete(sessionId);
+      stopProgressWatchdogTimerIfIdle();
+      return;
+    }
+    const now = Date.now();
+    const snapshot = typeof mgr.getSessionProgressSnapshot === 'function'
+      ? mgr.getSessionProgressSnapshot(sessionId)
+      : null;
+    const abortErr = snapshot
+      ? evaluateAgentWatchdogAbort(snapshot, now, watchdogPolicy)
+      : null;
+    const sess = typeof mgr.getSession === 'function' ? mgr.getSession(sessionId) : null;
+    const iteration = typeof sess?.lastIterationIndex === 'number' ? sess.lastIterationIndex : null;
+    if (!abortErr && !snapshot) {
+      const reported = mgr.getSessionLastProgressAt(sessionId);
+      const last = reported || anchorTs;
+      if (watchdogPolicy.idleStaleMs > 0 && now - last > watchdogPolicy.idleStaleMs) {
+        abortAgentProgressWatchdog(controller, {
+          sessionId,
+          agent,
+          error: new AgentStallAbortError(`agent task stale (${watchdogPolicy.idleStaleMs}ms without progress)`),
+          policy: watchdogPolicy,
+          now,
+          anchorTs,
+          lastProgressAt: reported,
+          iteration,
+        });
+      }
+      return;
+    }
+    if (abortErr) {
+      abortAgentProgressWatchdog(controller, {
+        sessionId,
+        agent,
+        error: abortErr,
+        snapshot,
+        policy: watchdogPolicy,
+        now,
+        anchorTs,
+        iteration,
+      });
+    }
+  }
+
+  function ensureProgressWatchdogTimer() {
+    if (progressWatchdogTimer || progressWatchdogs.size === 0) return;
+    progressWatchdogTimer = setInterval(() => {
+      for (const state of [...progressWatchdogs.values()]) {
+        checkProgressIdleWatchdog(state);
+      }
+    }, 1000);
+    progressWatchdogTimer.unref?.();
+  }
+
   function startProgressIdleWatchdog(sessionId, watchdogPolicy, agent = null) {
     if (!sessionId || !agentWatchdogPolicyActive(watchdogPolicy)) return null;
     if (typeof mgr.getSessionProgressSnapshot !== 'function' && typeof mgr.getSessionLastProgressAt !== 'function') return null;
@@ -1134,51 +1206,13 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     const controller = new AbortController();
     const anchorTs = Date.now();
     try { mgr.linkParentSignalToSession(sessionId, controller.signal); } catch { return null; }
-    const timer = setInterval(() => {
-      if (controller.signal?.aborted) return;
-      const now = Date.now();
-      const snapshot = typeof mgr.getSessionProgressSnapshot === 'function'
-        ? mgr.getSessionProgressSnapshot(sessionId)
-        : null;
-      const abortErr = snapshot
-        ? evaluateAgentWatchdogAbort(snapshot, now, watchdogPolicy)
-        : null;
-      const sess = typeof mgr.getSession === 'function' ? mgr.getSession(sessionId) : null;
-      const iteration = typeof sess?.lastIterationIndex === 'number' ? sess.lastIterationIndex : null;
-      if (!abortErr && !snapshot) {
-        const reported = mgr.getSessionLastProgressAt(sessionId);
-        const last = reported || anchorTs;
-        if (watchdogPolicy.idleStaleMs > 0 && now - last > watchdogPolicy.idleStaleMs) {
-          abortAgentProgressWatchdog(controller, {
-            sessionId,
-            agent,
-            error: new AgentStallAbortError(`agent task stale (${watchdogPolicy.idleStaleMs}ms without progress)`),
-            policy: watchdogPolicy,
-            now,
-            anchorTs,
-            lastProgressAt: reported,
-            iteration,
-          });
-        }
-        return;
-      }
-      if (abortErr) {
-        abortAgentProgressWatchdog(controller, {
-          sessionId,
-          agent,
-          error: abortErr,
-          snapshot,
-          policy: watchdogPolicy,
-          now,
-          anchorTs,
-          iteration,
-        });
-      }
-    }, 1000);
-    timer.unref?.();
+    const state = { sessionId, watchdogPolicy, agent, controller, anchorTs };
+    progressWatchdogs.set(sessionId, state);
+    ensureProgressWatchdogTimer();
     return {
       stop: () => {
-        try { clearInterval(timer); } catch {}
+        if (progressWatchdogs.get(sessionId) === state) progressWatchdogs.delete(sessionId);
+        stopProgressWatchdogTimerIfIdle();
       },
     };
   }

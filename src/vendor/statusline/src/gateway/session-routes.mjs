@@ -140,27 +140,39 @@ export function readLatestGatewayHostRoute(clientHostPid, options = {}) {
   return best;
 }
 
-export function writeGatewaySessionRoute(sessionId, route, options = {}) {
-  const sid = normalizeGatewaySessionId(sessionId);
-  const normalized = normalizeGatewayRouteSection(route || {});
-  if (!sid || !normalized) return false;
-  const pid = normalizeClientHostPid(options?.clientHostPid ?? route?.clientHostPid);
+export function writeGatewaySessionRoutes(entries = []) {
+  const normalizedEntries = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const sid = normalizeGatewaySessionId(entry?.sessionId);
+    const route = normalizeGatewayRouteSection(entry?.route || {});
+    if (!sid || !route) continue;
+    const pid = normalizeClientHostPid(entry?.options?.clientHostPid ?? entry?.route?.clientHostPid);
+    normalizedEntries.push({ sid, route, pid });
+  }
+  if (normalizedEntries.length === 0) return false;
   try {
     updateJsonAtomicSync(gatewaySessionRoutesPath(), (curRaw) => {
       const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
       const sessions = cur.sessions && typeof cur.sessions === 'object' ? { ...cur.sessions } : {};
       const sessionHosts = cur.sessionHosts && typeof cur.sessionHosts === 'object' ? { ...cur.sessionHosts } : {};
-      if (pid) {
-        sessionHosts[hostRouteKey(sid, pid)] = { ...normalized, sessionId: sid, clientHostPid: pid, updatedAt: Date.now() };
-      } else {
-        sessions[sid] = { ...normalized, sessionId: sid, updatedAt: Date.now() };
+      const updatedAt = Date.now();
+      for (const { sid, route, pid } of normalizedEntries) {
+        if (pid) {
+          sessionHosts[hostRouteKey(sid, pid)] = { ...route, sessionId: sid, clientHostPid: pid, updatedAt };
+        } else {
+          sessions[sid] = { ...route, sessionId: sid, updatedAt };
+        }
       }
-      return { version: 2, updatedAt: Date.now(), sessions, sessionHosts };
+      return { version: 2, updatedAt, sessions, sessionHosts };
     }, { compact: true, fsync: false, fsyncDir: false });
     return true;
   } catch {
     return false;
   }
+}
+
+export function writeGatewaySessionRoute(sessionId, route, options = {}) {
+  return writeGatewaySessionRoutes([{ sessionId, route, options }]);
 }
 
 export function clearGatewaySessionRoute(sessionId, options = {}) {

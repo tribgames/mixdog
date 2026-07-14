@@ -1927,6 +1927,9 @@ const memoryProps = memoryTool?.inputSchema?.properties || {};
 if (!/mutation/i.test(memoryTool?.description || '') || !/Exact confirmation phrase/i.test(memoryProps.confirm?.description || '')) {
   throw new Error('memory schema must preserve mutation/destructive confirmation guidance');
 }
+if (memoryProps.category || /category/i.test(memoryTool?.description || '')) {
+  throw new Error('memory mutation schema must not expose category');
+}
 const searchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'search');
 const searchProps = searchTool?.inputSchema?.properties || {};
 if (!/Runs synchronously/i.test(searchTool?.description || '') || searchProps.mode || searchProps.action || searchProps.task_id || !searchProps.query?.anyOf || !/array for fan-out/i.test(searchProps.query?.description || '')) {

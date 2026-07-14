@@ -142,7 +142,10 @@ async function main() {
   await realInitProviders({ 'openai-oauth': { enabled: true } });
 
   // --- 1+2: parallel spawns return task_ids fast and non-blocking ---
-  const batchSize = 6;
+  const requestedBatchSize = Number.parseInt(process.env.MIXDOG_AGENT_PARALLEL_SMOKE_BATCH || '6', 10);
+  const batchSize = Number.isFinite(requestedBatchSize) && requestedBatchSize > 0
+    ? requestedBatchSize
+    : 6;
   const t0 = Date.now();
   const outs = await Promise.all(
     Array.from({ length: batchSize }, (_, i) => agent.execute({

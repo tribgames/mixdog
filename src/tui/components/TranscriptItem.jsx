@@ -61,7 +61,7 @@ export function ToolHookDenialCard({ item, columns = 80 }) {
 // transcript row (which reads theme.* directly) to re-render. Threading the
 // epoch through Item → AssistantMessage/UserMessage/ToolExecution breaks
 // React.memo's shallow equality on a theme change without a broad refactor.
-export const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded, rightMessage = '', rightTone = 'info', rightMessageWidth = 24, themeEpoch = 0 }) {
+export const Item = React.memo(function Item({ item, prevKind, columns, toolOutputExpanded, rightMessage = '', rightTone = 'info', rightMessageWidth = 24, themeEpoch = 0, streamingWindowRows = 0 }) {
   const hintOnTurnDoneRow = item.kind === 'turndone' || item.kind === 'statusdone';
   let node = null;
   switch (item.kind) {
@@ -69,7 +69,7 @@ export const Item = React.memo(function Item({ item, prevKind, columns, toolOutp
       node = <UserMessage text={item.text} attached={prevKind === 'user'} columns={columns} themeEpoch={themeEpoch} />;
       break;
     case 'assistant':
-      node = <AssistantMessage text={item.text} streaming={item.streaming} columns={columns} themeEpoch={themeEpoch} assistantId={item.id} />;
+      node = <AssistantMessage text={item.text} streaming={item.streaming} columns={columns} themeEpoch={themeEpoch} assistantId={item.id} streamingWindowRows={streamingWindowRows} />;
       break;
     case 'tool': {
       if (shouldSuppressFullyFailedToolItem(item)) return null;

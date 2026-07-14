@@ -3,10 +3,10 @@
   "profiles": {
     "opus-xhigh": {
       "leadFallback": {
-        "provider": "openai-oauth",
-        "model": "gpt-5.6-sol",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
         "effort": "xhigh",
-        "fast": true
+        "fast": false
       },
       "routes": {
         "lead": {
@@ -89,10 +89,10 @@
     },
     "fable-xhigh": {
       "leadFallback": {
-        "provider": "openai-oauth",
-        "model": "gpt-5.6-sol",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
         "effort": "xhigh",
-        "fast": true
+        "fast": false
       },
       "routes": {
         "lead": {
@@ -136,10 +136,10 @@
     ,
     "fable-opus-heavy-xhigh": {
       "leadFallback": {
-        "provider": "openai-oauth",
-        "model": "gpt-5.6-sol",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
         "effort": "xhigh",
-        "fast": true
+        "fast": false
       },
       "routes": {
         "lead": {
@@ -183,10 +183,10 @@
     ,
     "fable-sol-heavy-opus-reviewer-xhigh": {
       "leadFallback": {
-        "provider": "openai-oauth",
-        "model": "gpt-5.6-sol",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
         "effort": "xhigh",
-        "fast": true
+        "fast": false
       },
       "routes": {
         "lead": {
@@ -230,10 +230,10 @@
     ,
     "fable-opus-heavy-sol-reviewer-xhigh": {
       "leadFallback": {
-        "provider": "openai-oauth",
-        "model": "gpt-5.6-sol",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
         "effort": "xhigh",
-        "fast": true
+        "fast": false
       },
       "routes": {
         "lead": {
@@ -277,10 +277,10 @@
     ,
     "fable-high": {
       "leadFallback": {
-        "provider": "openai-oauth",
-        "model": "gpt-5.6-sol",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
         "effort": "xhigh",
-        "fast": true
+        "fast": false
       },
       "routes": {
         "lead": {
@@ -324,10 +324,10 @@
     ,
     "fable-sol-workers-xhigh": {
       "leadFallback": {
-        "provider": "openai-oauth",
-        "model": "gpt-5.6-sol",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
         "effort": "xhigh",
-        "fast": true
+        "fast": false
       },
       "routes": {
         "lead": {
@@ -371,10 +371,10 @@
     ,
     "fable-opus-workers-xhigh": {
       "leadFallback": {
-        "provider": "openai-oauth",
-        "model": "gpt-5.6-sol",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
         "effort": "xhigh",
-        "fast": true
+        "fast": false
       },
       "routes": {
         "lead": {

@@ -67,7 +67,7 @@ export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
   if (!value) return 1;
   const parts = resolveStreamingMarkdownParts(value, streamKey);
   if (parts.plain) {
-    return measureMarkdownRenderedRows(value, columns, { trimPartialFences: false });
+    return estimateWrappedRowsFallback(parts.unstableForRender, columns, 3);
   }
   let rows = 0;
   let childCount = 0;
