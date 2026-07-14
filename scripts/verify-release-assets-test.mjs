@@ -79,8 +79,16 @@ function yamlBlockEnd(lines, start, indent) {
   return lines.length;
 }
 
-function yamlChild(lines, start, end, parentIndent, key) {
+function yamlMappingEntry(text, indent) {
+  if (text.match(/^\s*/)[0].length !== indent) return undefined;
+  const match = text.slice(indent).match(/^("(?:\\.|[^"])*"|'(?:''|[^'])*'|[A-Za-z0-9_-]+):\s*(.*)$/);
+  if (!match) return undefined;
+  return { key: yamlScalar(match[1]), rawValue: match[2] };
+}
+
+function yamlChildren(lines, start, end, parentIndent) {
   let childIndent;
+  const children = [];
   for (let index = start + 1; index < end; index += 1) {
     const text = lines[index];
     if (/^\s*(?:#.*)?$/.test(text)) continue;
@@ -88,24 +96,29 @@ function yamlChild(lines, start, end, parentIndent, key) {
     if (indent <= parentIndent) break;
     childIndent ??= indent;
     if (indent !== childIndent) continue;
-    if (new RegExp(`^\\s{${indent}}${key}:\\s*(?:#.*)?$`).test(text)) {
-      return { index, indent, end: yamlBlockEnd(lines, index, indent) };
-    }
+    const entry = yamlMappingEntry(text, indent);
+    if (entry) children.push({
+      ...entry,
+      index,
+      indent,
+      end: yamlBlockEnd(lines, index, indent),
+    });
   }
-  throw new Error(`release workflow is missing ${key}`);
+  return children;
 }
 
-function extractReleaseSteps(workflow) {
-  const lines = workflow.replaceAll('\r\n', '\n').split('\n');
-  const jobsIndex = lines.findIndex((line) => /^jobs:\s*(?:#.*)?$/.test(line));
-  assert.notEqual(jobsIndex, -1, 'release workflow must define jobs');
-  const jobs = { index: jobsIndex, indent: 0, end: yamlBlockEnd(lines, jobsIndex, 0) };
-  const release = yamlChild(lines, jobs.index, jobs.end, jobs.indent, 'release');
-  const steps = yamlChild(lines, release.index, release.end, release.indent, 'steps');
+function yamlEnvironment(lines, parent) {
+  const env = {};
+  for (const entry of yamlChildren(lines, parent.index, parent.end, parent.indent)) {
+    env[entry.key] = yamlScalar(entry.rawValue);
+  }
+  return env;
+}
 
+function yamlSteps(lines, parent) {
   const itemIndexes = [];
   let itemIndent;
-  for (let index = steps.index + 1; index < steps.end; index += 1) {
+  for (let index = parent.index + 1; index < parent.end; index += 1) {
     const match = lines[index].match(/^(\s*)-\s+(.*)$/);
     if (!match || /^\s*(?:#.*)?$/.test(lines[index])) continue;
     const indent = match[1].length;
@@ -114,18 +127,24 @@ function extractReleaseSteps(workflow) {
   }
 
   return itemIndexes.map((start, position) => {
-    const end = itemIndexes[position + 1] ?? steps.end;
+    const end = itemIndexes[position + 1] ?? parent.end;
     const fieldIndent = itemIndent + 2;
-    const fields = {};
+    const fields = { env: {} };
     for (let index = start; index < end; index += 1) {
       const source = index === start
         ? lines[index].replace(/^\s*-\s+/, '')
         : lines[index].slice(fieldIndent);
       if (index !== start && lines[index].match(/^\s*/)[0].length !== fieldIndent) continue;
-      const field = source.match(/^(name|run|uses):\s*(.*)$/);
+      const field = source.match(/^(name|run|uses|env):\s*(.*)$/);
       if (!field) continue;
       const [, key, rawValue] = field;
-      if (key === 'run' && /^[|>][-+0-9]*\s*(?:#.*)?$/.test(rawValue)) {
+      if (key === 'env' && /^(?:#.*)?$/.test(rawValue)) {
+        fields.env = yamlEnvironment(lines, {
+          index,
+          indent: fieldIndent,
+          end: yamlBlockEnd(lines, index, fieldIndent),
+        });
+      } else if (key === 'run' && /^[|>][-+0-9]*\s*(?:#.*)?$/.test(rawValue)) {
         const commands = [];
         for (let blockIndex = index + 1; blockIndex < end; blockIndex += 1) {
           const blockLine = lines[blockIndex];
@@ -140,6 +159,162 @@ function extractReleaseSteps(workflow) {
     }
     return fields;
   });
+}
+
+function parseWorkflowSubset(workflow) {
+  const lines = workflow.replaceAll('\r\n', '\n').split('\n');
+  const roots = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => yamlMappingEntry(line, 0)?.key === 'jobs');
+  assert.equal(roots.length, 1, 'workflow must define exactly one jobs mapping');
+  const jobsBlock = {
+    index: roots[0].index,
+    indent: 0,
+    end: yamlBlockEnd(lines, roots[0].index, 0),
+  };
+  const jobs = yamlChildren(lines, jobsBlock.index, jobsBlock.end, jobsBlock.indent).map((entry) => {
+    const children = yamlChildren(lines, entry.index, entry.end, entry.indent);
+    const envEntry = children.find((child) => child.key === 'env');
+    const stepsEntry = children.find((child) => child.key === 'steps');
+    const strategyEntry = children.find((child) => child.key === 'strategy');
+    const matrixEntry = strategyEntry
+      ? yamlChildren(lines, strategyEntry.index, strategyEntry.end, strategyEntry.indent)
+        .find((child) => child.key === 'matrix')
+      : undefined;
+    const matrixLines = matrixEntry
+      ? lines.slice(matrixEntry.index + 1, matrixEntry.end)
+        .filter((line) => !/^\s*(?:#.*)?$/.test(line))
+        .map((line) => line.trim())
+      : [];
+    const includeEntry = matrixEntry
+      ? yamlChildren(lines, matrixEntry.index, matrixEntry.end, matrixEntry.indent)
+        .find((child) => child.key === 'include')
+      : undefined;
+    const matrixInclude = includeEntry
+      ? lines.slice(includeEntry.index + 1, includeEntry.end)
+        .filter((line) => /^\s*-\s+/.test(line) && !/^\s*-\s*#/.test(line))
+        .map((line) => line.replace(/^\s*-\s+/, '').trim())
+      : [];
+    return {
+      name: entry.key,
+      env: envEntry ? yamlEnvironment(lines, envEntry) : {},
+      matrix: matrixEntry ? { lines: matrixLines, include: matrixInclude } : undefined,
+      steps: stepsEntry ? yamlSteps(lines, stepsEntry) : [],
+    };
+  });
+  return { jobs };
+}
+
+function workflowJob(workflow, name) {
+  const matches = parseWorkflowSubset(workflow).jobs.filter((job) => job.name === name);
+  assert.equal(matches.length, 1, `workflow must define exactly one jobs.${name}`);
+  return matches[0];
+}
+
+function namedStep(job, name) {
+  const matches = job.steps.filter((step) => step.name === name);
+  assert.equal(matches.length, 1, `jobs.${job.name} must contain exactly one "${name}" step`);
+  return matches[0];
+}
+
+function extractReleaseSteps(workflow) {
+  return workflowJob(workflow, 'release').steps;
+}
+
+function runLines(step) {
+  return step.run?.split('\n') ?? [];
+}
+
+function assertRunLine(step, line, message) {
+  assert.ok(runLines(step).includes(line), message);
+}
+
+function matrixRowsWithKey(matrix, key) {
+  return matrix.include.filter((row) => {
+    const fields = row.match(/^\{(.*)\}$/)?.[1] ?? row;
+    return new RegExp(`(?:^|,)\\s*${key}\\s*:`).test(fields);
+  });
+}
+
+function effectiveStepEnv(job, step, key) {
+  if (Object.hasOwn(step.env, key)) return step.env[key];
+  return job.env[key];
+}
+
+function cargoBuildCommands(step) {
+  return runLines(step).filter((line) => /\bcargo\s+build(?:\s|$)/.test(line));
+}
+
+function assertRepeatedCommand(commands, expected, count, message) {
+  assert.equal(commands.length, count, message);
+  for (const command of commands) {
+    assert.equal(command, expected, message);
+  }
+}
+
+function assertProvenanceDigestLinkage(step) {
+  for (const line of [
+    'FIRST=$(sha256 "_asset/$ASSET")',
+    'SECOND=$(sha256 "$BIN")',
+    'cmp "_asset/$ASSET" "$BIN"',
+    'test "$FIRST" = "$SECOND"',
+    'ASSET_DIGEST=$FIRST \\',
+    'assetDigest: process.env.ASSET_DIGEST,',
+  ]) {
+    assertRunLine(step, line, `reproducibility step must preserve digest/provenance linkage: ${line}`);
+  }
+}
+
+function assertMatrixRustflags(job) {
+  assert.ok(job.matrix, 'jobs.build must define a strategy matrix');
+  assert.ok(job.matrix.include.length > 0, 'jobs.build matrix must define include rows');
+  assert.equal(
+    matrixRowsWithKey(job.matrix, 'rustflags').length,
+    job.matrix.include.length,
+    'every jobs.build matrix include row must define rustflags',
+  );
+  assert.equal(
+    job.env.RUSTFLAGS,
+    '${{ matrix.rustflags }}',
+    'jobs.build must set RUSTFLAGS from matrix.rustflags',
+  );
+}
+
+function assertProtocolStep(job) {
+  const protocol = namedStep(job, 'Test protocol');
+  assert.equal(
+    protocol.env.RUSTFLAGS,
+    '',
+    'protocol tests must explicitly clear RUSTFLAGS for loadable host proc-macro dylibs',
+  );
+  assertRunLine(
+    protocol,
+    'cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml',
+    'Test protocol step must own the locked graph protocol test command',
+  );
+}
+
+function assertReproducibilityStep(job) {
+  const reproducibility = namedStep(job, 'Build twice and compare');
+  assert.equal(
+    effectiveStepEnv(job, reproducibility, 'RUSTFLAGS'),
+    '${{ matrix.rustflags }}',
+    'reproducibility builds must preserve matrix RUSTFLAGS',
+  );
+  assertRepeatedCommand(
+    cargoBuildCommands(reproducibility),
+    'cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-graph/Cargo.toml',
+    2,
+    'Build twice and compare must own exactly two targeted locked release cargo build commands',
+  );
+  assertProvenanceDigestLinkage(reproducibility);
+}
+
+function assertGraphReleaseRustflagsContract(workflow) {
+  const build = workflowJob(workflow, 'build');
+  assertMatrixRustflags(build);
+  assertProtocolStep(build);
+  assertReproducibilityStep(build);
 }
 
 function assertReleaseWorkflowOrdering(workflow) {
@@ -413,4 +588,60 @@ test('release workflow orders the asset and clean-cache blockers before consumer
       '\n  decoy:\n    steps:\n      - name: Smoke\n        run: npm run smoke\n  release:',
     );
   assert.throws(() => assertReleaseWorkflowOrdering(otherJob), /"Smoke" step must run npm run smoke/);
+});
+
+test('graph release clears test RUSTFLAGS but keeps targeted reproducibility builds', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/graph-release.yml', import.meta.url), 'utf8');
+  assertGraphReleaseRustflagsContract(workflow);
+
+  const quotedNames = workflow
+    .replace('- name: Test protocol', '- name: "Test protocol"')
+    .replace('- name: Build twice and compare', "- name: 'Build twice and compare'");
+  assertGraphReleaseRustflagsContract(quotedNames);
+
+  assert.throws(
+    () => assertGraphReleaseRustflagsContract(workflow.replace('          RUSTFLAGS: ""', '          RUSTFLAGS: "-C unsafe-for-host"')),
+    /protocol tests must explicitly clear RUSTFLAGS/,
+  );
+  assert.throws(
+    () => assertGraphReleaseRustflagsContract(workflow.replace('--release --target', '--release')),
+    /exactly two targeted locked release cargo build commands/,
+  );
+
+  const renamedBuild = workflow
+    .replace('\n  build:\n', '\n  renamed-build:\n')
+    .replace(
+      '\n  gate:',
+      '\n  decoy-build:\n    env:\n      RUSTFLAGS: ${{ matrix.rustflags }}\n'
+        + '    steps:\n      - name: Test protocol\n'
+        + '        run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml\n  gate:',
+    );
+  assert.throws(
+    () => assertGraphReleaseRustflagsContract(renamedBuild),
+    /exactly one jobs\.build/,
+  );
+
+  const commentedBuild = workflow.replace(
+    '          cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-graph/Cargo.toml',
+    '          # cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-graph/Cargo.toml',
+  );
+  assert.throws(
+    () => assertGraphReleaseRustflagsContract(commentedBuild),
+    /exactly two targeted locked release cargo build commands/,
+  );
+
+  const commandInWrongStep = workflow
+    .replace(
+      '        run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml',
+      '        run: echo protocol command moved',
+    )
+    .replace(
+      '          test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"',
+      '          cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml\n'
+        + '          test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"',
+    );
+  assert.throws(
+    () => assertGraphReleaseRustflagsContract(commandInWrongStep),
+    /Test protocol step must own/,
+  );
 });

@@ -1,6 +1,6 @@
 name: graph-release
 
-# Immutable graph-v* supply chain; graph-v0.1.0 precedes app v0.9.49.
+# Immutable graph-v* supply chain; graph and app versions are independent.
 on:
   push:
     tags:
@@ -117,6 +117,9 @@ jobs:
           echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
       - name: Test protocol
+        env:
+          # Host proc-macro dylibs must keep platform-required linker metadata.
+          RUSTFLAGS: ""
         run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
 
       - name: Build twice and compare
