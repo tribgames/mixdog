@@ -1,0 +1,568 @@
+name: graph-release
+
+# Immutable graph-v* supply chain; graph-v0.1.0 precedes app v0.9.49.
+on:
+  push:
+    tags:
+      - "graph-v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: graph-release
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  MANIFEST: src/runtime/agent/orchestrator/tools/graph-manifest.json
+  RUST_VERSION: "1.85.1"
+
+jobs:
+  gate:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.verify.outputs.tag }}
+      version: ${{ steps.verify.outputs.version }}
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable source and version
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=${GITHUB_REF#refs/tags/}
+          [[ "$GITHUB_REF" == refs/tags/graph-v* ]]
+          [[ "$TAG" =~ ^graph-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
+          VERSION=${TAG#graph-v}
+
+          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          SOURCE_SHA=$(git rev-list -n 1 "refs/tags/${TAG}")
+          test "$SOURCE_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-list -n 1 "origin/${TAG}" 2>/dev/null || git rev-list -n 1 "refs/tags/${TAG}")" = "$SOURCE_SHA"
+
+          CARGO_VERSION=$(node - <<'NODE'
+          const text = require('fs').readFileSync('native/mixdog-graph/Cargo.toml', 'utf8');
+          const packageBlock = text.match(/^\[package\]\s*$([\s\S]*?)(?=^\[|\z)/m)?.[1] ?? '';
+          const version = packageBlock.match(/^version\s*=\s*"([^"]+)"\s*$/m)?.[1];
+          if (!version) process.exit(1);
+          process.stdout.write(version);
+          NODE
+          )
+          test "$VERSION" = "$CARGO_VERSION"
+
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > /tmp/releases.json
+          GRAPH_TAG=$TAG GRAPH_VERSION=$VERSION SOURCE_SHA=$SOURCE_SHA node <<'NODE'
+          const pages = JSON.parse(require('fs').readFileSync('/tmp/releases.json', 'utf8'));
+          const matches = pages.flat().filter(release => release.tag_name === process.env.GRAPH_TAG);
+          if (matches.length > 1) throw new Error('Duplicate releases for graph tag');
+          if (matches.length === 0) process.exit(0);
+          const release = matches[0];
+          const title = `mixdog-graph ${process.env.GRAPH_VERSION}`;
+          const body = `Immutable mixdog-graph ${process.env.GRAPH_VERSION} assets.`;
+          if (!release.draft) throw new Error('Published graph release is immutable');
+          if (release.target_commitish !== process.env.SOURCE_SHA
+              || release.name !== title || release.body !== body || release.prerelease) {
+            throw new Error('Existing draft does not match this graph source');
+          }
+          NODE
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: gate
+    name: build-${{ matrix.pkey }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    ext: .exe, rustflags: "-C link-arg=/Brepro" }
+          - { runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  pkey: linux-x64,    ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64,  ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
+          - { runner: macos-15-intel,   target: x86_64-apple-darwin,       pkey: darwin-x64,   ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
+          - { runner: macos-14,         target: aarch64-apple-darwin,      pkey: darwin-arm64, ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
+    runs-on: ${{ matrix.runner }}
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+
+      - name: Verify source and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
+          test "$(rustc --version)" = "rustc ${RUST_VERSION} (4eb161250 2025-03-15)"
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Test protocol
+        run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
+
+      - name: Build twice and compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="native/mixdog-graph/target/${{ matrix.target }}/release/mixdog-graph${{ matrix.ext }}"
+          ASSET="mixdog-graph-${{ matrix.pkey }}${{ matrix.ext }}"
+          sha256() {
+            node -e "const {createHash}=require('node:crypto');const {readFileSync}=require('node:fs');process.stdout.write(createHash('sha256').update(readFileSync(process.argv[1])).digest('hex'))" "$1"
+          }
+          cargo clean --manifest-path native/mixdog-graph/Cargo.toml
+          cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-graph/Cargo.toml
+          mkdir _asset
+          cp "$BIN" "_asset/$ASSET"
+          FIRST=$(sha256 "_asset/$ASSET")
+          cargo clean --manifest-path native/mixdog-graph/Cargo.toml
+          cargo build --locked --release --target "${{ matrix.target }}" --manifest-path native/mixdog-graph/Cargo.toml
+          cmp "_asset/$ASSET" "$BIN"
+          SECOND=$(sha256 "$BIN")
+          test "$FIRST" = "$SECOND"
+          ASSET_DIGEST=$FIRST \
+          ASSET_NAME=$ASSET \
+          GRAPH_SOURCE_SHA=${{ needs.gate.outputs.source_sha }} \
+          GRAPH_TARGET=${{ matrix.target }} \
+          GRAPH_PLATFORM=${{ matrix.pkey }} \
+          GRAPH_RUSTC="$(rustc --version)" \
+          node <<'NODE'
+          const { writeFileSync } = require('node:fs');
+          const asset = process.env.ASSET_NAME;
+          writeFileSync(`_asset/${asset}.provenance.json`, JSON.stringify({
+            platform: process.env.GRAPH_PLATFORM,
+            target: process.env.GRAPH_TARGET,
+            asset,
+            assetDigest: process.env.ASSET_DIGEST,
+            sourceSha: process.env.GRAPH_SOURCE_SHA,
+            rustc: process.env.GRAPH_RUSTC,
+            runner: {
+              os: process.env.RUNNER_OS,
+              arch: process.env.RUNNER_ARCH,
+              imageOS: process.env.ImageOS || null,
+              imageVersion: process.env.ImageVersion || null,
+            },
+          }) + '\n');
+          NODE
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: graph-${{ matrix.pkey }}-${{ github.run_attempt }}
+          path: |
+            _asset/mixdog-graph-${{ matrix.pkey }}${{ matrix.ext }}
+            _asset/mixdog-graph-${{ matrix.pkey }}${{ matrix.ext }}.provenance.json
+          if-no-files-found: error
+          retention-days: 1
+
+  prepare:
+    needs: [gate, build]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: refs/tags/${{ needs.gate.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: graph-*-${{ github.run_attempt }}
+          path: _release
+          merge-multiple: true
+
+      - name: Verify builds and generate supply records
+        env:
+          GRAPH_TAG: ${{ needs.gate.outputs.tag }}
+          GRAPH_VERSION: ${{ needs.gate.outputs.version }}
+          SOURCE_SHA: ${{ needs.gate.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          expected=(
+            mixdog-graph-darwin-arm64
+            mixdog-graph-darwin-x64
+            mixdog-graph-linux-arm64
+            mixdog-graph-linux-x64
+            mixdog-graph-win32-x64.exe
+          )
+          expected_inputs=()
+          for asset in "${expected[@]}"; do
+            expected_inputs+=("$asset" "${asset}.provenance.json")
+          done
+          mapfile -t actual < <(find _release -maxdepth 1 -type f -printf '%f\n' | sort)
+          diff -u <(printf '%s\n' "${expected_inputs[@]}" | sort) <(printf '%s\n' "${actual[@]}")
+
+          node <<'NODE'
+          const { readFileSync, writeFileSync } = require('node:fs');
+          const { createHash } = require('node:crypto');
+          const files = {
+            'darwin-arm64': 'mixdog-graph-darwin-arm64',
+            'darwin-x64': 'mixdog-graph-darwin-x64',
+            'linux-arm64': 'mixdog-graph-linux-arm64',
+            'linux-x64': 'mixdog-graph-linux-x64',
+            'win32-x64': 'mixdog-graph-win32-x64.exe',
+          };
+          const targets = {
+            'darwin-arm64': 'aarch64-apple-darwin',
+            'darwin-x64': 'x86_64-apple-darwin',
+            'linux-arm64': 'aarch64-unknown-linux-gnu',
+            'linux-x64': 'x86_64-unknown-linux-gnu',
+            'win32-x64': 'x86_64-pc-windows-msvc',
+          };
+          const provenance = Object.entries(files).map(([platform, file]) => {
+            const record = JSON.parse(readFileSync(`_release/${file}.provenance.json`, 'utf8'));
+            const digest = createHash('sha256').update(readFileSync(`_release/${file}`)).digest('hex');
+            if (record.platform !== platform || record.target !== targets[platform]
+                || record.asset !== file || record.assetDigest !== digest
+                || record.sourceSha !== process.env.SOURCE_SHA
+                || record.rustc !== 'rustc 1.85.1 (4eb161250 2025-03-15)') {
+              throw new Error(`Invalid provenance for ${platform}`);
+            }
+            return record;
+          });
+          writeFileSync('_release/mixdog-graph-provenance.json', JSON.stringify({
+            graphVersion: process.env.GRAPH_VERSION,
+            tag: process.env.GRAPH_TAG,
+            sourceSha: process.env.SOURCE_SHA,
+            rustc: 'rustc 1.85.1 (4eb161250 2025-03-15)',
+            platforms: provenance,
+          }) + '\n');
+          const sums = Object.fromEntries(Object.values(files).map(file => [
+            file,
+            createHash('sha256').update(readFileSync(`_release/${file}`)).digest('hex'),
+          ]));
+          const assets = Object.fromEntries(Object.entries(files).map(([key, file]) => [
+            key,
+            {
+              url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.GRAPH_TAG}/${file}`,
+              sha256: sums[file],
+            },
+          ]));
+          if (Object.values(assets).some(asset => !asset.sha256)) throw new Error('Missing digest');
+          writeFileSync('_release/graph-manifest.json', JSON.stringify({
+            version: process.env.GRAPH_VERSION,
+            _comment: 'Synced from immutable graph-v release assets.',
+            assets,
+          }, null, 2) + '\n');
+          NODE
+          (cd _release && sha256sum "${expected[@]}" mixdog-graph-provenance.json > SHA256SUMS)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: supply-records-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            _release/graph-manifest.json
+            _release/SHA256SUMS
+            _release/mixdog-graph-provenance.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Create or resume matching draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GRAPH_TAG: ${{ needs.gate.outputs.tag }}
+          GRAPH_VERSION: ${{ needs.gate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force origin "refs/tags/${GRAPH_TAG}:refs/tags/${GRAPH_TAG}"
+          test "$(git rev-list -n 1 "refs/tags/${GRAPH_TAG}")" = "${{ needs.gate.outputs.source_sha }}"
+          test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > /tmp/releases.json
+          RELEASE_ID=$(GRAPH_TAG=$GRAPH_TAG GRAPH_VERSION=$GRAPH_VERSION \
+            SOURCE_SHA=${{ needs.gate.outputs.source_sha }} node <<'NODE'
+          const pages = JSON.parse(require('fs').readFileSync('/tmp/releases.json', 'utf8'));
+          const matches = pages.flat().filter(release => release.tag_name === process.env.GRAPH_TAG);
+          if (matches.length > 1) throw new Error('Duplicate releases for graph tag');
+          if (matches.length === 0) process.exit(0);
+          const release = matches[0];
+          const title = `mixdog-graph ${process.env.GRAPH_VERSION}`;
+          const body = `Immutable mixdog-graph ${process.env.GRAPH_VERSION} assets.`;
+          if (!release.draft) throw new Error('Published graph release is immutable');
+          if (release.target_commitish !== process.env.SOURCE_SHA
+              || release.name !== title || release.body !== body || release.prerelease) {
+            throw new Error('Existing draft does not match this graph source');
+          }
+          process.stdout.write(String(release.id));
+          NODE
+          )
+          if [ -z "$RELEASE_ID" ]; then
+            gh release create "$GRAPH_TAG" --draft --verify-tag \
+              --target "${{ needs.gate.outputs.source_sha }}" \
+              --title "mixdog-graph ${GRAPH_VERSION}" \
+              --notes "Immutable mixdog-graph ${GRAPH_VERSION} assets."
+            gh api --paginate --slurp \
+              "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > /tmp/releases.json
+            RELEASE_ID=$(GRAPH_TAG=$GRAPH_TAG node <<'NODE'
+          const pages = JSON.parse(require('fs').readFileSync('/tmp/releases.json', 'utf8'));
+          const matches = pages.flat().filter(release => release.tag_name === process.env.GRAPH_TAG && release.draft);
+          if (matches.length !== 1) throw new Error('Draft creation was not unique');
+          process.stdout.write(String(matches[0].id));
+          NODE
+            )
+          fi
+          echo "$RELEASE_ID" > /tmp/release-id
+
+      - name: Upload missing draft assets and verify all bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_ID=$(cat /tmp/release-id)
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > /tmp/release.json
+          UPLOAD_URL=$(node <<'NODE'
+          const release = JSON.parse(require('fs').readFileSync('/tmp/release.json', 'utf8'));
+          const url = new URL(release.upload_url.replace(/\{.*$/, ''));
+          if (url.protocol !== 'https:' || url.hostname !== 'uploads.github.com') {
+            throw new Error(`Invalid release upload_url: ${release.upload_url}`);
+          }
+          process.stdout.write(url.href);
+          NODE
+          )
+          expected=(
+            mixdog-graph-darwin-arm64
+            mixdog-graph-darwin-x64
+            mixdog-graph-linux-arm64
+            mixdog-graph-linux-x64
+            mixdog-graph-win32-x64.exe
+            SHA256SUMS
+            mixdog-graph-provenance.json
+          )
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > /tmp/assets.json
+          EXPECTED=$(IFS=,; echo "${expected[*]}") node <<'NODE' > /tmp/assets.tsv
+          const pages = JSON.parse(require('fs').readFileSync('/tmp/assets.json', 'utf8'));
+          const expected = new Set(process.env.EXPECTED.split(','));
+          const assets = pages.flat();
+          if (new Set(assets.map(asset => asset.name)).size !== assets.length) {
+            throw new Error('Duplicate draft asset names');
+          }
+          for (const asset of assets) {
+            if (!expected.has(asset.name)) throw new Error(`Unexpected draft asset: ${asset.name}`);
+            console.log(`${asset.name}\t${asset.id}`);
+          }
+          NODE
+          while IFS= read -r NAME; do
+            ASSET_ID=$(awk -F '\t' -v name="$NAME" '$1 == name { print $2 }' /tmp/assets.tsv)
+            if [ -n "$ASSET_ID" ]; then
+              gh api -H "Accept: application/octet-stream" \
+                "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" > "/tmp/${NAME}"
+              cmp "_release/${NAME}" "/tmp/${NAME}"
+            else
+              ENCODED_NAME=$(NAME=$NAME node -p "encodeURIComponent(process.env.NAME)")
+              curl --fail-with-body --silent --show-error --request POST \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@_release/${NAME}" \
+                "${UPLOAD_URL}?name=${ENCODED_NAME}" > /tmp/upload.json
+            fi
+          done < <(printf '%s\n' "${expected[@]}")
+
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > /tmp/assets.json
+          EXPECTED=$(IFS=,; echo "${expected[*]}") node <<'NODE' > /tmp/assets.tsv
+          const pages = JSON.parse(require('fs').readFileSync('/tmp/assets.json', 'utf8'));
+          const expected = new Set(process.env.EXPECTED.split(','));
+          const assets = pages.flat();
+          if (assets.length !== expected.size || new Set(assets.map(asset => asset.name)).size !== expected.size) {
+            throw new Error('Draft asset set is incomplete or duplicated');
+          }
+          for (const asset of assets) {
+            if (!expected.has(asset.name)) throw new Error(`Unexpected draft asset: ${asset.name}`);
+            console.log(`${asset.name}\t${asset.id}`);
+          }
+          NODE
+          while IFS=$'\t' read -r NAME ASSET_ID; do
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" > "/tmp/final-${NAME}"
+            cmp "_release/${NAME}" "/tmp/final-${NAME}"
+          done < /tmp/assets.tsv
+
+  sync:
+    needs: [gate, prepare]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: supply-records-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _generated
+
+      - name: Sync latest default branch
+        env:
+          DEFAULT_BRANCH: main
+          GRAPH_TAG: ${{ needs.gate.outputs.tag }}
+          GRAPH_VERSION: ${{ needs.gate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${DEFAULT_BRANCH}")"
+
+          set +e
+          node <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const incoming = JSON.parse(readFileSync('_generated/graph-manifest.json', 'utf8'));
+          const current = JSON.parse(readFileSync(process.env.MANIFEST, 'utf8'));
+          const semver = value => {
+            if (!/^\d+\.\d+\.\d+$/.test(value)) throw new Error(`Invalid graph version: ${value}`);
+            return value.split('.').map(Number);
+          };
+          const compare = (a, b) => {
+            for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+            return 0;
+          };
+          const expectedPrefix = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.GRAPH_TAG}/`;
+          if (incoming.version !== process.env.GRAPH_VERSION) throw new Error('Incoming version mismatch');
+          if (Object.values(incoming.assets).some(asset => !asset.url.startsWith(expectedPrefix))) {
+            throw new Error('Incoming tag URL mismatch');
+          }
+          const currentPrefix = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/graph-v${current.version}/`;
+          const currentIsGraphRelease = Object.values(current.assets ?? {}).length === 5
+            && Object.values(current.assets).every(asset => asset.url?.startsWith(currentPrefix));
+          if (currentIsGraphRelease && compare(semver(current.version), semver(incoming.version)) > 0) {
+            throw new Error(`Refusing stale graph manifest ${incoming.version}; current is ${current.version}`);
+          }
+          NODE
+          STATUS=$?
+          set -e
+          test "$STATUS" = 0
+
+          cp _generated/graph-manifest.json "$MANIFEST"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          if git diff --cached --quiet; then
+            echo "Bundled graph manifest is already current."
+            exit 0
+          fi
+          git commit -m "chore(graph): sync manifest for ${GRAPH_TAG}"
+          for attempt in 1 2 3; do
+            git pull --rebase origin "$DEFAULT_BRANCH"
+            if git push origin "HEAD:${DEFAULT_BRANCH}"; then exit 0; fi
+            sleep "$((attempt * 2))"
+          done
+          exit 1
+
+  publish:
+    needs: [gate, prepare, sync]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: graph-*-${{ github.run_attempt }}
+          path: _builds
+          merge-multiple: true
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: supply-records-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _records
+
+      - name: Verify main and publish matching draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GRAPH_TAG: ${{ needs.gate.outputs.tag }}
+          GRAPH_VERSION: ${{ needs.gate.outputs.version }}
+          SOURCE_SHA: ${{ needs.gate.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git show origin/main:"$MANIFEST" > /tmp/main-manifest.json
+          cmp _records/graph-manifest.json /tmp/main-manifest.json
+
+          mkdir _expected
+          cp _builds/mixdog-graph-darwin-arm64 _expected/
+          cp _builds/mixdog-graph-darwin-x64 _expected/
+          cp _builds/mixdog-graph-linux-arm64 _expected/
+          cp _builds/mixdog-graph-linux-x64 _expected/
+          cp _builds/mixdog-graph-win32-x64.exe _expected/
+          cp _records/SHA256SUMS _records/mixdog-graph-provenance.json _expected/
+
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > /tmp/releases.json
+          RELEASE_ID=$(node <<'NODE'
+          const pages = JSON.parse(require('fs').readFileSync('/tmp/releases.json', 'utf8'));
+          const matches = pages.flat().filter(release => release.tag_name === process.env.GRAPH_TAG);
+          if (matches.length !== 1) throw new Error('Matching draft is not unique');
+          const release = matches[0];
+          const title = `mixdog-graph ${process.env.GRAPH_VERSION}`;
+          const body = `Immutable mixdog-graph ${process.env.GRAPH_VERSION} assets.`;
+          if (!release.draft) throw new Error('Published graph release is immutable');
+          if (release.target_commitish !== process.env.SOURCE_SHA
+              || release.name !== title || release.body !== body || release.prerelease) {
+            throw new Error('Draft no longer matches this graph source');
+          }
+          process.stdout.write(String(release.id));
+          NODE
+          )
+          expected=(
+            mixdog-graph-darwin-arm64
+            mixdog-graph-darwin-x64
+            mixdog-graph-linux-arm64
+            mixdog-graph-linux-x64
+            mixdog-graph-win32-x64.exe
+            SHA256SUMS
+            mixdog-graph-provenance.json
+          )
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" > /tmp/assets.json
+          EXPECTED=$(IFS=,; echo "${expected[*]}") node <<'NODE' > /tmp/assets.tsv
+          const pages = JSON.parse(require('fs').readFileSync('/tmp/assets.json', 'utf8'));
+          const expected = new Set(process.env.EXPECTED.split(','));
+          const assets = pages.flat();
+          if (assets.length !== expected.size || new Set(assets.map(asset => asset.name)).size !== expected.size) {
+            throw new Error('Final draft asset set is not exact');
+          }
+          for (const asset of assets) {
+            if (!expected.has(asset.name)) throw new Error(`Unexpected draft asset: ${asset.name}`);
+            console.log(`${asset.name}\t${asset.id}`);
+          }
+          NODE
+          while IFS=$'\t' read -r NAME ASSET_ID; do
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" > "/tmp/publish-${NAME}"
+            cmp "_expected/${NAME}" "/tmp/publish-${NAME}"
+          done < /tmp/assets.tsv
+
+          git fetch origin main
+          git show origin/main:"$MANIFEST" > /tmp/final-main-manifest.json
+          cmp _records/graph-manifest.json /tmp/final-main-manifest.json
+          git fetch --force origin "+refs/tags/${GRAPH_TAG}:refs/tags/${GRAPH_TAG}"
+          test "$(git rev-list -n 1 "refs/tags/${GRAPH_TAG}")" = "$SOURCE_SHA"
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false -f make_latest=false > /tmp/published.json
+          node -e "const r=require('/tmp/published.json'); if (r.draft) process.exit(1)"

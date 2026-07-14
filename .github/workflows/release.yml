@@ -58,9 +58,8 @@ jobs:
           console.log(`Verified release identity ${tag}.`);
           NODE
 
-      # This gate intentionally runs before install/publish. A v* npm release
-      # cannot overtake patch-release.yml's patch-v* manifest sync.
-      - name: Verify bundled patch and runtime release assets
+      # Validate every bundled native manifest before install or publish.
+      - name: Verify bundled release assets
         run: node scripts/verify-release-assets.mjs
 
       - name: Install
@@ -75,6 +74,9 @@ jobs:
       # again at publish time, but the smoke gate needs it present first.
       - name: Build TUI
         run: npm run build:tui
+
+      - name: Execute code graph from a clean cache
+        run: npm run test:code-graph-clean-cache
 
       - name: Focused release regressions
         run: npm run test:release-focused

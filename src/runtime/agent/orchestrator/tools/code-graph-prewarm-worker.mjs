@@ -9,8 +9,8 @@
 //    seeds _codeGraphCache directly. Graph is structuredClone-transferred —
 //    Maps/Sets of plain objects only, runtime caches are empty Maps that
 //    survive the clone.
-//  - On any failure: postMessage({ ok: false }). Main thread propagates
-//    an error — find_symbol / code_graph tools throw. No sync fallback.
+//  - On any failure: postMessage({ ok: false, error }). Main thread propagates
+//    the worker error — find_symbol / code_graph tools throw. No sync fallback.
 import { parentPort, workerData } from 'node:worker_threads';
 import { _buildCodeGraph, _postCodeGraphWorkerSuccess } from './code-graph.mjs';
 
@@ -37,6 +37,7 @@ try {
       parentPort.postMessage({ ok: false });
     }
   }
-} catch {
-  parentPort.postMessage({ ok: false });
+} catch (error) {
+  const message = (error instanceof Error ? error.message : String(error)).trim();
+  parentPort.postMessage(message ? { ok: false, error: message } : { ok: false });
 }

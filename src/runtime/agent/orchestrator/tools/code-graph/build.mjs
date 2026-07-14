@@ -155,12 +155,23 @@ export function _postCodeGraphWorkerSuccess(graph, postMessage, drainCache = dra
   postMessage({ ok: true, signature: graph.signature, graph });
 }
 
-export function prewarmCodeGraph(cwd) {
+// Exported for the focused worker-protocol regression test.
+export function _codeGraphWorkerFailure(message) {
+  const error = typeof message?.error === 'string' ? message.error.trim() : '';
+  return new Error(error || 'code-graph prewarm worker failed');
+}
+
+// Exported for the focused best-effort prewarm regression test.
+export function _prewarmCodeGraph(cwd, build = buildCodeGraphAsync) {
   if (!cwd) return;
   // Reuse the buildCodeGraphAsync single-flight path. Fire-and-forget, and
   // best-effort: skip a fresh worker spawn when the child-spawn gate is busy
   // so this warm never queues ahead of real code_graph/find queries.
-  buildCodeGraphAsync(cwd, null, { bestEffort: true }).catch(() => { /* best-effort */ });
+  build(cwd, null, { bestEffort: true }).catch(() => { /* best-effort */ });
+}
+
+export function prewarmCodeGraph(cwd) {
+  _prewarmCodeGraph(cwd);
 }
 
 export function prewarmCodeGraphSymbols(cwd, symbols, { language = null } = {}) {
@@ -248,7 +259,7 @@ export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = fal
   }
 }
 
-function _spawnCodeGraphWorker(
+export function _spawnCodeGraphWorker(
   cwd,
   graphCwd,
   genAtStart,
@@ -256,6 +267,12 @@ function _spawnCodeGraphWorker(
   preAcquiredRelease = null,
   manifest = null,
   signature = null,
+  {
+    createWorker = (url, options) => new Worker(url, options),
+    getGeneration = _getCodeGraphGen,
+    setMemoryCache = _setCodeGraphCache,
+    setDiskCache = _setDiskCodeGraphEntry,
+  } = {},
 ) {
   let _worker = null;
   return new Promise((resolve, reject) => {
@@ -281,7 +298,7 @@ function _spawnCodeGraphWorker(
       if (signal?.aborted) { settle(new Error('aborted')); return; }
       const workerUrl = new URL('../code-graph-prewarm-worker.mjs', import.meta.url);
       try {
-        _worker = new Worker(workerUrl, {
+        _worker = createWorker(workerUrl, {
           workerData: { cwd, manifest, signature },
           execArgv: [],
         });
@@ -305,14 +322,14 @@ function _spawnCodeGraphWorker(
       w.once('message', (msg) => {
         try {
           if (msg && msg.ok && msg.graph && typeof msg.signature === 'string') {
-            const genStillCurrent = _getCodeGraphGen(graphCwd) === genAtStart;
+            const genStillCurrent = getGeneration(graphCwd) === genAtStart;
             if (genStillCurrent) {
-              _setCodeGraphCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
-              _setDiskCodeGraphEntry(graphCwd, msg.graph);
+              setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
+              setDiskCache(graphCwd, msg.graph);
             }
             settle(genStillCurrent ? msg.graph : new Error('code-graph build invalidated during prewarm'));
           } else {
-            settle(new Error('code-graph prewarm worker failed'));
+            settle(_codeGraphWorkerFailure(msg));
           }
         } catch (e) { settle(e instanceof Error ? e : new Error(String(e))); }
       });

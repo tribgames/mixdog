@@ -993,7 +993,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     // to whatever raw args carry.
     let resolved = null;
     if (!clean(args.model) || !clean(args.provider)) {
-      try { resolved = resolvePreset(cfgMod.loadConfig(), args)?.preset || null; }
+      try { resolved = resolveAgentSpawnPreset(cfgMod.loadConfig(), args)?.preset || null; }
       catch { resolved = null; }
     }
     return sanitizeTaskMeta({

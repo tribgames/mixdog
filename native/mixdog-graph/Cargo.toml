@@ -1,0 +1,47 @@
+[package]
+name = "mixdog-graph"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mixdog-graph"
+path = "src/main.rs"
+
+[dependencies]
+ignore = "0.4"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+rayon = "1"
+tree-sitter = "0.25"
+streaming-iterator = "0.1"
+tree-sitter-typescript = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-java = "0.23"
+tree-sitter-c = "0.24"
+tree-sitter-cpp = "0.23"
+tree-sitter-c-sharp = "0.23"
+tree-sitter-ruby = "0.23"
+tree-sitter-php = "0.24"
+tree-sitter-kotlin-ng = "1.1"
+tree-sitter-swift = "0.7"
+tree-sitter-scala = "0.26"
+tree-sitter-bash = "0.25"
+tree-sitter-lua = "0.5"
+tree-sitter-dart = "0.2"
+tree-sitter-objc = "3.0"
+tree-sitter-elixir = "0.3"
+tree-sitter-zig = "1.1"
+tree-sitter-r = "1.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

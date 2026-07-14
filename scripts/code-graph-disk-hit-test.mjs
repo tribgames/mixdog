@@ -1,15 +1,70 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  _codeGraphWorkerFailure,
   _isCompatibleDiskCodeGraphEntry,
   _postCodeGraphWorkerSuccess,
+  _prewarmCodeGraph,
   _prepareDiskCodeGraphFastPath,
   _runDiskCodeGraphFastPath,
+  _spawnCodeGraphWorker,
   _validateDiskCodeGraphHit,
 } from '../src/runtime/agent/orchestrator/tools/code-graph/build.mjs';
 import { CODE_GRAPH_MAX_FILES } from '../src/runtime/agent/orchestrator/tools/code-graph/constants.mjs';
 import { _serializeGraph } from '../src/runtime/agent/orchestrator/tools/code-graph/graph-model.mjs';
 import { _persistDiskCodeGraphCacheNow } from '../src/runtime/agent/orchestrator/tools/code-graph/disk-cache.mjs';
+
+function workerMessage(message, hooks = {}) {
+  return _spawnCodeGraphWorker('/worker', '/worker', 0, null, () => {}, null, null, {
+    createWorker: () => ({
+      once(event, listener) {
+        if (event === 'message') queueMicrotask(() => listener(message));
+      },
+      terminate() {},
+    }),
+    getGeneration: () => 0,
+    setMemoryCache: () => {},
+    setDiskCache: () => {},
+    ...hooks,
+  });
+}
+
+test('Worker message path preserves success and validates failure text', async () => {
+  const graph = { signature: 'success', nodes: new Map() };
+  const memory = [];
+  const disk = [];
+  assert.equal(await workerMessage({ ok: true, signature: 'success', graph }, {
+    setMemoryCache: (cwd, entry) => memory.push({ cwd, entry }),
+    setDiskCache: (cwd, entry) => disk.push({ cwd, entry }),
+  }), graph);
+  assert.deepEqual(memory, [{ cwd: '/worker', entry: { ts: memory[0].entry.ts, signature: 'success', graph } }]);
+  assert.deepEqual(disk, [{ cwd: '/worker', entry: graph }]);
+  await assert.rejects(workerMessage({ ok: false, error: ' worker build failed ' }), /worker build failed/);
+  for (const message of [{ ok: false }, { ok: false, error: ' \t ' }, null]) {
+    await assert.rejects(workerMessage(message), /code-graph prewarm worker failed/);
+  }
+});
+
+test('worker failure protocol trims its error text', () => {
+  assert.equal(
+    _codeGraphWorkerFailure({ ok: false, error: ' disk cache flush failed ' }).message,
+    'disk cache flush failed',
+  );
+  for (const message of [{ ok: false }, { ok: false, error: '' }, { ok: false, error: ' \t ' }]) {
+    assert.equal(_codeGraphWorkerFailure(message).message, 'code-graph prewarm worker failed');
+  }
+});
+
+test('best-effort prewarm swallows build failures', () => {
+  let swallowed = false;
+  _prewarmCodeGraph('/worker', () => ({
+    catch(handler) {
+      swallowed = true;
+      handler(new Error('worker build failed'));
+    },
+  }));
+  assert.equal(swallowed, true);
+});
 
 test('signature-validated disk hit restores memory without a Worker build', async () => {
   const graph = { nodes: new Map() };

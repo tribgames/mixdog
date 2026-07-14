@@ -10,6 +10,14 @@ export const PATCH_PLATFORMS = {
   'win32-x64': 'mixdog-patch-win32-x64.exe',
 };
 
+export const GRAPH_PLATFORMS = {
+  'darwin-arm64': 'mixdog-graph-darwin-arm64',
+  'darwin-x64': 'mixdog-graph-darwin-x64',
+  'linux-arm64': 'mixdog-graph-linux-arm64',
+  'linux-x64': 'mixdog-graph-linux-x64',
+  'win32-x64': 'mixdog-graph-win32-x64.exe',
+};
+
 const RUNTIME_PLATFORMS = [
   'linux-x64',
   'linux-arm64',
@@ -20,9 +28,12 @@ const RUNTIME_PLATFORMS = [
 const STRICT_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const SHA256 = /^[a-f0-9]{64}$/i;
 export const MAX_ASSET_BYTES = 256 * 1024 * 1024;
+export const MAX_DOWNLOAD_TIMEOUT_MS = 300_000;
 const PATCH_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/patch-manifest.json';
 const PATCH_CARGO_PATH = 'native/mixdog-patch/Cargo.toml';
 const RUNTIME_MANIFEST_PATH = 'src/runtime/memory/data/runtime-manifest.json';
+const GRAPH_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/graph-manifest.json';
+const PACKAGE_PATH = 'package.json';
 
 function assertPlainObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -123,6 +134,53 @@ export function validateRuntimeManifest(manifest) {
   return manifest;
 }
 
+export function validateGraphManifest(manifest, packageJson) {
+  assertPlainObject(manifest, 'Graph manifest');
+  assertExactKeys(manifest, ['version', '_comment', 'assets'], 'Graph manifest');
+  if (typeof manifest.version !== 'string' || !STRICT_VERSION.test(manifest.version)) {
+    throw new Error(`Graph manifest version is not strict MAJOR.MINOR.PATCH: ${manifest.version}`);
+  }
+  if (typeof manifest._comment !== 'string' || !manifest._comment) {
+    throw new Error('Graph manifest _comment must be a non-empty string');
+  }
+  assertPlainObject(packageJson, 'package.json');
+  if (typeof packageJson.version !== 'string' || !STRICT_VERSION.test(packageJson.version)) {
+    throw new Error(`package.json version is not strict MAJOR.MINOR.PATCH: ${packageJson.version}`);
+  }
+  assertPlainObject(manifest.assets, 'Graph manifest assets');
+  assertExactKeys(manifest.assets, Object.keys(GRAPH_PLATFORMS), 'Graph manifest assets');
+
+  for (const [platform, filename] of Object.entries(GRAPH_PLATFORMS)) {
+    const asset = manifest.assets[platform];
+    assertPlainObject(asset, `Graph asset ${platform}`);
+    assertExactKeys(asset, ['url', 'sha256'], `Graph asset ${platform}`);
+    if (typeof asset.url !== 'string') throw new Error(`${platform}: graph asset URL must be a string`);
+    let url;
+    try {
+      url = new URL(asset.url);
+    } catch {
+      throw new Error(`${platform}: invalid graph asset URL`);
+    }
+    const expectedPath = `/tribgames/mixdog/releases/download/graph-v${manifest.version}/${filename}`;
+    if (
+      url.protocol !== 'https:'
+      || url.hostname !== 'github.com'
+      || url.port
+      || url.username
+      || url.password
+      || url.search
+      || url.hash
+      || url.pathname !== expectedPath
+    ) {
+      throw new Error(`${platform}: graph asset URL must be https://github.com${expectedPath}`);
+    }
+    if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
+      throw new Error(`${platform}: invalid graph asset sha256`);
+    }
+  }
+  return manifest;
+}
+
 async function downloadAndVerify(label, asset, fetchImpl, timeoutMs, maxAssetBytes) {
   console.log(`Downloading and verifying ${label}`);
   const controller = new AbortController();
@@ -182,6 +240,9 @@ export async function verifyAssetDownloads(
   if (!Number.isSafeInteger(maxAssetBytes) || maxAssetBytes < 1 || maxAssetBytes > MAX_ASSET_BYTES) {
     throw new Error(`Asset byte ceiling must be between 1 and ${MAX_ASSET_BYTES}, got ${maxAssetBytes}`);
   }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_DOWNLOAD_TIMEOUT_MS) {
+    throw new Error(`Download timeout must be between 1 and ${MAX_DOWNLOAD_TIMEOUT_MS}, got ${timeoutMs}`);
+  }
   for (const [label, asset] of Object.entries(assets)) {
     let lastError;
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -205,19 +266,26 @@ export async function verifyReleaseAssets({
   patchManifestPath = PATCH_MANIFEST_PATH,
   cargoPath = PATCH_CARGO_PATH,
   runtimeManifestPath = RUNTIME_MANIFEST_PATH,
+  graphManifestPath = GRAPH_MANIFEST_PATH,
+  packagePath = PACKAGE_PATH,
   downloadOptions,
 } = {}) {
-  const [patchSource, cargoToml, runtimeSource] = await Promise.all([
+  const [patchSource, cargoToml, runtimeSource, graphSource, packageSource] = await Promise.all([
     readFile(patchManifestPath, 'utf8'),
     readFile(cargoPath, 'utf8'),
     readFile(runtimeManifestPath, 'utf8'),
+    readFile(graphManifestPath, 'utf8'),
+    readFile(packagePath, 'utf8'),
   ]);
   const patchManifest = validatePatchManifest(JSON.parse(patchSource), cargoToml);
   const runtimeManifest = validateRuntimeManifest(JSON.parse(runtimeSource));
+  const graphManifest = validateGraphManifest(JSON.parse(graphSource), JSON.parse(packageSource));
   await verifyAssetDownloads(patchManifest.assets, downloadOptions);
   console.log(`Verified all bundled patch assets for patch-v${patchManifest.version}.`);
   await verifyAssetDownloads(runtimeManifest.assets, downloadOptions);
   console.log(`Verified all bundled runtime assets for ${runtimeManifest.release_tag}.`);
+  await verifyAssetDownloads(graphManifest.assets, downloadOptions);
+  console.log(`Verified all bundled graph assets for graph-v${graphManifest.version}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

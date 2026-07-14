@@ -64,3 +64,4 @@ bench-tui-stutter-results-*.md
 # Vendored native mixdog-patch Rust build artifacts (source is committed,
 # target/ is rebuilt locally and by .github/workflows/patch-release.yml)
 native/mixdog-patch/target/
+native/mixdog-graph/target/

@@ -19,6 +19,10 @@ const root = mkdtempSync(join(tmpdir(), 'mixdog-live-worker-'));
 const dataDir = join(root, '.mixdog-data');
 let activeAsks = 0;
 let maxActiveAsks = 0;
+let releaseBusyGate = null;
+let busySafetyTimer = null;
+let agentRunner = null;
+let runnerClosed = false;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -26,6 +30,33 @@ function assert(condition, message) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForBusyRelease() {
+  return new Promise((resolve) => {
+    const release = () => {
+      if (busySafetyTimer) clearTimeout(busySafetyTimer);
+      busySafetyTimer = null;
+      if (releaseBusyGate === release) releaseBusyGate = null;
+      resolve();
+    };
+    releaseBusyGate = release;
+    busySafetyTimer = setTimeout(release, 10_000);
+  });
+}
+
+function releaseBusyWorker() {
+  const release = releaseBusyGate;
+  releaseBusyGate = null;
+  if (busySafetyTimer) clearTimeout(busySafetyTimer);
+  busySafetyTimer = null;
+  release?.();
+}
+
+function closeAgentRunner() {
+  if (!agentRunner || runnerClosed) return;
+  runnerClosed = true;
+  agentRunner.closeAll('live-worker-smoke-end');
 }
 
 function taskId(text) {
@@ -45,13 +76,16 @@ async function main() {
     .split(/[.!?]\s+|;|,\s+(?=(?:but|however|yet)\b)/)
     .some((clause) => {
       const hasReview = /\b(review|reviewer|verification)\b/.test(clause);
-      const hasSkip = /\b(skip|skipping|skipped|omit|omits|omitting|omitted)\b/.test(clause) ||
+      const hasSkip = /\b(skip|skipping|skipped|skippable|omit|omits|omitting|omitted)\b/.test(clause) ||
         /\bwithout\s+(?:any\s+)?(?:a\s+)?(?:review|reviewer|verification)\b/.test(clause);
-      const negated = /\b(?:never|(?:must|shall|may)\s+not|can(?:not|'t)|do\s+not|don't|not)\b[^;]{0,40}\b(?:skip|skipping|skipped|omit|omitting|omitted)\b/.test(clause) ||
-        /\b(?:skip|skipping|skipped|omit|omitting|omitted)\b[^;]{0,40}\b(?:not allowed|forbidden|prohibited)\b/.test(clause) ||
+      const weakRequirement = /\b(?:optional|unnecessary|not required|need not)\b/.test(clause);
+      const negated = /\b(?:never|(?:must|shall|may)\s+not|can(?:not|'t)|do\s+not|don't|not)\b[^;]{0,40}\b(?:skip|skipping|skipped|skippable|omit|omitting|omitted)\b/.test(clause) ||
+        /\b(?:skip|skipping|skipped|skippable|omit|omitting|omitted)\b[^;]{0,40}\b(?:not allowed|forbidden|prohibited)\b/.test(clause) ||
         /\b(?:never|(?:must|shall|may)\s+not|can(?:not|'t)|do\s+not|don't|not)\b[^;]{0,40}\bwithout\s+(?:any\s+)?(?:a\s+)?(?:review|reviewer|verification)\b/.test(clause);
+      const negatedWeakRequirement = /\b(?:not|never)\s+(?:optional|unnecessary)\b/.test(clause);
       const exception = /\b(?:unless|except(?:\s+when)?|only\s+if)\b/.test(clause);
-      return hasReview && hasSkip && (!negated || exception);
+      return hasReview && ((hasSkip && (!negated || exception)) ||
+        (weakRequirement && (!negatedWeakRequirement || exception)));
     });
   for (const [phrase, expected] of [
     ['Never skip Reviewer verification', false],
@@ -63,16 +97,24 @@ async function main() {
     ['Never skip review only if low-risk', true],
     ['May omit review', true],
     ['Proceed without review', true],
+    ['Review is optional', true],
+    ['Review is unnecessary', true],
+    ['Review is not required', true],
+    ['Review is skippable for low-risk work', true],
+    ['Review is not optional', false],
+    ['Review is not unnecessary', false],
   ]) assert(reviewSkipViolation(phrase) === expected, `review-skip detector case failed: ${phrase}`);
   const skipsReview = reviewSkipViolation(workflow);
   assert(hasAll(lead, 'write-role agents self-verify', 'cross-scope verification', 'benches', 'all git', 'current project/workspace'), 'lead tool rules must preserve verification, git, and workspace ownership');
-  assert(hasAll(workflow, 'after approval', 'delegate', 'by default'), 'default workflow must delegate after approval');
-  assert(hasAll(workflow, 'coordinates', 'git', '1-edit', '1-check'), 'default workflow must limit Lead direct work');
-  assert(hasAll(workflow, 'implementation/research/debugging', 'matching agent'), 'default workflow must route other work to matching agents');
-  assert(hasAll(workflow, 'parallel', 'independent', 'every delegated implementation'), 'workflow rules must keep independent work parallel');
-  assert(hasAll(workflow, 'every delegated implementation', 'reviewer', 'lead integration', 'fix', 're-verify'), 'default workflow must require review and the fix loop');
+  assert(hasAll(workflow, 'before the user explicitly approves the latest plan', 'no edits, no state mutation, no delegation'), 'default workflow must require latest-plan approval before work');
+  assert(hasAll(workflow, 'on approval, fan out at maximum width', 'one agent per independent scope', 'all spawned in one turn'), 'default workflow must fan out independent scopes at maximum width');
+  assert(hasAll(workflow, 'simple, well-understood implementation goes to worker', 'complex or investigative implementation goes to heavy worker', 'lead itself edits only a local, one-turn configuration/git change', 'debugger only on a defect needing deep root-cause analysis or a bug surviving 2+ review/fix cycles'), 'default workflow must enforce role routing and Lead/Debugger limits');
+  assert(hasAll(workflow, 'every implementation gets its own reviewer, attached per scope', 'only the local lead-direct edits above are exempt', 'lead itself edits only a local, one-turn configuration/git change', 'keep the same reviewer through the fix loop', 'fix -> re-verify until clean', 'lead cross-verifies'), 'default workflow must require a Reviewer for every implementation except local Lead-direct one-turn config/git edits');
+  assert(hasAll(workflow, 'build, deploy, commit, and push happen only on an explicit user request', 'on direction change, pause and re-consult the user'), 'default workflow must require user authorization and re-consultation');
   assert(!skipsReview, 'default workflow must not permit delegated-review skips');
-  assert(hasAll(solo, 'never spawn', 'send', 'delegate', 'ask agents'), 'Solo workflow must forbid delegation');
+  assert(hasAll(solo, 'before the user explicitly approves the latest plan', 'read-only investigation and planning — no edits, no state mutation', 'a new or changed request resets planning; a scope change requires fresh approval'), 'Solo workflow must require latest-plan approval and reset it for request or scope changes');
+  assert(hasAll(solo, 'on approval, lead executes all work itself', 'never spawn, send, or delegate to agents', 'verify directly: check and fix until clean, or report the blocker'), 'Solo workflow must keep work with Lead, forbid delegation, and verify directly');
+  assert(hasAll(solo, 'build, deploy, commit, and push happen only on an explicit user request', 'on direction change, pause and re-consult the user'), 'Solo workflow must require user authorization and re-consultation');
   assert(/always start background tasks/i.test(AGENT_TOOL.description || '') && /distinct tags?/i.test(AGENT_TOOL.description || '') && /completion notification/i.test(AGENT_TOOL.description || ''), 'agent tool description must expose async parallel tags');
 
   mkdirSync(dataDir, { recursive: true });
@@ -112,7 +154,7 @@ async function main() {
     maxActiveAsks = Math.max(maxActiveAsks, activeAsks);
     try {
       if (/parallel slow/i.test(prompt)) await sleep(600);
-      if (/long busy/i.test(prompt)) await sleep(350);
+      if (/long busy/i.test(prompt)) await waitForBusyRelease();
       if (/write implementation/i.test(prompt)) {
         const out = await executePatchTool('apply_patch', {
           base_path: cwdOverride,
@@ -163,7 +205,7 @@ async function main() {
     getSessionLastProgressAt,
     askSession: fakeAskSession,
   };
-  const agentRunner = createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: root, defaultMode: 'async' });
+  agentRunner = createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: root, defaultMode: 'async' });
 
   async function waitJob(out, pattern, label) {
     const id = taskId(out);
@@ -180,10 +222,11 @@ async function main() {
 
   async function waitAgentTag(tag, label) {
     for (let i = 0; i < 20; i += 1) {
-      if (listSessions().some((session) => session?.agentTag === tag && !session.closed)) return;
+      if (agentRunner.getStatus({ cwd: root }).workers
+        .some((worker) => worker?.tag === tag && worker.status === 'running')) return;
       await sleep(25);
     }
-    throw new Error(`${label} did not register agent tag ${tag}`);
+    throw new Error(`${label} did not start agent tag ${tag}`);
   }
 
   const spawnOut = await agentRunner.execute({
@@ -265,17 +308,26 @@ async function main() {
     message: 'follow-up while still busy',
   }, { invocationSource: 'model-tool', cwd: root });
   assert(/agent message queued/.test(queued), `busy send should queue, got ${queued}`);
+  releaseBusyWorker();
   await waitJob(busyOut, /ack worker/, 'busy worker');
 
   const missing = await agentRunner.execute({ type: 'read', task_id: 'task_missing_live_smoke' }, { invocationSource: 'model-tool', cwd: root });
   assert(/^Error[\s:[]/.test(missing), 'missing agent task should be Error result');
   assert(readFileSync(join(root, 'feature.txt'), 'utf8').includes('beta from worker'), 'final file missing worker edit');
-  agentRunner.closeAll('live-worker-smoke-end');
+  closeAgentRunner();
   process.stdout.write('live worker smoke passed\n');
 }
 
 try {
   await main();
 } finally {
-  rmSync(root, { recursive: true, force: true });
+  try {
+    releaseBusyWorker();
+  } finally {
+    try {
+      closeAgentRunner();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
 }
