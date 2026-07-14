@@ -303,8 +303,8 @@ const {
   agentRouteFromConfig,
 } = createWorkflowRouteHelpers({ resolveDefaultProvider, findPreset });
 
-export function __renderToolSearchForTest(args = {}, session = {}, mode = 'full') {
-  return renderToolSearch(args, session, mode);
+export function __renderToolSearchForTest(args = {}, session = {}, mode = 'full', options = {}) {
+  return renderToolSearch(args, session, mode, options);
 }
 
 export function __saveModelSettingsForTest(cfgMod, route, options = {}) {

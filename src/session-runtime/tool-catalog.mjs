@@ -228,13 +228,22 @@ function activeToolForSurface(tool) {
 
 function deferredProviderMode(provider) {
   const p = clean(provider).toLowerCase();
-  if (p === 'gemini') return 'full';
+  if (p === 'gemini') return 'manifest';
   if (p === 'anthropic' || p === 'anthropic-oauth'
-    || p === 'openai' || p === 'openai-oauth'
-    || p === 'xai' || p === 'grok-oauth') {
+    || p === 'openai' || p === 'openai-oauth') {
     return 'native';
   }
-  return 'legacy';
+  // xAI/Grok and every other OpenAI-compatible backend have no native
+  // tool_search/tool_search_output contract. Give them one complete canonical
+  // function array instead of a load-driven array whose bytes churn.
+  return 'canonical';
+}
+
+function nativeProviderFamily(provider) {
+  const p = clean(provider).toLowerCase();
+  if (p === 'openai' || p === 'openai-oauth') return 'openai';
+  if (p === 'anthropic' || p === 'anthropic-oauth') return 'anthropic';
+  return '';
 }
 
 export function filterDisallowedTools(tools, disallowed = []) {
@@ -324,6 +333,7 @@ function toolSearchNativePayload(catalog, names, provider = '') {
   }
   if (!refs.length) return null;
   return {
+    provider: clean(provider).toLowerCase(),
     toolReferences: refs,
     openaiTools: tools,
     summary: `Loaded deferred tools: ${refs.join(', ')}`,
@@ -386,11 +396,16 @@ function setDeferredToolState(session, names) {
 }
 
 export function deferredPoolToolNames(session) {
-  if (!session || session.deferredProviderMode === 'full') return [];
+  if (!session || session.deferredProviderMode === 'full'
+    || session.deferredProviderMode === 'manifest'
+    || session.deferredProviderMode === 'canonical') return [];
   const catalog = Array.isArray(session.deferredToolCatalog)
     ? session.deferredToolCatalog
     : [];
-  const active = new Set((session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
+  const active = new Set([
+    ...(session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
+    ...parseToolSelection(session.deferredCallableTools),
+  ]);
   const out = [];
   for (const tool of catalog) {
     const name = clean(tool?.name);
@@ -447,10 +462,10 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
   const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
-  let selectedNames = providerMode === 'full'
+  let selectedNames = providerMode === 'full' || providerMode === 'manifest' || providerMode === 'canonical'
     ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
     : [];
-  if (providerMode !== 'full') {
+  if (!['full', 'manifest', 'canonical'].includes(providerMode)) {
     selectedNames = storedNames.length ? canonicalDeferredToolNames(catalog, storedNames) : [];
     if (!selectedNames.length || providerMode === 'native') selectedNames = sortedNamesByMeasuredUsage(defaultNames);
   }
@@ -460,6 +475,7 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   session.deferredDefaultTools = sortedNamesByMeasuredUsage(defaultNames);
   session.deferredProviderMode = providerMode;
   session.deferredNativeTools = providerMode === 'native';
+  session.deferredSurfaceMode = mode;
   session.tools.length = 0;
   const active = [];
   for (const tool of catalog) {
@@ -468,6 +484,7 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
     session.tools.push(tool);
     active.push(clean(tool?.name));
   }
+  session.deferredCallableTools = sortedNamesByMeasuredUsage(active);
   if (providerMode === 'native') {
     const discovered = canonicalDeferredToolNames(catalog, session.deferredDiscoveredTools || []);
     session.deferredSelectedTools = active;
@@ -491,6 +508,33 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   return session;
 }
 
+export function rebuildDeferredToolSurfaceForProvider(session, provider) {
+  if (!session || !Array.isArray(session.tools)) return session;
+  const previousFamily = nativeProviderFamily(session.provider);
+  const nextFamily = nativeProviderFamily(provider);
+  const preserveNativeState = previousFamily && previousFamily === nextFamily;
+  const discovered = preserveNativeState
+    ? canonicalDeferredToolNames(deferredCatalogUnion(session), session.deferredDiscoveredTools || [])
+    : [];
+  const catalog = deferredCatalogUnion(session).slice();
+  session.deferredDiscoveredTools = discovered;
+  applyDeferredToolSurface(
+    session,
+    session.deferredSurfaceMode || 'lead',
+    catalog,
+    { provider },
+  );
+  if (session.deferredProviderMode === 'native' && discovered.length) {
+    session.deferredDiscoveredTools = discovered;
+    session.deferredCallableTools = sortedNamesByMeasuredUsage(new Set([
+      ...(session.deferredCallableTools || []),
+      ...discovered,
+    ]));
+    session.deferredSelectedTools = session.deferredCallableTools.slice();
+  }
+  return session;
+}
+
 // FIRST-TURN deferred-surface refresh (claude-code turn-time deferred manifest).
 // An MCP server may finish its handshake BETWEEN session-create and the first
 // user send. Fold those LIVE MCP tools into the boot deferred catalog + the
@@ -502,7 +546,7 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
 // active — there is no deferred manifest to refresh).
 export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   if (!session || !Array.isArray(session.messages)) return false;
-  if (session.deferredProviderMode === 'full') return false;
+  if (session.deferredProviderMode === 'full' || session.deferredProviderMode === 'canonical') return false;
   const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
   const byName = new Map();
   for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
@@ -518,6 +562,15 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   }
   if (!added) return false;
   session.deferredToolCatalog = sortedCatalogByMeasuredUsage([...byName.values()]);
+  if (session.deferredProviderMode === 'manifest') {
+    const next = session.deferredToolCatalog.filter((tool) => (
+      session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool)
+    ));
+    session.tools.splice(0, session.tools.length, ...next);
+    session.deferredCallableTools = next.map((tool) => clean(tool?.name)).filter(Boolean);
+    session.updatedAt = Date.now();
+    return true;
+  }
   // Refresh MCP server instructions so a newly-connected server's block is
   // included when BP1 is re-rendered below.
   session.mcpServerInstructions = getMcpServerInstructionsMap();
@@ -558,9 +611,31 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
  */
 export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options = {}) {
   if (!session || !Array.isArray(session.messages)) return null;
-  if (session.deferredProviderMode === 'full') return null;
+  if (session.deferredProviderMode === 'full' || session.deferredProviderMode === 'canonical') return null;
   const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
   const live = Array.isArray(liveMcpTools) ? liveMcpTools : [];
+  if (session.deferredProviderMode === 'manifest') {
+    const byName = new Map();
+    for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
+      const name = clean(tool?.name);
+      if (name && !isMcp(name)) byName.set(name, tool);
+    }
+    for (const tool of live) {
+      const name = clean(tool?.name);
+      if (name && isMcp(name)) byName.set(name, activeToolForSurface(tool));
+    }
+    const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
+    const next = catalog.filter((tool) => (
+      session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool)
+    ));
+    const before = JSON.stringify((session.tools || []).map((tool) => activeToolForSurface(tool)));
+    const after = JSON.stringify(next);
+    session.deferredToolCatalog = catalog;
+    session.tools.splice(0, session.tools.length, ...next);
+    session.deferredCallableTools = next.map((tool) => clean(tool?.name)).filter(Boolean);
+    if (before !== after) session.updatedAt = Date.now();
+    return before === after ? null : session.deferredCallableTools;
+  }
   const lateCatalog = Array.isArray(session.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [];
   const active = new Set((session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
 
@@ -700,18 +775,18 @@ function deliverDeferredAnnouncement(session, reminder, options) {
 }
 
 export function selectDeferredTools(session, names, mode, options = {}) {
-  const promoteToActive = options?.promoteToActive === true;
   // Resolve against the union of the boot-frozen catalog and the late-connected
-  // MCP catalog so load_tool can load a late tool; loading promotes it onto
-  // session.tools where the providers serialize it as a real (non-deferred) tool.
+  // MCP catalog so load_tool can load a late tool. Native providers register it
+  // independently; canonical fallback providers already expose the full array.
   const union = deferredCatalogUnion(session);
   const catalog = union.length
     ? union
     : (Array.isArray(session?.tools) ? session.tools : []);
-  const active = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
+  const surfaceActive = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
+  const active = new Set([...surfaceActive, ...parseToolSelection(session?.deferredCallableTools)]);
   const native = session?.deferredProviderMode === 'native' || session?.deferredNativeTools === true;
   const discovered = new Set(Array.isArray(session?.deferredDiscoveredTools) ? session.deferredDiscoveredTools : []);
-  const activateOnSurface = !native || promoteToActive;
+  const activateOnSurface = !native;
   const byName = new Map();
   for (const tool of catalog) {
     const name = clean(tool?.name);
@@ -745,12 +820,14 @@ export function selectDeferredTools(session, names, mode, options = {}) {
       discovered.delete(name);
     } else {
       discovered.add(name);
+      active.add(name);
     }
     added.push(name);
   }
   if (native) {
+    session.deferredCallableTools = sortedNamesByMeasuredUsage(active);
     session.deferredDiscoveredTools = sortedNamesByMeasuredUsage(
-      [...discovered].filter((toolName) => !active.has(toolName)),
+      [...discovered],
     );
     session.deferredSelectedTools = sortedNamesByMeasuredUsage(active);
   } else {
@@ -828,14 +905,31 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
     }, null, 2);
   }
 
+  // Native loads update only the callable registry and provider-native history
+  // payload. Canonical fallback providers already carry the complete array.
   const toolSelection = selectDeferredTools(session, requestedNames, mode);
-  const nextActiveNames = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
+  const nextActiveNames = new Set([
+    ...(session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
+    ...parseToolSelection(session?.deferredCallableTools),
+  ]);
   const loaded = toolSelection.added || [];
   const alreadyActive = toolSelection.already || [];
   const missing = toolSelection.missing || [];
   const blocked = toolSelection.blocked || [];
-  const nativeToolSearch = toolSelection.native
-    ? toolSearchNativePayload(catalog, [...new Set([...loaded, ...alreadyActive])], session?.provider)
+  const nativeToolSearchBase = toolSelection.native
+    ? (toolSearchNativePayload(catalog, loaded, session?.provider) || {
+        provider: clean(session?.provider).toLowerCase(),
+        toolReferences: [],
+        openaiTools: [],
+        summary: '',
+      })
+    : null;
+  const nativeSummary = [
+    ...(loaded.length ? [`Loaded deferred tools: ${loaded.join(', ')}`] : []),
+    ...(alreadyActive.length ? [`Already active: ${alreadyActive.join(', ')}`] : []),
+  ].join('\n');
+  const nativeToolSearch = nativeToolSearchBase
+    ? { ...nativeToolSearchBase, summary: nativeSummary || nativeToolSearchBase.summary }
     : null;
   const notes = [];
   if (missing.length && pendingMcpServers.length) {

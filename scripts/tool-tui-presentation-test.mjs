@@ -24,7 +24,10 @@ import {
   agentArgsWithResultMetadata,
   parseAgentJob,
 } from '../src/tui/engine/agent-envelope.mjs';
-import { agentActionTitle } from '../src/tui/components/tool-execution/surface-detail.mjs';
+import {
+  agentActionTitle,
+  toolSearchLoadedSummary,
+} from '../src/tui/components/tool-execution/surface-detail.mjs';
 
 test('tool action copy keeps Add/Delete patch verbs and human read offsets', () => {
   assert.equal(
@@ -36,6 +39,19 @@ test('tool action copy keeps Add/Delete patch verbs and human read offsets', () 
     'Deleting',
   );
   assert.match(summarizeToolArgs('read', { path: 'a.mjs', offset: 0, limit: 10 }), /lines 1-10/);
+});
+
+test('load_tool presentation distinguishes first load from already-active repeats', () => {
+  assert.equal(
+    toolSearchLoadedSummary('Loaded deferred tools: shell\nAlready active: task'),
+    'Loaded: shell · Already active: task',
+  );
+  assert.equal(
+    toolSearchLoadedSummary(JSON.stringify({
+      selected: { tools: { added: [], already: ['shell', 'task'] } },
+    })),
+    'Already active: shell, task',
+  );
 });
 
 test('Agent aggregation is batch-scoped and keeps category action wording', () => {

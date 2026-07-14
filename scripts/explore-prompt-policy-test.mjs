@@ -6,7 +6,13 @@ import { buildExplorerPrompt } from '../src/standalone/explore-tool.mjs';
 import { EXPLORE_TOOL } from '../src/standalone/explore-tool.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
-import { isEagerDispatchable } from '../src/runtime/agent/orchestrator/session/loop/tool-helpers.mjs';
+import { TOOL_SEARCH_TOOL } from '../src/session-runtime/tool-defs.mjs';
+import { createEagerDispatcher } from '../src/runtime/agent/orchestrator/session/eager-dispatch.mjs';
+import { crossTurnSignature } from '../src/runtime/agent/orchestrator/session/loop/completion-guards.mjs';
+import {
+  isEagerDispatchable,
+  isToolCallDedupEligible,
+} from '../src/runtime/agent/orchestrator/session/loop/tool-helpers.mjs';
 
 test('explore per-query prompt contains only escaped query XML', () => {
   const prompt = buildExplorerPrompt('display model usage show usage model_usage provider_usage session cache usage state');
@@ -121,6 +127,74 @@ test('code graph and eager-dispatch boundaries preserve runtime shape', () => {
   assert.equal(isEagerDispatchable('shell', tools), false);
   assert.equal(isEagerDispatchable('mcp_read', tools), true);
   assert.equal(isEagerDispatchable('mcp_write', tools), false);
+  assert.equal(isToolCallDedupEligible('read', tools), true);
+  assert.equal(isToolCallDedupEligible('mcp_read', tools), true);
+});
+
+test('same-batch load_tool and legacy tool_search repeats all execute eagerly', async () => {
+  const tools = [...BUILTIN_TOOLS, TOOL_SEARCH_TOOL];
+  assert.equal(isEagerDispatchable('load_tool', tools), true);
+  assert.equal(isEagerDispatchable('tool_search', tools), true);
+  assert.equal(isToolCallDedupEligible('load_tool', tools), false);
+  assert.equal(isToolCallDedupEligible('tool_search', tools), false);
+  assert.equal(isToolCallDedupEligible('read', tools), true);
+
+  const args = { names: ['shell'] };
+  const calls = [
+    { id: 'load-1', name: 'load_tool', arguments: args },
+    { id: 'load-2', name: 'load_tool', arguments: args },
+    { id: 'legacy-1', name: 'tool_search', arguments: args },
+    { id: 'legacy-2', name: 'tool_search', arguments: args },
+  ];
+  const executed = [];
+  const crossTurnCalls = new Map([
+    [crossTurnSignature('load_tool', args), { count: 1, firstIteration: 1 }],
+    [crossTurnSignature('tool_search', args), { count: 1, firstIteration: 1 }],
+  ]);
+  const dispatcher = createEagerDispatcher({
+    tools,
+    cwd: process.cwd(),
+    sessionId: null,
+    sessionRef: {},
+    signal: null,
+    opts: {},
+    crossTurnCalls,
+    getIterations: () => 2,
+    getNextIteration: () => 2,
+    repeatFailLimit: 3,
+    executeToolFn: async (name) => {
+      executed.push(name);
+      return '{}';
+    },
+  });
+  dispatcher.startEagerRun(calls, 0, new Set());
+  assert.equal(dispatcher.pending.size, 4);
+  await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
+  assert.deepEqual(executed, ['load_tool', 'load_tool', 'tool_search', 'tool_search']);
+
+  const normalExecuted = [];
+  const normalDispatcher = createEagerDispatcher({
+    tools,
+    cwd: process.cwd(),
+    sessionId: null,
+    sessionRef: {},
+    signal: null,
+    opts: {},
+    crossTurnCalls: new Map(),
+    getIterations: () => 1,
+    getNextIteration: () => 1,
+    repeatFailLimit: 3,
+    executeToolFn: async (name) => {
+      normalExecuted.push(name);
+      return 'ok';
+    },
+  });
+  normalDispatcher.startEagerRun([
+    { id: 'read-1', name: 'read', arguments: { path: 'same.txt' } },
+    { id: 'read-2', name: 'read', arguments: { path: 'same.txt' } },
+  ], 0, new Set());
+  await Promise.all([...normalDispatcher.pending.values()].map((entry) => entry.promise));
+  assert.deepEqual(normalExecuted, ['read']);
 });
 
 test('code graph descriptions partition file and symbol targets', () => {

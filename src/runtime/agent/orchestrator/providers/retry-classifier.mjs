@@ -292,10 +292,10 @@ export function classifyMidstreamError(err, signals, policy = {}) {
 // userAbort / watchdogAbort / responseFailedPayload exactly as before.
 function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   if (state.sawCompleted) return null
-  if (state.emittedToolCall) {
-    const _cc = Number(err?.wsCloseCode || state.wsCloseCode || 0)
-    if (!(_cc === 1000 && state.sawResponseCreated && !state.sawCompleted)) return null
-  }
+  // Once a tool call has been dispatched, no transport outcome is replay-safe.
+  // This includes a nominal close-1000 before response.completed: the tool may
+  // already be executing, so retry/fallback could duplicate its side effect.
+  if (state.emittedToolCall) return null
   if (state.emittedText || err?.liveTextEmitted) return null
   if (state.firstByteTimeout || err?.firstByteTimeout) {
     return _allowMidstream('first_byte_timeout', attemptIndex, policy)

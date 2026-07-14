@@ -320,7 +320,10 @@ export function createSessionTurnApi(deps) {
       const catalog = Array.isArray(surface?.deferredToolCatalog)
         ? surface.deferredToolCatalog
         : (Array.isArray(surface?.tools) ? surface.tools : []);
-      const activeNames = new Set((surface?.tools || []).map((tool) => tool?.name).filter(Boolean));
+      const activeNames = new Set([
+        ...(surface?.tools || []).map((tool) => tool?.name).filter(Boolean),
+        ...(surface?.deferredCallableTools || []),
+      ]);
       const needle = clean(query).toLowerCase();
       const rows = catalog.map((tool) => toolRow(tool, activeNames)).filter((row) => row.name);
       const counts = splitToolStatusCounts(rows);

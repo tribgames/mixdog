@@ -15,7 +15,7 @@
  *     is mode-driven: up while requesting, down otherwise. Input totals hidden.
  *   - elided duration formatting ("0:25" after 60s).
  *   - mode prop: 'responding' | 'thinking' | 'tool-use' | 'tool-input' |
- *     'requesting' | 'compacting' | 'resuming' (default 'responding').
+ *     'requesting' | 'reconnecting' | 'compacting' | 'resuming' (default 'responding').
  */
 import React, { useRef } from 'react';
 import { Box, Text } from 'ink';
@@ -40,7 +40,7 @@ const SHOW_TOKENS_AFTER_MS = 30_000;
 const THINKING_DELAY_MS = 3000;
 
 // One-way shimmer. The tail runs past the final character before restarting.
-const GLIMMER_SPEED_MS = { requesting: 70, compacting: 120, 'auto-clear': 120, resuming: 120, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
+const GLIMMER_SPEED_MS = { requesting: 70, reconnecting: 70, compacting: 120, 'auto-clear': 120, resuming: 120, 'tool-use': 120, responding: 120, thinking: 120, 'tool-input': 120 };
 const GLIMMER_TRAIL = 4;
 const THINKING_GLIMMER_SPEED_MS = 120;
 const THINKING_GLIMMER_TRAIL = 4;
@@ -230,7 +230,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     : theme.spinnerGlyph;
 
   // --- Verb shimmer (traveling highlight) ---
-  if (!displayVerbRef.current) {
+  if (!displayVerbRef.current || displayVerbModeRef.current !== mode) {
     displayVerbRef.current = stableModeVerb(mode, verb);
     nextVerbCheckRef.current = nextVerbCheckAt(now);
   }
@@ -240,7 +240,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
     nextVerbCheckRef.current = nextVerbCheckAt(now);
   }
   const displayVerb = displayVerbRef.current;
-  const messageText = `${displayVerb}…`;
+  const messageText = mode === 'reconnecting' ? displayVerb : `${displayVerb}…`;
   const messageLen = messageText.length;
 
   // Glimmer speed per mode.

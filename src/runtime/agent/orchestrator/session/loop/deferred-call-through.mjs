@@ -15,7 +15,7 @@ function isActiveSessionTool(session, name) {
 function lookupDeferredCatalogTool(session, name) {
     // Union of the boot-frozen catalog and the late-connected MCP catalog so a
     // direct call to a tool whose server connected after boot resolves and
-    // auto-loads (selectDeferredTools promotes it onto session.tools).
+    // records it in the independent callable registry.
     const catalog = deferredCatalogUnion(session);
     const key = clean(name);
     if (!key) return null;
@@ -54,7 +54,8 @@ function denyDeferredCallThrough(message) {
 }
 
 /**
- * Inactive deferred catalog hits: readonly/mode gate + promoteToActive, or deny.
+ * Inactive deferred catalog hits: readonly/mode gate + callable registration,
+ * or deny. Native provider schema arrays are never mutated here.
  * Returns null when not applicable (not in catalog, already active, infra allowlist).
  */
 export function prepareDeferredToolCallThrough(sessionRef, name, _args) {
@@ -77,6 +78,6 @@ export function prepareDeferredToolCallThrough(sessionRef, name, _args) {
     }
 
     const selectMode = resolvedMode === null ? 'readonly' : resolvedMode;
-    selectDeferredTools(sessionRef, [toolLabel], selectMode, { promoteToActive: true });
+    selectDeferredTools(sessionRef, [toolLabel], selectMode);
     return null;
 }

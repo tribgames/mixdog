@@ -41,6 +41,11 @@ export const WS_IDLE_MS = resolveTimeoutMs(
 );
 const WS_HANDSHAKE_TIMEOUT_MS = PROVIDER_WS_HANDSHAKE_TIMEOUT_MS;
 const WS_ACQUIRE_TIMEOUT_MS = PROVIDER_WS_ACQUIRE_TIMEOUT_MS;
+// A write that never reaches the ws callback is indistinguishable from a
+// wedged transport. Keep it under the same short bound as socket acquisition
+// so the caller can discard the entry and reconnect before arming stream
+// watchdogs.
+const WS_SEND_TIMEOUT_MS = WS_ACQUIRE_TIMEOUT_MS;
 const WS_PING_INTERVAL_MS = PROVIDER_WS_PING_INTERVAL_MS;
 const WS_PONG_TIMEOUT_MS = PROVIDER_WS_PONG_TIMEOUT_MS;
 const WS_LIVENESS_STALE_MS = PROVIDER_WS_LIVENESS_STALE_MS;
@@ -386,7 +391,7 @@ function _armLiveness(poolKey, entry) {
 // for a server event that will never arrive. Tag any failure with
 // `wsSendFailed=true` so _classifyMidstreamError routes the next attempt
 // through a fresh socket.
-export function _sendFrame(entry, frame, sendSpan = null) {
+export function _sendFrame(entry, frame, sendSpan = null, timeoutMs = WS_SEND_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
         const socket = entry?.socket;
         if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -409,18 +414,38 @@ export function _sendFrame(entry, frame, sendSpan = null) {
                 + (performance.now() - serializeStart);
         }
         _dumpFrame(payload);
+        let settled = false;
+        let timer = null;
+        const finish = (err = null) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            if (!err) {
+                resolve();
+                return;
+            }
+            const sendErr = err instanceof Error ? err : new Error(String(err));
+            sendErr.wsSendFailed = true;
+            // A callback error/timeout leaves the transport state unknown.
+            // Drop it immediately; releaseWebSocket will also remove the entry
+            // from its pool, and the retry path force-acquires a fresh socket.
+            try { entry.closing = true; } catch {}
+            try { socket.terminate?.(); } catch {}
+            reject(sendErr);
+        };
+        const boundedTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0
+            ? timeoutMs
+            : WS_SEND_TIMEOUT_MS;
+        timer = setTimeout(() => {
+            finish(Object.assign(
+                new Error(`WS send callback timed out after ${boundedTimeoutMs}ms`),
+                { code: 'EWSSENDTIMEOUT', wsSendTimeoutMs: boundedTimeoutMs },
+            ));
+        }, boundedTimeoutMs);
         try {
-            // Do NOT await the send callback: on a wedged-but-OPEN socket the
-            // ws write callback may never fire, which would hang this Promise
-            // before _streamResponse arms its first-byte watchdog. Fire and
-            // resolve immediately; transport failures surface via the socket
-            // 'error'/'close' handlers and the first-byte watchdog.
-            socket.send(payload, () => {});
-            resolve();
+            socket.send(payload, (err) => finish(err || null));
         } catch (e) {
-            const err = e instanceof Error ? e : new Error(String(e));
-            err.wsSendFailed = true;
-            reject(err);
+            finish(e);
         }
     });
 }

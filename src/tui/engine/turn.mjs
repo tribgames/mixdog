@@ -1012,7 +1012,7 @@ export function createRunTurn(bag) {
           // transcript before another render can show stale pressure.
           syncContextStats({ allowEstimated: true });
         },
-        onStageChange: async (stage) => {
+        onStageChange: async (stage, detail = null) => {
           if (!markTurnProgress(`stage:${String(stage || '')}`)) return;
           if (!getState().spinner) return;
           const value = String(stage || '');
@@ -1032,6 +1032,13 @@ export function createRunTurn(bag) {
                 mode: 'compacting',
               },
             });
+            await yieldToRenderer();
+            return;
+          }
+          if (value === 'reconnecting') {
+            compactingActive = false;
+            const retryVerb = String(detail?.message || 'Reconnecting');
+            set({ spinner: { ...getState().spinner, mode: 'reconnecting', verb: retryVerb } });
             await yieldToRenderer();
             return;
           }

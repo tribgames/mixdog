@@ -317,7 +317,26 @@ function nativeAnthropicTools(opts) {
 function toAnthropicToolChoice(toolChoice) {
     return toolChoice === 'none' ? { type: 'none' } : undefined;
 }
-function deferredAnthropicTools(activeTools, opts) {
+function discoveredAnthropicToolNames(messages, opts, provider) {
+    const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
+    const discovered = new Set(
+        Array.isArray(opts?.session?.deferredDiscoveredTools)
+            ? opts.session.deferredDiscoveredTools.map((name) => String(name || '').trim()).filter(Boolean)
+            : [],
+    );
+    for (const message of Array.isArray(messages) ? messages : []) {
+        const native = message?.nativeToolSearch;
+        const source = String(native?.provider || '').toLowerCase();
+        if (source && source !== provider
+            && !(anthropicNative.has(source) && anthropicNative.has(provider))) continue;
+        for (const name of Array.isArray(native?.toolReferences) ? native.toolReferences : []) {
+            const key = String(name || '').trim();
+            if (key) discovered.add(key);
+        }
+    }
+    return discovered;
+}
+function deferredAnthropicTools(activeTools, messages, opts) {
     if (opts?.session?.deferredNativeTools !== true) return [];
     // A request whose ONLY tools are deferred is rejected by the API with
     // `400: At least one tool must have defer_loading=false` — happens on the
@@ -325,9 +344,10 @@ function deferredAnthropicTools(activeTools, opts) {
     // No active tools ⇒ send no deferred catalog either.
     if (!Array.isArray(activeTools) || activeTools.length === 0) return [];
     const active = new Set((activeTools || []).map((tool) => String(tool?.name || '').trim()).filter(Boolean));
+    const discovered = discoveredAnthropicToolNames(messages, opts, 'anthropic-oauth');
     const catalog = Array.isArray(opts.session.deferredToolCatalog) ? opts.session.deferredToolCatalog : [];
     return catalog
-        .filter((tool) => tool?.name && !active.has(String(tool.name)))
+        .filter((tool) => tool?.name && discovered.has(String(tool.name)) && !active.has(String(tool.name)))
         .map((tool) => ({ ...tool, deferLoading: true }));
 }
 
@@ -374,15 +394,19 @@ function toAnthropicMessages(messages) {
 
         if (m.role === 'tool') {
             const last = result[result.length - 1];
-            // Do not replay native deferred-loader `tool_reference` blocks from
-            // prior turns. They are tied to the exact Anthropic deferred-tool
-            // request that produced them; after /model or provider switches the
-            // new request may not carry the matching deferred tool surface and
-            // Anthropic rejects the history as a request validation error.
+            const native = m.nativeToolSearch;
+            const nativeProvider = String(native?.provider || '').toLowerCase();
+            const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
+            const references = (!nativeProvider || anthropicNative.has(nativeProvider))
+                && Array.isArray(native?.toolReferences)
+                ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
+                : [];
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: normalizeContentForAnthropic(m.content),
+                content: references.length
+                    ? references.map((tool_name) => ({ type: 'tool_reference', tool_name }))
+                    : normalizeContentForAnthropic(m.content),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
                 last.content.push(block);
@@ -627,7 +651,7 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     if (systemBlocks.length) body.system = systemBlocks;
 
     const nativeTools = nativeAnthropicTools(opts);
-    const deferredTools = deferredAnthropicTools(tools || [], opts);
+    const deferredTools = deferredAnthropicTools(tools || [], chatMsgs, opts);
     if (tools?.length || nativeTools.length || deferredTools.length) {
         // No cache_control on tools — the systemBase BP already covers the
         // tools prefix via Anthropic's prompt cache prefix semantics (order:
@@ -1329,4 +1353,4 @@ export { parseSSEStream, _classifyMidstreamError, ANTHROPIC_MAX_MIDSTREAM_RETRIE
 
 // Test-only escape hatch for scripts/tool-smoke.mjs to verify the
 // catalog-driven max-tokens resolution without duplicating its logic.
-export const _test = { resolveMaxTokens };
+export const _test = { resolveMaxTokens, deferredAnthropicTools };

@@ -21,6 +21,7 @@ import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mj
 import {
   hasUserConversationMessage,
 } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+import { rebuildDeferredToolSurfaceForProvider } from './tool-catalog.mjs';
 
 function isSummaryAnchorMessage(message) {
   return message?.role === 'user'
@@ -179,6 +180,7 @@ export function createModelRouteApi(deps) {
       }
       if (session) {
         const route = getRoute();
+        rebuildDeferredToolSurfaceForProvider(session, route.provider);
         const updated = mgr.updateSessionRoute?.(session.id, {
           provider: route.provider,
           model: route.model,

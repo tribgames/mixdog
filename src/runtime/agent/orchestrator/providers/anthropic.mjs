@@ -231,7 +231,7 @@ function resolveMaxTokens(model) {
 }
 
 // Test-only escape hatch for scripts/anthropic-maxtokens-test.mjs.
-export const _test = { resolveMaxTokens };
+export const _test = { resolveMaxTokens, deferredAnthropicTools };
 
 const MIN_THINKING_BUDGET = 1024;
 const THINKING_OUTPUT_RESERVE = 1024;
@@ -324,16 +324,36 @@ function nativeAnthropicTools(opts) {
 function toAnthropicToolChoice(toolChoice) {
     return toolChoice === 'none' ? { type: 'none' } : undefined;
 }
-function deferredAnthropicTools(activeTools, opts) {
+function discoveredAnthropicToolNames(messages, opts, provider) {
+    const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
+    const discovered = new Set(
+        Array.isArray(opts?.session?.deferredDiscoveredTools)
+            ? opts.session.deferredDiscoveredTools.map((name) => String(name || '').trim()).filter(Boolean)
+            : [],
+    );
+    for (const message of Array.isArray(messages) ? messages : []) {
+        const native = message?.nativeToolSearch;
+        const source = String(native?.provider || '').toLowerCase();
+        if (source && source !== provider
+            && !(anthropicNative.has(source) && anthropicNative.has(provider))) continue;
+        for (const name of Array.isArray(native?.toolReferences) ? native.toolReferences : []) {
+            const key = String(name || '').trim();
+            if (key) discovered.add(key);
+        }
+    }
+    return discovered;
+}
+function deferredAnthropicTools(activeTools, messages, opts) {
     if (opts?.session?.deferredNativeTools !== true) return [];
     // Guard against an all-deferred tools array — the API rejects it with
     // `400: At least one tool must have defer_loading=false` (iteration-cap
     // final turn sends tools: []). See anthropic-oauth.mjs counterpart.
     if (!Array.isArray(activeTools) || activeTools.length === 0) return [];
     const active = new Set((activeTools || []).map((tool) => String(tool?.name || '').trim()).filter(Boolean));
+    const discovered = discoveredAnthropicToolNames(messages, opts, 'anthropic');
     const catalog = Array.isArray(opts.session.deferredToolCatalog) ? opts.session.deferredToolCatalog : [];
     return catalog
-        .filter((tool) => tool?.name && !active.has(String(tool.name)))
+        .filter((tool) => tool?.name && discovered.has(String(tool.name)) && !active.has(String(tool.name)))
         .map((tool) => ({ ...tool, deferLoading: true }));
 }
 function toAnthropicMessages(messages) {
@@ -376,15 +396,19 @@ function toAnthropicMessages(messages) {
         }
         if (m.role === 'tool') {
             const last = result[result.length - 1];
-            // Do not replay native deferred-loader `tool_reference` blocks from
-            // prior turns. They are tied to the exact Anthropic deferred-tool
-            // request that produced them; after /model or provider switches the
-            // new request may not carry the matching deferred tool surface and
-            // Anthropic rejects the history as a request validation error.
+            const native = m.nativeToolSearch;
+            const nativeProvider = String(native?.provider || '').toLowerCase();
+            const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
+            const references = (!nativeProvider || anthropicNative.has(nativeProvider))
+                && Array.isArray(native?.toolReferences)
+                ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
+                : [];
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: normalizeContentForAnthropic(m.content),
+                content: references.length
+                    ? references.map((tool_name) => ({ type: 'tool_reference', tool_name }))
+                    : normalizeContentForAnthropic(m.content),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
                 last.content.push(block);
@@ -620,7 +644,7 @@ export class AnthropicProvider {
         if (tools?.length || nativeTools.length) {
             // No cache_control on tools — the system BP covers tools via
             // Anthropic prefix semantics (order: tools → system → messages).
-            params.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredAnthropicTools(tools || [], opts)])];
+            params.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredAnthropicTools(tools || [], chatMsgs, opts)])];
         }
         // tool_choice only when tools are actually present (Anthropic rejects
         // tool_choice without tools). 'none' rides the hard-cap final turn to

@@ -53,6 +53,7 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/gemini-cache.mjs';
 import { parseSSEStream as anthropicParseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { _buildRequestBodyForCacheSmoke } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import { _test as _anthropicApiKeyTest } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import { _toAnthropicMessagesForTest } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import {
     EFFORT_BETA_HEADER,
@@ -66,8 +67,169 @@ import { buildAnthropicBetaHeaders } from '../src/runtime/agent/orchestrator/pro
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import { buildRequestBody as buildOpenAIOAuthRequestBody } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
+import { _convertMessagesToResponsesInputForTest } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 
 // --- Helpers ---------------------------------------------------------------
+
+test('native deferred history normalizes per provider without leaking OpenAI variants to xAI', () => {
+    const nativePayload = {
+        provider: 'openai-oauth',
+        toolReferences: ['mcp__demo__ping'],
+        openaiTools: [{
+            type: 'function',
+            name: 'mcp__demo__ping',
+            defer_loading: true,
+            parameters: { type: 'object', properties: {} },
+        }],
+    };
+    const history = [
+        { role: 'user', content: 'load it' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'load-1', name: 'load_tool', arguments: { names: ['mcp__demo__ping'] }, nativeType: 'tool_search_call' }],
+        },
+        { role: 'tool', toolCallId: 'load-1', content: 'Loaded', nativeToolSearch: nativePayload },
+    ];
+    const openai = _convertMessagesToResponsesInputForTest(history);
+    assert.equal(openai[1].type, 'tool_search_call');
+    assert.equal(openai[2].type, 'tool_search_output');
+    assert.equal(openai[2].tools[0].name, 'mcp__demo__ping');
+
+    const xai = _toXaiResponsesInputForTest(history, {
+        xaiResponses: { previousResponseId: 'resp-1', seenMessageCount: 0, model: 'grok-4' },
+    }, { model: 'grok-4' }).input;
+    assert.equal(xai.some((item) => item.type === 'tool_search_call' || item.type === 'tool_search_output'), false);
+    assert.equal(xai[1].type, 'function_call');
+    assert.equal(xai[2].type, 'function_call_output');
+});
+
+test('Anthropic native deferred result retains tool_reference history and defer_loading declarations', () => {
+    const base = [{ name: 'load_tool', description: 'loader', inputSchema: { type: 'object', properties: {} } }];
+    const deferred = { name: 'mcp__demo__ping', description: 'ping', inputSchema: { type: 'object', properties: {} } };
+    const session = {
+        deferredNativeTools: true,
+        deferredToolCatalog: [...base, deferred],
+    };
+    const firstBody = _buildRequestBodyForCacheSmoke(
+        [{ role: 'user', content: 'find ping' }],
+        'claude-sonnet-4-6',
+        base,
+        { session },
+    );
+    assert.equal(firstBody.tools.some((tool) => tool.name === 'mcp__demo__ping'), false);
+    assert.deepEqual(_anthropicApiKeyTest.deferredAnthropicTools(base, [], { session }), []);
+    const history = [
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'load-a1', name: 'load_tool', arguments: { names: ['mcp__demo__ping'] } }],
+        },
+        {
+            role: 'tool',
+            toolCallId: 'load-a1',
+            content: 'Loaded',
+            nativeToolSearch: {
+                provider: 'anthropic-oauth',
+                toolReferences: ['mcp__demo__ping'],
+                openaiTools: [],
+            },
+        },
+    ];
+    const body = _buildRequestBodyForCacheSmoke(history, 'claude-sonnet-4-6', base, { session });
+    const result = body.messages.flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((block) => block.type === 'tool_result');
+    assert.deepEqual(result.content, [{ type: 'tool_reference', tool_name: 'mcp__demo__ping' }]);
+    assert.equal(body.tools.find((tool) => tool.name === 'mcp__demo__ping')?.defer_loading, true);
+    const apiKeyHistory = history.map((message) => (
+        message.nativeToolSearch
+            ? { ...message, nativeToolSearch: { ...message.nativeToolSearch, provider: 'anthropic' } }
+            : message
+    ));
+    const apiKeyDiscovered = _anthropicApiKeyTest.deferredAnthropicTools(base, apiKeyHistory, { session });
+    assert.equal(apiKeyDiscovered.find((tool) => tool.name === 'mcp__demo__ping')?.deferLoading, true);
+    session.deferredDiscoveredTools = ['mcp__demo__ping'];
+    const compacted = _buildRequestBodyForCacheSmoke(
+        [{ role: 'user', content: 'continue after compact' }],
+        'claude-sonnet-4-6',
+        base,
+        { session },
+    );
+    assert.equal(compacted.tools.find((tool) => tool.name === 'mcp__demo__ping')?.defer_loading, true);
+    const apiKeyCompacted = _anthropicApiKeyTest.deferredAnthropicTools(base, [], { session });
+    assert.equal(apiKeyCompacted.find((tool) => tool.name === 'mcp__demo__ping')?.deferLoading, true);
+});
+
+test('OpenAI native provider-tag switches keep tool_search call/output paired', () => {
+    const history = [
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'native-pair', name: 'load_tool', arguments: {}, nativeType: 'tool_search_call' }],
+        },
+        {
+            role: 'tool',
+            toolCallId: 'native-pair',
+            content: 'Loaded',
+            nativeToolSearch: {
+                provider: 'openai',
+                toolReferences: ['read'],
+                openaiTools: [{ type: 'function', name: 'read', parameters: { type: 'object', properties: {} } }],
+            },
+        },
+    ];
+    const oauth = _convertMessagesToResponsesInputForTest(history, { nativeToolSearchProvider: 'openai-oauth' });
+    assert.deepEqual(oauth.map((item) => item.type), ['tool_search_call', 'tool_search_output']);
+    history[1].nativeToolSearch.provider = 'openai-oauth';
+    const direct = _convertMessagesToResponsesInputForTest(history, { nativeToolSearchProvider: 'openai' });
+    assert.deepEqual(direct.map((item) => item.type), ['tool_search_call', 'tool_search_output']);
+});
+
+test('Anthropic native provider-tag switches preserve tool_reference and loaded schema bidirectionally', () => {
+    const base = [{ name: 'load_tool', description: 'loader', inputSchema: { type: 'object', properties: {} } }];
+    const deferred = { name: 'mcp__demo__ping', description: 'ping', inputSchema: { type: 'object', properties: {} } };
+    const session = {
+        deferredNativeTools: true,
+        deferredToolCatalog: [...base, deferred],
+    };
+    const history = (provider) => [
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'anthropic-family-pair', name: 'load_tool', arguments: { names: ['mcp__demo__ping'] } }],
+        },
+        {
+            role: 'tool',
+            toolCallId: 'anthropic-family-pair',
+            content: 'Loaded deferred tools: mcp__demo__ping',
+            nativeToolSearch: {
+                provider,
+                toolReferences: ['mcp__demo__ping'],
+                openaiTools: [],
+            },
+        },
+    ];
+    const apiKeyToOauth = _buildRequestBodyForCacheSmoke(
+        history('anthropic'),
+        'claude-sonnet-4-6',
+        base,
+        { session },
+    );
+    const oauthResult = apiKeyToOauth.messages
+        .flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((block) => block.type === 'tool_result');
+    assert.deepEqual(oauthResult.content, [{ type: 'tool_reference', tool_name: 'mcp__demo__ping' }]);
+    assert.equal(apiKeyToOauth.tools.find((tool) => tool.name === 'mcp__demo__ping')?.defer_loading, true);
+
+    const oauthHistory = history('anthropic-oauth');
+    const oauthToApiKeyMessages = _toAnthropicMessagesForTest(oauthHistory);
+    const apiKeyResult = oauthToApiKeyMessages
+        .flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((block) => block.type === 'tool_result');
+    assert.deepEqual(apiKeyResult.content, [{ type: 'tool_reference', tool_name: 'mcp__demo__ping' }]);
+    const apiKeyTools = _anthropicApiKeyTest.deferredAnthropicTools(base, oauthHistory, { session });
+    assert.equal(apiKeyTools.find((tool) => tool.name === 'mcp__demo__ping')?.deferLoading, true);
+});
 
 // Wraps an array of Anthropic SSE event objects in a minimal Response-like
 // shape exposing the single `body.getReader()` API that parseSSEStream uses.
@@ -500,7 +662,7 @@ test('openai-compat/xai Responses: first Grok request after provider switch drop
     assert.deepEqual(input.map((item) => item.role), ['system', 'user', 'user']);
 });
 
-test('openai-oauth Responses: load_tool schema and history stay function_call', () => {
+test('openai-oauth Responses: load_tool uses native tool_search history', () => {
     const loadTool = {
         name: 'load_tool',
         description: 'load tools',
@@ -517,19 +679,51 @@ test('openai-oauth Responses: load_tool schema and history stay function_call', 
             content: '',
             toolCalls: [{ id: 'call_load_1', name: 'tool_search', arguments: { names: ['read'] }, nativeType: 'tool_search_call' }],
         },
-        { role: 'tool', toolCallId: 'call_load_1', content: '{}' },
+        {
+            role: 'tool',
+            toolCallId: 'call_load_1',
+            content: 'Loaded deferred tools: read',
+            nativeToolSearch: {
+                provider: 'openai-oauth',
+                toolReferences: ['read'],
+                openaiTools: [{
+                    type: 'function',
+                    name: 'read',
+                    description: 'read',
+                    defer_loading: true,
+                    parameters: { type: 'object', properties: {} },
+                }],
+            },
+        },
     ], 'gpt-5.5', [loadTool], {});
-    assert.equal(JSON.stringify(body).includes('tool_search'), false);
-    assert.deepEqual(body.tools?.[0], {
-        type: 'function',
-        name: 'load_tool',
+    assert.equal(JSON.stringify(body).includes('tool_search'), true);
+    assert.deepEqual(body.tools, [{
+        type: 'tool_search',
+        execution: 'client',
         description: loadTool.description,
         parameters: loadTool.inputSchema,
+    }]);
+    const call = body.input.find((item) => item.type === 'tool_search_call');
+    assert.deepEqual(call, {
+        type: 'tool_search_call',
+        call_id: 'call_load_1',
+        execution: 'client',
+        arguments: { names: ['read'] },
     });
-    const call = body.input.find((item) => item.type === 'function_call' && item.name === 'load_tool');
-    assert.equal(call.call_id, 'call_load_1');
-    assert.deepEqual(JSON.parse(call.arguments), { names: ['read'] });
-    assert.equal(body.input.some((item) => item.type === 'function_call_output' && item.call_id === 'call_load_1'), true);
+    const output = body.input.find((item) => item.type === 'tool_search_output' && item.call_id === 'call_load_1');
+    assert.deepEqual(output, {
+        type: 'tool_search_output',
+        call_id: 'call_load_1',
+        status: 'completed',
+        execution: 'client',
+        tools: [{
+            type: 'function',
+            name: 'read',
+            description: 'read',
+            defer_loading: true,
+            parameters: { type: 'object', properties: {} },
+        }],
+    });
 });
 
 test('openai-compat/xai Responses: custom_tool_call history replays as function_call', () => {
@@ -1432,7 +1626,7 @@ test('anthropic effort: sonnet-4-6 uses output_config + effort beta, not thinkin
     assert.ok(beta.includes(EFFORT_BETA_HEADER));
 });
 
-test('anthropic-oauth: load_tool native references replay as ordinary tool_result after model switches', () => {
+test('anthropic-oauth: foreign native references normalize to ordinary tool_result after provider switches', () => {
     const body = _buildRequestBodyForCacheSmoke(
         [
             { role: 'user', content: 'load a tool' },
@@ -1445,7 +1639,7 @@ test('anthropic-oauth: load_tool native references replay as ordinary tool_resul
                 role: 'tool',
                 toolCallId: 'toolu_load_1',
                 content: '{"loaded":["read"]}',
-                nativeToolSearch: { toolReferences: ['read'] },
+                nativeToolSearch: { provider: 'openai-oauth', toolReferences: ['read'] },
             },
         ],
         'claude-opus-4-8',
@@ -1617,6 +1811,55 @@ test('openai oauth ws delta: warmup generate:false does not force request_proper
     }
 });
 
+test('openai oauth ws delta: native tool_search output replays with canonical fields', () => {
+    const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    try {
+        process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
+        const baseTools = [{
+            type: 'tool_search',
+            execution: 'client',
+            description: 'load tools',
+            parameters: { type: 'object', properties: {} },
+        }];
+        const output = {
+            type: 'tool_search_output',
+            call_id: 'call_load_1',
+            status: 'completed',
+            execution: 'client',
+            tools: [{ type: 'function', name: 'read', parameters: { type: 'object', properties: {} } }],
+        };
+        const body = {
+            model: 'gpt-5.5',
+            instructions: 'sys',
+            tools: baseTools,
+            prompt_cache_key: 'cache-key',
+            input: [
+                { type: 'message', role: 'user', content: 'load read' },
+                { type: 'tool_search_call', call_id: 'call_load_1', execution: 'client', arguments: { names: ['read'] } },
+                output,
+                { type: 'message', role: 'user', content: 'use read' },
+            ],
+        };
+        const delta = _computeDelta({
+            entry: {
+                lastRequestSansInput: _stableStringify(_sansInput(body)),
+                lastResponseId: 'resp_prev',
+                lastRequestInput: [body.input[0]],
+                lastResponseItems: [body.input[1]],
+            },
+            body,
+        });
+        assert.equal(delta.mode, 'delta');
+        assert.equal(delta.frame.prompt_cache_key, 'cache-key');
+        assert.deepEqual(delta.frame.tools, baseTools);
+        assert.equal(delta.frame.instructions, 'sys');
+        assert.deepEqual(delta.frame.input, [output, body.input[3]]);
+    } finally {
+        if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
+    }
+});
+
 test('canonical frame: full-frame builder leads with type and preserves codex body key order', () => {
     const body = {
         model: 'gpt-5.5',
@@ -1639,7 +1882,7 @@ test('canonical frame: full-frame builder leads with type and preserves codex bo
     assert.equal(frame.previous_response_id, undefined);
 });
 
-test('canonical frame: delta insert keeps key order, drops chained instructions, overrides input', () => {
+test('canonical frame: delta insert keeps key order and chained instructions, overrides input', () => {
     const body = {
         model: 'gpt-5.5',
         instructions: 'sys',
@@ -1648,8 +1891,8 @@ test('canonical frame: delta insert keeps key order, drops chained instructions,
         text: { verbosity: 'low' },
     };
     const delta = _buildResponseCreateFrame(body, { previousResponseId: 'resp_prev', inputOverride: [{ b: 2 }] });
-    assert.deepEqual(Object.keys(delta), ['type', 'model', 'previous_response_id', 'input', 'tool_choice', 'text']);
-    assert.equal(delta.instructions, undefined);
+    assert.deepEqual(Object.keys(delta), ['type', 'model', 'instructions', 'previous_response_id', 'input', 'tool_choice', 'text']);
+    assert.equal(delta.instructions, 'sys');
     assert.equal(delta.previous_response_id, 'resp_prev');
     assert.deepEqual(delta.input, [{ b: 2 }]);
     // Empty instructions is also dropped in delta mode (server resolves via prev id).

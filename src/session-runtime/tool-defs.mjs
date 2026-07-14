@@ -18,6 +18,7 @@ export const TOOL_SEARCH_TOOL = {
     type: 'object',
     properties: {
       names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact deferred tool names/aliases to load.' },
+      select: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Legacy alias for names; accepts exact names/aliases and select:name syntax.' },
     },
     additionalProperties: false,
   },

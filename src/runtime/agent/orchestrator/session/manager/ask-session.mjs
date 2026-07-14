@@ -397,9 +397,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     // don't get overridden by defaults. When session has no profile,
                     // providerCacheOpts is null and this spread is a no-op.
                     ...(session.providerCacheOpts || {}),
-                    onStageChange: (stage) => {
+                    onStageChange: (stage, detail) => {
                         updateSessionStage(sessionId, stage);
-                        try { askOpts?.onStageChange?.(stage); } catch {}
+                        try { askOpts?.onStageChange?.(stage, detail); } catch {}
                     },
                     onStreamDelta: (kind = 'semantic') => {
                         markSessionStreamDelta(sessionId, kind).catch(() => {});

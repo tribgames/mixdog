@@ -47,3 +47,31 @@ export function customToolCallFromResponseItem(item) {
 export function isCustomToolCallRecord(call) {
   return call?.nativeType === 'custom_tool_call';
 }
+
+export function nativeToolSearchCallInput(call) {
+  if (call?.nativeType !== 'tool_search_call') return null;
+  return {
+    type: 'tool_search_call',
+    call_id: call.id || '',
+    execution: 'client',
+    arguments: call.arguments && typeof call.arguments === 'object' ? call.arguments : {},
+  };
+}
+
+export function nativeToolSearchOutputInput(message, provider) {
+  const native = message?.nativeToolSearch;
+  const source = String(native?.provider || '').toLowerCase();
+  const target = String(provider || '').toLowerCase();
+  const openaiNative = new Set(['openai', 'openai-oauth']);
+  const sameNativeFamily = source === target
+    || (openaiNative.has(source) && openaiNative.has(target));
+  if (!native || (source && !sameNativeFamily)) return null;
+  if (!Array.isArray(native.openaiTools)) return null;
+  return {
+    type: 'tool_search_output',
+    call_id: message.toolCallId || '',
+    status: 'completed',
+    execution: 'client',
+    tools: native.openaiTools,
+  };
+}

@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
-import { sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
+import { _acquireWithRetry, sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
+import { _sendFrame } from '../src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs';
 
 function close1006() {
     const err = new Error('WebSocket closed abnormally');
@@ -27,28 +28,153 @@ function wsArgs(overrides = {}) {
     };
 }
 
+test('acquire timeout reconnects successfully with progress, not a terminal WS error', async () => {
+    const oldWrite = process.stderr.write;
+    const oldQuiet = process.env.MIXDOG_QUIET_PROVIDER_LOG;
+    let stderr = '';
+    let attempts = 0;
+    const stages = [];
+    try {
+        delete process.env.MIXDOG_QUIET_PROVIDER_LOG;
+        process.stderr.write = (chunk) => {
+            stderr += String(chunk);
+            return true;
+        };
+        const result = await sendViaWebSocket(wsArgs({
+            onStageChange: (stage, detail) => stages.push({ stage, detail }),
+            _acquireWithRetryFn: (opts) => _acquireWithRetry({
+                ...opts,
+                maxAttempts: 2,
+                _sleepFn: async () => {},
+                _acquire: async () => {
+                    attempts += 1;
+                    if (attempts === 1) {
+                        throw Object.assign(new Error('OpenAI OAuth WS acquire timed out before open'), {
+                            code: 'EWSACQUIRETIMEOUT',
+                        });
+                    }
+                    return { entry: entry(), reused: false };
+                },
+            }),
+            _streamFn: async () => ({
+                content: 'recovered',
+                model: 'gpt-5.5',
+                toolCalls: [],
+                usage: {},
+                closeSocket: true,
+            }),
+        }));
+        assert.equal(result.content, 'recovered');
+        assert.equal(attempts, 2);
+        assert.deepEqual(
+            stages.filter(({ stage }) => stage === 'reconnecting'),
+            [{ stage: 'reconnecting', detail: {
+                attempt: 1,
+                max: 1,
+                classifier: 'acquire_timeout',
+                message: 'Reconnecting... 1/1',
+            } }],
+        );
+        assert.doesNotMatch(stderr, /Reconnecting/);
+        assert.doesNotMatch(stderr, /acquire timed out|handshake failed|terminal/i);
+    } finally {
+        process.stderr.write = oldWrite;
+        if (oldQuiet == null) delete process.env.MIXDOG_QUIET_PROVIDER_LOG;
+        else process.env.MIXDOG_QUIET_PROVIDER_LOG = oldQuiet;
+    }
+});
+
+for (const failure of ['callback error', 'callback timeout']) {
+    test(`send ${failure} drops the socket and retries on a fresh one`, async () => {
+        const acquires = [];
+        const sockets = [];
+        let acquireIndex = 0;
+        const result = await sendViaWebSocket(wsArgs({
+            _acquireWithRetryFn: async (opts) => {
+                acquires.push(opts.forceFresh);
+                const isFirst = acquireIndex++ === 0;
+                const socket = {
+                    readyState: 1,
+                    terminated: false,
+                    send(_payload, callback) {
+                        if (!isFirst) queueMicrotask(() => callback());
+                        else if (failure === 'callback error') {
+                            queueMicrotask(() => callback(new Error('write failed')));
+                        }
+                    },
+                    terminate() {
+                        this.terminated = true;
+                        this.readyState = 3;
+                    },
+                    close() {
+                        this.readyState = 3;
+                    },
+                };
+                sockets.push(socket);
+                return { entry: { socket }, reused: false };
+            },
+            _sendFrameFn: (wsEntry, frame, span) => _sendFrame(wsEntry, frame, span, 10),
+            _streamFn: async () => ({
+                content: 'recovered',
+                model: 'gpt-5.5',
+                toolCalls: [],
+                usage: {},
+                closeSocket: true,
+            }),
+        }));
+
+        assert.equal(result.content, 'recovered');
+        assert.deepEqual(acquires, [false, true]);
+        assert.equal(sockets[0].terminated, true);
+        assert.notEqual(sockets[1], sockets[0]);
+    });
+}
+
 test('pre-response 1006 opens a fresh WS and replays the same request', async () => {
     const acquires = [];
     const frames = [];
+    const stages = [];
+    let stderr = '';
+    const oldWrite = process.stderr.write;
     let streams = 0;
-    const result = await sendViaWebSocket(wsArgs({
-        _acquireWithRetryFn: async (opts) => {
-            acquires.push(opts.forceFresh);
-            return { entry: entry(), reused: false };
-        },
-        _sendFrameFn: async (_entry, frame) => { frames.push(frame); },
-        _streamFn: async () => {
-            streams += 1;
-            if (streams === 1) throw close1006();
-            return { content: 'recovered', model: 'gpt-5.5', toolCalls: [], usage: {}, closeSocket: true };
-        },
-    }));
+    let result;
+    try {
+        process.stderr.write = (chunk) => {
+            stderr += String(chunk);
+            return true;
+        };
+        result = await sendViaWebSocket(wsArgs({
+            onStageChange: (stage, detail) => stages.push({ stage, detail }),
+            _acquireWithRetryFn: async (opts) => {
+                acquires.push(opts.forceFresh);
+                return { entry: entry(), reused: false };
+            },
+            _sendFrameFn: async (_entry, frame) => { frames.push(frame); },
+            _streamFn: async () => {
+                streams += 1;
+                if (streams === 1) throw close1006();
+                return { content: 'recovered', model: 'gpt-5.5', toolCalls: [], usage: {}, closeSocket: true };
+            },
+        }));
+    } finally {
+        process.stderr.write = oldWrite;
+    }
 
     assert.equal(result.content, 'recovered');
     assert.deepEqual(acquires, [false, true], 'retry must acquire a fresh socket');
     assert.equal(frames.length, 2);
     assert.deepEqual(frames[1].input, frames[0].input, 'retry must replay the same input');
     assert.equal(result.__midstreamRetries, 1);
+    assert.deepEqual(
+        stages.filter(({ stage }) => stage === 'reconnecting'),
+        [{ stage: 'reconnecting', detail: {
+            attempt: 1,
+            max: 4,
+            classifier: 'ws_1006',
+            message: 'Reconnecting... 1/4',
+        } }],
+    );
+    assert.doesNotMatch(stderr, /mid-stream recovered|Reconnecting/);
 });
 
 test('successful iteration emits one compact send-spans row', async () => {
@@ -97,7 +223,7 @@ test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async ()
         provider.ensureAuth = async () => ({ access_token: 'test-token' });
         let streamAttempts = 0;
         let httpCalls = 0;
-        const result = await provider.send([], 'gpt-5.5', [], {
+        const sendOpts = {
             sessionId: 'openai-oauth-ws-1006-fallback-test',
             _prebuiltBody: { model: 'gpt-5.5', input: [], prompt_cache_key: 'openai-oauth-ws-1006-fallback-test' },
             _sendViaWebSocketFn: (args) => sendViaWebSocket({
@@ -114,16 +240,168 @@ test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async ()
                 httpCalls += 1;
                 return { content: 'http-recovered', toolCalls: [], usage: {} };
             },
-        });
+        };
+        const result = await provider.send([], 'gpt-5.5', [], sendOpts);
+        const stickyResult = await provider.send([], 'gpt-5.5', [], sendOpts);
 
         assert.equal(streamAttempts, 5, 'all bounded ws_1006 attempts must run before fallback');
-        assert.equal(httpCalls, 1);
+        assert.equal(httpCalls, 2);
         assert.equal(result.content, 'http-recovered');
+        assert.equal(stickyResult.content, 'http-recovered');
     } finally {
         for (const [name, value] of Object.entries(savedEnv)) {
             if (value == null) delete process.env[name];
             else process.env[name] = value;
         }
+    }
+});
+
+test('sticky HTTP fallback is isolated by session and expired entries are cleaned', async () => {
+    const savedEnv = Object.fromEntries([
+        'MIXDOG_OAI_TRANSPORT',
+        'MIXDOG_OPENAI_HTTP_FALLBACK',
+        'MIXDOG_OPENAI_OAUTH_WS_WARMUP',
+        'MIXDOG_AGENT_TRACE_DISABLE',
+    ].map((name) => [name, process.env[name]]));
+    Object.assign(process.env, {
+        MIXDOG_OAI_TRANSPORT: 'auto',
+        MIXDOG_OPENAI_HTTP_FALLBACK: '1',
+        MIXDOG_OPENAI_OAUTH_WS_WARMUP: '0',
+        MIXDOG_AGENT_TRACE_DISABLE: '1',
+    });
+    try {
+        const provider = new OpenAIOAuthProvider({});
+        provider.ensureAuth = async () => ({ access_token: 'test-token' });
+        const wsCalls = [];
+        const httpCalls = [];
+        let sessionAFailed = false;
+        const sendFor = (sessionId) => provider.send([], 'gpt-5.5', [], {
+            sessionId,
+            _prebuiltBody: { model: 'gpt-5.5', input: [], prompt_cache_key: sessionId },
+            _sendViaWebSocketFn: async () => {
+                wsCalls.push(sessionId);
+                if (sessionId === 'sticky-session-a' && !sessionAFailed) {
+                    sessionAFailed = true;
+                    throw Object.assign(new Error('ws retries exhausted'), {
+                        code: 'ECONNRESET',
+                        retryClassifier: 'reset',
+                        wsRetriesExhausted: true,
+                    });
+                }
+                return { content: `ws-${sessionId}`, toolCalls: [], usage: {} };
+            },
+            _sendViaHttpSseFn: async () => {
+                httpCalls.push(sessionId);
+                return { content: `http-${sessionId}`, toolCalls: [], usage: {} };
+            },
+        });
+
+        assert.equal((await sendFor('sticky-session-a')).content, 'http-sticky-session-a');
+        assert.equal((await sendFor('sticky-session-b')).content, 'ws-sticky-session-b');
+        assert.equal((await sendFor('sticky-session-a')).content, 'http-sticky-session-a');
+        assert.deepEqual(wsCalls, ['sticky-session-a', 'sticky-session-b']);
+        assert.deepEqual(httpCalls, ['sticky-session-a', 'sticky-session-a']);
+
+        provider._httpFallbackUntilByPoolKey.set('sticky-session-a', Date.now() - 1);
+        assert.equal((await sendFor('sticky-session-a')).content, 'ws-sticky-session-a');
+        assert.equal(provider._httpFallbackUntilByPoolKey.has('sticky-session-a'), false);
+    } finally {
+        for (const [name, value] of Object.entries(savedEnv)) {
+            if (value == null) delete process.env[name];
+            else process.env[name] = value;
+        }
+    }
+});
+
+test('close 1000 after tool dispatch refuses WS replay and HTTP fallback', async () => {
+    const savedEnv = Object.fromEntries([
+        'MIXDOG_OAI_TRANSPORT',
+        'MIXDOG_OPENAI_HTTP_FALLBACK',
+        'MIXDOG_OPENAI_OAUTH_WS_WARMUP',
+        'MIXDOG_AGENT_TRACE_DISABLE',
+    ].map((name) => [name, process.env[name]]));
+    Object.assign(process.env, {
+        MIXDOG_OAI_TRANSPORT: 'auto',
+        MIXDOG_OPENAI_HTTP_FALLBACK: '1',
+        MIXDOG_OPENAI_OAUTH_WS_WARMUP: '0',
+        MIXDOG_AGENT_TRACE_DISABLE: '1',
+    });
+    try {
+        const provider = new OpenAIOAuthProvider({});
+        provider.ensureAuth = async () => ({ access_token: 'test-token' });
+        let acquires = 0;
+        let httpCalls = 0;
+        await assert.rejects(
+            provider.send([], 'gpt-5.5', [], {
+                sessionId: 'openai-oauth-ws-1000-tool-test',
+                _prebuiltBody: { model: 'gpt-5.5', input: [], prompt_cache_key: 'openai-oauth-ws-1000-tool-test' },
+                _sendViaWebSocketFn: (args) => sendViaWebSocket({
+                    ...args,
+                    _acquireWithRetryFn: async () => {
+                        acquires += 1;
+                        return { entry: entry(), reused: false };
+                    },
+                    _sendFrameFn: async () => {},
+                    _streamFn: async ({ state }) => {
+                        state.sawResponseCreated = true;
+                        state.emittedToolCall = true;
+                        throw Object.assign(new Error('WebSocket closed normally before completion'), {
+                            wsCloseCode: 1000,
+                        });
+                    },
+                }),
+                _sendViaHttpSseFn: async () => {
+                    httpCalls += 1;
+                    return { content: 'unsafe fallback', toolCalls: [], usage: {} };
+                },
+            }),
+            (err) => err.wsCloseCode === 1000
+                && err.emittedToolCall === true
+                && err.unsafeToRetry === true,
+        );
+        assert.equal(acquires, 1);
+        assert.equal(httpCalls, 0);
+    } finally {
+        for (const [name, value] of Object.entries(savedEnv)) {
+            if (value == null) delete process.env[name];
+            else process.env[name] = value;
+        }
+    }
+});
+
+test('post-tool unknown-model errors never refresh or recursively replay', async () => {
+    for (const shape of [
+        { httpStatus: 404, message: 'not found' },
+        { message: 'model_not_found: unavailable model' },
+    ]) {
+        const provider = new OpenAIOAuthProvider({});
+        provider.ensureAuth = async () => ({ access_token: 'test-token' });
+        let wsCalls = 0;
+        let refreshCalls = 0;
+        provider._refreshModelCache = async () => {
+            refreshCalls += 1;
+            return [];
+        };
+        const unsafe = Object.assign(new Error(shape.message), shape, {
+            emittedToolCall: true,
+            unsafeToRetry: true,
+        });
+        await assert.rejects(
+            provider.send([], 'gpt-5.5', [], {
+                sessionId: `post-tool-model-${shape.httpStatus || 'message'}`,
+                _prebuiltBody: { model: 'gpt-5.5', input: [] },
+                _sendViaWebSocketFn: async () => {
+                    wsCalls += 1;
+                    throw unsafe;
+                },
+                _sendViaHttpSseFn: async () => {
+                    throw new Error('unsafe HTTP fallback');
+                },
+            }),
+            (err) => err === unsafe,
+        );
+        assert.equal(wsCalls, 1);
+        assert.equal(refreshCalls, 0);
     }
 });
 

@@ -353,19 +353,24 @@ export function toolSearchLoadedSummary(resultText) {
     parsed = JSON.parse(String(resultText || ''));
   } catch {
     const text = String(resultText || '');
-    const match = /^Loaded deferred tools:\s*(.+)$/m.exec(text);
-    if (!match) return '';
-    return [...new Set(match[1].split(',').map((name) => name.trim()).filter(Boolean))].join(', ');
+    const loaded = /^Loaded deferred tools:\s*(.+)$/m.exec(text)?.[1] || '';
+    const already = /^Already active:\s*(.+)$/m.exec(text)?.[1] || '';
+    return [
+      ...(loaded ? [`Loaded: ${loaded}`] : []),
+      ...(already ? [`Already active: ${already}`] : []),
+    ].join(' · ');
   }
   const tools = parsed?.selected?.tools;
   if (!tools || typeof tools !== 'object') return '';
-  const names = [
-    ...(Array.isArray(tools.added) ? tools.added : []),
-    ...(Array.isArray(tools.already) ? tools.already : []),
-  ]
+  const uniqueNames = (names) => [...new Set((Array.isArray(names) ? names : [])
     .map((name) => String(name || '').trim())
-    .filter(Boolean);
-  return [...new Set(names)].join(', ');
+    .filter(Boolean))];
+  const loaded = uniqueNames(tools.added);
+  const already = uniqueNames(tools.already);
+  return [
+    ...(loaded.length ? [`Loaded: ${loaded.join(', ')}`] : []),
+    ...(already.length ? [`Already active: ${already.join(', ')}`] : []),
+  ].join(' · ');
 }
 
 export function agentTerminalDetail(status, isError, elapsed, error = '') {

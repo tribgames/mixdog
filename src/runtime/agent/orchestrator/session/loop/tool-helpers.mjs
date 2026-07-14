@@ -29,11 +29,24 @@ export function isEagerDispatchable(name, tools) {
         for (const t of tools) {
             if (t?.annotations?.readOnlyHint === true && typeof t.name === 'string') {
                 set.add(t.name);
+                // `tool_search` is the legacy provider/runtime call name for the
+                // active `load_tool` schema; both must share eager semantics.
+                if (t.name === 'load_tool') set.add('tool_search');
+                else if (t.name === 'tool_search') set.add('load_tool');
             }
         }
         _eagerNameSetByTools.set(tools, set);
     }
     return set.has(name);
+}
+
+// Read-only is necessary but not sufficient for result deduplication. Loader
+// calls mutate the active session tool surface and must execute on every
+// explicit invocation so repeats can truthfully report `alreadyActive`.
+export function isToolCallDedupEligible(name, tools) {
+    return name !== 'load_tool'
+        && name !== 'tool_search'
+        && isEagerDispatchable(name, tools);
 }
 export function messagesArrayChanged(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
@@ -114,7 +127,8 @@ export function parseNativeToolSearchPayload(toolName, result) {
             && tool.name.trim()
             && (tool.type === undefined || typeof tool.type === 'string')
         ));
-        if (!toolReferences.length && !openaiTools.length) return null;
+        const provider = typeof native.provider === 'string' ? native.provider.trim().toLowerCase() : '';
+        if (!toolReferences.length && !openaiTools.length && !provider) return null;
         const baseSummary = typeof native.summary === 'string' && native.summary
             ? native.summary
             : `Loaded deferred tools: ${toolReferences.join(', ') || openaiTools.map((tool) => tool.name).filter(Boolean).join(', ')}`;
@@ -140,6 +154,7 @@ export function parseNativeToolSearchPayload(toolName, result) {
         if (blocked.length) extraLines.push(`blocked: ${blocked.join(', ')}`);
         const summary = extraLines.length ? `${baseSummary}\n${extraLines.join('; ')}` : baseSummary;
         return {
+            provider,
             toolReferences,
             openaiTools,
             summary,

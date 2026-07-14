@@ -11,11 +11,12 @@ import { tryReadCached, tryScopedToolCached } from './read-dedup.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { crossTurnSignature } from './loop/completion-guards.mjs';
-import { getToolKind, isEagerDispatchable } from './loop/tool-helpers.mjs';
+import { getToolKind, isEagerDispatchable, isToolCallDedupEligible } from './loop/tool-helpers.mjs';
 
 export function createEagerDispatcher({
     tools, cwd, sessionId, sessionRef, signal, opts,
     crossTurnCalls, getIterations, getNextIteration, repeatFailLimit,
+    executeToolFn = executeTool,
 }) {
         const pending = new Map();
         // Streaming-time intra-turn dedup. When the LLM emits two
@@ -24,7 +25,9 @@ export function createEagerDispatcher({
         // the iter for-body runs, so the batch-level pre-pass would be
         // too late to prevent the eager dispatch of the second one.
         // Track signatures of in-flight eager calls and skip starting a
-        // second one for the same sig. The duplicate's executeTool is
+        // second one for the same sig. Loader calls are the narrow exception:
+        // each invocation must run and report loaded vs already-active state.
+        // Every other duplicate's executeTool is
         // never invoked; the for-body's pre-pass marks it as a duplicate
         // and emits a stub tool_result. The sig is NOT cleared when the
         // eager promise settles (see finally below): a streaming onToolCall
@@ -43,7 +46,8 @@ export function createEagerDispatcher({
             // body handles it via the invalid-args feedback path.
             if (isInvalidToolArgsMarker(call.arguments)) return null;
             const _sig = _intraTurnSig(call.name, call.arguments);
-            if (_eagerInFlightSigs.has(_sig)) return null;
+            const _dedupEligible = isToolCallDedupEligible(call.name, tools);
+            if (_dedupEligible && _eagerInFlightSigs.has(_sig)) return null;
             // Repeat-failure guard also gates eager dispatch (reviewer-flagged):
             // streaming onToolCall / startEagerRun would otherwise re-run an
             // identical read-only call that already failed repeatFailLimit
@@ -59,7 +63,7 @@ export function createEagerDispatcher({
             // re-executed — the serial for-body pushes the [cross-turn-dedup]
             // stub instead. Without this gate startEagerRun/onToolCall would
             // re-run the call before the serial dedup check ever sees it.
-            {
+            if (isToolCallDedupEligible(call.name, tools)) {
                 const _ctSig = crossTurnSignature(call.name, call.arguments);
                 const _prior = crossTurnCalls.get(_ctSig);
                 if (_prior && _prior.firstIteration < getIterations()) return null;
@@ -87,10 +91,10 @@ export function createEagerDispatcher({
             // this call there, never start it eagerly here.
             if (preDispatchDenyForSession(sessionRef, call, toolKind) !== null) return null;
             const entry = { startedAt: Date.now(), endedAt: null, mutationEpoch: epoch.mutation };
-            _eagerInFlightSigs.set(_sig, call.id);
+            if (_dedupEligible) _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
-                    return { ok: true, value: await executeTool(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration() }) };
+                    return { ok: true, value: await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, { toolCallId: call.id, signal, notifyFn: opts.notifyFn, toolApprovalHook: opts.onToolApproval, iteration: getNextIteration() }) };
                 } catch (error) {
                     return { ok: false, error };
                 }

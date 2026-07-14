@@ -117,7 +117,7 @@ function functionToolFromSessionTool(t, name = t?.name) {
 export function toResponsesTools(tools, options = {}) {
     const provider = String(options?.provider || '').toLowerCase();
     const allowNativeToolSearch = options?.nativeToolSearch === true
-        || (options?.nativeToolSearch !== false && provider !== 'xai');
+        || (options?.nativeToolSearch !== false && (provider === 'openai' || provider === 'openai-oauth'));
     return tools.map((t) => {
         // load_tool advertises as the OpenAI-native `tool_search` wire type
         // (legacy 'tool_search' name still accepted for back-compat). xAI/Grok

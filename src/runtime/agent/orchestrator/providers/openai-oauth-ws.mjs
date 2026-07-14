@@ -570,6 +570,7 @@ export async function _acquireWithRetry({
                 if (err && typeof err === 'object') {
                     try { err.attempts = attempt; } catch {}
                     try { err.retryClassifier = classifier; } catch {}
+                    try { err.wsRetriesExhausted = true; } catch {}
                 }
                 try {
                     if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(
@@ -581,14 +582,9 @@ export async function _acquireWithRetry({
             // Schedule backoff and emit progress.
             const backoff = _backoffFor(attempt);
             try {
-                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(
-                    `[openai-oauth-ws] worker retry ${attempt}/${attemptCap} (transient: ${classifier}, backoff ${backoff}ms)\n`,
-                );
-            } catch {}
-            try {
                 onRetry?.({
                     attempt,
-                    max: attemptCap,
+                    max: attemptCap - 1,
                     classifier,
                     backoffMs: backoff,
                     error: err,
@@ -652,12 +648,6 @@ export async function sendViaWebSocket({
     traceProvider = 'openai-oauth',
     logSuppressedReasoningDeltas = true,
     warmupBody = null,
-    // Fast-fallback: when the caller has HTTP/SSE fallback enabled, cap the
-    // handshake acquire retry loop to a single attempt so a first
-    // acquire/first-byte failure surfaces immediately instead of burning the
-    // full exponential-backoff budget (measured 16.4s) before the caller can
-    // race HTTP. WS-only callers leave this false → full HANDSHAKE_MAX_ATTEMPTS.
-    fastFallback = false,
     // Test seams (undefined in production). Let the unit test drive the
     // retry state machine without opening real sockets or touching the
     // handshake-retry layer.
@@ -714,7 +704,6 @@ export async function sendViaWebSocket({
     // warmed. openai-oauth / openai-direct anchor by per-socket session_id, where
     // this carry-forward would not help and is therefore gated to xAI.
     let carryForwardCache = null;
-    const emittedProgress = [];
     const useCodexWsClientMetadata = traceProvider === 'openai-oauth';
     const codexMetadataContext = { poolKey, cacheKey, sendOpts };
     const codexHandshakeHeaders = useCodexWsClientMetadata
@@ -760,6 +749,22 @@ export async function sendViaWebSocket({
             });
         } catch {}
     };
+    // Single caller-visible recovery path for both handshake/acquire retries
+    // and retryable stream failures. The session/TUI stage bridge renders this
+    // as non-terminal reconnect progress; transport code must not also print it
+    // to stderr.
+    const emitReconnectProgress = ({ attempt, max, classifier }) => {
+        const retryAttempt = Number(attempt) || 1;
+        const retryMax = Number(max) || 1;
+        try {
+            onStageChange?.('reconnecting', {
+                attempt: retryAttempt,
+                max: retryMax,
+                classifier: classifier || null,
+                message: `Reconnecting... ${retryAttempt}/${retryMax}`,
+            });
+        } catch {}
+    };
 
     for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
         const handshakeStart = performance.now();
@@ -778,16 +783,14 @@ export async function sendViaWebSocket({
                 // one is either torn down or in an unknown state.
                 forceFresh: forceFresh || attemptIndex > 0,
                 externalSignal,
-                // Fast-fallback caps the handshake acquire loop at 1 attempt so
-                // the caller can race HTTP immediately instead of waiting out
-                // the full backoff budget. Only the FIRST midstream attempt is
-                // capped — a midstream retry (attemptIndex>0) is already past
-                // the fallback decision and keeps the normal budget.
-                maxAttempts: (fastFallback && attemptIndex === 0) ? 1 : HANDSHAKE_MAX_ATTEMPTS,
+                maxAttempts: HANDSHAKE_MAX_ATTEMPTS,
                 onRetry: (info) => {
                     handshakeRetries += 1;
                     sendSpan.handshakeRetries += 1;
                     if (info?.classifier) handshakeRetryClassifiers.push(info.classifier);
+                    const attempt = Number(info?.attempt) || handshakeRetries;
+                    const max = Number(info?.max) || Math.max(HANDSHAKE_MAX_ATTEMPTS - 1, 1);
+                    emitReconnectProgress({ attempt, max, classifier: info?.classifier });
                 },
                 onBackoffSlept: (ms) => { sendSpan.retryBackoffMs += ms; },
             });
@@ -813,6 +816,9 @@ export async function sendViaWebSocket({
             // the caller's turn actually tripped on).
             if (attemptIndex > 0 && firstAttemptError) {
                 try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
+                if (err?.wsRetriesExhausted === true) {
+                    try { firstAttemptError.wsRetriesExhausted = true; } catch {}
+                }
                 emitSendSpan('error');
                 throw _stampTool(_stampLiveText(firstAttemptError));
             }
@@ -1109,16 +1115,7 @@ export async function sendViaWebSocket({
             _stampTool(err);
             const classifier = _classifyMidstreamError(err, midState);
             const retryLimit = classifier ? _midstreamRetryLimit(classifier) : 0;
-            // Fast-fallback: a first-byte timeout on the FIRST attempt means the
-            // socket opened but the server never ACKed — race HTTP now instead
-            // of burning a midstream retry (fresh acquire + first-byte window).
-            // Only suppresses the first_byte_timeout bucket on attemptIndex 0;
-            // ws_1006/1011 mid-stream drops still retry (a live socket that died
-            // is cheaper to re-acquire than to cold-fall-back).
-            const fastFallbackSkipRetry = fastFallback
-                && attemptIndex === 0
-                && (classifier === 'first_byte_timeout' || err?.firstByteTimeout === true);
-            if (classifier && attemptIndex < retryLimit && !fastFallbackSkipRetry) {
+            if (classifier && attemptIndex < retryLimit) {
                 // Retry-eligible: stash the first-attempt error, emit progress,
                 // and loop. The subsequent acquire uses forceFresh so no socket
                 // is shared between attempts.
@@ -1127,11 +1124,11 @@ export async function sendViaWebSocket({
                 try { err.midstreamClassifier = classifier; } catch {}
                 const retryNumber = attemptIndex + 1;
                 const backoff = _midstreamBackoffFor(retryNumber);
-                try {
-                    const line = `[openai-oauth-ws] mid-stream recovered: retry ${retryNumber}/${retryLimit} (cause: ${classifier}, backoff ${backoff}ms)\n`;
-                    if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(line);
-                    emittedProgress.push(line);
-                } catch {}
+                emitReconnectProgress({
+                    attempt: retryNumber,
+                    max: retryLimit,
+                    classifier,
+                });
                 const sleepStart = performance.now();
                 try {
                     await _sleepWithAbort(backoff, externalSignal, _sleepFn);
@@ -1149,6 +1146,9 @@ export async function sendViaWebSocket({
                 // the user's turn actually tripped on), tag actual retry count.
                 try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
                 try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
+                if (attemptIndex >= _midstreamRetryLimit(firstAttemptClassifier)) {
+                    try { firstAttemptError.wsRetriesExhausted = true; } catch {}
+                }
                 // Attach the retry attempt's error so post-mortem diagnostics
                 // can see WHY the retry also failed instead of silently
                 // dropping it. Use `cause` if free, else `suppressed`.

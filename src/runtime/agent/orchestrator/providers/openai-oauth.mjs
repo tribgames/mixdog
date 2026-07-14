@@ -51,6 +51,8 @@ import {
     customToolInputFromArguments,
     isCustomToolCallRecord,
     isResponsesFreeformTool,
+    nativeToolSearchCallInput,
+    nativeToolSearchOutputInput,
     toResponsesCustomTool,
 } from './custom-tool-wire.mjs';
 import {
@@ -401,6 +403,15 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
                 if (mediaContent) pendingToolMedia.push(...mediaContent);
                 continue;
             }
+            const nativeSearchOutput = nativeToolSearchOutputInput(
+                m,
+                opts.nativeToolSearchProvider || 'openai-oauth',
+            );
+            if (nativeSearchOutput) {
+                out.push(nativeSearchOutput);
+                if (mediaContent) pendingToolMedia.push(...mediaContent);
+                continue;
+            }
             out.push({
                 type: 'function_call_output',
                 call_id: m.toolCallId || '',
@@ -419,7 +430,10 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
             // reasoning in `input` triggers "Duplicate item".
             if (m.content) out.push(wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, { role: 'assistant' })));
             for (const tc of m.toolCalls) {
-                if (isCustomToolCallRecord(tc)) {
+                const nativeSearchCall = nativeToolSearchCallInput(tc);
+                if (nativeSearchCall) {
+                    out.push(nativeSearchCall);
+                } else if (isCustomToolCallRecord(tc)) {
                     if (tc.id) customToolCallNameById.set(tc.id, tc.name || '');
                     out.push({
                         type: 'custom_tool_call',
@@ -450,8 +464,8 @@ function convertMessagesToResponsesInput(messages, opts = {}) {
 function toOpenAIResponsesTool(t) {
     if (t?.name === 'load_tool' || t?.name === 'tool_search') {
         return {
-            type: 'function',
-            name: 'load_tool',
+            type: 'tool_search',
+            execution: 'client',
             description: t.description,
             parameters: t.inputSchema,
         };
@@ -464,6 +478,8 @@ function toOpenAIResponsesTool(t) {
         parameters: t.inputSchema,
     };
 }
+
+export const _convertMessagesToResponsesInputForTest = convertMessagesToResponsesInput;
 
 // codex build_reasoning() (core/src/client.rs:785-805) only attaches the
 // reasoning object when model_info.supports_reasoning_summaries; models
@@ -501,6 +517,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     const input = convertMessagesToResponsesInput(messages, {
         providerState: opts.providerState,
         model,
+        nativeToolSearchProvider: opts.promptCacheProvider || 'openai-oauth',
     });
     // Match the request body shape the OAuth backend expects so the
     // server-side auto-cache routes correctly. text.verbosity / include /
@@ -625,8 +642,11 @@ export class OpenAIOAuthProvider {
     name = 'openai-oauth';
     tokens = null;
     _refreshFallbackUntil = 0;
-    _forceHttpFallback = false;
-    _forceHttpFallbackUntil = 0;
+    // Sticky transport fallback is isolated by the WS pool/session key. A
+    // provider instance is shared across concurrent sessions, so singleton
+    // booleans here would let one unhealthy session force every other session
+    // onto HTTP.
+    _httpFallbackUntilByPoolKey = new Map();
     config;
     constructor(config) {
         this.config = config || {};
@@ -801,17 +821,17 @@ export class OpenAIOAuthProvider {
             return result;
         };
         const httpFallbackActive = () => {
-            if (this._forceHttpFallbackUntil > Date.now()) return true;
-            if (this._forceHttpFallback || this._forceHttpFallbackUntil) {
-                this._forceHttpFallback = false;
-                this._forceHttpFallbackUntil = 0;
+            if (!poolKey) return false;
+            const now = Date.now();
+            for (const [key, expiresAt] of this._httpFallbackUntilByPoolKey) {
+                if (!(expiresAt > now)) this._httpFallbackUntilByPoolKey.delete(key);
             }
-            return false;
+            return (this._httpFallbackUntilByPoolKey.get(poolKey) || 0) > now;
         };
         const markStickyHttpFallback = () => {
+            if (!poolKey) return;
             const ttlMs = _envPositiveInt('MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK_STICKY_MS', 60_000);
-            this._forceHttpFallback = true;
-            this._forceHttpFallbackUntil = Date.now() + ttlMs;
+            this._httpFallbackUntilByPoolKey.set(poolKey, Date.now() + ttlMs);
         };
         const traceWsError = (err, stage = 'primary') => {
             try {
@@ -898,9 +918,8 @@ export class OpenAIOAuthProvider {
             // a fresh WS entry; only after the bounded WS retry budget is
             // exhausted does openai-oauth fall back to HTTP/SSE. This preserves
             // the hot WS/cache path for temporary blips while still preventing
-            // TUI-level hangs. Operators can opt into immediate HTTP fallback
-            // for diagnostics with MIXDOG_OPENAI_OAUTH_FAST_HTTP_FALLBACK=1.
-            fastFallback: httpFallbackEnabled && _envFlag('MIXDOG_OPENAI_OAUTH_FAST_HTTP_FALLBACK', false),
+            // TUI-level hangs. Sticky HTTP fallback is only armed after this
+            // bounded reconnect budget is exhausted.
             // codex-parity prewarm (generate:false full frame on a fresh
             // socket, wire-verified 2026-07-03). DEFAULT ON: R19(off) vs
             // R20(on) A/B shows prewarm removes ALL early-session zero-cache
@@ -951,7 +970,9 @@ export class OpenAIOAuthProvider {
                     return recordLiveModel(result);
                 } catch (retryErr) {
                     traceWsError(retryErr, 'auth_retry');
-                    if (httpFallbackEnabled && _shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {
+                    if (httpFallbackEnabled
+                        && retryErr?.wsRetriesExhausted === true
+                        && _shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {
                         try {
                             return await dispatchHttp(
                                 retryErr?.retryClassifier || retryErr?.code || retryErr?.message || 'ws_auth_retry_failed',
@@ -973,32 +994,18 @@ export class OpenAIOAuthProvider {
             const msg = err?.message || '';
             const isUnknownModel = status === 404
                 || /unknown[_\s-]?model|model[_\s-]?not[_\s-]?found/i.test(msg);
-            if (isUnknownModel && !opts._modelRetry) {
+            // Catalog recovery reissues the full turn. Once any text/tool
+            // output has escaped, that replay can duplicate rendered output or
+            // a dispatched side effect, so honor the same unsafe gate as auth
+            // retry and transport fallback.
+            if (isUnknownModel && !opts._modelRetry && !liveTextEmitted) {
                 process.stderr.write(`[openai-oauth-ws] unknown model — refreshing catalog + 1 retry\n`);
                 await this._refreshModelCache();
                 return this.send(messages, model, tools, { ...opts, _modelRetry: true });
             }
-            if (httpFallbackEnabled && _shouldUseOpenAIHttpFallback(err, externalSignal)) {
-                // Fast-path trace: the WS handshake acquire/first-byte failed on
-                // its FIRST attempt while fast-fallback was armed, so the
-                // remaining backoff retries were skipped and HTTP starts now.
-                // err.attempts===1 means the capped single-attempt path fired.
-                if (httpFallbackEnabled && Number(err?.attempts) === 1) {
-                    appendAgentTrace({
-                        sessionId: poolKey,
-                        iteration,
-                        kind: 'ws_fallback_fast',
-                        provider: 'openai-oauth',
-                        model: useModel,
-                        transport: 'websocket',
-                        elapsed_ms: Date.now() - _t1,
-                        payload: {
-                            elapsed_ms: Date.now() - _t1,
-                            classifier: err?.retryClassifier || err?.midstreamClassifier || null,
-                            code: err?.code || null,
-                        },
-                    });
-                }
+            if (httpFallbackEnabled
+                && err?.wsRetriesExhausted === true
+                && _shouldUseOpenAIHttpFallback(err, externalSignal)) {
                 try {
                     return await dispatchHttp(
                         err?.retryClassifier || err?.midstreamClassifier || err?.code || err?.message || 'ws_failed',

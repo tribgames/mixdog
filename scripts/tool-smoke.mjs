@@ -44,6 +44,11 @@ import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.m
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
 import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
 import { recursiveWrapperToolNameForPublicAgent } from '../src/runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
+import {
+  applyDeferredToolSurface,
+  reconcileDeferredMcpToolCatalog,
+} from '../src/session-runtime/tool-catalog.mjs';
+import { prepareDeferredToolCallThrough } from '../src/runtime/agent/orchestrator/session/loop/deferred-call-through.mjs';
 import { composeSystemPrompt } from '../src/runtime/agent/orchestrator/context/collect.mjs';
 import { setInternalToolsProvider } from '../src/runtime/agent/orchestrator/internal-tools.mjs';
 import { prepareAgentSession } from '../src/runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
@@ -1940,7 +1945,8 @@ if (!/offset/i.test(webFetchProps.startIndex?.description || '') || !/Maximum ch
 }
 if (!/deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
   || !TOOL_SEARCH_TOOL.inputSchema?.properties?.names
-  || !TOOL_SEARCH_TOOL.inputSchema?.properties?.select) {
+  || !TOOL_SEARCH_TOOL.inputSchema?.properties?.select
+  || TOOL_SEARCH_TOOL.inputSchema?.additionalProperties !== false) {
   throw new Error('load_tool schema must preserve loader guidance plus names + legacy select fields');
 }
 const toolSearchSession = {
@@ -1994,6 +2000,7 @@ if (!Array.isArray(toolSearchSession.deferredDiscoveredTools) || !toolSearchSess
   throw new Error('tool_search must persist discovered tool state on the session');
 }
 const nativeToolSearchSession = {
+  provider: 'openai-oauth',
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
   deferredToolCatalog: smokeCatalog.slice(),
   deferredSelectedTools: [...fullDefaults],
@@ -2001,20 +2008,109 @@ const nativeToolSearchSession = {
   deferredProviderMode: 'native',
   deferredNativeTools: true,
 };
+nativeToolSearchSession.deferredCallableTools = nativeToolSearchSession.tools.map((tool) => tool.name);
+const nativeBaseToolsJson = JSON.stringify(nativeToolSearchSession.tools);
+const nativeBaseRequest = buildRequestBody(
+  [{ role: 'user', content: 'load shell' }],
+  'gpt-5.4',
+  nativeToolSearchSession.tools,
+  { sessionId: 'deferred-stability', session: nativeToolSearchSession },
+);
 const nativeSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'shell,recall' }, nativeToolSearchSession, 'full'));
-if (nativeSelectResult.activeTools.includes('shell') || nativeSelectResult.activeTools.includes('recall')) {
-  throw new Error(`native tool_search must not mutate active tool schemas: ${JSON.stringify(nativeSelectResult)}`);
-}
 for (const name of ['shell', 'task', 'recall']) {
-  if (!nativeSelectResult.discoveredTools.includes(name)) {
-    throw new Error(`native tool_search missing discovered ${name}: ${JSON.stringify(nativeSelectResult)}`);
+  if (!nativeSelectResult.activeTools.includes(name)) {
+    throw new Error(`native load_tool must register ${name} as callable: ${JSON.stringify(nativeSelectResult)}`);
   }
+}
+if (JSON.stringify(nativeToolSearchSession.tools) !== nativeBaseToolsJson
+  || nativeToolSearchSession.tools.some((tool) => tool?.name === 'shell')) {
+  throw new Error(`native load_tool must keep the base tools array byte-stable: ${JSON.stringify(nativeToolSearchSession.tools)}`);
 }
 if (!nativeSelectResult.nativeToolSearch?.openaiTools?.some((tool) => tool?.name === 'shell' && tool?.defer_loading === true)) {
   throw new Error(`native tool_search must return OpenAI loadable deferred tools: ${JSON.stringify(nativeSelectResult.nativeToolSearch)}`);
 }
 if (!nativeSelectResult.nativeToolSearch?.toolReferences?.includes('shell')) {
   throw new Error(`native tool_search must return Anthropic tool references: ${JSON.stringify(nativeSelectResult.nativeToolSearch)}`);
+}
+const nativeToolCountAfterFirstLoad = nativeToolSearchSession.tools.length;
+const nativeRepeatResult = JSON.parse(__renderToolSearchForTest({ select: 'shell,recall' }, nativeToolSearchSession, 'full'));
+if (nativeRepeatResult.loaded.length
+  || !['shell', 'task', 'recall'].every((name) => nativeRepeatResult.alreadyActive.includes(name))
+  || nativeRepeatResult.nativeToolSearch
+  || nativeToolSearchSession.tools.length !== nativeToolCountAfterFirstLoad) {
+  throw new Error(`repeated native load_tool must report already-active without reinjection: ${JSON.stringify(nativeRepeatResult)}`);
+}
+const nativeHistory = [
+  { role: 'user', content: 'load shell' },
+  {
+    role: 'assistant',
+    content: '',
+    toolCalls: [{ id: 'search-1', name: 'load_tool', arguments: { names: ['shell'] }, nativeType: 'tool_search_call' }],
+  },
+  {
+    role: 'tool',
+    toolCallId: 'search-1',
+    content: nativeSelectResult.nativeToolSearch.summary,
+    nativeToolSearch: nativeSelectResult.nativeToolSearch,
+  },
+];
+const nativeFollowupRequest = buildRequestBody(
+  nativeHistory,
+  'gpt-5.4',
+  nativeToolSearchSession.tools,
+  { sessionId: 'deferred-stability', session: nativeToolSearchSession },
+);
+if (JSON.stringify(nativeFollowupRequest.tools) !== JSON.stringify(nativeBaseRequest.tools)
+  || nativeFollowupRequest.prompt_cache_key !== nativeBaseRequest.prompt_cache_key) {
+  throw new Error('OpenAI native loading must not change tools or prompt_cache_key');
+}
+const nativeOutput = nativeFollowupRequest.input.find((item) => item?.type === 'tool_search_output');
+if (!nativeOutput?.tools?.some((tool) => tool?.name === 'shell')
+  || nativeFollowupRequest.tools.some((tool) => tool?.name === 'shell')) {
+  throw new Error(`OpenAI loaded schemas must exist only in tool_search_output history: ${JSON.stringify(nativeFollowupRequest)}`);
+}
+const directMcpSession = {
+  provider: 'openai-oauth',
+  toolSpec: 'full',
+  tools: [{ name: 'load_tool', inputSchema: { type: 'object', properties: {} } }],
+  deferredToolCatalog: [
+    { name: 'load_tool', inputSchema: { type: 'object', properties: {} } },
+    { name: 'mcp__demo__ping', annotations: { readOnlyHint: true }, inputSchema: { type: 'object', properties: {} } },
+  ],
+  deferredCallableTools: ['load_tool', 'mcp__demo__ping'],
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+};
+prepareDeferredToolCallThrough(directMcpSession, 'mcp__demo__ping', {});
+if (directMcpSession.tools.some((tool) => tool?.name === 'mcp__demo__ping')
+  || !directMcpSession.deferredCallableTools.includes('mcp__demo__ping')) {
+  throw new Error('subsequent native MCP calls must use the callable registry without session.tools promotion');
+}
+const readonlyReportingSession = {
+  tools: [TOOL_SEARCH_TOOL],
+  deferredToolCatalog: smokeCatalog.slice(),
+  deferredSelectedTools: ['load_tool'],
+};
+const readonlyReportingResult = JSON.parse(__renderToolSearchForTest(
+  { names: ['shell', 'definitely_missing_tool'] },
+  readonlyReportingSession,
+  'readonly',
+  {
+    mcpStatus: () => ({
+      servers: [
+        { name: 'connecting-mcp', status: 'disconnected' },
+        { name: 'failed-mcp', status: 'failed' },
+      ],
+    }),
+  },
+));
+if (!readonlyReportingResult.blocked?.some((entry) => entry?.name === 'shell' && entry?.reason === 'readonly mode')
+  || !readonlyReportingResult.missing.includes('definitely_missing_tool')
+  || !readonlyReportingResult.pendingMcpServers?.includes('connecting-mcp')
+  || !readonlyReportingResult.failedMcpServers?.includes('failed-mcp')
+  || !/retry next turn/i.test(readonlyReportingResult.note || '')
+  || !/unavailable/i.test(readonlyReportingResult.note || '')) {
+  throw new Error(`load_tool must preserve readonly and MCP status reporting: ${JSON.stringify(readonlyReportingResult)}`);
 }
 const nativePatchSearchSession = {
   provider: 'openai-oauth',
@@ -2033,24 +2129,17 @@ if (nativePatchTool?.type !== 'custom' || nativePatchTool?.format?.syntax !== 'l
 if (nativePatchTool.defer_loading === true || nativePatchTool.parameters) {
   throw new Error(`native tool_search custom apply_patch must not be downgraded to deferred function schema: ${JSON.stringify(nativePatchTool)}`);
 }
-const nativeGrokPatchSearchSession = {
-  provider: 'grok-oauth',
-  tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name) && tool?.name !== 'apply_patch'),
-  deferredToolCatalog: smokeCatalog.slice(),
-  deferredSelectedTools: [...fullDefaults].filter((name) => name !== 'apply_patch'),
-  deferredDiscoveredTools: [],
-  deferredProviderMode: 'native',
-  deferredNativeTools: true,
-};
-const nativeGrokPatchSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'apply_patch' }, nativeGrokPatchSearchSession, 'full'));
-const nativeGrokPatchTool = nativeGrokPatchSelectResult.nativeToolSearch?.openaiTools?.find((tool) => tool?.name === 'apply_patch');
-if (nativeGrokPatchTool?.type !== 'function' || nativeGrokPatchTool?.format || nativeGrokPatchTool?.defer_loading !== true) {
-  throw new Error(`Grok native tool_search apply_patch must use JSON function schema, not OpenAI custom: ${JSON.stringify(nativeGrokPatchTool)}`);
+const grokCanonicalSession = { provider: 'grok-oauth', tools: [], messages: [] };
+applyDeferredToolSurface(grokCanonicalSession, 'full', smokeCatalog, { provider: 'grok-oauth' });
+const grokCanonicalJson = JSON.stringify(grokCanonicalSession.tools);
+const grokLoadResult = JSON.parse(__renderToolSearchForTest({ names: ['apply_patch'] }, grokCanonicalSession, 'full'));
+if (grokCanonicalSession.deferredNativeTools
+  || grokLoadResult.nativeToolSearch
+  || JSON.stringify(grokCanonicalSession.tools) !== grokCanonicalJson
+  || !grokLoadResult.alreadyActive.includes('apply_patch')) {
+  throw new Error(`Grok must use a fixed canonical ordinary-function surface: ${JSON.stringify(grokLoadResult)}`);
 }
-if (nativeGrokPatchTool.parameters?.properties?.patch?.type !== 'string') {
-  throw new Error(`Grok native tool_search apply_patch must preserve patch JSON schema: ${JSON.stringify(nativeGrokPatchTool)}`);
-}
-// Native query-select discovers (without mutating active schemas); aliases expand.
+// Native query-select explicitly loads onto the active surface; aliases expand.
 const nativeSelectQuerySession = {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
   deferredToolCatalog: smokeCatalog.slice(),
@@ -2061,12 +2150,9 @@ const nativeSelectQuerySession = {
 };
 const nativeSelectQueryResult = JSON.parse(__renderToolSearchForTest({ query: 'select:search' }, nativeSelectQuerySession, 'full'));
 for (const name of ['search', 'web_fetch']) {
-  if (!nativeSelectQueryResult.discoveredTools.includes(name)) {
-    throw new Error(`native tool_search query-select should discover ${name}: ${JSON.stringify(nativeSelectQueryResult)}`);
+  if (!nativeSelectQueryResult.activeTools.includes(name)) {
+    throw new Error(`native tool_search query-select should load ${name}: ${JSON.stringify(nativeSelectQueryResult)}`);
   }
-}
-if (nativeSelectQueryResult.activeTools.includes('search') || nativeSelectQueryResult.activeTools.includes('web_fetch')) {
-  throw new Error(`native tool_search must not mutate active schemas: ${JSON.stringify(nativeSelectQueryResult)}`);
 }
 if (!nativeSelectQueryResult.nativeToolSearch?.toolReferences?.includes('search')) {
   throw new Error(`native query-select must return nativeToolSearch payload: ${JSON.stringify(nativeSelectQueryResult.nativeToolSearch)}`);
@@ -2083,6 +2169,9 @@ const nativeLateMcpSearchSession = {
   deferredNativeTools: true,
 };
 const nativeLateMcpSelectResult = JSON.parse(__renderToolSearchForTest({ names: ['mcp__late__ping'] }, nativeLateMcpSearchSession, 'full'));
+if (nativeLateMcpSearchSession.tools.some((tool) => tool?.name === 'mcp__late__ping')) {
+  throw new Error(`native late MCP load must not promote its schema onto session.tools: ${JSON.stringify(nativeLateMcpSearchSession.tools)}`);
+}
 if (!nativeLateMcpSelectResult.nativeToolSearch?.toolReferences?.includes('mcp__late__ping')) {
   throw new Error(`native late MCP load must include nativeToolSearch payload: ${JSON.stringify(nativeLateMcpSelectResult)}`);
 }
@@ -2103,6 +2192,22 @@ for (const q of ['run tests', 'web docs', 'memory previous', 'status']) {
   if (r.selected || r.discoveredTools.length) {
     throw new Error(`native tool_search plain query "${q}" must not auto-load/discover: ${JSON.stringify(r)}`);
   }
+}
+const geminiManifestSession = { provider: 'gemini', tools: [], messages: [] };
+const manifestBase = [
+  { name: 'load_tool', inputSchema: { type: 'object', properties: {} } },
+  { name: 'read', annotations: { readOnlyHint: true }, inputSchema: { type: 'object', properties: {} } },
+];
+applyDeferredToolSurface(geminiManifestSession, 'full', manifestBase, { provider: 'gemini' });
+const geminiTurnManifest = JSON.stringify(geminiManifestSession.tools);
+const geminiLate = { name: 'mcp__gemini__late', inputSchema: { type: 'object', properties: {} } };
+// Continuations use the same array; only the next user-turn reconciliation may replace it.
+if (JSON.stringify(geminiManifestSession.tools) !== geminiTurnManifest) {
+  throw new Error('Gemini manifest changed within a user turn');
+}
+reconcileDeferredMcpToolCatalog(geminiManifestSession, [geminiLate]);
+if (!geminiManifestSession.tools.some((tool) => tool.name === 'mcp__gemini__late')) {
+  throw new Error('Gemini must adopt the complete ordered live manifest at the next user turn');
 }
 // Skill-style deferred manifest: `- name: description` lines, `<`/`>` sanitized,
 // bare names allowed, header instructs direct calls, empty pool → ''.

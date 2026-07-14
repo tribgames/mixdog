@@ -29,7 +29,12 @@ import {
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { crossTurnSignature, crossTurnDedupStub, isEditProgressTool } from './loop/completion-guards.mjs';
-import { getToolKind, isEagerDispatchable, parseNativeToolSearchPayload } from './loop/tool-helpers.mjs';
+import {
+    getToolKind,
+    isEagerDispatchable,
+    isToolCallDedupEligible,
+    parseNativeToolSearchPayload,
+} from './loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from './loop/stored-tool-args.mjs';
 
 function classifyToolReturn(value) {
@@ -51,8 +56,8 @@ export async function processToolBatch(ctx) {
         // Intra-turn duplicate suppression: when an LLM emits two tool_use
         // blocks with identical (name, args) inside the SAME assistant turn,
                 // re-executing wastes tokens. Restricted to tools with
-                // `readOnlyHint:true` (= isEagerDispatchable) — bash/apply_patch
-                // may be intentional repeats with distinct side effects.
+                // `readOnlyHint:true` plus result-dedup eligibility — loader calls
+                // are read-only-dispatchable but must execute to report state.
         // Pre-pass identifies duplicates BEFORE startEagerRun so eager
         // dispatch also skips them, not just the for-body.
         const _duplicateCallIds = new Set();
@@ -61,7 +66,7 @@ export async function processToolBatch(ctx) {
             const _firstIdBySig = new Map();
             for (const c of calls) {
                 if (!c?.id) continue;
-                if (!isEagerDispatchable(c.name, tools)) {
+                if (!isToolCallDedupEligible(c.name, tools)) {
                     _firstIdBySig.clear();
                     continue;
                 }
@@ -115,12 +120,12 @@ export async function processToolBatch(ctx) {
                 continue;
             }
             // Cross-turn identical-call stub (Step 2): a SUCCESSFUL read-only
-            // (isEagerDispatchable) call whose (name,args) signature already ran
+            // dedup-eligible call whose (name,args) signature already ran
             // in an EARLIER turn is not re-executed — its result is unchanged and
             // already in context. Warn at the 2nd occurrence; append the "stuck"
             // escalation tail once the session has emitted 5+ dedup stubs total.
             // Never applies to write/bash/MCP/skill tools (not eager-dispatchable).
-            if (isEagerDispatchable(call.name, tools)) {
+            if (isToolCallDedupEligible(call.name, tools)) {
                 _ctSig = crossTurnSignature(call.name, call.arguments);
                 const _prior = crossTurnCalls.get(_ctSig);
                 if (_prior && _prior.firstIteration < iterations) {
@@ -582,7 +587,7 @@ export async function processToolBatch(ctx) {
                 // Read-only successful calls seed the cross-turn dedup map.
                 if (_executeOk) {
                     const _isEager = isEagerDispatchable(call.name, tools);
-                    if (_isEager) {
+                    if (isToolCallDedupEligible(call.name, tools)) {
                         if (_ctSig === null) _ctSig = crossTurnSignature(call.name, call.arguments);
                         if (!crossTurnCalls.has(_ctSig)) {
                             crossTurnCalls.set(_ctSig, { count: 1, firstIteration: iterations });
@@ -591,7 +596,7 @@ export async function processToolBatch(ctx) {
                                 crossTurnCalls.delete(_oldest);
                             }
                         }
-                    } else {
+                    } else if (!_isEager) {
                         // A successful mutating (non-eager) tool invalidates the
                         // cross-turn dedup map wholesale: any prior read/grep may
                         // now return different content, so a post-edit
