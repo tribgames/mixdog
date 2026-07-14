@@ -5,6 +5,12 @@ on:
   push:
     tags:
       - "graph-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing graph-vMAJOR.MINOR.PATCH tag to resume"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -26,9 +32,32 @@ jobs:
       version: ${{ steps.verify.outputs.version }}
       source_sha: ${{ steps.verify.outputs.source_sha }}
     steps:
+      - name: Resolve graph release tag
+        id: resolve
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_EVENT_NAME" in
+            push)
+              [[ "$GITHUB_REF" =~ ^refs/tags/(graph-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*))$ ]]
+              TAG=${BASH_REMATCH[1]}
+              ;;
+            workflow_dispatch)
+              TAG=$REQUESTED_TAG
+              [[ "$TAG" =~ ^graph-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+              ;;
+            *)
+              echo "Unsupported graph release event: $GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: refs/tags/${{ steps.resolve.outputs.tag }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -36,19 +65,23 @@ jobs:
         id: verify
         env:
           GH_TOKEN: ${{ github.token }}
+          GRAPH_TAG: ${{ steps.resolve.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          TAG=${GITHUB_REF#refs/tags/}
-          [[ "$GITHUB_REF" == refs/tags/graph-v* ]]
-          [[ "$TAG" =~ ^graph-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
+          TAG=$GRAPH_TAG
+          [[ "$TAG" =~ ^graph-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           VERSION=${TAG#graph-v}
 
           git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          REMOTE_TAG_OBJECT=$(git ls-remote --refs origin "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }')
+          test -n "$REMOTE_TAG_OBJECT"
+          test "$(git rev-parse "refs/tags/${TAG}")" = "$REMOTE_TAG_OBJECT"
           SOURCE_SHA=$(git rev-list -n 1 "refs/tags/${TAG}")
-          test "$SOURCE_SHA" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test "$(git rev-list -n 1 "origin/${TAG}" 2>/dev/null || git rev-list -n 1 "refs/tags/${TAG}")" = "$SOURCE_SHA"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            test "$SOURCE_SHA" = "$GITHUB_SHA"
+          fi
 
           CARGO_VERSION=$(node - <<'NODE'
           const text = require('fs').readFileSync('native/mixdog-graph/Cargo.toml', 'utf8');
@@ -284,47 +317,62 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GRAPH_TAG: ${{ needs.gate.outputs.tag }}
           GRAPH_VERSION: ${{ needs.gate.outputs.version }}
+          SOURCE_SHA: ${{ needs.gate.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
           git fetch --force origin "refs/tags/${GRAPH_TAG}:refs/tags/${GRAPH_TAG}"
-          test "$(git rev-list -n 1 "refs/tags/${GRAPH_TAG}")" = "${{ needs.gate.outputs.source_sha }}"
-          test "$(git rev-parse HEAD)" = "${{ needs.gate.outputs.source_sha }}"
+          test "$(git rev-list -n 1 "refs/tags/${GRAPH_TAG}")" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           gh api --paginate --slurp \
             "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > /tmp/releases.json
-          RELEASE_ID=$(GRAPH_TAG=$GRAPH_TAG GRAPH_VERSION=$GRAPH_VERSION \
-            SOURCE_SHA=${{ needs.gate.outputs.source_sha }} node <<'NODE'
+          MATCH_COUNT=$(node <<'NODE'
+          const { readFileSync, writeFileSync } = require('fs');
           const pages = JSON.parse(require('fs').readFileSync('/tmp/releases.json', 'utf8'));
           const matches = pages.flat().filter(release => release.tag_name === process.env.GRAPH_TAG);
           if (matches.length > 1) throw new Error('Duplicate releases for graph tag');
-          if (matches.length === 0) process.exit(0);
-          const release = matches[0];
+          if (matches.length === 1) writeFileSync('/tmp/release.json', JSON.stringify(matches[0]));
+          process.stdout.write(String(matches.length));
+          NODE
+          )
+          if [ "$MATCH_COUNT" = 0 ]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="$GRAPH_TAG" \
+              -f target_commitish="$SOURCE_SHA" \
+              -f name="mixdog-graph ${GRAPH_VERSION}" \
+              -f body="Immutable mixdog-graph ${GRAPH_VERSION} assets." \
+              -F draft=true \
+              -F prerelease=false \
+              -F generate_release_notes=false > /tmp/release.json
+          fi
+          node <<'NODE'
+          const { readFileSync, writeFileSync } = require('fs');
+          const release = JSON.parse(readFileSync('/tmp/release.json', 'utf8'));
           const title = `mixdog-graph ${process.env.GRAPH_VERSION}`;
           const body = `Immutable mixdog-graph ${process.env.GRAPH_VERSION} assets.`;
           if (!release.draft) throw new Error('Published graph release is immutable');
-          if (release.target_commitish !== process.env.SOURCE_SHA
+          if (release.tag_name !== process.env.GRAPH_TAG
+              || release.target_commitish !== process.env.SOURCE_SHA
               || release.name !== title || release.body !== body || release.prerelease) {
-            throw new Error('Existing draft does not match this graph source');
+            throw new Error('Draft does not match this graph source');
           }
-          process.stdout.write(String(release.id));
+          if (!Number.isSafeInteger(release.id) || release.id <= 0) {
+            throw new Error('Invalid graph release id');
+          }
+          const template = '{?name,label}';
+          if (typeof release.upload_url !== 'string' || !release.upload_url.endsWith(template)) {
+            throw new Error('Invalid graph release upload_url template');
+          }
+          const url = new URL(release.upload_url.slice(0, -template.length));
+          const expectedPath = `/repos/${process.env.GITHUB_REPOSITORY}/releases/${release.id}/assets`;
+          if (url.protocol !== 'https:' || url.hostname !== 'uploads.github.com'
+              || url.username || url.password || url.pathname !== expectedPath
+              || url.search || url.hash) {
+            throw new Error(`Invalid graph release upload_url: ${release.upload_url}`);
+          }
+          writeFileSync('/tmp/release-id', `${release.id}\n`);
+          writeFileSync('/tmp/release-upload-url', `${url.href}\n`);
           NODE
-          )
-          if [ -z "$RELEASE_ID" ]; then
-            gh release create "$GRAPH_TAG" --draft --verify-tag \
-              --target "${{ needs.gate.outputs.source_sha }}" \
-              --title "mixdog-graph ${GRAPH_VERSION}" \
-              --notes "Immutable mixdog-graph ${GRAPH_VERSION} assets."
-            gh api --paginate --slurp \
-              "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > /tmp/releases.json
-            RELEASE_ID=$(GRAPH_TAG=$GRAPH_TAG node <<'NODE'
-          const pages = JSON.parse(require('fs').readFileSync('/tmp/releases.json', 'utf8'));
-          const matches = pages.flat().filter(release => release.tag_name === process.env.GRAPH_TAG && release.draft);
-          if (matches.length !== 1) throw new Error('Draft creation was not unique');
-          process.stdout.write(String(matches[0].id));
-          NODE
-            )
-          fi
-          echo "$RELEASE_ID" > /tmp/release-id
 
       - name: Upload missing draft assets and verify all bytes
         env:
@@ -333,16 +381,7 @@ jobs:
         run: |
           set -euo pipefail
           RELEASE_ID=$(cat /tmp/release-id)
-          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > /tmp/release.json
-          UPLOAD_URL=$(node <<'NODE'
-          const release = JSON.parse(require('fs').readFileSync('/tmp/release.json', 'utf8'));
-          const url = new URL(release.upload_url.replace(/\{.*$/, ''));
-          if (url.protocol !== 'https:' || url.hostname !== 'uploads.github.com') {
-            throw new Error(`Invalid release upload_url: ${release.upload_url}`);
-          }
-          process.stdout.write(url.href);
-          NODE
-          )
+          UPLOAD_URL=$(cat /tmp/release-upload-url)
           expected=(
             mixdog-graph-darwin-arm64
             mixdog-graph-darwin-x64
