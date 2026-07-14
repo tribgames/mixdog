@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { acceptQuotaSnapshot } from '../src/ui/statusline.mjs';
+import {
+  acceptQuotaSnapshot,
+  fallbackStatusline,
+  resolveContextUsedPct,
+} from '../src/ui/statusline.mjs';
 
 // Monotonic hysteresis for the 5H/7D usage segment: once a value has rendered,
 // an OLDER shared-cache snapshot (written by another mixdog instance) must not
@@ -34,4 +38,25 @@ test('own-instance live data always wins; empty timestamps preserve prior behavi
   assert.equal(acceptQuotaSnapshot({ asOf: 0, owned: true }, { asOf: 0, owned: false }), true);
   // Shared→shared same asOf → accept (idempotent refresh).
   assert.equal(acceptQuotaSnapshot({ asOf: 2000, owned: false }, { asOf: 2000, owned: false }), true);
+});
+
+test('context percentage uses compaction pressure over trigger and ignores gateway boundary percent', () => {
+  const args = {
+    stats: {
+      currentEstimatedContextTokens: 75_000,
+      currentContextSource: 'estimated',
+    },
+    contextWindow: 100_000,
+    compactBoundaryTokens: 100_000,
+    autoCompactTokenLimit: 75_000,
+  };
+  assert.equal(resolveContextUsedPct({
+    ...args,
+    gatewayStatus: { contextUsedPct: 75 },
+  }), 100);
+  assert.match(
+    fallbackStatusline({ provider: 'openai', model: 'test', ...args })
+      .replace(/\x1b\[[0-9;]*m/g, ''),
+    /\b100%/,
+  );
 });

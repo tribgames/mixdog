@@ -152,18 +152,18 @@ function localContextPct({
   compactBoundaryTokens = 0,
   autoCompactTokenLimit = 0,
 } = {}) {
-  const baseWindow = localNum(compactBoundaryTokens) > 0
+  const boundary = localNum(compactBoundaryTokens) > 0
     ? localNum(compactBoundaryTokens)
     : (localNum(displayContextWindow) > 0
       ? localNum(displayContextWindow)
       : (localNum(contextWindow) > 0
         ? localNum(contextWindow)
         : (localNum(rawContextWindow) > 0 ? localNum(rawContextWindow) : 200_000)));
-  // Boundary-only denominator (mirrors ui/statusline.mjs resolveContextUsedPct):
-  // context % is always measured against the single compaction boundary value,
-  // never a separate auto-compact trigger — statusline and gateway stay on the
-  // same denominator with no before/after trigger semantics.
-  const window = baseWindow;
+  // The trigger is the denominator used by the pre-send auto-compact decision,
+  // so the local boot gauge reaches 100% at the exact same pressure.
+  const window = localNum(autoCompactTokenLimit) > 0
+    ? localNum(autoCompactTokenLimit)
+    : boundary;
   const s = stats && typeof stats === 'object' ? stats : {};
   const source = String(s.currentContextSource || '').toLowerCase();
   const estimated = localNum(s.currentEstimatedContextTokens);

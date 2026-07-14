@@ -8,7 +8,7 @@ import { buildTranscriptRowIndexIncremental } from '../src/tui/app/transcript-wi
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function makeTurnHarness(ask, stateOverrides = {}) {
+function makeTurnHarness(ask, stateOverrides = {}, bagOverrides = {}) {
   let seq = 0;
   let state = {
     items: [],
@@ -84,18 +84,22 @@ function makeTurnHarness(ask, stateOverrides = {}) {
     flushDeferredExecutionPendingResumeKick: () => {},
     drain: async () => {},
     drainPendingSteering: () => [],
+    ...bagOverrides,
   };
   return { runTurn: createRunTurn(bag), getState: () => state };
 }
 
 test('successful mid-turn compact trims history but preserves live turn references', async () => {
   let preservedTail = false;
+  let contextSyncs = 0;
   const harness = makeTurnHarness(async (_text, options) => {
     options.onTextDelta('before compact\n');
     await wait(30);
     options.onCompactEvent({ status: 'compacted', trigger: 'reactive' });
+    assert.equal(contextSyncs, 1, 'compact event must refresh context before returning');
     preservedTail = harness.getState().streamingTail?.text === 'before compact\n';
     options.onCompactEvent({ status: 'compacted', trigger: 'reactive' });
+    assert.equal(contextSyncs, 2, 'each compact event refreshes context immediately');
     options.onTextDelta('after compact\n');
     return { result: { content: 'before compact\nafter compact\n' }, session: { messages: [] } };
   }, {
@@ -103,6 +107,8 @@ test('successful mid-turn compact trims history but preserves live turn referenc
       { id: 'old', kind: 'assistant', text: 'old history' },
       { id: 'current-user', kind: 'user', text: 'go' },
     ],
+  }, {
+    syncContextStats: () => { contextSyncs += 1; },
   });
 
   assert.equal(await harness.runTurn('go', { submittedIds: ['current-user'] }), 'done');

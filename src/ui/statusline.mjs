@@ -189,7 +189,7 @@ function displayContextBoundary({
   return modelContextWindow('', '', boundarySeed);
 }
 
-function resolveContextUsedPct({
+export function resolveContextUsedPct({
   provider = '',
   model = '',
   stats = null,
@@ -210,10 +210,10 @@ function resolveContextUsedPct({
     autoCompactTokenLimit,
     compact,
   });
-  // Boundary-only denominator: context % is always measured against the single
-  // compaction boundary value (shared with the gateway), never against a
-  // separate auto-compact trigger. This keeps the statusline and gateway
-  // display on the same denominator with no before/after trigger semantics.
+  const trigger = num(autoCompactTokenLimit);
+  // A resolved trigger means this is the runtime compaction gauge: keep both
+  // operands local so a gateway boundary percentage cannot replace it.
+  if (trigger > 0) return (numerator / trigger) * 100;
   const gatewayRawPct = gatewayStatus?.contextUsedPct;
   if (
     gatewayStatus

@@ -1007,6 +1007,10 @@ export function createRunTurn(bag) {
             label: compactEventLabel(event),
             detail: compactEventDetail(event),
           });
+          // Compaction itself remains owned by the pre-provider-send pass.
+          // This event only refreshes the gauge from the already-mutated
+          // transcript before another render can show stale pressure.
+          syncContextStats({ allowEstimated: true });
         },
         onStageChange: async (stage) => {
           if (!markTurnProgress(`stage:${String(stage || '')}`)) return;

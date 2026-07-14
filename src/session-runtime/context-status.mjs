@@ -1,13 +1,15 @@
 import {
   estimateRequestReserveTokens,
   estimateToolSchemaTokens,
-  estimateTranscriptContextUsage,
   contextMessagesRevision,
   resolveSessionCompactPolicy,
   summarizeContextMessages,
   toolSchemaSignature,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
-import { resolveWorkerCompactPolicy } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
+import {
+  resolveCompactionPressureTokens,
+  resolveWorkerCompactPolicy,
+} from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
 import { estimateToolSchemaBreakdown } from './tool-catalog.mjs';
 
 const DEFERRED_CATALOG_TOOL_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);
@@ -84,6 +86,15 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
       lastOutputTokens: Number(session?.lastOutputTokens || 0),
       lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
       lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
+      contextPressureBaselineTokens: Number(session?.contextPressureBaselineTokens || 0),
+      contextPressureBaselineOutputTokens: Number(session?.contextPressureBaselineOutputTokens || 0),
+      contextPressureBaselineMessageCount: Number(session?.contextPressureBaselineMessageCount ?? -1),
+      contextPressureBaselineUpdatedAt: Number(session?.contextPressureBaselineUpdatedAt || 0),
+      contextPressureBaselineBoundary: session?.contextPressureBaselineBoundary || null,
+      contextPressureBaselineProvider: session?.contextPressureBaselineProvider || null,
+      contextPressureBaselineModel: session?.contextPressureBaselineModel || null,
+      contextPressureBaselineToolSignature: session?.contextPressureBaselineToolSignature || null,
+      contextPressureBaselinePrefixSignature: session?.contextPressureBaselinePrefixSignature || null,
       totalInputTokens: Number(session?.totalInputTokens || 0),
       totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
       totalOutputTokens: Number(session?.totalOutputTokens || 0),
@@ -148,10 +159,6 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
     const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
     const lastContextTokens = Number(session?.lastContextTokens || 0);
-    const estimatedContextTokens = estimateTranscriptContextUsage(messages, requestTools, {
-      messageCount: messageSummary.count,
-      estimatedMessageTokens: messageSummary.estimatedTokens,
-    });
     const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
     const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);
     const lastUsageStale = !!lastContextTokens && (
@@ -161,14 +168,6 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     );
     const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
     const displayWindow = compactBoundaryTokens || effectiveWindow;
-    // The transcript estimate is the single source of truth for the displayed
-    // context footprint. Provider-reported input_tokens (lastContextTokens)
-    // swing non-monotonically and are not window-bounded on some providers
-    // (e.g. OpenAI gpt-5.5 Responses API), so they are kept only as secondary
-    // metadata (lastApiRequestTokens / usage.lastContextTokens) and never feed
-    // the gauge numerator.
-    const usedTokens = estimatedContextTokens;
-    const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
     // Use the worker policy when a boundary is available so target/reserve
     // headroom, trigger, buffer tokens, and buffer ratio stay identical to the
     // auto-compact decision. Fall back only for incomplete session metadata.
@@ -176,6 +175,16 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     const compactPolicy = workerCompactPolicy?.boundaryTokens
       ? workerCompactPolicy
       : resolveSessionCompactPolicy(session || {}, compactBoundaryTokens);
+    // Match the pre-provider-send auto-compact check exactly: the gauge uses
+    // the same provider-baseline-or-estimate pressure, including request and
+    // configured reserves, rather than a separate transcript-only estimate.
+    const compactionPressureTokens = resolveCompactionPressureTokens(
+      messageSummary.estimatedTokens,
+      compactPolicy,
+      { messages, sessionRef: session },
+    );
+    const usedTokens = compactionPressureTokens;
+    const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
     const compactTriggerTokens = compactPolicy.triggerTokens || 0;
     const compactBufferTokens = compactPolicy.bufferTokens || 0;
     const compactBufferRatio = Number.isFinite(compactPolicy.bufferRatio)
@@ -193,7 +202,7 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
       usedTokens,
       usedSource: 'estimated',
-      currentEstimatedTokens: estimatedContextTokens,
+      currentEstimatedTokens: compactionPressureTokens,
       lastApiRequestTokens: lastContextTokens || 0,
       lastApiRequestStale: lastUsageStale,
       freeTokens,
@@ -203,7 +212,7 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
         triggerTokens: compactTriggerTokens || null,
         bufferTokens: compactBufferTokens || null,
         bufferRatio: compactBufferRatio,
-        currentEstimatedTokens: estimatedContextTokens,
+        currentEstimatedTokens: compactionPressureTokens,
         lastApiRequestTokens: lastContextTokens || 0,
         lastApiRequestStale: lastUsageStale,
       },

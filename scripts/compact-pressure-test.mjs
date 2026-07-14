@@ -396,6 +396,46 @@ test('provider baseline pressure includes only the configured extra reserve', ()
     assert.equal(resolveCompactionPressureTokens(1, policy, { messages, sessionRef: session }), 87_000);
 });
 
+test('context status uses the automatic compaction pressure numerator and trigger', () => {
+    const session = {
+        id: 'status-pressure',
+        provider: 'openai',
+        model: 'm',
+        tools: [],
+        contextWindow: 100_000,
+        messages: [{ role: 'user', content: 'small local estimate' }],
+        compaction: {},
+    };
+    recordProviderContextBaseline(session, session.messages, {
+        inputTokens: 80_000,
+        outputTokens: 2_000,
+    });
+    const policy = policyFor(session);
+    const expectedPressure = resolveCompactionPressureTokens(
+        estimateMessagesTokens(session.messages),
+        policy,
+        { messages: session.messages, sessionRef: session },
+    );
+    const { contextStatus } = createContextStatus({
+        getSession: () => session,
+        getRoute: () => ({ provider: 'openai', model: 'm' }),
+        getCurrentCwd: () => '',
+        getMode: () => 'default',
+    });
+
+    const status = contextStatus();
+    assert.equal(status.usedTokens, expectedPressure);
+    assert.equal(status.currentEstimatedTokens, expectedPressure);
+    assert.equal(status.compaction.triggerTokens, policy.triggerTokens);
+    assert.equal(
+        shouldCompactForSession(estimateMessagesTokens(session.messages), policy, {
+            messages: session.messages,
+            sessionRef: session,
+        }),
+        status.usedTokens >= status.compaction.triggerTokens,
+    );
+});
+
 test('provider baselines fingerprint actual sendTools and reject provider, model, tool-schema, and prefix changes', () => {
     const make = () => ({
         provider: 'openai',
