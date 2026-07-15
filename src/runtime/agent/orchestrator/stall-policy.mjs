@@ -68,17 +68,7 @@ export const DEFAULT_ACTIVITY_HEARTBEAT_MS = resolveTimeoutMs(
 
 export const PROVIDER_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS',
-    // 2026-07-05 trace audit (24h): worker claude-sonnet-5 successful TTFT
-    // p90 43s / p99 164s / max 171s — the distribution hugs the previous 180s
-    // window, and 16/178 fetches "died" in repeated back-to-back 183s
-    // fetch→fetch cycles (3+ consecutive in the worst session). That pattern
-    // is queued-but-alive first bytes being axed AT the window and re-queued
-    // from scratch, not dead sockets: each trip doubled the wait (one worker
-    // session burned ~40min purely on 180s-abort→retry loops). Raise to the
-    // policy ceiling (STALL_WARN - tick, ~285s): models with fast first bytes
-    // never reach the timer, and a truly wedged socket is still bounded by
-    // the agent stall first-byte abort (300s, DEFAULT_STALL_FIRST_BYTE_ABORT_S).
-    PROVIDER_MAX_BEFORE_WARN_MS,
+    60_000,
     { minMs: MIN_PROVIDER_TIMEOUT_MS, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
 );
 
@@ -252,7 +242,7 @@ export const PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS = resolveTimeoutMs(
 // provider layer catches the wedge before the agent watchdog does. Env-tunable.
 export const PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS',
-    120_000,
+    60_000,
     { minMs: 10_000, maxMs: STALL_WARN_MS },
 );
 

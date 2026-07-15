@@ -259,7 +259,10 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
 export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
     if (!snapshot || !policy) return null;
 
-    const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
+    const startedAt = snapshot.modelRequestStartedAt || 0;
+    // stage=connecting with no request timestamp means the provider request is
+    // still in the admission queue. Queue wait is outside every watchdog.
+    if (!startedAt && snapshot.stage === 'connecting') return null;
     const firstTransportMs = policy.firstTransportMs ?? policy.firstResponseMs ?? 0;
     const firstSemanticMs = policy.firstSemanticMs ?? policy.firstVisibleCeilingMs ?? 0;
     // Independent fixed deadlines from request start. Transport can satisfy

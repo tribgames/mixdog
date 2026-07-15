@@ -23,6 +23,7 @@ import { populateHttpStatusFromMessage } from './retry-classifier.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import {
+    PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
     PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS,
@@ -91,8 +92,8 @@ export function _positiveInt(value, fallback = 0) {
 export const WS_PRE_RESPONSE_CREATED_MS = (() => {
     const raw = process.env.MIXDOG_PROVIDER_WS_PRE_RESPONSE_CREATED_TIMEOUT_MS;
     const n = Number(raw);
-    if (Number.isFinite(n) && n > 0) return Math.min(Math.max(n, 1_000), 120_000);
-    return 10_000;
+    if (Number.isFinite(n) && n > 0) return Math.min(Math.max(n, 1_000), PROVIDER_FIRST_BYTE_TIMEOUT_MS);
+    return PROVIDER_FIRST_BYTE_TIMEOUT_MS;
 })();
 // Single inter-chunk idle timer. Resets on EVERY received frame — any frame,
 // including metadata/keepalive, proves the socket is live.

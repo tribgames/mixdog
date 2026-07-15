@@ -46,10 +46,15 @@ function opencodeGoReasoningLevels(model, current = null) {
 export class OpenCodeGoProvider {
     static inputExcludesCache = false;
     name = 'opencode-go';
+    config;
     openai;
     anthropic;
 
     constructor(config = {}) {
+        // Retain the outer account config for the common provider-admission
+        // lane. The delegated transports are intentionally not independently
+        // wrapped, so all model-family routes share this one 64-wide account.
+        this.config = config;
         const preset = OPENAI_COMPAT_PRESETS['opencode-go'];
         const baseURL = config.baseURL || preset.baseURL;
         this.openai = new OpenAICompatProvider('opencode-go', { ...config, baseURL });

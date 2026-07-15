@@ -5,6 +5,7 @@ import {
     hasGrokOAuthCredentials,
 } from './oauth-credential-probes.mjs';
 import { refreshCatalog as refreshMetadataCatalog, warmModelMetadataCatalogs } from './model-catalog.mjs';
+import { wrapProviderAdmission } from './admission-scheduler.mjs';
 // OpenAI-compat provider names are self-declared by openai-compat-presets.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
 const providers = new Map();
@@ -108,9 +109,9 @@ async function loadProviderCtor(name, signal = null) {
 
 function instantiateProvider(name, Ctor, cfg) {
     if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name) && name !== 'opencode-go') {
-        return new Ctor(name, cfg);
+        return wrapProviderAdmission(new Ctor(name, cfg), name);
     }
-    return new Ctor(cfg);
+    return wrapProviderAdmission(new Ctor(cfg), name);
 }
 
 export async function initProviders(config, { signal = null } = {}) {
@@ -232,21 +233,21 @@ export function getProvider(name) {
     if (name === 'anthropic-oauth' && hasAnthropicOAuthCredentials()) {
         const Ctor = providerCtors.get('anthropic-oauth');
         if (!Ctor) return undefined;
-        const inst = new Ctor({});
+        const inst = wrapProviderAdmission(new Ctor({}), name);
         providers.set(name, inst);
         return inst;
     }
     if (name === 'openai-oauth' && hasOpenAIOAuthCredentials()) {
         const Ctor = providerCtors.get('openai-oauth');
         if (!Ctor) return undefined;
-        const inst = new Ctor({});
+        const inst = wrapProviderAdmission(new Ctor({}), name);
         providers.set(name, inst);
         return inst;
     }
     if (name === 'grok-oauth' && hasGrokOAuthCredentials()) {
         const Ctor = providerCtors.get('grok-oauth');
         if (!Ctor) return undefined;
-        const inst = new Ctor({});
+        const inst = wrapProviderAdmission(new Ctor({}), name);
         providers.set(name, inst);
         return inst;
     }

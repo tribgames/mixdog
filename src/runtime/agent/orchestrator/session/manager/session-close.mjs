@@ -75,6 +75,7 @@ export function closeSession(id, reason = 'manual', opts = {}) {
         //    the generation check after their await eventually returns.
         try { entry.controller?.abort(new SessionClosedError(id, `closeSession (reason=${reason})`, reason)); } catch { /* ignore */ }
     }
+    try { globalThis.__mixdogCloseProviderConnectionsForSession?.(id, `session-close:${reason}`); } catch { /* ignore */ }
     // Diagnostic: one-line stderr so operators can distinguish the four close
     // pathways (request-abort / manual / idle-sweep / runner-crash). iterCount
     // is not currently tracked on runtime state; askStartedAt is — derive
@@ -120,5 +121,6 @@ export function abortSessionTurn(id, reason = 'turn-abort') {
     try {
         entry.controller?.abort(new SessionClosedError(id, `abortSessionTurn (reason=${reason})`, reason));
     } catch { /* ignore */ }
+    try { globalThis.__mixdogCloseProviderConnectionsForSession?.(id, `turn-abort:${reason}`); } catch { /* ignore */ }
     return true;
 }

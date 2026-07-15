@@ -9,6 +9,7 @@ import {
     getSessionProgressSnapshot,
     markSessionAskStart,
     markSessionStreamDelta,
+    updateSessionStage,
 } from '../src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs';
 import {
     evaluateAgentWatchdogAbort,
@@ -26,6 +27,10 @@ import { parseSSEStream } from '../src/runtime/agent/orchestrator/providers/anth
 import { _streamResponse } from '../src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs';
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import { shouldFallbackTransport } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
+import {
+    ProviderAdmissionScheduler,
+    wrapProviderAdmission,
+} from '../src/runtime/agent/orchestrator/providers/admission-scheduler.mjs';
 
 const policy = {
     firstTransportMs: 120_000,
@@ -60,6 +65,35 @@ test('independent first transport and semantic deadlines', async (t) => {
     await markSessionStreamDelta(id, 'reasoning');
     assert.equal(evaluateAgentWatchdogAbort(snapshot(), entry.modelRequestStartedAt + 700_000, policy), null);
     assert.equal(snapshot().hasVisibleProgress, false);
+});
+
+test('genuinely queued scheduler request remains outside the real watchdog clock', async (t) => {
+    const id = `liveness-admission-${Date.now()}`;
+    t.after(() => _clearSessionRuntime(id));
+    const scheduler = new ProviderAdmissionScheduler({ concurrency: 1 });
+    let releaseFirst;
+    const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+    const provider = wrapProviderAdmission({
+        async send(_messages, _model, _tools, opts) {
+            if (opts.block) return firstGate;
+            return 'queued-ok';
+        },
+    }, 'watchdog-integration', scheduler);
+    markSessionAskStart(id);
+    const entry = _getRuntimeEntry(id);
+    entry.askStartedAt = Date.now() - 900_000;
+    entry.lastProgressAt = entry.askStartedAt;
+    const first = provider.send([], 'm', [], { block: true });
+    const second = provider.send([], 'm', [], {
+        onStageChange: (stage) => updateSessionStage(id, stage),
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(entry.modelRequestStartedAt, null);
+    assert.equal(evaluateAgentWatchdogAbort(getSessionProgressSnapshot(id), Date.now(), policy), null);
+    releaseFirst('first');
+    await first;
+    assert.equal(await second, 'queued-ok');
+    assert.ok(entry.modelRequestStartedAt >= Date.now() - 100);
 });
 
 test('status labels distinguish transport, semantic, reasoning, text, tool, and true stall', async (t) => {
@@ -417,6 +451,32 @@ function wedgedOpenAiHttpResponse() {
     };
 }
 
+function firstEventThenWedgedOpenAiHttpResponse() {
+    const first = encoder.encode(
+        `event: response.created\ndata: ${JSON.stringify({
+            type: 'response.created',
+            response: { id: 'r1', model: 'gpt' },
+        })}\n\n`,
+    );
+    let emitted = false;
+    return {
+        ok: true,
+        status: 200,
+        headers: new Map(),
+        body: { getReader: () => ({
+            read: () => {
+                if (!emitted) {
+                    emitted = true;
+                    return Promise.resolve({ done: false, value: first });
+                }
+                return new Promise(() => {});
+            },
+            cancel: () => new Promise(() => {}),
+            releaseLock: () => {},
+        }) },
+    };
+}
+
 test('OAuth HTTP SSE actively rejects a wedged reader on external and semantic aborts', async () => {
     const keepAlive = setInterval(() => {}, 10);
     try {
@@ -429,7 +489,7 @@ test('OAuth HTTP SSE actively rejects a wedged reader on external and semantic a
         opts: {},
         externalSignal: external.signal,
         useModel: 'gpt',
-        fetchFn: async () => wedgedOpenAiHttpResponse(),
+        fetchFn: async () => firstEventThenWedgedOpenAiHttpResponse(),
     });
     setTimeout(() => external.abort(externalReason), 10);
     await assert.rejects(externalRun, (err) => err === externalReason);
@@ -439,13 +499,30 @@ test('OAuth HTTP SSE actively rejects a wedged reader on external and semantic a
         body: {},
         opts: { _semanticIdleTimeoutMs: 25 },
         useModel: 'gpt',
-        fetchFn: async () => wedgedOpenAiHttpResponse(),
+        fetchFn: async () => firstEventThenWedgedOpenAiHttpResponse(),
     });
     await assert.rejects(semanticRun, (err) => (
         err?.name === 'StreamStalledError'
         && err?.streamStalled === true
     ));
     assert.ok(Date.now() - startedAt < 1_000, 'wedged reads must reject near their abort deadlines');
+    } finally {
+        clearInterval(keepAlive);
+    }
+});
+
+test('OAuth HTTP SSE enforces first server event independently of response headers', async () => {
+    const keepAlive = setInterval(() => {}, 10);
+    try {
+        const startedAt = Date.now();
+        await assert.rejects(sendViaHttpSse({
+            auth: { type: 'openai-direct', apiKey: 'test' },
+            body: {},
+            opts: { _firstServerEventTimeoutMs: 40, _semanticIdleTimeoutMs: 5 },
+            useModel: 'gpt',
+            fetchFn: async () => wedgedOpenAiHttpResponse(),
+        }), (err) => err?.code === 'EPROVIDERTIMEOUT' && err?.firstByteTimeout === true);
+        assert.ok(Date.now() - startedAt >= 30, 'semantic idle must not shorten the first-event deadline');
     } finally {
         clearInterval(keepAlive);
     }

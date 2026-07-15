@@ -80,7 +80,7 @@ function formatRetryAfter(ms) {
     return `${Math.ceil(n)}ms`;
 }
 
-function anthropicQuotaError(status, headers, bodyText = '') {
+export function anthropicQuotaError(status, headers, bodyText = '') {
     const retryAfterMs = retryAfterMsFromError({ headers, response: { headers } });
     const retryAfter = formatRetryAfter(retryAfterMs);
     const detail = bodyText ? `: ${String(bodyText).slice(0, 200)}` : '';
@@ -95,7 +95,10 @@ function anthropicQuotaError(status, headers, bodyText = '') {
     err.retryAfterMs = retryAfterMs;
     err.providerQuota = true;
     err.quotaExceeded = true;
-    err.unsafeToRetry = true;
+    // This error is constructed only from the initial HTTP response, before
+    // SSE parsing can expose text or a tool call. It is therefore safe for the
+    // request-local withRetry loop. Mid-stream paths stamp unsafeToRetry when
+    // output/tool exposure actually occurs.
     return err;
 }
 

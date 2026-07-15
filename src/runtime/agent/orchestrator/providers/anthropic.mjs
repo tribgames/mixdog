@@ -825,9 +825,9 @@ export class AnthropicProvider {
                                 // short Retry-After and upstream can read quota hints.
                                 err.headers = res.headers;
                                 err.response = { status: res.status, headers: res.headers };
-                                // 429: promote to a quota-style error equivalent to
-                                // anthropic-oauth's anthropicQuotaError so upstream
-                                // quota handling and unsafe-to-retry gating apply.
+                                // This is an initial-response 429, before SSE
+                                // output/tool exposure, so the request-local
+                                // withRetry loop may retry it with jitter.
                                 if (res.status === 429) {
                                     const retryAfterMs = retryAfterMsFromError({ headers: res.headers, response: { headers: res.headers } });
                                     err.name = 'ProviderQuotaError';
@@ -835,7 +835,6 @@ export class AnthropicProvider {
                                     err.retryAfterMs = retryAfterMs;
                                     err.providerQuota = true;
                                     err.quotaExceeded = true;
-                                    err.unsafeToRetry = true;
                                 }
                                 throw err;
                             }

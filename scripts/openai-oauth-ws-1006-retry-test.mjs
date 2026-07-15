@@ -6,7 +6,10 @@ import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers
 import { _acquireWithRetry, sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 import {
     _clearWebSocketPoolForTest,
+    _closeAllPooledSockets,
+    _resetOpenSocketDrainForTest,
     _seedWebSocketEntryForTest,
+    _setOpenSocketForTest,
     acquireWebSocket,
     releaseWebSocket,
     _sendFrame,
@@ -267,6 +270,33 @@ test('successful iteration emits one compact send-spans row', async () => {
     assert.equal(rows[0].payload.first_event_ms, 7);
     assert.equal(rows[0].payload.pre_response_created_ms, 9);
     assert.equal('body' in rows[0].payload, false);
+});
+
+test('normal handshake cannot return or reinsert a socket after pool drain', async () => {
+    let finishOpen;
+    const opened = new Promise((resolve) => { finishOpen = resolve; });
+    const closes = [];
+    const socket = new EventEmitter();
+    socket.readyState = 1;
+    socket.close = (code, reason) => closes.push([code, reason]);
+    socket.on = socket.on.bind(socket);
+    try {
+        _setOpenSocketForTest(() => opened);
+        const acquire = acquireWebSocket({
+            auth: { type: 'openai-direct', apiKey: 'test-key' },
+            poolKey: 'drain-race',
+            cacheKey: 'drain-race',
+            forceFresh: false,
+            externalSignal: null,
+        });
+        _closeAllPooledSockets('test-drain');
+        finishOpen({ socket, turnState: null });
+        await assert.rejects(acquire, /WS pool drained/);
+        assert.deepEqual(closes, [[1000, 'drain-complete']]);
+    } finally {
+        _clearWebSocketPoolForTest();
+        _resetOpenSocketDrainForTest();
+    }
 });
 
 test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async () => {

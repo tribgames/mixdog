@@ -734,6 +734,8 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
     });
 }
 
+let _openSocketImpl = _openSocket;
+
 export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, forceFresh, externalSignal }) {
     const _acqStart = Date.now();
     if (process.env.MIXDOG_DEBUG_AGENT) {
@@ -805,7 +807,7 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
                 process.stderr.write(`[agent-trace] acquire-ephemeral cacheKey=${cacheKey} reason=cap elapsed=${Date.now() - _acqStart}ms\n`);
             }
             const ephSessionToken = _mintSessionToken(cacheKey, auth);
-            const { socket, turnState } = await _openSocket({ auth, sessionToken: ephSessionToken, turnState: null, externalSignal, cacheKey, codexHeaders });
+            const { socket, turnState } = await _openSocketImpl({ auth, sessionToken: ephSessionToken, turnState: null, externalSignal, cacheKey, codexHeaders });
             // Drain-complete fence: same invariant as the normal acquire path —
             // if drain fired during the await, do NOT push an ephemeral entry
             // back into the pool.
@@ -848,7 +850,13 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
     if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] acquire-new tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _acqStart}ms\n`);
     }
-    const { socket, turnState } = await _openSocket({ auth, sessionToken, turnState: null, externalSignal, cacheKey, codexHeaders });
+    const { socket, turnState } = await _openSocketImpl({ auth, sessionToken, turnState: null, externalSignal, cacheKey, codexHeaders });
+    // Drain may complete while the normal handshake is awaiting 'open'. Never
+    // return or insert that late socket into the already-drained process pool.
+    if (_drainComplete) {
+        try { socket.close(1000, 'drain-complete'); } catch {}
+        throw new Error('WS pool drained — process exiting');
+    }
     const entry = {
         socket,
         busy: true,
@@ -899,6 +907,18 @@ export function releaseWebSocket({ entry, poolKey, keep }) {
     _setTransportReferenced(entry, false);
 }
 
+export function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed') {
+    if (!poolKey) return;
+    const entries = _wsPool.get(poolKey);
+    if (!entries) return;
+    _wsPool.delete(poolKey);
+    for (const entry of entries) {
+        _clearIdle(entry);
+        _clearLiveness(entry);
+        try { entry.socket.close(1000, reason); } catch {}
+    }
+}
+
 // Focused pool lifecycle test seam. Entries still pass through the production
 // release/acquire code; this only avoids a live provider handshake.
 export function _seedWebSocketEntryForTest({ poolKey, auth, cacheKey, entry }) {
@@ -918,6 +938,15 @@ export function _clearWebSocketPoolForTest() {
     }
     _wsPool.clear();
     _releaseSequence = 0;
+}
+
+export function _setOpenSocketForTest(fn) {
+    _openSocketImpl = typeof fn === 'function' ? fn : _openSocket;
+}
+
+export function _resetOpenSocketDrainForTest() {
+    _openSocketImpl = _openSocket;
+    _drainComplete = false;
 }
 
 // Drain-complete fence — set true once _closeAllPooledSockets runs so any
@@ -943,4 +972,6 @@ export function _closeAllPooledSockets(reason = 'shutdown') {
     _wsPool.clear();
 }
 export const drainOpenaiWsPool = _closeAllPooledSockets;
+globalThis.__mixdogCloseProviderConnectionsForSession = closeOpenaiWsPoolForSession;
+globalThis.__mixdogDrainProviderConnections = drainOpenaiWsPool;
 process.on('exit', drainOpenaiWsPool);

@@ -96,8 +96,9 @@ export function updateSessionStage(id, stage) {
     if (!id || !VALID_STAGES.has(stage)) return;
     const entry = _touchRuntime(id);
     const now = Date.now();
+    const priorStage = entry.stage;
     entry.stage = stage;
-    if ((stage === 'connecting' || stage === 'requesting') && !entry.modelRequestStartedAt) {
+    if (stage === 'requesting' && priorStage !== 'requesting') {
         entry.modelRequestStartedAt = now;
     }
     entry.lastProgressAt = now;
@@ -138,13 +139,11 @@ export function markSessionAskStart(id) {
     // detection for the entire new turn).
     entry.emptyFinal = false;
     entry.emptyFinalAt = null;
-    // askStartedAt is the watchdog's fallback reference when a session
-    // hangs before any stream delta arrives. Without it, a provider that
-    // never returns a first token would stall forever because the watchdog
-    // keys solely on lastStreamDeltaAt.
+    // askStartedAt tracks the turn, but request/watchdog clocks begin only
+    // after provider admission (the scheduler emits stage=requesting).
     const now = Date.now();
     entry.askStartedAt = now;
-    entry.modelRequestStartedAt = now;
+    entry.modelRequestStartedAt = null;
     entry.lastProgressAt = now;
     entry.updatedAt = now;
     // Publish heartbeat immediately so the status aggregator picks the
@@ -350,7 +349,7 @@ export function getSessionProgressSnapshot(sessionId) {
     const entry = _runtimeState.get(sessionId);
     if (!entry) return null;
     const askStartedAt = entry.askStartedAt || 0;
-    const modelRequestStartedAt = entry.modelRequestStartedAt || askStartedAt;
+    const modelRequestStartedAt = entry.modelRequestStartedAt || 0;
     const firstSemanticAt = entry.firstSemanticAt || 0;
     const firstActivityAt = firstSemanticAt;
     const stage = entry.stage || 'idle';

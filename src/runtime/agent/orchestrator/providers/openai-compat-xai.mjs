@@ -420,85 +420,12 @@ function traceXaiCacheLane(opts, payload) {
 }
 
 export async function withXaiResponsesCacheLane({ opts, config, cacheRouting, model, transport, previousResponseId, inputCount, signal }, fn) {
-    const maxInFlight = xaiResponsesCacheLaneMaxInFlight(opts, config);
-    if (maxInFlight <= 0) {
-        const laneMeta = { enabled: false, maxInFlight: 0 };
-        return { value: await fn(laneMeta), laneMeta };
-    }
-    const { key: laneKey, shard, lane } = xaiResponsesCacheLaneKey({ model, cacheRouting, opts, config });
-    const timeoutMs = xaiResponsesCacheLaneQueueTimeoutMs(opts, config);
-    const state = getXaiResponsesCacheLaneState(laneKey, maxInFlight);
-    const queued = state.active >= state.maxInFlight;
-    if (queued) {
-        traceXaiCacheLane(opts, {
-            provider: 'xai',
-            api: 'responses',
-            transport,
-            event: 'queued',
-            lane_key_hash: traceHash(laneKey),
-            lane_shard: shard,
-            lane_shards: Number.isFinite(Number(lane?.shards)) ? Number(lane.shards) : null,
-            lane_auto: lane?.auto === true,
-            lane_seed_hash: lane?.seedHash || null,
-            max_in_flight: maxInFlight,
-            active: state.active,
-            queue_depth: state.queue.length,
-            previous_response_used: !!previousResponseId,
-            input_count: inputCount,
-        });
-    }
-    const handle = await acquireXaiResponsesCacheLane({ key: laneKey, maxInFlight, signal, timeoutMs });
-    const laneMeta = {
-        enabled: true,
-        laneKeyHash: traceHash(laneKey),
-        shard,
-        shards: Number.isFinite(Number(lane?.shards)) ? Number(lane.shards) : null,
-        auto: lane?.auto === true,
-        seedHash: lane?.seedHash || null,
-        maxInFlight,
-        queued,
-        waitMs: handle.waitedMs,
-        activeAfterAcquire: handle.activeCount,
-        queueDepthAfterAcquire: handle.queueDepth,
-    };
-    traceXaiCacheLane(opts, {
-        provider: 'xai',
-        api: 'responses',
-        transport,
-        event: 'acquired',
-        lane_key_hash: laneMeta.laneKeyHash,
-        lane_shard: shard,
-        lane_shards: laneMeta.shards,
-        lane_auto: laneMeta.auto,
-        lane_seed_hash: laneMeta.seedHash,
-        max_in_flight: maxInFlight,
-        wait_ms: laneMeta.waitMs,
-        active: laneMeta.activeAfterAcquire,
-        queue_depth: laneMeta.queueDepthAfterAcquire,
-        previous_response_used: !!previousResponseId,
-        input_count: inputCount,
-    });
-    const startedAt = Date.now();
-    try {
-        return { value: await fn(laneMeta), laneMeta };
-    } finally {
-        handle.release();
-        traceXaiCacheLane(opts, {
-            provider: 'xai',
-            api: 'responses',
-            transport,
-            event: 'released',
-            lane_key_hash: laneMeta.laneKeyHash,
-            lane_shard: shard,
-            lane_shards: laneMeta.shards,
-            lane_auto: laneMeta.auto,
-            lane_seed_hash: laneMeta.seedHash,
-            max_in_flight: maxInFlight,
-            held_ms: Date.now() - startedAt,
-            previous_response_used: !!previousResponseId,
-            input_count: inputCount,
-        });
-    }
+    // Historical prompt-cache lanes formed a second admission queue and could
+    // time out while waiting. xAI is now governed exclusively by the common
+    // fixed-64 provider/account scheduler, regardless of legacy env/option
+    // knobs. Keep this wrapper only as a call-shape compatibility boundary.
+    const laneMeta = { enabled: false, maxInFlight: 0 };
+    return { value: await fn(laneMeta), laneMeta };
 }
 
 export function deterministicUuidFromKey(key) {

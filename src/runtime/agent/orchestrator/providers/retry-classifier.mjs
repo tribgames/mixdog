@@ -28,17 +28,9 @@ import {
 // HTTP statuses considered transient — safe to retry with backoff.
 //   408 — request timeout
 //   500/502/503/504 — server errors (overload / bad gateway / timeout)
-//   429 is excluded from blanket transient retry, but withRetry() honors a
-//   SHORT Retry-After header (< SHORT_RETRY_AFTER_MAX_MS): a short-retry
-//   threshold of 20s matches first-party client behavior:
-//   brief throttle windows retry once the server-stated wait elapses; long or
-//   headerless 429s still surface immediately (quota windows are
-//   deterministic — sleeping into an outer watchdog just relabels the error).
+//   429 is handled separately by withRetry(): only the affected request waits
+//   with jitter; provider/account admission concurrency remains fixed.
 const TRANSIENT_STATUSES = new Set([408, 500, 502, 503, 504])
-
-// Max server-stated Retry-After we are willing to sleep on a 429 before
-// surfacing it. Mirrors the first-party client's 20s short-retry threshold.
-const SHORT_RETRY_AFTER_MAX_MS = 20_000
 
 // HTTP statuses that mean "permanent: stop retrying, surface to caller".
 //   401/403 — auth issue
@@ -599,18 +591,22 @@ export async function withRetry(fn, opts = {}) {
       populateHttpStatusFromMessage(caught)
       const status = Number(caught?.httpStatus || caught?.status || caught?.response?.status || 0)
       const kind = classifyError(caught)
-      const unsafeToRetry = caught?.unsafeToRetry === true
-        || caught?.providerQuota === true
-        || caught?.quotaExceeded === true
-      if (unsafeToRetry) throw caught
+      const outputWasExposed = caught?.liveTextEmitted === true
+        || caught?.emittedText === true
+        || caught?.emittedToolCall === true
+        || caught?.toolCallEmitted === true
+      if (outputWasExposed || caught?.unsafeToRetry === true) throw caught
       if (status === 429) {
-        // CC-style short Retry-After: a brief server-stated throttle window
-        // is worth one sleep-and-retry (prompt cache stays warm). Long or
-        // absent Retry-After surfaces immediately as before.
+        // Retry only this request. Admission concurrency is fixed and is never
+        // reduced by rate limits. Respect Retry-After when present; otherwise
+        // use the ordinary jittered backoff. Output/tool stamps above remain a
+        // hard replay boundary.
         const ra = retryAfterMsFromError(caught)
-        if (ra == null || ra > SHORT_RETRY_AFTER_MAX_MS || attempt === maxAttempts - 1) throw caught
-        nextDelayMs = Math.max(0, ra)
-        nextDelayReason = 'retry-after'
+        if (attempt === maxAttempts - 1) throw caught
+        if (ra != null) {
+          nextDelayMs = Math.max(0, Math.min(ra, maxRetryAfterMs))
+          nextDelayReason = 'retry-after'
+        }
         continue
       }
       if (kind !== 'transient') throw caught

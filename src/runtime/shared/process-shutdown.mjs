@@ -91,6 +91,8 @@ export function installProcessSignalCleanup({
       log(`[${name}] ${reason}: ${errorText(error)}`);
     }
 
+    try { globalThis.__mixdogShutdownProviderAdmission?.(reason); } catch {}
+    try { globalThis.__mixdogDrainProviderConnections?.(reason); } catch {}
     try { beforeCleanup?.(reason, { code, error }); } catch {}
     try {
       if (typeof cleanup === 'function') {

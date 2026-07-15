@@ -13,6 +13,7 @@ import {
     traceAgentUsage,
 } from '../agent-trace.mjs';
 import {
+    PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
     PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
@@ -292,6 +293,30 @@ export async function sendViaHttpSse({
     // deltas then goes silent trips a short, named terminal failure instead of
     // hanging until the 30-min agent watchdog. Disablable via the shared env.
     let _semanticIdleTimer = null;
+    let _firstServerEventTimer = null;
+    const firstServerEventOverrideMs = Number(opts?._firstServerEventTimeoutMs);
+    const firstServerEventMs = Number.isFinite(firstServerEventOverrideMs) && firstServerEventOverrideMs > 0
+        ? firstServerEventOverrideMs
+        : PROVIDER_FIRST_BYTE_TIMEOUT_MS;
+    const _clearFirstServerEvent = () => {
+        if (_firstServerEventTimer) {
+            clearTimeout(_firstServerEventTimer);
+            _firstServerEventTimer = null;
+        }
+    };
+    const _armFirstServerEvent = () => {
+        if (!(firstServerEventMs > 0)) return;
+        _clearFirstServerEvent();
+        _firstServerEventTimer = setTimeout(() => {
+            const err = new Error(`OpenAI OAuth HTTP fallback first server event timed out after ${firstServerEventMs}ms`);
+            err.code = 'EPROVIDERTIMEOUT';
+            err.firstByteTimeout = true;
+            _streamAbortReason = err;
+            try { reader.cancel(err).catch(() => {}); } catch {}
+            _rejectPendingRead(err);
+        }, firstServerEventMs);
+        try { _firstServerEventTimer.unref?.(); } catch {}
+    };
     const _clearSemanticIdle = () => {
         if (_semanticIdleTimer) { clearTimeout(_semanticIdleTimer); _semanticIdleTimer = null; }
     };
@@ -508,6 +533,11 @@ export async function sendViaHttpSse({
     };
     const handleEvent = (event) => {
         if (!event || typeof event.type !== 'string') return;
+        _clearFirstServerEvent();
+        // Once any real SSE server event arrives, the fixed initial deadline is
+        // satisfied and semantic-idle ownership begins. meaningful() below may
+        // immediately re-arm it for a semantic event.
+        _armSemanticIdle();
         switch (event.type) {
             case 'response.created':
                 if (event.response?.model) model = event.response.model;
@@ -783,12 +813,10 @@ export async function sendViaHttpSse({
     };
 
     try {
-        // Arm the idle watchdog BEFORE the first read: a 200 response with an
-        // open-but-silent body (no SSE events at all) previously hung on bare
-        // reader.read() until the outer agent watchdog (CC/codex/opencode all
-        // bound the first read). meaningful() re-arms it per delta thereafter;
-        // an empty-partial stall classifies stream_stalled → retry/fallback.
-        _armSemanticIdle();
+        // Initial wait is governed only by the fixed first-server-event policy.
+        // Semantic idle begins in meaningful() after a parsed server event, so
+        // a lower semantic-idle override cannot shorten this first-event wait.
+        _armFirstServerEvent();
         while (true) {
             if (totalTimeout.signal?.aborted) {
                 _clearSemanticIdle();
@@ -834,6 +862,7 @@ export async function sendViaHttpSse({
         throw err;
     } finally {
         _pendingReadReject = null;
+        _clearFirstServerEvent();
         _clearSemanticIdle();
         try { reader.releaseLock?.(); } catch {}
         if (_onTotalAbort && totalTimeout.signal) {
