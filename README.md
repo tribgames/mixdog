@@ -152,12 +152,12 @@ current Anthropic models.
 ## Scripts
 
 ```bash
-npm run smoke          # basic smoke check
-npm run smoke:all      # core smoke suite
-npm run smoke:tui      # TUI render smoke
-npm run smoke:tools    # tool smoke suite
-npm run build:tui      # build the bundled Ink TUI
-npm run audit:models   # inspect model catalog metadata
+npm run smoke                # fast core feature smoke
+npm run smoke:all            # feature-surface smoke suite
+npm run smoke:tui            # TUI feature smoke
+npm run test:tool-contracts  # optional tool contract suite
+npm run build:tui            # build the bundled Ink TUI
+npm run audit:models         # inspect model catalog metadata
 ```
 
 Additional diagnostics and benchmarks live under `scripts/`.

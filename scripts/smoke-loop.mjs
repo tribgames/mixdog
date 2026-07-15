@@ -58,7 +58,7 @@ function runNode(args, label, timeoutMs = 180_000) {
 function runSmokeAll(iteration) {
   let totalMs = 0;
   const steps = [];
-  for (const script of ['scripts/boot-smoke.mjs', 'scripts/tool-smoke.mjs']) {
+  for (const script of ['scripts/smoke.mjs', 'scripts/boot-smoke.mjs']) {
     const result = runNode([script], `${script} iteration ${iteration}`);
     totalMs += result.ms;
     steps.push({
@@ -161,8 +161,14 @@ while (Date.now() < deadline && iteration < maxIterations) {
   const iterStartedAt = Date.now();
   const smoke = runSmokeAll(iteration);
   smokeTimes.push(smoke.ms);
-  const failure = runNode(['scripts/tool-failures.mjs', '--since', since, '--limit', '1'], `failures iteration ${iteration}`, 60_000);
-  if (!/tool failures:\s+0\/0 shown/.test(failure.stdout)) {
+  const failure = runNode(['scripts/tool-failures.mjs', '--since', since, '--limit', '1', '--json'], `failures iteration ${iteration}`, 60_000);
+  let failureSummary;
+  try {
+    failureSummary = JSON.parse(failure.stdout);
+  } catch {
+    throw new Error(`tool failures returned malformed JSON:\n${failure.stdout}`);
+  }
+  if (failureSummary?.actionable_failures?.matched !== 0) {
     throw new Error(`tool failures appeared after loop start:\n${failure.stdout}`);
   }
   const currentRss = rssMb();

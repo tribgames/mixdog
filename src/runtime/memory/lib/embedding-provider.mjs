@@ -104,14 +104,15 @@ function ensureWorker() {
     _restartCount++
   })
   worker.on('exit', (code) => {
+    const exitError = new Error(`Worker exited with code ${code}`)
     if (code !== 0) {
       __mixdogMemoryLog(`[embed] worker exited with code ${code}\n`)
-      for (const [, p] of _pending) p.reject(new Error(`Worker exited with code ${code}`))
-      _pending.clear()
       _restartCount++
     } else {
       _restartCount = 0
     }
+    for (const [, p] of _pending) p.reject(exitError)
+    _pending.clear()
     worker = null
     _modelReady = false
   })
