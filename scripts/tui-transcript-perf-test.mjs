@@ -5,6 +5,7 @@ import { createEngineItemMutators, replaceEngineItemsState } from '../src/tui/en
 import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
 import { createRunTurn } from '../src/tui/engine/turn.mjs';
 import { buildTranscriptRowIndexIncremental } from '../src/tui/app/transcript-window.mjs';
+import { isLiveSpinnerMetaVisible } from '../src/tui/app/live-spinner-visibility.mjs';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -91,6 +92,7 @@ function makeTurnHarness(ask, stateOverrides = {}, bagOverrides = {}) {
 
 test('successful mid-turn compact trims history but preserves live turn references', async () => {
   let preservedTail = false;
+  let compactKeepsSpinnerVisible = false;
   let contextSyncs = 0;
   const harness = makeTurnHarness(async (_text, options) => {
     options.onTextDelta('before compact\n');
@@ -98,6 +100,8 @@ test('successful mid-turn compact trims history but preserves live turn referenc
     options.onCompactEvent({ status: 'compacted', trigger: 'reactive' });
     assert.equal(contextSyncs, 1, 'compact event must refresh context before returning');
     preservedTail = harness.getState().streamingTail?.text === 'before compact\n';
+    compactKeepsSpinnerVisible = harness.getState().spinner?.active === true
+      && harness.getState().items.at(-1)?.kind === 'statusdone';
     options.onCompactEvent({ status: 'compacted', trigger: 'reactive' });
     assert.equal(contextSyncs, 2, 'each compact event refreshes context immediately');
     options.onTextDelta('after compact\n');
@@ -113,6 +117,7 @@ test('successful mid-turn compact trims history but preserves live turn referenc
 
   assert.equal(await harness.runTurn('go', { submittedIds: ['current-user'] }), 'done');
   assert.equal(preservedTail, true);
+  assert.equal(compactKeepsSpinnerVisible, true, 'a compact status leaves the active turn spinner in place');
   assert.equal(harness.getState().items.some((item) => item.id === 'old'), false);
   assert.equal(harness.getState().items.some((item) => item.id === 'current-user'), true);
   assert.equal(
@@ -123,6 +128,22 @@ test('successful mid-turn compact trims history but preserves live turn referenc
     harness.getState().items.find((item) => item.kind === 'assistant')?.text,
     'before compact\nafter compact\n',
   );
+});
+
+test('live spinner remains visible across compact status and follows turn teardown', () => {
+  const activeTurnSpinner = { active: true };
+  const visible = (liveSpinner, liveSpinnerIsCommand, kind) => isLiveSpinnerMetaVisible({
+    inputBoxHidden: false,
+    slashPaletteOpen: false,
+    liveSpinner,
+    liveSpinnerIsCommand,
+    latestTranscriptItem: kind ? { kind } : null,
+  });
+
+  assert.equal(visible(activeTurnSpinner, false, 'statusdone'), true);
+  assert.equal(visible(activeTurnSpinner, false, 'turndone'), false);
+  assert.equal(visible(null, false, 'turndone'), false);
+  assert.equal(visible({ active: true }, true, 'turndone'), true);
 });
 
 test('failed mid-turn compact leaves prior transcript items untouched', async () => {

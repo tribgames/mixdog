@@ -77,6 +77,7 @@ import {
   slashCommandForName,
   slashArgumentHint,
 } from './app/slash-commands.mjs';
+import { isLiveSpinnerMetaVisible } from './app/live-spinner-visibility.mjs';
 import {
   parseHookRuleInput,
   parseMcpServerInput,
@@ -2564,7 +2565,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     ? promptHintTone
     : (latestToast?.tone || progressHint?.tone || 'info');
   const latestTranscriptItem = state.items[state.items.length - 1] || null;
-  const latestDoneAtTail = latestTranscriptItem?.kind === 'turndone' || latestTranscriptItem?.kind === 'statusdone';
   // Bottom meta band ownership is LIVE-SPINNER ONLY. A finished turn's done row
   // (turndone/statusdone) is a normal transcript item and flows into scrollback
   // like anything else, so the area directly above the prompt is CLEAR when the
@@ -2621,13 +2621,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
   // While the slash palette is open it owns the area above the prompt, so the
   // live spinner/meta row is suppressed entirely — no reservation and no render.
   // Normalize the spinner → TurnDone handoff by making them occupy the SAME
-  // two-row slot. Engine appends turndone/statusdone before clearing spinner, so
-  // a transient frame can otherwise contain BOTH: transcript grows by two rows
-  // while the bottom spinner still reserves two rows, making the viewport visibly
-  // jump. As soon as the done row is the transcript tail, drop the spinner slot;
-  // the new done row replaces that height in the same frame, with no ms timer.
-  const promptMetaVisible = !inputBoxHidden && !slashPaletteOpen && !!liveSpinner
-    && (liveSpinnerIsCommand || !latestDoneAtTail);
+  // two-row slot. Completion appends turndone and clears spinner in one commit,
+  // so a completed row replaces the spinner slot with no transient jump. A
+  // statusdone can be emitted mid-turn (for example after compaction), so it
+  // must not suppress the still-active spinner.
+  const promptMetaVisible = isLiveSpinnerMetaVisible({
+    inputBoxHidden,
+    slashPaletteOpen,
+    liveSpinner,
+    liveSpinnerIsCommand,
+    latestTranscriptItem,
+  });
   const promptMetaRows = promptMetaVisible ? 2 : 0;
   // Toast/error text without a live spinner uses the existing transcript guard
   // row directly above the prompt. Do NOT reserve another row here: that made a
