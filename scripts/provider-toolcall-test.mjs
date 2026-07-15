@@ -37,6 +37,7 @@ import {
 import {
     _cacheObservationForTest,
     _cacheContinuityResetReasonForTest,
+    sendViaWebSocket,
 } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 import {
     _withCodexWsClientMetadata,
@@ -1786,13 +1787,23 @@ test('openai oauth ws delta: ws-delta mode uses previous_response_id without tur
             entry: {
                 ...entry,
                 lastRequestInput: [body.input[0]],
-                lastResponseItems: [{ type: 'function_call', call_id: 'call_1', name: 'tool', arguments: '{}' }],
+                lastResponseItems: [{
+                    type: 'function_call',
+                    call_id: 'call_1',
+                    name: 'tool',
+                    arguments: '{"api_key":"provider-function-secret","nested":{"z":2,"a":1}}',
+                }],
             },
             body: {
                 ...body,
                 input: [
                     body.input[0],
-                    { type: 'function_call', call_id: 'call_other', name: 'tool', arguments: '{}' },
+                    {
+                        type: 'function_call',
+                        call_id: 'call_other',
+                        name: 'tool',
+                        arguments: '{"nested":{"a":1,"z":2},"api_key":"replayed-function-secret"}',
+                    },
                     body.input[1],
                 ],
             },
@@ -1800,6 +1811,193 @@ test('openai oauth ws delta: ws-delta mode uses previous_response_id without tur
         assert.equal(responseMismatch.mode, 'full');
         assert.equal(responseMismatch.reason, 'response_output_mismatch:function_call');
         assert.equal(responseMismatch.frame.previous_response_id, undefined);
+        const mismatch = responseMismatch.responseOutputMismatch;
+        assert.deepEqual({
+            expectedType: mismatch.response_output_mismatch_expected_type,
+            actualType: mismatch.response_output_mismatch_actual_type,
+            expectedCount: mismatch.response_output_mismatch_expected_response_item_count,
+            actualCount: mismatch.response_output_mismatch_actual_replayed_input_item_count,
+        }, {
+            expectedType: 'function_call',
+            actualType: 'function_call',
+            expectedCount: 1,
+            actualCount: 2,
+        });
+        assert.match(mismatch.response_output_mismatch_expected_hash, /^[a-f0-9]{64}$/);
+        assert.match(mismatch.response_output_mismatch_actual_hash, /^[a-f0-9]{64}$/);
+        const traceSafe = JSON.stringify(mismatch);
+        assert.equal(traceSafe.includes('call_other'), false);
+        assert.equal(traceSafe.includes('provider-function-secret'), false);
+        assert.equal(traceSafe.includes('replayed-function-secret'), false);
+    } finally {
+        if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
+    }
+});
+
+test('openai oauth ws delta: message mismatch diagnostics hash normalized content without tracing it', () => {
+    const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    try {
+        process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
+        const prior = { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'prior' }] };
+        const expected = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'provider secret' }] };
+        const actual = { type: 'message', role: 'assistant', content: [{ type: 'input_text', text: 'replayed secret' }] };
+        const delta = _computeDelta({
+            entry: {
+                lastRequestSansInput: '{"model":"gpt-5.5"}',
+                lastResponseId: 'resp_prev',
+                lastRequestInput: [prior],
+                lastResponseItems: [expected],
+            },
+            body: { model: 'gpt-5.5', input: [prior, actual] },
+        });
+        const mismatch = delta.responseOutputMismatch;
+        assert.equal(delta.reason, 'response_output_mismatch:message');
+        assert.equal(mismatch.response_output_mismatch_expected_type, 'message');
+        assert.equal(mismatch.response_output_mismatch_actual_type, 'message');
+        assert.notEqual(mismatch.response_output_mismatch_expected_hash, mismatch.response_output_mismatch_actual_hash);
+        const traceSafe = JSON.stringify(mismatch);
+        assert.equal(traceSafe.includes('provider secret'), false);
+        assert.equal(traceSafe.includes('replayed secret'), false);
+    } finally {
+        if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
+    }
+});
+
+test('openai oauth ws delta: diagnostic hashes normalize equivalent message and function-call forms', () => {
+    const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    try {
+        process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
+        const prior = { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'prior' }] };
+        const mismatch = (expected, actual) => _computeDelta({
+            entry: {
+                lastRequestSansInput: '{"model":"gpt-5.5"}',
+                lastResponseId: 'resp_prev',
+                lastRequestInput: [prior],
+                lastResponseItems: [expected],
+            },
+            body: { model: 'gpt-5.5', input: [prior, actual] },
+        }).responseOutputMismatch;
+        const message = { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'same sensitive message' }] };
+        const messageExpected = mismatch(message, {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'different message' }],
+        });
+        const messageActual = mismatch({
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'different message' }],
+        }, {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'input_text', text: 'same sensitive message' }],
+        });
+        assert.equal(
+            messageExpected.response_output_mismatch_expected_hash,
+            messageActual.response_output_mismatch_actual_hash,
+        );
+
+        const functionExpected = (argumentsValue) => mismatch({
+            type: 'function_call',
+            call_id: 'call_same',
+            name: 'tool',
+            arguments: argumentsValue,
+        }, {
+            type: 'function_call',
+            call_id: 'call_different',
+            name: 'tool',
+            arguments: '{"ignored":"replayed-function-secret"}',
+        });
+        assert.equal(
+            functionExpected('{"api_key":"function-secret","nested":{"z":2,"a":1}}').response_output_mismatch_expected_hash,
+            functionExpected('{"nested":{"a":1,"z":2},"api_key":"function-secret"}').response_output_mismatch_expected_hash,
+        );
+    } finally {
+        if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
+    }
+});
+
+test('openai oauth ws delta: mismatch diagnostics reach transport and cache_break without sensitive values', async () => {
+    const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    try {
+        process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
+        const rows = [];
+        const prior = { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'prior' }] };
+        const cases = [{
+            expected: {
+                type: 'function_call',
+                call_id: 'call_expected',
+                name: 'tool',
+                arguments: '{"api_key":"provider-function-secret","nested":{"z":2,"a":1}}',
+            },
+            actual: {
+                type: 'function_call',
+                call_id: 'call_actual',
+                name: 'tool',
+                arguments: '{"nested":{"a":1,"z":2},"api_key":"replayed-function-secret"}',
+            },
+        }, {
+            expected: {
+                type: 'custom_tool_call',
+                call_id: 'custom_expected',
+                name: 'apply_patch',
+                input: 'provider-custom-input-secret',
+            },
+            actual: {
+                type: 'custom_tool_call',
+                call_id: 'custom_actual',
+                name: 'apply_patch',
+                input: 'replayed-custom-input-secret',
+            },
+        }];
+        for (const { expected, actual } of cases) {
+            const body = { model: 'gpt-5.5', input: [prior, actual] };
+            const entry = {
+                socket: { close() {} },
+                lastRequestSansInput: _stableStringify(_sansInput(body)),
+                lastResponseId: 'resp_prev',
+                lastRequestInput: [prior],
+                lastResponseItems: [expected],
+            };
+            const expectedDiagnostics = _computeDelta({ entry, body }).responseOutputMismatch;
+            await sendViaWebSocket({
+                auth: { type: 'xai', access_token: 'test-token' },
+                body,
+                poolKey: `mismatch-trace-${expected.type}`,
+                cacheKey: 'mismatch-trace-test',
+                iteration: 1,
+                useModel: 'gpt-5.5',
+                traceProvider: 'xai',
+                _acquireWithRetryFn: async () => ({ entry, reused: false }),
+                _sendFrameFn: async () => {},
+                _streamFn: async () => ({
+                    content: 'ok',
+                    model: 'gpt-5.5',
+                    toolCalls: [],
+                    usage: {},
+                    responseId: 'resp_next',
+                    responseItems: [],
+                    closeSocket: true,
+                }),
+                _agentTraceFn: (row) => rows.push(row),
+            });
+            const emitted = rows.filter((row) => row.payload?.response_output_mismatch_expected_type === expected.type);
+            assert.deepEqual(emitted.map((row) => row.kind).sort(), ['cache_break', 'transport']);
+            for (const row of emitted) assert.deepEqual(
+                Object.fromEntries(Object.keys(expectedDiagnostics).map((key) => [key, row.payload[key]])),
+                expectedDiagnostics,
+            );
+        }
+        const traceText = JSON.stringify(rows);
+        for (const secret of [
+            'provider-function-secret',
+            'replayed-function-secret',
+            'provider-custom-input-secret',
+            'replayed-custom-input-secret',
+        ]) assert.equal(traceText.includes(secret), false);
     } finally {
         if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
         else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;

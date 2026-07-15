@@ -15,6 +15,7 @@ import {
     RESPONSES_TRANSPORT_CAPABILITIES,
     FULL_RESPONSES_TRANSPORT_CAPS,
 } from './openai-transport-policy.mjs';
+import { createHash } from 'node:crypto';
 
 // If the cached request (sans input) matches the current one and the current
 // input starts with the cached input, return only the tail. Otherwise return
@@ -157,6 +158,67 @@ function _isReplayLikeHead(item, responseItem) {
     return inputType === responseType;
 }
 
+// The hash input follows the same per-item normalizations used by
+// _logicalResponseItemMatch, but is never emitted itself. This retains a
+// stable comparison fingerprint after history compaction without putting
+// message content, tool arguments, or custom-tool input into traces.
+function _normalizedResponseItemDiagnosticShape(item) {
+    if (!item || typeof item !== 'object') return item || null;
+    const type = item.type || (item.role === 'assistant' ? 'message' : '');
+    if (type === 'function_call' || type === 'tool_search_call') {
+        return {
+            type,
+            call_id: String(item.call_id || ''),
+            name: type === 'function_call' ? String(item.name || '') : undefined,
+            arguments: _normalizeArguments(item.arguments),
+        };
+    }
+    if (type === 'custom_tool_call') {
+        return {
+            type,
+            call_id: String(item.call_id || ''),
+            name: String(item.name || ''),
+            input: String(item.input || ''),
+        };
+    }
+    if (type === 'message') {
+        return {
+            type,
+            role: item.role || 'assistant',
+            content: Array.isArray(item.content) ? item.content.map(_normalizeContentPart) : [],
+        };
+    }
+    if (type === 'reasoning') {
+        return {
+            type,
+            id: item.id || null,
+            encrypted_content: item.encrypted_content || null,
+        };
+    }
+    if (type === 'web_search_call') {
+        return { type, id: item.id || null, action: item.action || null };
+    }
+    const { id: _id, status: _status, ...rest } = item;
+    return { type, ...rest };
+}
+
+function _normalizedResponseItemDiagnosticHash(item) {
+    return createHash('sha256')
+        .update(_stableStringify(_normalizedResponseItemDiagnosticShape(item)))
+        .digest('hex');
+}
+
+function _responseOutputMismatchDiagnostics(inputItem, responseItem, replayItemCount, responseItemCount) {
+    return {
+        response_output_mismatch_expected_type: responseItem?.type || 'unknown',
+        response_output_mismatch_expected_hash: _normalizedResponseItemDiagnosticHash(responseItem),
+        response_output_mismatch_expected_response_item_count: responseItemCount,
+        response_output_mismatch_actual_type: inputItem?.type || (inputItem?.role === 'assistant' ? 'message' : 'unknown'),
+        response_output_mismatch_actual_hash: _normalizedResponseItemDiagnosticHash(inputItem),
+        response_output_mismatch_actual_replayed_input_item_count: replayItemCount,
+    };
+}
+
 export function _stripResponseItemsFromHead(items, responseItems) {
     const tail = Array.isArray(items) ? items : [];
     const outputs = Array.isArray(responseItems) ? responseItems : [];
@@ -177,6 +239,12 @@ export function _stripResponseItemsFromHead(items, responseItems) {
                 tail,
                 stripped,
                 skipped,
+                responseOutputMismatch: _responseOutputMismatchDiagnostics(
+                    tail[cursor],
+                    output,
+                    tail.length,
+                    outputs.length,
+                ),
             };
         }
         skipped += 1;
@@ -291,7 +359,12 @@ export function _computeDelta({ entry, body, traceProvider }) {
     }
     const stripped = _stripResponseItemsFromHead(afterPreviousInput, entry.lastResponseItems);
     if (!stripped.ok) {
-        return { mode: 'full', reason: stripped.reason, frame: buildFrame(body) };
+        return {
+            mode: 'full',
+            reason: stripped.reason,
+            responseOutputMismatch: stripped.responseOutputMismatch,
+            frame: buildFrame(body),
+        };
     }
     return {
         mode: 'delta',

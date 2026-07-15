@@ -77,7 +77,7 @@ import {
   slashCommandForName,
   slashArgumentHint,
 } from './app/slash-commands.mjs';
-import { isLiveSpinnerMetaVisible } from './app/live-spinner-visibility.mjs';
+import { isCompletedTranscriptTailAppendedThisCommit, isLiveSpinnerMetaVisible } from './app/live-spinner-visibility.mjs';
 import {
   parseHookRuleInput,
   parseMcpServerInput,
@@ -2722,7 +2722,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     // transcript bounce. Exempt exactly the meta-collapse rows from the ink mask
     // when the done row is the transcript tail. Every other prompt-row-only
     // shrink (typing newline removal, queued-row churn) AND the reclaimed/no-op
-    // path (engine.mjs skips turndone, so latestDoneAtTail stays false and no
+    // path (engine.mjs skips turndone, so the completed-tail check stays false and no
     // row replaces the height) keep the mask so they still reclaim smoothly.
     const prevMetaRows = Number(String(panelTransition.signature).split('|')[PANEL_LAYOUT_SIG.PROMPT_META]) || 0;
     const nextMetaRows = Number(String(panelLayoutSignature).split('|')[PANEL_LAYOUT_SIG.PROMPT_META]) || 0;
@@ -2731,8 +2731,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     // tail and then clear without appending statusdone (e.g. /recall — see
     // engine.mjs), collapsing the meta band with NO same-commit backfill; masking
     // must stay on for that path or the vacated rows overpaint the stale row.
-    const doneTailAppendedThisCommit = latestDoneAtTail
-      && (latestTranscriptItem?.id ?? null) !== panelTransition.tailId;
+    const doneTailAppendedThisCommit = isCompletedTranscriptTailAppendedThisCommit(
+      latestTranscriptItem,
+      panelTransition.tailId,
+    );
     const spinnerMetaCollapseRows = doneTailAppendedThisCommit
       ? Math.max(0, prevMetaRows - nextMetaRows)
       : 0;

@@ -1,9 +1,16 @@
 // Regression: OpenAI OAuth WS abnormal-close recovery before visible output.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _acquireWithRetry, sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
-import { _sendFrame } from '../src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs';
+import {
+    _clearWebSocketPoolForTest,
+    _seedWebSocketEntryForTest,
+    acquireWebSocket,
+    releaseWebSocket,
+    _sendFrame,
+} from '../src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs';
 
 function close1006() {
     const err = new Error('WebSocket closed abnormally');
@@ -27,6 +34,65 @@ function wsArgs(overrides = {}) {
         ...overrides,
     };
 }
+
+class PoolSocket extends EventEmitter {
+    constructor() {
+        super();
+        this.readyState = 1;
+        this._socket = { ref() {}, unref() {} };
+    }
+    close() { this.readyState = 3; }
+    ping() { queueMicrotask(() => this.emit('pong')); }
+}
+
+function poolEntry(responseId) {
+    return {
+        socket: new PoolSocket(),
+        busy: true,
+        closing: false,
+        ephemeral: false,
+        lastResponseId: responseId,
+    };
+}
+
+test('pool release/acquire preserves latest compatible chain and auth/cache boundaries', async (t) => {
+    t.after(() => _clearWebSocketPoolForTest());
+    const poolKey = 'reused-session-id';
+    const authA = { account_id: 'account-a', access_token: 'token-a' };
+    const authB = { account_id: 'account-b', access_token: 'token-b' };
+    const oldest = _seedWebSocketEntryForTest({
+        poolKey, auth: authA, cacheKey: 'cache-a', entry: poolEntry('resp-old'),
+    });
+    const latest = _seedWebSocketEntryForTest({
+        poolKey, auth: authA, cacheKey: 'cache-a', entry: poolEntry('resp-latest'),
+    });
+    const otherAccount = _seedWebSocketEntryForTest({
+        poolKey, auth: authB, cacheKey: 'cache-a', entry: poolEntry('resp-account-b'),
+    });
+    const otherCache = _seedWebSocketEntryForTest({
+        poolKey, auth: authA, cacheKey: 'cache-b', entry: poolEntry('resp-cache-b'),
+    });
+
+    releaseWebSocket({ entry: oldest, poolKey, keep: true });
+    releaseWebSocket({ entry: otherAccount, poolKey, keep: true });
+    releaseWebSocket({ entry: otherCache, poolKey, keep: true });
+    releaseWebSocket({ entry: latest, poolKey, keep: true });
+
+    const first = await acquireWebSocket({
+        auth: authA, poolKey, cacheKey: 'cache-a', forceFresh: false,
+    });
+    assert.equal(first.entry, latest, 'latest completed compatible chain wins');
+    assert.equal(first.reused, true);
+    assert.equal(latest.busy, true, 'acquire reserves the selected entry');
+
+    const second = await acquireWebSocket({
+        auth: authA, poolKey, cacheKey: 'cache-a', forceFresh: false,
+    });
+    assert.equal(second.entry, oldest, 'reserved latest entry cannot be acquired concurrently');
+    assert.equal(second.entry.lastResponseId, 'resp-old');
+    assert.notEqual(second.entry, otherAccount);
+    assert.notEqual(second.entry, otherCache);
+});
 
 test('acquire timeout reconnects successfully with progress, not a terminal WS error', async () => {
     const oldWrite = process.stderr.write;

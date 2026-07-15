@@ -395,6 +395,10 @@ export async function runPreSendCompactPass(state) {
                 if (compactChanged) {
                     messages.length = 0;
                     messages.push(...compacted);
+                    // The next provider send intentionally starts a new
+                    // transcript shape. Keep this one-shot observability tag
+                    // separate from an unexplained prefix mismatch.
+                    opts.cacheBreakIntent = 'automatic_compaction';
                     // Compacting/pruning the transcript invalidates the
                     // server-side conversation anchor (xAI Responses / openai-oauth
                     // WS rely on previous_response_id which points at a

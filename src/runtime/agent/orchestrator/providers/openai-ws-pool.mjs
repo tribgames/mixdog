@@ -67,6 +67,44 @@ const MAX_POOLED_SOCKETS_PER_KEY = 8;
 //          lastRequestInput, lastResponseItems, lastInputLen, turnState,
 //          closing, ephemeral }
 const _wsPool = new Map();
+let _releaseSequence = 0;
+
+function _poolCompatibility(auth, cacheKey) {
+    const type = String(auth?.type || 'openai-oauth');
+    // Prefer the stable OAuth account id so an access-token refresh can keep
+    // using the same connection. If it is unavailable, fail closed to the
+    // credential itself; a refresh then opens a new socket rather than risking
+    // cross-account continuation.
+    const credentialIdentity = auth?.account_id || auth?.apiKey || auth?.access_token || '';
+    return {
+        authIdentity: createHash('sha256')
+            .update(`${type}\0${String(credentialIdentity)}`)
+            .digest('hex'),
+        cacheKeyIdentity: String(cacheKey || ''),
+    };
+}
+
+function _entryCompatible(entry, compatibility) {
+    return entry?.authIdentity === compatibility.authIdentity
+        && entry?.cacheKeyIdentity === compatibility.cacheKeyIdentity;
+}
+
+// A previous_response_id is valid on the connection that produced it. When
+// concurrency temporarily creates sibling sockets for one pool key, continue
+// on the most recently completed sibling instead of whichever socket happened
+// to be inserted first. This is the closest representation of Codex's
+// turn-local single-connection ownership without weakening the existing
+// full-frame fallback checks.
+function _selectIdleEntry(entries, compatibility) {
+    let selected;
+    for (const entry of entries || []) {
+        if (entry?.busy || !_entryCompatible(entry, compatibility)) continue;
+        if (!selected || (entry.releaseSequence || 0) > (selected.releaseSequence || 0)) {
+            selected = entry;
+        }
+    }
+    return selected;
+}
 
 // --- Cache-route probe state (2026-07-04 hunt) -----------------------------
 // CF cookie stickiness (codex chatgpt_cloudflare_cookies.rs:22-55 persists
@@ -707,9 +745,16 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
     }
     if (poolKey && !forceFresh) {
         const arr = _wsPool.get(poolKey) || [];
-        // Prune dead entries first.
+        const compatibility = _poolCompatibility(auth, cacheKey);
+        // Prune dead entries and idle sockets from an obsolete auth/cache
+        // boundary. Busy incompatible entries are left alone until their owner
+        // releases them, but can never be selected by this acquire.
         for (let i = arr.length - 1; i >= 0; i--) {
-            if (!_isOpen(arr[i]) || arr[i].closing) {
+            const incompatibleIdle = !arr[i].busy && !_entryCompatible(arr[i], compatibility);
+            if (!_isOpen(arr[i]) || arr[i].closing || incompatibleIdle) {
+                if (incompatibleIdle) {
+                    try { arr[i].socket.close(1000, 'pool_boundary_changed'); } catch {}
+                }
                 _clearIdle(arr[i]);
                 _clearLiveness(arr[i]);
                 arr.splice(i, 1);
@@ -721,7 +766,7 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
         // bound before hand-out; a dead one is evicted and the scan retries the
         // next idle entry so a busy caller is never handed a wedged socket.
         let idle;
-        while ((idle = arr.find(e => !e.busy))) {
+        while ((idle = _selectIdleEntry(arr, compatibility))) {
             _clearIdle(idle);
             _clearLiveness(idle);
             // Reserve the entry BEFORE awaiting the probe: _pingProbe yields the
@@ -778,6 +823,8 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
                 lastResponseItems: null,
                 lastInputLen: 0,
                 lastInputPrefixHash: null,
+                releaseSequence: 0,
+                ...compatibility,
                 turnState: turnState || null,
                 closing: false,
                 ephemeral: true,
@@ -797,6 +844,7 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
     // returns "No tool output found for function call …". turnState only
     // propagates within a single entry across its own iterations.
     const sessionToken = _mintSessionToken(cacheKey, auth);
+    const compatibility = _poolCompatibility(auth, cacheKey);
     if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] acquire-new tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _acqStart}ms\n`);
     }
@@ -811,6 +859,8 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
         lastResponseItems: null,
         lastInputLen: 0,
         lastInputPrefixHash: null,
+        releaseSequence: 0,
+        ...compatibility,
         turnState: turnState || null,
         closing: false,
         ephemeral: false,
@@ -840,12 +890,34 @@ export function releaseWebSocket({ entry, poolKey, keep }) {
     // Mark activity at release, then arm both the idle-close timer and the
     // periodic liveness ping so a socket that dies while pooled is evicted
     // before the next acquire can hand it out.
+    entry.releaseSequence = ++_releaseSequence;
     entry.lastAliveAt = Date.now();
     _scheduleIdleClose(poolKey, entry);
     if (WS_PING_ENABLED) _armLiveness(poolKey, entry);
     // Idle pooled sockets retain reuse state without retaining the process.
     // acquireWebSocket re-refs the transport before probing or handing it out.
     _setTransportReferenced(entry, false);
+}
+
+// Focused pool lifecycle test seam. Entries still pass through the production
+// release/acquire code; this only avoids a live provider handshake.
+export function _seedWebSocketEntryForTest({ poolKey, auth, cacheKey, entry }) {
+    Object.assign(entry, _poolCompatibility(auth, cacheKey));
+    if (entry.releaseSequence === undefined) entry.releaseSequence = 0;
+    _getPoolArr(poolKey).push(entry);
+    return entry;
+}
+
+export function _clearWebSocketPoolForTest() {
+    for (const arr of _wsPool.values()) {
+        for (const entry of arr) {
+            _clearIdle(entry);
+            _clearLiveness(entry);
+            try { entry.socket.close(1000, 'test_cleanup'); } catch {}
+        }
+    }
+    _wsPool.clear();
+    _releaseSequence = 0;
 }
 
 // Drain-complete fence — set true once _closeAllPooledSockets runs so any

@@ -5,7 +5,11 @@ import { createEngineItemMutators, replaceEngineItemsState } from '../src/tui/en
 import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
 import { createRunTurn } from '../src/tui/engine/turn.mjs';
 import { buildTranscriptRowIndexIncremental } from '../src/tui/app/transcript-window.mjs';
-import { isLiveSpinnerMetaVisible } from '../src/tui/app/live-spinner-visibility.mjs';
+import {
+  isCompletedTranscriptTail,
+  isCompletedTranscriptTailAppendedThisCommit,
+  isLiveSpinnerMetaVisible,
+} from '../src/tui/app/live-spinner-visibility.mjs';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -144,6 +148,19 @@ test('live spinner remains visible across compact status and follows turn teardo
   assert.equal(visible(activeTurnSpinner, false, 'turndone'), false);
   assert.equal(visible(null, false, 'turndone'), false);
   assert.equal(visible({ active: true }, true, 'turndone'), true);
+});
+
+test('completed transcript tail masking requires a new done tail', () => {
+  assert.equal(isCompletedTranscriptTail({ id: 'turn', kind: 'turndone' }), true);
+  assert.equal(isCompletedTranscriptTail({ id: 'status', kind: 'statusdone' }), true);
+  assert.equal(isCompletedTranscriptTail({ id: 'assistant', kind: 'assistant' }), false);
+  assert.equal(isCompletedTranscriptTail({ id: 'user', kind: 'user' }), false);
+  assert.equal(isCompletedTranscriptTail(null), false);
+  assert.equal(isCompletedTranscriptTailAppendedThisCommit({ id: 'turn', kind: 'turndone' }, 'turn'), false);
+  assert.equal(isCompletedTranscriptTailAppendedThisCommit({ id: 'status', kind: 'statusdone' }, 'status'), false);
+  assert.equal(isCompletedTranscriptTailAppendedThisCommit({ id: 'next', kind: 'turndone' }, 'previous'), true);
+  assert.equal(isCompletedTranscriptTailAppendedThisCommit({ id: 'next-status', kind: 'statusdone' }, 'previous'), true);
+  assert.equal(isCompletedTranscriptTailAppendedThisCommit({ id: 'assistant', kind: 'assistant' }, 'previous'), false);
 });
 
 test('failed mid-turn compact leaves prior transcript items untouched', async () => {

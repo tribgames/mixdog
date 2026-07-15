@@ -429,6 +429,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // holds the prefix byte-stable; 'none' makes the model emit text
             // only. Overrides the forced-first-tool path below.
             opts.toolChoice = 'none';
+            if (sessionAgent === 'explorer') {
+                opts.cacheBreakIntent = 'explorer_hard_cap_final_tool_choice_none';
+            }
         } else if (forcedFirstTool && toolCallsTotal === 0) {
             opts.toolChoice = 'required';
         } else {
@@ -464,7 +467,15 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         opts.onToolCall = _capFinalToolsDisabled ? undefined : eager.onToolCall;
         // Reattach separated tool results, then drop only truly dangling
         // assistant/orphan pairs before the provider sees the transcript.
+        const messagesBeforeTranscriptRepair = messages.slice();
         repairTranscriptBeforeProviderSend(messages, sessionId);
+        if (!opts.cacheBreakIntent
+            && (messages.length !== messagesBeforeTranscriptRepair.length
+                || messages.some((message, index) => message !== messagesBeforeTranscriptRepair[index]))) {
+            // Pairing repair deliberately rebuilds the provider transcript;
+            // record that intent without broadening the mismatch hash scope.
+            opts.cacheBreakIntent = 'transcript_rebuild';
+        }
         // Strip soft-warn markers from prior tool results before the next
         // send. Marker bytes (Tool-budget(xN), Same-file reads(xN), etc.)
         // mutate every turn with dynamic counters, so leaving them in the
@@ -484,12 +495,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
         });
         if (_sendResult.action === 'retry') {
+            delete opts.cacheBreakIntent;
             contextOverflowRetryUsed = true;
             reactiveOverflowRetryPending = true;
             continue;
         }
         response = _sendResult.response;
         opts.onToolCall = undefined;
+        delete opts.cacheBreakIntent;
         contextOverflowRetryUsed = false;
         // Capture opaque state for the next turn (may be undefined — that's
         // the stateless contract for providers that don't use continuation).

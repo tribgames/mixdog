@@ -656,6 +656,7 @@ export async function sendViaWebSocket({
     _sendFrameFn = _sendFrame,
     _sleepFn = _defaultSleep,
     _sendSpanTraceFn = appendAgentTrace,
+    _agentTraceFn = appendAgentTrace,
 }) {
     // Bounded mid-stream retry: if an attempt's stream dies after
     // response.created but before response.completed from a transient cause
@@ -885,6 +886,7 @@ export async function sendViaWebSocket({
         let deltaReason = null;
         let strippedResponseItems = 0;
         let skippedResponseItems = 0;
+        let responseOutputMismatch = null;
         let wireFrameHadTurnState = false;
         let wireFrameMetadataTrace = _metadataTrace(null);
         let framePrefixHash = null;
@@ -976,7 +978,7 @@ export async function sendViaWebSocket({
                         output_tokens: warmupResult.usage?.outputTokens || 0,
                         prompt_tokens: warmupResult.usage?.promptTokens || 0,
                     };
-                    appendAgentTrace({
+                    _agentTraceFn({
                         sessionId: poolKey,
                         iteration,
                         kind: 'cache_warmup',
@@ -1020,6 +1022,7 @@ export async function sendViaWebSocket({
             deltaReason = delta.reason || null;
             strippedResponseItems = delta.strippedResponseItems || 0;
             skippedResponseItems = delta.skippedResponseItems || 0;
+            responseOutputMismatch = delta.responseOutputMismatch || null;
             const wireFrame = _withCodexWsClientMetadata(frame, entry, useCodexWsClientMetadata, codexMetadataContext);
             wireFrameHadTurnState = !!wireFrame?.client_metadata?.['x-codex-turn-state'];
             wireFrameMetadataTrace = _metadataTrace(wireFrame?.client_metadata);
@@ -1292,7 +1295,7 @@ export async function sendViaWebSocket({
             : null;
         if (cacheObservation.actualMiss) {
             try {
-                appendAgentTrace({
+                _agentTraceFn({
                     sessionId: poolKey,
                     iteration,
                     kind: 'cache_miss',
@@ -1389,6 +1392,7 @@ export async function sendViaWebSocket({
                 chain_delta_reason: mode === 'delta' ? null : deltaReason,
                 chain_stripped_response_items: strippedResponseItems,
                 chain_skipped_response_items: skippedResponseItems,
+                ...(responseOutputMismatch || {}),
                 chain_response_items: Array.isArray(result.responseItems) ? result.responseItems.length : 0,
                 body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
                 frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
@@ -1400,7 +1404,7 @@ export async function sendViaWebSocket({
                 keep_socket: keepSocket,
                 keep_response_chain: keepResponseChain,
             };
-            appendAgentTrace({
+            _agentTraceFn({
                 sessionId: poolKey,
                 iteration,
                 kind: 'transport',
@@ -1411,7 +1415,10 @@ export async function sendViaWebSocket({
                 && deltaReason
                 && !['no_anchor', 'full_forced', 'full_default', 'delta_missing_turn_state'].includes(deltaReason);
             if (chainFallback || (mode === 'delta' && deltaReason)) {
-                appendAgentTrace({
+                const intentionalTransition = typeof sendOpts?.cacheBreakIntent === 'string'
+                    ? sendOpts.cacheBreakIntent
+                    : null;
+                _agentTraceFn({
                     sessionId: poolKey,
                     iteration,
                     kind: 'cache_break',
@@ -1423,6 +1430,8 @@ export async function sendViaWebSocket({
                         transport: 'websocket',
                         ws_mode: mode,
                         reason: mode === 'delta' ? deltaReason : (deltaReason || 'full_frame'),
+                        intentional_transition: intentionalTransition,
+                        request_tool_choice: requestBody.tool_choice ?? null,
                         cache_key_hash: transportCacheKeyHash,
                         cached_tokens: cacheObservation.cachedTokens,
                         prompt_tokens: cacheObservation.promptTokens,
@@ -1432,6 +1441,7 @@ export async function sendViaWebSocket({
                         request_has_previous_response_id: transportPayload.request_has_previous_response_id,
                         chain_stripped_response_items: strippedResponseItems,
                         chain_skipped_response_items: skippedResponseItems,
+                        ...(responseOutputMismatch || {}),
                         chain_response_items: Array.isArray(result.responseItems) ? result.responseItems.length : 0,
                         body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
                         frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,

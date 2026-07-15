@@ -210,10 +210,27 @@ function cacheBreakExplanation(reason) {
   return r ? '\uC6D0\uC778 \uBBF8\uBD84\uB958' : '\uC6D0\uC778 \uAE30\uB85D \uC5C6\uC74C';
 }
 
+function cacheBreakTransitionTag(row) {
+  const transition = field(row, 'intentional_transition');
+  return typeof transition === 'string' && transition ? transition : null;
+}
+
+function cacheBreakIntentionalTransition(row) {
+  const transition = cacheBreakTransitionTag(row);
+  const reason = field(row, 'reason') || field(row, 'chain_delta_reason') || null;
+  if (transition === 'automatic_compaction' && reason === 'input_prefix_mismatch') return transition;
+  if (transition === 'transcript_rebuild' && reason === 'input_prefix_mismatch') return transition;
+  if (transition === 'explorer_hard_cap_final_tool_choice_none'
+    && reason === 'request_properties_changed'
+    && field(row, 'request_tool_choice') === 'none') return transition;
+  return null;
+}
+
 function classifyCacheBreakPhase(row, usageRows, transportRows) {
   const reason = field(row, 'reason') || field(row, 'chain_delta_reason') || field(row, 'payload')?.reason || null;
   const sid = sessionId(row);
-  if (isCompactSessionId(sid)) return 'intentional_compact';
+  const intentionalTransition = cacheBreakIntentionalTransition(row);
+  if (intentionalTransition) return `intentional_${intentionalTransition}`;
   const ts = Number(row.ts || 0);
   const priorUsage = usageRows.filter((r) => sessionId(r) === sid && Number(r.ts || 0) < ts)
     .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
@@ -397,6 +414,44 @@ function buildCacheDiagnostics(rows) {
     model: field(r, 'model'),
     ts: r.ts,
   }));
+  const cacheBreaks = breaks.map((r) => {
+    const reason = field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || null;
+    const relatedUsage = nearestRowAround(
+      usage,
+      r.ts,
+      5_000,
+      (u) => sessionId(u) === sessionId(r) && num(u, 'iteration') === num(r, 'iteration'),
+    ) || nearestRowBefore(
+      usage.filter((u) => sessionId(u) === sessionId(r)),
+      r.ts,
+      30_000,
+    );
+    const promptTokens = relatedUsage ? cacheDenom(relatedUsage) : 0;
+    const cachedTokens = relatedUsage ? (num(relatedUsage, 'cached_tokens') || 0) : 0;
+    const transitionTag = cacheBreakTransitionTag(r);
+    const transition = cacheBreakIntentionalTransition(r);
+    return {
+      session_id: sessionId(r),
+      iteration: num(r, 'iteration'),
+      reason,
+      phase: classifyCacheBreakPhase(r, usage, transport),
+      intentional_transition: transitionTag,
+      actionable: !transition,
+      explanation: cacheBreakExplanation(reason),
+      ws_mode: field(r, 'ws_mode'),
+      cache_key_hash: field(r, 'cache_key_hash'),
+      request_tool_choice: field(r, 'request_tool_choice'),
+      request_has_previous_response_id: field(r, 'request_has_previous_response_id'),
+      body_input_items: field(r, 'body_input_items'),
+      frame_input_items: field(r, 'frame_input_items'),
+      prompt_tokens: promptTokens,
+      cached_tokens: cachedTokens,
+      cache_ratio: promptTokens > 0 ? cachedTokens / promptTokens : null,
+      output_tokens: relatedUsage ? (num(relatedUsage, 'output_tokens') || 0) : 0,
+      ts: r.ts,
+    };
+  });
+  const actionableCacheBreaks = cacheBreaks.filter((b) => b.actionable);
   return {
     usage_cache_ratio: cacheRatioFromUsage(usage),
     cached_tokens: sum(usage.map((r) => num(r, 'cached_tokens'))),
@@ -407,38 +462,9 @@ function buildCacheDiagnostics(rows) {
     reused_connection: transport.filter((r) => field(r, 'reused_connection') === true).length,
     previous_response_id: transport.filter((r) => field(r, 'request_has_previous_response_id') === true).length,
     cache_key_hashes: [...keyCounts.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count),
-    cache_breaks: breaks.map((r) => {
-      const reason = field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || null;
-      const relatedUsage = nearestRowAround(
-        usage,
-        r.ts,
-        5_000,
-        (u) => sessionId(u) === sessionId(r) && num(u, 'iteration') === num(r, 'iteration'),
-      ) || nearestRowBefore(
-        usage.filter((u) => sessionId(u) === sessionId(r)),
-        r.ts,
-        30_000,
-      );
-      const promptTokens = relatedUsage ? cacheDenom(relatedUsage) : 0;
-      const cachedTokens = relatedUsage ? (num(relatedUsage, 'cached_tokens') || 0) : 0;
-      return {
-        session_id: sessionId(r),
-        iteration: num(r, 'iteration'),
-        reason,
-        phase: classifyCacheBreakPhase(r, usage, transport),
-        explanation: cacheBreakExplanation(reason),
-        ws_mode: field(r, 'ws_mode'),
-        cache_key_hash: field(r, 'cache_key_hash'),
-        request_has_previous_response_id: field(r, 'request_has_previous_response_id'),
-        body_input_items: field(r, 'body_input_items'),
-        frame_input_items: field(r, 'frame_input_items'),
-        prompt_tokens: promptTokens,
-        cached_tokens: cachedTokens,
-        cache_ratio: promptTokens > 0 ? cachedTokens / promptTokens : null,
-        output_tokens: relatedUsage ? (num(relatedUsage, 'output_tokens') || 0) : 0,
-        ts: r.ts,
-      };
-    }),
+    cache_breaks: cacheBreaks,
+    actionable_cache_breaks: actionableCacheBreaks,
+    intentional_cache_breaks: cacheBreaks.filter((b) => !b.actionable),
     actual_cache_misses: misses.map((r) => ({
       session_id: sessionId(r),
       iteration: num(r, 'iteration'),
@@ -1146,6 +1172,18 @@ function buildCompactDiagnostics(rows, selectedIds) {
   };
 }
 
+function selectCacheBreakIssues(rows, limit = 10) {
+  const ordered = [...rows].sort((a, b) => (
+    Number(a.ts || 0) - Number(b.ts || 0)
+    || String(a.session_id || '').localeCompare(String(b.session_id || ''))
+    || Number(a.iteration || 0) - Number(b.iteration || 0)
+  ));
+  const root = ordered.filter((row) => !isCompactSessionId(row.session_id));
+  const compact = ordered.filter((row) => isCompactSessionId(row.session_id));
+  if (!root.length || !compact.length || limit < 2) return ordered.slice(0, limit);
+  return [...root.slice(0, limit - 1), ...compact.slice(0, 1)];
+}
+
 function buildIssues(routeGroups, cache, tools) {
   const issues = [];
   for (const stall of (tools.readonly_stalls || []).slice(0, 10)) {
@@ -1181,7 +1219,7 @@ function buildIssues(routeGroups, cache, tools) {
       issues.push({ severity: 'high', type: 'cache', message: `${g.agent || shortId(g.session_id)} low cache ratio ${fmtPct(g.cache_ratio * 100)}`, session_id: g.session_id });
     }
   }
-  for (const b of cache.cache_breaks.slice(0, 10)) {
+  for (const b of selectCacheBreakIssues(cache.actionable_cache_breaks, 10)) {
     issues.push({ severity: b.reason === 'no_anchor' ? 'medium' : 'high', type: 'cache_break', message: `cache_break ${b.reason || 'unknown'} at it=${b.iteration ?? '-'}`, session_id: b.session_id });
   }
   for (const m of (cache.actual_cache_misses || []).slice(0, 10)) {
@@ -1253,9 +1291,9 @@ function buildWhySlowRankings(report) {
     const summary = countBy(report.tools.failures, (f) => f.category || f.tool || 'unknown').slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
     ranks.push({ score: 50 + report.tools.failures.length, type: 'tool_failures', message: `${report.tools.failures.length} failed tool call(s): ${summary}` });
   }
-  if (report.cache.cache_breaks.length) {
-    const summary = countBy(report.cache.cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`).slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
-    ranks.push({ score: 40 + report.cache.cache_breaks.length, type: 'cache_breaks', message: `${report.cache.cache_breaks.length} cache break(s): ${summary}` });
+  if (report.cache.actionable_cache_breaks.length) {
+    const summary = countBy(report.cache.actionable_cache_breaks, (b) => `${b.reason || 'unknown'}/${b.phase || 'unknown'}`).slice(0, 3).map(([k, v]) => `${k}×${v}`).join(', ');
+    ranks.push({ score: 40 + report.cache.actionable_cache_breaks.length, type: 'cache_breaks', message: `${report.cache.actionable_cache_breaks.length} actionable cache break(s): ${summary}` });
   }
   if (report.cache.actual_cache_misses?.length) {
     const top = [...report.cache.actual_cache_misses].sort((a, b) => (b.uncached_tokens || 0) - (a.uncached_tokens || 0))[0];
@@ -1311,11 +1349,24 @@ function buildReport(rows, selectedIds, failureRows = []) {
   const selected = rows.filter((r) => selectedIds.includes(sessionId(r)));
   const selectedFailures = failureRows.filter((r) => selectedIds.includes(sessionId(r)));
   const routeGroups = buildRouteGroups(selected);
-  const cache = buildCacheDiagnostics(selected);
+  const selectedCache = buildCacheDiagnostics(selected);
   const tools = buildToolDiagnostics(selected, selectedFailures);
   const stages = buildTurnDiagnostics(selected, routeGroups);
   const tokens = buildTokenDiagnostics(stages.turns);
   const compact = buildCompactDiagnostics(rows, selectedIds);
+  // Compact workers are normally sibling sessions rather than direct children,
+  // so their genuine mismatches are absent from `selected`. Promote only those
+  // actionable rows into the root report; intentional compact transitions stay
+  // isolated in compact diagnostics and selected compact children never duplicate.
+  const selectedSessionIds = new Set(selectedIds);
+  const compactActionableBreaks = compact.cache_breaks.filter(
+    (row) => row.actionable && !selectedSessionIds.has(row.session_id),
+  );
+  const cache = {
+    ...selectedCache,
+    cache_breaks: [...selectedCache.cache_breaks, ...compactActionableBreaks],
+    actionable_cache_breaks: [...selectedCache.actionable_cache_breaks, ...compactActionableBreaks],
+  };
   const issues = buildIssues(routeGroups, cache, tools);
   const tsValues = selected.map((r) => Number(r.ts || 0)).filter((n) => n > 0);
   const report = {
@@ -1417,9 +1468,17 @@ function renderText(report) {
         }
       }
     }
-    if (report.compact.cache_breaks.length) {
+    const intentionalCompactBreaks = report.compact.cache_breaks.filter((b) => !b.actionable);
+    const actionableCompactBreaks = report.compact.cache_breaks.filter((b) => b.actionable);
+    if (intentionalCompactBreaks.length) {
       lines.push('compact cache resets (intentional):');
-      for (const b of report.compact.cache_breaks.slice(0, 5)) {
+      for (const b of intentionalCompactBreaks.slice(0, 5)) {
+        lines.push(`- ${shortId(b.session_id)} it=${b.iteration ?? '-'} phase=${b.phase || '-'} reason=${b.reason || '-'} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)}`);
+      }
+    }
+    if (actionableCompactBreaks.length) {
+      lines.push('compact cache breaks (actionable):');
+      for (const b of actionableCompactBreaks.slice(0, 5)) {
         lines.push(`- ${shortId(b.session_id)} it=${b.iteration ?? '-'} phase=${b.phase || '-'} reason=${b.reason || '-'} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)}`);
       }
     }
@@ -1458,9 +1517,9 @@ function renderText(report) {
     lines.push(`ws: delta=${report.cache.ws_delta}, full=${report.cache.ws_full}, previous_response_id=${report.cache.previous_response_id}, reused=${report.cache.reused_connection}/${report.cache.transport_count}`);
     if (report.cache.cache_key_hashes.length) lines.push(`cache keys: ${report.cache.cache_key_hashes.slice(0, 5).map((k) => `${k.key}×${k.count}`).join(', ')}`);
     if (report.cache.cache_breaks.length) {
-      lines.push('cache breaks:');
+      lines.push(`cache breaks (raw=${report.cache.cache_breaks.length}, actionable=${report.cache.actionable_cache_breaks.length}):`);
       for (const b of report.cache.cache_breaks.slice(0, 10)) {
-        lines.push(`- ${shortId(b.session_id)} it=${b.iteration ?? '-'} phase=${b.phase || '-'} reason=${b.reason || '-'} (${b.explanation || '-'}) ws=${b.ws_mode || '-'} prev=${b.request_has_previous_response_id} cache=${fmtPct((b.cache_ratio ?? 0) * 100)} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)} body/frame=${b.body_input_items ?? '-'}/${b.frame_input_items ?? '-'}`);
+        lines.push(`- ${shortId(b.session_id)} it=${b.iteration ?? '-'} ${b.actionable ? 'actionable' : `intentional:${b.intentional_transition}`} phase=${b.phase || '-'} reason=${b.reason || '-'} (${b.explanation || '-'}) ws=${b.ws_mode || '-'} tool_choice=${b.request_tool_choice ?? '-'} prev=${b.request_has_previous_response_id} cache=${fmtPct((b.cache_ratio ?? 0) * 100)} prompt=${fmtTok(b.prompt_tokens)} out=${fmtTok(b.output_tokens)} body/frame=${b.body_input_items ?? '-'}/${b.frame_input_items ?? '-'}`);
       }
     }
     if (report.cache.actual_cache_misses?.length) {
