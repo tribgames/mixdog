@@ -49,8 +49,8 @@ function _captureMidstreamAbort(state, reason) {
 
 // Abort-aware mid-stream backoff sleep → shared sleepWithAbort
 // (retry-classifier.mjs). abortMessage preserves the prior fallback text.
-export function _midstreamSleepWithAbort(ms, signal) {
-    return sleepWithAbort(ms, signal, undefined, 'Anthropic OAuth mid-stream retry backoff aborted');
+export function _midstreamSleepWithAbort(ms, signal, sleepFn) {
+    return sleepWithAbort(ms, signal, sleepFn, 'Anthropic OAuth mid-stream retry backoff aborted');
 }
 
 function _statusForAnthropicSseError(type, message) {
@@ -83,9 +83,8 @@ function _anthropicSseError(event) {
 }
 
 export async function parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta, knownToolNames) {
-    // parseSSEStream is entered only after Anthropic returned an HTTP response.
-    // Headers prove transport health, but are not a semantic model event.
-    try { onStreamDelta?.('transport'); } catch {}
+    // onStreamDelta is a semantic-progress callback. HTTP headers and raw SSE
+    // bytes prove transport health but must not refresh semantic watchdogs.
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     // SEMANTIC idle window: reset only by real model events (message/content/
@@ -287,17 +286,18 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             if (_c && typeof _c.catch === 'function') _c.catch(() => {});
         } catch {}
     };
-    if (signal) {
-        if (signal.aborted) {
-            _captureMidstreamAbort(state, signal.reason);
-            throw signal.reason instanceof Error
-                ? signal.reason
-                : new Error('Anthropic OAuth SSE stream aborted');
-        }
-        signal.addEventListener('abort', onAbort, { once: true });
-    }
-
     try {
+        // Reader ownership begins at getReader() above, so even a signal that
+        // was already aborted must pass through this try/finally cleanup path.
+        if (signal) {
+            if (signal.aborted) {
+                _captureMidstreamAbort(state, signal.reason);
+                throw signal.reason instanceof Error
+                    ? signal.reason
+                    : new Error('Anthropic OAuth SSE stream aborted');
+            }
+            signal.addEventListener('abort', onAbort, { once: true });
+        }
         // Part A / reviewer fix: do NOT arm the SEMANTIC idle timer before the
         // stream has produced its first event. A slow first response is governed
         // by armFirstMessageTimer() (first-byte window) alone; arming the
@@ -331,8 +331,6 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             }
             const { done, value } = chunk;
             if (done) break;
-            try { onStreamDelta?.('transport'); } catch {}
-
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
@@ -382,6 +380,12 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                     if (event.type === 'message_start' && event.message) {
                         clearFirstMessageTimer();
                         if (state) state.sawMessageStart = true;
+                        // The first protocol event proves the response transport
+                        // is live. Report it only here (never for raw bytes,
+                        // comments, or ping events), then separately report the
+                        // semantic message boundary. Content kinds remain
+                        // reasoning/text/tool-specific below.
+                        try { onStreamDelta?.('transport'); } catch {}
                         try { onStreamDelta?.('semantic'); } catch {}
                         if (event.message.model) model = event.message.model;
                         if (event.message.usage) {
@@ -395,6 +399,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                     if (event.type === 'content_block_start') {
                         const block = event.content_block;
                         if (block?.type === 'tool_use') {
+                            if (state) state.partialToolCall = true;
                             pendingToolInputs.set(event.index, {
                                 id: block.id || '',
                                 name: block.name || '',
@@ -402,6 +407,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                             });
                         }
                         if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
+                            if (state) state.emittedThinking = true;
                             if (block.type === 'redacted_thinking') {
                                 // Redacted blocks round-trip EXACTLY as
                                 // {type:'redacted_thinking',data} — no thinking/
@@ -463,6 +469,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                             }
                         }
                         if (delta?.type === 'thinking_delta' || delta?.type === 'signature_delta') {
+                            if (state) state.emittedThinking = true;
                             // Extended-thinking block: provider reasoning without
                             // user-visible text. Track presence so a final turn
                             // that emitted ONLY thinking (no text_delta, no
@@ -490,6 +497,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                             }
                         }
                         if (delta?.type === 'input_json_delta') {
+                            if (state) state.partialToolCall = true;
                             const pending = pendingToolInputs.get(event.index);
                             if (pending) {
                                 pending.inputJson += delta.partial_json || '';
@@ -658,6 +666,10 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
         if (idleTimer) clearTimeout(idleTimer);
         clearFirstMessageTimer();
         if (signal) signal.removeEventListener('abort', onAbort);
+        // message_stop deliberately exits before EOF because Anthropic may keep
+        // sending pings. Cancel the reader so the successful response body and
+        // underlying keep-alive connection are not stranded.
+        try { await reader.cancel('Anthropic SSE complete'); } catch {}
         try { reader.releaseLock(); } catch (err) {
             try { process.stderr.write(`[anthropic-oauth] reader releaseLock failed: ${err?.message ?? String(err)}\n`); } catch {}
         }

@@ -17,7 +17,12 @@ import {
 } from '../stall-policy.mjs';
 import { scanLeakedToolCalls } from './anthropic-leaked-toolcall.mjs';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
-import { parseToolCalls, emitGeminiToolCalls, collectGeminiGroundingSources } from './gemini.mjs';
+import {
+    parseToolCalls,
+    emitGeminiToolCalls,
+    collectGeminiGroundingSources,
+    parseGeminiTextPartMetadata,
+} from './gemini.mjs';
 
 export const GEMINI_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
     'MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS',
@@ -47,10 +52,17 @@ export function geminiTruncatedStreamError(message) {
 // stall after visible output was silently retried. Visible-text stalls also
 // gain streamStalled + partialContent so the loop's partial-final path can
 // keep the streamed output instead of dropping the turn.
-export function stampGeminiStreamFailure(err, { relayedText = '', textLeakGuard = null, sawFunctionCall = false } = {}) {
+export function stampGeminiStreamFailure(err, {
+    relayedText = '',
+    textLeakGuard = null,
+    sawFunctionCall = false,
+    chunks = [],
+} = {}) {
     if (!err || typeof err !== 'object') return err;
     const leaked = (textLeakGuard?.getLeakedToolCalls?.() || []).length > 0;
-    const visible = relayedText.length > 0;
+    const finalizedText = textLeakGuard?.getVisibleText?.();
+    const visibleText = typeof finalizedText === 'string' ? finalizedText : relayedText;
+    const visible = visibleText.length > 0;
     // A native functionCall chunk (not a text-leaked one) is also an in-flight
     // tool use — replaying would double-dispatch, and partial-final must NOT
     // treat it as a clean no-tool summary.
@@ -58,13 +70,16 @@ export function stampGeminiStreamFailure(err, { relayedText = '', textLeakGuard 
     try {
         if (visible) { err.liveTextEmitted = true; err.unsafeToRetry = true; }
         if (pendingTool) { err.emittedToolCall = true; err.unsafeToRetry = true; }
+        const partialParts = aggregateGeminiStreamChunks(chunks)?.candidates?.[0]?.content?.parts || [];
+        const providerMetadata = parseGeminiTextPartMetadata(partialParts);
+        if (providerMetadata) err.providerMetadata = providerMetadata;
         // TRUNCATED_STREAM EOF after visible output must also carry the
         // partial-final stamps (streamStalled/partialContent), aligning with the
         // compat streams — otherwise live output is dropped instead of kept.
         if (visible && !leaked
             && (err.code === 'EGEMINITIMEOUT' || err.code === 'TRUNCATED_STREAM' || err.truncatedStream === true)) {
             err.streamStalled = true;
-            if (typeof err.partialContent !== 'string') err.partialContent = relayedText;
+            if (typeof err.partialContent !== 'string') err.partialContent = visibleText;
             if (err.pendingToolUse === undefined) err.pendingToolUse = pendingTool;
         }
     } catch { /* best-effort */ }
@@ -113,6 +128,7 @@ export function aggregateGeminiStreamChunks(responses) {
                     for (const part of candidate.content.parts) {
                         const newPart = {};
                         if (part.text) newPart.text = part.text;
+                        if (part.thought === true) newPart.thought = true;
                         if (part.functionCall) newPart.functionCall = part.functionCall;
                         if (part.thoughtSignature) newPart.thoughtSignature = part.thoughtSignature;
                         if (part.thought_signature) newPart.thought_signature = part.thought_signature;
@@ -130,11 +146,11 @@ export function aggregateGeminiStreamChunks(responses) {
     return aggregatedResponse;
 }
 
-export function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, label }) {
+export function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label }) {
     if (!sawStreamChunk) {
         throw geminiTruncatedStreamError(`${label} truncated: empty stream`);
     }
-    if (!finishReason) {
+    if (!finishReason && !promptBlockReason) {
         throw geminiTruncatedStreamError(`${label} truncated: no finishReason`);
     }
 }
@@ -148,7 +164,8 @@ export function geminiChunkText(chunk) {
     if (!Array.isArray(parts)) return '';
     let text = '';
     for (const p of parts) {
-        if (p && typeof p.text === 'string') text += p.text;
+        // Thought summaries are reasoning, not user-visible answer deltas.
+        if (p && p.thought !== true && typeof p.text === 'string') text += p.text;
     }
     return text;
 }
@@ -171,6 +188,7 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
     const _enabled = _knownTools.size > 0;
     const _isKnownTool = (name) => _knownTools.has(name);
     let leakBuffer = '';
+    let visibleText = '';
     const leakedCalls = [];
     const dispatchedFingerprints = new Set();
 
@@ -207,7 +225,10 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
         const { emit, calls, rest } = scanLeakedToolCalls(leakBuffer, { isKnownTool: _isKnownTool, final });
         leakBuffer = rest;
         if (emit && onTextDelta) {
+            visibleText += emit;
             try { onTextDelta(emit); } catch {}
+        } else if (emit) {
+            visibleText += emit;
         }
         for (const c of calls) dispatchLeakedCall(c);
     };
@@ -217,6 +238,7 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
         feedText(text) {
             if (!text) return;
             if (!_enabled) {
+                visibleText += text;
                 try { onTextDelta?.(text); } catch {}
                 return;
             }
@@ -247,6 +269,9 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
         getLeakedToolCalls() {
             return leakedCalls.length ? [...leakedCalls] : [];
         },
+        getVisibleText() {
+            return visibleText;
+        },
     };
 }
 
@@ -262,6 +287,12 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
     let idleReject = null;
     let relayedText = '';
     let sawFunctionCall = false;
+    let leakGuardFinalized = false;
+    const finalizeLeakGuard = () => {
+        if (leakGuardFinalized) return;
+        leakGuardFinalized = true;
+        try { textLeakGuard?.finalize(); } catch {}
+    };
 
     let firstByteTimer = setTimeout(() => {
         try { reader.cancel('first byte timeout'); } catch {}
@@ -381,25 +412,27 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
             }
         }
     } catch (err) {
-        throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall });
+        finalizeLeakGuard();
+        throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall, chunks: allChunks });
     } finally {
         clearFirstByteTimer();
         if (idleTimer) clearTimeout(idleTimer);
         if (signal) signal.removeEventListener('abort', onAbort);
         try { reader.releaseLock(); } catch {}
-        try { textLeakGuard?.finalize(); } catch {}
+        finalizeLeakGuard();
     }
 
     const aggregated = aggregateGeminiStreamChunks(allChunks);
     const finishReason = aggregated.candidates?.[0]?.finishReason || null;
+    const promptBlockReason = aggregated.promptFeedback?.blockReason || null;
     // Truncation (no finishReason) after visible output must carry the same
     // safety stamps as an in-loop failure — assert throws OUTSIDE the catch
     // above, so stamp here too (review High: transient TRUNCATED_STREAM would
     // otherwise replay/double-render live text via withRetry).
     try {
-        assertGeminiStreamCompleted({ sawStreamChunk, finishReason, label });
+        assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label });
     } catch (err) {
-        throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall });
+        throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall, chunks: allChunks });
     }
     return aggregated;
 }
@@ -413,6 +446,12 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
     let inFlightReject = null;
     let relayedText = '';
     let sawFunctionCall = false;
+    let leakGuardFinalized = false;
+    const finalizeLeakGuard = () => {
+        if (leakGuardFinalized) return;
+        leakGuardFinalized = true;
+        try { textLeakGuard?.finalize(); } catch {}
+    };
 
     const armFirstByteTimer = () => {
         if (firstByteTimer) clearTimeout(firstByteTimer);
@@ -536,18 +575,20 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
         }
     } catch (err) {
         clearFirstByteTimer();
+        let failure = err;
         if (signal?.aborted) {
             const reason = signal.reason;
-            throw reason instanceof Error ? reason : new Error(`${label} aborted`);
+            failure = reason instanceof Error ? reason : new Error(`${label} aborted`);
         }
-        throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall });
+        finalizeLeakGuard();
+        throw stampGeminiStreamFailure(failure, { relayedText, textLeakGuard, sawFunctionCall, chunks: collectedChunks });
     } finally {
         clearFirstByteTimer();
         if (idleTimer) clearTimeout(idleTimer);
         if (signal && onSignalAbort) {
             try { signal.removeEventListener('abort', onSignalAbort); } catch {}
         }
-        try { textLeakGuard?.finalize(); } catch {}
+        finalizeLeakGuard();
     }
 
     // Aggregate the raw wire chunks locally instead of awaiting the SDK's
@@ -566,21 +607,29 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
         try {
             response = await streamResult.response;
         } catch (err) {
+            let failure = err;
             if (signal?.aborted) {
                 const reason = signal.reason;
-                throw reason instanceof Error ? reason : new Error(`${label} aborted`);
+                failure = reason instanceof Error ? reason : new Error(`${label} aborted`);
             }
-            throw err;
+            finalizeLeakGuard();
+            throw stampGeminiStreamFailure(failure, {
+                relayedText,
+                textLeakGuard,
+                sawFunctionCall,
+                chunks: collectedChunks,
+            });
         }
         raw = response?.candidates ? response : (response?.response || response);
     }
     const finishReason = raw?.candidates?.[0]?.finishReason || null;
+    const promptBlockReason = raw?.promptFeedback?.blockReason || null;
     // Same stamping as the REST consumer: truncation after visible output
     // must not classify transient (review High).
     try {
-        assertGeminiStreamCompleted({ sawStreamChunk, finishReason, label });
+        assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label });
     } catch (err) {
-        throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall });
+        throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall, chunks: collectedChunks });
     }
     return raw;
 }

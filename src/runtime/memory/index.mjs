@@ -1009,12 +1009,14 @@ if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
   // removes port file) then exit(0). Prevents taskkill /F from bypassing
   // graceful shutdown and leaving pgdata in an inconsistent checkpoint state.
   let _stopInFlight = false
+  let _syncPgStopRequested = false
   const _workerSignalHandler = (sig) => {
     if (_stopInFlight) {
       __mixdogMemoryLog(`[memory-worker] ${sig} — stop already in flight, ignoring\n`)
       return
     }
     _stopInFlight = true
+    _syncPgStopRequested = true
     __mixdogMemoryLog(`[memory-worker] received ${sig} — calling stop() for clean shutdown\n`)
     const _exitTimer = setTimeout(() => {
       __mixdogMemoryLog(`[memory-worker] stop() timed out after 6000ms — forcing exit(2)\n`)
@@ -1037,7 +1039,14 @@ if (process.env.MIXDOG_WORKER_MODE === '1' && process.send) {
   // stop() path runs, orphaning PG mid-write. Best-effort sync pg_ctl stop on
   // exit (no-op after a completed graceful stop). Skip in secondary mode — we
   // do not own the shared PG there.
-  if (!memorySecondaryMode()) process.on('exit', () => { try { stopPgForShutdownSync() } catch {} })
+  if (!memorySecondaryMode()) process.on('exit', () => {
+    // Do not stop shared PG on an unexpected Memory crash. The singleton proxy
+    // will respawn a daemon that can attach to the still-healthy cluster. The
+    // sync stop is only a last resort after an explicit shutdown signal began.
+    if (_syncPgStopRequested) {
+      try { stopPgForShutdownSync() } catch {}
+    }
+  })
 
   // callId → AbortController for in-flight IPC calls (cancel handler uses this).
   const _inFlightCalls = new Map()
@@ -1112,9 +1121,18 @@ if (IS_MEMORY_ENTRY && process.env.MIXDOG_WORKER_MODE !== '1') {
   ;(async () => {
     acquireLock()
     process.on('exit', releaseLock)
-    if (!memorySecondaryMode()) process.on('exit', () => { try { stopPgForShutdownSync() } catch {} })
-    process.on('SIGINT', () => { stop().finally(() => process.exit(0)) })
-    process.on('SIGTERM', () => { stop().finally(() => process.exit(0)) })
+    let syncPgStopRequested = false
+    if (!memorySecondaryMode()) process.on('exit', () => {
+      if (syncPgStopRequested) {
+        try { stopPgForShutdownSync() } catch {}
+      }
+    })
+    const stopFromSignal = () => {
+      syncPgStopRequested = true
+      stop().finally(() => process.exit(0))
+    }
+    process.on('SIGINT', stopFromSignal)
+    process.on('SIGTERM', stopFromSignal)
     await init()
     const transport = new StdioServerTransport()
     await mcp.connect(transport)

@@ -12,6 +12,7 @@ import {
     effectiveBudget as compactEffectiveBudget,
     compactTypeIsRecallFastTrack,
     compactTypeIsSemantic,
+    normalizeCompactType,
     CONTEXT_SHARE_RATIO,
     RECALL_TOKEN_CAP_FLOOR_TOKENS,
 } from '../compact.mjs';
@@ -271,7 +272,13 @@ export async function runSessionCompaction(session, opts = {}) {
         : boundary;
     const pressureTokens = estimateTranscriptContextUsage(messages, session.tools || []);
     const beforeTokens = pressureTokens;
-    const compactType = compactTypeForSession(session);
+    // Manual /compact may explicitly request the original semantic path:
+    // summarize THIS session's transcript directly without hydrating/searching
+    // Memory first. Automatic and auto-clear compaction keep their configured
+    // recall-fasttrack behavior unless their caller explicitly changes it.
+    const compactType = mode === 'manual' && opts.compactType != null
+        ? normalizeCompactType(opts.compactType)
+        : compactTypeForSession(session);
     if (!force && pressureTokens < triggerTokens) return {
         changed: false,
         reason: 'below threshold',
@@ -358,6 +365,7 @@ export async function runSessionCompaction(session, opts = {}) {
                             tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
                             keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
                             preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
+                            filterOldHistoryForIngest: opts.filterOldHistoryForIngest === true,
                             force: true,
                         },
                     );
@@ -401,6 +409,7 @@ export async function runSessionCompaction(session, opts = {}) {
                     tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
                     keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
                     preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
+                    filterOldHistoryForIngest: opts.filterOldHistoryForIngest === true,
                     force: true,
                 },
             );

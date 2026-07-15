@@ -207,6 +207,7 @@ export function createRunTurn(bag) {
     let thinkingSegmentStartedAt = 0;
     let accumulatedThinkingMs = 0;
     let cancelled = false;
+    let failed = false;
     let askResult = null;
     let turnFinishedNormally = false;
     let transcriptCompactedThisTurn = false;
@@ -1198,6 +1199,7 @@ export function createRunTurn(bag) {
           flushToolResults([], toolCards, cardByCallId, toolGroups, resultsDone, { finalize: true, cancelled: true });
           finalizeToolHeaders();
         } else {
+          failed = true;
           finalizeToolHeaders();
           pushNotice(toolErrorDisplay(error, 'turn'), 'error');
         }
@@ -1255,7 +1257,7 @@ export function createRunTurn(bag) {
         const finalAssistantLen = Math.max(assistantText.length, currentAssistantText.length);
         const finalResponseLength = finalAssistantLen + thinkingText.length;
         const finalOutputTokens = Math.max(0, Number(getState().spinner?.outputTokens || 0), Math.round(finalResponseLength / 4));
-        const turnStatus = cancelled ? 'cancelled' : 'done';
+        const turnStatus = cancelled ? 'cancelled' : (failed ? 'failed' : 'done');
         const resultContent = askResult?.content != null ? String(askResult.content).trim() : '';
         const assistantOutput = (currentAssistantText || assistantText || '').trim();
         // Suppress only true pending-resume no-ops: no transcript items added and no model output; cancelled/error turns and any visible turn stay marked.
@@ -1293,8 +1295,9 @@ export function createRunTurn(bag) {
     // tool-summary line (same epoch rule as the shared-getState() block above).
     if (flags.leadTurnEpoch === turnEpoch) clearActiveToolSummary();
     _publishedThinkingActive = false; // turn teardown cleared getState().thinking
-    tuiDebug(`runTurn end turn=${turnIndex} status=${cancelled ? 'cancelled' : 'done'} elapsedMs=${Date.now() - startedAt}${watchdogTripped ? ' watchdogTripped=1' : ''} pending=${pending.length}`);
-    return cancelled ? 'cancelled' : 'done';
+    const finalStatus = cancelled ? 'cancelled' : (failed ? 'failed' : 'done');
+    tuiDebug(`runTurn end turn=${turnIndex} status=${finalStatus} elapsedMs=${Date.now() - startedAt}${watchdogTripped ? ' watchdogTripped=1' : ''} pending=${pending.length}`);
+    return finalStatus;
   }
 
   return runTurn;

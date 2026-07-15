@@ -7,7 +7,7 @@ export const OPENAI_COMPAT_PRESETS = {
     },
     xai: {
         baseURL: 'https://api.x.ai/v1',
-        defaultModel: 'grok-4.3',
+        defaultModel: 'grok-4.5',
     },
     // OpenCode Go - low-cost coding-model subscription gateway.
     'opencode-go': {

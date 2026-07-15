@@ -11,7 +11,12 @@
 // no module imports its own path. The URL below is resolved against THIS
 // module's dir (tools/code-graph/), so it walks one level up to reach the
 // worker at tools/.
-import { resolve as pathResolve } from 'node:path';
+import {
+  isAbsolute,
+  relative as pathRelative,
+  resolve as pathResolve,
+  win32 as pathWin32,
+} from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { acquire as acquireChildSpawnSlot, hasSpareCapacity as childSpawnHasSpareCapacity } from '../../../../shared/child-spawn-gate.mjs';
 import {
@@ -56,6 +61,46 @@ import { _findDirProjectRoot } from './project-root.mjs';
 // spawn instead of fanning out. Entry removed on settle so the next caller
 // after a failure can retry.
 const _inflightAsyncBuilds = new Map();
+const CODE_GRAPH_FILES_ARG_MAX_CHARS = 16_000;
+
+function _usesWindowsPathSemantics(value) {
+  return /^[A-Za-z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
+}
+
+function _normalizedExcludedPrefixes(cwd, excludedProjectRoots) {
+  const windows = _usesWindowsPathSemantics(cwd);
+  const relative = windows ? pathWin32.relative : pathRelative;
+  const resolve = windows ? pathWin32.resolve : pathResolve;
+  return [...new Set((excludedProjectRoots || []).map((root) => {
+    let rel = relative(cwd, resolve(root)).replace(/\\/g, '/').replace(/\/+$/, '');
+    if (windows) rel = rel.toLowerCase();
+    const absolute = windows ? pathWin32.isAbsolute(rel) : isAbsolute(rel);
+    return rel && !rel.startsWith('../') && !absolute ? rel : null;
+  }).filter(Boolean))].sort();
+}
+
+// Exported for the focused pre-cap exclusion regression.
+export function _scopeCodeGraphManifest(manifest, cwd, {
+  excludedProjectRoots = [],
+  maxFiles = CODE_GRAPH_MAX_FILES,
+} = {}) {
+  const prefixes = _normalizedExcludedPrefixes(cwd, excludedProjectRoots);
+  const windows = _usesWindowsPathSemantics(cwd);
+  const excluded = (rel) => {
+    const normalized = rel.replace(/\\/g, '/');
+    const comparable = windows ? normalized.toLowerCase() : normalized;
+    return prefixes.some((prefix) => comparable === prefix || comparable.startsWith(`${prefix}/`));
+  };
+  const scoped = (Array.isArray(manifest) ? manifest : [])
+    .filter((meta) => meta && typeof meta.rel === 'string' && !excluded(meta.rel));
+  const cap = Math.max(1, Math.floor(Number(maxFiles) || CODE_GRAPH_MAX_FILES));
+  return {
+    manifest: scoped,
+    indexed: scoped.length > cap ? scoped.slice(0, cap) : scoped,
+    truncated: scoped.length > cap,
+    prefixes,
+  };
+}
 
 export function _isCompatibleDiskCodeGraphEntry(entry, maxFiles = CODE_GRAPH_MAX_FILES) {
   return Number.isFinite(entry?.maxFiles) && entry.maxFiles === maxFiles;
@@ -150,9 +195,78 @@ export function _prepareDiskCodeGraphFastPath({
 // Worker disk writes are debounced with an unref'd timer. Drain before sending
 // success so legacy migration persists every loaded cwd before this Worker can
 // exit; a drain failure is intentionally thrown to the worker's failure path.
-export function _postCodeGraphWorkerSuccess(graph, postMessage, drainCache = drainCodeGraphCacheStrict) {
-  drainCache();
+export function _postCodeGraphWorkerSuccess(
+  graph,
+  postMessage,
+  drainCache = drainCodeGraphCacheStrict,
+  { cache = true } = {},
+) {
+  if (cache) drainCache();
   postMessage({ ok: true, signature: graph.signature, graph });
+}
+
+// Structured keys avoid both separator collisions inside roots/prefixes and
+// collisions between scoped and ordinary builds.
+export function _codeGraphInflightKey(graphCwd, {
+  scoped = false,
+  maxFiles = CODE_GRAPH_MAX_FILES,
+  prefixes = [],
+} = {}) {
+  return scoped
+    ? JSON.stringify(['scope', graphCwd, maxFiles, prefixes])
+    : JSON.stringify(['root', graphCwd]);
+}
+
+// Keep the existing binary protocol while bounding Windows command-line size.
+// Each invocation still resolves against the whole tree. Duplicate lightweight
+// reused records are merged so relationship fields survive every chunk.
+export async function _runGraphFilesChunked(
+  absRoot,
+  rels,
+  reusedMetas,
+  {
+    maxArgChars = CODE_GRAPH_FILES_ARG_MAX_CHARS,
+    runGraphFiles = _runGraphFiles,
+  } = {},
+) {
+  const budget = Math.max(1, Math.floor(Number(maxArgChars) || CODE_GRAPH_FILES_ARG_MAX_CHARS));
+  const chunks = [];
+  let chunk = [];
+  let chars = 0;
+  for (const rel of Array.isArray(rels) ? rels : []) {
+    const cost = String(rel).length + 3; // separator plus conservative quoting margin
+    if (cost > budget) throw new Error(`code-graph relative path exceeds --files argument budget: ${rel}`);
+    if (chunk.length && chars + cost > budget) {
+      chunks.push(chunk);
+      chunk = [];
+      chars = 0;
+    }
+    chunk.push(rel);
+    chars += cost;
+  }
+  if (chunk.length) chunks.push(chunk);
+
+  const merged = new Map();
+  for (const relChunk of chunks) {
+    const records = await runGraphFiles(absRoot, relChunk, reusedMetas);
+    for (const rec of Array.isArray(records) ? records : []) {
+      if (!rec || typeof rec.rel !== 'string') continue;
+      const previous = merged.get(rec.rel);
+      if (!previous) {
+        merged.set(rec.rel, rec);
+        continue;
+      }
+      const next = { ...previous, ...rec };
+      for (const field of ['resolvedImports', 'importedBy']) {
+        next[field] = [...new Set([
+          ...(Array.isArray(previous[field]) ? previous[field] : []),
+          ...(Array.isArray(rec[field]) ? rec[field] : []),
+        ])];
+      }
+      merged.set(rec.rel, next);
+    }
+  }
+  return [...merged.values()];
 }
 
 // Exported for the focused worker-protocol regression test.
@@ -195,15 +309,23 @@ export function prewarmCodeGraphIfProject(cwd) {
   return true;
 }
 
-export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = false } = {}) {
+export async function buildCodeGraphAsync(cwd, signal = null, {
+  bestEffort = false,
+  excludedProjectRoots = [],
+  maxFiles = CODE_GRAPH_MAX_FILES,
+} = {}) {
   if (signal?.aborted) throw new Error('aborted');
   const graphCwd = _canonicalGraphCwd(cwd);
+  const prefixes = _normalizedExcludedPrefixes(graphCwd, excludedProjectRoots);
+  const scoped = prefixes.length > 0 || maxFiles !== CODE_GRAPH_MAX_FILES;
+  const scopeOptions = scoped ? { excludedProjectRoots, maxFiles, cache: false } : null;
+  const inflightKey = _codeGraphInflightKey(graphCwd, { scoped, maxFiles, prefixes });
   const cached = _codeGraphCache.get(graphCwd);
-  if (cached?.graph && Date.now() - cached.ts < CODE_GRAPH_TTL_MS) {
+  if (!scoped && cached?.graph && Date.now() - cached.ts < CODE_GRAPH_TTL_MS) {
     _touchCodeGraphCache(graphCwd);
     return cached.graph;
   }
-  const existing = _inflightAsyncBuilds.get(graphCwd);
+  const existing = _inflightAsyncBuilds.get(inflightKey);
   if (existing) {
     if (!signal) return existing;
     let onAbort = null;
@@ -230,6 +352,12 @@ export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = fal
     // Loading the compact disk manifest/one candidate entry is synchronous but
     // bounded I/O. Do not run a manifest at all when no disk candidate exists:
     // cold/dirty misses remain entirely on the existing Worker path.
+    if (scoped) {
+      return _spawnCodeGraphWorker(
+        cwd, graphCwd, _genAtStart, signal, null, null, null,
+        { buildOptions: scopeOptions, cacheResult: false },
+      );
+    }
     return _prepareDiskCodeGraphFastPath({
       graphCwd,
       runFastPath: (diskProbe) => _runDiskCodeGraphFastPath({
@@ -251,11 +379,11 @@ export async function buildCodeGraphAsync(cwd, signal = null, { bestEffort = fal
       }),
     });
   })();
-  _inflightAsyncBuilds.set(graphCwd, promise);
+  _inflightAsyncBuilds.set(inflightKey, promise);
   try {
     return await promise;
   } finally {
-    _inflightAsyncBuilds.delete(graphCwd);
+    _inflightAsyncBuilds.delete(inflightKey);
   }
 }
 
@@ -272,6 +400,8 @@ export function _spawnCodeGraphWorker(
     getGeneration = _getCodeGraphGen,
     setMemoryCache = _setCodeGraphCache,
     setDiskCache = _setDiskCodeGraphEntry,
+    buildOptions = null,
+    cacheResult = true,
   } = {},
 ) {
   let _worker = null;
@@ -299,7 +429,7 @@ export function _spawnCodeGraphWorker(
       const workerUrl = new URL('../code-graph-prewarm-worker.mjs', import.meta.url);
       try {
         _worker = createWorker(workerUrl, {
-          workerData: { cwd, manifest, signature },
+          workerData: { cwd, manifest, signature, buildOptions },
           execArgv: [],
         });
       } catch (e) {
@@ -323,7 +453,7 @@ export function _spawnCodeGraphWorker(
         try {
           if (msg && msg.ok && msg.graph && typeof msg.signature === 'string') {
             const genStillCurrent = getGeneration(graphCwd) === genAtStart;
-            if (genStillCurrent) {
+            if (genStillCurrent && cacheResult) {
               setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
               setDiskCache(graphCwd, msg.graph);
             }
@@ -344,27 +474,34 @@ export function _spawnCodeGraphWorker(
  * buildCodeGraphAsync (worker-thread isolated) or the code_graph / find_symbol
  * tools, never this synchronous form on the main event loop.
  */
-export async function _buildCodeGraph(cwd, { manifest: suppliedManifest = null, signature: suppliedSignature = null } = {}) {
+export async function _buildCodeGraph(cwd, {
+  manifest: suppliedManifest = null,
+  signature: suppliedSignature = null,
+  excludedProjectRoots = [],
+  maxFiles = CODE_GRAPH_MAX_FILES,
+  cache = true,
+} = {}) {
   const now = Date.now();
   let _tp = performance.now();
   const _trace = (label) => { if (process.env.MIXDOG_GRAPH_TRACE) { const n = performance.now(); process.stderr.write(`[cg-trace] ${label}=${(n - _tp).toFixed(0)}ms\n`); _tp = n; } };
   const graphCwd = _canonicalGraphCwd(cwd);
   const absRoot = graphCwd;
   const _genAtStart = _getCodeGraphGen(graphCwd);
-  const cached = _codeGraphCache.get(graphCwd);
+  const cached = cache ? _codeGraphCache.get(graphCwd) : null;
   let previousGraph = cached?.graph || null;
-  _consumeCodeGraphDirtyPaths(graphCwd);
+  if (cache) _consumeCodeGraphDirtyPaths(graphCwd);
 
   // 1. Change-detect via Rust --manifest (fp/rel/size only, no parse). A
   // main-thread disk-cache validation may hand its just-computed manifest to
   // this Worker after a miss, avoiding a duplicate native process.
-  const manifest = Array.isArray(suppliedManifest) ? suppliedManifest : await _runGraphManifest(absRoot);
+  const unscopedManifest = Array.isArray(suppliedManifest) ? suppliedManifest : await _runGraphManifest(absRoot);
+  const scoped = _scopeCodeGraphManifest(unscopedManifest, absRoot, { excludedProjectRoots, maxFiles });
+  const manifest = scoped.manifest;
   const signature = typeof suppliedSignature === 'string'
     ? suppliedSignature
     : _computeGraphSignature(manifest);
   if (!Array.isArray(suppliedManifest)) _trace('manifest+sig');
-  const truncated = manifest.length > CODE_GRAPH_MAX_FILES;
-  const indexed = truncated ? manifest.slice(0, CODE_GRAPH_MAX_FILES) : manifest;
+  const { truncated, indexed } = scoped;
 
   // 2. Memory cache hit.
   if (cached && cached.signature === signature && now - cached.ts < CODE_GRAPH_TTL_MS) {
@@ -373,8 +510,8 @@ export async function _buildCodeGraph(cwd, { manifest: suppliedManifest = null, 
   }
 
   // 3. Disk cache hit.
-  ensureDiskCodeGraphLoaded(now);
-  const diskEntry = getDiskCodeGraphEntry(graphCwd);
+  if (cache) ensureDiskCodeGraphLoaded(now);
+  const diskEntry = cache ? getDiskCodeGraphEntry(graphCwd) : null;
   if (_isCompatibleDiskCodeGraphEntry(diskEntry) && diskEntry.signature === signature) {
     const graph = _deserializeGraph(graphCwd, diskEntry);
     if (graph) {
@@ -406,7 +543,7 @@ export async function _buildCodeGraph(cwd, { manifest: suppliedManifest = null, 
   if (freshRels.length === 0) {
     fileInfos = reusable;
   } else if (reusable.length > 0 && freshRels.length <= 256) {
-    const recs = await _runGraphFiles(absRoot, freshRels, reusable);
+    const recs = await _runGraphFilesChunked(absRoot, freshRels, reusable);
     const reusedByRel = new Map(reusable.map((info) => [info.rel, info]));
     const freshSet = new Set(freshRels);
     fileInfos = [...reusable];
@@ -425,10 +562,28 @@ export async function _buildCodeGraph(cwd, { manifest: suppliedManifest = null, 
         }
       }
     }
+  } else if (scoped.prefixes.length) {
+    const recs = await _runGraphFilesChunked(absRoot, freshRels, reusable);
+    fileInfos = recs.map((rec) => _fileInfoFromRustRecord(rec, absRoot));
   } else {
     let recs = await _runGraphWalk(absRoot);
-    if (recs.length > CODE_GRAPH_MAX_FILES) recs = recs.slice(0, CODE_GRAPH_MAX_FILES);
+    if (recs.length > maxFiles) recs = recs.slice(0, maxFiles);
     fileInfos = recs.map((rec) => _fileInfoFromRustRecord(rec, absRoot));
+  }
+  const allowedRels = new Set(indexed.map((meta) => meta.rel));
+  for (const info of fileInfos) {
+    info.resolvedImports = (info.resolvedImports || []).filter((rel) => allowedRels.has(rel));
+    info.importedBy = [];
+  }
+  const importedBy = new Map(fileInfos.map((info) => [info.rel, []]));
+  for (const info of fileInfos) {
+    for (const targetRel of info.resolvedImports) {
+      const sources = importedBy.get(targetRel);
+      if (sources) sources.push(info.rel);
+    }
+  }
+  for (const info of fileInfos) {
+    info.importedBy = [...new Set(importedBy.get(info.rel) || [])];
   }
   _trace('walk+parse');
   const nodes = new Map();
@@ -470,7 +625,7 @@ export async function _buildCodeGraph(cwd, { manifest: suppliedManifest = null, 
     }
   }
   graph._symbolTokenIndexDirty = true;
-  if (_getCodeGraphGen(graphCwd) === _genAtStart) {
+  if (cache && _getCodeGraphGen(graphCwd) === _genAtStart) {
     _setCodeGraphCache(graphCwd, { ts: now, signature, graph });
     _setDiskCodeGraphEntry(graphCwd, graph);
     _trace('cache+disk');

@@ -12,8 +12,9 @@
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createChannelDaemonTransport } from '../src/standalone/channel-daemon-transport.mjs';
 import { attachToDaemon } from '../src/standalone/channel-daemon-client.mjs';
@@ -27,6 +28,11 @@ const waitFor = async (fn, ms = 1500) => {
   const end = Date.now() + ms;
   while (Date.now() < end) { if (fn()) return true; await delay(20); }
   return fn();
+};
+const waitForAsync = async (fn, ms = 1500) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (await fn()) return true; await delay(20); }
+  return await fn();
 };
 let failures = 0;
 function check(label, cond) {
@@ -160,6 +166,15 @@ async function main() {
   await reattachBufferTest();
   await pointerFailoverTest();
   await pointerReconnectFollowsTest();
+  await tokenReplacementRetirementTest();
+  await tokenReplacementReplayTest();
+  await tokenReplacementResponseLossCloseTest();
+  await registrationReplayTtlTest();
+  await registrationReplayCleanupTest();
+  await staleTokenCallTest();
+  await clientReconnectSafetyTest();
+  await clientTruncatedReplacementCloseTest();
+  await workerAttachSafetyTest();
 
   console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`);
   process.exit(failures === 0 ? 0 : 1);
@@ -176,7 +191,7 @@ async function flipTest() {
   process.env.MIXDOG_DATA_DIR = tmp;
   process.env.MIXDOG_CHANNEL_DAEMON_ENTRY = STUB_ENTRY;
   const { createStandaloneChannelWorker } = await import('../src/standalone/channel-worker.mjs');
-  const { readDaemonDiscovery } = await import('../src/standalone/channel-daemon-client.mjs');
+  const { readDaemonDiscovery, probeDaemonHealth } = await import('../src/standalone/channel-daemon-client.mjs');
   const discFile = path.join(tmp, 'channel-daemon.json');
 
   const notA = [];
@@ -199,17 +214,22 @@ async function flipTest() {
     notB.some((m) => m?.params?.content === 'ping-from-stub') &&
     !notA.some((m) => m?.params?.content === 'ping-from-stub'));
 
-  // (fix 1) daemon death mid-session: SIGKILL it, then the surviving client's
-  // next call must transparently respawn + re-attach (bounded retry inside
-  // execute) — no TUI process restart.
+  // (fix 1) daemon death mid-session: stale SSE clients must immediately
+  // invalidate and re-read discovery. Both workers reach the replacement
+  // without a tool call or the old five one-second stale-port retries.
   const beforeKill = readDaemonDiscovery(discFile);
   if (beforeKill?.pid) { try { process.kill(beforeKill.pid, 'SIGKILL'); } catch {} }
-  await delay(400);
-  let recovered = false;
-  try { recovered = (await wA.execute('reply', { after: 'kill' }))?.ok === true; } catch {}
+  const reattached = await waitForAsync(async () => {
+    const discovery = readDaemonDiscovery(discFile);
+    if (!discovery?.pid || discovery.pid === beforeKill?.pid) return false;
+    const health = await probeDaemonHealth({ port: discovery.port, token: discovery.token, timeoutMs: 300 });
+    return health?.clients >= 2;
+  }, 2600);
   const afterKill = readDaemonDiscovery(discFile);
-  check('flip: call transparently respawns+reattaches after daemon death',
-    recovered === true && !!afterKill?.pid && afterKill.pid !== beforeKill?.pid);
+  let recovered = false;
+  try { recovered = (await wA.execute('reply', { after: 'stale-sse-replacement' }))?.ok === true; } catch {}
+  check('flip: stale SSE immediately re-attaches to replacement (no 1..5 stale-port storm)',
+    reattached === true && !!afterKill?.pid && afterKill.pid !== beforeKill?.pid && recovered === true);
 
   await wA.stop();
   await wB.stop();
@@ -302,6 +322,29 @@ function rawPost(port, serverToken, p, body) {
     req.on('error', reject); req.write(payload); req.end();
   });
 }
+function rawPostLoseResponse(port, serverToken, p, body) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    let settled = false;
+    const done = (err) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err); else resolve();
+    };
+    const req = http.request({
+      hostname: '127.0.0.1', port, path: p, method: 'POST',
+      headers: { 'X-Mixdog-Daemon-Token': serverToken, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+    }, (res) => {
+      // The daemon has already committed before emitting response headers; drop
+      // the body exactly where a transport response-loss retry would begin.
+      try { res.destroy(); } catch {}
+      done();
+    });
+    req.on('error', (err) => { if (!settled) done(err); });
+    req.write(payload);
+    req.end();
+  });
+}
 function rawSse(port, serverToken, clientToken, onNotify) {
   const req = http.request({
     hostname: '127.0.0.1', port,
@@ -323,6 +366,583 @@ function rawSse(port, serverToken, clientToken, onNotify) {
     });
   });
   req.end(); return req;
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { resolve({}); } });
+  });
+}
+function sendTestJson(res, statusCode, body) {
+  const json = JSON.stringify(body);
+  res.writeHead(statusCode, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(json) });
+  res.end(json);
+}
+async function startTestServer(handle) {
+  const server = http.createServer(handle);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+  });
+  return server;
+}
+function testPort(server) { return server.address().port; }
+async function stopTestServer(server) {
+  await new Promise((resolve) => { try { server.close(() => resolve()); } catch { resolve(); } });
+}
+
+// Removed client tokens must never dispatch a tool with a null ownership
+// context, including a callId that could otherwise hit the dedup cache.
+async function staleTokenCallTest() {
+  let dispatched = 0;
+  const transport = createChannelDaemonTransport({
+    handleCall: async () => { dispatched++; return { ok: true }; },
+    clientGraceMs: 2000, sweepMs: 5000, onClientsEmpty: () => {},
+  });
+  const { port, token } = await transport.start();
+  const stale = await rawPost(port, token, '/call', { token: 'removed-token', name: 'reply', callId: 'stale-call' });
+  check('transport: stale /call token is rejected before dispatch',
+    stale?.error === 'unknown client token' && dispatched === 0);
+  await transport.stop();
+}
+
+// A reconnecting non-owner must replace its exact old token, not merely leave
+// it behind because another client currently owns the pointer.
+async function tokenReplacementRetirementTest() {
+  let dispatches = 0;
+  const transport = createChannelDaemonTransport({
+    handleCall: async (name, args, ctx) => {
+      dispatches++;
+      return { ok: true, name, args, leadPid: ctx.leadPid };
+    },
+    clientGraceMs: 2000, sweepMs: 5000, onClientsEmpty: () => {},
+  });
+  const { port, token } = await transport.start();
+  const a = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  const b = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  const c = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  await delay(80);
+  const oldA = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
+  await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
+  const ownerC = await rawPost(port, token, '/client/register', { leadPid: c.pid, cwd: 'C' });
+  const oldBufferedBeforeReplace = transport._clientsForTest.get(oldA.token)?.pending?.length === 1;
+  const freshA = await rawPost(port, token, '/client/register', {
+    leadPid: a.pid, cwd: 'A', reattach: true, replaceToken: oldA.token,
+  });
+  const freshNotifies = [];
+  const freshSse = rawSse(port, token, freshA.token, (message) => freshNotifies.push(message));
+  await waitFor(() => freshNotifies.some((message) =>
+    message?.method === 'notifications/mixdog/remote' && message?.params?.state === 'superseded'), 1_000);
+  const nonOwnerStateMigrated =
+    freshNotifies.some((message) => message?.method === 'notifications/mixdog/remote' && message?.params?.state === 'superseded') &&
+    transport._clientsForTest.get(freshA.token)?.pending?.length === 0 &&
+    transport._resolveTargetForTest()?.token === ownerC.token;
+  const stale = await rawPost(port, token, '/call', {
+    token: oldA.token, name: 'rebind_current_transcript',
+    args: { transcriptPath: '/tmp/stale-a.jsonl' }, callId: 'late-old-dedup',
+  });
+  const [live1, live2] = await Promise.all([
+    rawPost(port, token, '/call', {
+      token: freshA.token, name: 'rebind_current_transcript',
+      args: { transcriptPath: '/tmp/fresh-a.jsonl' }, callId: 'fresh-live-dedup',
+    }),
+    rawPost(port, token, '/call', {
+      token: freshA.token, name: 'rebind_current_transcript',
+      args: { transcriptPath: '/tmp/fresh-a.jsonl' }, callId: 'fresh-live-dedup',
+    }),
+  ]);
+  const beforeFreshClose = transport._clientsForTest.size;
+  const pointerBeforeFreshClose = transport._resolveTargetForTest()?.token;
+  await rawPost(port, token, '/client/deregister', { token: freshA.token });
+  check('reconnect: non-owner old token is retired; stale dedup call cannot move pointer',
+    stale?.error === 'unknown client token' &&
+    oldBufferedBeforeReplace &&
+    nonOwnerStateMigrated &&
+    !transport._clientsForTest.has(oldA.token) &&
+    beforeFreshClose === 3 &&
+    pointerBeforeFreshClose === freshA.token &&
+    live1?.result?.ok === true && live2?.result?.ok === true &&
+    dispatches === 1 &&
+    !transport._clientsForTest.has(freshA.token) &&
+    transport._clientsForTest.size === 2 &&
+    ownerC.token !== freshA.token);
+  try { a.kill(); } catch {}
+  try { b.kill(); } catch {}
+  try { c.kill(); } catch {}
+  try { freshSse.destroy(); } catch {}
+  await transport.stop();
+}
+
+// If replacement commits but its response is lost, the same logical
+// registration id must replay the first fresh token rather than create another.
+async function tokenReplacementReplayTest() {
+  const transport = createChannelDaemonTransport({
+    handleCall: async () => ({ ok: true }),
+    clientGraceMs: 2000, sweepMs: 5000, onClientsEmpty: () => {},
+  });
+  const { port, token } = await transport.start();
+  const a = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  const b = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  await delay(80);
+  const oldA = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
+  const ownerB = await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
+  const replacement = {
+    leadPid: a.pid, cwd: 'A', reattach: true, replaceToken: oldA.token,
+    registrationId: 'response-loss-replacement-1',
+  };
+  await rawPostLoseResponse(port, token, '/client/register', replacement);
+  const freshA = await rawPost(port, token, '/client/register', replacement);
+  const countAfterReplay = transport._clientsForTest.size;
+  const freshNotifies = [];
+  const freshSse = rawSse(port, token, freshA.token, (message) => freshNotifies.push(message));
+  await waitFor(() => freshNotifies.some((message) =>
+    message?.method === 'notifications/mixdog/remote' && message?.params?.state === 'superseded'), 1_000);
+  const pendingMigrated = transport._clientsForTest.get(freshA.token)?.pending?.length === 0;
+  await rawPost(port, token, '/client/deregister', { token: freshA.token });
+  check('reconnect: response-loss replacement replays one fresh token and close leaves no orphan',
+    countAfterReplay === 2 &&
+    !transport._clientsForTest.has(oldA.token) &&
+    transport._resolveTargetForTest()?.token === ownerB.token &&
+    pendingMigrated &&
+    !transport._clientsForTest.has(freshA.token) &&
+    transport._clientsForTest.size === 1 &&
+    transport._registrationReplaysForTest.size === 0);
+  try { freshSse.destroy(); } catch {}
+  try { a.kill(); } catch {}
+  try { b.kill(); } catch {}
+  await transport.stop();
+}
+
+// If the replacement commit survives but its response is lost, an immediate
+// close still knows the retired token + registration id and must cancel exactly
+// that unknown fresh logical client, not an unrelated live owner.
+async function tokenReplacementResponseLossCloseTest() {
+  const transport = createChannelDaemonTransport({
+    handleCall: async () => ({ ok: true }),
+    clientGraceMs: 2000, sweepMs: 5000, onClientsEmpty: () => {},
+  });
+  const { port, token } = await transport.start();
+  const a = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  const b = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  await delay(80);
+  const oldA = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
+  const ownerB = await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
+  const cancellation = {
+    token: oldA.token, replaceToken: oldA.token, leadPid: a.pid, cwd: 'A',
+    registrationId: 'response-loss-immediate-close-1',
+  };
+  await rawPostLoseResponse(port, token, '/client/register', {
+    ...cancellation, reattach: true,
+  });
+  const fresh = [...transport._clientsForTest.values()].find((client) => client.leadPid === a.pid);
+  const pendingMigrated = fresh?.pending?.length === 1;
+  const wrongClose = await rawPost(port, token, '/client/deregister', {
+    ...cancellation, cwd: 'not-A',
+  });
+  const close1 = await rawPost(port, token, '/client/deregister', cancellation);
+  const close2 = await rawPost(port, token, '/client/deregister', cancellation);
+  check('reconnect: response-loss immediate close cancels unknown fresh client without stranding state',
+    wrongClose?.error === 'forbidden replacement deregister' &&
+    pendingMigrated &&
+    close1?.ok === true && close1?.cancelled === true &&
+    close2?.ok === true && close2?.cancelled === false &&
+    !transport._clientsForTest.has(oldA.token) &&
+    !transport._clientsForTest.has(fresh?.token) &&
+    transport._clientsForTest.size === 1 &&
+    transport._resolveTargetForTest()?.token === ownerB.token &&
+    transport._registrationReplaysForTest.size === 0);
+  try { a.kill(); } catch {}
+  try { b.kill(); } catch {}
+  await transport.stop();
+}
+
+// Replay TTL bounds only cancellation metadata after a response has flushed:
+// a valid client may delay SSE/call well beyond that TTL. A replay near expiry
+// refreshes the metadata lifetime so its returned token remains cancellable.
+async function registrationReplayTtlTest() {
+  const transport = createChannelDaemonTransport({
+    handleCall: async () => ({ ok: true }),
+    clientGraceMs: 2000, sweepMs: 5000, registrationReplayTtlMs: 100,
+    onClientsEmpty: () => {},
+  });
+  const { port, token } = await transport.start();
+  const a = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  const b = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  await delay(80);
+  const oldA = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
+  await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
+  const valid = await rawPost(port, token, '/client/register', {
+    leadPid: a.pid, cwd: 'A', reattach: true, replaceToken: oldA.token, registrationId: 'ttl-valid',
+  });
+  await delay(150);
+  const validSurvived = transport._clientsForTest.has(valid.token) &&
+    transport._clientsForTest.get(valid.token)?.pending?.length === 1 &&
+    transport._registrationReplaysForTest.size === 0;
+  await rawPost(port, token, '/client/deregister', { token: valid.token });
+
+  const oldA2 = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A2' });
+  const replacement = {
+    leadPid: a.pid, cwd: 'A2', reattach: true, replaceToken: oldA2.token, registrationId: 'ttl-refresh',
+  };
+  const fresh = await rawPost(port, token, '/client/register', replacement);
+  await delay(70);
+  const replayed = await rawPost(port, token, '/client/register', replacement);
+  await delay(60); // Past the original deadline, before the refreshed deadline.
+  const replayRefreshed = replayed.token === fresh.token &&
+    transport._clientsForTest.has(fresh.token) &&
+    transport._registrationReplaysForTest.size === 1;
+  await delay(70); // Full refreshed interval elapsed.
+  const freshSurvivedRefreshExpiry = transport._clientsForTest.has(fresh.token) &&
+    transport._registrationReplaysForTest.size === 0;
+  await rawPost(port, token, '/client/deregister', { token: fresh.token });
+  check('reconnect: replay TTL preserves flushed clients and refreshes near-expiry replay metadata',
+    validSurvived && replayRefreshed && freshSurvivedRefreshExpiry);
+  try { a.kill(); } catch {}
+  try { b.kill(); } catch {}
+  await transport.stop();
+}
+
+// Every explicit retirement, replacement, deregister, and stop must clear the
+// associated replay entry/timer; no metadata may target an absent token.
+async function registrationReplayCleanupTest() {
+  const transport = createChannelDaemonTransport({
+    handleCall: async () => ({ ok: true }),
+    clientGraceMs: 2000, sweepMs: 5000, registrationReplayTtlMs: 1_000,
+    onClientsEmpty: () => {},
+  });
+  const { port, token } = await transport.start();
+  const a = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
+  await delay(80);
+  const old = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
+  const fresh1 = await rawPost(port, token, '/client/register', {
+    leadPid: a.pid, cwd: 'A', reattach: true, replaceToken: old.token, registrationId: 'cleanup-1',
+  });
+  const fresh2 = await rawPost(port, token, '/client/register', {
+    leadPid: a.pid, cwd: 'A', reattach: true, replaceToken: fresh1.token, registrationId: 'cleanup-2',
+  });
+  const replacementClean = !transport._clientsForTest.has(fresh1.token) &&
+    transport._registrationReplaysForTest.size === 1;
+  await rawPost(port, token, '/client/deregister', { token: fresh2.token });
+  const deregisterClean = transport._registrationReplaysForTest.size === 0;
+  const old3 = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A3' });
+  await rawPost(port, token, '/client/register', {
+    leadPid: a.pid, cwd: 'A3', reattach: true, replaceToken: old3.token, registrationId: 'cleanup-stop',
+  });
+  await transport.stop();
+  check('reconnect: replacement, deregister, and stop clear all replay metadata',
+    replacementClean && deregisterClean &&
+    transport._clientsForTest.size === 0 && transport._registrationReplaysForTest.size === 0);
+  try { a.kill(); } catch {}
+}
+
+// Client-only SSE races: immediate 200/end cycles consume the bounded budget;
+// a late old response cannot start another token rotation; close waits for a
+// delayed reconnect registration and removes its fresh token.
+async function clientReconnectSafetyTest() {
+  let registerCount = 0;
+  let fatalReason = null;
+  const flapping = await startTestServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/health') return sendTestJson(res, 200, { status: 'ok', pid: process.pid });
+    if (url.pathname === '/client/register') {
+      await readJsonBody(req);
+      registerCount++;
+      return sendTestJson(res, 200, { token: `flap-${registerCount}`, pid: process.pid });
+    }
+    if (url.pathname === '/client/deregister') { await readJsonBody(req); return sendTestJson(res, 200, { ok: true }); }
+    if (url.pathname === '/events') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': attached\n\n');
+      setTimeout(() => res.end(), 10);
+      return;
+    }
+    sendTestJson(res, 404, { error: 'not found' });
+  });
+  const flapClient = await attachToDaemon({
+    discovery: { port: testPort(flapping), token: 'flap', pid: process.pid },
+    onFatal: (reason) => { fatalReason = reason; },
+  });
+  await waitFor(() => fatalReason !== null, 8_000);
+  check('client: repeated 200/end SSE reconnects are bounded',
+    fatalReason !== null && registerCount === 6);
+  await flapClient.close();
+  await stopTestServer(flapping);
+
+  let lateRegisters = 0;
+  const lateServer = await startTestServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/health') return sendTestJson(res, 200, { status: 'ok', pid: process.pid });
+    if (url.pathname === '/client/register') {
+      await readJsonBody(req);
+      lateRegisters++;
+      return sendTestJson(res, 200, { token: `late-${lateRegisters}`, pid: process.pid });
+    }
+    if (url.pathname === '/client/deregister') { await readJsonBody(req); return sendTestJson(res, 200, { ok: true }); }
+    if (url.pathname === '/events') return sendTestJson(res, 500, { error: 'test SSE should be intercepted' });
+    sendTestJson(res, 404, { error: 'not found' });
+  });
+  const realHttpRequest = http.request;
+  const fakeStreams = [];
+  http.request = function interceptedSseRequest(options, callback) {
+    if (!String(options?.path || '').startsWith('/events')) {
+      return realHttpRequest.apply(this, arguments);
+    }
+    const fakeReq = new EventEmitter();
+    fakeReq.destroy = () => {};
+    fakeReq.end = () => {
+      const fakeRes = new EventEmitter();
+      fakeRes.statusCode = 200;
+      fakeRes.setEncoding = () => {};
+      fakeRes.resume = () => {};
+      fakeStreams.push({ req: fakeReq, res: fakeRes });
+      queueMicrotask(() => callback(fakeRes));
+    };
+    return fakeReq;
+  };
+  let lateClient = null;
+  try {
+    lateClient = await attachToDaemon({ discovery: { port: testPort(lateServer), token: 'late', pid: process.pid } });
+    await waitFor(() => fakeStreams.length === 1, 500);
+    fakeStreams[0].res.emit('end');
+    await waitFor(() => lateRegisters === 2 && fakeStreams.length === 2, 2_500);
+    fakeStreams[0].res.emit('error', new Error('late old SSE error'));
+    await delay(100);
+    check('client: late old-SSE events cannot rotate a newer token', lateRegisters === 2);
+  } finally {
+    http.request = realHttpRequest;
+    await lateClient?.close();
+  }
+  await stopTestServer(lateServer);
+
+  let closeRegisters = 0;
+  let delayedRegisterResponse = null;
+  const liveTokens = new Set();
+  const closeServer = await startTestServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/health') return sendTestJson(res, 200, { status: 'ok', pid: process.pid });
+    if (url.pathname === '/client/register') {
+      await readJsonBody(req);
+      closeRegisters++;
+      const fresh = `close-${closeRegisters}`;
+      liveTokens.add(fresh);
+      if (closeRegisters === 2) { delayedRegisterResponse = { res, fresh }; return; }
+      return sendTestJson(res, 200, { token: fresh, pid: process.pid });
+    }
+    if (url.pathname === '/client/deregister') {
+      const body = await readJsonBody(req);
+      liveTokens.delete(body.token);
+      return sendTestJson(res, 200, { ok: true });
+    }
+    if (url.pathname === '/events') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': attached\n\n');
+      if (closeRegisters === 1) setTimeout(() => res.end(), 10);
+      return;
+    }
+    sendTestJson(res, 404, { error: 'not found' });
+  });
+  const closeClient = await attachToDaemon({ discovery: { port: testPort(closeServer), token: 'close', pid: process.pid } });
+  await waitFor(() => delayedRegisterResponse !== null, 2_500);
+  const closing = closeClient.close('close during register');
+  await delay(20);
+  sendTestJson(delayedRegisterResponse.res, 200, { token: delayedRegisterResponse.fresh, pid: process.pid });
+  await closing;
+  check('client: close during re-register removes the fresh token',
+    !liveTokens.has(delayedRegisterResponse.fresh) && liveTokens.size === 0);
+  await stopTestServer(closeServer);
+}
+
+// End-to-end client path: the daemon commits replacement, but a proxy loses the
+// register response after headers/partial JSON. request() must settle, and close
+// must use the retained logical-registration identity to cancel the unknown
+// fresh transport client before any later reconnect can revive it.
+async function clientTruncatedReplacementCloseTest() {
+  let cancellationObserved = false;
+  const transport = createChannelDaemonTransport({
+    handleCall: async () => ({ ok: true }),
+    clientGraceMs: 2000, sweepMs: 5000, onClientsEmpty: () => {},
+    log: (line) => { if (String(line).includes('replacement deregister')) cancellationObserved = true; },
+  });
+  const { port, token } = await transport.start();
+  const client = await attachToDaemon({ discovery: { port, token, pid: process.pid }, cwd: 'truncated-client' });
+  const initialToken = client.clientToken;
+  const realHttpRequest = http.request;
+  let replacementRequests = 0;
+  let truncated = false;
+  http.request = function truncateCommittedRegister(options, callback) {
+    if (!String(options?.path || '').startsWith('/client/register')) {
+      return realHttpRequest.apply(this, arguments);
+    }
+    replacementRequests++;
+    const fakeReq = new EventEmitter();
+    let payload = null;
+    let inner = null;
+    fakeReq.write = (chunk) => { payload = Buffer.from(chunk); };
+    fakeReq.destroy = (error) => { try { inner?.destroy?.(error); } catch {} };
+    fakeReq.end = () => {
+      inner = realHttpRequest(options, (realRes) => {
+        realRes.resume();
+        realRes.once('end', () => {
+          const fakeRes = new EventEmitter();
+          fakeRes.statusCode = 200;
+          fakeRes.setEncoding = () => {};
+          fakeRes.resume = () => {};
+          fakeRes.destroy = () => {};
+          callback(fakeRes);
+          fakeRes.emit('data', '{"token":"committed-but-truncated');
+          truncated = true;
+          queueMicrotask(() => {
+            fakeRes.emit('aborted');
+            fakeRes.emit('close');
+          });
+        });
+      });
+      inner.on('error', (error) => fakeReq.emit('error', error));
+      if (payload) inner.write(payload);
+      inner.end();
+    };
+    return fakeReq;
+  };
+  try {
+    await waitFor(() => !!transport._clientsForTest.get(initialToken)?.sse, 1_000);
+    transport._clientsForTest.get(initialToken)?.sse?.end();
+    await waitFor(() => truncated && replacementRequests === 1 && transport._clientsForTest.size === 1, 2_500);
+    const closeStarted = Date.now();
+    await client.close('truncated replacement response');
+    const closeElapsed = Date.now() - closeStarted;
+    await delay(1_200);
+    check('client: truncated committed replacement settles and close cancels unknown fresh client',
+      closeElapsed < 1_000 &&
+      cancellationObserved &&
+      replacementRequests === 1 &&
+      transport._clientsForTest.size === 0 &&
+      transport._registrationReplaysForTest.size === 0 &&
+      transport._resolveTargetForTest() === null);
+  } finally {
+    http.request = realHttpRequest;
+    await client.close('truncated replacement cleanup');
+    await transport.stop();
+  }
+}
+
+// Worker-only attach races: auth rejection re-reads discovery instead of
+// rejecting start(), a wrong but alive discovery PID is refused, and stop()
+// waits for an in-flight register so it cannot publish a client afterward.
+async function workerAttachSafetyTest() {
+  const { createStandaloneChannelWorker } = await import('../src/standalone/channel-worker.mjs');
+
+  const wrongPidServer = await startTestServer((req, res) => {
+    if (new URL(req.url, 'http://127.0.0.1').pathname === '/health') return sendTestJson(res, 200, { status: 'ok', pid: process.pid });
+    sendTestJson(res, 404, { error: 'not found' });
+  });
+  let wrongPidRejected = false;
+  try {
+    await attachToDaemon({ discovery: { port: testPort(wrongPidServer), token: 'wrong-pid', pid: process.pid + 100_000 } });
+  } catch (err) { wrongPidRejected = err?.daemonDiscoveryStale === true; }
+  check('client: alive but wrong discovery PID is rejected', wrongPidRejected);
+  await stopTestServer(wrongPidServer);
+
+  const authTmp = mkdtempSync(path.join(os.tmpdir(), 'mixdog-auth-attach-'));
+  const authDiscovery = path.join(authTmp, 'channel-daemon.json');
+  const goodToken = 'good-discovery-token';
+  let rejectedRegisters = 0;
+  const authServer = await startTestServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/health') return sendTestJson(res, 200, { status: 'ok', pid: process.pid });
+    if (url.pathname === '/client/register') {
+      await readJsonBody(req);
+      if (req.headers['x-mixdog-daemon-token'] !== goodToken) {
+        rejectedRegisters++;
+        return sendTestJson(res, 403, { error: 'forbidden' });
+      }
+      return sendTestJson(res, 200, { token: 'auth-client', pid: process.pid });
+    }
+    if (url.pathname === '/client/deregister') { await readJsonBody(req); return sendTestJson(res, 200, { ok: true }); }
+    if (url.pathname === '/events') { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.write(': attached\n\n'); return; }
+    sendTestJson(res, 404, { error: 'not found' });
+  });
+  const authPort = testPort(authServer);
+  writeFileSync(authDiscovery, JSON.stringify({ pid: process.pid, port: authPort, token: 'stale-discovery-token' }));
+  process.env.MIXDOG_RUNTIME_ROOT = authTmp;
+  process.env.MIXDOG_DATA_DIR = authTmp;
+  process.env.MIXDOG_CHANNEL_DAEMON_ENTRY = STUB_ENTRY;
+  const authWorker = createStandaloneChannelWorker({ entry: STUB_ENTRY, rootDir: authTmp, dataDir: authTmp, cwd: authTmp });
+  const publishGoodDiscovery = setTimeout(() => {
+    writeFileSync(authDiscovery, JSON.stringify({ pid: process.pid, port: authPort, token: goodToken }));
+  }, 250);
+  await authWorker.start();
+  clearTimeout(publishGoodDiscovery);
+  check('worker: initial register 403 re-reads discovery and attaches', rejectedRegisters > 0);
+  await authWorker.stop();
+  await stopTestServer(authServer);
+  try { rmSync(authTmp, { recursive: true, force: true }); } catch {}
+
+  const permanentTmp = mkdtempSync(path.join(os.tmpdir(), 'mixdog-auth-permanent-'));
+  const permanentDiscovery = path.join(permanentTmp, 'channel-daemon.json');
+  let permanentRejects = 0;
+  const permanentServer = await startTestServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/health') return sendTestJson(res, 200, { status: 'ok', pid: process.pid });
+    if (url.pathname === '/client/register') {
+      await readJsonBody(req);
+      permanentRejects++;
+      return sendTestJson(res, 403, { error: 'forbidden' });
+    }
+    sendTestJson(res, 404, { error: 'not found' });
+  });
+  writeFileSync(permanentDiscovery, JSON.stringify({
+    pid: process.pid, port: testPort(permanentServer), token: 'permanently-stale-token',
+  }));
+  process.env.MIXDOG_RUNTIME_ROOT = permanentTmp;
+  process.env.MIXDOG_DATA_DIR = permanentTmp;
+  const permanentWorker = createStandaloneChannelWorker({
+    entry: STUB_ENTRY, rootDir: permanentTmp, dataDir: permanentTmp, cwd: permanentTmp,
+  });
+  const permanentStartedAt = Date.now();
+  let permanentRejected = false;
+  try { await permanentWorker.start(); } catch (err) {
+    permanentRejected = /register rejected discovery auth 5 times/.test(err?.message || '');
+  }
+  const permanentElapsed = Date.now() - permanentStartedAt;
+  check('worker: permanent register 403 uses bounded backoff and terminates',
+    permanentRejected && permanentRejects === 5 && permanentElapsed >= 1000 && permanentElapsed < 6000);
+  await permanentWorker.stop();
+  await stopTestServer(permanentServer);
+  try { rmSync(permanentTmp, { recursive: true, force: true }); } catch {}
+
+  const stopTmp = mkdtempSync(path.join(os.tmpdir(), 'mixdog-stop-attach-'));
+  const stopDiscovery = path.join(stopTmp, 'channel-daemon.json');
+  let pendingRegister = null;
+  const deregistered = new Set();
+  const stopServer = await startTestServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/health') return sendTestJson(res, 200, { status: 'ok', pid: process.pid });
+    if (url.pathname === '/client/register') { await readJsonBody(req); pendingRegister = res; return; }
+    if (url.pathname === '/client/deregister') {
+      const body = await readJsonBody(req);
+      deregistered.add(body.token);
+      return sendTestJson(res, 200, { ok: true });
+    }
+    if (url.pathname === '/events') { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.write(': attached\n\n'); return; }
+    sendTestJson(res, 404, { error: 'not found' });
+  });
+  const stopPort = testPort(stopServer);
+  writeFileSync(stopDiscovery, JSON.stringify({ pid: process.pid, port: stopPort, token: 'stop-token' }));
+  process.env.MIXDOG_RUNTIME_ROOT = stopTmp;
+  process.env.MIXDOG_DATA_DIR = stopTmp;
+  const stopWorker = createStandaloneChannelWorker({ entry: STUB_ENTRY, rootDir: stopTmp, dataDir: stopTmp, cwd: stopTmp });
+  const startResult = stopWorker.start().then(() => 'started').catch(() => 'cancelled');
+  await waitFor(() => pendingRegister !== null, 1_500);
+  const stopping = stopWorker.stop('stop during attach');
+  sendTestJson(pendingRegister, 200, { token: 'stop-fresh', pid: process.pid });
+  const [stopped, startState] = await Promise.all([stopping, startResult]);
+  check('worker: stop during attach cannot publish a client',
+    stopped === false && startState === 'cancelled' && deregistered.has('stop-fresh'));
+  await stopTestServer(stopServer);
+  try { rmSync(stopTmp, { recursive: true, force: true }); } catch {}
 }
 
 // Fix coverage: (1) an SSE-reconnect re-register must NOT steal ownership;

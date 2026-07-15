@@ -225,6 +225,13 @@ export async function compactSessionMessages(sessionId) {
     const result = await runSessionCompaction(session, {
         mode: 'manual',
         force: true,
+        // /compact is a direct reduction of the active session transcript.
+        // Do not re-ingest/search Memory (recall-fasttrack) before summarizing.
+        compactType: DEFAULT_COMPACT_TYPE,
+        // Older source history uses the same pure-conversation filter as
+        // Memory ingest_session; protected system context and recent turns are
+        // still preserved separately by semantic compaction.
+        filterOldHistoryForIngest: true,
         provider: getProvider(session.provider),
         model: session.model,
         sessionId,

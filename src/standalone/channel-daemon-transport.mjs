@@ -46,6 +46,7 @@ export function createChannelDaemonTransport({
   onClientsEmpty = null,
   getStatus = () => ({}),
   dispatchBind = null,
+  registrationReplayTtlMs = 60_000,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
@@ -72,6 +73,11 @@ export function createChannelDaemonTransport({
   // retry never double-runs a non-idempotent tool (e.g. reply). Short TTL.
   const callCache = new Map();
   const CALL_CACHE_TTL_MS = 60_000;
+  // Reconnect register replay: a server may commit replacement just before its
+  // HTTP response is lost. The retry supplies this stable id and receives the
+  // already-created fresh token instead of creating an orphan replacement.
+  const registrationReplays = new Map(); // registrationId -> { token, leadPid, cwd, replaceToken, responseFinished }
+  const registrationReplayTtl = Math.max(1, Number(registrationReplayTtlMs) || 60_000);
   let server = null;
   let graceTimer = null;
   let sweepTimer = null;
@@ -103,8 +109,7 @@ export function createChannelDaemonTransport({
     const c = clients.get(token);
     if (!c) return;
     const wasPointer = pointerToken === token;
-    clients.delete(token);
-    try { c.sse?.end?.(); } catch {}
+    removeClientRecord(token);
     if (pointerToken === token) pointerToken = null;
     log(`client ${token} (lead=${c.leadPid}) removed: ${reason}`);
     // Pointer client death → hand the seat to a survivor (last-wins among the
@@ -113,6 +118,62 @@ export function createChannelDaemonTransport({
     // remains (grace shutdown path).
     if (wasPointer && !closed) failoverPointer(reason);
     maybeArmGrace('client removed');
+  }
+
+  function removeRegistrationReplay(registrationId, replay = registrationReplays.get(registrationId)) {
+    if (!replay || registrationReplays.get(registrationId) !== replay) return;
+    registrationReplays.delete(registrationId);
+    try { clearTimeout(replay.timer); } catch {}
+  }
+
+  // Every removal path uses this primitive, including replacement's deliberate
+  // no-failover retirement, so replay records/timers never target absent tokens.
+  function removeClientRecord(token) {
+    const c = clients.get(token);
+    if (!c) return null;
+    clients.delete(token);
+    for (const [registrationId, replay] of registrationReplays) {
+      if (replay.token === token) removeRegistrationReplay(registrationId, replay);
+    }
+    try { c.sse?.end?.(); } catch {}
+    return c;
+  }
+
+  function clearRegistrationReplays() {
+    for (const [registrationId, replay] of registrationReplays) removeRegistrationReplay(registrationId, replay);
+  }
+
+  function armRegistrationReplay(replayId, replay) {
+    try { clearTimeout(replay.timer); } catch {}
+    replay.timer = setTimeout(() => {
+      if (registrationReplays.get(replayId) !== replay) return;
+      // A successfully flushed register response creates a valid client even
+      // if its SSE/call is delayed. TTL only bounds cancellation metadata.
+      removeRegistrationReplay(replayId, replay);
+      if (!replay.responseFinished && clients.has(replay.token)) {
+        dropClient(replay.token, 'unflushed registration replay expired');
+      }
+    }, registrationReplayTtl);
+    replay.timer.unref?.();
+  }
+
+  function markRegistrationResponseFinished(registrationId, token) {
+    const replay = registrationId ? registrationReplays.get(registrationId) : null;
+    if (replay && replay.token === token) replay.responseFinished = true;
+  }
+
+  // A response-loss close knows only its retired token + stable registration id.
+  // Bind cancellation to every logical-client field before retiring the fresh
+  // token; malformed/mismatched cancellation can never affect another client.
+  function cancelReplacementRegistration({ token, registrationId, replaceToken, leadPid, cwd }) {
+    const replayId = registrationId ? String(registrationId).slice(0, 200) : null;
+    const replay = replayId ? registrationReplays.get(replayId) : null;
+    if (!replay) return 'missing';
+    const retiredToken = token ? String(token) : null;
+    if (retiredToken !== replay.replaceToken || String(replaceToken || '') !== replay.replaceToken ||
+        parsePid(leadPid) !== replay.leadPid || (cwd || null) !== replay.cwd) return 'forbidden';
+    dropClient(replay.token, 'replacement deregister');
+    return 'cancelled';
   }
 
   // Pointer failover on owner death. Move the pointer to the most-recently-seen
@@ -304,8 +365,25 @@ export function createChannelDaemonTransport({
     }
   }
 
-  function registerClient({ leadPid, cwd, reattach = false }) {
+  function registerClient({ leadPid, cwd, reattach = false, replaceToken = null, registrationId = null }) {
     const pid = parsePid(leadPid) ?? 0;
+    const replacementToken = replaceToken ? String(replaceToken) : null;
+    const replayId = reattach && registrationId ? String(registrationId).slice(0, 200) : null;
+    const existingReplay = replayId ? registrationReplays.get(replayId) : null;
+    if (existingReplay) {
+      if (existingReplay.leadPid === pid && existingReplay.cwd === (cwd || null) &&
+          existingReplay.replaceToken === replacementToken && clients.has(existingReplay.token)) {
+        armRegistrationReplay(replayId, existingReplay);
+        log(`client reconnect replay token=${existingReplay.token} lead=${pid}`);
+        return existingReplay.token;
+      }
+      if (clients.has(existingReplay.token)) {
+        const err = new Error('registration replay identity mismatch');
+        err.statusCode = 409;
+        throw err;
+      }
+      removeRegistrationReplay(replayId, existingReplay);
+    }
     const token = randomUUID();
     clients.set(token, {
       token,
@@ -320,6 +398,34 @@ export function createChannelDaemonTransport({
     cancelGrace();
     startSweep();
     log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'}`);
+    const rememberReplacement = (freshToken) => {
+      if (!replayId) return freshToken;
+      const replay = {
+        token: freshToken, leadPid: pid, cwd: cwd || null, replaceToken: replacementToken,
+        responseFinished: false, timer: null,
+      };
+      registrationReplays.set(replayId, replay);
+      armRegistrationReplay(replayId, replay);
+      return freshToken;
+    };
+    // A reconnect names the exact token it replaces. Retire it even when it is
+    // not the pointer: retaining a non-owner old token would let it later call,
+    // steal ownership, or accumulate a buffered frame after the fresh client
+    // has gone away. Token replacement never crosses leadPid boundaries.
+    const replaced = reattach && replacementToken ? clients.get(replacementToken) : null;
+    if (replaced && replaced.leadPid === pid) {
+      const fresh = clients.get(token);
+      const replacedWasPointer = pointerToken === replaced.token;
+      // Token-scoped state belongs to the logical client, not only the owner.
+      // A non-owner can hold a buffered superseded frame or stored bind intent.
+      if (replaced.pending?.length) fresh.pending.push(...replaced.pending.splice(0));
+      if (replaced.lastBind) fresh.lastBind = replaced.lastBind;
+      if (replacedWasPointer) pointerToken = token;
+      removeClientRecord(replaced.token);
+      log(`client reconnect replaced token=${replaced.token} -> ${token} lead=${pid}`);
+      if (replacedWasPointer) redispatchPointerBind(fresh, 'reconnect');
+      return rememberReplacement(token);
+    }
     // Pointer-follows-pid: if the current pointer client shares this leadPid AND
     // has no live SSE, it is the SAME terminal re-registering after its stream
     // dropped. That old entry is a dead-stream blackhole — pid-prune never reaps
@@ -335,15 +441,14 @@ export function createChannelDaemonTransport({
         const fresh = clients.get(token);
         if (old.pending?.length) fresh.pending.push(...old.pending.splice(0));
         if (old.lastBind) fresh.lastBind = old.lastBind;
-        clients.delete(pointerToken);
-        try { old.sse?.end?.(); } catch {}
+        removeClientRecord(pointerToken);
         pointerToken = token;
         log(`pointer follows reconnect -> token=${token} lead=${pid} (old entry dropped)`);
         // The fresh token inherited the old entry's bind intent but never went
         // through movePointer — re-dispatch it so the forwarder rebinds to this
         // reconnected terminal's transcript (guarded/no-op when no lastBind).
         redispatchPointerBind(fresh, 'reconnect');
-        return token;
+        return rememberReplacement(token);
       }
     }
     if (reattach) {
@@ -356,12 +461,17 @@ export function createChannelDaemonTransport({
       // ownership seat, and the displaced owner is told it lost (superseded).
       movePointer(token, 'register');
     }
-    return token;
+    return rememberReplacement(token);
   }
 
   function attachSse(token, res) {
     const c = clients.get(token);
     if (!c) return false;
+    // A live stream proves the client learned its fresh token, so response-loss
+    // cancellation is no longer needed for this logical registration.
+    for (const [registrationId, replay] of registrationReplays) {
+      if (replay.token === token) removeRegistrationReplay(registrationId, replay);
+    }
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -417,12 +527,23 @@ export function createChannelDaemonTransport({
 
       if (req.method === 'POST' && pathName === '/client/register') {
         const body = await readBody(req);
-        const clientToken = registerClient({ leadPid: body.leadPid, cwd: body.cwd, reattach: body.reattach === true });
+        const clientToken = registerClient({
+          leadPid: body.leadPid, cwd: body.cwd, reattach: body.reattach === true,
+          replaceToken: body.replaceToken, registrationId: body.registrationId,
+        });
+        const replayId = body.reattach === true && body.registrationId ? String(body.registrationId).slice(0, 200) : null;
+        res.once('finish', () => markRegistrationResponseFinished(replayId, clientToken));
         sendJson(res, { token: clientToken, pid: process.pid });
         return;
       }
       if (req.method === 'POST' && pathName === '/client/deregister') {
         const body = await readBody(req);
+        if (body.registrationId) {
+          const cancelled = cancelReplacementRegistration(body);
+          if (cancelled === 'forbidden') { sendError(res, 'forbidden replacement deregister', 403); return; }
+          sendJson(res, { ok: true, cancelled: cancelled === 'cancelled' });
+          return;
+        }
         if (body.token) dropClient(body.token, 'deregister');
         sendJson(res, { ok: true });
         return;
@@ -436,7 +557,11 @@ export function createChannelDaemonTransport({
         const body = await readBody(req);
         const clientToken = body.token || null;
         const c = clientToken ? clients.get(clientToken) : null;
-        if (c) c.lastSeen = nowMs();
+        if (!c) { sendError(res, 'unknown client token', 404); return; }
+        for (const [registrationId, replay] of registrationReplays) {
+          if (replay.token === clientToken) removeRegistrationReplay(registrationId, replay);
+        }
+        c.lastSeen = nowMs();
         const name = String(body.name || '');
         // Bind-intent calls re-point routing at the caller BEFORE dispatch, so a
         // notify emitted synchronously during the call already targets it.
@@ -526,6 +651,7 @@ export function createChannelDaemonTransport({
     cancelGrace();
     if (sweepTimer) { try { clearInterval(sweepTimer); } catch {} sweepTimer = null; }
     for (const [token] of clients) dropClient(token, 'transport stop');
+    clearRegistrationReplays();
     if (discoveryPath) { try { rmSync(discoveryPath, { force: true }); } catch {} }
     if (server) {
       await new Promise((resolve) => { try { server.close(() => resolve()); } catch { resolve(); } });
@@ -540,6 +666,7 @@ export function createChannelDaemonTransport({
     get port() { return boundPort; },
     get token() { return serverToken; },
     _clientsForTest: clients,
+    _registrationReplaysForTest: registrationReplays,
     _resolveTargetForTest: resolveTarget,
   };
 }

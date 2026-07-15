@@ -451,6 +451,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     ...(typeof result.reasoningContent === 'string' && result.reasoningContent
                         ? { reasoningContent: result.reasoningContent }
                         : {}),
+                    ...(result.providerMetadata && typeof result.providerMetadata === 'object'
+                        ? { providerMetadata: result.providerMetadata }
+                        : {}),
                 });
             } else {
                 // Empty terminal turn: still persist a forensic record so
@@ -576,12 +579,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 });
                 recordStandaloneStatusTelemetry(session, result, Date.now() - _askStartedAt);
             }
-            // Persist opaque providerState for future stateful providers.
-            // No provider currently emits it (openai-oauth is stateless per
-            // contract), so this branch is dormant — kept so a future
-            // Responses-API provider with stable continuation can plug in
-            // without reworking the session shape.
-            if (result.providerState !== undefined) {
+            // Persist opaque providerState for stateful providers. The update
+            // bit distinguishes an adapter that emitted no state update from
+            // an explicit clear caused by compaction/provider reset.
+            if (result.providerStateUpdated === true
+                && (result.providerState === undefined || result.providerState === null)) {
+                delete session.providerState;
+            } else if (result.providerStateUpdated === true || result.providerState !== undefined) {
                 session.providerState = result.providerState;
             }
             const terminalResultPreview = {

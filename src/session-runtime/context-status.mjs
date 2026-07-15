@@ -10,27 +10,29 @@ import {
   resolveCompactionPressureTokens,
   resolveWorkerCompactPolicy,
 } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
-import { estimateToolSchemaBreakdown } from './tool-catalog.mjs';
-
-const DEFERRED_CATALOG_TOOL_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);
+import {
+  estimateToolSchemaBreakdown,
+  snapshotProviderRequestTools,
+} from './tool-catalog.mjs';
+import { scopedProviderRequestTools } from './provider-request-tools.mjs';
 
 // Mirrors the tool-list portion of the Anthropic adapters without changing
 // their wire serialization. Other native-deferred providers expose the
 // catalog through BP1/system content, which is already metered there.
-export function requestSerializedToolsForContext(session, provider) {
-  const activeTools = Array.isArray(session?.tools) ? session.tools : [];
-  const normalizedProvider = String(provider || '').trim().toLowerCase();
-  if (!DEFERRED_CATALOG_TOOL_PROVIDERS.has(normalizedProvider)
-    || session?.deferredNativeTools !== true
-    || activeTools.length === 0) {
-    return activeTools;
-  }
-  const activeNames = new Set(activeTools.map((tool) => String(tool?.name || '').trim()).filter(Boolean));
-  const catalog = Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [];
-  const deferredTools = catalog
-    .filter((tool) => tool?.name && !activeNames.has(String(tool.name)))
-    .map((tool) => ({ ...tool, deferLoading: true }));
-  return deferredTools.length ? [...activeTools, ...deferredTools] : activeTools;
+export function requestSerializedToolsForContext(
+  session,
+  provider,
+  messages = session?.messages,
+  { nativeTools = [] } = {},
+) {
+  return scopedProviderRequestTools(session, provider, messages)?.requestTools
+    || snapshotProviderRequestTools({
+    provider,
+    tools: session?.tools,
+    nativeTools,
+    messages,
+    session,
+  });
 }
 
 // Live /context gauge computation + its self-owned memoization cache. Extracted
@@ -38,13 +40,18 @@ export function requestSerializedToolsForContext(session, provider) {
 // the mutable session/route/cwd/mode locals. The cache (key + value) is owned
 // here now, so invalidateContextStatusCache() is returned for the runtime to
 // call from the same places it used to clear the inline locals.
-export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMode }) {
+export function createContextStatus({
+  getSession,
+  getRoute,
+  getCurrentCwd,
+  getMode,
+  getNativeTools = () => [],
+}) {
   let contextStatusCacheKey = null;
   let contextStatusCacheValue = null;
 
   function contextStatusCacheKeyFor({
     messages,
-    tools,
     messagesRevision,
     toolsSignature,
     requestProvider,
@@ -68,8 +75,7 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
       lastMessage,
       lastMessageRole: lastMessage?.role || null,
       lastMessageContent: lastMessage?.content || null,
-      tools,
-      toolCount: tools.length,
+      toolCount: requestToolCount,
       toolsSignature,
       requestProvider,
       requestToolCount,
@@ -132,17 +138,20 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     // authoritative committed transcript.
     const liveTurnMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
     const messages = liveTurnMessages || (Array.isArray(session?.messages) ? session.messages : []);
-    const tools = Array.isArray(session?.tools) ? session.tools : [];
     const requestProvider = session?.provider || route.provider;
-    const requestTools = requestSerializedToolsForContext(session, requestProvider);
+    // Do not even evaluate live native definitions when an in-flight request
+    // scope owns the complete immutable provider surface.
+    const scopedRequest = scopedProviderRequestTools(session, requestProvider, messages);
+    const requestTools = scopedRequest?.requestTools
+      || requestSerializedToolsForContext(session, requestProvider, messages, {
+        nativeTools: getNativeTools(),
+      });
     const messagesRevision = contextMessagesRevision(messages);
-    const toolsSignature = toolSchemaSignature(tools);
     const requestToolsSignature = toolSchemaSignature(requestTools);
     const cacheKey = contextStatusCacheKeyFor({
       messages,
-      tools,
       messagesRevision,
-      toolsSignature,
+      toolsSignature: requestToolsSignature,
       requestProvider,
       requestToolCount: requestTools.length,
       requestToolsSignature,
@@ -171,7 +180,9 @@ export function createContextStatus({ getSession, getRoute, getCurrentCwd, getMo
     // Use the worker policy when a boundary is available so target/reserve
     // headroom, trigger, buffer tokens, and buffer ratio stay identical to the
     // auto-compact decision. Fall back only for incomplete session metadata.
-    const workerCompactPolicy = resolveWorkerCompactPolicy(session, tools);
+    // Meter the same pure provider-visible projection used by pre-send
+    // compaction and the actual agent-loop send/baseline fingerprint.
+    const workerCompactPolicy = resolveWorkerCompactPolicy(session, requestTools);
     const compactPolicy = workerCompactPolicy?.boundaryTokens
       ? workerCompactPolicy
       : resolveSessionCompactPolicy(session || {}, compactBoundaryTokens);

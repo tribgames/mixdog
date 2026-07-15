@@ -108,6 +108,7 @@ export function createStandaloneChannelWorker({
   // as an unreachable legacy path while useProcessWorker is true.
   let daemonClient = null;
   let attachPromise = null;
+  let attachGeneration = 0;
   let daemonPid = null;
   let nextCallId = 1;
   // Per-proxy unique prefix so a callId can never collide across TUIs sharing
@@ -408,6 +409,7 @@ export function createStandaloneChannelWorker({
     // CAS: only tear down when the live handle is still the one that failed, so
     // a concurrent call that already re-attached a fresh daemon isn't clobbered.
     if (expected && daemonClient !== expected) return;
+    attachGeneration++;
     const client = daemonClient;
     daemonClient = null;
     attachPromise = null;
@@ -476,31 +478,81 @@ export function createStandaloneChannelWorker({
       t.unref?.();
     });
   }
-  async function doAttach(discovery) {
-    const client = await attachToDaemon({
+  function attachCancelledError() {
+    const err = new Error('channels daemon attach superseded');
+    err.daemonAttachCancelled = true;
+    return err;
+  }
+  function discoveryMatchesHealth(discovery, health) {
+    return Number(health?.pid) === Number(discovery?.pid);
+  }
+  async function doAttach(discovery, generation) {
+    let client = null;
+    let fatalDuringAttach = false;
+    client = await attachToDaemon({
       discovery,
       leadPid: daemonLeadPid,
       cwd,
       onNotify: (msg) => { try { onNotify?.(msg); } catch {} },
-      // SSE gave up (daemon dead/restarted): drop this attach and proactively
-      // re-attach so notifies resume without waiting for the next call().
-      onFatal: () => { invalidateDaemonClient('sse fatal', client); void ensureDaemonAttached().catch(() => {}); },
+      // A stale/dead SSE endpoint drops this attach immediately. Do not revive
+      // it after this worker has explicitly stopped; otherwise proactively
+      // re-read discovery so notifies resume without waiting for the next call.
+      onFatal: () => {
+        fatalDuringAttach = true;
+        invalidateDaemonClient('sse fatal', client);
+        if (!stopRequested) void ensureDaemonAttached().catch(() => {});
+      },
       log: (line) => logLine(logPath, line),
     });
+    if (stopRequested || generation !== attachGeneration || fatalDuringAttach) {
+      await client.close('attach superseded');
+      if (fatalDuringAttach && !stopRequested && generation === attachGeneration) {
+        const err = attachCancelledError();
+        err.daemonDiscoveryStale = true;
+        throw err;
+      }
+      throw attachCancelledError();
+    }
     daemonClient = client;
     daemonPid = discovery.pid;
     return client;
   }
   async function ensureDaemonAttached() {
+    if (stopRequested) throw attachCancelledError();
     if (daemonClient) return daemonClient;
     if (attachPromise) return attachPromise;
-    attachPromise = (async () => {
+    const generation = attachGeneration;
+    const promise = (async () => {
       const deadline = Date.now() + 30_000;
+      const MAX_AUTH_REJECTIONS = 5;
+      let authRejections = 0;
+      const retryStaleDiscovery = async (err) => {
+        if (!err?.daemonAuthRejected) {
+          await daemonDelay(200);
+          return;
+        }
+        authRejections++;
+        if (authRejections >= MAX_AUTH_REJECTIONS || Date.now() >= deadline) {
+          throw new Error(`channels daemon register rejected discovery auth ${authRejections} times`);
+        }
+        await daemonDelay(Math.min(200 * (2 ** (authRejections - 1)), 2000));
+      };
       for (let attempt = 0; ; attempt++) {
+        if (stopRequested || generation !== attachGeneration) throw attachCancelledError();
         let discovery = readDaemonDiscovery(discoveryPath);
         if (discovery) {
           const health = await probeDaemonHealth({ port: discovery.port, token: discovery.token, timeoutMs: attempt === 0 ? 800 : 2000 });
-          if (health) return await doAttach(discovery);
+          if (stopRequested || generation !== attachGeneration) throw attachCancelledError();
+          if (discoveryMatchesHealth(discovery, health)) {
+            try {
+              return await doAttach(discovery, generation);
+            } catch (err) {
+              if (!err?.daemonDiscoveryStale) throw err;
+              logLine(logPath, `daemon attach discovery stale: ${err.message}; re-reading`);
+              await retryStaleDiscovery(err);
+              continue;
+            }
+          }
           discovery = null; // published but unhealthy → respawn
         }
         // No live daemon (absent / dead pid / unhealthy): spawn a candidate. A
@@ -509,16 +561,27 @@ export function createStandaloneChannelWorker({
         const after = readDaemonDiscovery(discoveryPath);
         if (after) {
           const health = await probeDaemonHealth({ port: after.port, token: after.token, timeoutMs: 3000 });
-          if (health) return await doAttach(after);
+          if (stopRequested || generation !== attachGeneration) throw attachCancelledError();
+          if (discoveryMatchesHealth(after, health)) {
+            try {
+              return await doAttach(after, generation);
+            } catch (err) {
+              if (!err?.daemonDiscoveryStale) throw err;
+              logLine(logPath, `daemon attach discovery stale: ${err.message}; re-reading`);
+              await retryStaleDiscovery(err);
+              continue;
+            }
+          }
         }
         if (Date.now() > deadline) throw new Error('channels daemon did not become ready');
         await daemonDelay(200);
       }
     })();
+    attachPromise = promise;
     try {
-      return await attachPromise;
+      return await promise;
     } finally {
-      attachPromise = null;
+      if (attachPromise === promise) attachPromise = null;
     }
   }
   async function _startInProcess() {
@@ -676,12 +739,16 @@ export function createStandaloneChannelWorker({
     // Daemon path: detach this TUI's client only. The shared daemon reaps
     // itself via client-grace once the last TUI leaves; never kill it here.
     if (useProcessWorker) {
+      const inFlightAttach = attachPromise;
+      attachGeneration++;
       const client = daemonClient;
       daemonClient = null;
       attachPromise = null;
       daemonPid = null;
-      if (!client) return Promise.resolve(false);
-      return client.close(reason).then(() => true).catch(() => true);
+      return Promise.all([
+        client ? client.close(reason).then(() => true).catch(() => true) : Promise.resolve(false),
+        Promise.resolve(inFlightAttach).catch(() => null),
+      ]).then(([detached]) => detached);
     }
     if (!child) {
       return Promise.resolve(false);

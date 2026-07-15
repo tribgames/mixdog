@@ -1,7 +1,18 @@
 import { createRequire } from 'node:module';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
-import { classifyError, midstreamBackoffFor, sleepWithAbort, withRetry, retryAfterMsFromError } from './retry-classifier.mjs';
+import {
+    ANTHROPIC_RETRY_BACKOFF_MS,
+    ANTHROPIC_RETRY_JITTER_RATIO,
+    AnthropicFallbackTriggeredError,
+    anthropicMaxAttempts,
+    anthropicRequestTimeoutMs,
+    classifyError,
+    midstreamBackoffFor,
+    sleepWithAbort,
+    withRetry,
+    retryAfterMsFromError,
+} from './retry-classifier.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -23,9 +34,11 @@ import {
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
+import { providerNativeToolPrefixCount } from '../../../../session-runtime/provider-request-tools.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
 
 const require = createRequire(import.meta.url);
 let _Anthropic = null;
@@ -231,7 +244,12 @@ function resolveMaxTokens(model) {
 }
 
 // Test-only escape hatch for scripts/anthropic-maxtokens-test.mjs.
-export const _test = { resolveMaxTokens, deferredAnthropicTools, sanitizeInputSchema: _sanitizeInputSchema };
+export const _test = {
+    resolveMaxTokens,
+    deferredAnthropicTools,
+    requestAnthropicTools,
+    sanitizeInputSchema: _sanitizeInputSchema,
+};
 
 const MIN_THINKING_BUDGET = 1024;
 const THINKING_OUTPUT_RESERVE = 1024;
@@ -355,6 +373,24 @@ function deferredAnthropicTools(activeTools, messages, opts) {
     return catalog
         .filter((tool) => tool?.name && discovered.has(String(tool.name)) && !active.has(String(tool.name)))
         .map((tool) => ({ ...tool, deferLoading: true }));
+}
+function requestAnthropicTools(tools, messages, opts) {
+    const activeTools = Array.isArray(tools) ? tools : [];
+    if (opts?.providerToolSnapshotAuthoritative === true) {
+        const nativePrefixCount = providerNativeToolPrefixCount(
+            activeTools,
+            opts.providerNativeToolPrefixCount,
+        );
+        return [
+            ...activeTools.slice(0, nativePrefixCount),
+            ...toAnthropicTools(activeTools.slice(nativePrefixCount)),
+        ];
+    }
+    const deferredTools = deferredAnthropicTools(activeTools, messages, opts);
+    return [
+        ...nativeAnthropicTools(opts),
+        ...toAnthropicTools([...activeTools, ...deferredTools]),
+    ];
 }
 function toAnthropicMessages(messages) {
     // Marker-free lowering. cache_control is applied AFTER sanitization by
@@ -549,15 +585,18 @@ export class AnthropicProvider {
     name = 'anthropic';
     client;
     config;
+    apiKey;
     fastModeBetaHeaderLatched = false;
     constructor(config) {
-        this.config = config;
-        this.name = config.name || 'anthropic';
-        const betaHeaders = config.disableBetaHeaders ? null : buildAnthropicBetaHeaders({ toolSearch: true });
+        this.config = config || {};
+        this.name = this.config.name || 'anthropic';
+        this.apiKey = this.config.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
+        const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
         this.client = new (loadAnthropic())({
-            apiKey: config.apiKey || process.env.ANTHROPIC_API_KEY,
-            ...(config.baseURL ? { baseURL: config.baseURL } : {}),
-            defaultHeaders: { ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}), ...(config.extraHeaders || {}) },
+            apiKey: this.apiKey,
+            ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
+            defaultHeaders: { ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}), ...(this.config.extraHeaders || {}) },
+            maxRetries: 0,
         });
     }
     reloadApiKey() {
@@ -567,11 +606,16 @@ export class AnthropicProvider {
                 || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
             if (newKey) {
                 this.config = { ...(this.config || {}), apiKey: newKey };
-                const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders({ toolSearch: true });
+                this.apiKey = newKey;
+                // Tool-search is a request capability, not an account
+                // capability. Keep it off the client defaults and add it only
+                // on turns that actually serialize defer_loading tools.
+                const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
                 this.client = new (loadAnthropic())({
                     apiKey: newKey,
                     ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
                     defaultHeaders: { ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}), ...(this.config.extraHeaders || {}) },
+                    maxRetries: 0,
                 });
             }
         } catch { /* best effort */ }
@@ -586,8 +630,16 @@ export class AnthropicProvider {
         try {
             return await this._doSend(messages, model, tools, sendOpts);
         } catch (err) {
-            if (err.message && (err.message.includes('401') || err.message.includes('403'))
-                && !err.liveTextEmitted && !err.emittedToolCall && !err.unsafeToRetry) {
+            const status = Number(err?.status || err?.httpStatus || err?.response?.status || 0);
+            const outputWasExposed = err?.liveTextEmitted === true
+                || err?.emittedText === true
+                || err?.emittedToolCall === true
+                || err?.toolCallEmitted === true
+                || err?.partialToolCall === true
+                || err?.emittedThinking === true
+                || err?.unsafeToRetry === true;
+            if (status === 401
+                && !outputWasExposed) {
                 process.stderr.write(`[provider] Auth error, re-reading provider authentication...\n`);
                 this.reloadApiKey();
                 return await this._doSend(messages, model, tools, sendOpts);
@@ -640,11 +692,11 @@ export class AnthropicProvider {
             system: systemBlocks.length ? systemBlocks : undefined,
             messages: anthropicMessages,
         };
-        const nativeTools = nativeAnthropicTools(opts);
-        if (tools?.length || nativeTools.length) {
+        const requestTools = requestAnthropicTools(tools, chatMsgs, opts);
+        if (requestTools.length) {
             // No cache_control on tools — the system BP covers tools via
             // Anthropic prefix semantics (order: tools → system → messages).
-            params.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredAnthropicTools(tools || [], chatMsgs, opts)])];
+            params.tools = requestTools;
         }
         // tool_choice only when tools are actually present (Anthropic rejects
         // tool_choice without tools). 'none' rides the hard-cap final turn to
@@ -653,6 +705,8 @@ export class AnthropicProvider {
             const toolChoice = toAnthropicToolChoice(opts.toolChoice);
             if (toolChoice) params.tool_choice = toolChoice;
         }
+        const hasDeferredTools = Array.isArray(params.tools)
+            && params.tools.some((tool) => tool?.defer_loading === true);
         // Known tool names for the shared parseSSEStream leaked-tool-call guard
         // (same guard fixes both Anthropic providers). Recovered leaked calls
         // are only synthesized when they name a tool actually offered here.
@@ -711,7 +765,7 @@ export class AnthropicProvider {
             : {
                 'anthropic-beta': buildAnthropicBetaHeaders({
                     fastMode: this.fastModeBetaHeaderLatched,
-                    toolSearch: true,
+                    toolSearch: hasDeferredTools,
                     effort: shouldIncludeEffortBeta(useModel, opts),
                 }),
             };
@@ -795,6 +849,8 @@ export class AnthropicProvider {
                     sawMessageStart: false,
                     sawCompleted: false,
                     emittedToolCall: false,
+                    partialToolCall: false,
+                    emittedThinking: false,
                     // Gateway live-text relay invariant: set by parseSSEStream
                     // once a non-empty text chunk has been forwarded. A later
                     // failure is non-retryable (rendered text cannot be
@@ -806,11 +862,12 @@ export class AnthropicProvider {
 
                 let firstBytePoll = null;
                 let firstByteTimeout = null;
+                let response = null;
 
                 try {
                     try { onStageChange?.('requesting'); } catch {}
 
-                    const response = await withRetry(
+                    response = await withRetry(
                         async ({ signal: attemptSignal }) => {
                             const res = await this.client.messages.create(params, {
                                 signal: attemptSignal,
@@ -821,6 +878,7 @@ export class AnthropicProvider {
                                 const err = new Error(`Anthropic API ${res.status}: ${text.slice(0, 200)}`);
                                 err.status = res.status;
                                 err.httpStatus = res.status;
+                                err.initialResponseError = true;
                                 // Carry response headers so withRetry can honor a
                                 // short Retry-After and upstream can read quota hints.
                                 err.headers = res.headers;
@@ -845,9 +903,17 @@ export class AnthropicProvider {
                         },
                         {
                             signal: totalSignal,
-                            perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+                            maxAttempts: anthropicMaxAttempts(),
+                            backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
+                            retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
+                            retryJitterMode: 'positive',
+                            perAttemptTimeoutMs: anthropicRequestTimeoutMs(),
                             perAttemptLabel: `${this.name} Anthropic streaming response`,
+                            model: useModel,
+                            fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
                             onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
+                                const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0);
+                                if (status === 429) notifyCurrentAnthropicRateLimit(lastErr);
                                 const delayLabel = Number.isFinite(Number(delayMs))
                                     ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}`
                                     : '';
@@ -889,6 +955,7 @@ export class AnthropicProvider {
                         onTextDelta,
                         knownToolNames,
                     );
+                    try { streamController.abort?.('Anthropic SSE complete'); } catch {}
 
                     if (firstBytePoll) {
                         clearInterval(firstBytePoll);
@@ -912,6 +979,14 @@ export class AnthropicProvider {
 
                     return buildReturnFromParse(parseResult);
                 } catch (err) {
+                    if (err instanceof AnthropicFallbackTriggeredError) {
+                        process.stderr.write(`[${this.name}] ${err.message}\n`);
+                        return this._doSend(messages, err.fallbackModel, tools, {
+                            ...opts,
+                            fallbackModel: undefined,
+                            _fallbackTriggered: true,
+                        });
+                    }
                     // Live-text invariant: once a non-empty text chunk has been
                     // relayed to the client (gateway live mode), the rendered
                     // output cannot be withdrawn and re-issuing would concatenate
@@ -933,10 +1008,24 @@ export class AnthropicProvider {
                                 firstAttemptError.liveTextEmitted = true;
                                 firstAttemptError.unsafeToRetry = true;
                             } catch {}
-                            throw firstAttemptError;
+                            throw err;
                         }
                         throw err;
                     }
+                    if (midState.emittedToolCall || midState.partialToolCall || midState.emittedThinking) {
+                        try {
+                            err.emittedToolCall = !!midState.emittedToolCall;
+                            err.partialToolCall = !!midState.partialToolCall;
+                            err.emittedThinking = !!midState.emittedThinking;
+                            err.unsafeToRetry = true;
+                        } catch {}
+                        try { streamController.abort?.(err); } catch {}
+                        throw err;
+                    }
+                    // withRetry already exhausted the full request-level budget.
+                    // Do not accidentally grant an additional SSE retry budget
+                    // to an initial HTTP 429 that never produced a stream.
+                    if (err?.initialResponseError) throw err;
                     if (err?.isEmptyStream && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                         firstAttemptError = err;
                         firstAttemptClassifier = 'empty_stream';
@@ -952,6 +1041,8 @@ export class AnthropicProvider {
                     if (classifyError(err) === 'transient'
                         && !midState.sawMessageStart
                         && !midState.emittedToolCall
+                        && !midState.partialToolCall
+                        && !midState.emittedThinking
                         && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                         firstAttemptError = err;
                         firstAttemptClassifier = err?.providerErrorType || 'sse_transient';
@@ -967,6 +1058,8 @@ export class AnthropicProvider {
                     if ((err?.truncatedStream === true || err?.code === 'TRUNCATED_STREAM')
                         && classifyError(err) === 'transient'
                         && !midState.emittedToolCall
+                        && !midState.partialToolCall
+                        && !midState.emittedThinking
                         && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                         firstAttemptError = err;
                         firstAttemptClassifier = 'truncated_stream';
@@ -983,19 +1076,31 @@ export class AnthropicProvider {
                     if (classifier && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                         firstAttemptError = err;
                         firstAttemptClassifier = classifier;
+                        const status = Number(err?.httpStatus || err?.status || 0);
+                        let retryDelayMs = null;
+                        if (status === 429) {
+                            if (!err.headers && response?.headers) err.headers = response.headers;
+                            if (!err.response && response) err.response = { status, headers: response.headers };
+                            retryDelayMs = retryAfterMsFromError(err);
+                            if (retryDelayMs != null) err.retryAfterMs = retryDelayMs;
+                            notifyCurrentAnthropicRateLimit(err);
+                        }
                         try { streamController.abort?.(err); } catch {}
                         try {
                             process.stderr.write(
                                 `[${this.name}] mid-stream recovered: retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (cause: ${classifier})\n`,
                             );
                         } catch {}
-                        await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
+                        await _midstreamSleepWithAbort(
+                            retryDelayMs ?? midstreamBackoffFor(attemptIndex + 1),
+                            totalSignal,
+                        );
                         continue;
                     }
                     if (attemptIndex > 0 && firstAttemptError) {
-                        try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
-                        try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
-                        throw firstAttemptError;
+                        try { err.midstreamRetries = attemptIndex; } catch {}
+                        try { err.midstreamClassifier = firstAttemptClassifier; } catch {}
+                        throw err;
                     }
                     throw err;
                 } finally {
@@ -1010,7 +1115,7 @@ export class AnthropicProvider {
         }
     }
     async listModels() {
-        const apiKey = this.config?.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
+        const apiKey = this.apiKey || this.config?.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
         if (!apiKey) return MODELS;
         try {
             const base = String(this.config?.baseURL || 'https://api.anthropic.com').replace(/\/+$/, '');
@@ -1042,16 +1147,9 @@ export class AnthropicProvider {
         }
     }
     async isAvailable() {
-        try {
-            await this.client.messages.create({
-                model: 'claude-haiku-4-5-20251001',
-                max_tokens: 1,
-                messages: [{ role: 'user', content: 'hi' }],
-            });
-            return true;
-        }
-        catch {
-            return false;
-        }
+        // Availability probes must not spend tokens or depend on a live
+        // network. Dispatch owns authentication validation and 401 reload.
+        return !!(this.apiKey || this.config?.apiKey
+            || (this.name === 'anthropic' && process.env.ANTHROPIC_API_KEY));
     }
 }

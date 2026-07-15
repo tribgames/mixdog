@@ -36,7 +36,9 @@ const OPENAI_WS_URL = 'wss://api.openai.com/v1/responses';
 const XAI_WS_URL = 'wss://api.x.ai/v1/responses';
 export const WS_IDLE_MS = resolveTimeoutMs(
     'MIXDOG_PROVIDER_WS_IDLE_MS',
-    20 * 60_000,
+    // Codex keeps its cached connection until the backend's documented
+    // 60-minute Responses WebSocket connection limit.
+    60 * 60_000,
     { minMs: 60_000, maxMs: 60 * 60_000 },
 );
 const WS_HANDSHAKE_TIMEOUT_MS = PROVIDER_WS_HANDSHAKE_TIMEOUT_MS;

@@ -92,10 +92,11 @@ export function createSessionTurnApi(deps) {
           // FIRST TURN of a FRESH session (session-local gate, NOT the
           // process-wide firstTurnCompleted): an MCP server may have finished its
           // handshake BETWEEN session-create and this first send. Re-fold the
-          // LIVE registry into the INITIAL deferred surface + BP1
-          // <available-deferred-tools> manifest (sync, in-place, idempotent) and
-          // pre-mark those names announced, so they ship in the initial manifest
-          // instead of a late-tool <system-reminder>. One-shot: cleared before
+          // LIVE registry into the INITIAL provider-visible surface (sync,
+          // in-place, idempotent). Native providers rebuild BP1 and pre-mark the
+          // names announced; canonical providers extend their fixed active tool
+          // snapshot without introducing manifest/reminder semantics. One-shot:
+          // cleared before
           // the fold so a throw still never re-runs it, and a resumed session
           // (flag unset) skips straight to the late path below.
           session0.deferredInitialRefreshPending = false;

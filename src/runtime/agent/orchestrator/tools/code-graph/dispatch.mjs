@@ -20,6 +20,12 @@ import {
 } from './project-root.mjs';
 import { buildCodeGraphAsync, prewarmCodeGraph, prewarmCodeGraphSymbols } from './build.mjs';
 import {
+  _isFilesystemRootPath,
+  collectTrustedCodeGraphRoots,
+  formatFederatedProjectLabel,
+  owningTrustedCodeGraphRoot,
+} from './trusted-roots.mjs';
+import {
   _findSymbolHits,
   _findSymbolAcrossGraph,
   _searchSymbolsByKeyword,
@@ -51,6 +57,10 @@ function _collectGraphSymbolList(args) {
 
 const CODE_GRAPH_FILE_BATCH_CAP = 20;
 const _AGGREGATE_FILE_WILDCARD_RE = /[*?[\]{}]/;
+const ROOT_FEDERATED_MODES = new Set([
+  'overview', 'symbol', 'find_symbol', 'symbol_search', 'search',
+  'references', 'callers', 'callees', 'symbols', 'prewarm',
+]);
 
 // Absorb: file/files arriving as a JSON-stringified array
 // (file:"[\"a.mjs\",\"b.mjs\"]") — parse to a real array so the graph lookup
@@ -181,7 +191,9 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     return `prewarm scheduled: cwd=${cwd} symbols=${symbols.length}${symbols.length ? ` (${symbols.slice(0, 5).join(',')}${symbols.length > 5 ? `,+${symbols.length - 5}` : ''})` : ''}`;
   }
 
-  const graph = await buildCodeGraphAsync(cwd, signal);
+  const graph = await buildCodeGraphAsync(cwd, signal, {
+    excludedProjectRoots: options?.excludedProjectRoots,
+  });
   if (!graph || graph.nodes.size === 0) {
     throw new Error(`code_graph: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
   }
@@ -476,7 +488,9 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
     else prewarmCodeGraph(cwd);
     return `prewarm scheduled: cwd=${cwd} symbols=${symbols.length}${symbols.length ? ` (${symbols.slice(0, 5).join(',')}${symbols.length > 5 ? `,+${symbols.length - 5}` : ''})` : ''}`;
   }
-  const graph = await buildCodeGraphAsync(cwd, signal);
+  const graph = await buildCodeGraphAsync(cwd, signal, {
+    excludedProjectRoots: options?.excludedProjectRoots,
+  });
   if (!graph) throw new Error(`find_symbol: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
   if (options?.scopedCacheOutcome && graph.truncated) {
     markScopedCacheIncomplete(options.scopedCacheOutcome);
@@ -594,6 +608,98 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
   const hasAggregateFileArgs = _hasAggregateFileArgs(args);
   let effectiveCwd = baseCwd;
   const baseProjectRoot = _findDirProjectRoot(baseCwd);
+  const filesystemRootCwd = !baseProjectRoot && _isFilesystemRootPath(baseCwd);
+  if (filesystemRootCwd) {
+    const trustedRoots = collectTrustedCodeGraphRoots(baseCwd);
+    const files = _collectGraphFileList(args, { cap: false });
+    const rawMode = String(args?.mode || '').trim();
+    const canFederate = files.length > 0 || ROOT_FEDERATED_MODES.has(rawMode);
+    if (files.length) {
+      if (files.some((file) => _AGGREGATE_FILE_WILDCARD_RE.test(file))) {
+        return `Error: ${name}: wildcard-shaped file anchors are not allowed at a filesystem root`;
+      }
+      if (files.length > CODE_GRAPH_FILE_BATCH_CAP) {
+        return `Error: ${name}: file list exceeds cap of ${CODE_GRAPH_FILE_BATCH_CAP}`;
+      }
+      const routed = files.map((file) => {
+        const abs = isAbsolute(file) ? pathResolve(file) : pathResolve(baseCwd, file);
+        return {
+          file,
+          abs,
+          exists: existsSync(abs),
+          root: owningTrustedCodeGraphRoot(abs, trustedRoots),
+        };
+      });
+      const missing = routed.find((row) => !row.exists);
+      if (missing) return `Error: ${name}: file not found: ${missing.file}`;
+      const untrusted = routed.find((row) => !row.root);
+      if (untrusted) {
+        return `Error: ${name}: file anchor is not owned by a trusted project: ${untrusted.file}`;
+      }
+      if (!canFederate) {
+        return `Error: ${name}: mode '${rawMode}' cannot be routed from a filesystem root`;
+      }
+      const projectArgs = { ...args };
+      delete projectArgs.cwd;
+      const sections = [];
+      for (const { file, abs, root } of routed) {
+        const excludedProjectRoots = trustedRoots.filter((candidate) => candidate !== root
+          && owningTrustedCodeGraphRoot(candidate, [root]) === root);
+        let body;
+        try {
+          body = await executeCodeGraphTool(
+            name,
+            { ...projectArgs, file: abs, files: undefined },
+            root,
+            signal,
+            { ...options, excludedProjectRoots },
+          );
+        } catch (err) {
+          body = `Error: ${err?.message || String(err)}`;
+        }
+        sections.push(`# ${rawMode} ${file}\n# project ${formatFederatedProjectLabel(root)}\n${body}`);
+      }
+      return sections.join('\n\n');
+    }
+    if (trustedRoots.length && canFederate) {
+      const projectArgs = { ...args };
+      delete projectArgs.cwd;
+      const runOne = async (root, nextArgs) => executeCodeGraphTool(
+        name,
+        nextArgs,
+        root,
+        signal,
+        {
+          ...options,
+          excludedProjectRoots: trustedRoots.filter((candidate) => candidate !== root
+            && owningTrustedCodeGraphRoot(candidate, [root]) === root),
+        },
+      );
+      let federationWork;
+      federationWork = (async () => {
+        const sections = [];
+        for (const root of trustedRoots) {
+          let body;
+          try { body = await runOne(root, projectArgs); }
+          catch (err) { body = `Error: ${err?.message || String(err)}`; }
+          sections.push(`# project ${formatFederatedProjectLabel(root)}\n${body}`);
+        }
+        return sections.join('\n\n');
+      })();
+      if (federationWork) {
+        if (!signal) return federationWork;
+        let onAbort = null;
+        const abortP = new Promise((_, reject) => {
+          if (signal.aborted) { reject(new Error('aborted')); return; }
+          onAbort = () => reject(new Error('aborted'));
+          signal.addEventListener('abort', onAbort, { once: true });
+        });
+        return Promise.race([federationWork, abortP]).finally(() => {
+          if (onAbort) signal.removeEventListener('abort', onAbort);
+        });
+      }
+    }
+  }
   if (hasAggregateFileArgs && !baseProjectRoot) {
     const aggregateRoot = _resolveAggregateFileProjectRoot(args, baseCwd);
     if (!aggregateRoot) {

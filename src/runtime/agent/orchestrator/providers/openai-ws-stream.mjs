@@ -867,12 +867,14 @@ export async function _streamResponse({
                     // Only non-empty reasoning text is model progress. Empty
                     // deltas remain transport activity via resetIdle() above.
                     if (event.delta) {
+                        midState.emittedReasoning = true;
                         try { onStreamDelta?.('reasoning'); } catch {}
                         bumpSemanticIdle();
                     }
                     break;
                 case 'response.output_item.added':
                     if (event.item?.type === 'function_call') {
+                        midState.startedToolCall = true;
                         markActiveToolItem(event.item);
                         pendingCalls.set(event.item.id || '', {
                             name: event.item.name || '',
@@ -880,9 +882,11 @@ export async function _streamResponse({
                         });
                         _toolInFlight = true;
                     } else if (event.item?.type === 'custom_tool_call') {
+                        midState.startedToolCall = true;
                         markActiveToolItem(event.item);
                         _toolInFlight = true;
                     } else if (event.item?.type === 'tool_search_call') {
+                        midState.startedToolCall = true;
                         markActiveToolItem(event.item);
                         // Mark tool_search in-flight at item-added time, same
                         // as function_call/custom_tool_call above, so the
@@ -898,12 +902,14 @@ export async function _streamResponse({
                     try { onStreamDelta?.(_toolInFlight ? 'tool' : 'semantic'); } catch {}
                     break;
                 case 'response.function_call_arguments.delta':
+                    if (event.delta) midState.startedToolCall = true;
                     markActiveToolItem(null, event.item_id);
                     _toolInFlight = true;
                     try { onStreamDelta?.('tool'); } catch {}
                     bumpSemanticIdle();
                     break;
                 case 'response.custom_tool_call_input.delta':
+                    if (event.delta) midState.startedToolCall = true;
                     markActiveToolItem(null, event.item_id);
                     _toolInFlight = true;
                     try { onStreamDelta?.('tool'); } catch {}
@@ -1272,6 +1278,7 @@ export async function _streamResponse({
                         // Only non-empty reasoning deltas are model progress;
                         // empty variants remain transport activity only.
                         if (event.delta) {
+                            midState.emittedReasoning = true;
                             try { onStreamDelta?.('reasoning'); } catch {}
                             bumpSemanticIdle();
                         }
@@ -1370,21 +1377,9 @@ export async function _streamResponse({
         }
         armPreStreamWatchdog();
         armFirstMeaningfulWatchdog();
-        // Periodic client-side WS ping while the stream is active. The server's
-        // server closes with 1011 "keepalive ping timeout" when it thinks the
-        // peer is silent during long reasoning windows where no data frames
-        // flow. Sending a ping every 10s from our side keeps the socket warm.
-        // The interval is unref'd so it never holds the event loop open, and
-        // cleanup() clears it on every terminal path (completed / close /
-        // error / abort / mid-stream retry teardown).
-        keepaliveTimer = setInterval(() => {
-            try {
-                if (socket.readyState !== WebSocket.OPEN) return;
-                if (WS_TRACE_ENABLED) _writeWsLifecycleTrace('ping');
-                socket.ping();
-            } catch {}
-        }, 10_000);
-        try { keepaliveTimer.unref?.(); } catch {}
+        // No proactive client ping: Codex's Responses WebSocket uses the
+        // library default (automatic pong replies, no periodic client ping).
+        // Incoming frames remain bounded by the 300s stream idle timeout.
     });
 }
 

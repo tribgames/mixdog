@@ -2,6 +2,7 @@
 import { semanticCompactMessages, recallFastTrackCompactMessages, SUMMARY_PREFIX, COMPACT_TYPE_SEMANTIC, COMPACT_TYPE_RECALL_FASTTRACK, normalizeCompactType } from '../src/runtime/agent/orchestrator/session/compact.mjs';
 import { agentLoop } from '../src/runtime/agent/orchestrator/session/loop.mjs';
 import { estimateMessagesTokens, estimateToolSchemaTokens } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
+import { runSessionCompaction } from '../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs';
 import { autoCompactWindowForRoute, summarizeGatewayUsage } from '../src/vendor/statusline/src/gateway/route-meta.mjs';
 
 function assert(condition, message) {
@@ -103,6 +104,85 @@ const wholeTranscriptProvider = {
 const wholeTranscriptForced = await semanticCompactMessages(wholeTranscriptProvider, semanticMessages, 'fake-model', 5_000, { force: true });
 assert(wholeTranscriptForced.semantic === true && wholeTranscriptForcedCalls === 1, 'forced semantic compact must summarize when tail budget would preserve the whole live transcript (default tailTurns)');
 assert(findSummary(wholeTranscriptForced.messages), 'whole-transcript forced semantic compact should insert an anchored summary');
+
+// Manual /compact must reduce the active session transcript directly through
+// semantic compaction even when main-session policy is recall-fasttrack. If the
+// override regresses, this test enters Memory first (unregistered in this smoke)
+// and reports recall-fasttrack metadata before falling back.
+let manualDirectCalls = 0;
+let manualDirectPrompt = '';
+const manualDirectMessages = [
+  { role: 'system', content: 'MANUAL_SYSTEM_RULE_STAYS_EXACT' },
+  {
+    role: 'user',
+    content: '# Session\nCwd: C:\\Injected\\Noise\nModel: fake-model\nWorkflow: Solo\n\n# Additional context\nOLD_ADDITIONAL_CONTEXT_INJECTION\n\n# Prefetch\nOLD_PREFETCH_INJECTION\n\n# Task\nREAL_OLD_USER_REQUEST\n<system-reminder>OLD_SYSTEM_REMINDER_INJECTION</system-reminder>\n<memory-context>OLD_MEMORY_CONTEXT_INJECTION</memory-context>',
+  },
+  {
+    role: 'assistant',
+    content: 'REAL_OLD_ASSISTANT_REPLY\n```text\nOLD_CODE_FENCE_TRACE\n```',
+    toolCalls: [{ id: 'OLD_TOOL_CALL_ID', name: 'OLD_TOOL_CALL_TRACE', arguments: '{"password":"OLD_TOOL_SECRET"}' }],
+  },
+  { role: 'tool', toolCallId: 'OLD_TOOL_CALL_ID', content: 'OLD_TOOL_RESULT_TRACE' },
+  { role: 'developer', content: 'OLD_DEVELOPER_INJECTION' },
+  { role: 'user', content: 'Reference files:\nOLD_REFERENCE_FILE_INJECTION' },
+  { role: 'user', content: '[mixdog-runtime] OLD_RUNTIME_INJECTION' },
+  { role: 'user', content: 'CURRENT_REQUEST_STAYS_VERBATIM' },
+  { role: 'assistant', content: 'CURRENT_ASSISTANT_STAYS_VERBATIM' },
+];
+const manualDirectSession = {
+  id: `compact-smoke-manual-direct-${process.pid}`,
+  provider: 'manual-direct-smoke',
+  model: 'fake-model',
+  contextWindow: 100_000,
+  compactBoundaryTokens: 100_000,
+  messages: manualDirectMessages.map((m) => ({ ...m })),
+  tools: [],
+  compaction: {
+    type: COMPACT_TYPE_RECALL_FASTTRACK,
+    compactType: COMPACT_TYPE_RECALL_FASTTRACK,
+    tailTurns: 1,
+  },
+};
+const manualDirect = await runSessionCompaction(manualDirectSession, {
+  mode: 'manual',
+  force: true,
+  compactType: COMPACT_TYPE_SEMANTIC,
+  filterOldHistoryForIngest: true,
+  provider: {
+    name: 'manual-direct-smoke',
+    async send(sentMessages) {
+      manualDirectCalls += 1;
+      manualDirectPrompt = sentMessages.map((m) => String(m?.content || '')).join('\n');
+      return { content: '## Goal\n- compact only the active session\n\n## Constraints & Preferences\n- preserve the recent tail\n\n## Progress\n### Done\n- reduced old transcript content\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)\n\n## Key Decisions\n- use direct semantic compaction\n\n## Next Steps\n- continue from the preserved tail\n\n## Critical Context\n- active session only\n\n## Relevant Files\n- session-crud.mjs' };
+    },
+  },
+  model: 'fake-model',
+});
+assert(manualDirectCalls === 1, 'manual direct compact should make exactly one semantic provider call');
+assert(manualDirect.compactType === COMPACT_TYPE_SEMANTIC, 'manual direct compact must bypass recall-fasttrack policy');
+assert(manualDirect.semanticCompact === true, 'manual direct compact should produce a semantic summary');
+assert(manualDirect.recallFastTrackError == null, 'manual direct compact must not touch Memory recall');
+assert(findSummary(manualDirectSession.messages), 'manual direct compact should replace old active-session history with a handoff summary');
+assert(manualDirectPrompt.includes('REAL_OLD_USER_REQUEST'), 'manual compact prompt should retain genuine old user prose');
+assert(manualDirectPrompt.includes('REAL_OLD_ASSISTANT_REPLY'), 'manual compact prompt should retain genuine old assistant prose');
+for (const excluded of [
+  'OLD_ADDITIONAL_CONTEXT_INJECTION',
+  'OLD_PREFETCH_INJECTION',
+  'OLD_SYSTEM_REMINDER_INJECTION',
+  'OLD_MEMORY_CONTEXT_INJECTION',
+  'OLD_CODE_FENCE_TRACE',
+  'OLD_TOOL_CALL_TRACE',
+  'OLD_TOOL_SECRET',
+  'OLD_TOOL_RESULT_TRACE',
+  'OLD_DEVELOPER_INJECTION',
+  'OLD_REFERENCE_FILE_INJECTION',
+  'OLD_RUNTIME_INJECTION',
+]) {
+  assert(!manualDirectPrompt.includes(excluded), `manual compact old-history filter must exclude ${excluded}`);
+}
+assert(manualDirectSession.messages.some((m) => m.role === 'system' && m.content === 'MANUAL_SYSTEM_RULE_STAYS_EXACT'), 'manual compact must preserve system rules separately');
+assert(manualDirectSession.messages.some((m) => m.role === 'user' && m.content === 'CURRENT_REQUEST_STAYS_VERBATIM'), 'manual compact must preserve the recent user turn verbatim');
+assert(manualDirectSession.messages.some((m) => m.role === 'assistant' && m.content === 'CURRENT_ASSISTANT_STAYS_VERBATIM'), 'manual compact must preserve the recent assistant turn verbatim');
 
 assert(normalizeCompactType('type1') === COMPACT_TYPE_SEMANTIC, 'type1 should resolve to semantic compact');
 assert(normalizeCompactType('recall-fasttrack') === COMPACT_TYPE_RECALL_FASTTRACK, 'type2 should resolve to recall fast-track compact');

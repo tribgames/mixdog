@@ -437,6 +437,20 @@ export function ensureDiskCodeGraphLoaded(now = Date.now()) {
   _loadDiskCodeGraphCache(now);
 }
 
+// Read-only inventory used by filesystem-root federation. This deliberately
+// does not initialize, migrate, prune, or load graph payloads: manifest keys
+// are sufficient to identify roots the user has already indexed.
+export function listCachedCodeGraphRoots() {
+  try {
+    const file = join(_codeGraphDiskDir(), 'manifest.json');
+    if (!existsSync(file)) return [];
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    return parsed && typeof parsed === 'object' ? Object.keys(parsed) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function _setDiskCodeGraphEntry(cwd, graph) {
   _loadDiskCodeGraphCache();
   // Stamp the cache entry with the persistence timestamp (not the build

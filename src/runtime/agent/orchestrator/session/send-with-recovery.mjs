@@ -59,6 +59,7 @@ export async function sendWithRecovery(ctx) {
                     usage: normalizedIncompleteUsage(sendErr.rawUsage),
                     stopReason: sendErr.finishReason,
                     truncated: true,
+                    providerMetadata: sendErr.providerMetadata,
                     providerState: opts.providerState,
                     providerIncompleteRecovery: true,
                 };
@@ -102,8 +103,10 @@ export async function sendWithRecovery(ctx) {
                     usage: sendErr.partialUsage || undefined,
                     stopReason: sendErr.partialStopReason || 'end_turn',
                     hasThinkingContent: sendErr.partialHasThinking === true,
+                    providerMetadata: sendErr.providerMetadata,
                     partialFinal: true,
                 };
+                return { action: 'proceed', response };
             } else
             // Partial tool-call recovery (agent-hang fix): a stream that stalls
             // AFTER fully-parsed tool calls were emitted used to lose the whole
@@ -147,8 +150,10 @@ export async function sendWithRecovery(ctx) {
                     usage: sendErr.partialUsage || undefined,
                     stopReason: 'tool_use',
                     hasThinkingContent: sendErr.partialHasThinking === true,
+                    providerMetadata: sendErr.providerMetadata,
                     partialToolRecovery: true,
                 };
+                return { action: 'proceed', response };
             } else
             // Context-window-exceeded is a deterministic refusal from the API.
             // Recover context overflow reactively by compacting and retrying

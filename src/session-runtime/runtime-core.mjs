@@ -1569,11 +1569,11 @@ export async function createMixdogSessionRuntime({
       session = mgr.createSession(sessionOpts);
       sessionNeedsCwdRefresh = false;
       attachSessionHooks(session, { hooks, hookCommonPayload, getCwd: () => currentCwd });
-      // Every-create MCP fold (NO blocking): seed the INITIAL deferred surface +
-      // BP1 manifest from whatever MCP servers are ALREADY connected at create
+      // Every-create MCP fold (NO blocking): seed the INITIAL provider-visible
+      // surface (and native BP1 manifest) from MCP servers connected at create
       // time. There is no await — a boot connect still mid-handshake is caught on
       // the first user turn by refreshInitialDeferredMcpSurface (session-turn-api),
-      // which re-folds the live registry into the initial manifest before the
+      // which re-folds the live registry into the first-turn surface before the
       // prompt renders. This fold keeps recreate paths (cwd change with MCP
       // already connected) seeding their manifest instead of re-announcing late.
       let connectedMcpTools = [];

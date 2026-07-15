@@ -32,6 +32,12 @@ import {
     preserveRecentBudget,
 } from './budget.mjs';
 import {
+    normalizeIngestRole,
+    sessionMessageContentForIngest,
+    shouldExcludeIngestMessage,
+} from '../../../../memory/lib/session-ingest.mjs';
+import { cleanMemoryText } from '../../../../memory/lib/memory-extraction.mjs';
+import {
     COMPACTION_SYSTEM_PROMPT,
     fitCompactionPrompt,
     extractResponseText,
@@ -115,6 +121,24 @@ function splitLiveCompactionContext(messages) {
     }
     const live = nonSystem.filter((m) => !isSummaryMessage(m));
     return { system: protectedPrefix, live, previousSummary, sanitized };
+}
+
+// Shape ONLY the older history selected for semantic summarization through the
+// exact pure-conversation pipeline used by Memory ingest_session. System rules
+// and the recent preserved tail are split before this runs and therefore remain
+// structurally intact; old developer/tool rows, synthetic runtime injections,
+// tool-call metadata, and reminder blocks cannot enter the summary prompt.
+function filterOldHistoryForMemoryIngest(messages) {
+    const out = [];
+    for (const m of messages || []) {
+        if (!m || typeof m !== 'object') continue;
+        const role = normalizeIngestRole(m.role);
+        if (!role || shouldExcludeIngestMessage(m)) continue;
+        const content = cleanMemoryText(sessionMessageContentForIngest(m));
+        if (!content || !content.trim()) continue;
+        out.push({ role, content });
+    }
+    return out;
 }
 
 // A tail may begin ONLY at an index that is not a tool result: a tool result
@@ -317,7 +341,19 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     // stays provider-valid.
     const sanitized = redactToolCallSecretsInMessages(baseSanitized);
 
-    const selected = selectCompactionWindow(sanitized, budget, opts);
+    const selectedRaw = selectCompactionWindow(sanitized, budget, opts);
+    const headFilterApplied = opts.filterOldHistoryForIngest === true;
+    const summaryHead = headFilterApplied
+        ? filterOldHistoryForMemoryIngest(selectedRaw.head)
+        : selectedRaw.head;
+    const selected = headFilterApplied
+        ? {
+            ...selectedRaw,
+            head: summaryHead,
+            originalHead: summaryHead,
+            preservedFacts: extractPreservedFacts(summaryHead),
+        }
+        : selectedRaw;
     if (selected.head.length === 0 && !selected.previousSummary) {
         throw new Error('semanticCompactMessages: no compactable prior history before preserved tail');
     }
@@ -408,6 +444,9 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         baseTokens,
         systemMessages: selected.system.length,
         headMessages: selected.head.length,
+        sourceHeadMessages: selectedRaw.head.length,
+        headFilterApplied,
+        headFilterRemovedMessages: selectedRaw.head.length - selected.head.length,
         originalHeadMessages: selected.originalHead.length,
         tailMessages: selected.tail.length,
         mandatoryMessages: mandatory.length,
@@ -472,9 +511,12 @@ export function recallFastTrackCompactMessages(messages, budgetTokens, opts = {}
 // stays valid even after trimming.
 const RECALL_TAIL_USER_MAX = 2;
 const RECALL_TAIL_TOKEN_CAP = DEFAULT_COMPACTION_KEEP_TOKENS; // 8k
-// Rough chars-per-token used only to size a truncation target; the real fit is
-// re-checked with estimateMessagesTokens below.
-const RECALL_TAIL_CHARS_PER_TOKEN = 4;
+// A caller may request a cap smaller than one structurally valid message. Keep
+// the cap strict above this unavoidable floor while retaining a real anchor.
+const RECALL_TAIL_MIN_STRUCTURAL_TOKENS = estimateMessagesTokens([{
+    role: 'user',
+    content: RECALL_TAIL_SHORT_TRUNCATION_MARKER,
+}]);
 
 function truncateMessageForRecallTail(text, maxChars) {
     const marker = RECALL_TAIL_TRUNCATION_MARKER;
@@ -488,28 +530,48 @@ function truncateMessageForRecallTail(text, maxChars) {
     return `${value.slice(0, head)}${marker}${value.slice(value.length - tailPart)}`;
 }
 
-function fitRecallUserMessageToCap(userMsg, cap, following = []) {
-    const followCost = estimateMessagesTokens(following);
-    const room = Math.max(1, cap - followCost);
-    const base = { ...userMsg };
-    const raw = typeof base.content === 'string' ? base.content : extractText(base);
-    if (estimateMessagesTokens([{ ...base, content: raw }]) <= room) return { ...base, content: raw };
+function withoutRecallReplayMetadata(message) {
+    const copy = { ...(message || {}) };
+    delete copy.providerMetadata;
+    delete copy.thinkingBlocks;
+    delete copy.reasoningItems;
+    delete copy.reasoningContent;
+    delete copy.assistantBlocks;
+    return copy;
+}
 
-    let lo = 0;
-    let hi = raw.length;
-    let best = truncateMessageForRecallTail(raw, 0);
-    while (lo <= hi) {
-        const mid = Math.floor((lo + hi) / 2);
-        const candidateText = truncateMessageForRecallTail(raw, mid);
-        const candidate = { ...base, content: candidateText };
-        if (estimateMessagesTokens([candidate]) <= room) {
-            best = candidateText;
-            lo = mid + 1;
-        } else {
-            hi = mid - 1;
+function fitRecallMessageToCap(message, cap, rawText = null) {
+    const text = rawText == null
+        ? (typeof message?.content === 'string' ? message.content : extractText(message))
+        : String(rawText);
+    for (const base of [message, withoutRecallReplayMetadata(message)]) {
+        if (!base || typeof base !== 'object') continue;
+        if (estimateMessagesTokens([{ ...base, content: text }]) <= cap) {
+            return { ...base, content: text };
         }
+        let lo = 0;
+        let hi = text.length;
+        let best = null;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            const candidate = {
+                ...base,
+                content: truncateMessageForRecallTail(text, mid),
+            };
+            if (estimateMessagesTokens([candidate]) <= cap) {
+                best = candidate;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        if (best) return best;
     }
-    return { ...base, content: best };
+    return null;
+}
+
+function fitRecallUserMessageToCap(userMsg, cap) {
+    return fitRecallMessageToCap(userMsg, cap);
 }
 
 function fitSingleRecallTurnToCap(turn, cap) {
@@ -519,7 +581,8 @@ function fitSingleRecallTurnToCap(turn, cap) {
     }
     const userMsg = turn[userIdx];
     const following = turn.slice(userIdx + 1);
-    const fittedUser = fitRecallUserMessageToCap(userMsg, cap, following);
+    const fittedUser = fitRecallUserMessageToCap(userMsg, cap);
+    if (!fittedUser) return truncateTailToCap(following, cap);
     let out = [fittedUser];
     for (const m of following) {
         const candidate = [...out, m];
@@ -548,11 +611,11 @@ function truncateTailToCap(messages, cap) {
         if (out.length === 0) {
             // Even the newest single message exceeds cap: middle-truncate its
             // string content so at least one message survives.
-            const m = turn[i];
-            const text = typeof m?.content === 'string' ? m.content : extractText(m);
-            const truncated = truncateMessageForRecallTail(text, Math.max(1, cap * RECALL_TAIL_CHARS_PER_TOKEN));
-            out = [{ ...m, content: truncated }];
-            startIdx = i;
+            const fitted = fitRecallMessageToCap(turn[i], cap);
+            if (fitted) {
+                out = [fitted];
+                startIdx = i;
+            }
         }
         break;
     }
@@ -578,7 +641,7 @@ function truncateTailToCap(messages, cap) {
             sanitized = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(turn.slice(nt))));
         }
     }
-    return sanitized;
+    return estimateMessagesTokens(sanitized) <= cap ? sanitized : [];
 }
 
 function splitRecallFitInputs(recallText, previousSummary) {
@@ -600,7 +663,10 @@ function selectRecallPreservedTail(live, opts = {}) {
     const msgs = (Array.isArray(live) ? live : []).filter((m) => m && !isSummaryMessage(m));
     if (msgs.length === 0) return { tail: [], head: [], tailStartIdx: 0 };
     const maxTurns = Math.max(1, Number(opts.maxUsers) || RECALL_TAIL_USER_MAX);
-    const cap = Math.max(1, Number(opts.tokenCap) || RECALL_TAIL_TOKEN_CAP);
+    const cap = Math.max(
+        RECALL_TAIL_MIN_STRUCTURAL_TOKENS,
+        Number(opts.tokenCap) || RECALL_TAIL_TOKEN_CAP,
+    );
     const turns = splitTailIntoTurns(msgs);
     if (turns.length === 0) return { tail: [], head: msgs, tailStartIdx: 0 };
 
@@ -615,6 +681,7 @@ function selectRecallPreservedTail(live, opts = {}) {
     } else {
         tail = fitSingleRecallTurnToCap(kept[kept.length - 1], cap);
     }
+    if (estimateMessagesTokens(tail) > cap) tail = truncateTailToCap(tail, cap);
 
     // A no-user tail is valid: a single-turn agent session may keep only
     // assistant/tool structure recently. Mirror the semantic cut-point model —

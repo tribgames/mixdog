@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _acquireWithRetry, sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
+import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import {
     _clearWebSocketPoolForTest,
     _closeAllPooledSockets,
@@ -238,9 +239,9 @@ test('pre-response 1006 opens a fresh WS and replays the same request', async ()
         stages.filter(({ stage }) => stage === 'reconnecting'),
         [{ stage: 'reconnecting', detail: {
             attempt: 1,
-            max: 4,
+            max: 5,
             classifier: 'ws_1006',
-            message: 'Reconnecting... 1/4',
+            message: 'Reconnecting... 1/5',
         } }],
     );
     assert.doesNotMatch(stderr, /mid-stream recovered|Reconnecting/);
@@ -340,10 +341,11 @@ test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async ()
         const result = await provider.send([], 'gpt-5.5', [], sendOpts);
         const stickyResult = await provider.send([], 'gpt-5.5', [], sendOpts);
 
-        assert.equal(streamAttempts, 5, 'all bounded ws_1006 attempts must run before fallback');
+        assert.equal(streamAttempts, 6, 'five bounded retries must run before fallback');
         assert.equal(httpCalls, 2);
         assert.equal(result.content, 'http-recovered');
         assert.equal(stickyResult.content, 'http-recovered');
+        assert.equal(provider._httpFallbackUntilByPoolKey.get(sendOpts.sessionId), Number.POSITIVE_INFINITY);
     } finally {
         for (const [name, value] of Object.entries(savedEnv)) {
             if (value == null) delete process.env[name];
@@ -351,6 +353,233 @@ test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async ()
         }
     }
 });
+
+test('handshake 403 spends the shared retry budget without auth refresh, then disables WS for the session', async () => {
+    const savedEnv = Object.fromEntries([
+        'MIXDOG_OAI_TRANSPORT',
+        'MIXDOG_OPENAI_HTTP_FALLBACK',
+        'MIXDOG_OPENAI_OAUTH_WS_WARMUP',
+        'MIXDOG_AGENT_TRACE_DISABLE',
+    ].map((name) => [name, process.env[name]]));
+    Object.assign(process.env, {
+        MIXDOG_OAI_TRANSPORT: 'auto',
+        MIXDOG_OPENAI_HTTP_FALLBACK: '1',
+        MIXDOG_OPENAI_OAUTH_WS_WARMUP: '0',
+        MIXDOG_AGENT_TRACE_DISABLE: '1',
+    });
+    try {
+        const provider = new OpenAIOAuthProvider({});
+        let authRefreshes = 0;
+        provider.ensureAuth = async ({ forceRefresh = false } = {}) => {
+            if (forceRefresh) authRefreshes += 1;
+            return { access_token: 'test-token' };
+        };
+        let acquires = 0;
+        let httpCalls = 0;
+        const sendOpts = {
+            sessionId: 'openai-oauth-ws-403-fallback-test',
+            _prebuiltBody: { model: 'gpt-5.5', input: [] },
+            _sendViaWebSocketFn: (args) => sendViaWebSocket({
+                ...args,
+                _acquireWithRetryFn: async ({ forceFresh }) => {
+                    assert.equal(forceFresh, acquires > 0);
+                    acquires += 1;
+                    throw Object.assign(new Error('Unexpected server response: 403'), { httpStatus: 403 });
+                },
+                _sleepFn: async () => {},
+            }),
+            _sendViaHttpSseFn: async () => {
+                httpCalls += 1;
+                return { content: 'http-recovered', toolCalls: [], usage: {} };
+            },
+        };
+
+        assert.equal((await provider.send([], 'gpt-5.5', [], sendOpts)).content, 'http-recovered');
+        assert.equal((await provider.send([], 'gpt-5.5', [], sendOpts)).content, 'http-recovered');
+        assert.equal(acquires, 6);
+        assert.equal(authRefreshes, 0);
+        assert.equal(httpCalls, 2);
+    } finally {
+        for (const [name, value] of Object.entries(savedEnv)) {
+            if (value == null) delete process.env[name];
+            else process.env[name] = value;
+        }
+    }
+});
+
+test('handshake 426 falls back immediately without retry or auth refresh', async () => {
+    const provider = new OpenAIOAuthProvider({});
+    let authRefreshes = 0;
+    provider.ensureAuth = async ({ forceRefresh = false } = {}) => {
+        if (forceRefresh) authRefreshes += 1;
+        return { access_token: 'test-token' };
+    };
+    let wsCalls = 0;
+    let httpCalls = 0;
+    const result = await provider.send([], 'gpt-5.5', [], {
+        sessionId: 'openai-oauth-ws-426-fallback-test',
+        _prebuiltBody: { model: 'gpt-5.5', input: [] },
+        _sendViaWebSocketFn: async () => {
+            wsCalls += 1;
+            throw Object.assign(new Error('Upgrade Required'), { httpStatus: 426 });
+        },
+        _sendViaHttpSseFn: async () => {
+            httpCalls += 1;
+            return { content: 'http-426', toolCalls: [], usage: {} };
+        },
+    });
+    assert.equal(result.content, 'http-426');
+    assert.equal(wsCalls, 1);
+    assert.equal(httpCalls, 1);
+    assert.equal(authRefreshes, 0);
+});
+
+for (const path of ['handshake', 'pre-output-stream']) {
+    for (const terminalStatus of [401, 426]) {
+        test(`mixed ${path} failure surfaces later ${terminalStatus} to provider recovery`, async () => {
+            const provider = new OpenAIOAuthProvider({});
+            let authRefreshes = 0;
+            provider.ensureAuth = async ({ forceRefresh = false } = {}) => {
+                if (forceRefresh) authRefreshes += 1;
+                return { access_token: forceRefresh ? 'refreshed-token' : 'test-token' };
+            };
+            let wsDispatches = 0;
+            let httpCalls = 0;
+            const result = await provider.send([], 'gpt-5.5', [], {
+                sessionId: `mixed-${path}-${terminalStatus}`,
+                _prebuiltBody: { model: 'gpt-5.5', input: [] },
+                _sendViaWebSocketFn: (args) => {
+                    wsDispatches += 1;
+                    if (wsDispatches > 1) {
+                        return { content: 'ws-after-refresh', toolCalls: [], usage: {} };
+                    }
+                    let failures = 0;
+                    return sendViaWebSocket({
+                        ...args,
+                        _acquireWithRetryFn: async () => {
+                            if (path === 'handshake') {
+                                failures += 1;
+                                const status = failures === 1 ? 403 : terminalStatus;
+                                throw Object.assign(new Error(`handshake ${status}`), { httpStatus: status });
+                            }
+                            return { entry: entry(), reused: false };
+                        },
+                        _sendFrameFn: async () => {},
+                        _streamFn: async () => {
+                            failures += 1;
+                            if (failures === 1) throw close1006();
+                            throw Object.assign(new Error(`stream ${terminalStatus}`), { httpStatus: terminalStatus });
+                        },
+                        _sleepFn: async () => {},
+                    });
+                },
+                _sendViaHttpSseFn: async () => {
+                    httpCalls += 1;
+                    return { content: 'http-after-426', toolCalls: [], usage: {} };
+                },
+            });
+
+            assert.equal(result.content, terminalStatus === 401 ? 'ws-after-refresh' : 'http-after-426');
+            assert.equal(authRefreshes, terminalStatus === 401 ? 1 : 0);
+            assert.equal(wsDispatches, terminalStatus === 401 ? 2 : 1);
+            assert.equal(httpCalls, terminalStatus === 426 ? 1 : 0);
+        });
+    }
+}
+
+for (const fallbackOutcome of ['failure', 'abort']) {
+    test(`WS remains disabled when sticky HTTP fallback ends in ${fallbackOutcome}`, async () => {
+        const provider = new OpenAIOAuthProvider({});
+        provider.ensureAuth = async () => ({ access_token: 'test-token' });
+        const controller = new AbortController();
+        let wsCalls = 0;
+        let httpCalls = 0;
+        const opts = {
+            sessionId: `sticky-before-http-${fallbackOutcome}`,
+            signal: controller.signal,
+            _prebuiltBody: { model: 'gpt-5.5', input: [] },
+            _sendViaWebSocketFn: async () => {
+                wsCalls += 1;
+                throw Object.assign(new Error('WS retries exhausted'), {
+                    retryClassifier: 'reset',
+                    wsRetriesExhausted: true,
+                });
+            },
+            _sendViaHttpSseFn: async () => {
+                httpCalls += 1;
+                if (httpCalls === 1) {
+                    const err = new Error(`fallback ${fallbackOutcome}`);
+                    if (fallbackOutcome === 'abort') controller.abort(err);
+                    throw err;
+                }
+                return { content: 'http-still-disabled', toolCalls: [], usage: {} };
+            },
+        };
+
+        await assert.rejects(
+            provider.send([], 'gpt-5.5', [], opts),
+            fallbackOutcome === 'abort'
+                ? (err) => err === controller.signal.reason && err.message === 'fallback abort'
+                : /WS retries exhausted/,
+        );
+        assert.equal(
+            provider._httpFallbackUntilByPoolKey.get(opts.sessionId),
+            Number.POSITIVE_INFINITY,
+        );
+        if (fallbackOutcome === 'abort') opts.signal = null;
+        assert.equal((await provider.send([], 'gpt-5.5', [], opts)).content, 'http-still-disabled');
+        assert.equal(wsCalls, 1);
+        assert.equal(httpCalls, 2);
+    });
+}
+
+for (const fallbackPath of ['primary', 'auth-retry']) {
+    for (const exposed of ['text', 'tool']) {
+        test(`HTTP ${fallbackPath} fallback failure after ${exposed} overrides stale WS error`, async () => {
+            const provider = new OpenAIOAuthProvider({});
+            let refreshes = 0;
+            provider.ensureAuth = async ({ forceRefresh = false } = {}) => {
+                if (forceRefresh) refreshes += 1;
+                return { access_token: forceRefresh ? 'refreshed-token' : 'test-token' };
+            };
+            let wsCalls = 0;
+            const stale = Object.assign(new Error(`stale ${fallbackPath} WS failure`), {
+                retryClassifier: 'reset',
+                wsRetriesExhausted: true,
+            });
+            const exposedFailure = Object.assign(new Error(`HTTP fallback failed after ${exposed}`), {
+                unsafeToRetry: true,
+                ...(exposed === 'text'
+                    ? { liveTextEmitted: true }
+                    : { emittedToolCall: true }),
+            });
+
+            await assert.rejects(
+                provider.send([], 'gpt-5.5', [], {
+                    sessionId: `http-${fallbackPath}-${exposed}-failure`,
+                    _prebuiltBody: { model: 'gpt-5.5', input: [] },
+                    _sendViaWebSocketFn: async () => {
+                        wsCalls += 1;
+                        if (fallbackPath === 'auth-retry' && wsCalls === 1) {
+                            throw Object.assign(new Error('refresh auth'), { httpStatus: 401 });
+                        }
+                        throw stale;
+                    },
+                    _sendViaHttpSseFn: async () => {
+                        throw exposedFailure;
+                    },
+                }),
+                (err) => err === exposedFailure
+                    && err.unsafeToRetry === true
+                    && (exposed === 'text'
+                        ? err.liveTextEmitted === true
+                        : err.emittedToolCall === true),
+            );
+            assert.equal(wsCalls, fallbackPath === 'auth-retry' ? 2 : 1);
+            assert.equal(refreshes, fallbackPath === 'auth-retry' ? 1 : 0);
+        });
+    }
+}
 
 test('sticky HTTP fallback is isolated by session and expired entries are cleaned', async () => {
     const savedEnv = Object.fromEntries([
@@ -520,4 +749,66 @@ test('post-emission 1006 refuses replay after text or tool output', async () => 
         );
         assert.equal(acquires, 1, `${emitted} must prevent a replay`);
     }
+});
+
+test('partial reasoning or tool generation refuses WS replay', async () => {
+    for (const partial of ['emittedReasoning', 'startedToolCall']) {
+        let acquires = 0;
+        await assert.rejects(
+            sendViaWebSocket(wsArgs({
+                poolKey: `openai-oauth-ws-1006-${partial}-test`,
+                _acquireWithRetryFn: async () => {
+                    acquires += 1;
+                    return { entry: entry(), reused: false };
+                },
+                _streamFn: async ({ state }) => {
+                    state[partial] = true;
+                    throw close1006();
+                },
+            })),
+            (err) => err.wsCloseCode === 1006
+                && err.unsafeToRetry === true
+                && (partial === 'emittedReasoning'
+                    ? err.partialReasoningEmitted === true
+                    : err.partialToolCallStarted === true),
+        );
+        assert.equal(acquires, 1, `${partial} must prevent a replay`);
+    }
+});
+
+test('HTTP request transport retries match Codex count/backoff and exclude 429', async () => {
+    const delays = [];
+    let calls = 0;
+    await assert.rejects(
+        sendViaHttpSse({
+            auth: { access_token: 'test-token' },
+            body: { model: 'gpt-5.5', input: [] },
+            fetchFn: async () => {
+                calls += 1;
+                return new Response('busy', { status: 503 });
+            },
+            _sleepFn: async (ms) => { delays.push(ms); },
+        }),
+        /503/,
+    );
+    assert.equal(calls, 5, 'four retries plus the initial request');
+    assert.equal(delays.length, 4);
+    for (const [index, base] of [200, 400, 800, 1600].entries()) {
+        assert.ok(delays[index] >= base * 0.9 && delays[index] <= base * 1.1);
+    }
+
+    calls = 0;
+    await assert.rejects(
+        sendViaHttpSse({
+            auth: { access_token: 'test-token' },
+            body: { model: 'gpt-5.5', input: [] },
+            fetchFn: async () => {
+                calls += 1;
+                return new Response('limited', { status: 429 });
+            },
+            _sleepFn: async () => assert.fail('429 must not retry'),
+        }),
+        /429/,
+    );
+    assert.equal(calls, 1);
 });

@@ -41,9 +41,6 @@ import {
     sleepWithAbort,
 } from './retry-classifier.mjs';
 import {
-    PROVIDER_RETRY_MAX_ATTEMPTS,
-} from '../stall-policy.mjs';
-import {
     WS_IDLE_MS,
     acquireWebSocket,
     releaseWebSocket,
@@ -84,12 +81,14 @@ export {
 globalThis.__mixdogOpenaiWsRuntimeLoaded = true;
 
 // --- WS_PRE_RESPONSE_CREATED_MS / WS_INTER_CHUNK_MS: extracted to openai-ws-stream.mjs ---
-// Mid-stream retry budgets + backoff now live in the shared MIDSTREAM_RETRY_POLICY
-// table (retry-classifier.mjs). These aliases keep the local call sites readable
-// and ensure the numbers exist in exactly ONE place.
+// The official Codex Responses policy has one five-retry stream budget shared
+// by connect/handshake and pre-output stream failures.
 const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries;
 const MIDSTREAM_DEFAULT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.defaultRetries;
-const MIDSTREAM_BACKOFF_MS = MIDSTREAM_RETRY_POLICY.ws.backoff;
+// Codex core/src/util.rs uses a 200ms base, factor 2, and symmetric ±10%
+// jitter for each of its five stream retries.
+const MIDSTREAM_BACKOFF_MS = Object.freeze([200, 400, 800, 1600, 3200]);
+const CODEX_RETRY_JITTER_RATIO = 0.1;
 // Policy object passed to the shared classifyMidstreamError for the WS path.
 const WS_MIDSTREAM_POLICY = {
     mode: 'ws',
@@ -97,20 +96,12 @@ const WS_MIDSTREAM_POLICY = {
     defaultRetries: MIDSTREAM_RETRY_POLICY.ws.defaultRetries,
 };
 
-// Handshake retry policy. The `ws` library surfaces a bare
-// `Opening handshake has timed out` Error after handshakeTimeout; transient
-// network blips (DNS, reset, 5xx) similarly produce single-shot failures that
-// waste the caller's turn when they'd succeed on retry. We wrap the acquire
-// step with bounded exponential backoff. Permanent auth/quota (4xx) must NOT
-// retry because a second attempt will hit the same deterministic server
-// decision and just double the user-visible latency.
-// Aligned to the cross-provider default (retry-classifier DEFAULT_MAX_ATTEMPTS=5,
-// anthropic-oauth MAX_ATTEMPTS=5, withRetry-using providers all default to 5).
-// Bumped from 3 so this provider exhausts the same number of transient-5xx
-// attempts as the others before surfacing failure to the caller.
-const HANDSHAKE_MAX_ATTEMPTS = PROVIDER_RETRY_MAX_ATTEMPTS;
-const HANDSHAKE_BACKOFF_BASE_MS = 500;
-const HANDSHAKE_BACKOFF_CAP_MS = 5000;
+// Kept for the exported _acquireWithRetry test seam and non-Codex callers.
+// sendViaWebSocket deliberately invokes it with maxAttempts:1 so handshake
+// failures consume the same stream budget as pre-output disconnects.
+const HANDSHAKE_MAX_ATTEMPTS = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT + 1;
+const HANDSHAKE_BACKOFF_BASE_MS = 200;
+const HANDSHAKE_BACKOFF_CAP_MS = 3200;
 
 // --- WS pool/handshake/acquire/release: extracted to openai-ws-pool.mjs ---
 
@@ -152,22 +143,21 @@ export function _classifyHandshakeError(err) {
  *     after the 101 upgrade but before the first response.created event,
  *     AND the pre-`response.created` first-byte timeout
  *     (state.firstByteTimeout), which is permitted a bounded retry here
- *   - HTTP 401 / 403 / 429 surfaced on the error
+ *   - HTTP 401 / 403 / 429 surfaced after the WS handshake
  *   - state.attemptIndex has reached the classifier-specific retry budget
  */
 // Thin wrapper: the full WS mid-stream decision tree now lives in the shared
 // classifyMidstreamError (retry-classifier.mjs, policy.mode='ws'). Kept as a
 // named export so internal call sites and any external importer keep resolving
-// the same symbol. Behavior is byte-identical — the shared function is the
-// relocated original, with the per-classifier budget gating supplied by
-// WS_MIDSTREAM_POLICY (transientCloseRetries=4, defaultRetries=2).
+// the same symbol. The per-classifier gates both use the official five-retry
+// stream budget.
 export function _classifyMidstreamError(err, state) {
     return classifyMidstreamError(err, state, WS_MIDSTREAM_POLICY);
 }
 
 // Per-classifier retry budget, used by the sendViaWebSocket loop to bound the
 // attempt count once classifyMidstreamError returns a bucket. Mirrors the
-// shared _midstreamLimitFor(ws) — the numbers come from MIDSTREAM_RETRY_POLICY.
+// shared _midstreamLimitFor(ws) — both values are the same unified budget.
 function _midstreamRetryLimit(classifier) {
     return classifier === 'ws_1006' || classifier === 'ws_1011'
         ? MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT
@@ -176,13 +166,13 @@ function _midstreamRetryLimit(classifier) {
 
 function _midstreamBackoffFor(retryNumber) {
     const raw = MIDSTREAM_BACKOFF_MS[Math.min(Math.max(retryNumber, 1), MIDSTREAM_BACKOFF_MS.length) - 1];
-    return jitterDelayMs(raw);
+    return jitterDelayMs(raw, CODEX_RETRY_JITTER_RATIO);
 }
 
 function _backoffFor(attempt) {
     // attempt is 1-based. retry 1 → 500, retry 2 → 1000, retry 3 → 2000 … capped.
     const raw = HANDSHAKE_BACKOFF_BASE_MS * (1 << (attempt - 1));
-    return jitterDelayMs(Math.min(raw, HANDSHAKE_BACKOFF_CAP_MS));
+    return jitterDelayMs(Math.min(raw, HANDSHAKE_BACKOFF_CAP_MS), CODEX_RETRY_JITTER_RATIO);
 }
 
 const _defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -648,6 +638,11 @@ export async function sendViaWebSocket({
     traceProvider = 'openai-oauth',
     logSuppressedReasoningDeltas = true,
     warmupBody = null,
+    // Provider-specific handshake policy seam. OAuth leaves this null and
+    // retains the Codex retry budget. Direct OpenAI uses it to surface
+    // unsupported-WS handshake statuses immediately so its wrapper can make
+    // the single WS→HTTP decision without nested WS retries.
+    handshakeErrorPolicy = null,
     // Test seams (undefined in production). Let the unit test drive the
     // retry state machine without opening real sockets or touching the
     // handshake-retry layer.
@@ -658,17 +653,9 @@ export async function sendViaWebSocket({
     _sendSpanTraceFn = appendAgentTrace,
     _agentTraceFn = appendAgentTrace,
 }) {
-    // Bounded mid-stream retry: if an attempt's stream dies after
-    // response.created but before response.completed from a transient cause
-    // (watchdog abort / ws 1006/1011/1012/4000 / response.failed with network
-    // error), tear down the socket and reissue the full request from scratch
-    // with a classifier-specific budget. ws_1006/ws_1011 get two retries with
-    // 250ms/1s backoff; other legacy transient buckets keep the prior one retry.
-    // No delta resume — content restarts, which is the accepted tradeoff for
-    // reviewer/worker flows that need the complete answer.
-    // Retries are layered ABOVE the handshake retry loop (_acquireWithRetry
-    // owns connect-level transience); the two never interleave because we
-    // force a brand-new acquire for the retry attempt.
+    // One bounded Codex stream retry budget covers transient handshake and
+    // pre-output stream failures. Every retry acquires a fresh connection.
+    // No replay is permitted after live text or an emitted tool call.
     const MAX_MIDSTREAM_RETRIES = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT;
     let firstAttemptError = null;
     let firstAttemptClassifier = null;
@@ -784,20 +771,28 @@ export async function sendViaWebSocket({
                 // one is either torn down or in an unknown state.
                 forceFresh: forceFresh || attemptIndex > 0,
                 externalSignal,
-                maxAttempts: HANDSHAKE_MAX_ATTEMPTS,
+                // No nested connect retry budget: the outer stream loop owns
+                // all retries for this logical request.
+                maxAttempts: 1,
                 onRetry: (info) => {
                     handshakeRetries += 1;
                     sendSpan.handshakeRetries += 1;
                     if (info?.classifier) handshakeRetryClassifiers.push(info.classifier);
                     const attempt = Number(info?.attempt) || handshakeRetries;
-                    const max = Number(info?.max) || Math.max(HANDSHAKE_MAX_ATTEMPTS - 1, 1);
+                    const max = Number(info?.max) || MAX_MIDSTREAM_RETRIES;
                     emitReconnectProgress({ attempt, max, classifier: info?.classifier });
                 },
                 onBackoffSlept: (ms) => { sendSpan.retryBackoffMs += ms; },
             });
         } catch (err) {
             sendSpan.poolAcquireMs += performance.now() - handshakeStart;
-            const classifier = err?.retryClassifier || (err?.code === 'EWSACQUIRETIMEOUT' ? 'acquire_timeout' : null);
+            // Provenance only; policy remains provider-owned below. This lets
+            // the direct wrapper distinguish an upgrade rejection from an
+            // application error carrying the same HTTP status.
+            try { err.wsFailurePhase = 'handshake'; } catch {}
+            const classifier = err?.retryClassifier
+                || _classifyHandshakeError(err)
+                || (err?.code === 'EWSACQUIRETIMEOUT' ? 'acquire_timeout' : null);
             const classifiers = [...handshakeRetryClassifiers];
             if (classifier && !classifiers.includes(classifier)) classifiers.push(classifier);
             if (err?.httpStatus != null || classifier || handshakeRetries > 0 || classifiers.length > 0) {
@@ -812,12 +807,70 @@ export async function sendViaWebSocket({
                     handshakeRetryClassifiers: classifiers,
                 });
             }
-            // Handshake-layer failure. Don't double-wrap: if this is the retry
-            // attempt, surface the ORIGINAL first-attempt error (which is what
-            // the caller's turn actually tripped on).
+            const handshakeDecision = typeof handshakeErrorPolicy === 'function'
+                ? handshakeErrorPolicy({
+                    error: err,
+                    status: Number(err?.httpStatus || 0),
+                    classifier,
+                    attempt: attemptIndex + 1,
+                    maxAttempts: MAX_MIDSTREAM_RETRIES + 1,
+                })
+                : null;
+            if (handshakeDecision?.retry === false) {
+                try {
+                    err.wsFailurePhase = 'handshake';
+                    err.wsHttpFallbackEligible = handshakeDecision.httpFallback === true;
+                    if (classifier) err.retryClassifier = classifier;
+                } catch {}
+                emitSendSpan('error');
+                throw _stampTool(_stampLiveText(err));
+            }
+            // HTTP 401 is reserved for caller-owned auth refresh. HTTP 426 is
+            // caller-owned immediate HTTPS fallback. Every other recognized
+            // transport failure spends the shared stream retry budget.
+            const retryable = classifier
+                && Number(err?.httpStatus || 0) !== 401
+                && Number(err?.httpStatus || 0) !== 426
+                && !externalSignal?.aborted;
+            if (retryable && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                if (!firstAttemptError) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = classifier;
+                }
+                try { err.midstreamClassifier = classifier; } catch {}
+                const retryNumber = attemptIndex + 1;
+                emitReconnectProgress({
+                    attempt: retryNumber,
+                    max: MAX_MIDSTREAM_RETRIES,
+                    classifier,
+                });
+                const sleepStart = performance.now();
+                try {
+                    await _sleepWithAbort(_midstreamBackoffFor(retryNumber), externalSignal, _sleepFn);
+                } catch (sleepErr) {
+                    sendSpan.retryBackoffMs += performance.now() - sleepStart;
+                    emitSendSpan('error');
+                    throw sleepErr;
+                }
+                sendSpan.retryBackoffMs += performance.now() - sleepStart;
+                continue;
+            }
+            // A later auth/upgrade decision must win over an earlier transient
+            // failure so the caller can refresh or switch transport. Likewise,
+            // never replace a current cancellation with stale retry history.
+            const currentStatus = Number(err?.httpStatus || 0);
+            const surfaceCurrent = currentStatus === 401
+                || currentStatus === 426
+                || externalSignal?.aborted
+                || err?.unsafeToRetry === true;
+            if (surfaceCurrent) {
+                emitSendSpan('error');
+                throw _stampTool(_stampLiveText(err));
+            }
             if (attemptIndex > 0 && firstAttemptError) {
                 try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
-                if (err?.wsRetriesExhausted === true) {
+                try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
+                if (attemptIndex >= MAX_MIDSTREAM_RETRIES) {
                     try { firstAttemptError.wsRetriesExhausted = true; } catch {}
                 }
                 emitSendSpan('error');
@@ -1085,6 +1138,10 @@ export async function sendViaWebSocket({
                 knownToolNames,
             });
         } catch (err) {
+            // Preserve failure provenance for the direct provider. This marker
+            // is observational for OAuth and does not change its classifier or
+            // retry budget.
+            try { err.wsFailurePhase = 'stream'; } catch {}
             // Snapshot the xAI conversation anchor BEFORE releasing the
             // entry. release closes the socket but leaves state fields
             // intact; the next forceFresh acquire creates a new entry into
@@ -1114,9 +1171,24 @@ export async function sendViaWebSocket({
             if (midState.emittedToolCall) {
                 _safetyStamps.markTool();
             }
+            // Reasoning deltas and an in-progress tool input are already
+            // observable turn progress even though neither is final assistant
+            // text nor a dispatched tool call. Reissuing from the beginning can
+            // duplicate exposed thinking/tool argument streams and can make a
+            // partially generated side-effecting call diverge. Keep the Codex
+            // retry budget only for failures before any such model output.
+            if (midState.emittedReasoning || midState.startedToolCall) {
+                try {
+                    err.unsafeToRetry = true;
+                    if (midState.emittedReasoning) err.partialReasoningEmitted = true;
+                    if (midState.startedToolCall) err.partialToolCallStarted = true;
+                } catch {}
+            }
             _stampLiveText(err);
             _stampTool(err);
-            const classifier = _classifyMidstreamError(err, midState);
+            const classifier = err?.unsafeToRetry === true
+                ? null
+                : _classifyMidstreamError(err, midState);
             const retryLimit = classifier ? _midstreamRetryLimit(classifier) : 0;
             if (classifier && attemptIndex < retryLimit) {
                 // Retry-eligible: stash the first-attempt error, emit progress,
@@ -1144,6 +1216,17 @@ export async function sendViaWebSocket({
                 continue;
             }
             // Not retryable, OR we've already exhausted the retry budget.
+            // Do not let stale retry history mask a current auth/upgrade
+            // decision, cancellation, or newly unsafe-to-replay outcome.
+            const currentStatus = Number(err?.httpStatus || 0);
+            const surfaceCurrent = currentStatus === 401
+                || currentStatus === 426
+                || externalSignal?.aborted
+                || err?.unsafeToRetry === true;
+            if (surfaceCurrent) {
+                emitSendSpan('error');
+                throw _stampTool(_stampLiveText(err));
+            }
             if (attemptIndex > 0 && firstAttemptError) {
                 // Exhausted path: surface the first-attempt error (the one
                 // the user's turn actually tripped on), tag actual retry count.

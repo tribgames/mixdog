@@ -231,3 +231,20 @@ test('live provider switching rebuilds native and canonical surfaces in both dir
   assert.equal(session.tools.some((tool) => tool.name === 'mcp__demo__ping'), false);
   assert.equal(session.deferredCallableTools.includes('mcp__demo__ping'), false);
 });
+
+test('live switching within each native provider family preserves discovered tools', () => {
+  for (const [from, to] of [
+    ['openai-oauth', 'openai'],
+    ['openai', 'openai-oauth'],
+    ['anthropic-oauth', 'anthropic'],
+    ['anthropic', 'anthropic-oauth'],
+  ]) {
+    const session = { provider: from, tools: [], messages: [] };
+    applyDeferredToolSurface(session, 'full', catalog, { provider: from });
+    session.deferredDiscoveredTools = ['mcp__demo__ping'];
+    rebuildDeferredToolSurfaceForProvider(session, to);
+    assert.equal(session.deferredProviderMode, 'native', `${from} -> ${to}`);
+    assert.equal(session.deferredDiscoveredTools.includes('mcp__demo__ping'), true, `${from} -> ${to}`);
+    assert.equal(session.deferredCallableTools.includes('mcp__demo__ping'), true, `${from} -> ${to}`);
+  }
+});

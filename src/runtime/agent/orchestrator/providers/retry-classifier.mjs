@@ -30,7 +30,7 @@ import {
 //   500/502/503/504 — server errors (overload / bad gateway / timeout)
 //   429 is handled separately by withRetry(): only the affected request waits
 //   with jitter; provider/account admission concurrency remains fixed.
-const TRANSIENT_STATUSES = new Set([408, 500, 502, 503, 504])
+const TRANSIENT_STATUSES = new Set([408, 409])
 
 // HTTP statuses that mean "permanent: stop retrying, surface to caller".
 //   401/403 — auth issue
@@ -101,36 +101,74 @@ export function classifyError(err) {
   // Once a streamed tool call has been surfaced to the loop, retrying the same
   // provider turn can double-execute that tool. Providers mark these stream
   // failures as unsafe so the shared retry wrapper fails fast.
-  if (err.emittedToolCall === true || err.toolCallEmitted === true || err.unsafeToRetry === true) return 'permanent'
-  // Truncated SSE stream (message_start without message_stop). These are
-  // idempotent to retry: the partial result is discarded, and a pendingToolUse
-  // means the tool_use input JSON never completed, so re-requesting is safe.
-  // Checked BEFORE HTTP-status classification so a truncation error that also
-  // carries a 4xx/429 status still classifies transient per the contract.
-  // Treating this as transient is what lets every withRetry / mid-stream-loop
-  // consumer recover a cut-off stream uniformly.
-  if (err.truncatedStream === true || err.code === 'TRUNCATED_STREAM') return 'transient'
+  if (err.emittedToolCall === true || err.toolCallEmitted === true
+    || err.partialToolCall === true || err.emittedThinking === true
+    || err.unsafeToRetry === true) return 'permanent'
+  // Cancellation is a caller decision, never a transport symptom. Anthropic's
+  // APIUserAbortError inherits Error without overriding `name`, so recognize
+  // only exact SDK constructor/type markers (plus standard AbortError markers)
+  // across the bounded chain before considering stale connection causes.
+  const chain = boundedCauseChain(err)
+  if (chain.some(isExplicitUserAbortError)) return 'permanent'
 
-  // Honor explicit httpStatus first, then sniff message text.
+  // Current typed HTTP status outranks stale stream/connection annotations.
   const status = Number(err.httpStatus || err.status || err.response?.status || 0) || populateHttpStatusFromMessage(err)
   if (AUTH_STATUSES.has(status)) return 'auth'
   if (status === 429) return 'permanent'
-  if (TRANSIENT_STATUSES.has(status)) return 'transient'
-  if (PERMANENT_STATUSES.has(status)) return 'permanent'
+  if (PERMANENT_STATUSES.has(status)
+    || (status >= 400 && status < 500 && !TRANSIENT_STATUSES.has(status))) return 'permanent'
+  // Truncated SSE stream (message_start without message_stop). These are
+  // idempotent to retry: the partial result is discarded, and a pendingToolUse
+  // means the tool_use input JSON never completed, so re-requesting is safe.
+  // A current permanent/auth status and cancellation were checked above.
+  if (err.truncatedStream === true || err.code === 'TRUNCATED_STREAM') return 'transient'
+
+  if (TRANSIENT_STATUSES.has(status) || (status >= 500 && status < 600)) return 'transient'
 
   // Socket-level codes (Node errno) — DNS / reset / refused / timeout are all
   // transient: we can retry the same request and may succeed.
-  const code = String(err.code || '')
-  if (code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ESOCKETTIMEDOUT'
-    || code === 'EAI_AGAIN' || code === 'ENOTFOUND' || code === 'EAI_NODATA'
-    || code === 'ECONNREFUSED' || code === 'ENETUNREACH' || code === 'EHOSTUNREACH'
-    || code === 'EPIPE'
-    || code === 'EPROVIDERTIMEOUT' || code === 'EGEMINITIMEOUT' || code === 'ESTREAMSTALL'
-    || code === 'EWSACQUIRETIMEOUT') {
+  if (chain.some((item) => TRANSIENT_ERROR_CODES.has(String(item?.code || '')))) return 'transient'
+  // The Anthropic SDK uses APIConnectionError for transport failures which
+  // may not carry a Node errno. Native fetch commonly wraps the errno in
+  // cause.code, or exposes only TypeError("fetch failed").
+  const name = String(err.name || '')
+  const message = String(err.message || '')
+  if (name === 'APIConnectionError'
+    || (name === 'TypeError' && /fetch failed|network error/i.test(message))) {
     return 'transient'
   }
 
   return 'unknown'
+}
+
+const MAX_CAUSE_CHAIN_DEPTH = 8
+const TRANSIENT_ERROR_CODES = new Set([
+  'ECONNRESET', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
+  'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',
+  'EPROVIDERTIMEOUT', 'EGEMINITIMEOUT', 'ESTREAMSTALL', 'EWSACQUIRETIMEOUT',
+])
+
+function boundedCauseChain(err) {
+  const chain = []
+  const seen = new Set()
+  let cursor = err
+  while (cursor && chain.length < MAX_CAUSE_CHAIN_DEPTH && !seen.has(cursor)) {
+    chain.push(cursor)
+    seen.add(cursor)
+    cursor = cursor?.cause
+  }
+  return chain
+}
+
+function isExplicitUserAbortError(err) {
+  if (!err || (typeof err !== 'object' && typeof err !== 'function')) return false
+  if (err.name === 'AbortError' || err.name === 'APIUserAbortError' || err.code === 'ABORT_ERR') return true
+  if (err.type === 'APIUserAbortError' || err.type === 'api_user_abort_error') return true
+  try {
+    return err.constructor?.name === 'APIUserAbortError'
+  } catch {
+    return false
+  }
 }
 
 // Provider error-text signatures for a context-window / input-too-large
@@ -194,6 +232,17 @@ export function retryAfterMsFromError(err) {
   return null
 }
 
+function isPermanentQuotaError(err) {
+  const permanentCodes = new Set(['insufficient_quota', 'quota_exceeded', 'resource_exhausted'])
+  for (const item of boundedCauseChain(err)) {
+    const codes = [item?.code, item?.error?.code]
+    if (codes.some((code) => permanentCodes.has(String(code || '').toLowerCase()))) return true
+    const text = `${String(item?.message || '')} ${String(item?.error?.message || '')}`
+    if (/insufficient_quota|quota[_ -]?exceeded|resource exhausted/i.test(text)) return true
+  }
+  return false
+}
+
 /**
  * Convenience predicate: should this error be retried at the request level?
  * Wraps classifyError() with the standard "transient = retry, otherwise no"
@@ -203,6 +252,43 @@ export function retryAfterMsFromError(err) {
  */
 export function isRetryable(err) {
   return classifyError(err) === 'transient'
+}
+
+/** Claude Code compatible Anthropic request budget: 10 retries (11 attempts).
+ * CLAUDE_CODE_MAX_RETRIES is intentionally read per request for reload/tests.
+ * The upper bound prevents an accidental unbounded retry loop. */
+export function anthropicMaxAttempts() {
+  const raw = process.env.CLAUDE_CODE_MAX_RETRIES
+  const parsed = raw == null || raw === '' ? 10 : Number.parseInt(raw, 10)
+  const retries = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 100) : 10
+  return retries + 1
+}
+
+// Claude Code request defaults (withRetry.ts): 500ms exponential backoff,
+// capped at 32s, with positive-only jitter up to 25% of the base delay.
+// The leading duplicate accounts for withRetry's sleep-before-attempt index:
+// retry attempt 2 reads index 1.
+export const ANTHROPIC_RETRY_BACKOFF_MS = Object.freeze([
+  500, 500, 1000, 2000, 4000, 8000, 16000, 32000, 32000, 32000, 32000,
+])
+export const ANTHROPIC_RETRY_JITTER_RATIO = 0.25
+
+// Claude Code's Anthropic SDK client defaults API_TIMEOUT_MS to ten minutes.
+// Read per request, like CLAUDE_CODE_MAX_RETRIES, so env reload/tests work.
+export function anthropicRequestTimeoutMs() {
+  const parsed = Number.parseInt(process.env.API_TIMEOUT_MS || '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 600_000
+}
+
+export const ANTHROPIC_MAX_CONSECUTIVE_529 = 3
+
+export class AnthropicFallbackTriggeredError extends Error {
+  constructor(originalModel, fallbackModel, cause) {
+    super(`Anthropic model fallback triggered: ${originalModel} -> ${fallbackModel}`, { cause })
+    this.name = 'AnthropicFallbackTriggeredError'
+    this.originalModel = originalModel
+    this.fallbackModel = fallbackModel
+  }
 }
 
 // Default backoff schedule used by withRetry when caller does not override.
@@ -238,11 +324,10 @@ export function jitterDelayMs(ms, ratio = PROVIDER_RETRY_JITTER_RATIO, mode = 's
 // branched on a hardcoded provider name.
 
 // F) Retry-budget profiles as DATA. The numbers live ONLY here now.
-//    ws.transientCloseRetries (4) — ws_1006 / ws_1011 connection-loss buckets.
-//    ws.defaultRetries (2)        — every other WS mid-stream bucket.
+//    ws.*Retries (5)              — one Codex Responses stream retry budget.
 //    sse.defaultRetries (3)       — anthropic single-shot SSE mid-stream budget.
 export const MIDSTREAM_RETRY_POLICY = {
-  ws: { transientCloseRetries: 4, defaultRetries: 2, backoff: [250, 1000, 2000, 4000] },
+  ws: { transientCloseRetries: 5, defaultRetries: 5, backoff: [250, 1000, 2000, 4000, 5000] },
   sse: { defaultRetries: 3, backoff: [250, 1000, 2000, 4000] },
 }
 
@@ -371,13 +456,14 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
 function _classifyMidstreamSse(err, state, attemptIndex, policy) {
   if (attemptIndex >= policy.defaultRetries) return null
   if (state.sawCompleted) return null
-  if (!state.sawMessageStart) return null
   if (state.userAbort) return null
-  if (state.emittedToolCall) return null
+  if (state.emittedText || state.emittedToolCall || state.partialToolCall || state.emittedThinking) return null
 
   if (!err) return null
-  const status = Number(err?.httpStatus || 0)
-  if (status === 401 || status === 403 || status === 429) return null
+  const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0)
+  if (status === 401 || status === 403) return null
+  if (status === 429) return 'http_429'
+  if (status >= 500 && status < 600) return `http_${status}`
 
   const name = err?.name || ''
   if (name === 'AgentStallAbortError') return 'agent_stall'
@@ -399,6 +485,7 @@ function _classifyMidstreamSse(err, state, attemptIndex, policy) {
   if (msg.includes('stream timed out after') && msg.includes('of inactivity')) return 'sse_idle_timeout'
   if (msg.includes('body stream') && msg.includes('terminated')) return 'stream_terminated'
   if (msg.includes('fetch failed')) return 'fetch_failed'
+  if (classifyError(err) === 'transient') return 'connection'
 
   return null
 }
@@ -424,8 +511,12 @@ export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
   if (err?.liveTextEmitted === true) return false
   if (err?.emittedToolCall === true || err?.unsafeToRetry === true) return false
   const status = Number(err?.httpStatus || err?.status || 0)
-  if (status === 401 || status === 403 || status === 404 || status === 429) return false
-  if (status >= 500 && status < 600) return true
+  // 401 is auth recovery, never transport fallback. Codex treats other
+  // unexpected handshake statuses as retryable transport errors; 426 is the
+  // explicit immediate WS→HTTPS switch.
+  if (status === 401) return false
+  if (status === 426) return true
+  if (status > 0) return true
   const code = String(err?.code || '')
   if (TRANSPORT_FALLBACK_ERRNO.has(code)) return true
   const classifier = String(err?.retryClassifier || err?.midstreamClassifier || '')
@@ -461,46 +552,81 @@ export function createStreamSafetyStamps() {
 }
 
 const _defaultAbortSleep = (ms) => new Promise((r) => setTimeout(r, ms))
+export const MAX_SAFE_TIMEOUT_MS = 2_147_483_647
 
 // D) Abort-aware sleep (single copy). Resolves after `ms`, or rejects with the
 //    signal's reason (or `abortMessage`) the moment the signal aborts. `sleepFn`
-//    is the injectable no-signal sleep (test seam); `abortMessage` preserves
-//    each caller's prior fallback text when the abort reason is not an Error.
+//    is injectable for deterministic tests. Oversized deadlines are chunked so
+//    Node never clamps setTimeout(>2^31-1) to approximately 1ms.
 export async function sleepWithAbort(ms, signal, sleepFn = _defaultAbortSleep, abortMessage = 'sleep aborted') {
-  if (!ms) return
-  if (!signal) {
-    await (sleepFn || _defaultAbortSleep)(ms)
-    return
+  let remaining = Math.max(0, Number(ms) || 0)
+  const sleeper = sleepFn || _defaultAbortSleep
+  while (remaining > 0) {
+    if (signal?.aborted) {
+      const reason = signal.reason
+      throw reason instanceof Error ? reason : new Error(abortMessage)
+    }
+    const chunk = Math.min(remaining, MAX_SAFE_TIMEOUT_MS)
+    await _sleepChunkWithAbort(chunk, signal, sleeper, abortMessage)
+    remaining -= chunk
   }
-  await new Promise((resolve, reject) => {
-    const t = setTimeout(() => {
-      try { signal.removeEventListener('abort', onAbort) } catch {}
-      resolve()
-    }, ms)
+}
+
+function _sleepChunkWithAbort(ms, signal, sleepFn, abortMessage) {
+  if (!signal) return Promise.resolve().then(() => sleepFn(ms))
+  if (sleepFn === _defaultAbortSleep) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        try { signal.removeEventListener('abort', onAbort) } catch {}
+        resolve()
+      }, ms)
+      const onAbort = () => {
+        clearTimeout(timer)
+        const reason = signal.reason
+        reject(reason instanceof Error ? reason : new Error(abortMessage))
+      }
+      if (signal.aborted) { onAbort(); return }
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false
     const onAbort = () => {
-      clearTimeout(t)
+      if (settled) return
+      settled = true
       const reason = signal.reason
       reject(reason instanceof Error ? reason : new Error(abortMessage))
     }
     if (signal.aborted) { onAbort(); return }
     signal.addEventListener('abort', onAbort, { once: true })
+    Promise.resolve()
+      .then(() => sleepFn(ms))
+      .then(() => {
+        if (settled) return
+        settled = true
+        try { signal.removeEventListener('abort', onAbort) } catch {}
+        resolve()
+      }, (err) => {
+        if (settled) return
+        settled = true
+        try { signal.removeEventListener('abort', onAbort) } catch {}
+        reject(err)
+      })
   })
 }
 
 // E) Handshake classifier (moved here from openai-oauth-ws). Default-deny:
-//    anything not recognized as transient returns null. 401/403/404/429 are
-//    permanent. Returns 'timeout' | 'reset' | 'dns' | 'refused' | 'network' |
-//    'acquire_timeout' | `http_5xx` | null.
+//    anything not recognized as transient returns null. HTTP 401 is reserved
+//    for auth recovery and 426 for immediate HTTPS fallback; every other HTTP
+//    handshake status follows Codex's retryable UnexpectedStatus policy.
 export function classifyHandshakeError(err) {
   if (!err) return null
   const code = err.code || ''
   const msg = String(err.message || '')
   const status = Number(err.httpStatus || 0)
 
-  if (status === 401 || status === 403 || status === 404 || status === 429) {
-    return null
-  }
-  if (status >= 500 && status < 600) {
+  if (status === 401 || status === 426) return null
+  if (status > 0) {
     return `http_${status}`
   }
 
@@ -542,12 +668,14 @@ export async function withRetry(fn, opts = {}) {
   const onRetry = typeof opts.onRetry === 'function' ? opts.onRetry : null
   const perAttemptTimeoutMs = Number(opts.perAttemptTimeoutMs || 0)
   const perAttemptLabel = opts.perAttemptLabel || 'provider request'
-  const maxRetryAfterMs = Number(opts.maxRetryAfterMs ?? PROVIDER_MAX_BEFORE_WARN_MS)
   const retryJitterRatio = Number(opts.retryJitterRatio ?? PROVIDER_RETRY_JITTER_RATIO)
+  const retryJitterMode = opts.retryJitterMode === 'positive' ? 'positive' : 'symmetric'
+  const sleepFn = typeof opts.sleepFn === 'function' ? opts.sleepFn : undefined
 
   let lastErr = null
   let nextDelayMs = null
   let nextDelayReason = null
+  let consecutive529Errors = Math.max(0, Number(opts.initialConsecutive529Errors) || 0)
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (signal?.aborted) {
       const reason = signal.reason
@@ -555,16 +683,13 @@ export async function withRetry(fn, opts = {}) {
     }
     if (attempt > 0) {
       const rawWait = nextDelayMs ?? backoffMs[Math.min(attempt, backoffMs.length - 1)] ?? 0
-      const wait = jitterDelayMs(
-        rawWait,
-        retryJitterRatio,
-        nextDelayReason === 'retry-after' ? 'positive' : 'symmetric',
-      )
-      const boundedWait = nextDelayReason === 'retry-after' && Number.isFinite(maxRetryAfterMs)
-        ? Math.min(wait, maxRetryAfterMs)
-        : wait
-      onRetry?.({ attempt, lastErr, delayMs: boundedWait, delayReason: nextDelayReason })
-      if (boundedWait > 0) await _sleepWithAbort(boundedWait, signal)
+      // Retry-After is a server-mandated minimum. Do not cap, shorten, or
+      // jitter it; cancellation remains active throughout the full wait.
+      const wait = nextDelayReason === 'retry-after'
+        ? Math.max(0, rawWait)
+        : jitterDelayMs(rawWait, retryJitterRatio, retryJitterMode)
+      onRetry?.({ attempt, lastErr, delayMs: wait, delayReason: nextDelayReason })
+      if (wait > 0) await sleepWithAbort(wait, signal, sleepFn, 'withRetry: sleep aborted')
       if (signal?.aborted) {
         const reason = signal.reason
         throw reason instanceof Error ? reason : new Error('withRetry: aborted')
@@ -595,8 +720,32 @@ export async function withRetry(fn, opts = {}) {
         || caught?.emittedText === true
         || caught?.emittedToolCall === true
         || caught?.toolCallEmitted === true
+        || caught?.partialToolCall === true
+        || caught?.emittedThinking === true
       if (outputWasExposed || caught?.unsafeToRetry === true) throw caught
+      // Claude Code treats x-should-retry:false as an explicit server veto
+      // (except an internal-only 5xx override that Mixdog does not have).
+      // Keep this ahead of status defaults, including the request-local 429 path.
+      const shouldRetryHeader = _headerValue(
+        caught?.headers || caught?.response?.headers || caught?.data?.responseHeaders,
+        'x-should-retry',
+      )
+      if (String(shouldRetryHeader || '').toLowerCase() === 'false') throw caught
+      // Claude Code's optional model fallback fires on the third 529. This
+      // remains opt-in: providers pass fallbackModel only when the caller set
+      // one. The hard progress veto above must run first so fallback can never
+      // replay partial thinking/tool output.
+      if (status === 529 && opts.fallbackModel && opts.fallbackModel !== opts.model) {
+        consecutive529Errors += 1
+        if (consecutive529Errors >= ANTHROPIC_MAX_CONSECUTIVE_529) {
+          throw new AnthropicFallbackTriggeredError(opts.model, opts.fallbackModel, caught)
+        }
+      }
       if (status === 429) {
+        // A deterministic quota refusal cannot recover by replaying the same
+        // request. This check must precede generic HTTP 429 handling so shared
+        // OpenAI-compatible/Gemini message-only quota errors remain terminal.
+        if (isPermanentQuotaError(caught)) throw caught
         // Retry only this request. Admission concurrency is fixed and is never
         // reduced by rate limits. Respect Retry-After when present; otherwise
         // use the ordinary jittered backoff. Output/tool stamps above remain a
@@ -604,7 +753,7 @@ export async function withRetry(fn, opts = {}) {
         const ra = retryAfterMsFromError(caught)
         if (attempt === maxAttempts - 1) throw caught
         if (ra != null) {
-          nextDelayMs = Math.max(0, Math.min(ra, maxRetryAfterMs))
+          nextDelayMs = Math.max(0, ra)
           nextDelayReason = 'retry-after'
         }
         continue
@@ -614,7 +763,7 @@ export async function withRetry(fn, opts = {}) {
       if (attempt === maxAttempts - 1) throw caught
       const retryAfterMs = retryAfterMsFromError(caught)
       if (retryAfterMs != null) {
-        nextDelayMs = Math.max(0, Math.min(retryAfterMs, maxRetryAfterMs))
+        nextDelayMs = Math.max(0, retryAfterMs)
         nextDelayReason = 'retry-after'
       }
     } finally {
@@ -623,29 +772,4 @@ export async function withRetry(fn, opts = {}) {
   }
   // Defensive — loop above always returns or throws.
   throw lastErr || new Error('withRetry: exhausted with no error captured')
-}
-
-function _sleepWithAbort(ms, signal) {
-  return new Promise((resolve, reject) => {
-    let onAbort = null
-    const t = setTimeout(() => {
-      if (signal && onAbort) {
-        try { signal.removeEventListener('abort', onAbort) } catch {}
-      }
-      resolve()
-    }, ms)
-    if (!signal) return
-    if (signal.aborted) {
-      clearTimeout(t)
-      const reason = signal.reason
-      reject(reason instanceof Error ? reason : new Error('sleep aborted'))
-      return
-    }
-    onAbort = () => {
-      clearTimeout(t)
-      const reason = signal.reason
-      reject(reason instanceof Error ? reason : new Error('sleep aborted'))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
 }

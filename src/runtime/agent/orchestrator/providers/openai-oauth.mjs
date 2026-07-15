@@ -58,7 +58,6 @@ import {
 import {
     sendViaHttpSse,
     _envFlag,
-    _envPositiveInt,
     _shouldUseOpenAIHttpFallback,
 } from './openai-oauth-http-sse.mjs';
 import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
@@ -830,8 +829,9 @@ export class OpenAIOAuthProvider {
         };
         const markStickyHttpFallback = () => {
             if (!poolKey) return;
-            const ttlMs = _envPositiveInt('MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK_STICKY_MS', 60_000);
-            this._httpFallbackUntilByPoolKey.set(poolKey, Date.now() + ttlMs);
+            // Codex disables WebSockets for the remainder of this session after
+            // stream retry exhaustion (or an explicit 426 upgrade rejection).
+            this._httpFallbackUntilByPoolKey.set(poolKey, Number.POSITIVE_INFINITY);
         };
         const traceWsError = (err, stage = 'primary') => {
             try {
@@ -854,6 +854,9 @@ export class OpenAIOAuthProvider {
             } catch {}
         };
         const dispatchHttp = async (reason, originalErr = null, { sticky = false } = {}) => {
+            // Transport switching is a session decision, not an HTTP-success
+            // side effect. Persist it before the fallback can fail or abort.
+            if (sticky) markStickyHttpFallback();
             appendAgentTrace({
                 sessionId: poolKey,
                 iteration,
@@ -892,7 +895,6 @@ export class OpenAIOAuthProvider {
                 useModel,
                 fetchFn: opts._fetchFn,
             });
-            if (sticky) markStickyHttpFallback();
             if (process.env.MIXDOG_DEBUG_AGENT) {
                 process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok transport=http-fallback\n`);
             }
@@ -933,6 +935,13 @@ export class OpenAIOAuthProvider {
                 ? { ...body, generate: false }
                 : null,
         });
+        const mustSurfaceFallbackError = (fallbackErr) => externalSignal?.aborted
+            || fallbackErr?.name === 'AbortError'
+            || fallbackErr?.code === 'ABORT_ERR'
+            || fallbackErr?.liveTextEmitted === true
+            || fallbackErr?.emittedToolCall === true
+            || fallbackErr?.toolCallEmitted === true
+            || fallbackErr?.unsafeToRetry === true;
         if (transportPolicy.transport === 'http'
             || (transportPolicy.allowHttpFallback && (
                 opts.forceHttpFallback === true
@@ -959,7 +968,7 @@ export class OpenAIOAuthProvider {
             // the retry (and the HTTP fallback below already refuses) and
             // surface the original error.
             const liveTextEmitted = err?.liveTextEmitted === true || err?.unsafeToRetry === true;
-            if ((status === 401 || status === 403) && !liveTextEmitted) {
+            if (status === 401 && !liveTextEmitted) {
                 process.stderr.write(`[openai-oauth-ws] ${status} — forcing refresh and retrying once over WS\n`);
                 if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-${status}-retry attempt=1\n`); }
                 this._refreshFallbackUntil = 0;
@@ -971,7 +980,7 @@ export class OpenAIOAuthProvider {
                 } catch (retryErr) {
                     traceWsError(retryErr, 'auth_retry');
                     if (httpFallbackEnabled
-                        && retryErr?.wsRetriesExhausted === true
+                        && (retryErr?.httpStatus === 426 || retryErr?.wsRetriesExhausted === true)
                         && _shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {
                         try {
                             return await dispatchHttp(
@@ -980,6 +989,10 @@ export class OpenAIOAuthProvider {
                                 { sticky: true },
                             );
                         } catch (fallbackErr) {
+                            // Cancellation and post-output failures are the
+                            // current terminal outcome; replacing either with
+                            // stale WS history could permit upstream replay.
+                            if (mustSurfaceFallbackError(fallbackErr)) throw fallbackErr;
                             try { retryErr.fallbackError = fallbackErr; } catch {}
                             throw retryErr;
                         }
@@ -988,7 +1001,7 @@ export class OpenAIOAuthProvider {
                 }
             }
             // Auth failure after live text already emitted: never reissue.
-            if ((status === 401 || status === 403) && liveTextEmitted) {
+            if (status === 401 && liveTextEmitted) {
                 throw err;
             }
             const msg = err?.message || '';
@@ -1004,7 +1017,7 @@ export class OpenAIOAuthProvider {
                 return this.send(messages, model, tools, { ...opts, _modelRetry: true });
             }
             if (httpFallbackEnabled
-                && err?.wsRetriesExhausted === true
+                && (status === 426 || err?.wsRetriesExhausted === true)
                 && _shouldUseOpenAIHttpFallback(err, externalSignal)) {
                 try {
                     return await dispatchHttp(
@@ -1013,6 +1026,7 @@ export class OpenAIOAuthProvider {
                         { sticky: true },
                     );
                 } catch (fallbackErr) {
+                    if (mustSurfaceFallbackError(fallbackErr)) throw fallbackErr;
                     try { err.fallbackError = fallbackErr; } catch {}
                     throw err;
                 }

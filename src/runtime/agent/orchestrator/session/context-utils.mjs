@@ -1,5 +1,6 @@
 import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
+import { providerNativeToolPrefixCount } from '../../../../session-runtime/provider-request-tools.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { contentImageDescriptors, contentToText } from '../providers/media-normalization.mjs';
 
@@ -148,6 +149,14 @@ export function messageEstimateText(m) {
     if (m.role === 'assistant' && Array.isArray(m.reasoningItems) && m.reasoningItems.length) {
         text += `\n${nativeBlocksEstimateText(m.reasoningItems)}`;
     }
+    // Provider-scoped replay metadata is never sent to a different provider,
+    // but Gemini replays signed thought parts on subsequent Gemini turns.
+    const geminiThoughtParts = m.role === 'assistant'
+        ? m.providerMetadata?.gemini?.thoughtParts
+        : null;
+    if (Array.isArray(geminiThoughtParts) && geminiThoughtParts.length) {
+        text += `\n${nativeBlocksEstimateText(geminiThoughtParts)}`;
+    }
     if (m.role === 'tool' && m.toolCallId) text += `\n${m.toolCallId}`;
     return text;
 }
@@ -212,6 +221,7 @@ function contextMessageFingerprint(message) {
             thinkingBlocks: contextValueFingerprint(null),
             assistantBlocks: contextValueFingerprint(null),
             reasoningItems: contextValueFingerprint(null),
+            providerMetadata: contextValueFingerprint(null),
             toolCallId: null,
         };
     }
@@ -222,6 +232,7 @@ function contextMessageFingerprint(message) {
         thinkingBlocks: contextValueFingerprint(message.thinkingBlocks),
         assistantBlocks: contextValueFingerprint(message.assistantBlocks),
         reasoningItems: contextValueFingerprint(message.reasoningItems),
+        providerMetadata: contextValueFingerprint(message.providerMetadata),
         toolCallId: message?.toolCallId || null,
     };
 }
@@ -237,6 +248,7 @@ function sameContextMessageFingerprint(a, b) {
         && sameContextValueFingerprint(a.thinkingBlocks, b.thinkingBlocks)
         && sameContextValueFingerprint(a.assistantBlocks, b.assistantBlocks)
         && sameContextValueFingerprint(a.reasoningItems, b.reasoningItems)
+        && sameContextValueFingerprint(a.providerMetadata, b.providerMetadata)
         && a.toolCallId === b.toolCallId;
 }
 
@@ -680,8 +692,12 @@ const requestReserveTokenMemo = new WeakMap();
 
 function serializeToolSchemas(tools) {
     const list = Array.isArray(tools) ? tools : [];
+    const nativePrefixCount = providerNativeToolPrefixCount(list);
     try {
-        return JSON.stringify(list.map(tool => {
+        return JSON.stringify(list.map((tool, index) => {
+            if (index < nativePrefixCount) {
+                return tool;
+            }
             const wireTool = {
                 name: tool?.name,
                 description: tool?.description,

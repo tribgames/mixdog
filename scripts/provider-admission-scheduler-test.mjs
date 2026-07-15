@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import {
     PROVIDER_ACCOUNT_CONCURRENCY,
+    PROVIDER_ACCOUNT_MAX_QUEUE,
     ProviderAdmissionScheduler,
+    notifyCurrentAnthropicRateLimit,
     providerAdmissionKey,
     wrapProviderAdmission,
 } from '../src/runtime/agent/orchestrator/providers/admission-scheduler.mjs';
+import { providerInputExcludesCache } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { withRetry } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -22,8 +26,9 @@ const deferred = () => {
     return { promise, resolve };
 };
 
-test('fixed 64-wide lane drains an unbounded FIFO queue in continuous waves', async () => {
+test('fixed 64-wide non-Anthropic lane drains a bounded FIFO queue in continuous waves', async () => {
     assert.equal(PROVIDER_ACCOUNT_CONCURRENCY, 64);
+    assert.equal(PROVIDER_ACCOUNT_MAX_QUEUE, 1024);
     const scheduler = new ProviderAdmissionScheduler();
     const gate = deferred();
     let active = 0;
@@ -63,6 +68,132 @@ test('provider/account lanes are independent and never adapt downward', async ()
     assert.equal(activeB, 64);
     gate.resolve();
     await Promise.all(jobs);
+});
+
+test('hard ceiling and bounded queue reject overflow explicitly', async () => {
+    const scheduler = new ProviderAdmissionScheduler({ concurrency: 1000, maxQueue: 2 });
+    assert.equal(scheduler.concurrency, 64);
+    const gate = deferred();
+    const first = scheduler.run('openai:a', () => gate.promise);
+    const second = scheduler.run('openai:a', () => gate.promise);
+    const third = scheduler.run('openai:a', () => gate.promise);
+    // Fill all 64 active slots before exercising the two queue positions.
+    const active = Array.from({ length: 61 }, () => scheduler.run('openai:a', () => gate.promise));
+    const queuedA = scheduler.run('openai:a', () => gate.promise);
+    const queuedB = scheduler.run('openai:a', () => gate.promise);
+    await assert.rejects(
+        scheduler.run('openai:a', async () => 'overflow'),
+        (error) => error?.code === 'EPROVIDERQUEUEFULL' && error?.maxQueue === 2,
+    );
+    gate.resolve();
+    await Promise.all([first, second, third, ...active, queuedA, queuedB]);
+    assert.equal(scheduler.lanes.size, 0);
+});
+
+test('Anthropic internal 429 followed by success still cools down and recovers additively', async () => {
+    let now = 10_000;
+    const timers = new Set();
+    const scheduler = new ProviderAdmissionScheduler({
+        concurrency: 4,
+        now: () => now,
+        setTimer(fn, delay) {
+            const timer = { fn, at: now + delay };
+            timers.add(timer);
+            return timer;
+        },
+        clearTimer(timer) { timers.delete(timer); },
+    });
+    const advance = async (ms) => {
+        now += ms;
+        for (const timer of [...timers]) {
+            if (timer.at <= now) {
+                timers.delete(timer);
+                timer.fn();
+            }
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+    };
+
+    assert.equal(notifyCurrentAnthropicRateLimit(
+        Object.assign(new Error('outside'), { httpStatus: 429, retryAfterMs: 5000 }),
+    ), false);
+    assert.equal(await scheduler.run('anthropic-oauth:acct', async () => (
+        // Provider-owned recursive recovery must reuse the current slot.
+        scheduler.run('anthropic-oauth:acct', async () => {
+            assert.equal(notifyCurrentAnthropicRateLimit(
+                Object.assign(new Error('limited'), { httpStatus: 429, retryAfterMs: 5000 }),
+            ), true);
+            return 'eventual-success';
+        })
+    )), 'eventual-success');
+    const lane = scheduler.lanes.get('anthropic-oauth:acct');
+    assert.equal(lane.limit, 2);
+
+    const gates = Array.from({ length: 5 }, deferred);
+    let started = 0;
+    const work = gates.map((gate) => scheduler.run('anthropic-oauth:acct', async () => {
+        started += 1;
+        await gate.promise;
+    }));
+    await advance(4999);
+    assert.equal(started, 0);
+    await advance(1);
+    assert.equal(started, 2);
+    gates[0].resolve();
+    gates[1].resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(lane.limit, 3);
+    assert.equal(started, 5);
+    gates.slice(2).forEach((gate) => gate.resolve());
+    await Promise.all(work);
+    assert.equal(lane.limit, 4);
+    assert.equal(scheduler.lanes.size, 0);
+});
+
+test('Anthropic cooldown chunks oversized timers and deletes reduced idle lane only at expiry', async () => {
+    let now = 1000;
+    const delays = [];
+    let timer = null;
+    const scheduler = new ProviderAdmissionScheduler({
+        concurrency: 4,
+        now: () => now,
+        setTimer(fn, delay) {
+            delays.push(delay);
+            timer = { fn, at: now + delay };
+            return timer;
+        },
+        clearTimer() { timer = null; },
+    });
+    const runTimer = async () => {
+        const pending = timer;
+        timer = null;
+        now = pending.at;
+        pending.fn();
+        await new Promise((resolve) => setImmediate(resolve));
+    };
+    const oversized = 2_147_483_647 + 1234;
+
+    await scheduler.run('anthropic:acct', async () => {
+        notifyCurrentAnthropicRateLimit(
+            Object.assign(new Error('long cooldown'), { httpStatus: 429, retryAfterMs: oversized }),
+        );
+        return 'ok';
+    });
+    assert.equal(scheduler.lanes.get('anthropic:acct')?.limit, 2);
+    assert.equal(delays[0], 2_147_483_647);
+    assert.equal(scheduler.lanes.has('anthropic:acct'), true);
+
+    await runTimer();
+    assert.equal(delays[1], 1234);
+    assert.equal(scheduler.lanes.has('anthropic:acct'), true);
+    await runTimer();
+    assert.equal(scheduler.lanes.has('anthropic:acct'), false);
+
+    assert.equal(await scheduler.run('openai:acct', async () => (
+        notifyCurrentAnthropicRateLimit(
+            Object.assign(new Error('non-anthropic'), { httpStatus: 429, retryAfterMs: 1000 }),
+        )
+    )), false);
 });
 
 test('queued cancellation removes work and running cancellation reaches provider signal', async () => {
@@ -305,7 +436,25 @@ test('admission starts request stage only after queue wait', async () => {
     assert.deepEqual(stages, ['requesting']);
 });
 
-test('lane identity uses delegated provider credentials and stable OAuth account ids', () => {
+test('lane identity uses real Claude credential path across access and refresh rotation', () => {
+    const claudeBefore = {
+        credentials: { path: 'C:\\accounts\\claude-a.json', accessToken: 'access-old', refreshToken: 'refresh-old' },
+    };
+    const claudeAfter = {
+        credentials: { path: 'C:\\accounts\\claude-a.json', accessToken: 'access-new', refreshToken: 'refresh-new' },
+    };
+    const claudeOther = {
+        credentials: { path: 'C:\\accounts\\claude-b.json', accessToken: 'access-old', refreshToken: 'refresh-old' },
+    };
+    assert.equal(
+        providerAdmissionKey('anthropic-oauth', claudeBefore),
+        providerAdmissionKey('anthropic-oauth', claudeAfter),
+    );
+    assert.notEqual(
+        providerAdmissionKey('anthropic-oauth', claudeBefore),
+        providerAdmissionKey('anthropic-oauth', claudeOther),
+    );
+
     const grokA = { tokens: { user_id: 'user-a', access_token: 'old' } };
     const grokARefreshed = { tokens: { user_id: 'user-a', access_token: 'new' } };
     const grokB = { tokens: { user_id: 'user-b', access_token: 'old' } };
@@ -315,6 +464,115 @@ test('lane identity uses delegated provider credentials and stable OAuth account
         providerAdmissionKey('opencode-go', { config: { apiKey: 'account-a' } }),
         providerAdmissionKey('opencode-go', { config: { apiKey: 'account-b' } }),
     );
+    assert.notEqual(
+        providerAdmissionKey('anthropic', { apiKey: 'direct-account-a', config: {} }),
+        providerAdmissionKey('anthropic', { apiKey: 'direct-account-b', config: {} }),
+    );
+});
+
+test('usage convention is declared by providers, never guessed from an unknown name', () => {
+    assert.equal(AnthropicProvider.inputExcludesCache, true);
+    assert.equal(AnthropicOAuthProvider.inputExcludesCache, true);
+    assert.equal(providerInputExcludesCache('anthropic'), true);
+    assert.equal(providerInputExcludesCache('anthropic-oauth'), true);
+    assert.equal(providerInputExcludesCache('unknown-anthropic-compatible-proxy'), false);
+});
+
+test('fresh registry knows built-in Anthropic usage convention before provider instantiation', () => {
+    const registryUrl = new URL('../src/runtime/agent/orchestrator/providers/registry.mjs', import.meta.url).href;
+    const output = execFileSync(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `const r = await import(${JSON.stringify(registryUrl)}); process.stdout.write(JSON.stringify([
+            r.providerInputExcludesCache('anthropic'),
+            r.providerInputExcludesCache('anthropic-oauth'),
+            r.providerInputExcludesCache('disabled-anthropic-proxy')
+        ]));`,
+    ], { encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(output), [true, true, false]);
+});
+
+test('usage lookup stays registration-free when OAuth credentials are available', () => {
+    const registryUrl = new URL('../src/runtime/agent/orchestrator/providers/registry.mjs', import.meta.url).href;
+    const probesUrl = new URL('../src/runtime/agent/orchestrator/providers/oauth-credential-probes.mjs', import.meta.url).href;
+    const output = execFileSync(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `const fs = await import('node:fs');
+        const os = await import('node:os');
+        const path = await import('node:path');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mixdog-usage-pure-'));
+        const credentialsPath = path.join(dir, 'openai-oauth.json');
+        fs.writeFileSync(credentialsPath, JSON.stringify({access_token:'fixture',refresh_token:'fixture'}));
+        process.env.OPENAI_OAUTH_CREDENTIALS_PATH = credentialsPath;
+        try {
+            const probes = await import(${JSON.stringify(probesUrl)});
+            const r = await import(${JSON.stringify(registryUrl)});
+            const available = probes.hasOpenAIOAuthCredentials();
+            const before = r.getAllProviders().size;
+            const usage = r.providerInputExcludesCache('openai-oauth');
+            const after = r.getAllProviders().size;
+            process.stdout.write(JSON.stringify([available, before, usage, after]));
+        } finally {
+            fs.rmSync(dir, {recursive:true, force:true});
+        }`,
+    ], { encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(output), [true, 0, false, 0]);
+});
+
+test('loaded Anthropic OAuth constructor remains untouched by usage lookup', () => {
+    const registryUrl = new URL('../src/runtime/agent/orchestrator/providers/registry.mjs', import.meta.url).href;
+    const probesUrl = new URL('../src/runtime/agent/orchestrator/providers/oauth-credential-probes.mjs', import.meta.url).href;
+    const output = execFileSync(process.execPath, [
+        '--input-type=module',
+        '--eval',
+        `const fs = await import('node:fs');
+        const os = await import('node:os');
+        const path = await import('node:path');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mixdog-usage-loaded-'));
+        const credentialsPath = path.join(dir, 'anthropic-oauth.json');
+        fs.writeFileSync(credentialsPath, JSON.stringify({
+            claudeAiOauth: {accessToken:'fixture', scopes:['user:inference']}
+        }));
+        process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH = credentialsPath;
+        try {
+            const probes = await import(${JSON.stringify(probesUrl)});
+            const r = await import(${JSON.stringify(registryUrl)});
+            let constructorCalls = 0;
+            class LoadedAnthropicOAuth {
+                static inputExcludesCache = true;
+                constructor() { constructorCalls++; }
+            }
+            const available = probes.hasAnthropicOAuthCredentials();
+            const legacy = r._withLoadedProviderCtorForTest(
+                'anthropic-oauth',
+                LoadedAnthropicOAuth,
+                () => {
+                    r.getProvider('anthropic-oauth');
+                    return [constructorCalls, r.getAllProviders().size];
+                },
+            );
+            const restoredAfterLegacy = r.getAllProviders().size;
+            constructorCalls = 0;
+            const current = r._withLoadedProviderCtorForTest(
+                'anthropic-oauth',
+                LoadedAnthropicOAuth,
+                () => [
+                    r.providerInputExcludesCache('anthropic-oauth'),
+                    constructorCalls,
+                    r.getAllProviders().size,
+                ],
+            );
+            process.stdout.write(JSON.stringify([
+                available, ...legacy, restoredAfterLegacy, ...current, r.getAllProviders().size
+            ]));
+        } finally {
+            fs.rmSync(dir, {recursive:true, force:true});
+        }`,
+    ], { encoding: 'utf8' });
+    // The legacy getProvider-based path constructs/registers (1,1). The pure
+    // lookup returns true without either effect, and both seam exits restore.
+    assert.deepEqual(JSON.parse(output), [true, 1, 1, 0, true, 0, 0, 0]);
 });
 
 test('first-byte deadlines remain 60 seconds', () => {

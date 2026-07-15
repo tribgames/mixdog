@@ -90,16 +90,20 @@ export function _geminiCachePrefixContents(contents, prefixCount) {
     });
 }
 
-export function _geminiCachePrefixHash({ model, systemInstruction, geminiTools, contents, prefixCount }) {
+export function _geminiCachePrefixHash({ model, systemInstruction, geminiTools, toolConfig, contents, prefixCount }) {
     return traceHash(stableTraceStringify({
         model: model || null,
         systemInstruction: systemInstruction || '',
         tools: geminiTools || [],
+        toolConfig: toolConfig || null,
         contents: _geminiCachePrefixContents(contents, prefixCount),
     }));
 }
 
-export const GEMINI_GLOBAL_CACHE_MIN_LIVE_MS = 6 * 60 * 1000;
+// The provider's default explicit-cache TTL is five minutes. A six-minute
+// global-cache floor made every freshly-created default cache ineligible for
+// cross-session reuse. Ten seconds matches the per-session minimum headroom.
+export const GEMINI_GLOBAL_CACHE_MIN_LIVE_MS = 10 * 1000;
 export const GEMINI_GLOBAL_CACHE_MAX_ENTRIES = 128;
 // Grace window before deleting a superseded cachedContents name (see the
 // cross-session race note at the delete call site in gemini.mjs). Long enough
@@ -108,13 +112,28 @@ export const GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS = 2 * 60 * 1000;
 export const geminiGlobalCaches = new Map();
 export const geminiGlobalCacheCreates = new Map();
 
-export function _geminiGlobalCacheKey({ apiKey, model, cachePrefixHash, cachePrefixContentCount }) {
+export function _geminiCredentialFingerprint(apiKey) {
+    return traceHash(String(apiKey || ''));
+}
+
+export function _geminiGlobalCacheKey({ credentialFingerprint, model, cachePrefixHash, cachePrefixContentCount }) {
     return traceHash(stableTraceStringify({
-        apiKeyHash: traceHash(apiKey || ''),
+        credentialFingerprint: credentialFingerprint || null,
         model: model || null,
         cachePrefixHash,
         cachePrefixContentCount,
     }));
+}
+
+export function _invalidateGeminiCachesForCredentialFingerprint(credentialFingerprint) {
+    if (!credentialFingerprint) return 0;
+    let removed = 0;
+    for (const [key, entry] of geminiGlobalCaches) {
+        if (entry?.cacheCredentialFingerprint !== credentialFingerprint) continue;
+        geminiGlobalCaches.delete(key);
+        removed += 1;
+    }
+    return removed;
 }
 
 export function _pruneGeminiGlobalCaches(now = Date.now()) {
@@ -172,6 +191,7 @@ export function _attachGeminiCacheState(opts, entry, currentIter) {
             cacheTokenSize: entry.cacheTokenSize,
             cachePrefixContentCount: entry.cachePrefixContentCount,
             cachePrefixHash: entry.cachePrefixHash,
+            cacheCredentialFingerprint: entry.cacheCredentialFingerprint,
         },
     };
 }

@@ -99,7 +99,7 @@ export function createLifecycleApi(deps) {
       try { agentTool.closeAll(reason); } catch {}
       let mcpStop = null;
       try { mcpStop = mcpClient.disconnectAll?.(); } catch {}
-      const openaiWsStop = globalThis.__mixdogOpenaiWsRuntimeLoaded === true
+      const openaiWsStop = isProcessExit && globalThis.__mixdogOpenaiWsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/providers/openai-oauth-ws.mjs')
           .then((mod) => mod?.drainOpenaiWsPool?.(reason))
           .catch(() => {})

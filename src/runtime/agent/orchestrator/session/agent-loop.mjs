@@ -89,6 +89,11 @@ import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
 import { sendWithRecovery } from './send-with-recovery.mjs';
 import { processToolBatch } from './tool-batch.mjs';
+import { snapshotProviderRequestTools } from '../../../../session-runtime/tool-catalog.mjs';
+import {
+    providerNativeToolPrefixCount,
+    runWithProviderRequestToolsScope,
+} from '../../../../session-runtime/provider-request-tools.mjs';
 
 // Facade re-exports: these symbols moved to split modules under ./loop/ but
 // remain part of loop.mjs's public surface (imported by scripts/tests and other
@@ -169,6 +174,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // payloads; the originating provider owns them. Stateful Responses
     // providers may use it for continuation anchors.
     let providerState = opts.providerState ?? undefined;
+    let providerStateUpdated = false;
+    let _providerStateCleared = false;
     const throwIfAborted = () => {
         if (signal?.aborted) {
             const reason = signal.reason instanceof Error ? signal.reason : null;
@@ -242,6 +249,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const thinkingBlocks = Array.isArray(resp.thinkingBlocks) && resp.thinkingBlocks.length
             ? resp.thinkingBlocks
             : null;
+        const providerMetadata = resp.providerMetadata && typeof resp.providerMetadata === 'object'
+            ? resp.providerMetadata
+            : null;
         if (!content && !reasoningContent && !reasoningItems && !thinkingBlocks) return false;
         messages.push({
             role: 'assistant',
@@ -251,6 +261,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ...(thinkingBlocks ? { thinkingBlocks } : {}),
             ...(reasoningItems ? { reasoningItems } : {}),
             ...(reasoningContent ? { reasoningContent } : {}),
+            ...(providerMetadata ? { providerMetadata } : {}),
         });
         return true;
     };
@@ -393,30 +404,75 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             _toolBatchJustCompleted = false;
             _lastToolBatchHadSleep = false;
         }
-        ({
-            iterations,
-            lastUsage,
-            firstTurnUsage,
-            providerState,
-            reactiveOverflowRetryPending,
-        } = await runPreSendCompactPass({
-            provider,
-            messages,
-            model,
-            tools,
-            sessionRef,
-            sessionId,
-            cwd,
-            opts,
-            signal,
-            iterations,
-            lastUsage,
-            firstTurnUsage,
-            providerState,
-            reactiveOverflowRetryPending,
-            loopUsageMetricsTurnId,
-            loopUsageMetricsEpoch,
-        }));
+        const baseSendTools = _capFinalToolsDisabled
+            ? tools
+            : (forcedFirstToolDef && toolCallsTotal === 0 ? [forcedFirstToolDef] : tools);
+        let sendTools;
+        let requestToolScope;
+        let compactChanged;
+        do {
+            // Provider-history normalization is part of the request boundary:
+            // repair first, then take exactly one immutable tool snapshot for
+            // pressure, send, recovery, and usage/baseline telemetry.
+            const messagesBeforeTranscriptRepair = messages.slice();
+            repairTranscriptBeforeProviderSend(messages, sessionId);
+            if (!opts.cacheBreakIntent
+                && (messages.length !== messagesBeforeTranscriptRepair.length
+                    || messages.some((message, index) => message !== messagesBeforeTranscriptRepair[index]))) {
+                opts.cacheBreakIntent = 'transcript_rebuild';
+            }
+            for (let _i = 0; _i < messages.length; _i++) {
+                const _m = messages[_i];
+                if (_m && _m.role === 'tool' && typeof _m.content === 'string' && _m.content.includes('⚠')) {
+                    const _stripped = stripSoftWarns(_m.content);
+                    if (_stripped !== _m.content) _m.content = _stripped;
+                }
+            }
+            sendTools = snapshotProviderRequestTools({
+                provider: sessionRef?.provider || provider?.name,
+                tools: baseSendTools,
+                nativeTools: opts.nativeTools,
+                messages,
+                session: sessionRef,
+            });
+            requestToolScope = {
+                session: sessionRef,
+                provider: sessionRef?.provider || provider?.name,
+                messages,
+                requestTools: sendTools,
+                nativePrefixCount: providerNativeToolPrefixCount(sendTools),
+            };
+            ({
+                iterations,
+                lastUsage,
+                firstTurnUsage,
+                providerState,
+                providerStateCleared: _providerStateCleared,
+                reactiveOverflowRetryPending,
+                compactChanged,
+            } = await runWithProviderRequestToolsScope(requestToolScope, () => runPreSendCompactPass({
+                provider,
+                messages,
+                model,
+                requestTools: sendTools,
+                sessionRef,
+                sessionId,
+                cwd,
+                opts,
+                signal,
+                iterations,
+                lastUsage,
+                firstTurnUsage,
+                providerState,
+                reactiveOverflowRetryPending,
+                loopUsageMetricsTurnId,
+                loopUsageMetricsEpoch,
+            })));
+            if (_providerStateCleared) providerStateUpdated = true;
+            // A changed transcript ends this request attempt. Repair the new
+            // history and establish one fresh post-compaction snapshot before
+            // evaluating pressure again or sending.
+        } while (compactChanged);
         const nextIteration = iterations + 1;
         opts.iteration = nextIteration;
         opts.providerState = providerState;
@@ -437,9 +493,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         } else {
             delete opts.toolChoice;
         }
-        const sendTools = _capFinalToolsDisabled
-            ? tools
-            : (forcedFirstToolDef && toolCallsTotal === 0 ? [forcedFirstToolDef] : tools);
+        // The adapter must serialize this exact immutable list. Direct adapter
+        // callers omit the flag and retain legacy live deferred resolution.
+        opts.providerToolSnapshotAuthoritative = true;
+        opts.providerNativeToolPrefixCount = requestToolScope.nativePrefixCount;
         lastSendTools = sendTools;
         // Eager-dispatch queue: when the provider streams a tool-call event,
         // start read-only tools immediately so execution overlaps with the
@@ -465,35 +522,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // is reused across iterations but onToolCall is cleared to undefined
         // after send() below, so non-cap iterations are unaffected.
         opts.onToolCall = _capFinalToolsDisabled ? undefined : eager.onToolCall;
-        // Reattach separated tool results, then drop only truly dangling
-        // assistant/orphan pairs before the provider sees the transcript.
-        const messagesBeforeTranscriptRepair = messages.slice();
-        repairTranscriptBeforeProviderSend(messages, sessionId);
-        if (!opts.cacheBreakIntent
-            && (messages.length !== messagesBeforeTranscriptRepair.length
-                || messages.some((message, index) => message !== messagesBeforeTranscriptRepair[index]))) {
-            // Pairing repair deliberately rebuilds the provider transcript;
-            // record that intent without broadening the mismatch hash scope.
-            opts.cacheBreakIntent = 'transcript_rebuild';
-        }
-        // Strip soft-warn markers from prior tool results before the next
-        // send. Marker bytes (Tool-budget(xN), Same-file reads(xN), etc.)
-        // mutate every turn with dynamic counters, so leaving them in the
-        // transcript breaks server-side prefix cache lookup on later turns.
-        // The current turn's marker (if any) is appended AFTER this strip,
-        // so the model still sees the self-correct hint on its own iteration.
-        for (let _i = 0; _i < messages.length; _i++) {
-            const _m = messages[_i];
-            if (_m && _m.role === 'tool' && typeof _m.content === 'string' && _m.content.includes('⚠')) {
-                const _stripped = stripSoftWarns(_m.content);
-                if (_stripped !== _m.content) _m.content = _stripped;
-            }
-        }
         const sendStartedAt = Date.now();
-        const _sendResult = await sendWithRecovery({
-            provider, messages, model, sendTools, tools, opts,
-            sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
-        });
+        const _sendResult = await runWithProviderRequestToolsScope(
+            requestToolScope,
+            () => sendWithRecovery({
+                provider, messages, model, sendTools, tools: sendTools, opts,
+                sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
+            }),
+        );
         if (_sendResult.action === 'retry') {
             delete opts.cacheBreakIntent;
             contextOverflowRetryUsed = true;
@@ -504,9 +540,13 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         opts.onToolCall = undefined;
         delete opts.cacheBreakIntent;
         contextOverflowRetryUsed = false;
-        // Capture opaque state for the next turn (may be undefined — that's
-        // the stateless contract for providers that don't use continuation).
-        providerState = response?.providerState ?? undefined;
+        // Capture opaque state for the next turn only when the provider
+        // explicitly returned the field. Absence means "no update"; an own
+        // property with null/undefined means "clear".
+        if (response && Object.hasOwn(response, 'providerState')) {
+            providerState = response.providerState;
+            providerStateUpdated = true;
+        }
         iterations = nextIteration;
         // Loop trace has two modes (both no-op on provider behavior):
         //   VERBOSE=1 → full row; pay the FULL messages+tools payload byte
@@ -574,7 +614,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // immediately so watchdog / agent type=list sees live totals mid-turn.
         if (sessionId && opts.onUsageDelta && response.usage) {
             try {
-                opts.onUsageDelta({
+                runWithProviderRequestToolsScope(requestToolScope, () => opts.onUsageDelta({
                     sessionId,
                     iterationIndex: iterations,
                     usageMetricsTurnId: loopUsageMetricsTurnId(),
@@ -590,7 +630,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     deltaCacheWrite: response.usage.cacheWriteTokens || 0,
                     sendTools,
                     ts: Date.now(),
-                });
+                }));
             } catch { /* best-effort — never break the loop */ }
         }
         // No tool calls. For PUBLIC agents, the agent contract
@@ -741,6 +781,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ...(typeof response.reasoningContent === 'string' && response.reasoningContent
                 ? { reasoningContent: response.reasoningContent }
                 : {}),
+            ...(response.providerMetadata && typeof response.providerMetadata === 'object'
+                ? { providerMetadata: response.providerMetadata }
+                : {}),
         };
         messages.push(_assistantTurnMsg);
         // Hard-cap final turn: tools are disabled but the model still emitted
@@ -786,6 +829,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         iterations,
         toolCallsTotal,
         providerState,
+        providerStateUpdated,
         terminationReason,
         maxLoopIterations,
     };

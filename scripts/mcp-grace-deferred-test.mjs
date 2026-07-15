@@ -11,13 +11,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     applyDeferredToolSurface,
+    rebuildDeferredToolSurfaceForProvider,
     refreshInitialDeferredMcpSurface,
     reconcileDeferredMcpToolCatalog,
 } from '../src/session-runtime/tool-catalog.mjs';
 
-function baseSession() {
+function baseSession(provider = 'anthropic-oauth') {
     return {
-        provider: 'legacy',
+        provider,
         tools: [{ name: 'read', description: 'read a file' }, { name: 'grep', description: 'search' }],
         messages: [{ role: 'system', content: 'BASE PROMPT' }],
     };
@@ -26,9 +27,9 @@ function baseSession() {
 // A freshly-created session: the create-time surface is baked WITHOUT any MCP
 // (server still mid-handshake at create). `shell` is a deferred (non-active)
 // standalone tool so BP1 carries a manifest block even before MCP arrives.
-function createdSession() {
-    const session = baseSession();
-    applyDeferredToolSurface(session, 'full', [{ name: 'shell', description: 'run a command' }], { provider: 'legacy' });
+function createdSession(provider = 'anthropic-oauth') {
+    const session = baseSession(provider);
+    applyDeferredToolSurface(session, 'full', [{ name: 'shell', description: 'run a command' }], { provider: session.provider });
     return session;
 }
 
@@ -93,7 +94,7 @@ test('recreated session (MCP already connected at create) seeds its manifest, no
     // surface at create time, so a cwd-change recreate seeds its BP1 directly and
     // never needs the first-turn refresh.
     const session = baseSession();
-    applyDeferredToolSurface(session, 'full', [{ name: 'shell', description: 'run a command' }, mcpTool], { provider: 'legacy' });
+    applyDeferredToolSurface(session, 'full', [{ name: 'shell', description: 'run a command' }, mcpTool], { provider: session.provider });
     assert.ok(systemContent(session).includes('mcp__unity__get_scene'), 'MCP in recreated BP1');
     assert.ok(session.deferredAnnouncedTools.includes('mcp__unity__get_scene'), 'recreated MCP pre-marked announced');
 
@@ -128,7 +129,7 @@ test('a second newly-connected MCP tool re-renders BP1 in place (both listed, st
 test('a resumed session (no fresh flag, prior baked BP1) is NOT refreshed on its next turn', () => {
     // A prior run baked BP1 with the MCP tool; resume reloads that transcript.
     const session = baseSession();
-    applyDeferredToolSurface(session, 'full', [{ name: 'shell', description: 'run a command' }, mcpTool], { provider: 'legacy' });
+    applyDeferredToolSurface(session, 'full', [{ name: 'shell', description: 'run a command' }, mcpTool], { provider: session.provider });
     const before = systemContent(session);
     const announcedBefore = [...session.deferredAnnouncedTools];
     // Resume path never sets the per-session fresh flag.
@@ -139,11 +140,86 @@ test('a resumed session (no fresh flag, prior baked BP1) is NOT refreshed on its
     assert.deepEqual([...session.deferredAnnouncedTools], announcedBefore, 'announced set unchanged on resume');
 });
 
-test('a fresh session (flagged) is refreshed exactly once, then falls to the late path', () => {
-    const session = createdSession();
+test('fresh-session refresh state is isolated, one-shot, and survives provider switches without leaking', () => {
+    const refreshedSession = createdSession();
+    const noOpSession = createdSession();
+    refreshedSession.deferredInitialRefreshPending = true;
+    noOpSession.deferredInitialRefreshPending = true;
+
+    assert.equal(firstTurnGate(refreshedSession, [mcpTool]), 'refreshed', 'fresh session refreshes on its first turn');
+    assert.equal(refreshedSession.deferredInitialRefreshPending, false, 'fresh flag consumed (one-shot)');
+    assert.equal(noOpSession.deferredInitialRefreshPending, true, 'consuming one session does not consume another');
+    assert.ok(refreshedSession.deferredAnnouncedTools.includes('mcp__unity__get_scene'), 'first-turn MCP pre-announced');
+    assert.ok(!noOpSession.deferredAnnouncedTools.includes('mcp__unity__get_scene'), 'announced state does not leak between sessions');
+    assert.equal(firstTurnGate(refreshedSession, [mcpTool2]), 'late', 'second turn no longer refreshes');
+
+    rebuildDeferredToolSurfaceForProvider(noOpSession, 'xai');
+    noOpSession.provider = 'xai';
+    const beforeNoOp = systemContent(noOpSession);
+    assert.equal(beforeNoOp.includes('<available-deferred-tools>'), false, 'canonical switch removes native manifest state');
+    assert.equal(firstTurnGate(noOpSession, []), 'refresh-noop', 'canonical provider consumes an empty one-shot without a manifest refresh');
+    assert.equal(noOpSession.deferredInitialRefreshPending, false, 'no-op also consumes the fresh flag');
+    assert.equal(systemContent(noOpSession), beforeNoOp, 'canonical no-op leaves the initial manifest byte-identical');
+
+    rebuildDeferredToolSurfaceForProvider(noOpSession, 'anthropic-oauth');
+    noOpSession.provider = 'anthropic-oauth';
+    assert.equal(firstTurnGate(noOpSession, [mcpTool2]), 'late', 'switching back cannot resurrect first-turn refresh state');
+    assert.ok(!noOpSession.deferredAnnouncedTools.includes('mcp__unity__run_tests'), 'post-switch tool remains eligible for the late path');
+});
+
+test('legacy canonical snapshot gains a grace-connected MCP tool for the first turn and session lifetime', () => {
+    const session = createdSession('legacy');
     session.deferredInitialRefreshPending = true;
-    assert.equal(firstTurnGate(session, [mcpTool]), 'refreshed', 'fresh session refreshes on its first turn');
-    assert.equal(session.deferredInitialRefreshPending, false, 'fresh flag consumed (one-shot)');
-    assert.ok(session.deferredAnnouncedTools.includes('mcp__unity__get_scene'), 'first-turn MCP pre-announced');
-    assert.equal(firstTurnGate(session, [mcpTool2]), 'late', 'second turn no longer refreshes');
+    const before = systemContent(session);
+
+    assert.equal(firstTurnGate(session, [mcpTool]), 'refreshed', 'grace fold updates the canonical snapshot');
+    assert.ok(session.tools.some((tool) => tool.name === mcpTool.name), 'tool is provider-visible on the first turn');
+    assert.ok(session.deferredCallableTools.includes(mcpTool.name), 'tool is callable for the session');
+    assert.ok(session.deferredToolCatalog.some((tool) => tool.name === mcpTool.name), 'tool persists in the session catalog');
+    assert.equal(systemContent(session), before, 'canonical refresh does not introduce a native manifest');
+    assert.equal(systemContent(session).includes('<available-deferred-tools>'), false);
+
+    const toolsOnce = JSON.stringify(session.tools);
+    assert.equal(refreshInitialDeferredMcpSurface(session, [mcpTool]), false, 'repeated fold is a no-op');
+    assert.equal(JSON.stringify(session.tools), toolsOnce, 'repeated fold leaves the fixed surface byte-identical');
+    assert.equal(firstTurnGate(session, [mcpTool]), 'late', 'one-shot gate remains consumed');
+});
+
+test('legacy to Anthropic and back preserves grace MCP availability without manifest leakage or duplication', () => {
+    const session = createdSession('legacy');
+    assert.equal(refreshInitialDeferredMcpSurface(session, [mcpTool]), true);
+
+    rebuildDeferredToolSurfaceForProvider(session, 'anthropic-oauth');
+    session.provider = 'anthropic-oauth';
+    assert.ok(session.deferredToolCatalog.some((tool) => tool.name === mcpTool.name), 'native switch retains the MCP catalog entry');
+    assert.ok(systemContent(session).includes(mcpTool.name), 'native switch advertises the retained deferred tool');
+    assert.equal((systemContent(session).match(/<available-deferred-tools>/g) || []).length, 1, 'native switch creates one manifest');
+
+    rebuildDeferredToolSurfaceForProvider(session, 'legacy');
+    session.provider = 'legacy';
+    assert.ok(session.tools.some((tool) => tool.name === mcpTool.name), 'canonical switch restores the MCP tool to the active surface');
+    assert.ok(session.deferredCallableTools.includes(mcpTool.name), 'canonical switch keeps the MCP tool callable');
+    assert.equal(systemContent(session).includes('<available-deferred-tools>'), false, 'native manifest does not leak back to canonical');
+    assert.deepEqual(session.deferredAnnouncedTools, [], 'native announcement state does not leak back to canonical');
+
+    rebuildDeferredToolSurfaceForProvider(session, 'anthropic-oauth');
+    session.provider = 'anthropic-oauth';
+    assert.equal((systemContent(session).match(/<available-deferred-tools>/g) || []).length, 1, 'repeat switch still creates only one manifest');
+});
+
+test('canonical MCP arriving after the first-turn grace keeps the fixed snapshot and emits no late reminder', () => {
+    const session = createdSession('legacy');
+    session.deferredInitialRefreshPending = true;
+    assert.equal(firstTurnGate(session, []), 'refresh-noop');
+    const before = JSON.stringify(session.tools);
+    let enqueued = null;
+
+    const result = reconcileDeferredMcpToolCatalog(session, [mcpTool2], {
+        enqueue: (text) => { enqueued = text; return true; },
+    });
+    assert.equal(result, null, 'canonical reconciliation keeps the create/grace snapshot fixed');
+    assert.equal(JSON.stringify(session.tools), before, 'post-grace MCP does not churn the canonical surface');
+    assert.equal(session.deferredToolCatalog.some((tool) => tool.name === mcpTool2.name), false);
+    assert.equal(enqueued, null, 'canonical provider emits no native late reminder');
+    assert.equal(systemContent(session).includes('<available-deferred-tools>'), false);
 });

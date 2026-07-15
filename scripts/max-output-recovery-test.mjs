@@ -37,6 +37,7 @@ async function run(provider, messages = [{ role: 'user', content: 'answer fully'
     return agentLoop(provider, messages, 'fake-model', [], options.onToolCall, process.cwd(), {
         onTextDelta: options.onTextDelta,
         session: options.session,
+        providerState: options.providerState,
     });
 }
 
@@ -115,6 +116,45 @@ test('Gemini MAX_TOKENS ProviderIncompleteError enters the same bounded recovery
     );
     assert.equal(result.lastTurnUsage.outputTokens, 2);
     assert.equal(provider.sent[1][1].content, 'gemini ');
+});
+
+test('Gemini MAX_TOKENS continuation preserves provider-scoped replay metadata', async () => {
+    const providerMetadata = {
+        gemini: { thoughtParts: [{ text: 'signed thought', thoughtSignature: 'sig-gemini' }] },
+    };
+    const incomplete = Object.assign(new Error('MAX_TOKENS'), {
+        code: 'PROVIDER_INCOMPLETE',
+        providerIncomplete: true,
+        finishReason: 'MAX_TOKENS',
+        partialContent: 'first ',
+        providerMetadata,
+    });
+    const provider = queuedProvider([
+        incomplete,
+        { content: 'second', stopReason: 'end_turn' },
+    ]);
+    await run(provider);
+    assert.deepEqual(provider.sent[1][1].providerMetadata, providerMetadata);
+});
+
+test('Gemini partial-final stall commits signed provider metadata with partial text', async () => {
+    const providerMetadata = {
+        gemini: {
+            thoughtParts: [{ text: 'private', thoughtSignature: 'sig-private' }],
+            textParts: [{ text: 'partial answer', thoughtSignature: 'sig-text' }],
+        },
+    };
+    const stalled = Object.assign(new Error('stalled'), {
+        streamStalled: true,
+        pendingToolUse: false,
+        emittedToolCall: false,
+        partialContent: 'partial answer',
+        providerMetadata,
+    });
+    const messages = [{ role: 'user', content: 'answer' }];
+    const result = await run(queuedProvider([stalled]), messages);
+    assert.equal(result.content, 'partial answer');
+    assert.deepEqual(result.providerMetadata, providerMetadata);
 });
 
 test('pause_turn and Gemini OTHER preserve prior non-empty semantics and do not recover', async () => {
@@ -243,6 +283,21 @@ test('clean end_turn is unchanged and does not enter recovery', async () => {
     assert.equal(result.terminationReason, undefined);
     assert.equal(Object.hasOwn(result, 'historyContent'), false);
     assert.deepEqual(messages, [{ role: 'user', content: 'answer fully' }]);
+});
+
+test('providerState distinguishes no update from an explicit clear for other providers', async () => {
+    const initial = { otherProvider: { continuation: 'keep' } };
+    const noUpdate = await run(queuedProvider([
+        { content: 'done', stopReason: 'end_turn' },
+    ]), undefined, { providerState: initial });
+    assert.deepEqual(noUpdate.providerState, initial);
+    assert.equal(noUpdate.providerStateUpdated, false);
+
+    const cleared = await run(queuedProvider([
+        { content: 'done', stopReason: 'end_turn', providerState: null },
+    ]), undefined, { providerState: initial });
+    assert.equal(cleared.providerState, null);
+    assert.equal(cleared.providerStateUpdated, true);
 });
 
 test('tool-call turns keep the normal tool execution path', async () => {

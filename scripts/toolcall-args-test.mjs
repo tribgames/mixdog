@@ -181,7 +181,7 @@ function livePingOnlyResponse(intervalMs = 5) {
 
 test('anthropic SSE: comments do not count as stream progress', async () => {
     const state = { firstMessageTimeoutMs: 100 };
-    let deltas = 0;
+    const progressKinds = [];
     const result = await parseSSEStream(
         responseFromSseText([
             ':ping',
@@ -198,24 +198,28 @@ test('anthropic SSE: comments do not count as stream progress', async () => {
         ].join('\n')),
         null,
         null,
-        () => { deltas += 1; },
+        (kind) => progressKinds.push(kind),
         null,
         state,
         null,
     );
     assert.equal(result.content, 'hi');
-    assert.equal(deltas, 1, 'only the text delta should count as semantic progress');
+    assert.deepEqual(
+        progressKinds,
+        ['transport', 'semantic', 'text'],
+        'the comment emits nothing; message_start and text each report only their exact kinds',
+    );
 });
 
 test('anthropic SSE: ping-only stream times out before empty-stream guard can hang', async () => {
     const controller = new AbortController();
-    let deltas = 0;
+    const progressKinds = [];
     await assert.rejects(
         () => parseSSEStream(
             livePingOnlyResponse(),
             controller.signal,
             (reason) => controller.abort(reason),
-            () => { deltas += 1; },
+            (kind) => progressKinds.push(kind),
             null,
             { firstMessageTimeoutMs: 30 },
             null,
@@ -227,5 +231,9 @@ test('anthropic SSE: ping-only stream times out before empty-stream guard can ha
             return true;
         },
     );
-    assert.equal(deltas, 0, 'SSE comments must not refresh semantic stream progress');
+    assert.deepEqual(
+        progressKinds,
+        [],
+        'ping-only SSE must emit no transport, semantic, or content progress',
+    );
 });

@@ -25,6 +25,7 @@ import {
     ensureLatestAnthropicModel,
 } from './anthropic-model-resolve.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
+import { providerNativeToolPrefixCount } from '../../../../session-runtime/provider-request-tools.mjs';
 import {
     TOKEN_REFRESH_SKEW_MS,
     isAnthropicOAuthRefreshDisabled,
@@ -41,13 +42,15 @@ import {
 } from './anthropic-oauth-credentials.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-    PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
-    PROVIDER_RETRY_BACKOFF_MS,
-    PROVIDER_RETRY_MAX_ATTEMPTS,
     createPassthroughSignal,
 } from '../stall-policy.mjs';
 import {
+    ANTHROPIC_RETRY_BACKOFF_MS,
+    ANTHROPIC_RETRY_JITTER_RATIO,
+    AnthropicFallbackTriggeredError,
+    anthropicRequestTimeoutMs,
     classifyError,
+    anthropicMaxAttempts,
     midstreamBackoffFor,
     retryAfterMsFromError,
     withRetry,
@@ -66,6 +69,7 @@ import {
 } from './anthropic-effort.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
+import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
 
 // --- Model catalog cache helpers: extracted to anthropic-model-resolve.mjs ---
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
@@ -352,6 +356,24 @@ function deferredAnthropicTools(activeTools, messages, opts) {
     return catalog
         .filter((tool) => tool?.name && discovered.has(String(tool.name)) && !active.has(String(tool.name)))
         .map((tool) => ({ ...tool, deferLoading: true }));
+}
+function requestAnthropicTools(tools, messages, opts) {
+    const activeTools = Array.isArray(tools) ? tools : [];
+    if (opts?.providerToolSnapshotAuthoritative === true) {
+        const nativePrefixCount = providerNativeToolPrefixCount(
+            activeTools,
+            opts.providerNativeToolPrefixCount,
+        );
+        return [
+            ...activeTools.slice(0, nativePrefixCount),
+            ...toAnthropicTools(activeTools.slice(nativePrefixCount)),
+        ];
+    }
+    const deferredTools = deferredAnthropicTools(activeTools, messages, opts);
+    return [
+        ...nativeAnthropicTools(opts),
+        ...toAnthropicTools([...activeTools, ...deferredTools]),
+    ];
 }
 
 function toAnthropicMessages(messages) {
@@ -653,14 +675,13 @@ function buildRequestBody(messages, model, tools, sendOpts) {
 
     if (systemBlocks.length) body.system = systemBlocks;
 
-    const nativeTools = nativeAnthropicTools(opts);
-    const deferredTools = deferredAnthropicTools(tools || [], chatMsgs, opts);
-    if (tools?.length || nativeTools.length || deferredTools.length) {
+    const requestTools = requestAnthropicTools(tools, chatMsgs, opts);
+    if (requestTools.length) {
         // No cache_control on tools — the systemBase BP already covers the
         // tools prefix via Anthropic's prompt cache prefix semantics (order:
         // tools → system → messages). Placing a separate BP here would waste
         // a slot that's better spent on messages tail.
-        body.tools = [...nativeTools, ...toAnthropicTools([...(tools || []), ...deferredTools])];
+        body.tools = requestTools;
     }
     // tool_choice only when tools are actually present (Anthropic rejects
     // tool_choice without tools). 'none' rides the hard-cap final turn to
@@ -869,6 +890,7 @@ export class AnthropicOAuthProvider {
         // totalSignal is therefore a pure pass-through of externalSignal with no timer.
         const totalTimeout = createPassthroughSignal(externalSignal);
         const totalSignal = totalTimeout.signal;
+        const requestTimeoutMs = anthropicRequestTimeoutMs();
 
         const cleanupCancelHandler = (handler) => {
             if (!handler) return;
@@ -960,7 +982,7 @@ export class AnthropicOAuthProvider {
                     throw reason instanceof Error ? reason : new Error('Anthropic OAuth request aborted by session close');
                 }
                 if (err?.name === 'AbortError') {
-                    const timeoutErr = new Error(`Anthropic OAuth API initial response timed out after ${PROVIDER_HTTP_RESPONSE_TIMEOUT_MS}ms`);
+                    const timeoutErr = new Error(`Anthropic OAuth API initial response timed out after ${requestTimeoutMs}ms`);
                     timeoutErr.code = 'EPROVIDERTIMEOUT';
                     throw timeoutErr;
                 }
@@ -997,17 +1019,22 @@ export class AnthropicOAuthProvider {
             return result;
         }, {
             signal: totalSignal,
-            maxAttempts: PROVIDER_RETRY_MAX_ATTEMPTS,
-            backoffMs: PROVIDER_RETRY_BACKOFF_MS,
-            perAttemptTimeoutMs: PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
+            maxAttempts: anthropicMaxAttempts(),
+            backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
+            retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
+            retryJitterMode: 'positive',
+            perAttemptTimeoutMs: requestTimeoutMs,
             perAttemptLabel: 'Anthropic OAuth initial response',
+            model: useModel,
+            fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
             onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
                 const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0) || null;
+                if (status === 429) notifyCurrentAnthropicRateLimit(lastErr);
                 const reason = status || lastErr?.code || lastErr?.message || 'network error';
                 const suffix = delayReason ? ` (${delayReason})` : '';
                 try {
                     process.stderr.write(
-                        `[anthropic-oauth] retry attempt ${attempt + 1}/${PROVIDER_RETRY_MAX_ATTEMPTS} after ${reason}, backoff ${delayMs}ms${suffix}\n`,
+                        `[anthropic-oauth] retry attempt ${attempt + 1}/${anthropicMaxAttempts()} after ${reason}, backoff ${delayMs}ms${suffix}\n`,
                     );
                 } catch {}
             },
@@ -1021,21 +1048,42 @@ export class AnthropicOAuthProvider {
         try {
         for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
             let response, controller, cancelHandler;
-            ({ response, controller, cancelHandler } = await requestWithRetry(creds.accessToken));
+            try {
+                ({ response, controller, cancelHandler } = await requestWithRetry(creds.accessToken));
+            } catch (err) {
+                if (err instanceof AnthropicFallbackTriggeredError) {
+                    process.stderr.write(`[anthropic-oauth] ${err.message}\n`);
+                    return this.send(messages, err.fallbackModel, tools, {
+                        ...opts,
+                        fallbackModel: undefined,
+                        _fallbackTriggered: true,
+                    });
+                }
+                throw err;
+            }
 
-            // 401: token expired/revoked. 403: organization permission flipped
-            // (e.g. relogin into a different org). Both: force a shared refresh
-            // and retry once with the new token.
+            // Refresh on 401, and only Anthropic's exact official revoked-token
+            // 403 signature. Ordinary permission/policy 403s are terminal.
+            let rejectedAuthBody = null;
             if (response.status === 401 || response.status === 403) {
+                rejectedAuthBody = await response.text().catch(() => '');
+            }
+            const revoked403 = response.status === 403
+                && String(rejectedAuthBody).includes('OAuth token has been revoked');
+            if (response.status === 401 || revoked403) {
                 process.stderr.write(`[anthropic-oauth] ${response.status} — forcing refresh and retrying once\n`);
                 cleanupCancelHandler(cancelHandler);
+                // Body was drained above; abort closes any remaining transport
+                // resources before the credential-refresh replay.
+                try { controller?.abort?.(); } catch {}
                 creds = await this.ensureAuth({ forceRefresh: true, reason: String(response.status) });
                 ({ response, controller, cancelHandler } = await requestWithRetry(creds.accessToken));
+                rejectedAuthBody = null;
             }
 
             if (!response.ok) {
                 cleanupCancelHandler(cancelHandler);
-                const text = await response.text().catch(() => '');
+                const text = rejectedAuthBody ?? await response.text().catch(() => '');
                 const safeText = this.scrubTokens(text).slice(0, 200);
                 process.stderr.write(`[anthropic-oauth] API error ${response.status}: ${safeText}\n`);
 
@@ -1056,7 +1104,10 @@ export class AnthropicOAuthProvider {
                     }
                     return this.send(messages, fallbackModel || model, tools, { ...opts, _modelRetry: true });
                 }
-                throw new Error(`Anthropic OAuth API ${response.status}: ${safeText}`);
+                const err = new Error(`Anthropic OAuth API ${response.status}: ${safeText}`);
+                err.status = response.status;
+                err.httpStatus = response.status;
+                throw err;
             }
 
             if (SSE_VERBOSE) process.stderr.write(`[anthropic-oauth] Response ${response.status}, parsing SSE...\n`);
@@ -1067,6 +1118,8 @@ export class AnthropicOAuthProvider {
                 sawMessageStart: false,
                 sawCompleted: false,
                 emittedToolCall: false,
+                partialToolCall: false,
+                emittedThinking: false,
                 // Gateway live-text relay invariant: set by parseSSEStream once
                 // a non-empty text chunk has been forwarded to the client. A
                 // later failure is non-retryable (rendered text cannot be
@@ -1089,6 +1142,7 @@ export class AnthropicOAuthProvider {
                     onTextDelta,
                     knownToolNames,
                 );
+                try { controller?.abort?.('Anthropic SSE complete'); } catch {}
 
                 const ttftMs = midState.ttftAt ? midState.ttftAt - sseStartedAt : null;
                 const liveModel = result.model || useModel;
@@ -1169,8 +1223,21 @@ export class AnthropicOAuthProvider {
                             firstAttemptError.liveTextEmitted = true;
                             firstAttemptError.unsafeToRetry = true;
                         } catch {}
-                        throw firstAttemptError;
+                        throw err;
                     }
+                    throw err;
+                }
+                // Completed/partial tools and thinking blocks are also replay
+                // boundaries. Stamp the current (latest) error so no upstream
+                // retry owner can reissue this turn.
+                if (midState.emittedToolCall || midState.partialToolCall || midState.emittedThinking) {
+                    try {
+                        err.emittedToolCall = !!midState.emittedToolCall;
+                        err.partialToolCall = !!midState.partialToolCall;
+                        err.emittedThinking = !!midState.emittedThinking;
+                        err.unsafeToRetry = true;
+                    } catch {}
+                    try { controller?.abort?.(err); } catch {}
                     throw err;
                 }
                 // Empty/dropped stream (no message_start): safe to retry once —
@@ -1188,6 +1255,8 @@ export class AnthropicOAuthProvider {
                 if (classifyError(err) === 'transient'
                     && !midState.sawMessageStart
                     && !midState.emittedToolCall
+                    && !midState.partialToolCall
+                    && !midState.emittedThinking
                     && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                     firstAttemptError = err;
                     firstAttemptClassifier = err?.providerErrorType || 'sse_transient';
@@ -1212,6 +1281,8 @@ export class AnthropicOAuthProvider {
                 if ((err?.truncatedStream === true || err?.code === 'TRUNCATED_STREAM')
                     && classifyError(err) === 'transient'
                     && !midState.emittedToolCall
+                    && !midState.partialToolCall
+                    && !midState.emittedThinking
                     && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                     firstAttemptError = err;
                     firstAttemptClassifier = 'truncated_stream';
@@ -1224,6 +1295,15 @@ export class AnthropicOAuthProvider {
                 if (classifier && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                     firstAttemptError = err;
                     firstAttemptClassifier = classifier;
+                    const status = Number(err?.httpStatus || err?.status || 0);
+                    let retryDelayMs = null;
+                    if (status === 429) {
+                        if (!err.headers && response?.headers) err.headers = response.headers;
+                        if (!err.response && response) err.response = { status, headers: response.headers };
+                        retryDelayMs = retryAfterMsFromError(err);
+                        if (retryDelayMs != null) err.retryAfterMs = retryDelayMs;
+                        notifyCurrentAnthropicRateLimit(err);
+                    }
                     try { controller?.abort?.(err); } catch (abortErr) {
                         /* best-effort stream teardown */
                         try { process.stderr.write(`[anthropic-oauth] abort on stream error failed: ${abortErr?.message ?? String(abortErr)}\n`); } catch {}
@@ -1231,13 +1311,16 @@ export class AnthropicOAuthProvider {
                     try {
                         process.stderr.write(`[anthropic-oauth] mid-stream recovered: retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (cause: ${classifier})\n`);
                     } catch {}
-                    await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
+                    await _midstreamSleepWithAbort(
+                        retryDelayMs ?? midstreamBackoffFor(attemptIndex + 1),
+                        totalSignal,
+                    );
                     continue;
                 }
                 if (attemptIndex > 0 && firstAttemptError) {
-                    try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
-                    try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
-                    throw firstAttemptError;
+                    try { err.midstreamRetries = attemptIndex; } catch {}
+                    try { err.midstreamClassifier = firstAttemptClassifier; } catch {}
+                    throw err;
                 }
                 throw err;
             } finally {
@@ -1356,4 +1439,9 @@ export { parseSSEStream, _classifyMidstreamError, ANTHROPIC_MAX_MIDSTREAM_RETRIE
 
 // Test-only escape hatch for scripts/tool-smoke.mjs to verify the
 // catalog-driven max-tokens resolution without duplicating its logic.
-export const _test = { resolveMaxTokens, deferredAnthropicTools, sanitizeInputSchema: _sanitizeInputSchema };
+export const _test = {
+    resolveMaxTokens,
+    deferredAnthropicTools,
+    requestAnthropicTools,
+    sanitizeInputSchema: _sanitizeInputSchema,
+};

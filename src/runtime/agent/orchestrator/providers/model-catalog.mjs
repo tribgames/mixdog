@@ -201,9 +201,10 @@ function cachePath() {
     return join(getPluginData(), CATALOG_CACHE_FILE);
 }
 
-async function _loadCatalogImpl() {
+async function _loadCatalogImpl(fetchFn = fetch, force = false) {
     // Disk cache first
     try {
+        if (force) throw new Error('forced refresh');
         if (existsSync(cachePath())) {
             const raw = JSON.parse(readFileSync(cachePath(), 'utf-8'));
             if (raw?.fetchedAt && (Date.now() - raw.fetchedAt) < CATALOG_TTL_MS && raw.data) {
@@ -215,7 +216,7 @@ async function _loadCatalogImpl() {
     } catch { /* fall through */ }
     // Remote fetch
     try {
-        const res = await fetch(CATALOG_URL, { signal: AbortSignal.timeout(10_000) });
+        const res = await fetchFn(CATALOG_URL, { signal: AbortSignal.timeout(10_000) });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         try {
@@ -226,14 +227,32 @@ async function _loadCatalogImpl() {
         return data;
     } catch (err) {
         process.stderr.write(`[model-catalog] fetch failed: ${err.message}\n`);
+        if (fetchFn !== fetch) {
+            _memCache = _memCache || {};
+            _memCacheAt = Date.now();
+        }
         return {};
     }
 }
 
-async function loadCatalog() {
-    if (_memCache && (Date.now() - _memCacheAt) < CATALOG_TTL_MS) return _memCache;
+async function _loadCatalogInjected(fetchFn) {
+    try {
+        const res = await fetchFn(CATALOG_URL, { signal: AbortSignal.timeout(10_000) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.json();
+    } catch (err) {
+        process.stderr.write(`[model-catalog] injected fetch failed: ${err.message}\n`);
+        return {};
+    }
+}
+
+export async function loadCatalog({ fetchFn, force = false } = {}) {
+    if (typeof fetchFn === 'function' && fetchFn !== fetch) {
+        return _loadCatalogInjected(fetchFn);
+    }
+    if (!force && _memCache && (Date.now() - _memCacheAt) < CATALOG_TTL_MS) return _memCache;
     if (_loadPromise) return _loadPromise;
-    _loadPromise = _loadCatalogImpl().finally(() => { _loadPromise = null; });
+    _loadPromise = _loadCatalogImpl(fetchFn, force).finally(() => { _loadPromise = null; });
     return _loadPromise;
 }
 
@@ -255,8 +274,9 @@ let _mdLoadPromise = null;
 function mdCachePath() {
     return join(getPluginData(), MODELSDEV_CACHE_FILE);
 }
-async function _loadModelsDevImpl() {
+async function _loadModelsDevImpl(fetchFn = fetch, force = false) {
     try {
+        if (force) throw new Error('forced refresh');
         if (existsSync(mdCachePath())) {
             const raw = JSON.parse(readFileSync(mdCachePath(), 'utf-8'));
             if (raw?.fetchedAt && (Date.now() - raw.fetchedAt) < CATALOG_TTL_MS && raw.data) {
@@ -267,7 +287,7 @@ async function _loadModelsDevImpl() {
         }
     } catch { /* fall through to remote */ }
     try {
-        const res = await fetch(MODELSDEV_URL, { signal: AbortSignal.timeout(10_000) });
+        const res = await fetchFn(MODELSDEV_URL, { signal: AbortSignal.timeout(10_000) });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         try {
@@ -278,13 +298,30 @@ async function _loadModelsDevImpl() {
         return data;
     } catch (err) {
         process.stderr.write(`[model-catalog] models.dev fetch failed: ${err.message}\n`);
+        if (fetchFn !== fetch) {
+            _mdCache = _mdCache || {};
+            _mdCacheAt = Date.now();
+        }
         return _mdCache || {};
     }
 }
-export async function loadModelsDevCatalog() {
-    if (_mdCache && (Date.now() - _mdCacheAt) < CATALOG_TTL_MS) return _mdCache;
+async function _loadModelsDevInjected(fetchFn) {
+    try {
+        const res = await fetchFn(MODELSDEV_URL, { signal: AbortSignal.timeout(10_000) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.json();
+    } catch (err) {
+        process.stderr.write(`[model-catalog] models.dev injected fetch failed: ${err.message}\n`);
+        return {};
+    }
+}
+export async function loadModelsDevCatalog({ fetchFn, force = false } = {}) {
+    if (typeof fetchFn === 'function' && fetchFn !== fetch) {
+        return _loadModelsDevInjected(fetchFn);
+    }
+    if (!force && _mdCache && (Date.now() - _mdCacheAt) < CATALOG_TTL_MS) return _mdCache;
     if (_mdLoadPromise) return _mdLoadPromise;
-    _mdLoadPromise = _loadModelsDevImpl().finally(() => { _mdLoadPromise = null; });
+    _mdLoadPromise = _loadModelsDevImpl(fetchFn, force).finally(() => { _mdLoadPromise = null; });
     return _mdLoadPromise;
 }
 function warmModelsDevFromDiskSync() {
@@ -488,11 +525,14 @@ function mergeModelMetadata(base, overlay, opts = {}) {
  * entries keep their original shape (no metadata) so callers can distinguish
  * "known in catalog" from "no metadata available".
  */
-export async function enrichModels(models) {
+export async function enrichModels(models, { fetchFn, force = false } = {}) {
     if (!Array.isArray(models)) return models;
-    const catalog = await loadCatalog();
+    const catalog = await loadCatalog({ fetchFn, force });
+    let modelsDevCatalog = _mdCache;
     if (models.some((m) => _modelsDevProviderId(m?.provider))) {
-        try { await loadModelsDevCatalog(); } catch { /* optional gap filler */ }
+        try {
+            modelsDevCatalog = await loadModelsDevCatalog({ fetchFn, force });
+        } catch { /* optional gap filler */ }
     }
     return models.map(m => {
         const id = m.id || m.name;
@@ -520,7 +560,7 @@ export async function enrichModels(models) {
         let meta = entry ? _normalize(entry) : null;
         const metaFromPricingOverride = entry != null && entry === ov;
         if (m.provider) {
-            const row = mappedProvider ? _mdCache?.[mappedProvider]?.models?.[id] : null;
+            const row = mappedProvider ? modelsDevCatalog?.[mappedProvider]?.models?.[id] : null;
             const providerMeta = row ? _normalize(_modelsDevRowToOverride(row)) : null;
             if (providerMeta) meta = mergeModelMetadata(meta, providerMeta, { preserveBaseCosts: metaFromPricingOverride });
             const providerNative = providerCachedModelMetadataSync(m.provider, id);

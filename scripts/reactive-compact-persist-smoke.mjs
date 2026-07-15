@@ -141,4 +141,63 @@ assert(reloaded.compaction?.lastStage === 'overflow_failed', `compaction lastSta
 assert(reloaded.providerState?.xaiResponses?.previousResponseId === 'stale-after-compact',
   'providerState should remain when a failed reactive compact leaves the transcript unchanged');
 
+// Successful pre-send compaction must persist an explicit providerState clear.
+// The following ask then proves the stale continuation is absent from the
+// provider options, not merely absent from the first loop's local variable.
+let successfulCompactSends = 0;
+const nextAskStates = [];
+provider.send = async (_sentMessages, _model, _tools, opts = {}) => {
+  if (String(opts?.sessionId || '').endsWith(':compact')) {
+    successfulCompactSends += 1;
+    return {
+      content: [
+        '## Goal',
+        '- verify provider state clear',
+        '',
+        '## Progress',
+        '### Done',
+        '- old history compacted',
+        '',
+        '## Next Steps',
+        '- continue',
+      ].join('\n'),
+    };
+  }
+  nextAskStates.push(opts.providerState);
+  return { content: 'successful answer', stopReason: 'end_turn' };
+};
+const clearSessionId = `sess_provider_state_clear_${process.pid}_${Date.now()}`;
+const clearMessages = [{ role: 'system', content: 'rules' }];
+for (let i = 0; i < 10; i += 1) {
+  clearMessages.push({ role: 'user', content: `old ${i} ${'x '.repeat(500)}` });
+  clearMessages.push({ role: 'assistant', content: `answer ${i} ${'y '.repeat(500)}` });
+}
+await saveSessionAsync({
+  id: clearSessionId,
+  provider: 'openai-oauth',
+  model: 'provider-state-clear-smoke',
+  owner: 'agent',
+  agent: 'heavy-worker',
+  messages: clearMessages,
+  tools: [],
+  generation: 0,
+  closed: false,
+  contextWindow: 12_000,
+  rawContextWindow: 12_000,
+  compactBoundaryTokens: 12_000,
+  autoCompactTokenLimit: 4_000,
+  compaction: { auto: true, semantic: true, recallFastTrack: false, type: 1, compactType: 1 },
+  cwd: process.cwd(),
+  sessionStartMetaInjected: true,
+  providerState: { xaiResponses: { previousResponseId: 'must-clear' } },
+}, { expectedGeneration: 0 });
+await askSession(clearSessionId, 'first ask', null, null, process.cwd());
+const afterClear = loadSession(clearSessionId);
+assert(!Object.hasOwn(afterClear, 'providerState'), 'successful compact must remove providerState from persisted session');
+await askSession(clearSessionId, 'second ask', null, null, process.cwd());
+assert(successfulCompactSends >= 1, 'fixture must perform successful semantic compaction');
+assert(nextAskStates.length >= 2, 'both asks must reach provider');
+assert(nextAskStates[0] === undefined, 'post-compact send must receive cleared providerState');
+assert(nextAskStates[1] === undefined, 'next ask must not resurrect stale providerState');
+
 process.stdout.write('reactive-compact-persist smoke passed ✓\n');

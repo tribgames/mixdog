@@ -184,6 +184,24 @@ function makeTurnBag(ask, {
   return { bag, getState: () => state };
 }
 
+test('non-cancellation turn exceptions publish and return failed lifecycle status', async () => {
+  const notices = [];
+  const { bag, getState } = makeTurnBag(async () => {
+    throw new Error('provider request failed');
+  });
+  bag.pushNotice = (text, tone) => notices.push({ text, tone });
+
+  const result = await createRunTurn(bag)('do a thing');
+  const completion = getState().items.find((item) => item.kind === 'turndone');
+
+  assert.equal(result, 'failed');
+  assert.equal(completion?.status, 'failed');
+  assert.equal(getState().busy, false);
+  assert.equal(getState().spinner, null);
+  assert.equal(notices.at(-1)?.tone, 'error');
+  assert.match(notices.at(-1)?.text || '', /provider request failed/);
+});
+
 test('watchdog accepts fresh runtime liveness without tripping', async () => {
   let aborts = 0;
   const ask = async () => {

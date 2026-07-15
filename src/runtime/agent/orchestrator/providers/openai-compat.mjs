@@ -107,6 +107,72 @@ function assertSafeBaseURL(rawURL, providerName) {
 // parsers → openai-compat-wire.mjs. Re-exported below for existing importers.
 export { summarizeTraceMessages, extractCompatCachedTokens } from './openai-compat-trace.mjs';
 export { parseToolCalls, parseResponsesToolCalls } from './openai-compat-wire.mjs';
+
+function normalizeReasoningEffort(value, allowed) {
+    const effort = String(value ?? '').trim().toLowerCase();
+    return allowed.includes(effort) ? effort : null;
+}
+
+// Keep provider extensions isolated: fields accepted by one OpenAI-compatible
+// backend are frequently rejected by another even when the core Chat schema is
+// shared.
+export function applyCompatProviderChatOptions(params, providerName, opts = {}, config = {}, modelInfo = null) {
+    if (providerName === 'xai') {
+        const reasoningEffort = normalizeXaiReasoningEffort(opts.xaiReasoningEffort
+            ?? opts.effort
+            ?? config?.reasoningEffort
+            ?? process.env.MIXDOG_XAI_REASONING_EFFORT);
+        if (reasoningEffort) params.reasoning_effort = reasoningEffort;
+        return params;
+    }
+    if (providerName === 'deepseek') {
+        const rawThinking = opts.deepseekThinking
+            ?? opts.thinking
+            ?? config?.thinking;
+        const rawEffort = opts.deepseekReasoningEffort
+            ?? opts.effort
+            ?? config?.reasoningEffort;
+        if (rawThinking !== undefined || rawEffort !== undefined) {
+            const disabled = rawThinking === false
+                || String(rawThinking?.type ?? rawThinking ?? rawEffort).trim().toLowerCase() === 'disabled'
+                || String(rawThinking?.type ?? rawThinking ?? rawEffort).trim().toLowerCase() === 'none';
+            params.thinking = { type: disabled ? 'disabled' : 'enabled' };
+            if (!disabled) {
+                const effort = String(rawEffort ?? '').trim().toLowerCase();
+                if (effort === 'max' || effort === 'xhigh') params.reasoning_effort = 'max';
+                else if (['low', 'medium', 'high'].includes(effort)) params.reasoning_effort = 'high';
+            }
+        }
+        return params;
+    }
+    if (providerName === 'ollama') {
+        const effort = normalizeReasoningEffort(
+            opts.ollamaReasoningEffort ?? opts.effort ?? config?.reasoningEffort,
+            ['none', 'low', 'medium', 'high', 'max'],
+        );
+        if (effort) params.reasoning_effort = effort;
+        return params;
+    }
+    if (providerName === 'lmstudio') {
+        const effort = normalizeReasoningEffort(
+            opts.lmStudioReasoningEffort ?? opts.effort ?? config?.reasoningEffort,
+            ['none', 'low', 'medium', 'high', 'max'],
+        );
+        if (effort) params.reasoning_effort = effort;
+        return params;
+    }
+    if (providerName === 'opencode-go') {
+        const reasoningEffort = normalizeOpencodeGoReasoningEffort(
+            opts.effort ?? config?.reasoningEffort,
+            modelInfo,
+        );
+        // OpenCode Go's OpenAI-compatible contract exposes reasoning_effort,
+        // not DeepSeek's provider-specific `thinking` extension.
+        if (reasoningEffort) params.reasoning_effort = reasoningEffort;
+    }
+    return params;
+}
+
 export class OpenAICompatProvider {
     // Chat Completions prompt_tokens is already the total (includes cached).
     // Covers grok-oauth and all OPENAI_COMPAT_PRESETS. See registry.mjs.
@@ -150,6 +216,11 @@ export class OpenAICompatProvider {
             fetchOptions: { dispatcher: getLlmDispatcher() },
         });
     }
+    get _preconnectFn() {
+        return typeof this.config?.preconnectFn === 'function'
+            ? this.config.preconnectFn
+            : preconnect;
+    }
     reloadApiKey() {
         try {
             const preset = PRESETS[this.name];
@@ -174,7 +245,13 @@ export class OpenAICompatProvider {
         try {
             return await this._doSend(messages, model, tools, sendOpts);
         } catch (err) {
-            if (err.message && (err.message.includes('401') || err.message.includes('403'))) {
+            const structuredStatus = [err?.status, err?.httpStatus, err?.response?.status]
+                .map(value => Number(value))
+                .find(value => Number.isFinite(value) && value > 0) || 0;
+            const status = structuredStatus > 0
+                ? structuredStatus
+                : (/\b401\b/.test(String(err?.message || '')) ? 401 : 0);
+            if (status === 401) {
                 if (err.liveTextEmitted === true || err.emittedToolCall === true || err.unsafeToRetry === true) {
                     throw err;
                 }
@@ -191,7 +268,11 @@ export class OpenAICompatProvider {
         // Re-warm a kept-alive socket to the provider origin before the turn so
         // the request hot path lands on a live socket instead of paying a cold
         // TLS handshake after an idle gap. Fire-and-forget; never awaited.
-        preconnect(this.baseURL);
+        // Tests/local callers can disable this or inject a fail-closed seam;
+        // production retains the shared preconnect by default.
+        if (this.config?.preconnect !== false) {
+            this._preconnectFn(this.baseURL);
+        }
         if (this.name === 'xai' && useXaiResponsesApi(opts, this.config)) {
             // Shared Responses transport switch (MIXDOG_OAI_TRANSPORT), capability-
             // gated for xAI/Grok. Provider-local HTTP pins still win: Grok
@@ -259,20 +340,7 @@ export class OpenAICompatProvider {
         if (tools?.length) {
             params.tools = toOpenAITools(tools);
         }
-        if (this.name === 'xai') {
-            const reasoningEffort = normalizeXaiReasoningEffort(opts.xaiReasoningEffort
-                ?? opts.effort
-                ?? this.config?.reasoningEffort
-                ?? process.env.MIXDOG_XAI_REASONING_EFFORT);
-            if (reasoningEffort) params.reasoning_effort = reasoningEffort;
-        }
-        if (this.name === 'opencode-go') {
-            const reasoningEffort = normalizeOpencodeGoReasoningEffort(opts.effort ?? this.config?.reasoningEffort, modelInfo);
-            if (reasoningEffort) {
-                params.reasoning_effort = reasoningEffort;
-                params.thinking = { type: 'enabled' };
-            }
-        }
+        applyCompatProviderChatOptions(params, this.name, opts, this.config, modelInfo);
         // Streaming (params.stream = true is always set below): no absolute
         // wall-clock cap on a healthy stream. A fixed total-lifetime timer
         // false-aborts live long-reasoning turns that are still emitting SSE
@@ -401,7 +469,11 @@ export class OpenAICompatProvider {
         // Capture provider reasoning_content so loop.mjs can attach it to the
         // assistant message and echo it back next turn for providers that
         // require or benefit from that official multi-turn shape.
-        const capturesReasoningContent = this.name === 'deepseek' || this.name === 'xai' || replaysReasoningContent;
+        const capturesReasoningContent = this.name === 'deepseek'
+            || this.name === 'xai'
+            || this.name === 'ollama'
+            || this.name === 'lmstudio'
+            || replaysReasoningContent;
         const reasoningContent = (capturesReasoningContent && typeof assembled.reasoningContent === 'string')
             ? assembled.reasoningContent
             : null;

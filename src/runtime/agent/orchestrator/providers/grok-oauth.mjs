@@ -713,9 +713,6 @@ export class GrokOAuthProvider {
     constructor(config) {
         this.config = config || {};
         this.tokens = loadTokens();
-        // Warm a kept-alive socket to the xAI inference API so the first
-        // request skips the cold TLS handshake. Best-effort; never throws.
-        preconnect(INFERENCE_BASE_URL);
     }
 
     async ensureAuth({ forceRefresh = false } = {}) {
@@ -805,7 +802,12 @@ export class GrokOAuthProvider {
     async send(messages, model, tools, sendOpts) {
         // Re-warm a kept-alive socket before the turn (TTL-gated no-op while
         // hot) so a post-idle request skips the cold TLS handshake.
-        preconnect(INFERENCE_BASE_URL);
+        if (this.config?.preconnect !== false) {
+            const warm = typeof this.config?.preconnectFn === 'function'
+                ? this.config.preconnectFn
+                : preconnect;
+            warm(INFERENCE_BASE_URL);
+        }
         const useModel = normalizeGrokModelId(
             model || await ensureLatestGrokModel(this),
         );
@@ -829,6 +831,12 @@ export class GrokOAuthProvider {
             // fix it, so it must surface unretried.
             populateHttpStatusFromMessage(err);
             if (Number(err?.httpStatus || err?.status) === 401) {
+                // A stream-level 401 after text/tool dispatch cannot be safely
+                // replayed: the client has already observed output or may have
+                // executed a side-effecting tool.
+                if (err.liveTextEmitted === true || err.emittedToolCall === true || err.unsafeToRetry === true) {
+                    throw err;
+                }
                 process.stderr.write('[grok-oauth] 401, force-refreshing token...\n');
                 const fresh = await this.ensureAuth({ forceRefresh: true });
                 const retryInner = this._ensureInner(fresh.access_token, useModel);

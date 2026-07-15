@@ -29,15 +29,18 @@ import { agentContextOverflowError } from './loop/context-overflow.mjs';
 import { agentCompactFailedError } from './loop/context-overflow.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../agent-trace.mjs';
+import { invalidateProviderRequestToolsScope } from '../../../../session-runtime/provider-request-tools.mjs';
 import { bumpUsageMetricsEpoch } from './manager.mjs';
 
 export async function runPreSendCompactPass(state) {
     const {
-        provider, messages, model, tools, sessionRef, sessionId, cwd, opts, signal,
+        provider, messages, model, requestTools, sessionRef, sessionId, cwd, opts, signal,
         loopUsageMetricsTurnId, loopUsageMetricsEpoch,
     } = state;
     let { iterations, lastUsage, firstTurnUsage, providerState, reactiveOverflowRetryPending } = state;
-        const compactPolicy = resolveWorkerCompactPolicy(sessionRef, tools);
+    let providerStateCleared = false;
+    let compactChanged = false;
+        const compactPolicy = resolveWorkerCompactPolicy(sessionRef, requestTools);
         if (compactPolicy?.auto) {
             // Snapshot pre-compact shape so compact_meta can record the actual
             // mutation (or no-op) for prefix-mutation forensics. Bytes are
@@ -391,10 +394,14 @@ export async function runPreSendCompactPass(state) {
                     }
                 }
                 try { await opts.onStageChange?.('requesting'); } catch { /* best-effort */ }
-                const compactChanged = messagesArrayChanged(messages, compacted);
+                compactChanged = messagesArrayChanged(messages, compacted);
                 if (compactChanged) {
                     messages.length = 0;
                     messages.push(...compacted);
+                    // This attempt's provider-tool scope was keyed to the old
+                    // transcript shape. Invalidate it synchronously before any
+                    // post-compact callback or subsequent async continuation.
+                    invalidateProviderRequestToolsScope();
                     // The next provider send intentionally starts a new
                     // transcript shape. Keep this one-shot observability tag
                     // separate from an unexplained prefix mismatch.
@@ -405,6 +412,7 @@ export async function runPreSendCompactPass(state) {
                     // now-mutated prefix). Drop providerState so the next send
                     // starts a fresh chain.
                     providerState = undefined;
+                    providerStateCleared = true;
                     // Compaction shrank the transcript, so prior turns no
                     // longer pressure the window — reset the iteration counter
                     // so a steadily-compacting long task isn't killed by the
@@ -495,5 +503,13 @@ export async function runPreSendCompactPass(state) {
                 }
             }
         }
-    return { iterations, lastUsage, firstTurnUsage, providerState, reactiveOverflowRetryPending };
+    return {
+        iterations,
+        lastUsage,
+        firstTurnUsage,
+        providerState,
+        providerStateCleared,
+        reactiveOverflowRetryPending,
+        compactChanged,
+    };
 }

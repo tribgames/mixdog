@@ -21,6 +21,7 @@ import {
 import { initialCompactionConfig } from '../src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { resolveSessionCompactionPolicy } from '../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs';
 import { sendWithRecovery } from '../src/runtime/agent/orchestrator/session/send-with-recovery.mjs';
+import { recallFastTrackCompactMessages } from '../src/runtime/agent/orchestrator/session/compact/engine.mjs';
 
 function policyFor(session) {
     return resolveWorkerCompactPolicy(session, []);
@@ -371,12 +372,13 @@ test('tool reserve and status cache detect nested schema mutation', () => {
     assert.ok(statusAfter.request.toolSchemaTokens > statusBefore.request.toolSchemaTokens);
 });
 
-test('native replay fingerprint detects encrypted reasoning and assistant metadata mutation', () => {
+test('native replay fingerprint detects encrypted reasoning and provider metadata mutation', () => {
     const message = {
         role: 'assistant',
         content: '',
         reasoningItems: [{ type: 'reasoning', encrypted_content: 'short' }],
         assistantBlocks: [{ type: 'tool_use', id: 'c1', name: 'read', input: { path: 'a' }, cache_control: { type: 'ephemeral' } }],
+        providerMetadata: { gemini: { thoughtParts: [{ text: 'short', thoughtSignature: 'sig' }] } },
     };
     const messages = [message];
     const first = summarizeContextMessages(messages).estimatedTokens;
@@ -386,6 +388,58 @@ test('native replay fingerprint detects encrypted reasoning and assistant metada
     message.assistantBlocks[0].cache_control.mode = 'metadata_'.repeat(1_000);
     const third = summarizeContextMessages(messages).estimatedTokens;
     assert.ok(third > second, 'in-place assistant-block metadata mutation must invalidate the message memo');
+    message.providerMetadata.gemini.thoughtParts[0].text = 'gemini_private_thought_'.repeat(1_000);
+    const fourth = summarizeContextMessages(messages).estimatedTokens;
+    assert.ok(fourth > third, 'in-place Gemini replay metadata mutation must invalidate the message memo');
+});
+
+test('recall compaction preserves provider-scoped Gemini replay metadata on the live tail', () => {
+    const providerMetadata = {
+        gemini: {
+            textParts: [{ text: 'signed answer', thoughtSignature: 'sig-tail' }],
+        },
+    };
+    const result = recallFastTrackCompactMessages([
+        { role: 'user', content: `old request ${'x'.repeat(20_000)}` },
+        { role: 'assistant', content: `old answer ${'y'.repeat(20_000)}` },
+        { role: 'user', content: 'recent request' },
+        { role: 'assistant', content: 'signed answer', providerMetadata },
+    ], 8_000, {
+        force: true,
+        recallText: 'Older history summary.',
+        recallTailMaxUsers: 1,
+        recallTailTokenCap: 4_000,
+    });
+    const tail = result.messages.find((message) => message?.content === 'signed answer');
+    assert.deepEqual(tail?.providerMetadata, providerMetadata);
+});
+
+test('recall tail cap drops oversized replay metadata instead of raising the budget', () => {
+    const result = recallFastTrackCompactMessages([
+        { role: 'user', content: `old request ${'x'.repeat(20_000)}` },
+        { role: 'assistant', content: `old answer ${'y'.repeat(20_000)}` },
+        { role: 'user', content: 'recent request' },
+        {
+            role: 'assistant',
+            content: 'recent answer',
+            providerMetadata: {
+                gemini: {
+                    thoughtParts: [{
+                        text: 'private_'.repeat(20_000),
+                        thoughtSignature: 'sig',
+                    }],
+                },
+            },
+        },
+    ], 8_000, {
+        force: true,
+        recallText: 'Older history summary.',
+        recallTailMaxUsers: 1,
+        recallTailTokenCap: 200,
+    });
+    assert.ok(result.diagnostics.tailTokens <= 200, `tail tokens ${result.diagnostics.tailTokens}`);
+    const recent = result.messages.find((message) => message?.content === 'recent answer');
+    assert.equal(recent?.providerMetadata, undefined);
 });
 
 test('provider baseline pressure includes only the configured extra reserve', () => {

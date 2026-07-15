@@ -55,6 +55,51 @@ function isTcpPortFree(port) {
 
 const PG_PORT_MIN = 55432
 const PG_PORT_MAX = 55632
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return err?.code === 'EPERM'
+  }
+}
+
+function readPostmasterInfo(pgdataDir) {
+  try {
+    const lines = readFileSync(join(pgdataDir, 'postmaster.pid'), 'utf8').split('\n')
+    const pid = parseInt(lines[0], 10)
+    const port = parseInt(lines[3], 10)
+    return {
+      pid: Number.isInteger(pid) && pid > 0 ? pid : null,
+      port: Number.isInteger(port) && port > 0 ? port : null,
+    }
+  } catch {
+    return { pid: null, port: null }
+  }
+}
+
+function pgIsReady(runtimeDir, env, port) {
+  const probe = spawnSync(pgBin(runtimeDir, 'pg_isready'), ['-h', '127.0.0.1', '-p', String(port)], {
+    env, stdio: 'pipe', timeout: 3_000, windowsHide: true,
+  })
+  return probe.status === 0
+}
+
+async function awaitExistingPostmaster({ runtimeDir, pgdataDir, env, waitMs }) {
+  const deadline = Date.now() + Math.max(0, Number(waitMs) || 0)
+  let info = readPostmasterInfo(pgdataDir)
+  while (info.pid && info.port) {
+    if (pgIsReady(runtimeDir, env, info.port)) return { state: 'ready', ...info }
+    if (!isPidAlive(info.pid)) return { state: 'dead', ...info }
+    if (Date.now() >= deadline) return { state: 'alive-not-ready', ...info }
+    await delay(250)
+    info = readPostmasterInfo(pgdataDir)
+  }
+  return { state: 'missing', ...info }
+}
 
 async function findFreePort(preferred) {
   // I2: clamp out-of-range callers to the valid window.
@@ -135,7 +180,13 @@ export function reconcileConfV2(runtimeDir, pgdataDir) {
 // startPg
 // ---------------------------------------------------------------------------
 
-export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 55432, logPath }) {
+export async function startPg({
+  runtimeDir,
+  pgdataDir,
+  port: preferredPort = 55432,
+  logPath,
+  existingWaitMs = 15_000,
+}) {
   mkdirSync(pgdataDir, { recursive: true })
 
   if (process.platform === 'darwin') {
@@ -146,41 +197,35 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
   // the block was just appended (so the attach path can trigger pg_ctl reload).
   // Fresh-init path falls through to confAppend below which already includes v2.
   const v2Applied = ensureConfV2(pgdataDir)
+  const env = libEnv(runtimeDir)
 
   // Pre-check: if postmaster.pid exists and the instance is reachable, attach
   // rather than attempting a second pg_ctl start (which would crash the worker).
   const postmasterPidPath = join(pgdataDir, 'postmaster.pid')
   if (existsSync(postmasterPidPath)) {
-    try {
-      const lines = readFileSync(postmasterPidPath, 'utf8').split('\n')
-      const existingPid  = parseInt(lines[0], 10)
-      // Line 4 (index 3) in postmaster.pid holds the port number.
-      const existingPort = parseInt(lines[3], 10)
-      if (existingPid > 0 && existingPort > 0) {
-        // Liveness must be confirmed by pg_isready (status 0). A bare open TCP
-        // port is insufficient: any unrelated listener that happened to grab
-        // this port would be mistaken for our PG instance, causing a false
-        // attach. pg_isready performs a real PG protocol handshake, so a
-        // non-Postgres listener returns non-zero and we correctly fall through
-        // to normal startup (which reclaims the stale postmaster.pid).
-        const pgIsReady = pgBin(runtimeDir, 'pg_isready')
-        const probe = spawnSync(pgIsReady, ['-h', '127.0.0.1', '-p', String(existingPort)], {
-          env: libEnv(runtimeDir), stdio: 'pipe', timeout: 3_000, windowsHide: true,
-        })
-        const alive = probe.status === 0
-        if (alive) {
-          __mixdogMemoryLog(`[pg-process] attaching to existing PG pid=${existingPid} port=${existingPort}\n`)
-          // Route through the single reconcile entry point so v1 → v2 conf
-          // upgrades land on already-running instances without restart.
-          if (v2Applied) reconcileConfV2(runtimeDir, pgdataDir)
-          return { pid: existingPid, port: existingPort, attached: true }
-        }
-        // Dead instance — fall through to normal startup; pg_ctl will reclaim stale lock.
-      }
-    } catch {}
+    const existing = await awaitExistingPostmaster({
+      runtimeDir, pgdataDir, env, waitMs: existingWaitMs,
+    })
+    if (existing.state === 'ready') {
+      __mixdogMemoryLog(`[pg-process] attaching to existing PG pid=${existing.pid} port=${existing.port}\n`)
+      // Route through the single reconcile entry point so v1 → v2 conf
+      // upgrades land on already-running instances without restart.
+      if (v2Applied) reconcileConfV2(runtimeDir, pgdataDir)
+      return { pid: existing.pid, port: existing.port, attached: true }
+    }
+    if (existing.state === 'alive-not-ready') {
+      // A postmaster in startup/shutdown still owns this pgdata even when it no
+      // longer accepts connections. Starting the same directory on a "free"
+      // alternate port produces the observed endless "another server might be
+      // running" loop and can corrupt lifecycle state. The supervisor may
+      // finish a graceful stop, but this lower layer must never race it.
+      throw new Error(
+        `[pg-process] existing PG pid=${existing.pid} port=${existing.port} is alive but not ready; refusing concurrent start`,
+      )
+    }
+    // Dead instance — fall through to normal startup; pg_ctl reclaims the stale lock.
   }
 
-  const env    = libEnv(runtimeDir)
   const initdb = pgBin(runtimeDir, 'initdb')
   const pgctl  = pgBin(runtimeDir, 'pg_ctl')
 
@@ -248,7 +293,6 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
 
   __mixdogMemoryLog(`[pg-process] pg_ctl start -D ${pgdataDir} -p ${port}\n`)
 
-  const pgIsReady = pgBin(runtimeDir, 'pg_isready')
   const startArgs = [
     'start',
     '-D', pgdataDir,
@@ -258,8 +302,6 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
 
   // Poll-sleep is intentionally NOT unref'd: while startPg is awaiting readiness
   // it must keep the process alive even if the event loop would otherwise drain.
-  const sleep = ms => new Promise(res => setTimeout(res, ms))
-
   // Read pid + port from postmaster.pid (line 1 = pid, line 4 = port). Returns
   // null unless the file exists, pid > 0, and its port matches ours.
   function readPostmaster() {
@@ -280,7 +322,7 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
     for (let i = 0; i < 5; i++) {
       const pm = readPostmaster()
       if (pm) return pm.pid
-      await sleep(100)
+      await delay(100)
     }
     return null
   }
@@ -312,10 +354,7 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
     const deadline = Date.now() + 30_000
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const probe = spawnSync(pgIsReady, ['-h', '127.0.0.1', '-p', String(port)], {
-        env, stdio: 'pipe', timeout: 3_000, windowsHide: true,
-      })
-      if (probe.status === 0) {
+      if (pgIsReady(runtimeDir, env, port)) {
         const pid = await confirmPid()
         // pid confirmed with matching port → ready. Otherwise keep polling until
         // the cap (postmaster.pid not yet written or port mismatch).
@@ -324,7 +363,7 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
       // pg_ctl exited nonzero before PG became reachable — real startup failure.
       if (closed && exitCode !== 0) return { ready: false, exited: true, stdout, stderr }
       if (Date.now() >= deadline) return { ready: false, timeout: true, stdout, stderr }
-      await sleep(250)
+      await delay(250)
     }
   }
 
@@ -332,19 +371,19 @@ export async function startPg({ runtimeDir, pgdataDir, port: preferredPort = 554
   if (r.ready) return { pid: r.pid, port }
 
   const errText = r.stderr || r.stdout || ''
-  // "another server might be running" — try status + immediate stop before failing.
+  // A cross-process race can still land after the pre-check. Re-probe and
+  // attach if that winner becomes ready; never immediate-stop an unknown live
+  // postmaster, because synchronous_commit=off makes a crash-stop lossy.
   if (r.exited && errText.includes('another server might be running')) {
     __mixdogMemoryLog(`[pg-process] pg_ctl start: "another server might be running" — probing status\n`)
     const statusR = spawnSync(pgctl, ['status', '-D', pgdataDir], { env, stdio: 'pipe', timeout: 3_000, windowsHide: true })
     __mixdogMemoryLog(`[pg-process] pg_ctl status: ${statusR.stdout?.toString() || statusR.stderr?.toString() || 'no output'}\n`)
-    const stopR = spawnSync(pgctl, ['stop', '-m', 'immediate', '-D', pgdataDir], { env, stdio: 'pipe', timeout: 3_000, windowsHide: true })
-    if (stopR.status === 0) {
-      // Retry start once after clearing the stale instance.
-      const r2 = await startAndWaitReady()
-      if (r2.ready) return { pid: r2.pid, port }
-      __mixdogMemoryLog(`[pg-process] retry start after stop also failed: ${r2.stderr || ''}\n`)
-    } else {
-      __mixdogMemoryLog(`[pg-process] immediate stop failed: ${stopR.stderr?.toString() || ''} — treating as degraded\n`)
+    const existing = await awaitExistingPostmaster({
+      runtimeDir, pgdataDir, env, waitMs: existingWaitMs,
+    })
+    if (existing.state === 'ready') {
+      __mixdogMemoryLog(`[pg-process] attaching to race winner pid=${existing.pid} port=${existing.port}\n`)
+      return { pid: existing.pid, port: existing.port, attached: true }
     }
   }
 
@@ -419,6 +458,11 @@ export async function healthcheckPg({ port, host = '127.0.0.1' }) {
       host, port, user: 'postgres', database: 'postgres', password: '',
       connectionTimeoutMillis: 2000,
     })
+    // A socket can terminate after SELECT 1 resolves but before client.end()
+    // finishes. Raw pg.Client instances have no pool-level error listener, so
+    // keep this transient health probe from turning that narrow race into an
+    // uncaught EventEmitter error.
+    client.on('error', () => {})
     await client.connect()
     await client.query('SELECT 1')
     return true

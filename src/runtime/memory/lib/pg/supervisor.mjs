@@ -399,6 +399,18 @@ async function isPostmasterAlive(pid) {
   return isPostgresPid(pid);
 }
 
+async function waitForPostmasterReady({ pid, port, healthcheckPg, timeoutMs = 30_000 }) {
+  const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+  while (isPidAlive(pid)) {
+    try {
+      if (await healthcheckPg({ port })) return 'ready';
+    } catch {}
+    if (Date.now() >= deadline) return 'alive-not-ready';
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  return 'dead';
+}
+
 // ── Internal: spawn a fresh PG instance ─────────────────────────────────────
 
 async function _startFresh(dataDir, pgdata, port, runtimeDir) {
@@ -473,7 +485,7 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
 // ── Internal: full ensure logic (runs exclusively via _ensureInFlight) ────────
 
 async function _doEnsure(dataDir) {
-  const { healthcheckPg, stopPg } = await _getPgProc();
+  const { healthcheckPg } = await _getPgProc();
   const pgdata = join(dataDir, 'pgdata');
 
   // Resolve runtimeDir via runtime-fetcher (cache-hits immediately when already downloaded).
@@ -563,20 +575,45 @@ async function _doEnsure(dataDir) {
       __mixdogMemoryLog(
         `[supervisor-pg] pg_port=${existingPort} recorded but healthcheck failed — recovering\n`,
       );
-      const pmPid = readPostmasterPid(pgdata);
-      if (pmPid && await isPostmasterAlive(pmPid)) {
-        // postmaster alive but unhealthy: attempt graceful stop first
-        __mixdogMemoryLog(`[supervisor-pg] postmaster PID ${pmPid} alive — attempting graceful stopPg\n`);
-        try { await stopPg({ runtimeDir, pgdataDir: pgdata }); } catch (e) {
-          __mixdogMemoryLog(`[supervisor-pg] graceful stopPg failed: ${e?.message} — continuing to fresh start\n`);
-        }
-      } else if (pmPid) {
-        // postmaster dead: remove stale postmaster.pid so initdb/start is not blocked
-        __mixdogMemoryLog(`[supervisor-pg] postmaster PID ${pmPid} dead — removing stale postmaster.pid\n`);
-        try { unlinkSync(join(pgdata, 'postmaster.pid')); } catch {}
-      }
       // Clear stale pg fields before restart
       patchActiveInstance({ pg_port: null, pg_started_at: null, pg_pgdata: null }, { timeoutMs: 1000, background: true });
+    }
+
+    // postmaster.pid is the authoritative pgdata owner even when the discovery
+    // advert is absent/stale. The old path checked it only inside the
+    // `existingPort` branch, then allocated 55433 and tried to start the SAME
+    // pgdata while a recovering/rejecting server still owned 55432. Give crash
+    // recovery a bounded chance to finish and attach if it does. Never issue a
+    // stop from an ensure path: an alive postmaster owns the data directory,
+    // and interrupting recovery can turn a transient outage into a restart loop.
+    const pm = readPostmasterInfo(pgdata);
+    if (pm.pid && pm.port && await isPostmasterAlive(pm.pid)) {
+      __mixdogMemoryLog(`[supervisor-pg] postmaster PID ${pm.pid} alive but not ready — awaiting recovery\n`);
+      const state = await waitForPostmasterReady({
+        pid: pm.pid,
+        port: pm.port,
+        healthcheckPg,
+      });
+      if (state === 'ready') {
+        __mixdogMemoryLog(`[supervisor-pg] attaching to recovered PG pid=${pm.pid} port=${pm.port}\n`);
+        _live = { port: pm.port, pgdata, runtimeDir, proc: null };
+        patchActiveInstance({
+          pg_port: pm.port,
+          pg_started_at: ai?.pg_started_at ?? Date.now(),
+          pg_pgdata: pgdata,
+          pg_runtime_dir: runtimeDir,
+        }, { timeoutMs: 1000, background: true });
+        return { host: '127.0.0.1', port: pm.port, runtimeDir, pgdataDir: pgdata };
+      }
+      if (state === 'alive-not-ready') {
+        throw new Error(
+          `[supervisor-pg] existing postmaster PID ${pm.pid} remains alive but unhealthy; refusing concurrent start`,
+        );
+      }
+    }
+    if (pm.pid) {
+      __mixdogMemoryLog(`[supervisor-pg] postmaster PID ${pm.pid} dead — removing stale postmaster.pid\n`);
+      try { unlinkSync(join(pgdata, 'postmaster.pid')); } catch {}
     }
 
     // ── Allocate a fresh port and spawn ───────────────────────────────────

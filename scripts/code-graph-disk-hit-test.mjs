@@ -262,6 +262,17 @@ test('Worker drains all migrated cache entries before posting success', () => {
   assert.deepEqual(events, ['drain', 'post']);
 });
 
+test('cache-disabled scoped Worker posts success without touching disk-cache state', () => {
+  const events = [];
+  _postCodeGraphWorkerSuccess(
+    { signature: 'scoped', nodes: new Map() },
+    (message) => events.push(message.ok ? 'post' : 'bad-post'),
+    () => events.push('drain'),
+    { cache: false },
+  );
+  assert.deepEqual(events, ['post']);
+});
+
 test('strict persistence failure prevents Worker success post', () => {
   let posted = false;
   assert.throws(

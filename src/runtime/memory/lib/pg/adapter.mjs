@@ -4,8 +4,70 @@ function __mixdogMemoryLog(...args) {
   return __mixdogMemoryStderrWrite(...args);
 }
 
-function installPoolErrorHandler(pool, label) {
+const _poolClientErrorHandlers = new WeakMap()
+
+export function isPgConnectionLossError(err) {
+  const seen = new Set()
+  let cur = err
+  for (let depth = 0; cur && depth < 5 && !seen.has(cur); depth++) {
+    seen.add(cur)
+    const code = String(cur?.code || cur?.errno || '').toUpperCase()
+    const msg = String(cur?.message || cur || '')
+    if (
+      code === 'ECONNREFUSED'
+      || code === 'ECONNRESET'
+      || code === 'EPIPE'
+      || code === 'ENETRESET'
+      || code === '57P01'
+      || code === '57P02'
+      || code === '57P03'
+      || /connection terminated(?: unexpectedly)?/i.test(msg)
+      || /server closed the connection unexpectedly/i.test(msg)
+      || /read ECONNRESET|socket hang up|connect ECONNREFUSED/i.test(msg)
+      || /cannot use a pool after calling end/i.test(msg)
+    ) return true
+    cur = cur?.cause
+  }
+  return false
+}
+
+function isSafePreDispatchRetryError(err) {
+  const code = String(err?.code || err?.errno || '').toUpperCase()
+  const msg = String(err?.message || err || '')
+  return code === 'ECONNREFUSED'
+    || /connect ECONNREFUSED/i.test(msg)
+    || /cannot use a pool after calling end/i.test(msg)
+}
+
+export function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
   if (!pool || typeof pool.on !== 'function') return pool
+  // pg-pool deliberately removes its idle error listener while a Client is
+  // checked out. Long-running advisory-lock owners (cycle1/2/3) can therefore
+  // receive a socket-end `error` between queries with no listener at all,
+  // which Node treats as an uncaught exception. Give every physical Client a
+  // permanent last-resort listener; pg-pool's own idle listener still owns
+  // eviction when the Client is back in the pool.
+  pool.on('connect', (client) => {
+    if (!client || typeof client.on !== 'function' || _poolClientErrorHandlers.has(client)) return
+    const handler = (err) => {
+      const code = err?.code || err?.errno || ''
+      const msg = err?.message || String(err || 'unknown error')
+      const pid = client?.processID ? ` pid=${client.processID}` : ''
+      const suffix = code ? ` ${code}` : ''
+      __mixdogMemoryLog(`[pg-adapter] ${label} client error${suffix}${pid}: ${msg}\n`)
+      if (isPgConnectionLossError(err) && typeof onConnectionLoss === 'function') {
+        try {
+          Promise.resolve(onConnectionLoss(err, client)).catch((recoverErr) => {
+            __mixdogMemoryLog(`[pg-adapter] ${label} client-error recovery failed: ${recoverErr?.message || recoverErr}\n`)
+          })
+        } catch (recoverErr) {
+          __mixdogMemoryLog(`[pg-adapter] ${label} client-error recovery failed: ${recoverErr?.message || recoverErr}\n`)
+        }
+      }
+    }
+    _poolClientErrorHandlers.set(client, handler)
+    client.on('error', handler)
+  })
   pool.on('error', (err, client) => {
     const code = err?.code || err?.errno || ''
     const msg = err?.message || String(err || 'unknown error')
@@ -139,7 +201,7 @@ function makeCompatDb(pgPool, schema, dataDir) {
           client.release()
         }
       } catch (err) {
-        if (err?.code === 'ECONNREFUSED') _recoverPgConnection(dataDir, schema).catch(() => {})
+        if (isPgConnectionLossError(err)) _recoverPgConnection(dataDir, schema).catch(() => {})
         throw err
       }
     },
@@ -152,8 +214,10 @@ function makeCompatDb(pgPool, schema, dataDir) {
       // side effects. Recover in the background for the next caller and
       // propagate the original error immediately.
       const pool = instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool
-      const client = await _checkedConnect(pool, schema)
+      let client = null
+      let releaseErr = null
       try {
+        client = await _checkedConnect(pool, schema)
         await client.query('BEGIN')
         const tx = {
           query: (sql, params) => client.query(sql, params),
@@ -163,11 +227,16 @@ function makeCompatDb(pgPool, schema, dataDir) {
         await client.query('COMMIT')
         return result
       } catch (err) {
-        try { await client.query('ROLLBACK') } catch {}
-        if (err?.code === 'ECONNREFUSED') _recoverPgConnection(dataDir, schema).catch(() => {})
+        if (client) {
+          try { await client.query('ROLLBACK') } catch {}
+        }
+        if (isPgConnectionLossError(err)) {
+          releaseErr = err instanceof Error ? err : new Error(String(err))
+          _recoverPgConnection(dataDir, schema).catch(() => {})
+        }
         throw err
       } finally {
-        client.release()
+        if (client) client.release(releaseErr || undefined)
       }
     },
 
@@ -228,7 +297,7 @@ async function _recoverPgConnection(dataDir, schema) {
 
   const p = (async () => {
     _lastRecoverAt.set(dataDirKey, Date.now())
-    __mixdogMemoryLog(`[pg-adapter] ECONNREFUSED on pool query — recovering PG for dataDir=${dataDirKey}\n`)
+    __mixdogMemoryLog(`[pg-adapter] connection loss — recovering PG for dataDir=${dataDirKey}\n`)
     // memory + trace schemas share one PG cluster/port; discard every cached
     // pool for this dataDir so a dead-port pool is never reused after restart.
     // Track every schema whose pool was actually closed here so ALL of them
@@ -275,9 +344,12 @@ async function withPgRetry(dataDir, schema, fn) {
   try {
     return await fn(pool0)
   } catch (err) {
-    if (err?.code !== 'ECONNREFUSED') throw err
+    if (!isPgConnectionLossError(err)) throw err
     const recovered = await _recoverPgConnection(dataDir, schema)
-    if (!recovered) throw err
+    // Only retry failures proven to happen before dispatch. ECONNRESET and
+    // server-termination errors can arrive after PostgreSQL applied a write;
+    // replaying a generic query would risk duplicate side effects.
+    if (!recovered || !isSafePreDispatchRetryError(err)) throw err
     const pool1 = instances.get(key)?.pool
     if (!pool1) throw err
     return await fn(pool1)
@@ -422,7 +494,9 @@ export async function ensurePgInstance(dataDir, opts = {}) {
       password: '', max: 5, idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
     })
-    installPoolErrorHandler(pgPool, `pool:${schema}`)
+    installPoolErrorHandler(pgPool, `pool:${schema}`, {
+      onConnectionLoss: () => _recoverPgConnection(dataDir, schema),
+    })
 
     // 4. Bootstrap extensions + schemas once (idempotent).
     await bootstrapInstance(pgPool, resolve(dataDir))

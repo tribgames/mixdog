@@ -10,6 +10,9 @@
 // documented inline per provider block below.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { parse } from 'acorn';
+import { analyze } from 'eslint-scope';
 
 import {
     OpenAICompatProvider,
@@ -70,8 +73,197 @@ import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-t
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import { buildRequestBody as buildOpenAIOAuthRequestBody } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _convertMessagesToResponsesInputForTest } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
+import { OpenAIDirectProvider } from '../src/runtime/agent/orchestrator/providers/openai-ws.mjs';
 
 // --- Helpers ---------------------------------------------------------------
+
+test('OpenAI API-key request keeps public defaults without network under every transport mode', async (t) => {
+    const priorTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    t.after(() => {
+        if (priorTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = priorTransport;
+    });
+    const provider = new OpenAIDirectProvider({ apiKey: 'fixture-openai-key' });
+    for (const mode of ['auto', 'ws-full', 'ws-delta', 'http-sse']) {
+        process.env.MIXDOG_OAI_TRANSPORT = mode;
+        const calls = [];
+        let captured = null;
+        const result = await provider.send(
+            [{ role: 'user', content: 'fixture' }],
+            'gpt-5.4',
+            [],
+            {
+                sessionId: `direct-request-defaults-${mode}`,
+                _fetchFn: async () => { throw new Error('global fetch seam must not run'); },
+                _sendViaWebSocketFn: async (request) => {
+                    calls.push('ws');
+                    captured = request;
+                    return { content: 'ws-ok', toolCalls: [] };
+                },
+                _sendViaHttpSseFn: async (request) => {
+                    calls.push('http');
+                    captured = request;
+                    return { content: 'http-ok', toolCalls: [] };
+                },
+            },
+        );
+        assert.deepEqual(calls, mode === 'http-sse' ? ['http'] : ['ws'], mode);
+        assert.equal(result.content, mode === 'http-sse' ? 'http-ok' : 'ws-ok');
+        assert.equal(captured.auth.type, 'openai-direct');
+        assert.equal(captured.auth.apiKey, 'fixture-openai-key');
+        if (mode !== 'http-sse') assert.equal(captured.traceProvider, 'openai-direct');
+        assert.equal(captured.body.store, true);
+        assert.equal(captured.body.prompt_cache_retention, '24h');
+        assert.equal(captured.body.stream, true);
+    }
+});
+
+function directHandshakeError(status) {
+    return Object.assign(new Error(`handshake ${status}`), { httpStatus: status });
+}
+
+function directWsEntry() {
+    return { socket: { close() {} }, ephemeral: true };
+}
+
+test('OpenAI API-key unsupported handshake 403/404/429 falls back once without nested WS retries', async (t) => {
+    const priorTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    process.env.MIXDOG_OAI_TRANSPORT = 'auto';
+    t.after(() => {
+        if (priorTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = priorTransport;
+    });
+    for (const status of [403, 404, 429]) {
+        const provider = new OpenAIDirectProvider({ apiKey: 'fixture-openai-key' });
+        let acquires = 0;
+        let httpCalls = 0;
+        const result = await provider.send([], 'gpt-5.4', [], {
+            _fetchFn: async () => { throw new Error('global fetch seam must not run'); },
+            _webSocketTestSeams: {
+                // Neither null nor an inverted caller policy may override the
+                // direct provider's mandatory handshake policy.
+                handshakeErrorPolicy: status === 403
+                    ? null
+                    : () => ({ retry: true, httpFallback: false }),
+                _acquireWithRetryFn: async () => {
+                    acquires += 1;
+                    throw directHandshakeError(status);
+                },
+                _sleepFn: async () => {},
+                _sendSpanTraceFn: () => {},
+                _agentTraceFn: () => {},
+            },
+            _sendViaHttpSseFn: async () => {
+                httpCalls += 1;
+                return { content: `http-${status}`, toolCalls: [] };
+            },
+        });
+        assert.equal(result.content, `http-${status}`);
+        assert.equal(acquires, 1, `handshake ${status} must not retry WS`);
+        assert.equal(httpCalls, 1, `handshake ${status} gets one HTTP fallback`);
+    }
+});
+
+test('OpenAI API-key every application 4xx and exposed output never replay or fall back', async (t) => {
+    const priorTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    process.env.MIXDOG_OAI_TRANSPORT = 'auto';
+    t.after(() => {
+        if (priorTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = priorTransport;
+    });
+    const cases = [
+        ...[400, 401, 402, 403, 404, 409, 418, 422, 429, 451, 499]
+            .map((status) => ({ status, exposed: null })),
+        { status: 500, exposed: 'text' },
+        { status: 500, exposed: 'tool' },
+    ];
+    for (const { status, exposed } of cases) {
+        const provider = new OpenAIDirectProvider({ apiKey: 'fixture-openai-key' });
+        let acquires = 0;
+        let streams = 0;
+        let httpCalls = 0;
+        let reloads = 0;
+        let visibleTextDeltas = 0;
+        let dispatchedToolCalls = 0;
+        provider.reloadApiKey = () => {
+            reloads += 1;
+            return 'replacement-key';
+        };
+        await assert.rejects(provider.send([], 'gpt-5.4', [], {
+            onTextDelta: () => { visibleTextDeltas += 1; },
+            onToolCall: () => { dispatchedToolCalls += 1; },
+            _fetchFn: async () => { throw new Error('global fetch seam must not run'); },
+            _webSocketTestSeams: {
+                _acquireWithRetryFn: async () => {
+                    acquires += 1;
+                    return { entry: directWsEntry(), reused: false };
+                },
+                _sendFrameFn: async () => {},
+                _streamFn: async ({ state, onTextDelta, onToolCall }) => {
+                    streams += 1;
+                    if (exposed === 'text') {
+                        onTextDelta?.('visible-once');
+                        state.emittedText = true;
+                    }
+                    if (exposed === 'tool') {
+                        onToolCall?.({ id: 'tool-once', name: 'read', arguments: {} });
+                        state.emittedToolCall = true;
+                    }
+                    throw Object.assign(new Error(`application ${status} ${exposed || ''}`), { httpStatus: status });
+                },
+                _sleepFn: async () => {},
+                _sendSpanTraceFn: () => {},
+                _agentTraceFn: () => {},
+            },
+            _sendViaHttpSseFn: async () => {
+                httpCalls += 1;
+                throw new Error('application/visible output must not reach HTTP');
+            },
+        }), new RegExp(`application ${status}`));
+        assert.equal(acquires, 1);
+        assert.equal(streams, 1);
+        assert.equal(httpCalls, 0);
+        assert.equal(reloads, 0);
+        assert.equal(visibleTextDeltas, exposed === 'text' ? 1 : 0);
+        assert.equal(dispatchedToolCalls, exposed === 'tool' ? 1 : 0);
+    }
+});
+
+test('Anthropic API-key gates deferred beta to requests that carry deferred tools', async () => {
+    const provider = Object.create((await import('../src/runtime/agent/orchestrator/providers/anthropic.mjs')).AnthropicProvider.prototype);
+    provider.name = 'anthropic';
+    provider.config = {};
+    provider.fastModeBetaHeaderLatched = false;
+    const calls = [];
+    provider.client = { messages: { create(params, options) {
+        calls.push({ params, options });
+        return { asResponse: async () => ({
+            ...anthropicSseResponse([
+                { type: 'message_start', message: { model: params.model, usage: { input_tokens: 1 } } },
+                { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } },
+                { type: 'message_stop' },
+            ]),
+            ok: true,
+            status: 200,
+            headers: new Map(),
+        }) };
+    } } };
+
+    await provider._doSend([{ role: 'user', content: 'plain' }], 'claude-sonnet-4-6', [], {});
+    assert.doesNotMatch(calls[0].options.headers['anthropic-beta'], /advanced-tool-use/);
+
+    const active = [{ name: 'load_tool', description: 'load', inputSchema: { type: 'object', properties: {} } }];
+    const deferred = { name: 'mcp__demo__ping', description: 'ping', inputSchema: { type: 'object', properties: {} } };
+    await provider._doSend([{ role: 'user', content: 'load' }], 'claude-sonnet-4-6', active, {
+        session: {
+            deferredNativeTools: true,
+            deferredDiscoveredTools: [deferred.name],
+            deferredToolCatalog: [...active, deferred],
+        },
+    });
+    assert.match(calls[1].options.headers['anthropic-beta'], /advanced-tool-use/);
+    assert.equal(calls[1].params.tools.find((tool) => tool.name === deferred.name)?.defer_loading, true);
+});
 
 test('native deferred history normalizes per provider without leaking OpenAI variants to xAI', () => {
     const nativePayload = {
@@ -2363,13 +2555,100 @@ test('responses transport policy: xai ws-full → WS, http-sse → HTTP', () => 
     assert.equal(http.allowHttpFallback, false);
 });
 
-test('openai-compat/xai: provider-local HTTP pin beats global OAI ws-delta', async () => {
+test('openai-compat/xai: HTTP pin uses only the injected preconnect seam', async () => {
     const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    const prevFetch = globalThis.fetch;
+    let outboundFetchAttempts = 0;
+    let injectedPreconnectCalls = 0;
     try {
         process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
+        globalThis.fetch = async () => {
+            outboundFetchAttempts += 1;
+            throw new Error('provider transport test attempted outbound fetch');
+        };
+
+        // Resolve the actual imported binding and inspect _doSend before
+        // invoking any outbound-capable provider path. AST traversal naturally
+        // excludes comments/strings and catches direct, aliased, parenthesized,
+        // optional, or assigned references.
+        const compatSource = readFileSync(
+            new URL('../src/runtime/agent/orchestrator/providers/openai-compat.mjs', import.meta.url),
+            'utf8',
+        );
+        const compatAst = parse(compatSource, {
+            ecmaVersion: 'latest',
+            sourceType: 'module',
+            locations: true,
+            ranges: true,
+        });
+        const preconnectImport = compatAst.body
+            .filter(node => node.type === 'ImportDeclaration')
+            .flatMap(node => node.specifiers)
+            .find(specifier =>
+                specifier.type === 'ImportSpecifier'
+                && specifier.imported.name === 'preconnect',
+            );
+        assert.ok(preconnectImport, 'shared preconnect import binding must be resolvable');
+        const scopeManager = analyze(compatAst, { ecmaVersion: 2022, sourceType: 'module' });
+        const moduleScope = scopeManager.scopes.find(scope => scope.type === 'module');
+        const preconnectBinding = moduleScope?.set.get(preconnectImport.local.name);
+        assert.ok(preconnectBinding, 'shared preconnect source binding must be resolvable');
+
+        const providerClass = compatAst.body
+            .map(node => node.type === 'ExportNamedDeclaration' ? node.declaration : node)
+            .find(node =>
+                node?.type === 'ClassDeclaration'
+                && node.id?.name === 'OpenAICompatProvider',
+            );
+        assert.ok(providerClass, 'OpenAICompatProvider class must be resolvable');
+        const doSendMethod = providerClass.body.body.find(node =>
+            node.type === 'MethodDefinition'
+            && node.key?.type === 'Identifier'
+            && node.key.name === '_doSend',
+        );
+        assert.ok(doSendMethod, 'OpenAICompatProvider._doSend must be resolvable');
+
+        let callsInjectedInstanceMember = false;
+        const visit = node => {
+            if (!node || typeof node !== 'object') return;
+            if (
+                node.type === 'CallExpression'
+                && node.callee?.type === 'MemberExpression'
+                && node.callee.object?.type === 'ThisExpression'
+                && node.callee.computed === false
+                && node.callee.property?.name === '_preconnectFn'
+            ) {
+                callsInjectedInstanceMember = true;
+            }
+            for (const [key, value] of Object.entries(node)) {
+                if (key === 'start' || key === 'end') continue;
+                if (Array.isArray(value)) value.forEach(visit);
+                else if (value && typeof value === 'object') visit(value);
+            }
+        };
+        visit(doSendMethod.value.body);
+        const importedBindingReferences = preconnectBinding.references.filter(reference =>
+            reference.identifier.start >= doSendMethod.value.body.start
+            && reference.identifier.end <= doSendMethod.value.body.end,
+        );
+        assert.equal(
+            importedBindingReferences.length,
+            0,
+            '_doSend must not reference the shared preconnect import binding',
+        );
+        assert.equal(
+            callsInjectedInstanceMember,
+            true,
+            '_doSend must call the instance preconnect seam',
+        );
+
         const provider = new OpenAICompatProvider('xai', {
             apiKey: 'xai-test',
             responsesTransport: 'http',
+            preconnect: true,
+            preconnectFn: () => {
+                injectedPreconnectCalls += 1;
+            },
         });
         let httpCalled = false;
         provider._doSendXaiResponses = async () => {
@@ -2382,7 +2661,10 @@ test('openai-compat/xai: provider-local HTTP pin beats global OAI ws-delta', asy
         const result = await provider._doSend([{ role: 'user', content: 'hi' }], 'grok-build', [], {});
         assert.equal(result.content, 'ok');
         assert.equal(httpCalled, true);
+        assert.equal(injectedPreconnectCalls, 1, 'only the injected preconnect seam must run');
+        assert.equal(outboundFetchAttempts, 0, 'stubbed provider test must remain network hermetic');
     } finally {
+        globalThis.fetch = prevFetch;
         if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
         else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
     }

@@ -16,6 +16,7 @@ const providerModulePromises = new Map();
 // byte identical to the live one, so lazy-init misses that re-run initProviders
 // don't churn (tear down + rebuild) every live provider instance on every call.
 const signatures = new Map();
+const KNOWN_INPUT_EXCLUDES_CACHE = new Set(['anthropic', 'anthropic-oauth']);
 
 // Module-level init serialization. agent-tool.mjs's ensureProvider() already
 // serializes inits per provider on a chain promise, but its gateOnPrior() lets
@@ -262,14 +263,53 @@ export function getProvider(name) {
 // provider states its own answer — no central regex to keep in sync. Unknown /
 // unregistered providers default to false (the openai/gemini majority).
 export function providerInputExcludesCache(name) {
-    const p = getProvider(name);
-    if (p?.constructor?.inputExcludesCache === true) return true;
-    return String(name || '').toLowerCase().includes('anthropic');
+    const normalized = String(name || '').toLowerCase();
+    // Usage accounting is a pure lookup. In particular, never call
+    // getProvider() here: its OAuth miss path probes credentials and may lazily
+    // instantiate/register a provider.
+    const p = providers.get(normalized);
+    if (p?.constructor && typeof p.constructor.inputExcludesCache === 'boolean') {
+        return p.constructor.inputExcludesCache;
+    }
+    // A constructor may already be loaded even when the provider is currently
+    // absent during a route/config transition. Preserve its declaration, but
+    // never infer usage semantics from an arbitrary provider-name substring.
+    const Ctor = providerCtors.get(normalized);
+    if (Ctor && typeof Ctor.inputExcludesCache === 'boolean') {
+        return Ctor.inputExcludesCache;
+    }
+    // Built-in usage semantics must also be correct before lazy construction
+    // (including disabled providers in a fresh process).
+    return KNOWN_INPUT_EXCLUDES_CACHE.has(normalized);
 }
 export function getAllProviders() {
     // Defensive copy — callers must not mutate the live registry or retain
     // stale entries across re-init (initProviders rebuilds the map in place).
     return new Map(providers);
+}
+// Narrow synchronous test seam for the lazy-OAuth boundary. It models a
+// constructor whose module is already loaded while guaranteeing every touched
+// registry entry is restored, even when the assertion callback throws.
+export function _withLoadedProviderCtorForTest(name, Ctor, fn) {
+    const hadProvider = providers.has(name);
+    const priorProvider = providers.get(name);
+    const hadCtor = providerCtors.has(name);
+    const priorCtor = providerCtors.get(name);
+    const hadSignature = signatures.has(name);
+    const priorSignature = signatures.get(name);
+    providers.delete(name);
+    signatures.delete(name);
+    providerCtors.set(name, Ctor);
+    try {
+        return fn();
+    } finally {
+        if (hadProvider) providers.set(name, priorProvider);
+        else providers.delete(name);
+        if (hadCtor) providerCtors.set(name, priorCtor);
+        else providerCtors.delete(name);
+        if (hadSignature) signatures.set(name, priorSignature);
+        else signatures.delete(name);
+    }
 }
 // Background catalog warm-up. Each provider's listModels() either hits its
 // own cached model list (no-op) or fires a single HTTP refresh. Called from

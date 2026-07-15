@@ -29,6 +29,8 @@ import {
     parseToolCalls,
     emitGeminiToolCalls,
     collectGeminiGroundingSources,
+    parseGeminiThinkingParts,
+    parseGeminiTextPartMetadata,
 } from './gemini-schema.mjs';
 import {
     _estimateGeminiCacheTokens,
@@ -45,12 +47,14 @@ import {
     writeGeminiCacheTrace,
     geminiGlobalCacheCreates,
     GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS,
+    _geminiCredentialFingerprint,
+    _invalidateGeminiCachesForCredentialFingerprint,
 } from './gemini-cache.mjs';
 
 // Legacy import path: tests + gemini-stream import these from gemini.mjs.
 // Re-export the extracted symbols so existing importers resolve unchanged.
 export { createGeminiTextLeakGuard };
-export { parseToolCalls, emitGeminiToolCalls, collectGeminiGroundingSources };
+export { parseToolCalls, emitGeminiToolCalls, collectGeminiGroundingSources, parseGeminiTextPartMetadata };
 
 const MODELS = [
     { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', provider: 'gemini', contextWindow: 1048576 },
@@ -73,6 +77,25 @@ const GEMINI_MODEL_CACHE_SCHEMA_VERSION = 2;
 // De-dupes concurrent force-refreshes so they share one HTTP round-trip,
 // mirroring anthropic-oauth's _modelRefreshInFlight.
 let _modelRefreshInFlight = null;
+
+export async function fetchGeminiModelPages(apiKey, fetchFn = fetch) {
+    const items = [];
+    let pageToken = '';
+    do {
+        const params = new URLSearchParams({ key: apiKey, pageSize: '1000' });
+        if (pageToken) params.set('pageToken', pageToken);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models?${params}`;
+        const res = await fetchFn(url, {
+            signal: AbortSignal.timeout(60_000),
+            dispatcher: getLlmDispatcher(),
+        });
+        if (!res.ok) throw new Error(`gemini list_models ${res.status}`);
+        const data = await res.json();
+        if (Array.isArray(data?.models)) items.push(...data.models);
+        pageToken = typeof data?.nextPageToken === 'string' ? data.nextPageToken : '';
+    } while (pageToken);
+    return items;
+}
 
 const _modelCache = makeModelCache({
     fileName: 'gemini-models.json',
@@ -139,14 +162,24 @@ export class GeminiProvider {
     name = 'gemini';
     genAI;
     config;
+    _fetch;
+    _preconnect;
+    _createGenAI;
+    _modelCache;
 
-    constructor(config) {
+    constructor(config = {}) {
         this.config = config;
+        this._fetch = typeof config.fetchFn === 'function' ? config.fetchFn : fetch;
+        this._preconnect = typeof config.preconnectFn === 'function' ? config.preconnectFn : preconnect;
+        this._createGenAI = typeof config.createGenAI === 'function'
+            ? config.createGenAI
+            : (apiKey) => new GoogleGenerativeAI(apiKey);
+        this._modelCache = config.modelCache || _modelCache;
         const apiKey = config.apiKey || process.env.GEMINI_API_KEY || '';
-        this.genAI = new GoogleGenerativeAI(apiKey);
+        this.genAI = config.genAI || this._createGenAI(apiKey);
         // Warm a kept-alive socket to the Gemini REST API so the first cache/
         // generateContent request skips the cold TLS handshake. Best-effort.
-        preconnect('https://generativelanguage.googleapis.com');
+        this._preconnect('https://generativelanguage.googleapis.com');
     }
 
     reloadApiKey() {
@@ -159,9 +192,11 @@ export class GeminiProvider {
                 // key via _getApiKey() → this.config.apiKey) don't keep using
                 // the stale key after a rotation; genAI alone is not enough.
                 this.config = { ...(this.config || {}), apiKey: newKey };
-                this.genAI = new GoogleGenerativeAI(newKey);
+                this.genAI = this._createGenAI(newKey);
             }
+            return newKey || '';
         } catch { /* best effort */ }
+        return '';
     }
 
     _getApiKey() {
@@ -176,7 +211,7 @@ export class GeminiProvider {
     // one cache slot warm without re-creation overhead; storage cost (~$0.5/M
     // tokens/hour) is dwarfed by the 75% input-price discount on hits beyond
     // a few iterations.
-    async _ensureGeminiCache({ apiKey, model, systemInstruction, geminiTools, contents, opts }) {
+    async _ensureGeminiCache({ apiKey, model, systemInstruction, geminiTools, toolConfig, contents, opts }) {
         if (Array.isArray(opts?.nativeTools) && opts.nativeTools.length) return null;
         // Kill-switch: MIXDOG_GEMINI_EXPLICIT_CACHE=0 skips cachedContents
         // entirely and relies on Gemini's implicit prefix caching (2.5+/3.x
@@ -184,6 +219,7 @@ export class GeminiProvider {
         const explicitMode = String(process.env.MIXDOG_GEMINI_EXPLICIT_CACHE || '').trim().toLowerCase();
         if (['0', 'false', 'off', 'no'].includes(explicitMode)) return null;
         const state = opts.providerState?.gemini || null;
+        const credentialFingerprint = _geminiCredentialFingerprint(apiKey);
         const now = Date.now();
         const currentIter = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : 1;
         const refreshEveryN = Number(process.env.MIXDOG_GEMINI_CACHE_REFRESH_EVERY) > 0
@@ -213,17 +249,21 @@ export class GeminiProvider {
                 model,
                 systemInstruction,
                 geminiTools,
+                toolConfig,
                 contents,
                 prefixCount: statePrefixContentCount,
             })
             : null;
         const modelMatches = !!state?.cacheName && state?.cacheModel === model;
+        const credentialMatches = !!state?.cacheName
+            && state?.cacheCredentialFingerprint === credentialFingerprint;
         const prefixMatches = !!state?.cacheName
             && statePrefixContentCount != null
             && statePrefixContentCount <= (Array.isArray(contents) ? contents.length : 0)
             && !!state?.cachePrefixHash
             && state.cachePrefixHash === currentStatePrefixHash;
-        const canAttachState = !!state?.cacheName && cacheLiveMs > 0 && modelMatches && prefixMatches;
+        const canAttachState = !!state?.cacheName && cacheLiveMs > 0
+            && modelMatches && credentialMatches && prefixMatches;
         const canReuseState = canAttachState && cacheLiveMs > reuseHeadroomMs && itersSinceCreate < refreshEveryN;
         try {
             appendAgentTrace({
@@ -239,6 +279,7 @@ export class GeminiProvider {
                     statePrefixHash: state?.cachePrefixHash || null,
                     currentStatePrefixHash,
                     modelMatches,
+                    credentialMatches,
                     prefixMatches,
                     canAttachState,
                     cacheLiveMs,
@@ -279,11 +320,12 @@ export class GeminiProvider {
             model,
             systemInstruction,
             geminiTools,
+            toolConfig,
             contents,
             prefixCount: cachePrefixContentCount,
         });
         const globalCacheKey = _geminiGlobalCacheKey({
-            apiKey,
+            credentialFingerprint,
             model,
             cachePrefixHash,
             cachePrefixContentCount,
@@ -340,6 +382,7 @@ export class GeminiProvider {
             if (Array.isArray(geminiTools) && geminiTools.length) {
                 body.tools = geminiTools;
             }
+            if (toolConfig) body.toolConfig = toolConfig;
             // Capture conversation prefix (everything except the latest user/
             // tool input that the generateContent call will carry) inside the
             // cache. cachedContents only accepts role='user' or 'model';
@@ -353,7 +396,7 @@ export class GeminiProvider {
             // only the 20s ceiling. Without merging opts.signal a session that is
             // aborted (stall-watchdog / closeSession) mid-cache-create leaves this
             // preflight request running until its own timeout fires.
-            const res = await fetch(url, {
+            const res = await this._fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -436,7 +479,7 @@ export class GeminiProvider {
                 setTimeout(() => {
                     if (_geminiGlobalCacheNameIsLive(priorCacheName)) return;
                     const delUrl = `https://generativelanguage.googleapis.com/v1beta/${priorCacheName}?key=${encodeURIComponent(apiKey)}`;
-                    fetch(delUrl, { method: 'DELETE', signal: AbortSignal.timeout(10_000), dispatcher: getLlmDispatcher() })
+                    this._fetch(delUrl, { method: 'DELETE', signal: AbortSignal.timeout(10_000), dispatcher: getLlmDispatcher() })
                         .catch(() => { /* TTL expiry will reclaim it */ });
                 }, GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS).unref?.();
             }
@@ -449,6 +492,7 @@ export class GeminiProvider {
                 cacheTokenSize,
                 cachePrefixContentCount,
                 cachePrefixHash,
+                cacheCredentialFingerprint: credentialFingerprint,
             };
             _setGeminiGlobalCache(globalCacheKey, entry);
             return entry;
@@ -473,16 +517,25 @@ export class GeminiProvider {
     async send(messages, model, tools, sendOpts) {
         // Re-warm a kept-alive socket before the turn (TTL-gated no-op while
         // hot) so a post-idle request skips the cold TLS handshake.
-        preconnect('https://generativelanguage.googleapis.com');
+        this._preconnect('https://generativelanguage.googleapis.com');
         try {
             return await this._doSend(messages, model, tools, sendOpts);
         } catch (err) {
-            if (err.message && (err.message.includes('401') || err.message.includes('403'))) {
+            if (err?.status === 401 || err?.status === 403
+                || (err?.message && (err.message.includes('401') || err.message.includes('403')))) {
                 if (err.liveTextEmitted === true || err.emittedToolCall === true || err.unsafeToRetry === true) {
                     throw err;
                 }
                 process.stderr.write(`[provider] Auth error, re-reading provider authentication...\n`);
-                this.reloadApiKey();
+                const oldCredentialFingerprint = _geminiCredentialFingerprint(this._getApiKey());
+                const newKey = this.reloadApiKey();
+                _invalidateGeminiCachesForCredentialFingerprint(oldCredentialFingerprint);
+                const geminiState = sendOpts?.providerState?.gemini;
+                if (geminiState?.cacheName) {
+                    const { gemini: _dropGemini, ...rest } = sendOpts.providerState;
+                    sendOpts.providerState = rest;
+                }
+                if (!newKey) throw err;
                 return await this._doSend(messages, model, tools, sendOpts);
             }
             throw err;
@@ -527,20 +580,16 @@ export class GeminiProvider {
         let textLeakGuard = null;
 
         // Explicit cachedContents (system + tools + prior-turn transcript).
-        // Per Google docs, `tools` must be supplied on BOTH the cache create
-        // call AND every subsequent generate_content call — the cache stores
-        // the schema for prompt-token credit but the runtime model still
-        // needs the tool schema to actually emit function calls. Sending
-        // cachedContent without tools yields an empty completion (function
-        // calling silently disabled). The contents payload captures the
-        // accumulated prefix; we refresh the cache every N iterations so
-        // recent turns also enter the cached prefix instead of being billed
-        // at full input rates.
+        // Cache system/tools/toolConfig together. Google rejects repeating
+        // those fields on generateContent when cachedContent is attached.
+        // The contents payload captures the accumulated prefix; refresh every
+        // N iterations so recent turns also enter the cached prefix.
         const cachedContent = await this._ensureGeminiCache({
             apiKey: this._getApiKey(),
             model: useModel,
             systemInstruction,
             geminiTools,
+            toolConfig,
             contents,
             opts,
         });
@@ -567,7 +616,8 @@ export class GeminiProvider {
                 contents: deltaContents.length ? deltaContents : contents.slice(-1),
                 cachedContent,
             };
-            if (toolConfig) body.toolConfig = toolConfig;
+            // cachedContent owns tools + toolConfig. The API rejects a
+            // generateContent request that repeats either field.
             // Option A (mirror anthropic-oauth): no absolute wall-clock cap on a
             // live streaming turn. A stream that keeps emitting SSE deltas must
             // not be killed by a fixed total-lifetime timer — that false-aborts
@@ -589,7 +639,7 @@ export class GeminiProvider {
                         );
                         let res;
                         try {
-                            res = await fetch(genUrl, {
+                            res = await this._fetch(genUrl, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify(body),
@@ -726,8 +776,10 @@ export class GeminiProvider {
             cachedContent,
         });
         const candidate = response.candidates?.[0] || null;
-        const textParts = candidate?.content?.parts?.filter(p => 'text' in p) ?? [];
+        const responseParts = candidate?.content?.parts ?? [];
+        const textParts = responseParts.filter(p => p?.thought !== true && 'text' in p);
         const rawContent = textParts.map(p => 'text' in p ? p.text : '').join('');
+        const providerMetadata = parseGeminiTextPartMetadata(responseParts);
         const content = textLeakGuard?.enabled
             ? textLeakGuard.scrubAssistantText(rawContent)
             : rawContent;
@@ -752,18 +804,13 @@ export class GeminiProvider {
         // nudge, or surface to the user. Missing finishReason (still
         // streaming / unknown) is left alone — existing success paths for
         // genuinely complete responses keep working.
-        const finishReason = candidate?.finishReason || null;
-        const incompleteFinishReasons = new Set([
-            'MAX_TOKENS',
-            'SAFETY',
-            'RECITATION',
-            'OTHER',
-            'BLOCKLIST',
-            'PROHIBITED_CONTENT',
-            'SPII',
-            'MALFORMED_FUNCTION_CALL',
-        ]);
-        if (finishReason && incompleteFinishReasons.has(finishReason)) {
+        const promptBlockReason = response.promptFeedback?.blockReason || null;
+        const finishReason = candidate?.finishReason || (promptBlockReason ? `PROMPT_${promptBlockReason}` : null);
+        const normalizedFinishReason = String(finishReason || '').replace(/^FINISH_REASON_/, '');
+        // STOP is the only successful terminal reason. Treat newly-added
+        // safety/image/tool/malformed reasons as incomplete by default instead
+        // of silently accepting partial or empty output.
+        if (finishReason && normalizedFinishReason !== 'STOP') {
             const err = Object.assign(
                 new Error(`Gemini response incomplete: finishReason=${finishReason}`),
                 {
@@ -773,6 +820,7 @@ export class GeminiProvider {
                     finishReason,
                     partialContent: content,
                     partialToolCalls: toolCalls,
+                    providerMetadata,
                     model: useModel,
                     rawUsage: response.usageMetadata || null,
                 },
@@ -844,6 +892,7 @@ export class GeminiProvider {
             model: useModel,
             toolCalls,
             citations: citations.length ? citations : undefined,
+            providerMetadata,
             providerState: opts.providerState,
             // Use the same normalized usage object traceAgentUsage recorded,
             // including snake_case SDK aliases and cache-create fallback.
@@ -852,7 +901,7 @@ export class GeminiProvider {
     }
 
     async listModels() {
-        const cached = _modelCache.loadSync();
+        const cached = this._modelCache.loadSync();
         if (cached) return cached;
         // Dynamic lookup via Gemini v1beta /models. Requires API key.
         const apiKey = this.config.apiKey || process.env.GEMINI_API_KEY;
@@ -869,16 +918,13 @@ export class GeminiProvider {
     // TTL check) and _refreshModelCache() (bypassing it). Throws on failure so
     // each caller applies its own fallback/logging.
     async _fetchAndCacheModels(apiKey) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-        const listSignal = AbortSignal.timeout(60_000);
-        const res = await fetch(url, { signal: listSignal, dispatcher: getLlmDispatcher() });
-        if (!res.ok) throw new Error(`gemini list_models ${res.status}`);
-        const data = await res.json();
-        const items = Array.isArray(data?.models) ? data.models : [];
+        const items = await fetchGeminiModelPages(apiKey, this._fetch);
         // Filter to Gemini family; skip embedding/imagen and non-coding SKUs
         // (robotics, computer-use) that the chat picker should never show.
         const normalized = items
             .filter(m => (m?.name || '').includes('gemini'))
+            .filter(m => !Array.isArray(m?.supportedGenerationMethods)
+                || m.supportedGenerationMethods.includes('generateContent'))
             .filter(m => !/embedding|aqa|imagen|robotics|computer-use/.test(m?.name || ''))
             .map(m => {
                 const id = (m.name || '').replace(/^models\//, '');
@@ -905,8 +951,11 @@ export class GeminiProvider {
         // LiteLLM catalog overlays pricing and updated metadata.
         const { enrichModels } = await import('./model-catalog.mjs');
         const { sanitizeModelList } = await import('./model-list-sanitize.mjs');
-        const enriched = sanitizeModelList(await enrichModels(normalized), { provider: 'gemini' });
-        _modelCache.save(enriched);
+        const enriched = sanitizeModelList(await enrichModels(normalized, {
+            fetchFn: this._fetch,
+            force: this.config.catalogForceRefresh === true,
+        }), { provider: 'gemini' });
+        this._modelCache.save(enriched);
         return enriched;
     }
 

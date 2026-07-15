@@ -450,9 +450,20 @@ export async function consumeCompatChatCompletionStream(stream, {
                     }
                 }
             }
-            if (typeof choice?.delta?.reasoning_content === 'string') {
-                reasoningContent += choice.delta.reasoning_content;
-                if (choice.delta.reasoning_content) {
+            // DeepSeek/OpenCode use reasoning_content; newer LM Studio builds
+            // use reasoning, and some local compatibility shims expose
+            // thinking. They are aliases, never concatenate multiple aliases
+            // from the same chunk.
+            const reasoningDelta = typeof choice?.delta?.reasoning_content === 'string'
+                ? choice.delta.reasoning_content
+                : typeof choice?.delta?.reasoning === 'string'
+                    ? choice.delta.reasoning
+                    : typeof choice?.delta?.thinking === 'string'
+                        ? choice.delta.thinking
+                        : null;
+            if (reasoningDelta !== null) {
+                reasoningContent += reasoningDelta;
+                if (reasoningDelta) {
                     reportProgress('reasoning');
                 }
             }

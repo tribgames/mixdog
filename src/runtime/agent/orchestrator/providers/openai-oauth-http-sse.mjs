@@ -21,7 +21,12 @@ import {
     createTimeoutSignal,
     createPassthroughSignal,
 } from '../stall-policy.mjs';
-import { populateHttpStatusFromMessage, shouldFallbackTransport } from './retry-classifier.mjs';
+import {
+    jitterDelayMs,
+    populateHttpStatusFromMessage,
+    shouldFallbackTransport,
+    sleepWithAbort,
+} from './retry-classifier.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
@@ -35,6 +40,9 @@ import { createActiveToolItemTracker } from './tool-stream-state.mjs';
 // mirrors it so OpenAIDirectProvider can fall back off WebSocket like
 // openai-oauth. Same Responses SSE wire format, only endpoint + auth differ.
 const OPENAI_DIRECT_RESPONSES_URL = 'https://api.openai.com/v1/responses';
+const CODEX_REQUEST_MAX_RETRIES = 4;
+const CODEX_REQUEST_BACKOFF_MS = Object.freeze([200, 400, 800, 1600]);
+const CODEX_RETRY_JITTER_RATIO = 0.1;
 
 export function _envFlag(name, fallback = true) {
     const raw = process.env[name];
@@ -188,6 +196,7 @@ export async function sendViaHttpSse({
     iteration,
     useModel,
     fetchFn = fetch,
+    _sleepFn,
 } = {}) {
     // P1 audit fix: no fixed wall-clock total cap on the HTTP/SSE fallback
     // stream. The old createTimeoutSignal(..., PROVIDER_GENERATE_TOTAL_TIMEOUT_MS)
@@ -203,31 +212,60 @@ export async function sendViaHttpSse({
     //       one still aborts, and
     //   (c) externalSignal (client disconnect / replaced-by-newer-request).
     const totalTimeout = createPassthroughSignal(externalSignal);
-    const headerTimeout = createTimeoutSignal(
-        totalTimeout.signal,
-        PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
-        'OpenAI OAuth HTTP fallback initial response',
-    );
     const headers = _buildOpenAIHttpFallbackHeaders({ auth, cacheKey });
     const fetchStartedAt = Date.now();
     const responsesUrl = auth?.type === 'openai-direct'
         ? OPENAI_DIRECT_RESPONSES_URL
         : CODEX_RESPONSES_URL;
     let response;
-    try {
-        try { onStageChange?.('requesting'); } catch {}
-        response = await fetchFn(responsesUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal: headerTimeout.signal,
-            dispatcher: getLlmDispatcher(),
-        });
-    } catch (err) {
-        if (headerTimeout.signal?.aborted && headerTimeout.signal.reason instanceof Error) throw headerTimeout.signal.reason;
-        throw err;
-    } finally {
-        headerTimeout.cleanup();
+    for (let attempt = 0; attempt <= CODEX_REQUEST_MAX_RETRIES; attempt++) {
+        const headerTimeout = createTimeoutSignal(
+            totalTimeout.signal,
+            PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
+            'OpenAI OAuth HTTP fallback initial response',
+        );
+        let requestError = null;
+        try {
+            try { onStageChange?.('requesting'); } catch {}
+            response = await fetchFn(responsesUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+                signal: headerTimeout.signal,
+                dispatcher: getLlmDispatcher(),
+            });
+        } catch (err) {
+            requestError = headerTimeout.signal?.aborted
+                && headerTimeout.signal.reason instanceof Error
+                ? headerTimeout.signal.reason
+                : err;
+        } finally {
+            headerTimeout.cleanup();
+        }
+
+        const retryableStatus = response && response.status >= 500 && response.status <= 599;
+        const retryableTransport = !response && requestError
+            && !externalSignal?.aborted
+            && !totalTimeout.signal?.aborted;
+        if (attempt < CODEX_REQUEST_MAX_RETRIES && (retryableStatus || retryableTransport)) {
+            // A non-success response has not exposed any streamed output. Drain
+            // its body before reissuing so the dispatcher can reuse the socket.
+            if (response) await response.arrayBuffer().catch(() => {});
+            const raw = CODEX_REQUEST_BACKOFF_MS[attempt];
+            await sleepWithAbort(
+                jitterDelayMs(raw, CODEX_RETRY_JITTER_RATIO),
+                externalSignal,
+                _sleepFn,
+                'OpenAI OAuth HTTP request retry backoff aborted',
+            );
+            response = undefined;
+            continue;
+        }
+        if (requestError) {
+            totalTimeout.cleanup();
+            throw requestError;
+        }
+        break;
     }
 
     traceAgentFetch({

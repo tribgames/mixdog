@@ -6,11 +6,13 @@ import { homedir, tmpdir } from 'node:os';
 import { findCachedGraphBinary } from '../src/runtime/agent/orchestrator/tools/graph-binary-fetcher.mjs';
 
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
+const previousHome = process.env.MIXDOG_HOME;
 const previousGraphBin = process.env.MIXDOG_GRAPH_BIN;
 const ambientDataDir = previousDataDir || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
 const ambientGraphBin = findCachedGraphBinary(ambientDataDir);
 const isolatedDataDir = await mkdtemp(join(tmpdir(), 'mixdog-code-graph-test-data-'));
 process.env.MIXDOG_DATA_DIR = isolatedDataDir;
+process.env.MIXDOG_HOME = isolatedDataDir;
 if (!previousGraphBin && ambientGraphBin) process.env.MIXDOG_GRAPH_BIN = ambientGraphBin;
 const { executeCodeGraphTool } = await import('../src/runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
 const { drainCodeGraphCache } = await import('../src/runtime/agent/orchestrator/tools/code-graph/disk-cache.mjs');
@@ -40,6 +42,9 @@ async function makeProject() {
 }
 
 const primaryProject = await makeProject();
+await writeFile(join(isolatedDataDir, 'projects.json'), JSON.stringify({
+  projects: [{ name: 'primary', path: primaryProject, addedAt: 1 }],
+}));
 
 test.after(async () => {
   drainCodeGraphCache();
@@ -49,6 +54,8 @@ test.after(async () => {
   ]);
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
+  if (previousHome === undefined) delete process.env.MIXDOG_HOME;
+  else process.env.MIXDOG_HOME = previousHome;
   if (previousGraphBin === undefined) delete process.env.MIXDOG_GRAPH_BIN;
   else process.env.MIXDOG_GRAPH_BIN = previousGraphBin;
 });
@@ -63,8 +70,8 @@ serialTest('aggregate file anchors recover an invalid cwd only for one project r
   assert.match(result, new RegExp(`# overview ${files[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
 
   const relativeResult = await executeCodeGraphTool('code_graph', { mode: 'overview', files: relativeFiles }, invalidCwd);
-  assert.match(relativeResult, new RegExp(`# overview ${files[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  assert.match(relativeResult, new RegExp(`# overview ${files[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(relativeResult, /file: src\/one\.mjs/);
+  assert.match(relativeResult, /file: src\/two\.mjs/);
   drainCodeGraphCache();
 });
 
@@ -72,21 +79,18 @@ serialTest('singleton JSON files retain aggregate cwd provenance', async () => {
   const project = primaryProject;
   const invalidCwd = parse(project).root;
   const file = join(project, 'src', 'one.mjs');
-  const rejected = /aggregate file anchors do not all exist under exactly one detectable project root/;
   const result = await executeCodeGraphTool(
     'code_graph',
     { mode: 'overview', files: JSON.stringify([file]), cwd: invalidCwd },
     project,
   );
   assert.doesNotMatch(result, /^Error:/);
-  await assert.rejects(
-    executeCodeGraphTool(
-      'code_graph',
-      { mode: 'overview', files: JSON.stringify([join(project, 'missing.mjs')]), cwd: invalidCwd },
-      project,
-    ),
-    rejected,
+  const missingAggregate = await executeCodeGraphTool(
+    'code_graph',
+    { mode: 'overview', files: JSON.stringify([join(project, 'missing.mjs')]), cwd: invalidCwd },
+    project,
   );
+  assert.match(missingAggregate, /^Error: code_graph: file not found:/);
   const scalarResult = await executeCodeGraphTool(
     'code_graph',
     { mode: 'overview', file: join(project, 'missing.mjs'), cwd: invalidCwd },
@@ -99,26 +103,27 @@ serialTest('aggregate cwd recovery rejects missing and multi-root anchors', asyn
   const first = await makeProject();
   const second = await makeProject();
   const invalidCwd = parse(first).root;
-  const rejected = /aggregate file anchors do not all exist under exactly one detectable project root/;
   const relativeFirst = relative(invalidCwd, join(first, 'src', 'one.mjs'));
   const relativeSecond = relative(invalidCwd, join(second, 'src', 'one.mjs'));
   try {
-    await assert.rejects(
-      executeCodeGraphTool('code_graph', { mode: 'overview', files: [join(first, 'src', 'one.mjs'), join(first, 'missing.mjs')] }, invalidCwd),
-      rejected,
-    );
-    await assert.rejects(
-      executeCodeGraphTool('code_graph', { mode: 'overview', files: [relativeFirst, relative(invalidCwd, join(first, 'missing.mjs'))] }, invalidCwd),
-      rejected,
-    );
-    await assert.rejects(
-      executeCodeGraphTool('code_graph', { mode: 'overview', files: [join(first, 'src', 'one.mjs'), join(second, 'src', 'one.mjs')] }, invalidCwd),
-      rejected,
-    );
-    await assert.rejects(
-      executeCodeGraphTool('code_graph', { mode: 'overview', files: [relativeFirst, relativeSecond] }, invalidCwd),
-      rejected,
-    );
+    for (const filesArg of [
+      [join(first, 'src', 'one.mjs'), join(first, 'missing.mjs')],
+      [relativeFirst, relative(invalidCwd, join(first, 'missing.mjs'))],
+    ]) {
+      assert.match(
+        await executeCodeGraphTool('code_graph', { mode: 'overview', files: filesArg }, invalidCwd),
+        /^Error: code_graph: file not found:/,
+      );
+    }
+    for (const filesArg of [
+      [join(first, 'src', 'one.mjs'), join(second, 'src', 'one.mjs')],
+      [relativeFirst, relativeSecond],
+    ]) {
+      assert.match(
+        await executeCodeGraphTool('code_graph', { mode: 'overview', files: filesArg }, invalidCwd),
+        /^Error: code_graph: file anchor is not owned by a trusted project:/,
+      );
+    }
   } finally {
     await Promise.all([rm(first, { recursive: true, force: true }), rm(second, { recursive: true, force: true })]);
   }
@@ -127,7 +132,6 @@ serialTest('aggregate cwd recovery rejects missing and multi-root anchors', asyn
 serialTest('aggregate cwd recovery rejects capped, comma-delimited, and wildcard anchors', async () => {
   const project = await makeProject();
   const invalidCwd = parse(project).root;
-  const rejected = /aggregate file anchors do not all exist under exactly one detectable project root/;
   const cappedFiles = await Promise.all(Array.from({ length: 21 }, async (_, index) => {
     const file = join(project, 'src', `anchor-${index}.mjs`);
     await writeFile(file, `export const anchor${index} = ${index};\n`);
@@ -136,17 +140,17 @@ serialTest('aggregate cwd recovery rejects capped, comma-delimited, and wildcard
   const literalWildcard = join(project, 'src', 'literal[glob].mjs');
   await writeFile(literalWildcard, 'export const wildcard = true;\n');
   try {
-    await assert.rejects(
-      executeCodeGraphTool('code_graph', { mode: 'overview', files: cappedFiles }, invalidCwd),
-      rejected,
+    assert.match(
+      await executeCodeGraphTool('code_graph', { mode: 'overview', files: cappedFiles }, invalidCwd),
+      /file list exceeds cap/,
     );
-    await assert.rejects(
-      executeCodeGraphTool('code_graph', { mode: 'overview', files: `${join(project, 'src', 'one.mjs')},${join(project, 'src', 'two.mjs')}` }, invalidCwd),
-      rejected,
+    assert.match(
+      await executeCodeGraphTool('code_graph', { mode: 'overview', files: `${join(project, 'src', 'one.mjs')},${join(project, 'src', 'two.mjs')}` }, invalidCwd),
+      /^Error: code_graph: file anchor is not owned by a trusted project:/,
     );
-    await assert.rejects(
-      executeCodeGraphTool('code_graph', { mode: 'overview', files: [literalWildcard] }, invalidCwd),
-      rejected,
+    assert.match(
+      await executeCodeGraphTool('code_graph', { mode: 'overview', files: [literalWildcard] }, invalidCwd),
+      /wildcard-shaped file anchors/,
     );
   } finally {
     await rm(project, { recursive: true, force: true });

@@ -20,9 +20,42 @@ const OPENCODE_GO_CONTEXT_WINDOWS = Object.freeze({
     'glm-5': 202752,
 });
 
-function isAnthropicGoModel(model) {
+export function isAnthropicGoModel(model) {
     const id = String(model || '').toLowerCase();
     return ANTHROPIC_MODEL_PREFIXES.some(prefix => id.startsWith(prefix));
+}
+
+export function resolveOpenCodeGoBaseURLs(configuredBaseURL) {
+    const presetBase = OPENAI_COMPAT_PRESETS['opencode-go'].baseURL;
+    const openai = String(configuredBaseURL || presetBase).replace(/\/+$/, '');
+    // Anthropic's SDK appends `/v1/messages` itself. Supplying the OpenAI base
+    // (`.../v1`) would therefore produce the invalid `.../v1/v1/messages`.
+    const anthropic = openai.replace(/\/v1$/i, '');
+    return { openai, anthropic };
+}
+
+export function openCodeGoEndpointForModel(model, configuredBaseURL) {
+    const bases = resolveOpenCodeGoBaseURLs(configuredBaseURL);
+    return isAnthropicGoModel(model)
+        ? `${bases.anthropic}/v1/messages`
+        : `${bases.openai}/chat/completions`;
+}
+
+export function normalizeOpenCodeGoResultUsage(result, anthropicRoute) {
+    if (!anthropicRoute || !result?.usage) return result;
+    const usage = result.usage;
+    const input = Number(usage.inputTokens) || 0;
+    const cached = Number(usage.cachedTokens) || 0;
+    const cacheWrite = Number(usage.cacheWriteTokens) || 0;
+    const inclusiveInput = input + cached + cacheWrite;
+    return {
+        ...result,
+        usage: {
+            ...usage,
+            inputTokens: inclusiveInput,
+            promptTokens: Math.max(Number(usage.promptTokens) || 0, inclusiveInput),
+        },
+    };
 }
 
 function opencodeGoContextWindow(_modelId, current = 0) {
@@ -56,19 +89,19 @@ export class OpenCodeGoProvider {
         // wrapped, so all model-family routes share this one 64-wide account.
         this.config = config;
         const preset = OPENAI_COMPAT_PRESETS['opencode-go'];
-        const baseURL = config.baseURL || preset.baseURL;
-        this.openai = new OpenAICompatProvider('opencode-go', { ...config, baseURL });
+        const bases = resolveOpenCodeGoBaseURLs(config.baseURL || preset.baseURL);
+        this.openai = new OpenAICompatProvider('opencode-go', { ...config, baseURL: bases.openai });
         this.anthropic = new AnthropicProvider({
             ...config,
             name: 'opencode-go',
-            baseURL,
+            baseURL: bases.anthropic,
             disableBetaHeaders: true,
         });
     }
 
     async send(messages, model, tools, sendOpts) {
         if (isAnthropicGoModel(model)) {
-            return this.anthropic.send(messages, model, tools, {
+            const result = await this.anthropic.send(messages, model, tools, {
                 ...(sendOpts || {}),
                 cacheStrategy: {
                     tools: 'none',
@@ -77,6 +110,7 @@ export class OpenCodeGoProvider {
                     messages: 'none',
                 },
             });
+            return normalizeOpenCodeGoResultUsage(result, true);
         }
         return this.openai.send(messages, model, tools, sendOpts);
     }

@@ -43,6 +43,53 @@ export function applyOpenAIDirectFastTier(body, model, opts) {
     return body;
 }
 
+function shouldFallbackDirectTransport(err, options) {
+    const status = Number(err?.httpStatus || err?.status || 0);
+    const unsafeToRetry = err?.liveTextEmitted === true
+        || err?.emittedToolCall === true
+        || err?.unsafeToRetry === true;
+    if (unsafeToRetry || options?.signal?.aborted || options?.enabled === false) return false;
+    // Public OpenAI can reject the WebSocket upgrade while still supporting
+    // the same request over HTTP/SSE. Only the shared transport's explicit
+    // handshake marker may turn these application-looking statuses into a
+    // one-shot transport fallback.
+    if (err?.wsFailurePhase === 'handshake'
+        && err?.wsHttpFallbackEligible === true
+        && [403, 404, 429].includes(status)) {
+        return true;
+    }
+    // These are application/auth/quota outcomes from the public Responses API,
+    // not evidence that WebSocket transport is unhealthy. Reissuing them over
+    // HTTP cannot recover and can duplicate an accepted throttled request.
+    if (status >= 400 && status < 500) return false;
+    return shouldFallbackTransport(err, options);
+}
+
+function directOpenAiHandshakeErrorPolicy({ status }) {
+    if ([403, 404, 429].includes(Number(status))) {
+        return { retry: false, httpFallback: true };
+    }
+    return null;
+}
+
+const DIRECT_WS_TEST_SEAM_KEYS = Object.freeze([
+    '_acquireWithRetryFn',
+    '_streamFn',
+    '_sendFrameFn',
+    '_sleepFn',
+    '_sendSpanTraceFn',
+    '_agentTraceFn',
+]);
+
+function directWebSocketTestSeams(value) {
+    if (!value || typeof value !== 'object') return {};
+    const out = {};
+    for (const key of DIRECT_WS_TEST_SEAM_KEYS) {
+        if (typeof value[key] === 'function') out[key] = value[key];
+    }
+    return out;
+}
+
 export class OpenAIDirectProvider {
     // input_tokens INCLUDES cached tokens (OpenAI convention). See registry.mjs.
     static inputExcludesCache = false;
@@ -56,7 +103,7 @@ export class OpenAIDirectProvider {
         if (!k) throw new Error('OPENAI_API_KEY not configured (providers.openai.apiKey)');
         return k;
     }
-    // Auth-recovery mirror of openai-compat.reloadApiKey: on a 401/403 the key
+    // Auth-recovery mirror of openai-compat.reloadApiKey: on a 401 the key
     // was likely rotated after this provider instance was built, so re-read
     // only OpenAI's environment/keychain sources before the single retry.
     // Returns the fresh key (or null if none) — no client to rebuild here since
@@ -140,7 +187,18 @@ export class OpenAIDirectProvider {
             iteration,
             useModel,
         };
-        const dispatchWs = (a) => sendViaWebSocket({
+        // Keep the same deterministic transport seams as openai-oauth. Besides
+        // making the direct path regression-testable without a live request,
+        // this lets embedded callers supply their already-instrumented
+        // Responses transports without changing the public request envelope.
+        const sendWs = typeof opts._sendViaWebSocketFn === 'function'
+            ? opts._sendViaWebSocketFn
+            : sendViaWebSocket;
+        const sendHttp = typeof opts._sendViaHttpSseFn === 'function'
+            ? opts._sendViaHttpSseFn
+            : sendViaHttpSse;
+        const wsTestSeams = directWebSocketTestSeams(opts._webSocketTestSeams);
+        const dispatchWs = (a) => sendWs({
             ...common,
             auth: a,
             sendOpts: opts,
@@ -151,12 +209,18 @@ export class OpenAIDirectProvider {
             // the OAuth/Codex handshake headers. Direct API-key auth pins its own
             // provider so it stays on the public (non-Codex) envelope.
             traceProvider: 'openai-direct',
+            // Narrow deterministic seams for transport-policy regression tests.
+            // Production callers never set this object.
+            ...wsTestSeams,
+            // Mandatory and deliberately applied AFTER sanitized test seams:
+            // no caller can disable or invert direct handshake provenance.
+            handshakeErrorPolicy: directOpenAiHandshakeErrorPolicy,
         });
         // WS→HTTP/SSE fallback mirrors the openai-oauth wrapper: the shared
         // HTTP transport now accepts auth.type==='openai-direct' (public
         // Responses endpoint + Bearer <apiKey>), so the api-key provider gets
-        // the same envelope. Gate via shouldFallbackTransport (denies
-        // 401/403/404/429 + liveTextEmitted/emittedToolCall/unsafeToRetry).
+        // the same envelope. The direct gate denies every application 4xx and
+        // any liveTextEmitted/emittedToolCall/unsafeToRetry outcome.
         const transportPolicy = resolveOpenAiTransportPolicy();
         const httpFallbackEnabled = transportPolicy.allowHttpFallback
             && _envFlag('MIXDOG_OPENAI_HTTP_FALLBACK', true);
@@ -164,7 +228,7 @@ export class OpenAIDirectProvider {
             if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) {
                 process.stderr.write('[openai-ws] WebSocket unhealthy; falling back to HTTP/SSE\n');
             }
-            return sendViaHttpSse({ ...common, auth: a, opts, fetchFn: opts._fetchFn });
+            return sendHttp({ ...common, auth: a, opts, fetchFn: opts._fetchFn });
         };
         // Transport-policy switch (MIXDOG_OAI_TRANSPORT). 'http-sse' forces the
         // HTTP/SSE transport directly — no WS attempt, so skip the fallback log
@@ -172,7 +236,7 @@ export class OpenAIDirectProvider {
         // ('auto'/'ws-full'/'ws-delta') keep the WS-first path below; ws-full vs
         // ws-delta only affects the delta gate inside openai-ws-delta.mjs.
         if (transportPolicy.transport === 'http') {
-            return await sendViaHttpSse({ ...common, auth, opts, fetchFn: opts._fetchFn });
+            return await sendHttp({ ...common, auth, opts, fetchFn: opts._fetchFn });
         }
         try {
             return await dispatchWs(auth);
@@ -183,10 +247,12 @@ export class OpenAIDirectProvider {
             const unsafeToRetry = err?.liveTextEmitted === true
                 || err?.emittedToolCall === true
                 || err?.unsafeToRetry === true;
-            // (1) 401/403 → reload only OpenAI auth and retry once over WS.
-            //     shouldFallbackTransport denies 401/403, so this branch owns
-            //     its own guard.
-            if ((status === 401 || status === 403) && !unsafeToRetry) {
+            // (1) 401 → reload only OpenAI auth and retry once over WS.
+            // Ordinary 403 is a permission/policy decision, not evidence that
+            // an API key rotated. Match the OAuth path and keep it terminal.
+            // The direct fallback guard denies auth statuses, so this branch
+            // owns the single credential-reload replay.
+            if (status === 401 && err?.wsFailurePhase !== 'stream' && !unsafeToRetry) {
                 process.stderr.write(`[openai-ws] ${status} — reloading apiKey and retrying once\n`);
                 const freshKey = this.reloadApiKey();
                 if (freshKey) {
@@ -194,7 +260,7 @@ export class OpenAIDirectProvider {
                     try {
                         return await dispatchWs(retryAuth);
                     } catch (retryErr) {
-                        if (shouldFallbackTransport(retryErr, { signal: externalSignal, enabled: httpFallbackEnabled })) {
+                        if (shouldFallbackDirectTransport(retryErr, { signal: externalSignal, enabled: httpFallbackEnabled })) {
                             return await dispatchHttp(retryAuth);
                         }
                         throw retryErr;
@@ -204,7 +270,7 @@ export class OpenAIDirectProvider {
             }
             // (2) WS transport failure → HTTP/SSE fallback (predicate handles
             //     the safety denies).
-            if (shouldFallbackTransport(err, { signal: externalSignal, enabled: httpFallbackEnabled })) {
+            if (shouldFallbackDirectTransport(err, { signal: externalSignal, enabled: httpFallbackEnabled })) {
                 return await dispatchHttp(auth);
             }
             throw err;
