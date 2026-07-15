@@ -69,6 +69,8 @@ function _normalize(result) {
         });
     }
     if (result && typeof result === 'object' && Array.isArray(result.content)) {
+        const hasStructuredMedia = result.content.some((part) => part && typeof part === 'object' && part.type !== 'text');
+        if (hasStructuredMedia && result.isError !== true) return result;
         const text = result.content
             .map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c)))
             .join('\n');

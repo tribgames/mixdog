@@ -22,6 +22,7 @@ import {
     resolvePreToolAskApproval,
 } from './tool-helpers.mjs';
 import { isOnDeferredToolSurface, prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
+import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
 
 let codeGraphRuntimePromise = null;
 async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
@@ -121,9 +122,23 @@ export async function executeTool(name, args, cwd, callerSessionId, sessionRef, 
             if ((action === 'modify' || action === 'rewrite') && decision?.args && typeof decision.args === 'object' && !Array.isArray(decision.args)) {
                 args = decision.args;
             }
+            if ((action === 'modify' || action === 'rewrite') && typeof decision?.name === 'string' && decision.name.trim()) {
+                name = decision.name.trim();
+            }
         } catch {
             // Hooks are policy extensions. A broken hook must not wedge the agent loop.
         }
+    }
+    // A hook may replace the tool name, so pass the final call through the
+    // same eager/serial boundary again. This prevents a rename from bypassing
+    // role scoping and also applies built-in web_fetch transport routing.
+    {
+        const finalCall = { name, arguments: args };
+        routeWebFetchCall(finalCall);
+        const denial = preDispatchDenyForSession(sessionRef, finalCall);
+        if (denial !== null) return denial;
+        name = finalCall.name;
+        args = finalCall.arguments;
     }
     const afterToolHook = typeof executeOpts.afterToolHook === 'function'
         ? executeOpts.afterToolHook

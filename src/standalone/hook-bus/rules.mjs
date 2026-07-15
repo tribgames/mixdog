@@ -35,7 +35,13 @@ export function decisionFromRule(rule, input) {
     const nextArgs = rule.args && typeof rule.args === 'object'
       ? rule.args
       : { ...(input.args || {}), ...(rule.patch || {}) };
-    return { action: 'modify', args: nextArgs, reason: rule.reason || rule.message || `modified by hook rule for ${input.name}` };
+    const nextName = rule.updatedToolName ?? rule.replaceTool ?? rule.targetTool;
+    return {
+      action: 'modify',
+      args: nextArgs,
+      ...(typeof nextName === 'string' && nextName.trim() ? { name: nextName.trim() } : {}),
+      reason: rule.reason || rule.message || `modified by hook rule for ${input.name}`,
+    };
   }
   if (action === 'ask') {
     return { action: 'ask', reason: rule.reason || rule.message || `approval requested by hook rule for ${input.name}` };

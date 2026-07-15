@@ -268,6 +268,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       blocked: false,
       reason: null,
       updatedInput: null,
+      updatedToolName: null,
       updatedToolOutput: null,
       additionalContext: [],
       systemMessage: null,
@@ -304,6 +305,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       if (parsed.additionalContext) agg.additionalContext.push(parsed.additionalContext);
       if (parsed.systemMessage && !agg.systemMessage) agg.systemMessage = parsed.systemMessage;
       if (parsed.updatedInput && !agg.updatedInput) agg.updatedInput = parsed.updatedInput;
+      if (parsed.updatedToolName && !agg.updatedToolName) agg.updatedToolName = parsed.updatedToolName;
       if (parsed.updatedToolOutput != null && agg.updatedToolOutput == null) agg.updatedToolOutput = parsed.updatedToolOutput;
       if (parsed.askReason && !agg.ask && !agg.blocked) {
         agg.ask = true;
@@ -452,9 +454,14 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
           emit('tool:deny', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.reason });
           return { action: 'deny', reason: agg.reason };
         }
-        if (agg.updatedInput) {
+        if (agg.updatedInput || agg.updatedToolName) {
           emit('tool:modify', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.reason });
-          return { action: 'modify', args: agg.updatedInput, reason: agg.reason };
+          return {
+            action: 'modify',
+            ...(agg.updatedInput ? { args: agg.updatedInput } : {}),
+            ...(agg.updatedToolName ? { name: agg.updatedToolName } : {}),
+            reason: agg.reason,
+          };
         }
         if (agg.ask) {
           emit('tool:ask', { sessionId: input.sessionId || input.session_id || null, name: input.name || input.tool_name || 'tool', reason: agg.askReason });
@@ -504,6 +511,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         additionalContext: agg.additionalContext.length ? agg.additionalContext : undefined,
         systemMessage: agg.systemMessage || undefined,
         updatedInput: agg.updatedInput || undefined,
+        updatedToolName: agg.updatedToolName || undefined,
         handlersRun: agg.handlersRun || undefined,
       };
       if (agg.updatedToolOutput != null) out.updatedToolOutput = agg.updatedToolOutput;

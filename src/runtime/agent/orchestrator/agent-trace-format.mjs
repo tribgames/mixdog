@@ -247,6 +247,7 @@ export function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
 function classifyToolFailure(resultText, toolName) {
     const raw = String(resultText ?? '');
     const text = raw.toLowerCase();
+    if (isExpectedToolCancellation(raw)) return 'expected-cancellation';
     // Shell renderers put the machine-readable status on the leading line.
     // Only inspect that marker: command text and stderr frequently contain
     // words such as "timeout" or "aborted" and must not rewrite a real exit
@@ -273,11 +274,22 @@ function classifyToolFailure(resultText, toolName) {
     return 'runtime/failure';
 }
 
+function isExpectedToolCancellation(resultText) {
+    const leading = String(resultText ?? '').split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line && !line.startsWith('⚠️ '))
+        ?.replace(/^Error:\s*/i, '') || '';
+    return /^Session\s+"[^"]+"\s+closed:\s*(?:aborted|closed)\s+during call\b/i.test(leading);
+}
+
 function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, model, cwd, resultText, resultKind = 'error' }) {
     if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
     if (!_resolveToolFailurePath()) return;
     try {
         const cleanText = _redactLogText(String(resultText ?? ''));
+        // A session close is deliberate orchestration, not a tool failure.
+        // traceAgentTool still records the error/category on the normal trace.
+        if (isExpectedToolCancellation(cleanText)) return;
         const row = {
             ts: Date.now(),
             session_id: normalizeSessionId(sessionId),

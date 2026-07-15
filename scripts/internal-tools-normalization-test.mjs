@@ -50,3 +50,13 @@ test('isError:false output stays normal', async () => {
     assert.equal(result, 'search complete');
     assert.equal(classifyResultKind(result), 'normal');
 });
+
+test('structured image output survives internal tool normalization', async () => {
+    const input = {
+        content: [
+            { type: 'text', text: 'downloaded' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'YWJj' } },
+        ],
+    };
+    assert.deepEqual(await normalizeToolResult(input), input);
+});

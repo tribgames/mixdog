@@ -30,6 +30,14 @@ test('shell trace classification uses only the leading status marker', () => {
     'shell',
   ), 'runtime/failure');
   assert.equal(classifyToolFailure(
+    'Session "sess_cancelled" closed: aborted during call',
+    'shell',
+  ), 'expected-cancellation');
+  assert.equal(classifyToolFailure(
+    'call aborted',
+    'read',
+  ), 'timeout/abort');
+  assert.equal(classifyToolFailure(
     '⚠️ destructive command warning\nError: [shell-run-failed] [signal: SIGKILL]',
     'shell',
   ), 'process/signal');
@@ -177,7 +185,7 @@ test('cancellation racing with auto-background adoption is returned as cancelled
   assert.equal(result.killCause, 'cancellation');
 });
 
-test('tool-failures separates actionable totals while retaining command-exit rows', () => {
+test('tool-failures excludes session cancellations but retains real abort failures', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-tool-failures-test-'));
   try {
     const history = join(dir, 'history');
@@ -185,8 +193,17 @@ test('tool-failures separates actionable totals while retaining command-exit row
     const rows = [
       { ts: 1, tool_name: 'shell', category: 'process/signal', error_first_line: 'SIGKILL' },
       { ts: 2, tool_name: 'shell', category: 'runtime/failure', error_first_line: 'capture guard' },
+      { ts: 3, tool_name: 'shell', category: 'timeout/abort', error_first_line: 'Session "sess_cancelled" closed: aborted during call' },
+      {
+        ts: 4,
+        tool_name: 'shell',
+        category: 'timeout/abort',
+        error_first_line: '⚠️ destructive command warning',
+        error_preview: '⚠️ destructive command warning\nSession "sess_warning" closed: aborted during call',
+      },
+      { ts: 5, tool_name: 'shell', category: 'timeout/abort', error_first_line: 'request timed out' },
       ...Array.from({ length: 45 }, (_, index) => ({
-        ts: index + 3,
+        ts: index + 6,
         tool_name: 'shell',
         category: 'command-exit',
         error_first_line: `exit ${index}`,
@@ -196,15 +213,67 @@ test('tool-failures separates actionable totals while retaining command-exit row
     const script = resolve('scripts/tool-failures.mjs');
     const text = spawnSync(process.execPath, [script, '--data-dir', dir, '--limit', '2'], { encoding: 'utf8' });
     assert.equal(text.status, 0, text.stderr);
-    assert.match(text.stdout, /actionable failures: 2\/2 shown/);
+    assert.match(text.stdout, /actionable failures: 2\/3 shown/);
     assert.match(text.stdout, /command exits: 2\/45 shown \(retained\)/);
+    assert.doesNotMatch(text.stdout, /aborted during call/);
     assert.equal((text.stdout.match(/^- /gm) || []).length, 4);
     const json = spawnSync(process.execPath, [script, '--data-dir', dir, '--limit', '2', '--json'], { encoding: 'utf8' });
     assert.equal(json.status, 0, json.stderr);
     const report = JSON.parse(json.stdout);
-    assert.deepEqual(report.actionable_failures, { shown: 2, matched: 2 });
+    assert.deepEqual(report.actionable_failures, { shown: 2, matched: 3 });
     assert.deepEqual(report.command_exits, { shown: 2, matched: 45 });
     assert.equal(report.rows.length, 4);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('session cancellations remain traceable without entering tool-failures.jsonl', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-session-cancellation-test-'));
+  try {
+    const tracePath = join(dir, 'agent-trace.jsonl');
+    const failurePath = join(dir, 'tool-failures.jsonl');
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import { existsSync, readFileSync } from 'node:fs';
+      import { traceAgentTool } from './src/runtime/agent/orchestrator/agent-trace-format.mjs';
+      import { drainAgentTrace } from './src/runtime/agent/orchestrator/agent-trace-io.mjs';
+      traceAgentTool({
+        sessionId: 'sess_cancelled',
+        iteration: 1,
+        toolName: 'read',
+        toolKind: 'function',
+        toolMs: 1,
+        toolArgs: { path: 'ignored' },
+        agent: 'worker',
+        model: 'test',
+        cwd: process.cwd(),
+        resultKind: 'error',
+        resultText: 'Session "sess_cancelled" closed: aborted during call',
+      });
+      await drainAgentTrace();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const trace = JSON.parse(readFileSync(process.env.MIXDOG_AGENT_TRACE_PATH, 'utf8').trim());
+      process.stdout.write(JSON.stringify({
+        failureLogExists: existsSync(process.env.MIXDOG_TOOL_FAILURE_LOG_PATH),
+        category: trace.result_error_category,
+      }));
+    `], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        MIXDOG_AGENT_TRACE_PATH: tracePath,
+        MIXDOG_TOOL_FAILURE_LOG_PATH: failurePath,
+        MIXDOG_AGENT_TRACE_DISABLE: '',
+        MIXDOG_AGENT_TRACE_LOCAL_DISABLE: '',
+        MIXDOG_RUNTIME_ROOT: join(dir, 'no-service'),
+      },
+    });
+    assert.equal(child.status, 0, child.stderr);
+    assert.deepEqual(JSON.parse(child.stdout), {
+      failureLogExists: false,
+      category: 'expected-cancellation',
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

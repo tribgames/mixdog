@@ -498,6 +498,7 @@ export function parseHandlerOutput(run, eventName) {
     reason: null,
     permissionDecision: null,
     updatedInput: null,
+    updatedToolName: null,
     updatedToolOutput: null,
     additionalContext: null,
     systemMessage: null,
@@ -545,6 +546,9 @@ export function parseHandlerOutput(run, eventName) {
         out.updatedInput = hso.updatedInput;
       }
       if (hso.updatedToolOutput != null) out.updatedToolOutput = hso.updatedToolOutput;
+      if (typeof hso.updatedToolName === 'string' && hso.updatedToolName.trim()) {
+        out.updatedToolName = hso.updatedToolName.trim();
+      }
       if (hso.permissionDecision) out.permissionDecision = String(hso.permissionDecision).toLowerCase();
       if (hso.permissionDecisionReason) out.reason = out.reason || limitText(hso.permissionDecisionReason);
       if (eventName === 'PermissionRequest' && hso.decision && typeof hso.decision === 'object') {

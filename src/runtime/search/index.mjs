@@ -32,6 +32,7 @@ import {
   updateProviderState,
 } from './lib/state.mjs'
 import { getScrapeCapabilities, scrapeUrls } from './lib/web-tools.mjs'
+import { fetchLoopbackText, fetchPublicImage } from './lib/http-fetch.mjs'
 import { formatResponse } from './lib/formatter.mjs'
 ensureDataDir()
 
@@ -536,6 +537,46 @@ async function handleToolCall(name, rawArgs, options = {}) {
         const _rawErr = normalizeErrorMessage(error instanceof Error ? error.message : String(error))
         const _cleanErr = presentErrorText(_rawErr, { surface: 'web_fetch' })
         return { content: [{ type: 'text', text: `Fetch failed: ${_cleanErr}` }], isError: true }
+      }
+    }
+    case 'local_fetch':
+    case 'image_fetch': {
+      let urlArgs
+      try {
+        urlArgs = searchUrlArgsSchema.parse(normalizeSearchUrlArgs(rawArgs || {}))
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          return { content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: e.errors }) }], isError: true }
+        }
+        throw e
+      }
+      const urls = Array.isArray(urlArgs.url) ? urlArgs.url : [urlArgs.url]
+      if (urls.length > 8) return { content: [{ type: 'text', text: 'Error: fetch batch exceeds maximum of 8 URLs.' }], isError: true }
+      const fetchSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+        : AbortSignal.timeout(timeoutMs)
+      try {
+        if (name === 'local_fetch') {
+          const parts = []
+          for (const url of urls) {
+            const text = await fetchLoopbackText(url, { signal: fetchSignal })
+            const start = urlArgs.startIndex || 0
+            const max = urlArgs.maxLength == null ? 50_000 : urlArgs.maxLength
+            const body = max === 0 ? text.slice(start) : text.slice(start, start + max)
+            parts.push({ type: 'text', text: `${url}\n\n${body}` })
+          }
+          return { content: parts }
+        }
+        const parts = []
+        for (const url of urls) {
+          const image = await fetchPublicImage(url, { signal: fetchSignal })
+          parts.push({ type: 'text', text: `Downloaded image: ${url} (${image.mimeType}, ${image.bytes} bytes)` })
+          parts.push({ type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.data } })
+        }
+        return { content: parts }
+      } catch (error) {
+        const message = presentErrorText(normalizeErrorMessage(error instanceof Error ? error.message : String(error)), { surface: name })
+        return { content: [{ type: 'text', text: `Fetch failed: ${message}` }], isError: true }
       }
     }
     default:

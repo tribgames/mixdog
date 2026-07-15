@@ -95,7 +95,21 @@ const rows = files.flatMap(readRows)
   .filter((row) => !categoryFilter || rowCategory(row) === categoryFilter)
   .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
 const isCommandExit = (row) => rowCategory(row) === 'command-exit';
-const actionableRows = rows.filter((row) => !isCommandExit(row));
+const rowLeadingErrorLine = (row) => [
+  row.error_first_line,
+  row.error_preview,
+  row.result,
+  row.error,
+  row.message,
+].filter(Boolean).join('\n').split(/\r?\n/)
+  .map((line) => line.trim())
+  .find((line) => line && !line.startsWith('⚠️ '))
+  ?.replace(/^Error:\s*/i, '') || '';
+const isExpectedCancellation = (row) => {
+  if (rowCategory(row) === 'expected-cancellation') return true;
+  return /^Session\s+"[^"]+"\s+closed:\s*(?:aborted|closed)\s+during call\b/i.test(rowLeadingErrorLine(row));
+};
+const actionableRows = rows.filter((row) => !isCommandExit(row) && !isExpectedCancellation(row));
 const commandExitRows = rows.filter(isCommandExit);
 // Limit each partition independently so a burst of ordinary command exits
 // cannot crowd runtime/actionable failures out of the displayed report.

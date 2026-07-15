@@ -26,6 +26,44 @@ const WORKER_DENIED_TOOLS = new Set([
     'inject_input',
 ]);
 
+const IMAGE_PATH_RE = /\.(?:png|jpe?g|gif|webp)(?:$|[?#])/i;
+
+function callUrls(call) {
+    const value = call?.arguments?.url;
+    if (typeof value === 'string' && value.trim()) return [value.trim()];
+    if (Array.isArray(value) && value.length && value.every((item) => typeof item === 'string' && item.trim())) {
+        return value.map((item) => item.trim());
+    }
+    return [];
+}
+
+export function isLoopbackHttpUrl(value) {
+    try {
+        const url = new URL(value);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+        const host = url.hostname.toLowerCase();
+        if (host === 'localhost' || host === '[::1]' || host === '::1') return true;
+        const match = host.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
+        return Boolean(match && Number(match[1]) === 127);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Rewrite only calls whose complete URL set has one unambiguous transport.
+ * Mixed document/image or public/loopback batches stay on web_fetch, whose
+ * existing SSRF checks fail closed rather than broadening local_fetch.
+ */
+export function routeWebFetchCall(call) {
+    if (call?.name !== 'web_fetch') return call;
+    const urls = callUrls(call);
+    if (!urls.length) return call;
+    if (urls.every(isLoopbackHttpUrl)) call.name = 'local_fetch';
+    else if (urls.every((value) => IMAGE_PATH_RE.test(value))) call.name = 'image_fetch';
+    return call;
+}
+
 function _preDispatchDeny(call, toolKind, sessionRef) {
     const name = call?.name;
     if (typeof name !== 'string' || !name) return null;

@@ -331,6 +331,32 @@ export function shouldMirrorCompletionToPendingQueue({
   return shouldPersistModelVisibleToolCompletion(text, meta);
 }
 
+export async function dispatchSearchRuntimeTool(name, args, callerCtx = {}, {
+  getSearchModule,
+  getCurrentCwd,
+  getSession,
+  notifyFnForSession,
+  runNativeWebSearch,
+} = {}) {
+  const currentSession = typeof getSession === 'function' ? getSession() : null;
+  const callerCwd = callerCtx?.callerCwd || (typeof getCurrentCwd === 'function' ? getCurrentCwd() : process.cwd());
+  const callerSessionId = callerCtx?.callerSessionId || currentSession?.id || null;
+  const callerSignal = callerCtx?.signal || currentSession?.controller?.signal;
+  const searchMod = await getSearchModule();
+  if (!searchMod?.handleToolCall) throw new Error('search runtime is not available');
+  return await searchMod.handleToolCall(name, args || {}, {
+    callerCwd,
+    callerSessionId,
+    routingSessionId: callerSessionId,
+    clientHostPid: callerCtx?.clientHostPid || currentSession?.clientHostPid || process.pid,
+    notifyFn: notifyFnForSession(callerSessionId),
+    signal: callerSignal,
+    nativeSearch: name === 'search'
+      ? async (searchArgs) => runNativeWebSearch(searchArgs, { signal: callerSignal })
+      : undefined,
+  });
+}
+
 export async function createMixdogSessionRuntime({
   provider,
   model,
@@ -1049,13 +1075,15 @@ export async function createMixdogSessionRuntime({
   });
   bootProfile('channels:worker-ready', { ms: (performance.now() - channelsStartedAt).toFixed(1) });
   const toolsStartedAt = performance.now();
+  const searchRuntimeTools = (searchToolDefs?.TOOL_DEFS || [])
+    .filter((tool) => ['search', 'web_fetch', 'local_fetch', 'image_fetch'].includes(tool?.name));
   const standaloneTools = [
     TOOL_SEARCH_TOOL,
     ...(envFlag('MIXDOG_DISABLE_SKILLS') ? [] : [SKILL_TOOL]),
     CWD_TOOL,
     SESSION_MANAGE_TOOL,
     EXPLORE_TOOL,
-    ...(searchToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'search' || tool?.name === 'web_fetch'),
+    ...searchRuntimeTools.filter((tool) => tool?.public !== false),
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
@@ -1102,22 +1130,16 @@ export async function createMixdogSessionRuntime({
     if (replay.length) selectDeferredTools(session, replay, deferredSurfaceModeForLead(mode));
   }
   internalTools.setInternalToolsProvider({
-    tools: standaloneTools,
+    tools: [...standaloneTools, ...searchRuntimeTools.filter((tool) => tool?.public === false)],
     executor: async (name, args, callerCtx = {}) => {
       const callerCwd = callerCtx?.callerCwd || currentCwd;
-      if (name === 'search' || name === 'web_fetch') {
-        const callerSessionId = callerCtx?.callerSessionId || session?.id || null;
-        const searchMod = await getSearchModule();
-        if (!searchMod?.handleToolCall) throw new Error('search runtime is not available');
-        return await searchMod.handleToolCall(name, args || {}, {
-          callerCwd,
-          callerSessionId,
-          routingSessionId: callerSessionId,
-          clientHostPid: callerCtx?.clientHostPid || session?.clientHostPid || process.pid,
-          notifyFn: notifyFnForSession(callerSessionId),
-          nativeSearch: name === 'search'
-            ? async (searchArgs) => runNativeWebSearch(searchArgs, { signal: callerCtx?.signal || session?.controller?.signal })
-            : undefined,
+      if (name === 'search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
+        return dispatchSearchRuntimeTool(name, args, callerCtx, {
+          getSearchModule,
+          getCurrentCwd: () => currentCwd,
+          getSession: () => session,
+          notifyFnForSession,
+          runNativeWebSearch,
         });
       }
       if (name === 'recall' || name === 'memory' || name === 'search_memories') {

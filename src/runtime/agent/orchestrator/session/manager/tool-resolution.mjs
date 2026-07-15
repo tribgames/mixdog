@@ -20,7 +20,11 @@ import { getHiddenAgent, listHiddenAgentNames } from '../../internal-agents.mjs'
 // the sort overhead on ~30 tools is negligible.
 function _getMcpTools() {
     const mcp = getMcpTools() || [];
-    const internalRaw = getInternalTools() || [];
+    // `public:false` tools stay registered in internal-tools for runtime
+    // rewrites/dispatch, but must never enter any model-visible schema (Lead
+    // full/mcp included). Filter before mapping because the projection below
+    // intentionally drops module-private metadata such as `public`.
+    const internalRaw = (getInternalTools() || []).filter(t => t?.public !== false);
     const internal = internalRaw.map(t => ({
         name: t.name,
         description: typeof t.description === 'string' ? t.description : '',

@@ -1,4 +1,6 @@
 import { readFileSync } from 'fs'
+import dns from 'node:dns'
+import { Agent, fetch as undiciFetch } from 'undici'
 
 import {
   assertPublicUrl,
@@ -126,6 +128,158 @@ export async function readBodyBytesWithCap(response, maxBytes) {
     try { reader.releaseLock() } catch {}
   }
   return Buffer.concat(chunks.map((c) => Buffer.from(c)))
+}
+
+const SAFE_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+
+function loopbackHost(hostname) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (host === 'localhost' || host === '::1') return true
+  const match = host.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/)
+  return Boolean(match && Number(match[1]) === 127)
+}
+
+function abortRace(promise, signal) {
+  if (!signal) return promise
+  if (signal.aborted) return Promise.reject(signal.reason || new Error('local_fetch aborted'))
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason || new Error('local_fetch aborted'))
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value) },
+      (error) => { signal.removeEventListener('abort', onAbort); reject(error) },
+    )
+  })
+}
+
+async function pinnedLoopbackFetch(url, options = {}) {
+  const parsed = assertLoopbackUrl(url)
+  const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  const addresses = host === 'localhost'
+    ? await abortRace(dns.promises.lookup(host, { all: true }), options.signal)
+    : [{ address: host, family: host.includes(':') ? 6 : 4 }]
+  if (!addresses.length || addresses.some((entry) => !loopbackHost(entry.address))) {
+    throw new Error(`Blocked non-loopback local_fetch resolution: ${host}`)
+  }
+  const pinned = addresses[0]
+  const dispatcher = new Agent({
+    connect: {
+      lookup: (_hostname, opts, cb) => opts?.all
+        ? cb(null, [{ address: pinned.address, family: pinned.family }])
+        : cb(null, pinned.address, pinned.family),
+    },
+  })
+  let response
+  try {
+    response = await undiciFetch(url, { ...options, dispatcher })
+  } catch (error) {
+    dispatcher.destroy().catch(() => {})
+    throw error
+  }
+  if (!response.body) {
+    dispatcher.destroy().catch(() => {})
+    return response
+  }
+  const reader = response.body.getReader()
+  let cleaned = false
+  const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
+    dispatcher.destroy().catch(() => {})
+  }
+  const monitored = new ReadableStream({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read()
+        if (done) {
+          controller.close()
+          cleanup()
+        } else {
+          controller.enqueue(value)
+        }
+      } catch (error) {
+        controller.error(error)
+        cleanup()
+      }
+    },
+    cancel(reason) {
+      reader.cancel(reason).catch(() => {})
+      cleanup()
+    },
+  })
+  return new Response(monitored, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+}
+
+export function assertLoopbackUrl(url) {
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`)
+  }
+  if (parsed.username || parsed.password) throw new Error('Blocked loopback URL with userinfo credentials')
+  if (!loopbackHost(parsed.hostname)) throw new Error(`Blocked non-loopback local_fetch target: ${parsed.hostname}`)
+  return parsed
+}
+
+async function boundedManualFetch(url, { signal, fetchImpl, validateUrl, sameHost = false } = {}) {
+  const original = validateUrl(url)
+  let currentUrl = original.toString()
+  for (let hops = 0; ; hops++) {
+    const current = validateUrl(currentUrl)
+    if (sameHost && current.hostname.toLowerCase() !== original.hostname.toLowerCase()) {
+      throw new Error(`cross-host redirect blocked (redirected_to: ${currentUrl})`)
+    }
+    const response = await fetchImpl(currentUrl, {
+      signal,
+      headers: buildHeaders(),
+      redirect: 'manual',
+    })
+    if (!REDIRECT_STATUSES.has(response.status)) return response
+    try { await response.body?.cancel() } catch {}
+    if (hops >= MAX_REDIRECTS) throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`)
+    const location = response.headers.get('location')
+    if (!location) throw new Error(`Redirect ${response.status} without Location header`)
+    currentUrl = new URL(location, currentUrl).toString()
+  }
+}
+
+export async function fetchLoopbackText(url, { signal, fetchImpl = pinnedLoopbackFetch } = {}) {
+  const response = await boundedManualFetch(url, {
+    signal,
+    fetchImpl,
+    validateUrl: assertLoopbackUrl,
+  })
+  if (!response.ok) {
+    try { await response.body?.cancel() } catch {}
+    throw new Error(`HTTP ${response.status}`)
+  }
+  return readBodyWithCap(response, MAX_BODY_BYTES)
+}
+
+export async function fetchPublicImage(url, { signal, fetchImpl = pinnedFetch } = {}) {
+  const response = await boundedManualFetch(url, {
+    signal,
+    fetchImpl,
+    validateUrl: (value) => {
+      assertPublicUrl(value)
+      return new URL(value)
+    },
+    sameHost: true,
+  })
+  if (!response.ok) {
+    try { await response.body?.cancel() } catch {}
+    throw new Error(`HTTP ${response.status}`)
+  }
+  const mimeType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+  if (!SAFE_IMAGE_MIMES.has(mimeType)) {
+    try { await response.body?.cancel() } catch {}
+    throw new Error(`Blocked unsupported image content-type: ${mimeType || '(missing)'}`)
+  }
+  const bytes = await readBodyBytesWithCap(response, MAX_BODY_BYTES)
+  return { mimeType, data: bytes.toString('base64'), bytes: bytes.byteLength }
 }
 
 const CDP_FORBIDDEN_RESPONSE_HEADERS = new Set([

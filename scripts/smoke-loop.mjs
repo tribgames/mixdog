@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { actionableFailureCount } from './smoke-loop-failure-summary.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DURATION_MS = 5 * 60 * 60 * 1000;
@@ -162,13 +163,7 @@ while (Date.now() < deadline && iteration < maxIterations) {
   const smoke = runSmokeAll(iteration);
   smokeTimes.push(smoke.ms);
   const failure = runNode(['scripts/tool-failures.mjs', '--since', since, '--limit', '1', '--json'], `failures iteration ${iteration}`, 60_000);
-  let failureSummary;
-  try {
-    failureSummary = JSON.parse(failure.stdout);
-  } catch {
-    throw new Error(`tool failures returned malformed JSON:\n${failure.stdout}`);
-  }
-  if (failureSummary?.actionable_failures?.matched !== 0) {
+  if (actionableFailureCount(failure.stdout) > 0) {
     throw new Error(`tool failures appeared after loop start:\n${failure.stdout}`);
   }
   const currentRss = rssMb();

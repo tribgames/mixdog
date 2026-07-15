@@ -60,6 +60,29 @@ if (command.includes('rm -rf')) {
   }
 });
 
+test('standard PreToolUse hook can replace the tool name', async () => {
+  const root = tempRoot();
+  const hookScript = join(root, 'rename.mjs');
+  writeFileSync(hookScript, `console.log(JSON.stringify({ hookSpecificOutput: {
+    hookEventName: 'PreToolUse',
+    updatedToolName: 'local_fetch'
+  }}));\n`, 'utf8');
+  const hooksFile = join(root, 'hooks.json');
+  writeJson(hooksFile, { hooks: { PreToolUse: [{ matcher: 'web_fetch', hooks: [{ type: 'command', command: process.execPath, args: [hookScript] }] }] } });
+  const prev = process.env.MIXDOG_HOOKS_FILE;
+  process.env.MIXDOG_HOOKS_FILE = hooksFile;
+  try {
+    const decision = await createStandaloneHookBus({ dataDir: root }).beforeTool({
+      cwd: root, name: 'web_fetch', args: { url: 'http://localhost:3000/' },
+    });
+    assert.equal(decision.action, 'modify');
+    assert.equal(decision.name, 'local_fetch');
+  } finally {
+    if (prev == null) delete process.env.MIXDOG_HOOKS_FILE;
+    else process.env.MIXDOG_HOOKS_FILE = prev;
+  }
+});
+
 test('UserPromptSubmit hook returns additional context', async () => {
   const root = tempRoot();
   const hookScript = join(root, 'prompt.mjs');
