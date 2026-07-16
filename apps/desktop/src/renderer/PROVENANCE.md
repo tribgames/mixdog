@@ -21,6 +21,8 @@ MIT-licensed local source files were substantially consulted or adapted:
   - Adapted the conversation workspace proportions, compact task header, and
     centered composer/thread rhythm.
 - `C:\Project\refs\opencode\packages\app\src\components\prompt-input.tsx`
+- `C:\Project\refs\opencode\packages\app\src\components\prompt-input\drag-overlay.tsx`
+- `C:\Project\refs\opencode\packages\app\src\components\prompt-input\slash-popover.tsx`
 - `C:\Project\refs\opencode\packages\app\src\components\dialog-select-model.tsx`
   - Adapted the raised prompt surface, model trigger hierarchy, grouped model
     picker, and compact submit/stop controls.
@@ -33,6 +35,14 @@ MIT-licensed local source files were substantially consulted or adapted:
 - `C:\Project\refs\opencode\packages\ui\src\components\basic-tool.css`
 - `C:\Project\refs\opencode\packages\ui\src\components\message-part.css`
 - `C:\Project\refs\opencode\packages\ui\src\components\session-turn.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\button.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\checkbox.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\icon-button.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\list.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\markdown.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\switch.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\text-field.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\toast.css`
 - `C:\Project\refs\opencode\packages\ui\src\theme\v2\mapping.ts`
 - `C:\Project\refs\opencode\packages\ui\src\theme\themes\opencode.json`
 - `C:\Project\refs\opencode\packages\ui\src\assets\icons\provider\openai.svg`
@@ -45,6 +55,14 @@ MIT-licensed local source files were substantially consulted or adapted:
     semantic theme layering, and focus-state primitives.
     The fixed-geometry sidebar and active-sidebar glyphs were also adapted for
     the desktop titlebar toggle.
+- `C:\Project\refs\opencode\packages\app\src\components\titlebar.css`
+- `C:\Project\refs\opencode\packages\app\src\components\settings-v2\dialog-settings-v2.tsx`
+- `C:\Project\refs\opencode\packages\app\src\components\settings-v2\settings-v2.css`
+- `C:\Project\refs\opencode\packages\app\src\components\settings-v2\general.tsx`
+  - Adapted the scroll affordances and the v2 settings list, row, control,
+    switch, form, markdown, and capability-dialog visual rhythm. Mixdog keeps
+    its drill-down settings information architecture so all capability-bridge
+    controls remain directly reachable.
 
 - `C:\Project\refs\openhands\frontend\src\routes\root-layout.tsx`
   - Adapted the full-height sidebar plus content-outlet shell composition.

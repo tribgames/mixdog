@@ -1,7 +1,11 @@
 import { app } from 'electron';
-import { autoUpdater } from 'electron-updater';
+// electron-updater is a CommonJS module; named imports fail in the packaged
+// ESM main bundle (SyntaxError at startup). Use the default export instead.
+import electronUpdater from 'electron-updater';
 
 import { createUpdaterController } from './updater-controller';
+
+const { autoUpdater } = electronUpdater;
 
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 

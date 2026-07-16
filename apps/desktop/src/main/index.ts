@@ -11,6 +11,14 @@ import { startAutoUpdater } from './updater';
 import { DESKTOP_WINDOW_OPTIONS } from './window-options';
 import { persistWindowState, readWindowState } from './window-state';
 
+const acceptanceDebugPort = process.argv
+  .find((argument) => argument.startsWith('--remote-debugging-port='))
+  ?.slice('--remote-debugging-port='.length);
+if (acceptanceDebugPort && /^\d+$/.test(acceptanceDebugPort)) {
+  app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
+  app.commandLine.appendSwitch('remote-debugging-port', acceptanceDebugPort);
+}
+
 const host = new EngineHost({
   getUserDataPath: () => app.getPath('userData'),
   packaged: app.isPackaged,

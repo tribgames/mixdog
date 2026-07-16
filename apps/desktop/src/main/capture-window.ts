@@ -340,8 +340,10 @@ function imageReader(image: NativeImage): (x: number, y: number) => string {
 
 function measureSidebarGeometry(image: NativeImage): ImageMeasuredSidebar {
   const pixel = imageReader(image);
-  const scanlineY = 650;
-  const sidebarColor = '#141416';
+  // Stay above the footer controls so icon pixels cannot split the interior run.
+  const scanlineY = 600;
+  // The OpenCode v2 renderer uses the active theme's bg-base token for the sidebar.
+  const sidebarColor = '#1b1b1e';
   let longestInterior = { start: -1, end: -1 };
   let runStart = -1;
   for (let x = 0; x <= 400; x += 1) {
@@ -354,8 +356,8 @@ function measureSidebarGeometry(image: NativeImage): ImageMeasuredSidebar {
       runStart = -1;
     }
   }
-  const left = longestInterior.start - 1;
-  const right = longestInterior.end + 1;
+  const left = longestInterior.start;
+  const right = longestInterior.end;
   if (left < 0 || right < 0) throw new Error('Could not measure sidebar borders from capture pixels.');
   const rightGapLeft = right + 1;
   const rightGapRight = right + 8;
@@ -388,7 +390,7 @@ async function captureWindow(): Promise<void> {
     getUserDataPath: () => app.getPath('userData'),
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
-    appPath: app.getAppPath(),
+    appPath: resolve(__dirname, '../..'),
   });
   const window = new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,

@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { RefreshCw, Trash2, X } from 'lucide-react';
 import type { DesktopApi, DesktopCapability, DesktopModelOption } from '../shared/contract';
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
+import { OpenSelect } from './OpenSelect';
+import { modelOptionLabel } from './provider-display';
 
 type Row = Record<string, unknown>;
 type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
@@ -75,7 +77,13 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.current?.focus();
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+      if (event.key !== 'Escape') return;
+      // OpenSelect menus are portaled to document.body and handle Escape at
+      // their focused listbox/trigger. Let that interaction finish before
+      // treating a later Escape as a request to dismiss this surface.
+      if (document.querySelector('.oc-menu[role="listbox"]')) return;
+      event.preventDefault();
+      onClose();
     };
     document.addEventListener('keydown', keydown, true);
     return () => { document.removeEventListener('keydown', keydown, true); prior?.focus(); };
@@ -134,17 +142,20 @@ function SurfaceBody({ surface, data, pending, run, onOpen }: {
     return <Group title="Available workflow agents">{agents.map((agent) =>
       <Resource key={String(agent.id)} title={String(agent.label || agent.id)}
         detail={String(agent.description || record(agent.definition).description || '')}
-        actions={<select aria-label={`${String(agent.label || agent.id)} model`}
+        actions={<OpenSelect className="settings-select" ariaLabel={`${String(agent.label || agent.id)} model`}
           disabled={busy} value={routeKey(record(agent.route))}
-          onChange={(event) => {
-            const model = models.find((entry) => `${entry.provider}:${entry.model}` === event.currentTarget.value);
+          options={[
+            ...(!models.some((model) => `${model.provider}:${model.model}` === routeKey(record(agent.route)))
+              ? [{ value: routeKey(record(agent.route)), label: routeLabel(record(agent.route)) }] : []),
+            ...models.map((model) => ({
+              value: `${model.provider}:${model.model}`,
+              label: modelOptionLabel(model),
+            })),
+          ]}
+          onChange={(value) => {
+            const model = models.find((entry) => `${entry.provider}:${entry.model}` === value);
             if (model) void run('setAgentRoute', [agent.id, { provider: model.provider, model: model.model }]);
-          }}>
-          {!models.some((model) => `${model.provider}:${model.model}` === routeKey(record(agent.route))) &&
-            <option value={routeKey(record(agent.route))}>{routeLabel(record(agent.route))}</option>}
-          {models.map((model) => <option key={`${model.provider}:${model.model}`}
-            value={`${model.provider}:${model.model}`}>{model.display || model.model} · {model.provider}</option>)}
-        </select>} />)}
+          }} />} />)}
       {!agents.length && <p>No agents found.</p>}</Group>;
   }
   if (surface === 'memory') return <MemoryBody data={data} busy={busy} run={run} />;
@@ -166,14 +177,12 @@ function SurfaceBody({ surface, data, pending, run, onOpen }: {
     if (!options.length) return <Group title="Set reasoning effort">
       <p>The current model has no effort levels.</p>
     </Group>;
-    return <Group title="Set reasoning effort"><form onSubmit={(event) => {
+    return <Group title="Set reasoning effort"><form className="command-surface-form" onSubmit={(event) => {
       event.preventDefault();
       const value = String(new FormData(event.currentTarget).get('effort') || '').trim();
       if (value) void run('setEffort', [value]);
-    }}><select name="effort" aria-label="Reasoning effort"
-      defaultValue={String(snapshot.effort || options[0]?.value || '')}>
-      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-    </select>
+    }}><OpenSelect className="settings-select" name="effort" ariaLabel="Reasoning effort"
+      defaultValue={String(snapshot.effort || options[0]?.value || '')} options={options} />
       <button disabled={busy}>Apply</button></form></Group>;
   }
   if (surface === 'channels') return <ChannelsBody data={data} busy={busy} run={run} onOpen={onOpen} />;
@@ -231,14 +240,16 @@ function ChannelsBody({ data, busy, run, onOpen }: {
       onChange={() => void run('setChannelsEnabled', [channelSettings.enabled === false])} /> Channels enabled</label>
     <label><input type="checkbox" checked={voice.enabled === true} disabled={busy || voice.busy === true}
       onChange={() => void run('toggleVoice')} /> Voice transcription</label>
-    <label>Backend <select defaultValue={String(setup.backend || 'discord')} disabled={busy}
-      onChange={(event) => void run('setBackend', [event.currentTarget.value])}>
-      <option value="discord">Discord</option><option value="telegram">Telegram</option></select></label></Group>
-    <Group title="Channel target"><form onSubmit={(event) => {
+    <label className="command-surface-select-row">Backend <OpenSelect className="settings-select"
+      ariaLabel="Channel backend" value={String(setup.backend || 'discord')} disabled={busy}
+      options={[{ value: 'discord', label: 'Discord' }, { value: 'telegram', label: 'Telegram' }]}
+      onChange={(value) => void run('setBackend', [value])} /></label></Group>
+    <Group title="Channel target"><form className="command-surface-form" onSubmit={(event) => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       void run('setChannel', [{ backend: form.get('backend'), channelId: form.get('channelId') }]);
-    }}><select name="backend" defaultValue={String(setup.backend || 'discord')}><option value="discord">Discord</option>
-      <option value="telegram">Telegram</option></select>
+    }}><OpenSelect className="settings-select" name="backend" ariaLabel="Target backend"
+      defaultValue={String(setup.backend || 'discord')}
+      options={[{ value: 'discord', label: 'Discord' }, { value: 'telegram', label: 'Telegram' }]} />
       <input name="channelId" defaultValue={String(channel.channelId || '')} placeholder="Channel / chat ID" required />
       <button disabled={busy}>Save</button></form></Group>
     <Group title="Authentication">{([

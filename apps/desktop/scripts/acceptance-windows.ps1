@@ -12,7 +12,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
 Set-Location (Resolve-Path (Join-Path $PSScriptRoot '..'))
 $desktopDir = (Get-Location).Path
 $distDir = Join-Path $desktopDir 'dist'
-$artifact = Join-Path $distDir 'Mixdog-0.1.0-setup-x64.exe'
+$artifact = Join-Path $distDir 'mixdog-desktop-win-x64.exe'
 $temporaryLog = Join-Path $distDir "acceptance-running-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')).log"
 $steps = [Collections.Generic.List[object]]::new()
 $acceptanceStarted = [DateTime]::UtcNow
@@ -71,6 +71,18 @@ function Invoke-CheckedNative {
   $output | ForEach-Object { Write-Host $_ }
   if ($LogPath) { $output | Set-Content -LiteralPath $LogPath -Encoding UTF8 }
   if ($LASTEXITCODE -ne 0) { throw "$File exited with $LASTEXITCODE" }
+}
+
+function Get-Sha256 {
+  param([Parameter(Mandatory)][string]$Path)
+  $stream = [IO.File]::OpenRead($Path)
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '')
+  } finally {
+    $algorithm.Dispose()
+    $stream.Dispose()
+  }
 }
 
 function Invoke-OptionalWindowEvidence {
@@ -136,7 +148,7 @@ try {
 
   if (-not (Test-Path -LiteralPath $artifact)) { throw "Installer artifact missing: $artifact" }
   $artifactItem = Get-Item -LiteralPath $artifact
-  $artifactHash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash
+  $artifactHash = Get-Sha256 -Path $artifact
   Write-Output "ARTIFACT=$artifact"
   Write-Output "ARTIFACT_BYTES=$($artifactItem.Length)"
   Write-Output "ARTIFACT_SHA256=$artifactHash"
@@ -191,8 +203,12 @@ try {
   } | Out-Null
 
   $port = 9337
+  $debugUserDataDir = Join-Path $distDir 'acceptance-cdp-user-data'
+  Remove-Item -LiteralPath $debugUserDataDir -Recurse -Force -ErrorAction SilentlyContinue
   $launchWatch = [Diagnostics.Stopwatch]::StartNew()
-  $appProcess = Start-Process -FilePath $installedExe -ArgumentList "--remote-debugging-port=$port" -PassThru
+  $appProcess = Start-Process -FilePath $installedExe -ArgumentList @(
+    "--remote-debugging-port=$port", "--user-data-dir=$debugUserDataDir"
+  ) -PassThru
   $deadline = [DateTime]::UtcNow.AddSeconds(30)
   $target = $null
   do {
@@ -212,7 +228,16 @@ try {
     $json = & node 'scripts/cdp-smoke.mjs' $target.webSocketDebuggerUrl $ProjectPath
     if ($LASTEXITCODE -ne 0) { throw "CDP smoke exited with $LASTEXITCODE" }
     $value = $json | ConvertFrom-Json
-    if (-not $value.bridge -or -not $value.projectStarted -or -not $value.chatSubmitted -or -not $value.snapshotAvailable) {
+    if (
+      -not $value.bridge -or
+      -not $value.projectStarted -or
+      -not $value.chatSubmitted -or
+      -not $value.snapshotAvailable -or
+      -not $value.chrome.titlebar -or
+      -not $value.chrome.windowTitle -or
+      -not $value.chrome.sidebarToggle -or
+      -not $value.chrome.newTask
+    ) {
       throw "Packaged bridge/runtime smoke failed: $json"
     }
     $value | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $distDir 'acceptance-launch-smoke.log') -Encoding UTF8
@@ -293,6 +318,9 @@ try {
 } finally {
   if (Get-Variable appProcess -ErrorAction SilentlyContinue) {
     if ($appProcess -and -not $appProcess.HasExited) { Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue }
+  }
+  if (Get-Variable debugUserDataDir -ErrorAction SilentlyContinue) {
+    Remove-Item -LiteralPath $debugUserDataDir -Recurse -Force -ErrorAction SilentlyContinue
   }
   Stop-Transcript | Out-Null
   if (Get-Variable artifactHash -ErrorAction SilentlyContinue) {

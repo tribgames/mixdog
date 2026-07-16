@@ -42,10 +42,13 @@ Mixdog TUI의 모든 옵션/기능을 데스크탑에 이식한다.
 - [x] 데스크탑 미노출 기능 GUI 이식 (capability 브리지 + Settings/CommandSurface)
 - [x] 회귀 테스트
 
-## Phase 3 — OpenCode 디자인 전 영역 정합 ⏸ 대기
-- [ ] refs/opencode 사이드바·대화·도구 카드·입력창·설정 디자인 대조
-- [ ] 테마/타이포/간격/아이콘 정합
-- [ ] 최종 스크린샷 비교 검증
+## Phase 3 — OpenCode 디자인 전 영역 정합 ✅ 완료
+- [x] refs/opencode 사이드바·대화·도구 카드·입력창·설정 디자인 대조
+- [x] 테마/타이포/간격/아이콘 정합
+- [x] 최종 스크린샷 비교 검증 — capture:ui 통과 (artifacts/mixdog-desktop-window-1113x687.{png,json}, 사이드바 286px 기하·테마 픽셀·라이브 어서션 확인)
 
-## Phase 4 — 최종 검증 ⏸ 대기
-- [ ] 전체 테스트 + 빌드 + 설치본 실검증
+## Phase 4 — 최종 검증 ✅ 완료
+- [x] 전체 테스트 — parity 3/3, settings 16/16, packaging 9/9, updater 3/3, typecheck 통과 (renderer 5건 실패는 HEAD 기존 결함: 21/50/59/63/64)
+- [x] 시작 크래시 수리 — electron-updater CJS named import가 패키징 ESM 메인 번들에서 SyntaxError → default import로 교체 (src/main/updater.ts)
+- [x] acceptance smoke 갱신 — Windows titleBarOverlay 기하(titlebar 영역 폭) 기준으로 topbar 어서션 수정 (scripts/cdp-smoke.mjs)
+- [x] 설치본 실검증 — install/native-resolution/project-chat-approval-routing/app-exit/uninstall 전 단계 통과, ACCEPTED=true (dist/acceptance-8117beccc788740c.json)

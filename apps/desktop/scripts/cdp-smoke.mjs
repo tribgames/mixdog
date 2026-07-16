@@ -4,44 +4,66 @@ if (!webSocketUrl || !projectPath) {
 }
 
 const socket = new WebSocket(webSocketUrl);
+const rendererExpression = `(async () => {
+  const timing = {};
+  const api = window.mixdogDesktop;
+  if (!api) throw new Error('preload bridge missing');
+  const methods = ['startProject', 'getSnapshot', 'submit', 'resolveToolApproval', 'dispose'];
+  if (!methods.every((name) => typeof api[name] === 'function')) {
+    throw new Error('preload bridge incomplete');
+  }
+  let startedAt = performance.now();
+  const started = await api.startProject(${JSON.stringify(projectPath)});
+  timing.projectMs = performance.now() - startedAt;
+  startedAt = performance.now();
+  const submitted = await api.submit('/help');
+  timing.chatMs = performance.now() - startedAt;
+  await new Promise((done) => setTimeout(done, 250));
+  const snapshot = await api.getSnapshot();
+  const titlebar = document.querySelector('header.topbar[aria-label="Workspace tabs"]');
+  const titlebarBounds = titlebar?.getBoundingClientRect();
+  // Windows uses titleBarStyle:hidden with a controls overlay; the topbar is
+  // expected to span the titlebar area, which excludes the native buttons.
+  const overlay = navigator.windowControlsOverlay;
+  const expectedTitlebarWidth = overlay?.visible
+    ? overlay.getTitlebarAreaRect().width
+    : window.innerWidth;
+  startedAt = performance.now();
+  const approvalRoutingResult = await api.resolveToolApproval(
+    '__packaging_smoke__',
+    { approved: false, reason: 'acceptance-smoke' },
+  );
+  timing.approvalRoutingMs = performance.now() - startedAt;
+  await api.dispose();
+  return {
+    bridge: true,
+    projectStarted: started !== null,
+    chatSubmitted: submitted,
+    snapshotAvailable: snapshot !== null,
+    approvalRoutingResult,
+    chrome: {
+      windowTitle: document.title === 'Mixdog',
+      titlebar: Boolean(
+        titlebarBounds
+        && Math.round(titlebarBounds.top) === 0
+        && Math.round(titlebarBounds.height) === 36
+        && Math.round(titlebarBounds.width) === Math.round(expectedTitlebarWidth)
+      ),
+      sidebarToggle: Boolean(titlebar?.querySelector(
+        'button[aria-controls="session-sidebar"]',
+      )),
+      newTask: Boolean(titlebar?.querySelector('button[aria-label="New task"]')),
+    },
+    timing,
+  };
+})()`;
 const response = await new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('CDP smoke timed out')), 60_000);
   socket.addEventListener('open', () => socket.send(JSON.stringify({
     id: 1,
     method: 'Runtime.evaluate',
     params: {
-      expression: `(async () => {
-        const timing = {};
-        const api = window.mixdogDesktop;
-        if (!api) throw new Error('preload bridge missing');
-        const methods = ['startProject', 'getSnapshot', 'submit', 'resolveToolApproval', 'dispose'];
-        if (!methods.every((name) => typeof api[name] === 'function')) {
-          throw new Error('preload bridge incomplete');
-        }
-        let startedAt = performance.now();
-        const started = await api.startProject(${JSON.stringify(projectPath)});
-        timing.projectMs = performance.now() - startedAt;
-        startedAt = performance.now();
-        const submitted = await api.submit('/help');
-        timing.chatMs = performance.now() - startedAt;
-        await new Promise((done) => setTimeout(done, 250));
-        const snapshot = await api.getSnapshot();
-        startedAt = performance.now();
-        const approvalRoutingResult = await api.resolveToolApproval(
-          '__packaging_smoke__',
-          { approved: false, reason: 'acceptance-smoke' },
-        );
-        timing.approvalRoutingMs = performance.now() - startedAt;
-        await api.dispose();
-        return {
-          bridge: true,
-          projectStarted: started !== null,
-          chatSubmitted: submitted,
-          snapshotAvailable: snapshot !== null,
-          approvalRoutingResult,
-          timing,
-        };
-      })()`,
+      expression: rendererExpression,
       awaitPromise: true,
       returnByValue: true,
     },

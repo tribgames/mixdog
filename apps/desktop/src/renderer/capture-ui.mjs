@@ -146,6 +146,7 @@ try {
   assert.equal(metadata.liveAssertions.mobile.closed.sendContained, true);
   assert.equal(metadata.liveAssertions.mobile.closed.controlsNonOverlapping, true);
   assert.equal(metadata.imageMeasuredSidebar.method, "horizontal-pixel-scan");
+  assert.equal(metadata.imageMeasuredSidebar.scanlineY, 600);
   assert.equal(metadata.imageMeasuredSidebar.left, 8);
   assert.equal(metadata.imageMeasuredSidebar.right, 293);
   assert.equal(metadata.imageMeasuredSidebar.width, 286);
@@ -168,19 +169,19 @@ try {
   assert.equal(metadata.imageMeasuredSidebar.rightGap.left, metadata.domSidebarGeometry.right);
   assert.equal(metadata.imageMeasuredSidebar.rightGap.right, metadata.domSidebarGeometry.mainLeft - 1);
   assert.equal(metadata.imageMeasuredSidebar.rightGap.width, metadata.domSidebarGeometry.gap);
-  assert.equal(metadata.imageMeasuredSidebar.sampledColors.interior, "#141416");
+  assert.equal(metadata.imageMeasuredSidebar.sampledColors.interior, "#1b1b1e");
   assert.equal(
     metadata.imageMeasuredSidebar.sampledColors.leftBorder,
     metadata.imageMeasuredSidebar.sampledColors.rightBorder,
   );
   assert.ok(
-    ["#0d0d0e", "#0e0e0f"].includes(metadata.imageMeasuredSidebar.sampledColors.leftOutside),
+    ["#3a383a", "#3b393b"].includes(metadata.imageMeasuredSidebar.sampledColors.leftOutside),
     "Sidebar left inset is not the base surface or its one-step native edge blend.",
   );
-  assert.equal(metadata.imageMeasuredSidebar.sampledColors.rightGap, "#0d0d0e");
-  assert.equal(metadata.pixelSamples.titlebar.color, "#0d0d0e");
-  assert.equal(metadata.pixelSamples.base.color, "#151517");
-  assert.equal(metadata.pixelSamples.sidebar.color, "#141416");
+  assert.equal(metadata.imageMeasuredSidebar.sampledColors.rightGap, "#3a383a");
+  assert.equal(metadata.pixelSamples.titlebar.color, "#181212");
+  assert.equal(metadata.pixelSamples.base.color, "#1b1b1e");
+  assert.equal(metadata.pixelSamples.sidebar.color, "#1b1b1e");
   console.log(`CAPTURE_PNG=${windowOutput}`);
   console.log(`CAPTURE_JSON=${metadataOutput}`);
   console.log(`CAPTURE_SCHEMA=${metadata.schemaVersion}; CAPTURE_ID=${metadata.captureId}`);
