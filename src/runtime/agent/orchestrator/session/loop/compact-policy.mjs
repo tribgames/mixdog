@@ -349,6 +349,11 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         ? sessionRef.compaction
         : {};
     const changed = meta.compactChanged === true || meta.pruneCount > 0;
+    // Both are successful terminal pre-send states. In particular,
+    // pre_send_check is the no-op path after a prior recovered/failing compact;
+    // retaining its old component error makes status report a failure although
+    // this send's compaction stage completed successfully.
+    const terminalSuccess = meta.stage === 'pre_send' || meta.stage === 'pre_send_check';
     sessionRef.compaction = {
         ...prev,
         auto: policy.auto !== false,
@@ -383,16 +388,22 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastChanged: changed,
         lastTrigger: meta.trigger || prev.lastTrigger || null,
         lastSemantic: meta.semanticCompact === true,
-        lastSemanticError: Object.hasOwn(meta, 'semanticError')
-            ? (meta.semanticError ?? null)
-            : (prev.lastSemanticError ?? null),
+        lastSemanticError: terminalSuccess
+            ? null
+            : Object.hasOwn(meta, 'semanticError')
+                ? (meta.semanticError ?? null)
+                : (prev.lastSemanticError ?? null),
         lastRecallFastTrack: meta.recallFastTrack === true,
-        lastRecallFastTrackError: Object.hasOwn(meta, 'recallFastTrackError')
-            ? (meta.recallFastTrackError ?? null)
-            : (prev.lastRecallFastTrackError ?? null),
-        lastError: Object.hasOwn(meta, 'compactError') || Object.hasOwn(meta, 'lastError')
-            ? (meta.compactError ?? meta.lastError ?? null)
-            : (prev.lastError ?? null),
+        lastRecallFastTrackError: terminalSuccess
+            ? null
+            : Object.hasOwn(meta, 'recallFastTrackError')
+                ? (meta.recallFastTrackError ?? null)
+                : (prev.lastRecallFastTrackError ?? null),
+        lastError: terminalSuccess
+            ? null
+            : Object.hasOwn(meta, 'compactError') || Object.hasOwn(meta, 'lastError')
+                ? (meta.compactError ?? meta.lastError ?? null)
+                : (prev.lastError ?? null),
         lastPruneCount: meta.pruneCount || 0,
         lastDurationMs: meta.durationMs != null && Number.isFinite(Number(meta.durationMs))
             ? Math.max(0, Math.round(Number(meta.durationMs)))

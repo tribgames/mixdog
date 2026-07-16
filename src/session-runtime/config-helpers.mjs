@@ -114,18 +114,21 @@ const AUTO_CLEAR_DEFAULT_IDLE_MS = 60 * 60 * 1000;
 
 // Provider-aware auto-clear idle-sweep defaults. Rationale mirrors the
 // provider cache TTLs documented in agent-runtime/cache-strategy.mjs
-// (explicit breakpoint / managed-cache windows): Anthropic follows the BP4
-// messages-tail TTL (5m default cache_control window; BP1~3 stay on the 1h
-// extended TTL and are prefix-shared, so reaping at 5m only forfeits an
-// already-cold tail — see resolveLeadMessagesTtl). Gemini, xAI and Mistral
+// (explicit breakpoint / managed-cache windows): Anthropic follows the 1h BP4
+// messages-tail TTL. The 2026-07-16 6.8h trace found no intra-session gaps
+// over 1h; gaps over 5m were common for agent tool executions/reviewer
+// fix-loop reuse, and 24/25 such Lead gaps were agent waits where autoClear
+// cannot fire. Tail-cost simulation favors 1h despite its 2x write premium:
+// Lead 11.75M vs 20.11M and agents 14.46M vs 45.04M input-token equivalents,
+// because cold misses rewrite the accumulated tail. Gemini, xAI and Mistral
 // caches run ~1h, Groq's implicit cache persists ~2h, OpenAI/DeepSeek
 // key-prefix/implicit caches persist far longer (~24h), and OpenAI OAuth's
 // in-memory server cache is short-lived (~5-10min), so we round up slightly
 // to 10m to avoid sweeping a still-warm cache. Unknown/unrecognized
 // providers fall back to the 'default' 1h entry.
 export const AUTO_CLEAR_PROVIDER_IDLE_MS = Object.freeze({
-  'anthropic': 5 * 60 * 1000,
-  'anthropic-oauth': 5 * 60 * 1000,
+  'anthropic': 60 * 60 * 1000,
+  'anthropic-oauth': 60 * 60 * 1000,
   'gemini': 60 * 60 * 1000,
   'groq': 2 * 60 * 60 * 1000,
   'openai': 24 * 60 * 60 * 1000,

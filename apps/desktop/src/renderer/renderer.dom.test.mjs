@@ -221,6 +221,28 @@ test("context raw-message list pages in bounded batches", async () => {
   assert.equal(document.querySelectorAll(".context-raw-messages details").length, 200);
 });
 
+test("context view hides the breakdown for a zero-token session", async () => {
+  installDom();
+  await act(async () => root.render(React.createElement(ContextBody, {
+    status: {
+      contextWindow: 200_000,
+      usedTokens: 0,
+      messages: {
+        count: 0,
+        roles: {
+          user: { count: 0, tokens: 0 },
+          assistant: { count: 0, tokens: 0 },
+        },
+      },
+      usage: {},
+    },
+    snapshot: { items: [], stats: {} },
+  })));
+  assert.equal(document.querySelector(".context-view") != null, true);
+  assert.equal(document.querySelector(".context-breakdown"), null);
+  assert.match(document.querySelector(".context-view")?.textContent || "", /Usage—/);
+});
+
 test("header context usage floors percent and dismisses focus popover without reopening", async () => {
   installDom();
   let opens = 0;

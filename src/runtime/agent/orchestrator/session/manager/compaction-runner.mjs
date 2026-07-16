@@ -552,9 +552,13 @@ export async function runSessionCompaction(session, opts = {}) {
         lastChangedAt: changed ? now : session.compaction?.lastChangedAt || null,
         lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
         lastSemantic: semanticCompactResult?.semantic === true,
-        lastSemanticError: semanticCompactError?.message || null,
+        // This is a terminal success record. A failed component may have been
+        // recovered by semantic compaction or pruning, but must not remain as a
+        // status/UI failure after the final compacted transcript is accepted.
+        lastSemanticError: null,
         lastRecallFastTrack: recallFastTrackResult?.recallFastTrack === true,
-        lastRecallFastTrackError: recallFastTrackError?.message || null,
+        lastRecallFastTrackError: null,
+        lastError: null,
         lastRecallFastTrackQuerySha: recallFastTrackResult?.query ? createHash('sha256').update(recallFastTrackResult.query).digest('hex').slice(0, 16) : null,
         lastSemanticUsage: semanticCompactResult?.usage ? {
             inputTokens: semanticCompactResult.usage.inputTokens || 0,
@@ -584,9 +588,9 @@ export async function runSessionCompaction(session, opts = {}) {
         targetBudgetTokens: budget,
         reserveTokens,
         semanticCompact: semanticCompactResult?.semantic === true,
-        semanticError: semanticCompactError?.message || null,
+        semanticError: null,
         recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
-        recallFastTrackError: recallFastTrackError?.message || null,
+        recallFastTrackError: null,
         usage: semanticCompactResult?.usage || null,
     };
 }

@@ -781,10 +781,51 @@ async function _doSave(payload) {
  * Used by closeSession() to plant a tombstone that races against in-flight
  * saveSession() calls.
  */
-export function markSessionClosed(id, reason = 'manual') {
-    // Cancel any pending debounced save so it cannot overwrite the tombstone
-    // that we are about to plant. The _shouldDrop() guard inside _doSave()
-    // provides a second line of defence, but cancelling here is cheaper.
+function _heartbeatMtime(id) {
+    try {
+        const path = join(getStoreDir(), `${id}.hb`);
+        return existsSync(path) ? (statSync(path).mtimeMs || 0) : 0;
+    } catch {
+        return 0;
+    }
+}
+
+function _runtimeLivenessVeto(id, options = {}) {
+    return typeof options.isSessionLive === 'function' && options.isSessionLive(id);
+}
+
+function _heartbeatLivenessVeto(id, options = {}) {
+    const heartbeatMtime = _heartbeatMtime(id);
+    if (!(heartbeatMtime > 0)) return false;
+    const hasHeartbeatSnapshot = Object.prototype.hasOwnProperty.call(options, 'heartbeatSnapshotMtime');
+    const snapshotMtime = Number(options.heartbeatSnapshotMtime) || 0;
+    if (hasHeartbeatSnapshot && heartbeatMtime > snapshotMtime) return true;
+    const freshMs = Number(options.heartbeatFreshMs);
+    return Number.isFinite(freshMs) && freshMs > 0 && Date.now() - heartbeatMtime <= freshMs;
+}
+
+function _deleteHeartbeatUnlessNewer(id, options = {}) {
+    const hasHeartbeatSnapshot = Object.prototype.hasOwnProperty.call(options, 'heartbeatSnapshotMtime');
+    const snapshotMtime = Number(options.heartbeatSnapshotMtime) || 0;
+    if (!hasHeartbeatSnapshot || _heartbeatMtime(id) <= snapshotMtime) {
+        _deleteHeartbeat(id);
+    }
+}
+
+export function markSessionClosed(id, reason = 'manual', options = {}) {
+    // Caller-provided probes may re-enter the store, so evaluate them before
+    // taking the non-reentrant Atomics commit lock. A veto must also precede
+    // pending-save cancellation so debounce durability remains intact.
+    if (_runtimeLivenessVeto(id, options) || _heartbeatLivenessVeto(id, options)) return null;
+    const closeGuard = _guardedSaveOptions(id);
+    const commitControl = _acquireWriteCommit(closeGuard);
+    if (commitControl === false) return null;
+    try {
+    // Cross-process heartbeat revival after full-TTL silence is accepted as a
+    // best-effort race: the tombstone resurrection guard is the authoritative
+    // post-race arbiter. Re-stat here, but never invoke caller code under lock.
+    if (_heartbeatLivenessVeto(id, options)) return null;
+    // Only a committed close may disrupt pending persistence.
     _clearDebounce(id);
     _cancelSessionWrites(id);
     _uncacheSessionSummary(id);
@@ -834,7 +875,8 @@ export function markSessionClosed(id, reason = 'manual') {
     _savePending.delete(id);
     clearSessionSaveError(id);
     _clearLiveSession(id);
-    _deleteHeartbeat(id);
+    // Preserve a sidecar published strictly after the sweep's scan snapshot.
+    _deleteHeartbeatUnlessNewer(id, options);
     _queueSessionSummaryUpsert(tombstone);
     // Structured close metric. Single emission point because every close
     // path funnels through markSessionClosed. lifeMs = updatedAt-createdAt
@@ -861,6 +903,9 @@ export function markSessionClosed(id, reason = 'manual') {
         }
     } catch { /* logger never breaks the close path */ }
     return newGen;
+    } finally {
+        _releaseWriteCommit(commitControl);
+    }
 }
 
 /**
@@ -940,10 +985,19 @@ export function clearSessionSaveError(id) {
 }
 
 export function deleteSession(id, options = {}) {
+    // Keep caller probes and all vetoes ahead of the non-reentrant lock and
+    // ahead of pending-save disruption, matching markSessionClosed().
+    if (_runtimeLivenessVeto(id, options) || _heartbeatLivenessVeto(id, options)) return false;
+    const deleteGuard = _guardedSaveOptions(id);
+    const commitControl = _acquireWriteCommit(deleteGuard);
+    if (commitControl === false) return false;
+    try {
+    // Cross-process revival after full-TTL silence remains best-effort; the
+    // tombstone resurrection guard is authoritative. Only re-stat .hb here.
+    if (_heartbeatLivenessVeto(id, options)) return false;
     _cancelSessionWrites(id);
     _clearDebounce(id);
     _savePending.delete(id);
-    _waitForWriteCommit(id);
     const path = sessionPath(id);
     let removed = false;
     if (existsSync(path)) {
@@ -953,7 +1007,8 @@ export function deleteSession(id, options = {}) {
         }
         catch { /* fall through to .hb cleanup */ }
     }
-    _deleteHeartbeat(id);
+    // Preserve a sidecar published strictly after the sweep's scan snapshot.
+    _deleteHeartbeatUnlessNewer(id, options);
     _clearLiveSession(id);
     if (removed || !existsSync(path)) clearSessionSaveError(id);
     // deferSummaryUpdate: bulk callers (tombstone sweep) remove thousands of
@@ -962,6 +1017,9 @@ export function deleteSession(id, options = {}) {
     if (options.deferSummaryUpdate === true) _uncacheSessionSummary(id);
     else _queueSessionSummaryRemoval(id);
     return removed;
+    } finally {
+        _releaseWriteCommit(commitControl);
+    }
 }
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes idle — aligned with Anthropic 5m messages tier and OpenAI in-memory cache window
 const AGENT_TERMINAL_STATUSES = new Set(['idle', 'done', 'error']);
@@ -1290,6 +1348,19 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 : (sweepTombstones ? tombstoneMaxAgeMs : 0);
             const newestKnown = Math.max(row.updatedAt || 0, row.lastHeartbeatAt || 0, row.createdAt || 0, jsonMtime, heartbeatMtime);
             if (freshnessGateMs > 0 && newestKnown > 0 && now - newestKnown <= freshnessGateMs) {
+                // Fresh agent/legacy sessions survive idle close but still
+                // participate in the resumable-open retention cap. The cap
+                // performs its own commit-edge liveness veto before deletion.
+                if (retainOpen && sweepIdle
+                    && (!(typeof gateOwner === 'string' && gateOwner.length > 0)
+                        || isAgentOwner({ owner: gateOwner }))) {
+                    openCandidates.push({
+                        id: row.id,
+                        lastActive: newestKnown,
+                        heartbeatSnapshotMtime: heartbeatMtime,
+                        heartbeatFreshMs: terminalReapMsForGate ?? maxAge,
+                    });
+                }
                 remaining++;
                 continue;
             }
@@ -1321,6 +1392,14 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 remaining++;
                 continue;
             }
+            // The manager may sweep while unrelated sessions are active. Protect
+            // this specific locally-current/in-flight session regardless of stale
+            // on-disk timestamps; its controller/heartbeat owner decides when it
+            // is safe to become an idle-sweep candidate.
+            if (isSessionLive && isSessionLive(row.id)) {
+                remaining++;
+                continue;
+            }
             // Prefer .hb sidecar mtime — updated at tight cadence (≤5s) without
             // serialising the full JSON, so it reflects true liveness more
             // accurately than the JSON timestamp fields.
@@ -1338,9 +1417,36 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             const terminalReapMs = isCompletedAgent ? terminalReapMsForGate : null;
             const sessionMaxAge = terminalReapMs ?? maxAge;
             if (now - lastActive > sessionMaxAge) {
-                try { markSessionClosed(row.id, 'idle-sweep'); }
+                // Close is destructive and the earlier heartbeat stat can race a
+                // different process publishing fresh liveness. Re-check both
+                // local runtime ownership and the sidecar at the commit edge.
+                if (isSessionLive && isSessionLive(row.id)) {
+                    remaining++;
+                    continue;
+                }
+                let preCloseHeartbeatMtime = 0;
+                try {
+                    const hbPath = join(dir, `${row.id}.hb`);
+                    if (existsSync(hbPath)) preCloseHeartbeatMtime = statSync(hbPath).mtimeMs || 0;
+                } catch { /* sidecar unavailable — retain scan-time gates */ }
+                if (preCloseHeartbeatMtime > 0 && now - preCloseHeartbeatMtime <= sessionMaxAge) {
+                    remaining++;
+                    continue;
+                }
+                let closeResult = null;
+                try {
+                    closeResult = markSessionClosed(row.id, 'idle-sweep', {
+                        isSessionLive,
+                        heartbeatSnapshotMtime: heartbeatMtime,
+                        heartbeatFreshMs: sessionMaxAge,
+                    });
+                }
                 catch (err) {
                     process.stderr.write(`[session-store] idle-sweep close failed for ${row.id}: ${err?.message}\n`);
+                    continue;
+                }
+                if (closeResult == null) {
+                    remaining++;
                     continue;
                 }
                 cleaned++;
@@ -1351,7 +1457,12 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                     bashSessionId: effBashId,
                 });
             } else {
-                if (retainOpen) openCandidates.push({ id: row.id, lastActive });
+                if (retainOpen) openCandidates.push({
+                    id: row.id,
+                    lastActive,
+                    heartbeatSnapshotMtime: heartbeatMtime,
+                    heartbeatFreshMs: sessionMaxAge,
+                });
                 remaining++;
             }
         }
@@ -1370,7 +1481,12 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             const overCount = kept >= openMaxCount;
             if (!tooOld && !overCount) { kept++; continue; }
             try {
-                if (deleteSession(c.id, { deferSummaryUpdate: true })) {
+                if (deleteSession(c.id, {
+                    deferSummaryUpdate: true,
+                    isSessionLive,
+                    heartbeatSnapshotMtime: c.heartbeatSnapshotMtime,
+                    heartbeatFreshMs: c.heartbeatFreshMs,
+                })) {
                     openPruned++;
                     openPrunedDetails.push({ id: c.id, ageSeconds: Math.floor((now - (c.lastActive || 0)) / 1000) });
                     if (remaining > 0) remaining--;

@@ -13,6 +13,9 @@ import {
 import { createSessionFlow } from '../src/tui/engine/session-flow.mjs';
 import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
 import { createRunTurn } from '../src/tui/engine/turn.mjs';
+import { restoredTranscriptMetadata } from '../src/tui/engine/session-api-ext.mjs';
+import { persistedAssistantTranscriptMetadata } from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
+import { attachAssistantTranscriptMetadata } from '../src/runtime/agent/orchestrator/session/agent-loop.mjs';
 import {
   buildTranscriptRowIndexIncremental,
   transcriptItemsWithStableTail,
@@ -191,12 +194,16 @@ test('failed mid-turn compact leaves prior transcript items untouched', async ()
 
 test('stream flush keeps settled items identity and finalize appends one assistant', async () => {
   let identityStable = false;
+  let persistedAssistantMessage = null;
   const harness = makeTurnHarness(async (_text, options) => {
     const before = harness.getState().items;
     options.onTextDelta('settled line\n');
     await wait(30);
     identityStable = harness.getState().items === before;
     assert.match(harness.getState().streamingTail?.text || '', /settled line/);
+    persistedAssistantMessage = {
+      meta: { transcript: persistedAssistantTranscriptMetadata(options.transcriptMeta, Date.now()) },
+    };
     return { result: { content: 'settled line\n' }, session: { messages: [] } };
   });
 
@@ -207,6 +214,59 @@ test('stream flush keeps settled items identity and finalize appends one assista
   assert.equal(assistants.length, 1);
   assert.equal(assistants[0].streaming, false);
   assert.equal(assistants[0].text, 'settled line\n');
+  assert.equal(
+    restoredTranscriptMetadata(persistedAssistantMessage).at,
+    assistants[0].at,
+    'restored assistant timestamp must match its live creation timestamp',
+  );
+});
+
+test('no-delta final assistant persists the timestamp later used by the live item', async () => {
+  let persistedAssistantMessage = null;
+  const harness = makeTurnHarness(async (_text, options) => {
+    persistedAssistantMessage = {
+      meta: { transcript: persistedAssistantTranscriptMetadata(options.transcriptMeta, Date.now()) },
+    };
+    return { result: { content: 'final without deltas' }, session: { messages: [] } };
+  });
+
+  assert.equal(await harness.runTurn('go'), 'done');
+  const assistant = harness.getState().items.find((item) => item.kind === 'assistant');
+  assert.equal(assistant?.text, 'final without deltas');
+  assert.equal(restoredTranscriptMetadata(persistedAssistantMessage).at, assistant?.at);
+});
+
+test('multi-tool preamble and final assistant preserve distinct live timestamps on restore', async () => {
+  const persistedAssistantMessages = [];
+  const takeAssistantTranscriptMetadata = (options) => {
+    const transcript = persistedAssistantTranscriptMetadata(options.transcriptMeta, Date.now());
+    delete options.transcriptMeta.assistantAt;
+    return transcript;
+  };
+  const harness = makeTurnHarness(async (_text, options) => {
+    options.onAssistantText('tool preamble');
+    await options.onToolCall(1, [{ id: 'call_1', name: 'grep', input: { pattern: 'x' } }]);
+    persistedAssistantMessages.push(attachAssistantTranscriptMetadata(
+      { role: 'assistant', content: 'tool preamble', toolCalls: [] },
+      { takeAssistantTranscriptMetadata: () => takeAssistantTranscriptMetadata(options) },
+    ));
+    options.onToolResult({ tool_call_id: 'call_1', content: 'ok' });
+    persistedAssistantMessages.push({
+      role: 'assistant',
+      content: 'final answer',
+      meta: { transcript: persistedAssistantTranscriptMetadata(options.transcriptMeta, Date.now()) },
+    });
+    return { result: { content: 'final answer' }, session: { messages: [] } };
+  });
+
+  assert.equal(await harness.runTurn('go'), 'done');
+  const liveAssistants = harness.getState().items.filter((item) => item.kind === 'assistant');
+  assert.equal(liveAssistants.length, 2);
+  assert.equal(new Set(liveAssistants.map((item) => item.at)).size, 2);
+  assert.deepEqual(
+    persistedAssistantMessages.map((message) => restoredTranscriptMetadata(message).at),
+    liveAssistants.map((item) => item.at),
+  );
 });
 
 test('abort after stream progress settles the tail and leaves no orphan', async () => {

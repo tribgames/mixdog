@@ -185,9 +185,8 @@ function assertOk(name, result, pattern = null) {
 {
   const publicStrategy = resolveCacheStrategy('worker');
   assert(publicStrategy.tools === 'none', `Anthropic tools must not spend a cache_control BP: ${JSON.stringify(publicStrategy)}`);
-  // BP1~3 stay 1h (pool-stable prefix); volatile message tail is 5m for all
-  // sessions — see resolveCacheStrategy docs (trace p99 gap ≈ 4.5min).
-  assert(publicStrategy.system === '1h' && publicStrategy.tier3 === '1h' && publicStrategy.messages === '5m', `public cache tiers changed unexpectedly: ${JSON.stringify(publicStrategy)}`);
+  // BP1~3 and the volatile message tail stay 1h; see resolveCacheStrategy.
+  assert(publicStrategy.system === '1h' && publicStrategy.tier3 === '1h' && publicStrategy.messages === '1h', `public cache tiers changed unexpectedly: ${JSON.stringify(publicStrategy)}`);
   assert(cacheCapabilityForProvider('anthropic-oauth') === 'explicit-breakpoint', 'Anthropic OAuth should remain explicit-breakpoint');
   assert(cacheCapabilityForProvider('openai-oauth') === 'key-prefix', 'OpenAI OAuth should remain key-prefix');
   assert(cacheCapabilityForProvider('xai') === 'key-prefix', 'xAI should remain key-prefix');

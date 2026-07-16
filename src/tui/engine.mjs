@@ -104,6 +104,7 @@ import { createSessionFlow } from './engine/session-flow.mjs';
 import { createRunTurn } from './engine/turn.mjs';
 import { createEngineApi } from './engine/session-api.mjs';
 import { createFrameBatchedStorePublisher } from './engine/frame-batched-store.mjs';
+import { displayModelName } from '../ui/model-display.mjs';
 
 // Source tests resolve from src/tui/engine.mjs; the built bundle resolves from
 // src/tui/dist/index.mjs.
@@ -644,6 +645,7 @@ export async function createEngineSession({
     activePromptRestore: null,
     pushingFromDeferredEntry: false,
     flushDeferredBeforeImmediatePush: null,
+    pendingTranscriptMeta: null,
   };
   const lifecycle = { runtimePulseTimer: null, unsubscribeRuntimeNotifications: null, unsubscribeRemoteState: null };
   const pending = [];
@@ -912,6 +914,17 @@ export async function createEngineSession({
     activeToolCalls.clear();
     if (state.activeToolSummary) set({ activeToolSummary: null });
   };
+  const transcriptRouteMetadata = (at = Date.now()) => {
+    const route = routeState();
+    const modelName = displayModelName(route.model, route.provider);
+    const workflowLabel = String(route.workflow?.name || route.workflow?.id || '').trim();
+    return {
+      at,
+      ...(modelName ? { model: modelName } : {}),
+      ...(route.provider ? { provider: String(route.provider) } : {}),
+      ...(workflowLabel ? { agent: workflowLabel } : {}),
+    };
+  };
   const pushItem = (item) => {
     if (!flags.pushingFromDeferredEntry && flags.flushDeferredBeforeImmediatePush) {
       flags.flushDeferredBeforeImmediatePush();
@@ -1021,7 +1034,9 @@ export async function createEngineSession({
     // up-arrow history survives across sessions. Runs before pushItem so the
     // merge in pushItem's user branch (loadPromptHistory) already sees it.
     if (origin === 'user') appendPromptHistory(state.cwd, text);
-    pushItem({ kind: 'user', id, text });
+    const transcriptMeta = transcriptRouteMetadata();
+    if (origin === 'user') flags.pendingTranscriptMeta = transcriptMeta;
+    pushItem({ kind: 'user', id, text, ...transcriptMeta });
   };
   const pushAsyncAgentResponse = (text, id = nextId(), origin = 'injected', metadata = {}) => {
     const synthetic = parseSyntheticAgentMessage(text);
@@ -1219,7 +1234,7 @@ export async function createEngineSession({
     pushToast, pushNotice, removeNotice, setProgressHint,
     pushUserOrSyntheticItem, pushAsyncAgentResponse, upsertSyntheticToolItem,
     markToolCallActive, markToolCallDone, clearActiveToolSummary, clearToastTimers,
-    autoClearState, agentStatusState, baseRouteState, routeState, syncContextStats,
+    autoClearState, agentStatusState, baseRouteState, routeState, transcriptRouteMetadata, syncContextStats,
     disposeTranscriptSpill: () => transcriptSpill.dispose(),
     snapshotTranscriptSpill: () => transcriptSpill.snapshot(),
     restoreTranscriptSpill: (snapshot) => transcriptSpill.restoreSnapshot(snapshot),

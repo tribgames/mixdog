@@ -21,6 +21,15 @@ const MIXDOG_SLOW_TOOL_TRACE_NAMES = new Set(
         .map((name) => name.trim())
         .filter(Boolean)
 );
+const RECOVERED_ERROR_MESSAGE_MAX_CHARS = 300;
+
+function compactRecoveredErrorMessage(value) {
+    if (value == null) return null;
+    const message = String(value);
+    return message.length > RECOVERED_ERROR_MESSAGE_MAX_CHARS
+        ? `${message.slice(0, 299)}…`
+        : message;
+}
 
 function traceAgentLoop({ sessionId, iteration, sendMs, messageCount, bodyBytesEst, agent = null }) {
     // Two emit modes, no behavior change either way:
@@ -67,6 +76,7 @@ function traceAgentCompact({
     model,
     error,
     error_code,
+    recovered_error,
     details,
 }) {
     appendAgentTrace({
@@ -96,6 +106,14 @@ function traceAgentCompact({
         model: model || null,
         error: error || null,
         error_code: error_code || null,
+        recovered_error: recovered_error && typeof recovered_error === 'object'
+            ? {
+                code: recovered_error.code ?? null,
+                // Capture already strips ANSI/newlines; retain this writer-side
+                // cap for any future compact-meta caller.
+                message: compactRecoveredErrorMessage(recovered_error.message),
+            }
+            : null,
         details: details && typeof details === 'object' ? details : null,
     });
 }

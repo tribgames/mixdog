@@ -32,6 +32,25 @@ import { traceAgentCompact, messagePrefixHash } from '../agent-trace.mjs';
 import { invalidateProviderRequestToolsScope } from '../../../../session-runtime/provider-request-tools.mjs';
 import { bumpUsageMetricsEpoch } from './manager.mjs';
 
+const RECOVERED_ERROR_MESSAGE_MAX_CHARS = 300;
+const ANSI_ESCAPE_RE = /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*)?\u0007|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))/g;
+
+function compactRecoveredError(err) {
+    const rawMessage = err?.message || String(err);
+    const message = String(rawMessage)
+        .replace(ANSI_ESCAPE_RE, '')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return {
+        // Preserve machine-readable codes exactly; only the display payload is bounded.
+        code: err?.code ?? null,
+        message: message.length > RECOVERED_ERROR_MESSAGE_MAX_CHARS
+            ? `${message.slice(0, 299)}…`
+            : message,
+    };
+}
+
 export async function runPreSendCompactPass(state) {
     const {
         provider, messages, model, requestTools, sessionRef, sessionId, cwd, opts, signal,
@@ -47,21 +66,6 @@ export async function runPreSendCompactPass(state) {
             // a best-effort JSON.stringify length — close enough to the
             // payload we hand the provider for prefix-cache analysis.
             const beforeCount = messages.length;
-            // beforeBytes is only ever read inside the shouldCompact telemetry
-            // branches below. Computing it eagerly serialized the ENTIRE message
-            // array (Buffer.byteLength(JSON.stringify(messages))) on every loop
-            // iteration — including the common no-compact path — which grows
-            // linearly with transcript size and was a real per-iteration drag.
-            // Defer it to a memoized lazy getter so the no-compact path pays
-            // nothing and the compact path still gets an exact byte count once.
-            let _beforeBytes;
-            let _beforeBytesComputed = false;
-            const getBeforeBytes = () => {
-                if (_beforeBytesComputed) return _beforeBytes;
-                _beforeBytesComputed = true;
-                try { _beforeBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { _beforeBytes = null; }
-                return _beforeBytes;
-            };
             const messageTokensEst = estimateMessagesTokensSafe(messages);
             const reactivePending = reactiveOverflowRetryPending === true;
             const pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, {
@@ -93,6 +97,14 @@ export async function runPreSendCompactPass(state) {
                     pressureTokens,
                 });
             } else {
+                // Snapshot BEFORE mutating the live array below. Keeping this
+                // inside the compact branch preserves the no-compact fast path
+                // while ensuring compact_meta reports real savings and the true
+                // input prefix rather than the replacement transcript.
+                let beforeBytes = null;
+                let beforePrefixHash = null;
+                try { beforeBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { /* best-effort telemetry */ }
+                try { beforePrefixHash = messagePrefixHash(messages); } catch { /* best-effort telemetry */ }
                 try { await opts.onStageChange?.('compacting'); } catch { /* best-effort */ }
                 const compactStartedAt = Date.now();
                 // Clear the one-shot reactive-overflow flag now that this
@@ -125,6 +137,7 @@ export async function runPreSendCompactPass(state) {
                 let semanticCompactError = null;
                 let recallFastTrackResult = null;
                 let recallFastTrackError = null;
+                let recoveredError = null;
                 try {
                     let compactInputMessages = messages;
                     if (compactPolicy.prune) {
@@ -259,6 +272,7 @@ export async function runPreSendCompactPass(state) {
                         } catch { /* fall through to overflow escalation */ }
                     }
                     if (compacted !== undefined) {
+                        recoveredError = compactRecoveredError(compactErr);
                         try {
                             process.stderr.write(
                                 `[loop] compact fallback prune recovered (sess=${sessionId || 'unknown'}): ` +
@@ -317,11 +331,11 @@ export async function runPreSendCompactPass(state) {
                         compact_type: compactPolicy.compactType || compactPolicy.type || DEFAULT_COMPACT_TYPE,
                         prune_count: pruneCount,
                         compact_changed: false,
-                        input_prefix_hash: messagePrefixHash(messages),
+                        input_prefix_hash: beforePrefixHash,
                         before_count: beforeCount,
                         after_count: messages.length,
-                        before_bytes: getBeforeBytes(),
-                        after_bytes: getBeforeBytes(),
+                        before_bytes: beforeBytes,
+                        after_bytes: beforeBytes,
                         context_window: compactPolicy.contextWindow,
                         budget_tokens: compactPolicy.boundaryTokens,
                         boundary_tokens: compactPolicy.boundaryTokens,
@@ -448,10 +462,10 @@ export async function runPreSendCompactPass(state) {
                     compact_type: compactPolicy.compactType || compactPolicy.type || DEFAULT_COMPACT_TYPE,
                     prune_count: pruneCount,
                     compact_changed: compactChanged || summaryChanged,
-                    input_prefix_hash: messagePrefixHash(messages),
+                    input_prefix_hash: beforePrefixHash,
                     before_count: beforeCount,
                     after_count: messages.length,
-                    before_bytes: getBeforeBytes(),
+                    before_bytes: beforeBytes,
                     after_bytes: afterBytes,
                     context_window: compactPolicy.contextWindow,
                     budget_tokens: compactPolicy.boundaryTokens,
@@ -464,9 +478,11 @@ export async function runPreSendCompactPass(state) {
                     duration_ms: compactDurationMs,
                     provider: sessionRef.provider,
                     model: sessionRef.model || model,
+                    recovered_error: recoveredError,
                     details: {
                         semantic: semanticCompactResult?.diagnostics || null,
                         recallFastTrack: recallFastTrackResult?.diagnostics || null,
+                        recovered_error_code: recoveredError?.code ?? null,
                     },
                 });
                 emitCompactEvent(opts, {

@@ -166,6 +166,7 @@ export function createSessionTurnApi(deps) {
           getCurrentCwd(),
           options.prefetch || null,
           {
+            transcriptMeta: options.transcriptMeta,
             onTextDelta: options.onTextDelta,
             onTextReset: options.onTextReset,
             onReasoningDelta: options.onReasoningDelta,

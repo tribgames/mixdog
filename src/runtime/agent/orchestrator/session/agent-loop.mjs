@@ -144,6 +144,15 @@ const MAX_OUTPUT_EXHAUSTED_NOTICE = '[mixdog-runtime] Output remained truncated 
 // was not done — re-prompt instead of accepting empty as final.
 // Covers Anthropic (pause_turn, max_tokens), OpenAI (length), Gemini
 // (MAX_TOKENS, OTHER), and case variants.
+export function attachAssistantTranscriptMetadata(message, opts = {}) {
+    const transcript = typeof opts.takeAssistantTranscriptMetadata === 'function'
+        ? opts.takeAssistantTranscriptMetadata()
+        : null;
+    if (!transcript) return message;
+    const meta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
+    return { ...message, meta: { ...meta, transcript } };
+}
+
 export async function agentLoop(provider, messages, model, tools, onToolCall, cwd, sendOpts) {
     let iterations = 0;
     let toolCallsTotal = 0;
@@ -253,7 +262,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ? resp.providerMetadata
             : null;
         if (!content && !reasoningContent && !reasoningItems && !thinkingBlocks) return false;
-        const message = {
+        const message = attachAssistantTranscriptMetadata({
             role: 'assistant',
             content,
             // Anthropic adaptive-thinking signatures must be replayed verbatim
@@ -262,7 +271,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ...(reasoningItems ? { reasoningItems } : {}),
             ...(reasoningContent ? { reasoningContent } : {}),
             ...(providerMetadata ? { providerMetadata } : {}),
-        };
+        }, opts);
         messages.push(message);
         try { opts.onAssistantMessageCommitted?.(message); } catch {}
         return true;
@@ -781,7 +790,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // openai-oauth.convertMessagesToResponsesInput emits matching
         // type:'reasoning' input items on the next turn to keep the openai-oauth
         // server-side cache prefix stable.
-        const _assistantTurnMsg = {
+        const _assistantTurnMsg = attachAssistantTranscriptMetadata({
             role: 'assistant',
             // Sub-agent tool-call turns carry only mid-turn preamble in
             // response.content (the real result rides the later final-answer
@@ -805,7 +814,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ...(response.providerMetadata && typeof response.providerMetadata === 'object'
                 ? { providerMetadata: response.providerMetadata }
                 : {}),
-        };
+        }, opts);
         messages.push(_assistantTurnMsg);
         try { opts.onAssistantMessageCommitted?.(_assistantTurnMsg); } catch {}
         // Hard-cap final turn: tools are disabled but the model still emitted

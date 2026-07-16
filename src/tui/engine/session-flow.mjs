@@ -357,15 +357,22 @@ export function createSessionFlow(bag) {
     const minContextPercent = Number(cfg.minContextPercent ?? 10);
     if (minContextPercent > 0) {
       const status = runtime.contextStatus?.() || null;
-      const estimatedTokens = Math.max(0, Number(status?.currentEstimatedTokens ?? status?.usedTokens ?? 0));
-      const usedTokens = Math.max(0, Number(status?.usedTokens ?? estimatedTokens ?? 0));
+      // A zero is often an unavailable/stale meter field, not an authoritative
+      // measurement. Do not let it mask the sibling live estimate.
+      const usedTokens = Math.max(
+        0,
+        Number(status?.usedTokens) || 0,
+        Number(status?.currentEstimatedTokens) || 0,
+        Number(status?.compaction?.currentEstimatedTokens) || 0,
+      );
       const triggerTokens = Number(
         status?.compaction?.triggerTokens
         || status?.compaction?.autoCompactTokenLimit
         || runtime.session?.autoCompactTokenLimit
         || 0,
       );
-      if (!(usedTokens > 0 && triggerTokens > 0)) {
+      if (!Number.isFinite(usedTokens) || !Number.isFinite(triggerTokens)
+        || !(usedTokens > 0 && triggerTokens > 0)) {
         if (!activityAt) flags.lastUserActivityAt = now;
         return false;
       }

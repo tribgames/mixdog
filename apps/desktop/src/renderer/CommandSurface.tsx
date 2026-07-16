@@ -342,10 +342,12 @@ function messageProjection(item: Row) {
 }
 
 function percentageBreakdown(segments: Array<{ key: string; label: string; tokens: number }>, total: number) {
+  if (!(total > 0)) return [];
   const rows = segments.filter((segment) => segment.tokens > 0).map((segment, index) => {
     const exact = total > 0 ? (segment.tokens / total) * 100 : 0;
     return { ...segment, exact, percent: Math.floor(exact), index };
   });
+  if (!rows.length) return [];
   let remaining = Math.max(0, 100 - rows.reduce((sum, segment) => sum + segment.percent, 0));
   const remainderOrder = [...rows].sort((a, b) =>
     (b.exact - b.percent) - (a.exact - a.percent) || a.index - b.index);

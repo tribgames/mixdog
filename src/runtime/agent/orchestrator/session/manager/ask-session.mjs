@@ -59,6 +59,19 @@ import { _getAgentLoop } from './runtime-loaders.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
 import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
 
+export function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.now()) {
+    if (!value || typeof value !== 'object') return null;
+    const candidateAt = Number(value.assistantAt);
+    const assistantAt = Number.isFinite(candidateAt) && candidateAt > 0 ? candidateAt : fallbackAt;
+    value.assistantAt = assistantAt;
+    return {
+        at: assistantAt,
+        ...(typeof value.model === 'string' && value.model ? { model: value.model } : {}),
+        ...(typeof value.provider === 'string' && value.provider ? { provider: value.provider } : {}),
+        ...(typeof value.agent === 'string' && value.agent ? { agent: value.agent } : {}),
+    };
+}
+
 /**
  * Wrap an async call so that if the session's controller aborts mid-flight,
  * the wrapper settles with a SessionClosedError even if the underlying promise
@@ -102,6 +115,20 @@ export async function _api_call_with_interrupt(sessionId, fn) {
 
 export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch, askOpts = {}) {
     const _askStartedAt = Date.now();
+    const _rawTranscriptMeta = askOpts?.transcriptMeta;
+    const _transcriptMeta = _rawTranscriptMeta && typeof _rawTranscriptMeta === 'object'
+        ? {
+            ...(Number.isFinite(Number(_rawTranscriptMeta.at)) ? { at: Number(_rawTranscriptMeta.at) } : {}),
+            ...(typeof _rawTranscriptMeta.model === 'string' && _rawTranscriptMeta.model ? { model: _rawTranscriptMeta.model } : {}),
+            ...(typeof _rawTranscriptMeta.provider === 'string' && _rawTranscriptMeta.provider ? { provider: _rawTranscriptMeta.provider } : {}),
+            ...(typeof _rawTranscriptMeta.agent === 'string' && _rawTranscriptMeta.agent ? { agent: _rawTranscriptMeta.agent } : {}),
+        }
+        : null;
+    const _takeAssistantTranscriptMetadata = () => {
+        const metadata = persistedAssistantTranscriptMetadata(_rawTranscriptMeta);
+        if (_rawTranscriptMeta && typeof _rawTranscriptMeta === 'object') delete _rawTranscriptMeta.assistantAt;
+        return metadata;
+    };
     const _promptSrc = 'prompt';
     const _prefetchFiles = (explicitPrefetch?.files?.length) || 0;
     const _prefetchCallers = (explicitPrefetch?.callers?.length) || 0;
@@ -299,7 +326,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 session.sessionStartMetaInjected = true;
             }
             cancelledUserTurnContent = _userTurnContent;
-            const outgoing = [...historyMessages, { role: 'user', content: _userTurnContent }];
+            const outgoing = [...historyMessages, {
+                role: 'user',
+                content: _userTurnContent,
+                ...(_transcriptMeta ? { meta: { transcript: _transcriptMeta } } : {}),
+            }];
             _turnOutgoing = outgoing;
             // Expose the in-flight working transcript so contextStatus() can
             // estimate the LIVE context footprint mid-turn. agentLoop mutates
@@ -403,6 +434,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     onTextReset: _trackTextReset,
                     onReasoningDelta: _trackReasoningDelta,
                     onAssistantText: _trackAssistantText,
+                    takeAssistantTranscriptMetadata: _takeAssistantTranscriptMetadata,
                     onAssistantMessageCommitted: () => _turnInterruption.markAssistantMessageCommitted(),
                     onAssistantToolCallObserved: (call, detail) => _turnInterruption.recordToolCalls([call], detail),
                     onProviderSendStarted: () => _turnInterruption.markProviderSendStarted(),
@@ -503,6 +535,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // Turn committed into session.messages; drop the live-turn alias so
             // contextStatus() reverts to the authoritative committed transcript.
             session.liveTurnMessages = null;
+            const _assistantTranscriptMeta = persistedAssistantTranscriptMetadata(_rawTranscriptMeta);
             if (result.content || result.reasoningContent) {
                 // Max-output recovery returns the complete concatenated text to
                 // callers/TUI, while outgoing already contains prior partial
@@ -518,6 +551,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     // if any, are swapped for a placeholder only at disk write
                     // time inside the session store (store.mjs _sessionForDisk).
                     content: persistedAssistantContent,
+                    ...(_assistantTranscriptMeta ? { meta: { transcript: _assistantTranscriptMeta } } : {}),
                     ...(typeof result.reasoningContent === 'string' && result.reasoningContent
                         ? { reasoningContent: result.reasoningContent }
                         : {}),
@@ -553,6 +587,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     role: 'assistant',
                     content: '',
                     emptyFinal: true,
+                    ...(_assistantTranscriptMeta ? { meta: { transcript: _assistantTranscriptMeta } } : {}),
                     stopReason: _emptyStop,
                     iterations: result?.iterations ?? null,
                     toolCallsTotal: result?.toolCallsTotal ?? null,

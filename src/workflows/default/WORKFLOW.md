@@ -15,6 +15,9 @@ approval.
 
 On approval, fan out at maximum width: one agent per independent scope, all
 spawned in one turn; only a scope that depends on another's output waits.
+Split the plan into as many scopes as possible: disjoint file/module sets
+are independent; merge only on a true output dependency. Prefer parallel
+scopes over sequential slices in one agent.
 
 Route by complexity: simple, well-understood implementation goes to Worker;
 complex or investigative implementation goes to Heavy Worker; Lead itself

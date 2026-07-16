@@ -10,7 +10,8 @@
  *   BP_1  system#1  (1h)  — shared tool policy + compact skill manifest
  *   BP_2  system#2  (1h)  — role/system rules (Lead / agent / hidden role)
  *   BP_3  system#3  (1h)  — stable memory/meta marker (sessionMarker system block; tier3)
- *   BP_4  messages  (5m agents/hidden; Lead linked to autoClear — see below) —
+ *   BP_4  messages  (1h public/hidden agents; Lead linked to autoClear,
+ *                    whose Anthropic default is 1h — see below) —
  *         sliding tool_result / prior user-text tail
  *
  * Tool schemas still sit before system in the provider prompt prefix. We do
@@ -19,8 +20,8 @@
  * agent worker tool schemas byte-stable is therefore still load-bearing.
  *
  * Tier 3 gets its own BP because memory/meta context is stable within the
- * session. The sliding messages BP handles tool_result accumulation and
- * per-call task/event data without pinning volatile text into the 1h tier.
+ * session. The sliding 1h messages BP handles tool_result accumulation and
+ * per-call task/event data while isolating volatile text from stable prefix BPs.
  *
  * Non-breakpoint providers:
  *   - OpenAI (public): prompt_cache_key + prompt_cache_retention=24h
@@ -73,18 +74,18 @@ function isOneShotMaintenanceAgent(agent) {
  * BP1~3 stay at 1h: the system/role/tier3 prefix is shared across sessions
  * (pool-stable), so the 2x write premium is amortized cross-session and the
  * warm window survives per-session gaps. The volatile message tail (BP4) is
- * per-session and trace data (2026-06) shows request gaps are p99 ≈ 4.5min —
- * 5m+ gaps mean a cold tail anyway, and the smart-compact path rebuilds the
- * history at that boundary. So hidden-agent and public-agent sessions keep
- * the cheaper 5m tail TTL (1.25x write vs 2x), aligned with the 5m
- * terminal-reap window for agents.
+ * per-session, but the 2026-07-16 6.8h trace supports a 1h tail: 24/25 Lead
+ * intra-session gaps over 5m were agent waits (5–27m), during which autoClear
+ * correctly cannot fire; 32.7% of agent intra-session gaps exceeded 5m due to
+ * long tool executions, with sessions surviving through reviewer fix-loop
+ * reuse; and no gap over 1h was observed. Tail-cost simulation (input-token
+ * equivalents) is Lead 1h=11.75M vs 5m=20.11M and agents 1h=14.46M vs
+ * 5m=45.04M: misses that rewrite the accumulated tail dominate the 2x-vs-1.25x
+ * write premium. Hidden and public-agent sessions therefore use a 1h tail.
  *
- * Lead sessions are linked to the user's autoClear idle-sweep config
- * instead of the fixed 5m default (see resolveLeadMessagesTtl): a Lead
- * session that autoClear will only reap after a long/never idle window
- * benefits from the 1h tail TTL (fewer writes over a long-lived session),
- * while a short idle-sweep window means the tail is going cold anyway and
- * 5m is cheaper to write.
+ * Lead sessions are linked to the user's autoClear idle-sweep config (see
+ * resolveLeadMessagesTtl); its Anthropic default is 1h, while explicit
+ * shorter overrides retain the shorter-sweep behavior.
  * (Tail TTL only affects explicit-breakpoint providers — Anthropic; no-op
  * elsewhere.)
  *
@@ -120,12 +121,12 @@ export function resolveCacheStrategy(agent, { autoClear } = {}) {
         return { tools: 'none', system: 'none', tier3: 'none', messages: 'none' };
     }
     if (getHiddenAgent(agent)) {
-        return { tools: 'none', system: '1h', tier3: '1h', messages: '5m' };
+        return { tools: 'none', system: '1h', tier3: '1h', messages: '1h' };
     }
     if (agent && agent !== 'lead') {
-        // Public (non-hidden, non-lead) agents keep the flat 5m tail — only
+        // Public (non-hidden, non-lead) agents keep the flat 1h tail — only
         // the Lead session's tail is linked to autoClear.
-        return { tools: 'none', system: '1h', tier3: '1h', messages: '5m' };
+        return { tools: 'none', system: '1h', tier3: '1h', messages: '1h' };
     }
     // Lead session (agent === 'lead', or no agent — raw/CLI callers default
     // to Lead behavior): message tail TTL is linked to autoClear (see

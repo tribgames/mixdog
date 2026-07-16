@@ -1,5 +1,5 @@
-import sliceAnsi from 'slice-ansi';
 import { styledCharsFromTokens, styledCharsToString, tokenize, } from '@alcalzone/ansi-tokenize';
+import { sliceTextByDisplayWidth } from './wrap-text.js';
 // [mixdog fork] use the shared display-width policy so ink's per-character
 // advance + width cache treat circled digits / arrows as 2 cells under Windows
 // Terminal, matching OUR wrap/row math. See display-width.js (kept in sync with
@@ -191,7 +191,12 @@ export default class Output {
                             const from = x < clip.x1 ? clip.x1 - x : 0;
                             const width = this.caches.getStringWidth(line);
                             const to = x + width > clip.x2 ? clip.x2 - x : width;
-                            return sliceAnsi(line, from, to);
+                            // [mixdog fork] `from`/`to` are display-cell offsets.
+                            // Plain slice-ansi treats enclosed alphanumerics as
+                            // one cell and lets clipped transcript body text
+                            // overwrite cells to its right. Slice with the same
+                            // wide-glyph policy used by wrap/measure/output.
+                            return sliceTextByDisplayWidth(line, from, to);
                         });
                         if (x < clip.x1) {
                             x = clip.x1;

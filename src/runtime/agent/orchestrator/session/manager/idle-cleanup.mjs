@@ -7,11 +7,9 @@ import { sweepOrphanedPendingMessages } from './pending-messages.mjs';
 import {
     _getRuntimeEntry,
     _clearSessionRuntime,
-    _runtimeEntries,
     _sweepTerminalSessionRuntimes,
 } from './runtime-liveness.mjs';
 import { _closeBashSessionLazy } from './runtime-loaders.mjs';
-import { closeSession } from './session-close.mjs';
 import { nonNegativeIntEnv } from './env-utils.mjs';
 
 // --- Periodic idle session cleanup ---
@@ -41,6 +39,25 @@ function _previewIds(items, limit = 5) {
     return ` (${ids.join(', ')}${more})`;
 }
 
+const IN_FLIGHT_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling']);
+
+export function _finalizeSweptSessionRuntime(detail) {
+    if (!detail?.id) return false;
+    const rtEntry = _getRuntimeEntry(detail.id);
+    // The store scan and this runtime cleanup are not atomic. If the session
+    // became active after the scan, leave its controller and runtime untouched;
+    // a later idle cycle can reconsider it after the work settles.
+    if (rtEntry && (
+        (rtEntry.controller && !rtEntry.controller.signal?.aborted)
+        || IN_FLIGHT_STAGES.has(rtEntry.stage)
+    )) return false;
+    _clearSessionRuntime(detail.id);
+    if (detail.bashSessionId) {
+        try { _closeBashSessionLazy(detail.bashSessionId, `idle-sweep:${detail.id}`); } catch { /* ignore */ }
+    }
+    return true;
+}
+
 function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } = {}) {
     const startedAt = Date.now();
     try {
@@ -59,18 +76,7 @@ function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } = {}) 
         } = result;
         if (cleaned > 0) {
             for (const d of details) {
-                // Skip entries with an active in-flight controller — aborting
-                // them via closeSession() is the safe path; clearing the runtime
-                // without signalling the controller leaves orphan provider work.
-                const rtEntry = _getRuntimeEntry(d.id);
-                if (rtEntry && rtEntry.controller && !rtEntry.controller.signal?.aborted) {
-                    try { closeSession(d.id, 'idle-sweep'); } catch { /* ignore */ }
-                } else {
-                    _clearSessionRuntime(d.id);
-                    if (d.bashSessionId) {
-                        try { _closeBashSessionLazy(d.bashSessionId, `idle-sweep:${d.id}`); } catch { /* ignore */ }
-                    }
-                }
+                if (!_finalizeSweptSessionRuntime(d)) continue;
                 process.stderr.write(`[agent-session] idle cleanup: closed ${d.id} (idle ${d.idleMinutes}m, owner=${d.owner})\n`);
             }
             process.stderr.write(`[agent-session] idle sweep: cleaned ${cleaned} session(s), ${remaining} remaining\n`);
@@ -130,26 +136,10 @@ export function sweepTombstones() {
     }
 }
 
-function hasActiveRuntimeWork() {
-    for (const [, entry] of _runtimeEntries()) {
-        if (!entry || entry.closed === true) continue;
-        if (entry.controller && !entry.controller.signal?.aborted) return true;
-        if (['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling'].includes(entry.stage)) return true;
-    }
-    return false;
-}
-
-function _runCleanupCycle() {
+export function _runCleanupCycle() {
     // Drain every settled runtime entry on each pass, not just the one or two
     // sessions whose on-disk idle TTL happened to expire in this interval.
     _sweepTerminalSessionRuntimes();
-    // A busy host may always have some unrelated agent in flight. Tombstones
-    // are already closed and can still be batch-reclaimed safely; only the
-    // open-session idle sweep remains gated while active work exists.
-    if (hasActiveRuntimeWork()) {
-        sweepIdleSessions({ includeTombstones: true, sweepIdle: false });
-        return;
-    }
     sweepOrphanedPendingMessages();
     sweepIdleSessions({ includeTombstones: true });
 }

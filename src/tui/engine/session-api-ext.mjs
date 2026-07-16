@@ -8,6 +8,17 @@ import { parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 
+export function restoredTranscriptMetadata(message) {
+  const value = message?.meta?.transcript;
+  if (!value || typeof value !== 'object') return {};
+  return {
+    ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
+    ...(typeof value.model === 'string' && value.model ? { model: value.model } : {}),
+    ...(typeof value.provider === 'string' && value.provider ? { provider: value.provider } : {}),
+    ...(typeof value.agent === 'string' && value.agent ? { agent: value.agent } : {}),
+  };
+}
+
 export function createEngineApiB(bag) {
   const {
     runtime, nextId, flags, lifecycle, listeners, getState, set, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
@@ -482,12 +493,12 @@ export function createEngineApiB(bag) {
                   completedAt: Date.now(),
                 });
               } else {
-                items.push({ kind: 'user', id: nextId(), text });
+                items.push({ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(m) });
               }
             }
           } else if (m.role === 'assistant') {
             const text = (typeof m.content === 'string' ? m.content : toolResultText(m.content)).trim();
-            if (text) items.push({ kind: 'assistant', id: nextId(), text });
+            if (text) items.push({ kind: 'assistant', id: nextId(), text, ...restoredTranscriptMetadata(m) });
           }
         }
         set({

@@ -10,6 +10,10 @@ import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
 function makeEngine({
   autoClearBeforeSubmit,
   autoClearEnabled = false,
+  autoClearConfig = null,
+  sessionLastUsedAt = Date.now() - 1000,
+  contextStatus = null,
+  compactionSettings = {},
   runtimeClear = async () => true,
 } = {}) {
   let seq = 0;
@@ -29,9 +33,10 @@ function makeEngine({
       session: {
         id: 'session_1',
         messages: [{ role: 'user', content: 'existing prompt' }],
-        lastUsedAt: Date.now() - 1000,
+        lastUsedAt: sessionLastUsedAt,
       },
-      getCompactionSettings: () => ({}),
+      getCompactionSettings: () => compactionSettings,
+      contextStatus: () => contextStatus,
       clear: runtimeClear,
       consumePendingSessionReset: () => null,
       ask: async (text) => {
@@ -47,6 +52,7 @@ function makeEngine({
     listeners: new Set(),
     pendingNotificationKeys: new Set(),
     displayedExecutionNotificationKeys: new Set(),
+    clearToastTimers: () => {},
     getState: () => state,
     set: (patch) => {
       if (!patch || typeof patch !== 'object') return false;
@@ -65,7 +71,7 @@ function makeEngine({
       executed.push(text);
       state = { ...state, items: [...state.items, { kind: 'user', id, text }] };
     },
-    autoClearState: () => ({ enabled: autoClearEnabled, idleMs: 0, minContextPercent: 0 }),
+    autoClearState: () => autoClearConfig || ({ enabled: autoClearEnabled, idleMs: 0, minContextPercent: 0 }),
     agentStatusState: () => ({}),
     routeState: () => ({}),
     syncContextStats: () => {},
@@ -162,6 +168,51 @@ test('runtime clear false skips auto-clear and sends the first post-failure prom
   assert.equal(getState().items.some((item) => item.label === 'Auto-clear complete'), false);
   assert.equal(getState().items.some((item) => item.id === 'existing'), true, 'failed clear preserves the existing session UI');
   assert.equal(bag.runtime.session.messages[0].content, 'existing prompt', 'failed clear preserves the runtime session');
+});
+
+test('idle submit compacts when a zero usedTokens field has a live estimate above the context gate', async () => {
+  const clearCalls = [];
+  const { api, getState } = makeEngine({
+    autoClearConfig: { enabled: true, idleMs: 60_000, minContextPercent: 10 },
+    sessionLastUsedAt: Date.now() - 120_000,
+    contextStatus: {
+      usedTokens: 0,
+      currentEstimatedTokens: 20,
+      compaction: { triggerTokens: 100 },
+    },
+    compactionSettings: { compactType: 'summary' },
+    runtimeClear: async (options) => {
+      clearCalls.push(options);
+      return true;
+    },
+  });
+
+  assert.equal(api.submit('after real idle'), true);
+  await tick(); await tick(); await tick();
+  assert.deepEqual(clearCalls, [{ compactType: 'summary', requireCompactSuccess: true }]);
+  assert.equal(getState().items.some((item) => item.label === 'Auto-clear complete'), true);
+});
+
+test('idle submit skips auto-clear when context gate operands are non-finite', async () => {
+  for (const contextStatus of [
+    { usedTokens: Infinity, compaction: { triggerTokens: 100 } },
+    { usedTokens: 20, compaction: { triggerTokens: Infinity } },
+  ]) {
+    const clearCalls = [];
+    const { api } = makeEngine({
+      autoClearConfig: { enabled: true, idleMs: 60_000, minContextPercent: 10 },
+      sessionLastUsedAt: Date.now() - 120_000,
+      contextStatus,
+      compactionSettings: { compactType: 'summary' },
+      runtimeClear: async (options) => {
+        clearCalls.push(options);
+        return true;
+      },
+    });
+    assert.equal(api.submit('after real idle'), true);
+    await tick(); await tick();
+    assert.deepEqual(clearCalls, []);
+  }
 });
 
 test('late runtime clear false keeps the UI skipped and sends the first post-timeout prompt', async () => {

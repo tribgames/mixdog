@@ -12,7 +12,7 @@ import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, ass
 
 export function createRunTurn(bag) {
   const {
-    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, flushEmit, flushEmitImmediate, pushItem, appendItems, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
+    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, flushEmit, flushEmitImmediate, pushItem, appendItems, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, transcriptRouteMetadata, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
   } = bag;
   // Small fallbacks keep isolated createRunTurn harnesses source-compatible;
   // the real engine supplies atomic implementations that also maintain revision.
@@ -35,6 +35,11 @@ export function createRunTurn(bag) {
     async function runTurn(userText, options = {}) {
     const turnIndex = getState().stats.turns || 0;
     const startedAt = Date.now();
+    const turnTranscriptMeta = flags.pendingTranscriptMeta
+      || transcriptRouteMetadata?.(startedAt)
+      || { at: startedAt };
+    flags.pendingTranscriptMeta = null;
+    const { at: _userItemAt, ...turnRouteMeta } = turnTranscriptMeta;
     // Per-turn epoch. Force-release (watchdog grace) bumps the shared counter so
     // this turn's own eventual `finally` — which may run LONG after force-release
     // already started a new turn that reuses the per-session mutex — can detect
@@ -518,6 +523,11 @@ export function createRunTurn(bag) {
     const ensureAssistant = (initialText = '') => {
       if (!currentAssistantId) {
         currentAssistantId = nextId();
+        const assistantAt = Number.isFinite(Number(turnTranscriptMeta.assistantAt))
+          && Number(turnTranscriptMeta.assistantAt) > 0
+          ? Number(turnTranscriptMeta.assistantAt)
+          : Date.now();
+        turnTranscriptMeta.assistantAt = assistantAt;
         // Do NOT reset currentAssistantText here. The first onTextDelta has
         // already accumulated the opening chunk before this batched flush runs;
         // wiping it dropped the leading characters and forced a later set() to
@@ -525,7 +535,7 @@ export function createRunTurn(bag) {
         // Seed the new row with the already-visible text so the ● gutter and the
         // first body line appear in the SAME set()/emit() — no empty "●-only"
         // row that scrolls once on its own and again when the body lands.
-        updateStreamingTail(currentAssistantId, { text: String(initialText || '') });
+        updateStreamingTail(currentAssistantId, { text: String(initialText || ''), at: assistantAt, ...turnRouteMeta });
       }
       return currentAssistantId;
     };
@@ -661,7 +671,15 @@ export function createRunTurn(bag) {
           const id = ensureAssistant(streamingVisibleText);
           const current = getState().streamingTail;
           if (!current || current.id !== id || !Object.is(current.text, streamingVisibleText)) {
-            patch.streamingTail = { kind: 'assistant', id, text: streamingVisibleText, streaming: true };
+            patch.streamingTail = {
+              ...(current || {}),
+              kind: 'assistant',
+              id,
+              text: streamingVisibleText,
+              streaming: true,
+              at: current?.at || Date.now(),
+              ...turnRouteMeta,
+            };
           }
         }
         // Only touch the spinner when there is a real reason: a visible-line
@@ -799,6 +817,7 @@ export function createRunTurn(bag) {
 
     try {
       const { result, session } = await runtime.ask(userText, {
+        transcriptMeta: turnTranscriptMeta,
         drainSteering: (_sessionId, drainOptions) => (isCurrentTurn() ? drainPendingSteering(drainOptions) : []),
         onStreamDelta: () => {
           markTurnProgress('stream-delta');
@@ -1096,10 +1115,13 @@ export function createRunTurn(bag) {
             if (currentAssistantText) {
               set({
                 streamingTail: {
+                  ...(getState().streamingTail || {}),
                   kind: 'assistant',
                   id: currentAssistantId,
                   text: currentAssistantText,
                   streaming: true,
+                  at: getState().streamingTail?.at || Date.now(),
+                  ...turnRouteMeta,
                 },
               });
             } else {
@@ -1314,7 +1336,7 @@ export function createRunTurn(bag) {
         // in scrollback. (Previously TurnDone rendered only in the
         // bottom-fixed live-status slot and vanished on the next turn.)
         if (!reclaimed && !isNoOpTurn) {
-          closingItems.push({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex) });
+          closingItems.push({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex), at: Date.now(), ...turnRouteMeta });
         }
         // Deferred cards + turndone + status all land in ONE set() (one commit).
         appendItemsBatch(closingItems, {

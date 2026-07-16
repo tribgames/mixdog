@@ -36,6 +36,7 @@ function queuedProvider(responses, streamed = []) {
 async function run(provider, messages = [{ role: 'user', content: 'answer fully' }], options = {}) {
     return agentLoop(provider, messages, 'fake-model', [], options.onToolCall, process.cwd(), {
         onTextDelta: options.onTextDelta,
+        takeAssistantTranscriptMetadata: options.takeAssistantTranscriptMetadata,
         session: options.session,
         providerState: options.providerState,
     });
@@ -56,8 +57,17 @@ test('one max-output continuation resumes from preserved partial and returns one
         { content: 'omega', stopReason: 'end_turn' },
     ], streamed);
     const messages = [{ role: 'user', content: 'answer fully' }];
+    const recoveryTranscriptMeta = {
+        at: 1_735_689_600_000,
+        model: 'Fake Model',
+        provider: 'fake-provider',
+        agent: 'Test Workflow',
+    };
 
-    const result = await run(provider, messages, { onTextDelta: () => {} });
+    const result = await run(provider, messages, {
+        onTextDelta: () => {},
+        takeAssistantTranscriptMetadata: () => recoveryTranscriptMeta,
+    });
 
     assert.equal(provider.sent.length, 2);
     assert.equal(result.content, 'alpha omega');
@@ -67,6 +77,7 @@ test('one max-output continuation resumes from preserved partial and returns one
     assert.equal(result.terminationReason, undefined);
     assert.deepEqual(provider.sent[1].map((message) => message.role), ['user', 'assistant', 'user']);
     assert.equal(provider.sent[1][1].content, 'alpha ');
+    assert.deepEqual(provider.sent[1][1].meta?.transcript, recoveryTranscriptMeta);
     assert.match(provider.sent[1][2].content, /Resume directly/);
     assert.match(provider.sent[1][2].content, /no apology, no recap/i);
     assert.equal(persistedAssistantText(messages, result), result.content);
