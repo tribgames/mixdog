@@ -1,5 +1,6 @@
 import { freemem, totalmem } from 'node:os';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { requestMemoryPressureSnapshot } from './memory-snapshot.mjs';
 
 const MB = 1024 * 1024;
 
@@ -100,16 +101,20 @@ export class ResourceAdmissionController {
     const rssMb = Number(sample.rssBytes) / MB;
     const freeMb = Number(sample.freeMemoryBytes) / MB;
     if (this.limits.maxRssMb > 0 && Number.isFinite(rssMb) && rssMb >= this.limits.maxRssMb) {
-      return new ResourcePressureError(
+      const error = new ResourcePressureError(
         `Mixdog RSS ${Math.ceil(rssMb)} MB reached ${this.limits.maxRssMb} MB limit; retry after memory recovers`,
         { kind, rssMb, limitMb: this.limits.maxRssMb, metric: 'rss' },
       );
+      requestMemoryPressureSnapshot(error.message);
+      return error;
     }
     if (this.limits.minFreeMemoryMb > 0 && Number.isFinite(freeMb) && freeMb < this.limits.minFreeMemoryMb) {
-      return new ResourcePressureError(
+      const error = new ResourcePressureError(
         `host free memory ${Math.floor(freeMb)} MB is below ${this.limits.minFreeMemoryMb} MB minimum; retry after memory recovers`,
         { kind, freeMb, limitMb: this.limits.minFreeMemoryMb, metric: 'free-memory' },
       );
+      requestMemoryPressureSnapshot(error.message);
+      return error;
     }
     return null;
   }
