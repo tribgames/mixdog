@@ -1180,6 +1180,15 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 }
             }
             if (diskClosed) {
+                // A shared store can be tombstoned by another process while
+                // this process still owns an in-flight controller for the same
+                // id. Exclude it before unlinking: clearing only the local
+                // runtime after deletion is too late because its eventual save
+                // would see no tombstone and could resurrect the session.
+                if (isSessionLive && isSessionLive(row.id)) {
+                    remaining++;
+                    continue;
+                }
                 // Closed sessions are EXEMPT from the freshness gate: a tombstone
                 // whose file/hb mtime keeps getting bumped would otherwise stay
                 // perpetually "fresh" and never mature. Maturity is governed ONLY

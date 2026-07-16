@@ -4,7 +4,12 @@
 // from session-close.mjs (one-way dependency, no cycle).
 import { sweepStaleSessions } from '../store.mjs';
 import { sweepOrphanedPendingMessages } from './pending-messages.mjs';
-import { _getRuntimeEntry, _clearSessionRuntime, _runtimeEntries } from './runtime-liveness.mjs';
+import {
+    _getRuntimeEntry,
+    _clearSessionRuntime,
+    _runtimeEntries,
+    _sweepTerminalSessionRuntimes,
+} from './runtime-liveness.mjs';
 import { _closeBashSessionLazy } from './runtime-loaders.mjs';
 import { closeSession } from './session-close.mjs';
 import { nonNegativeIntEnv } from './env-utils.mjs';
@@ -36,10 +41,11 @@ function _previewIds(items, limit = 5) {
     return ` (${ids.join(', ')}${more})`;
 }
 
-function sweepIdleSessions({ includeTombstones = true } = {}) {
+function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } = {}) {
     const startedAt = Date.now();
     try {
         const result = sweepStaleSessions({
+            sweepIdle,
             tombstoneMaxAgeMs: includeTombstones ? TOMBSTONE_MAX_AGE_MS : 0,
             isSessionLive: _isSessionLive,
         });
@@ -71,7 +77,7 @@ function sweepIdleSessions({ includeTombstones = true } = {}) {
         }
         if (tombstonesCleaned > 0) {
             for (const d of tombstoneDetails) {
-                if (d?.id) _clearSessionRuntime(d.id);
+                if (d?.id && !_isSessionLive(d.id)) _clearSessionRuntime(d.id);
             }
             process.stderr.write(`[session-sweep] unlinked ${tombstonesCleaned} tombstone(s)${_previewIds(tombstoneDetails)}\n`);
         }
@@ -105,9 +111,10 @@ export function sweepTombstones() {
         const { tombstonesCleaned = 0, tombstoneDetails = [], tombstoneErrors = [] } = sweepStaleSessions({
             sweepIdle: false,
             tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS,
+            isSessionLive: _isSessionLive,
         });
         for (const d of tombstoneDetails) {
-            if (d?.id) _clearSessionRuntime(d.id);
+            if (d?.id && !_isSessionLive(d.id)) _clearSessionRuntime(d.id);
         }
         if (tombstonesCleaned > 0) {
             process.stderr.write(`[session-sweep] unlinked ${tombstonesCleaned} tombstone(s)${_previewIds(tombstoneDetails)}\n`);
@@ -133,7 +140,16 @@ function hasActiveRuntimeWork() {
 }
 
 function _runCleanupCycle() {
-    if (hasActiveRuntimeWork()) return;
+    // Drain every settled runtime entry on each pass, not just the one or two
+    // sessions whose on-disk idle TTL happened to expire in this interval.
+    _sweepTerminalSessionRuntimes();
+    // A busy host may always have some unrelated agent in flight. Tombstones
+    // are already closed and can still be batch-reclaimed safely; only the
+    // open-session idle sweep remains gated while active work exists.
+    if (hasActiveRuntimeWork()) {
+        sweepIdleSessions({ includeTombstones: true, sweepIdle: false });
+        return;
+    }
     sweepOrphanedPendingMessages();
     sweepIdleSessions({ includeTombstones: true });
 }

@@ -6,6 +6,10 @@ import {
   markSessionCancelled,
   markSessionError,
 } from '../src/runtime/agent/orchestrator/session/manager.mjs';
+import {
+  _clearSessionRuntime,
+  _sweepTerminalSessionRuntimes,
+} from '../src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs';
 
 test('markSessionError drops parent AbortSignal listener but keeps runtime entry', () => {
   const sessionId = `parent-abort-error-${Date.now()}`;
@@ -62,5 +66,25 @@ test('markSessionCancelled drops parent AbortSignal listener but keeps runtime e
   runtime.controller.signal.addEventListener('abort', () => { childAborted = true; }, { once: true });
   parent.abort();
   assert.equal(childAborted, false);
+});
+
+test('terminal runtime sweep drains the full backlog but preserves in-flight controllers', () => {
+  const prefix = `terminal-retention-${Date.now()}`;
+  const terminalIds = Array.from({ length: 40 }, (_, i) => `${prefix}-${i}`);
+  for (const id of terminalIds) {
+    linkParentSignalToSession(id, new AbortController().signal);
+    markSessionError(id, 'finished');
+    getSessionRuntime(id).controller = null;
+  }
+  const activeId = `${prefix}-active`;
+  linkParentSignalToSession(activeId, new AbortController().signal);
+  markSessionError(activeId, 'provider still unwinding');
+
+  const cleaned = _sweepTerminalSessionRuntimes();
+
+  assert.ok(cleaned >= terminalIds.length, 'one pass drains every settled terminal entry');
+  for (const id of terminalIds) assert.equal(getSessionRuntime(id), null);
+  assert.ok(getSessionRuntime(activeId)?.controller, 'active in-flight controller is retained');
+  _clearSessionRuntime(activeId);
 });
 

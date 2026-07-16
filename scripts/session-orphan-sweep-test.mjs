@@ -55,13 +55,26 @@ test('mature closed on-disk orphan absent from summary index gets tombstone-swep
         };
         writeFileSync(join(sessionsDir, `${orphan.id}.json`), JSON.stringify(orphan));
 
+        // (3) A shared-store tombstone whose id still has local in-flight work.
+        // It must be excluded before unlink, otherwise that work's late save
+        // could recreate an open session after the tombstone disappears.
+        const locallyLive = {
+            ...orphan,
+            id: 'sess_shared_tombstone_locally_live',
+        };
+        writeFileSync(join(sessionsDir, `${locallyLive.id}.json`), JSON.stringify(locallyLive));
+
         // Index contains ONLY the indexed session — the orphan is absent.
         const rows = _writeSummaryIndex([_sessionSummary(indexed)]);
         assert.equal(rows.length, 1, 'index seeded with exactly one row');
         assert.ok(!rows.some((r) => r.id === orphan.id), 'orphan is absent from the summary index');
 
         // Tombstone-only pass (no idle sweep) with a 1h maturity threshold.
-        const result = sweepStaleSessions({ sweepIdle: false, tombstoneMaxAgeMs: ONE_HOUR });
+        const result = sweepStaleSessions({
+            sweepIdle: false,
+            tombstoneMaxAgeMs: ONE_HOUR,
+            isSessionLive: (id) => id === locallyLive.id,
+        });
 
         assert.equal(result.tombstonesCleaned, 1, 'the orphan tombstone was reclaimed');
         assert.ok(
@@ -75,6 +88,19 @@ test('mature closed on-disk orphan absent from summary index gets tombstone-swep
         assert.ok(
             existsSync(join(sessionsDir, `${indexed.id}.json`)),
             'fresh open indexed session was preserved',
+        );
+        assert.ok(
+            existsSync(join(sessionsDir, `${locallyLive.id}.json`)),
+            'locally live shared-store tombstone was excluded before unlink',
+        );
+        const afterLocalWork = sweepStaleSessions({
+            sweepIdle: false,
+            tombstoneMaxAgeMs: ONE_HOUR,
+            isSessionLive: () => false,
+        });
+        assert.ok(
+            afterLocalWork.tombstoneDetails.some((d) => d.id === locallyLive.id),
+            'protected tombstone is reclaimed once local work settles',
         );
     } finally {
         try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* ignore */ }

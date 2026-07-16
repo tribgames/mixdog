@@ -34,6 +34,7 @@ const _toolActivityHeartbeats = new Map();
 const VALID_STAGES = new Set([
     'connecting', 'requesting', 'streaming', 'tool_running', 'idle', 'error', 'done', 'cancelling',
 ]);
+const TERMINAL_STAGES = new Set(['done', 'error']);
 
 // Injected deps that would otherwise pull manager.mjs's store/provider surface
 // back into this module (circular). Wired once from manager.mjs at load time.
@@ -500,6 +501,29 @@ export function _clearSessionRuntime(id) {
         // nothing else deletes from _metricSeenIter on session close.
         dropMetricSeenState(id);
     }
+}
+
+/**
+ * Evict a settled terminal runtime entry without ever touching an in-flight
+ * controller. askSession calls this after detaching its controller; the
+ * periodic cleanup also uses it to drain any backlog left by older paths.
+ */
+export function _evictTerminalSessionRuntime(id) {
+    if (!id) return false;
+    const entry = _runtimeState.get(id);
+    if (!entry) return false;
+    if (entry.controller && !entry.controller.signal?.aborted) return false;
+    if (entry.closed !== true && !TERMINAL_STAGES.has(entry.stage)) return false;
+    _clearSessionRuntime(id);
+    return true;
+}
+
+export function _sweepTerminalSessionRuntimes() {
+    let cleaned = 0;
+    for (const [id] of _runtimeState) {
+        if (_evictTerminalSessionRuntime(id)) cleaned++;
+    }
+    return cleaned;
 }
 
 // Direct-Map accessors for manager.mjs internals (askSession / closeSession /

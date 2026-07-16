@@ -37,6 +37,7 @@ import {
     _touchRuntime,
     _unlinkParentAbortListener,
     _getRuntimeEntry,
+    _evictTerminalSessionRuntime,
 } from './runtime-liveness.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { acquireSessionLock } from './session-lock.mjs';
@@ -748,6 +749,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // Detach the live session reference; ask is over.
             entry.session = null;
         }
+        // Final-stage runtime diagnostics are useful only while the turn is
+        // unwinding. Once its controller is detached, retaining the full entry
+        // (and any accidental references hanging from it) for the host lifetime
+        // turns one-shot agent traffic into an unbounded manager Map.
+        _evictTerminalSessionRuntime(sessionId);
         unlock();
     }
 }
