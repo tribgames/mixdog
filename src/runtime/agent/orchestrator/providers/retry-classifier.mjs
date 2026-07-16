@@ -371,6 +371,9 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   // already be executing, so retry/fallback could duplicate its side effect.
   if (state.emittedToolCall) return null
   if (state.emittedText || err?.liveTextEmitted) return null
+  if (err?.wsFrameTooLarge || state.wsFrameTooLarge) {
+    return _allowMidstream('ws_frame_too_large', attemptIndex, policy)
+  }
   if (state.firstByteTimeout || err?.firstByteTimeout) {
     return _allowMidstream('first_byte_timeout', attemptIndex, policy)
   }

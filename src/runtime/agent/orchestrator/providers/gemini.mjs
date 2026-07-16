@@ -1,6 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
-import { makeModelCache } from './model-cache.mjs';
 import { withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage, appendAgentTrace } from '../agent-trace.mjs';
 import {
@@ -50,106 +49,25 @@ import {
     _geminiCredentialFingerprint,
     _invalidateGeminiCachesForCredentialFingerprint,
 } from './gemini-cache.mjs';
+import {
+    GEMINI_MODELS as MODELS,
+    DEFAULT_GEMINI_MODEL as DEFAULT_MODEL,
+    geminiModelCache as _modelCache,
+    fetchGeminiModelPages,
+    resolveLatestGeminiModel,
+    ensureLatestGeminiModel,
+    fetchAndCacheGeminiModels,
+} from './lib/gemini-model-catalog.mjs';
 
 // Legacy import path: tests + gemini-stream import these from gemini.mjs.
 // Re-export the extracted symbols so existing importers resolve unchanged.
 export { createGeminiTextLeakGuard };
 export { parseToolCalls, emitGeminiToolCalls, collectGeminiGroundingSources, parseGeminiTextPartMetadata };
-
-const MODELS = [
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', provider: 'gemini', contextWindow: 1048576 },
-    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview', provider: 'gemini', contextWindow: 1048576 },
-    { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', provider: 'gemini', contextWindow: 1048576 },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini', contextWindow: 1048576 },
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini', contextWindow: 1048576 },
-];
-
-const DEFAULT_MODEL = MODELS[0].id;
-
-// --- Model catalog cache (24h disk TTL) ---
-// Gemini's /models has no `created` timestamp, so latest-resolution is
-// VERSION-based (parse gemini-X.Y) rather than release-date based.
-const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
-// Bump when the on-disk cache shape changes so stale-shape entries are
-// discarded instead of misread.
-const GEMINI_MODEL_CACHE_SCHEMA_VERSION = 2;
+export { fetchGeminiModelPages, resolveLatestGeminiModel, ensureLatestGeminiModel };
 
 // De-dupes concurrent force-refreshes so they share one HTTP round-trip,
 // mirroring anthropic-oauth's _modelRefreshInFlight.
 let _modelRefreshInFlight = null;
-
-export async function fetchGeminiModelPages(apiKey, fetchFn = fetch) {
-    const items = [];
-    let pageToken = '';
-    do {
-        const params = new URLSearchParams({ key: apiKey, pageSize: '1000' });
-        if (pageToken) params.set('pageToken', pageToken);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models?${params}`;
-        const res = await fetchFn(url, {
-            signal: AbortSignal.timeout(60_000),
-            dispatcher: getLlmDispatcher(),
-        });
-        if (!res.ok) throw new Error(`gemini list_models ${res.status}`);
-        const data = await res.json();
-        if (Array.isArray(data?.models)) items.push(...data.models);
-        pageToken = typeof data?.nextPageToken === 'string' ? data.nextPageToken : '';
-    } while (pageToken);
-    return items;
-}
-
-const _modelCache = makeModelCache({
-    fileName: 'gemini-models.json',
-    ttlMs: MODEL_CACHE_TTL_MS,
-    version: GEMINI_MODEL_CACHE_SCHEMA_VERSION,
-});
-
-// Mirror of anthropic-oauth.mjs _compareVersion: compare two gemini ids by the
-// X.Y version embedded in the id (gemini-3.5-flash -> [3, 5]). Falls back to a
-// lexicographic tiebreak so ordering is total.
-function _compareVersion(a, b) {
-    const na = (a.match(/gemini-(\d+)(?:\.(\d+))?/) || []).slice(1).map(Number);
-    const nb = (b.match(/gemini-(\d+)(?:\.(\d+))?/) || []).slice(1).map(Number);
-    for (let i = 0; i < Math.max(na.length, nb.length); i++) {
-        if ((na[i] || 0) !== (nb[i] || 0)) return (na[i] || 0) - (nb[i] || 0);
-    }
-    return a.localeCompare(b);
-}
-
-// Per family, mark the highest-version model as latest:true.
-function _markLatestGemini(models) {
-    const byFamily = new Map();
-    for (const m of models) {
-        if (!m?.id) continue;
-        const cur = byFamily.get(m.family);
-        if (!cur || _compareVersion(m.id, cur.id) > 0) {
-            byFamily.set(m.family, m);
-        }
-    }
-    for (const m of byFamily.values()) m.latest = true;
-}
-
-// Newest chat model by VERSION in the 'gemini-flash' family, read from the
-// on-disk catalog cache. Returns null until cached; callers warm via
-// ensureLatestGeminiModel when null.
-export function resolveLatestGeminiModel() {
-    const cached = _modelCache.loadSync();
-    if (!Array.isArray(cached)) return null;
-    let best = null;
-    for (const m of cached) {
-        if (!m?.id || m.family !== 'gemini-flash') continue;
-        if (!best || _compareVersion(m.id, best.id) > 0) best = m;
-    }
-    return best?.id || null;
-}
-
-export async function ensureLatestGeminiModel(provider) {
-    let m = resolveLatestGeminiModel();
-    if (m) return m;
-    await provider._refreshModelCache();
-    m = resolveLatestGeminiModel();
-    if (m) return m;
-    throw new Error('[gemini] model catalog unavailable after warmup — cannot resolve default model');
-}
 
 // --- Cache accounting/trace: extracted to gemini-cache.mjs ---
 // --- Stream consumption/guards: extracted to gemini-stream.mjs ---
@@ -918,45 +836,12 @@ export class GeminiProvider {
     // TTL check) and _refreshModelCache() (bypassing it). Throws on failure so
     // each caller applies its own fallback/logging.
     async _fetchAndCacheModels(apiKey) {
-        const items = await fetchGeminiModelPages(apiKey, this._fetch);
-        // Filter to Gemini family; skip embedding/imagen and non-coding SKUs
-        // (robotics, computer-use) that the chat picker should never show.
-        const normalized = items
-            .filter(m => (m?.name || '').includes('gemini'))
-            .filter(m => !Array.isArray(m?.supportedGenerationMethods)
-                || m.supportedGenerationMethods.includes('generateContent'))
-            .filter(m => !/embedding|aqa|imagen|robotics|computer-use/.test(m?.name || ''))
-            .map(m => {
-                const id = (m.name || '').replace(/^models\//, '');
-                const family = /flash-lite/.test(id) ? 'gemini-flash-lite'
-                    : /flash/.test(id) ? 'gemini-flash'
-                    : /pro/.test(id) ? 'gemini-pro'
-                    : 'gemini';
-                return {
-                    id,
-                    display: m.displayName || id,
-                    family,
-                    provider: 'gemini',
-                    // No fabricated fallbacks: when the API omits limits leave
-                    // them null so enrichModels can fill from the catalog and
-                    // the picker shows no context label instead of a fake 1M.
-                    contextWindow: m.inputTokenLimit || null,
-                    outputTokens: m.outputTokenLimit || null,
-                    tier: 'version',
-                    latest: false,
-                    description: m.description || '',
-                };
-            });
-        _markLatestGemini(normalized);
-        // LiteLLM catalog overlays pricing and updated metadata.
-        const { enrichModels } = await import('./model-catalog.mjs');
-        const { sanitizeModelList } = await import('./model-list-sanitize.mjs');
-        const enriched = sanitizeModelList(await enrichModels(normalized, {
+        return fetchAndCacheGeminiModels({
+            apiKey,
             fetchFn: this._fetch,
-            force: this.config.catalogForceRefresh === true,
-        }), { provider: 'gemini' });
-        this._modelCache.save(enriched);
-        return enriched;
+            modelCache: this._modelCache,
+            catalogForceRefresh: this.config.catalogForceRefresh,
+        });
     }
 
     // Force a catalog refresh (ignores the 24h disk TTL). De-duped via

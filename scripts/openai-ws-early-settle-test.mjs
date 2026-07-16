@@ -12,6 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { _streamResponse } from '../src/runtime/agent/orchestrator/providers/openai-ws-stream.mjs';
+import { classifyMidstreamError, MIDSTREAM_RETRY_POLICY } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 
 // Minimal fake WS: matches the .on/.off/.close/.ping surface _streamResponse
 // uses. close() is a no-op here -- the early-settle path sets done=true before
@@ -173,4 +174,43 @@ test('ws early settle: function args.done without item.done does NOT early-settl
     ]);
     await assert.rejects(p, /inter-chunk inactivity/);
     assert.equal(socket.closed?.reason, 'inter_chunk_timeout', 'function item must stay active until output_item.done');
+});
+
+test('OpenAI WS rejects an oversized Buffer before UTF-8 conversion and marks it retryable', async () => {
+    const socket = new FakeSocket();
+    const state = { attemptIndex: 0 };
+    const payload = Buffer.alloc(33);
+    payload.toString = () => { throw new Error('oversized Buffer was decoded'); };
+    const p = _streamResponse({
+        entry: { socket },
+        state,
+        _timeouts: { ...FAST_TIMEOUTS, maxIncomingFrameBytes: 32 },
+    });
+    socket.emit('message', payload);
+    await assert.rejects(p, (error) => {
+        assert.equal(error.code, 'EOPENAIWSFRAMETOOLARGE');
+        assert.equal(error.retryable, true);
+        assert.match(error.message, /33 bytes; limit 32 bytes.*retryable/);
+        assert.equal(
+            classifyMidstreamError(error, state, MIDSTREAM_RETRY_POLICY.ws),
+            'ws_frame_too_large',
+        );
+        return true;
+    });
+    assert.deepEqual(socket.closed, { code: 1009, reason: 'frame_too_large' });
+});
+
+test('OpenAI WS preserves normal-size Buffer handling', async () => {
+    const socket = new FakeSocket();
+    const p = _streamResponse({
+        entry: { socket },
+        state: {},
+        _timeouts: { ...FAST_TIMEOUTS, maxIncomingFrameBytes: 1024 },
+    });
+    socket.emit('message', Buffer.from(JSON.stringify({
+        type: 'response.completed',
+        response: { id: 'resp_normal', model: 'gpt-5.5', output: [] },
+    })));
+    const result = await p;
+    assert.equal(result.responseId, 'resp_normal');
 });

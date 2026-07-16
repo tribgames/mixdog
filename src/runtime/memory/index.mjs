@@ -91,6 +91,7 @@ import { createSessionIngestRuntime } from './lib/session-ingest-runtime.mjs'
 import { createMemoryActionHandlers } from './lib/memory-action-handlers.mjs'
 import { createHttpRouter } from './lib/http-router.mjs'
 import { createMemoryPortAdvertiser } from './lib/memory-port-advertiser.mjs'
+import { createMemoryDaemonLifecycle } from './lib/memory-daemon-lifecycle.mjs'
 import {
   readMainConfig,
   readRecapEnabled,
@@ -155,107 +156,18 @@ const _memoryPortAdvertiser = createMemoryPortAdvertiser({
 const { advertiseMemoryPort } = _memoryPortAdvertiser
 const MEMORY_DAEMON_MODE = process.env.MIXDOG_MEMORY_DAEMON === '1'
 const MEMORY_IDLE_TTL_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_IDLE_TTL_MS) || 10 * 60_000)
-let _idleShutdownTimer = null
-
-function touchDaemonIdleTimer(reason = 'activity') {
-  if (!MEMORY_DAEMON_MODE || MEMORY_IDLE_TTL_MS <= 0) return
-  if (_idleShutdownTimer) {
-    try { clearTimeout(_idleShutdownTimer) } catch {}
-    _idleShutdownTimer = null
-  }
-  _idleShutdownTimer = setTimeout(() => {
-    __mixdogMemoryLog(`[memory-service] daemon idle TTL elapsed after ${reason}; shutting down\n`)
-    stop()
-      .then(() => process.exit(0))
-      .catch((e) => {
-        __mixdogMemoryLog(`[memory-service] daemon idle shutdown failed: ${e?.message || e}\n`)
-        process.exit(1)
-      })
-  }, MEMORY_IDLE_TTL_MS)
-  _idleShutdownTimer.unref?.()
-}
-
-// ── Connected-client tracking + prompt shutdown ───────────────────────────
-// The daemon is shared by multiple proxy clients (TUI host + channels worker,
-// potentially several sessions). Each client registers/deregisters over HTTP
-// (see /client/register, /client/deregister in lib/http-router.mjs). When the
-// last client goes away we arm a short grace timer (default 10s) so a quick
-// reconnect keeps the daemon warm, but an actually-closed CLI reaps the daemon
-// in seconds instead of waiting out the 10-minute idle TTL (kept as backstop).
 const MEMORY_CLIENT_GRACE_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_CLIENT_GRACE_MS) || 10_000)
-const _connectedClients = new Map() // clientPid -> lastSeenMs
-let _everHadClient = false
-let _clientGraceTimer = null
-let _clientSweepTimer = null
-
-function _clientShutdownEnabled() {
-  return MEMORY_DAEMON_MODE && MEMORY_CLIENT_GRACE_MS > 0
-}
-
-function pruneDeadClients() {
-  for (const pid of [..._connectedClients.keys()]) {
-    if (!_isPidAliveLocal(pid)) _connectedClients.delete(pid)
-  }
-}
-
-function cancelClientGrace() {
-  if (_clientGraceTimer) {
-    try { clearTimeout(_clientGraceTimer) } catch {}
-    _clientGraceTimer = null
-  }
-}
-
-function armClientGrace(reason = 'last client gone') {
-  if (!_clientShutdownEnabled() || _clientGraceTimer) return
-  _clientGraceTimer = setTimeout(() => {
-    _clientGraceTimer = null
-    pruneDeadClients()
-    if (_connectedClients.size > 0) return
-    __mixdogMemoryLog(`[memory-service] daemon client grace elapsed (${reason}); shutting down\n`)
-    stop()
-      .then(() => process.exit(0))
-      .catch((e) => {
-        __mixdogMemoryLog(`[memory-service] daemon client-grace shutdown failed: ${e?.message || e}\n`)
-        process.exit(1)
-      })
-  }, MEMORY_CLIENT_GRACE_MS)
-  _clientGraceTimer.unref?.()
-}
-
-function startClientSweep() {
-  if (_clientSweepTimer || !_clientShutdownEnabled()) return
-  // Reap clients that died without deregistering so a crashed CLI still frees
-  // the daemon in grace-scale time rather than waiting for the idle TTL.
-  const interval = Math.max(1000, Math.min(MEMORY_CLIENT_GRACE_MS, 5000))
-  _clientSweepTimer = setInterval(() => {
-    pruneDeadClients()
-    if (_everHadClient && _connectedClients.size === 0) armClientGrace('all clients gone (sweep)')
-  }, interval)
-  _clientSweepTimer.unref?.()
-}
-
-function registerClient(clientPid) {
-  const pid = parsePositivePid(clientPid)
-  if (!pid) return true
-  // Reject registration once shutdown has begun. stop() sets _stopPromise
-  // synchronously (before its first await) and, in daemon mode, always ends
-  // in process.exit — so a daemon that is draining will never revive. Signal
-  // the proxy (via a distinct 503) to respawn a fresh daemon instead of
-  // binding to this dying one, which would fail the subsequent /api/tool.
-  if (_stopPromise) return false
-  _connectedClients.set(pid, Date.now())
-  _everHadClient = true
-  cancelClientGrace()
-  startClientSweep()
-  return true
-}
-
-function deregisterClient(clientPid) {
-  const pid = parsePositivePid(clientPid)
-  if (pid) _connectedClients.delete(pid)
-  pruneDeadClients()
-  if (_everHadClient && _connectedClients.size === 0) armClientGrace('last client deregistered')
-}
+const _daemonLifecycle = createMemoryDaemonLifecycle({
+  daemonMode: MEMORY_DAEMON_MODE,
+  idleTtlMs: MEMORY_IDLE_TTL_MS,
+  clientGraceMs: MEMORY_CLIENT_GRACE_MS,
+  parsePositivePid,
+  isPidAlive: _isPidAliveLocal,
+  isStopping: () => _stopPromise != null,
+  stop,
+  log: __mixdogMemoryLog,
+})
+const { touchDaemonIdleTimer, registerClient, deregisterClient } = _daemonLifecycle
 
 const LOCK_FILE = path.join(DATA_DIR, '.memory-service.lock')
 // Owner-election lock. Separate from LOCK_FILE so single-instance mode keeps
@@ -787,15 +699,7 @@ export async function stop() {
     _stopCycles()
     _memoryPortAdvertiser.reset()
     _embeddingWarmup.reset()
-    if (_idleShutdownTimer) {
-      try { clearTimeout(_idleShutdownTimer) } catch {}
-      _idleShutdownTimer = null
-    }
-    cancelClientGrace()
-    if (_clientSweepTimer) {
-      try { clearInterval(_clientSweepTimer) } catch {}
-      _clientSweepTimer = null
-    }
+    _daemonLifecycle.reset()
     await stopLlmWorker()
     resetHttpListenErrorHandler()
     if (_httpBoundPort != null || _httpReadyPromise) {

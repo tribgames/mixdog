@@ -57,6 +57,7 @@ export function installProcessSignalCleanup({
   beforeCleanup,
   cleanup,
   afterCleanup,
+  restoreTerminal,
   log = writeStderr,
 } = {}) {
   let installed = true;
@@ -71,6 +72,7 @@ export function installProcessSignalCleanup({
   };
 
   const hardExit = (code) => {
+    try { restoreTerminal?.('forced-cleanup', { code }); } catch {}
     finishProcessLifecycle('forced-cleanup', code);
     try { process.exit(code); } catch {}
   };
@@ -148,9 +150,13 @@ export function installProcessSignalCleanup({
 
   if (fatal) {
     add('uncaughtException', (error) => {
+      // Run terminal restoration synchronously, before the async cleanup path
+      // or its hard-exit fallback can be interrupted by another fatal error.
+      try { restoreTerminal?.('uncaughtException', { code: 1, error }); } catch {}
       void run('uncaughtException', { code: 1, shouldExit: exit, error });
     });
     add('unhandledRejection', (error) => {
+      try { restoreTerminal?.('unhandledRejection', { code: 1, error }); } catch {}
       void run('unhandledRejection', { code: 1, shouldExit: exit, error });
     });
   }

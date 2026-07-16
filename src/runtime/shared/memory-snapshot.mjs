@@ -106,13 +106,28 @@ function workingSetMb(bytes) {
   return Math.round((Number(bytes) / (1024 * 1024)) * 10) / 10;
 }
 
+function nullableProcessText(value) {
+  if (typeof value !== 'string') return null;
+  if (!value.trim()) return null;
+  return value.length > 200 ? value.slice(0, 200) : value;
+}
+
+function nullablePid(value) {
+  if ((typeof value !== 'number' && typeof value !== 'string')
+    || (typeof value === 'string' && !value.trim())) return null;
+  const pid = Number(value);
+  return Number.isInteger(pid) ? pid : null;
+}
+
 function parseWindowsProcesses(stdout) {
   const rows = JSON.parse(String(stdout).trim() || '[]');
   return (Array.isArray(rows) ? rows : [rows])
     .map((row) => ({
-      name: String(row?.ProcessName || ''),
-      pid: Number(row?.Id),
-      workingSetMb: workingSetMb(row?.WorkingSet64),
+      name: String(row?.Name || ''),
+      pid: Number(row?.ProcessId),
+      workingSetMb: workingSetMb(row?.WorkingSetSize),
+      commandLine: nullableProcessText(row?.CommandLine),
+      parentPid: nullablePid(row?.ParentProcessId),
     }))
     .filter((row) => row.name && Number.isInteger(row.pid) && Number.isFinite(row.workingSetMb))
     .slice(0, 8);
@@ -121,12 +136,14 @@ function parseWindowsProcesses(stdout) {
 function parsePosixProcesses(stdout) {
   return String(stdout).split(/\r?\n/)
     .map((line) => {
-      const match = line.match(/^\s*(\d+)\s+(.+?)\s+(\d+)\s*$/);
+      const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*?)\s+(\d+)\s*$/);
       if (!match) return null;
       return {
         pid: Number(match[1]),
-        name: match[2],
-        workingSetMb: workingSetMb(Number(match[3]) * 1024),
+        parentPid: nullablePid(match[2]),
+        name: match[3],
+        commandLine: nullableProcessText(match[4]),
+        workingSetMb: workingSetMb(Number(match[5]) * 1024),
       };
     })
     .filter((row) => row && Number.isInteger(row.pid) && Number.isFinite(row.workingSetMb))
@@ -139,7 +156,7 @@ async function topProcesses() {
     if (process.platform === 'win32') {
       const { stdout } = await execFileAsync('powershell.exe', [
         '-NoProfile', '-NonInteractive', '-Command',
-        'Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 8 Id,ProcessName,WorkingSet64 | ConvertTo-Json -Compress',
+        'Get-CimInstance Win32_Process | Sort-Object WorkingSetSize -Descending | Select-Object -First 8 ProcessId,Name,WorkingSetSize,CommandLine,ParentProcessId | ConvertTo-Json -Compress',
       ], {
         encoding: 'utf8',
         timeout: 3000,
@@ -147,7 +164,7 @@ async function topProcesses() {
       });
       return parseWindowsProcesses(stdout);
     }
-    const { stdout } = await execFileAsync('ps', ['-eo', 'pid=,comm=,rss='], {
+    const { stdout } = await execFileAsync('ps', ['-eo', 'pid=,ppid=,comm=,args=,rss='], {
       encoding: 'utf8',
       timeout: 3000,
       windowsHide: true,

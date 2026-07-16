@@ -530,6 +530,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     name: 'mixdog-tui',
     signals: ['SIGINT', 'SIGTERM', 'SIGHUP'],
     timeoutMs: EXIT_WAIT_TIMEOUT_MS + 1000,
+    restoreTerminal,
     beforeCleanup: restoreTerminal,
     cleanup: disposeStoreOnce,
     afterCleanup: (reason) => {
