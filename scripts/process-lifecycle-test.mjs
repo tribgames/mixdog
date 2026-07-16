@@ -349,7 +349,7 @@ test('executed TUI bundle shares lifecycle boundary and CLI preserves a bounded 
   const root = tempRoot();
   try {
     const dist = readFileSync(new URL('../src/tui/dist/index.mjs', import.meta.url), 'utf8');
-    assert.match(dist, /from '\.\.\/\.\.\/runtime\/shared\/process-shutdown\.mjs'/);
+    assert.match(dist, /from ['"]\.\.\/\.\.\/runtime\/shared\/process-shutdown\.mjs['"]/);
     assert.doesNotMatch(dist, /function installProcessSignalCleanup\(/);
     const result = spawnSync(process.execPath, ['src/cli.mjs'], {
       cwd: REPO_ROOT,
