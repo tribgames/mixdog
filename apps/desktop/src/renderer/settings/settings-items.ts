@@ -1,0 +1,32 @@
+export type SettingsItemKind = 'toggle' | 'cycle' | 'open' | 'static';
+
+export interface SettingsItem {
+  value: string;
+  label: string;
+  description: string;
+  kind: SettingsItemKind;
+}
+
+export const SETTINGS_ITEMS = [
+  { value: 'profile', label: 'Profile', description: 'Your title and response language.', kind: 'open' },
+  { value: 'autoclear', label: 'Auto-clear', description: 'Idle auto-clear disabled. Enter for options.', kind: 'toggle' },
+  { value: 'autocompact', label: 'Auto-compact', description: 'Compact when context is high.', kind: 'toggle' },
+  { value: 'compact-type', label: 'Compact type', description: 'Uses Memory recall to rebuild context faster on large histories.', kind: 'static' },
+  { value: 'channels', label: 'Channels enabled', description: 'Discord, schedules, and webhooks.', kind: 'toggle' },
+  { value: 'remote-runtime', label: 'Remote Runtime', description: 'runtime stopped', kind: 'toggle' },
+  { value: 'channel-backend', label: 'Channel', description: 'Left/Right or Enter changes channel type (Discord or Telegram).', kind: 'cycle' },
+  { value: 'channel-setting', label: 'Setting', description: 'Configure credentials and main channel/chat for the active type.', kind: 'open' },
+  { value: 'output-style', label: 'Output style', description: 'Response tone and format.', kind: 'open' },
+  { value: 'theme', label: 'Theme', description: 'TUI color theme.', kind: 'open' },
+  { value: 'workflow', label: 'Workflow', description: 'Active agent routing profile.', kind: 'open' },
+  { value: 'model', label: 'Model', description: 'Main chat model.', kind: 'open' },
+  { value: 'search', label: 'Search model', description: 'Native search model.', kind: 'open' },
+  { value: 'providers', label: 'Providers', description: 'Auth, API keys, OAuth, local.', kind: 'open' },
+  { value: 'mcp', label: 'MCP servers', description: '0/0 connected', kind: 'open' },
+  { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
+  { value: 'hooks', label: 'Hooks', description: '0 before-tool rules', kind: 'open' },
+  { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
+  { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
+] as const satisfies ReadonlyArray<SettingsItem>;
+
+export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];

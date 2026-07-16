@@ -1,0 +1,56 @@
+# Packaging layout adapted from AiderDesk's electron-builder.yml under Apache-2.0.
+# See src/shared/AIDERDESK_NOTICE.md.
+appId: io.mixdog.desktop
+productName: Mixdog
+asar: true
+extraMetadata:
+  name: mixdog-desktop
+directories:
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - src/shared/AIDERDESK_NOTICE.md
+  - '!out/main/capture-window.js'
+  - '!**/*.map'
+extraResources:
+  # Electron resolves modules directly from this archive. NSIS therefore
+  # installs one runtime file instead of expanding thousands of dependencies.
+  - from: .runtime/runtime.asar
+    to: runtime.asar
+  # electron-builder filters a source path containing node_modules. The
+  # preparation step mirrors only native binaries under this neutral root;
+  # restore Electron's exact ASAR-unpacked layout at the destination.
+  - from: .runtime/native-modules
+    to: runtime.asar.unpacked/node_modules
+win:
+  executableName: Mixdog
+  icon: build/mixdog.ico
+  target:
+    - nsis
+nsis:
+  include: build/installer.nsh
+  installerIcon: build/mixdog.ico
+  uninstallerIcon: build/mixdog.ico
+  installerHeaderIcon: build/mixdog.ico
+  artifactName: ${productName}-${version}-setup-${arch}.${ext}
+  # One-click install (opencode style): single progress bar, per-user install,
+  # app launches immediately after. The legacy-migration guard in
+  # build/installer.nsh still runs via customInit.
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  artifactName: ${productName}-${version}-macos-${arch}.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+dmg:
+  artifactName: ${productName}-${version}-macos-${arch}.${ext}
+npmRebuild: true

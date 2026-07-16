@@ -6,6 +6,9 @@ refs/
 # Build output
 src/tui/dist/
 apps/desktop/.runtime/
+apps/desktop/dist/
+apps/desktop/out/
+apps/desktop/artifacts/
 
 # Logs
 *.log
