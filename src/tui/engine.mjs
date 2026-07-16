@@ -98,6 +98,7 @@ import {
 import { createSessionFlow } from './engine/session-flow.mjs';
 import { createRunTurn } from './engine/turn.mjs';
 import { createEngineApi } from './engine/session-api.mjs';
+import { createFrameBatchedStorePublisher } from './engine/frame-batched-store.mjs';
 
 // Source tests resolve from src/tui/engine.mjs; the built bundle resolves from
 // src/tui/dist/index.mjs.
@@ -271,6 +272,7 @@ export async function createEngineSession({
   const pendingNotificationKeys = new Set();
   const displayedExecutionNotificationKeys = new Set();
   const bag = {};
+  let state;
   // Route/context/agent-status derivations live in ./engine/context-state.mjs.
   // getState()/getPendingSessionReset() are late-bound to the `state` and
   // `pendingSessionReset` closures declared below; the sync helpers mutate
@@ -285,6 +287,7 @@ export async function createEngineSession({
   } = createContextState({
     runtime,
     getState: () => state,
+    updateState: (patch) => { state = { ...state, ...patch }; },
     getPendingSessionReset: () => flags.pendingSessionReset,
   });
 
@@ -293,7 +296,7 @@ export async function createEngineSession({
     agentJobs: [],
     agentScope: null,
   };
-  let state = {
+  state = {
     items: [],
     structureRevision: 0,
     streamingTail: null,
@@ -333,34 +336,44 @@ export async function createEngineSession({
   syncContextStats({ allowEstimated: true });
   bootProfile('engine:context-ready', { ms: (performance.now() - contextStartedAt).toFixed(1) });
   const listeners = new Set();
-  // Coalesce store notifications: a single onToolCall batch / finalize path
-  // fires many set() calls in one synchronous block (aggregate header sync,
-  // spinner, item pushes). Notifying React on every set() painted the
-  // intermediate layouts (jerky, stuttering header/count jitter). Collapsing the
-  // notifications into one microtask means listeners see only the final state
-  // of the current tick — "draw twice, keep the last one". getState() stays
-  // synchronous and always returns the latest snapshot, so useSyncExternalStore
-  // never tears.
-  let emitScheduled = false;
-  const flushEmit = () => {
-    emitScheduled = false;
-    for (const l of listeners) l();
-  };
-  const emit = () => {
-    if (emitScheduled) return;
-    emitScheduled = true;
-    queueMicrotask(flushEmit);
-  };
+  // React/useSyncExternalStore reads only this immutable published snapshot.
+  // `state` remains the engine's synchronous draft until a frame flush swaps
+  // the complete draft (including its single revision bump) into this slot.
+  let publishedState = process.env.NODE_ENV === 'production' ? state : Object.freeze(state);
+  // The mutable engine draft must never be the object exposed to React.
+  state = { ...state, stats: { ...state.stats } };
+  // Mutations stay synchronous, but React publications are frame-coalesced.
+  // structureRevision is committed by the publisher exactly once immediately
+  // before listeners observe the terminal snapshot for that frame.
+  const publisher = createFrameBatchedStorePublisher({
+    getState: () => state,
+    publishState: (next) => {
+      publishedState = process.env.NODE_ENV === 'production' ? next : Object.freeze(next);
+      // Detach the next draft, including the only intentionally mutable nested
+      // record, so legacy/internal draft writes cannot mutate the publication.
+      state = { ...next, stats: { ...next.stats } };
+    },
+    listeners,
+    isDisposed: () => flags.disposed,
+  });
+  const emit = publisher.emit;
+  const flushEmit = publisher.flush;
+  const flushEmitImmediate = publisher.flushImmediate;
   const set = (patch) => {
     if (!patch || typeof patch !== 'object') return false;
+    const requestsStructureChange = Object.prototype.hasOwnProperty.call(patch, 'structureRevision')
+      && !Object.is(patch.structureRevision, state.structureRevision);
+    const effectivePatch = requestsStructureChange
+      ? Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'structureRevision'))
+      : patch;
     let changed = false;
-    for (const [key, value] of Object.entries(patch)) {
+    for (const [key, value] of Object.entries(effectivePatch)) {
       if (!Object.is(state[key], value)) {
         changed = true;
         break;
       }
     }
-    if (!changed) return false;
+    if (!changed && !requestsStructureChange) return false;
     // Detect commandBusy releasing (true -> false). Submits that arrived while a
     // session command was in flight were queued and drain bailed on commandBusy;
     // re-kick drain here — one central point covers every command releaser
@@ -368,8 +381,14 @@ export async function createEngineSession({
     const commandBusyReleased = state.commandBusy === true
       && Object.prototype.hasOwnProperty.call(patch, 'commandBusy')
       && patch.commandBusy === false;
-    state = { ...state, ...patch };
+    state = { ...state, ...effectivePatch };
+    if (requestsStructureChange) publisher.markStructureChange();
     emit();
+    // Preserve the old microtask-latency behavior for interaction gates and
+    // long command spinners that intentionally yield before doing heavy work.
+    if (effectivePatch.commandStatus || effectivePatch.toolApproval) {
+      flushEmitImmediate();
+    }
     if (commandBusyReleased) queueMicrotask(() => { void bag.drain?.(); });
     return true;
   };
@@ -384,6 +403,7 @@ export async function createEngineSession({
     // emit (the accompanying set() diffs the full patch). A bulk swap also
     // discards the old transcript, so drop any tracked active tool calls.
     activeToolCalls.clear();
+    const structureRevision = state.structureRevision;
     state = replaceEngineItemsState({
       state,
       items: nextItems,
@@ -394,6 +414,10 @@ export async function createEngineSession({
         activeToolSummary: null,
       },
     });
+    // replaceEngineItemsState retains its standalone/test contract. In the live
+    // store, defer its revision increment to the frame publication boundary.
+    state = { ...state, structureRevision };
+    publisher.markStructureChange();
     // replaceItems stages the bulk state before its callers compose their
     // accompanying patch. Emit here as well so an items-only replacement
     // (for example removeNotice) cannot be hidden by the outer set seeing the
@@ -468,6 +492,7 @@ export async function createEngineSession({
       // the references identical and skip emit().
       const promptHistoryList = buildMergedPromptHistory(recomputePromptHistory(items), loadPromptHistory(state.cwd));
       set({ items, structureRevision: state.structureRevision + 1, promptHistoryList });
+      flushEmitImmediate();
     } else {
       set({ items, structureRevision: state.structureRevision + 1 });
     }
@@ -739,7 +764,8 @@ export async function createEngineSession({
   Object.assign(bag, {
     runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS,
     flags, lifecycle, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, listeners, itemIndexById,
-    getState: () => state, set,
+    getState: () => state, getPublishedState: () => publishedState,
+    set, flushEmit, flushEmitImmediate, disposeEmit: publisher.dispose,
     pushItem, patchItem, replaceItems, updateStreamingTail, settleStreamingTail, clearStreamingTail,
     pushToast, pushNotice, removeNotice, setProgressHint,
     pushUserOrSyntheticItem, pushAsyncAgentResponse, upsertSyntheticToolItem,

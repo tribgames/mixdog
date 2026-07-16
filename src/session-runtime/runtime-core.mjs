@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import httpMod from 'node:http';
+import keychain from '../lib/keychain-cjs.cjs';
 import './hitch-profile.mjs';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
 import { createStandaloneAgent } from '../standalone/agent-tool.mjs';
@@ -285,6 +286,7 @@ export function __applyStandaloneToolDefaultsForTest(tool) {
 const resolveDefaultProvider = makeResolveDefaultProvider(isKnownProvider);
 const resolveRoute = makeResolveRoute(resolveDefaultProvider);
 const searchCapableFor = makeSearchCapableFor(normalizeSearchProviderId, isSearchCapableProvider);
+const KEYCHAIN_PREWARM_WAIT_MS = 5000;
 
 const outputStyleStatus = (dataDir = STANDALONE_DATA_DIR, opts = {}) => outputStyleStatusRaw(STANDALONE_ROOT, dataDir || STANDALONE_DATA_DIR, opts);
 // Workflow/agent pack loaders bound to this runtime's root/data layout.
@@ -346,6 +348,26 @@ export async function createMixdogSessionRuntime({
     dataDir: STANDALONE_DATA_DIR,
   });
   bootProfile('standalone-env:ready', { ms: (performance.now() - standaloneStartedAt).toFixed(1) });
+  const keychainPrewarmPromise = keychain.prewarmSecrets();
+  let keychainPrewarmWaitDone = false;
+  let keychainPrewarmWaitPromise = null;
+  function awaitKeychainPrewarm() {
+    if (keychainPrewarmWaitDone) return Promise.resolve();
+    keychainPrewarmWaitPromise ??= (async () => {
+      let timeoutId;
+      const deadline = new Promise((resolveDeadline) => {
+        timeoutId = setTimeout(resolveDeadline, KEYCHAIN_PREWARM_WAIT_MS);
+        timeoutId.unref?.();
+      });
+      try {
+        await Promise.race([keychainPrewarmPromise, deadline]);
+      } finally {
+        clearTimeout(timeoutId);
+        keychainPrewarmWaitDone = true;
+      }
+    })();
+    return keychainPrewarmWaitPromise;
+  }
 
   const importsStartedAt = performance.now();
   const [
@@ -958,6 +980,8 @@ export async function createMixdogSessionRuntime({
     mgr,
     dataDir: cfgMod.getPluginData(),
     cwd,
+    awaitKeychainPrewarm,
+    isKeychainPrewarmReady: () => keychainPrewarmWaitDone,
     // SubagentStart/SubagentStop: bridge internal worker spawn/finish to the
     // standard hook bus. agent_type is passed top-level via hookCommonPayload
     // (added to hook-bus buildEventPayload passthrough). Best-effort.
@@ -1250,6 +1274,7 @@ export async function createMixdogSessionRuntime({
   });
 
   async function ensureProvidersReady(providerConfig = config.providers || {}) {
+    await awaitKeychainPrewarm();
     const initKey = providerInitCacheKey(providerConfig);
     const existing = providerInitPromises.get(initKey);
     if (existing) return await existing;
@@ -1290,6 +1315,7 @@ export async function createMixdogSessionRuntime({
     getSession: () => session,
     getReg: () => reg,
     ensureFullConfig,
+    awaitKeychainPrewarm,
     ensureProvidersReady,
     ensureProviderEnabled,
     normalizeSearchProviderId,
@@ -1352,6 +1378,7 @@ export async function createMixdogSessionRuntime({
     normalizeSearchProviderId,
     isSearchCapableProvider,
     ensureFullConfig,
+    awaitKeychainPrewarm,
     ensureProvidersReady,
     bootProfile,
     scheduleProviderModelWarmup: () => scheduleProviderModelWarmupRef(),
@@ -1460,6 +1487,7 @@ export async function createMixdogSessionRuntime({
     const startedAt = performance.now();
     bootProfile('session:create:start', { mode, reason });
     const promise = (async () => {
+      await awaitKeychainPrewarm();
       ensureConfigForRouteProvider();
       await resolveMissingRouteModelForFirstTurn();
       requireModelRoute();
@@ -1591,6 +1619,7 @@ export async function createMixdogSessionRuntime({
     getProviderModelsPromise: () => providerModelCaches.providerModelsPromise,
     reloadFullConfig,
     ensureConfigForRouteProvider,
+    awaitKeychainPrewarm,
     ensureProvidersReady,
     ensureProviderEnabled,
     refreshStatuslineUsageSnapshot,
@@ -2053,6 +2082,7 @@ export async function createMixdogSessionRuntime({
     saveConfigAndAdopt,
     displayConfig,
     reloadFullConfig,
+    awaitKeychainPrewarm,
     invalidateProviderCaches,
     warmProviderModelCache,
     refreshProviderCatalogs: () => ensureProvidersReady(config.providers || {}).then(() => reg.refreshCatalogs()),
@@ -2120,6 +2150,7 @@ export async function createMixdogSessionRuntime({
     pluginsStatus,
     getMemoryModule,
     reloadFullConfig,
+    awaitKeychainPrewarm,
     getActiveTurnCount: () => activeTurnCount,
   });
   const modelRouteApi = createModelRouteApi({
@@ -2141,6 +2172,7 @@ export async function createMixdogSessionRuntime({
     adoptConfig,
     saveConfigAndAdopt,
     ensureFullConfig,
+    awaitKeychainPrewarm,
     ensureProvidersReady,
     persistLeadRoute,
     refreshRouteEffort,

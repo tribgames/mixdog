@@ -112,7 +112,7 @@ function appendEntry(active, entry) {
       }
       return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
     }, {
-      timeoutMs: LEDGER_LOCK_TIMEOUT_MS,
+      timeoutMs: 0,
       staleMs: LEDGER_LOCK_STALE_MS,
     });
   } catch {
@@ -121,11 +121,13 @@ function appendEntry(active, entry) {
 }
 
 async function appendEntryAsync(active, entry, shouldAppend) {
-  const line = `${JSON.stringify(entry)}\n`;
-  if (Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
+  const staticLine = typeof entry === 'function' ? null : `${JSON.stringify(entry)}\n`;
+  if (staticLine && Buffer.byteLength(staticLine) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
   try {
     return await withFileLock(active.lock, () => {
       if (!shouldAppend()) return false;
+      const line = staticLine || `${JSON.stringify(entry())}\n`;
+      if (Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
       boundPreviousLedger(active);
       if (existsSync(active.ledger)
         && statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) {
@@ -252,7 +254,11 @@ function sameProcessIdentity(expected, observed) {
 function recordCurrent(reason, exitCode = null) {
   const active = sharedState().active;
   if (!active || !VALID_REASONS.has(reason)) return false;
-  return appendEntry(active, {
+  return appendEntry(active, lifecycleEntry(active, reason, exitCode));
+}
+
+function lifecycleEntry(active, reason, exitCode = null) {
+  return {
     version: 1,
     timestamp: new Date().toISOString(),
     pid: process.pid,
@@ -261,7 +267,7 @@ function recordCurrent(reason, exitCode = null) {
     exitCode: Number.isInteger(exitCode) ? exitCode : null,
     memory: memoryCounters(),
     cwd: active.cwd,
-  });
+  };
 }
 
 function recordPriorVanished(active, previous) {
@@ -489,23 +495,61 @@ function strongerReason(current, candidate) {
   return (rank[candidate] ?? 0) > (rank[current] ?? -1) ? candidate : current;
 }
 
-export function finishProcessLifecycle(reason = 'clean-shutdown', exitCode = 0) {
-  const state = sharedState();
-  const active = state.active;
-  if (!active) return false;
+function accumulateProcessLifecycleFinish(active, reason, exitCode) {
   const finalReason = VALID_REASONS.has(reason) ? reason : 'clean-shutdown';
   const nextReason = strongerReason(active.finalReason, finalReason);
   if (nextReason !== active.finalReason || !Number.isInteger(active.finalExitCode)) {
     active.finalExitCode = exitCode;
   }
   active.finalReason = nextReason;
-  const written = recordCurrent(active.finalReason, active.finalExitCode);
-  if (!written) return false;
+}
+
+function claimProcessLifecycleFinish(reason, exitCode) {
+  const state = sharedState();
+  const active = state.active;
+  if (!active) return null;
+  accumulateProcessLifecycleFinish(active, reason, exitCode);
+  if (active.finishing) return null;
+  active.finishing = true;
+  return { state, active };
+}
+
+function completeProcessLifecycleFinish(state, active, written) {
+  if (!written) {
+    active.finishing = false;
+    return false;
+  }
   if (markerOwned(active)) {
-    try { unlinkSync(active.markerPath); } catch { return false; }
+    try { unlinkSync(active.markerPath); } catch {
+      active.finishing = false;
+      return false;
+    }
   }
   state.active = null;
   return true;
+}
+
+export function finishProcessLifecycle(reason = 'clean-shutdown', exitCode = 0) {
+  const claimed = claimProcessLifecycleFinish(reason, exitCode);
+  if (!claimed) return false;
+  const { state, active } = claimed;
+  return completeProcessLifecycleFinish(
+    state,
+    active,
+    appendEntry(active, lifecycleEntry(active, active.finalReason, active.finalExitCode)),
+  );
+}
+
+export async function finishProcessLifecycleAsync(reason = 'clean-shutdown', exitCode = 0) {
+  const claimed = claimProcessLifecycleFinish(reason, exitCode);
+  if (!claimed) return false;
+  const { state, active } = claimed;
+  const written = await appendEntryAsync(
+    active,
+    () => lifecycleEntry(active, active.finalReason, active.finalExitCode),
+    () => state.active === active && active.finishing,
+  );
+  return completeProcessLifecycleFinish(state, active, written);
 }
 
 export function lifecyclePathsForTest(directory) {

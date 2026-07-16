@@ -22,6 +22,7 @@ export function createProviderAuthApi({
   saveConfigAndAdopt,
   displayConfig,
   reloadFullConfig,
+  awaitKeychainPrewarm,
   invalidateProviderCaches,
   warmProviderModelCache,
   refreshProviderCatalogs,
@@ -52,6 +53,7 @@ export function createProviderAuthApi({
       return await getUsageDashboard(options);
     },
     async authenticateProvider(providerId, secret) {
+      await awaitKeychainPrewarm();
       const result = String(secret || '').trim()
         ? saveProviderApiKey(cfgMod, providerId, secret)
         : await loginOAuthProvider(cfgMod, providerId);
@@ -62,6 +64,7 @@ export function createProviderAuthApi({
       return result;
     },
     async loginOAuthProvider(providerId) {
+      await awaitKeychainPrewarm();
       const result = await loginOAuthProvider(cfgMod, providerId);
       reloadFullConfig();
       invalidateProviderCaches();
@@ -70,11 +73,13 @@ export function createProviderAuthApi({
       return result;
     },
     async beginOAuthProviderLogin(providerId) {
+      await awaitKeychainPrewarm();
       const result = await beginOAuthProviderLogin(cfgMod, providerId);
       reloadFullConfig();
       return {
         ...result,
-        waitForCallback: result.waitForCallback?.then((completed) => {
+        waitForCallback: result.waitForCallback?.then(async (completed) => {
+          await awaitKeychainPrewarm();
           reloadFullConfig();
           if (completed) {
             invalidateProviderCaches();
@@ -85,6 +90,7 @@ export function createProviderAuthApi({
         }),
         completeCode: async (code) => {
           const completed = await result.completeCode(code);
+          await awaitKeychainPrewarm();
           reloadFullConfig();
           invalidateProviderCaches();
           refreshProviderCatalogsSoon();
@@ -114,6 +120,7 @@ export function createProviderAuthApi({
       return result;
     },
     async loginOpenCodeGoUsage() {
+      await awaitKeychainPrewarm();
       const result = await loginOpenCodeGoUsage(cfgMod);
       reloadFullConfig();
       invalidateProviderCaches();

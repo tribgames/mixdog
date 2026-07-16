@@ -228,19 +228,39 @@ export function offsetAtCell(text, row, col, width) {
 
 function boundaryPositions(text, width) {
   const value = String(text || '');
-  const offsets = [0];
-  for (const unit of graphemeUnits(value)) offsets.push(unit.end);
+  const w = safeWidth(width);
+  const units = graphemeUnits(value);
+  const positions = [{ offset: 0, row: 0, col: 0 }];
+  let row = 0;
+  let col = 0;
 
-  const seen = new Set();
-  const positions = offsets
-    .filter((offset) => {
-      if (seen.has(offset)) return false;
-      seen.add(offset);
-      return true;
-    })
-    // Decide the flush-boundary advance from the FULL text so a soft-wrap
-    // offset reports {row N+1, col 0} (matching ink) instead of {row N, col w}.
-    .map((offset) => ({ offset, ...caretPosition(value, offset, width) }));
+  // Build every grapheme-boundary position in one pass. This is the same state
+  // transition as caretPosition(), but avoids re-segmenting and re-scanning the
+  // entire prefix for every candidate during mouse hit-testing.
+  for (let i = 0; i < units.length; i += 1) {
+    const { end, segment } = units[i];
+    if (segment === '\n') {
+      row += 1;
+      col = 0;
+    } else {
+      const segmentWidth = displayWidth(segment);
+      if (segmentWidth > 0) {
+        if (col > 0 && col + segmentWidth > w) {
+          row += 1;
+          col = 0;
+        }
+        col += segmentWidth;
+        // Decide the flush-boundary advance from the FULL text so a soft-wrap
+        // offset reports {row N+1, col 0} (matching ink), exactly as
+        // caretPosition(value, end, w) does when more content follows.
+        if (col === w && i < units.length - 1) {
+          row += 1;
+          col = 0;
+        }
+      }
+    }
+    positions.push({ offset: end, row, col });
+  }
   return positions;
 }
 

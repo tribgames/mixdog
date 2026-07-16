@@ -18,6 +18,7 @@ import {
   comparePoints,
   upperBound,
 } from './transcript-window.mjs';
+import { yieldToRenderer } from '../engine/render-timing.mjs';
 
 export function useTranscriptScroll({
   store,
@@ -43,7 +44,7 @@ export function useTranscriptScroll({
   // Coalescer for edge-drag auto-scroll + wheel scroll deltas (see
   // SCROLL_COALESCE_MS). Both call sites accumulate into pendingRows.
   const scrollCoalesceRef = useRef({ pendingRows: 0, timer: null });
-  const selectionTextTimerRef = useRef(null);
+  const selectionTextCaptureRef = useRef(0);
   // Stitch buffer: accumulates harvested transcript selection rows across scroll
   // positions so Ctrl+C copies the FULL drag even after it auto-scrolled past the
   // viewport. Keyed by scroll-invariant content row = screenY - scrollTarget at
@@ -218,12 +219,16 @@ export function useTranscriptScroll({
   }, [stopSmoothScroll]);
 
   const rememberSelectionTextSoon = useCallback(() => {
-    if (selectionTextTimerRef.current) return;
-    selectionTextTimerRef.current = setTimeout(() => {
-      selectionTextTimerRef.current = null;
+    const capture = ++selectionTextCaptureRef.current;
+    // setSelection publishes the rect synchronously, then Ink paints it through
+    // the maxFps throttle. Read selectedText only after that frame's post-write
+    // acknowledgement; a 0ms timer could beat a trailing render and capture the
+    // previous rect. The generation guard makes the newest selection win.
+    void yieldToRenderer().then(() => {
+      if (capture !== selectionTextCaptureRef.current) return;
       const text = store.getRenderSelectionText?.();
       if (text && text.trim()) selectionTextRef.current = text;
-    }, 0);
+    });
   }, [store]);
 
   const selectionClip = useCallback(() => {
@@ -256,28 +261,28 @@ export function useTranscriptScroll({
     return clipped;
   }, [selectionClip]);
 
-  const paintSelectionRect = useCallback((clippedRect, { rememberText = true, immediate = false } = {}) => {
+  const paintSelectionRect = useCallback((clippedRect, { rememberText = true } = {}) => {
     const nextRect = clippedRect || null;
     const state = selectionPaintRef.current;
     if (selectionRectsEqual(state.rect, nextRect)) {
       const needsCapture = nextRect && rememberText && nextRect.captureText !== false;
-      if (!immediate && !needsCapture) return false;
-      if (immediate || needsCapture) {
-        store.setRenderSelection?.(nextRect, { immediate: true });
-      }
+      if (!needsCapture) return false;
+      // Keep selection refreshes on Ink's normal maxFps render path. The
+      // selection rect itself is published synchronously by setSelection.
+      store.setRenderSelection?.(nextRect);
       if (needsCapture) rememberSelectionTextSoon();
       if (nextRect) harvestStitchRowsSoon();
       return true;
     }
     state.rect = nextRect;
     state.t = Date.now();
-    store.setRenderSelection?.(nextRect, immediate ? { immediate: true } : undefined);
+    store.setRenderSelection?.(nextRect);
     if (nextRect && rememberText && nextRect.captureText !== false) rememberSelectionTextSoon();
     if (nextRect) harvestStitchRowsSoon();
     return true;
   }, [store, rememberSelectionTextSoon, harvestStitchRowsSoon]);
 
-  // Shared guard for EVERY direct (non-throttled) paint path: a pending
+  // Shared guard for EVERY direct (non-coalesced) paint path: a pending
   // throttled repaint (state.timer/state.pending, armed by
   // applySelectionRectThrottled) would fire AFTER a direct paint and stamp a
   // stale pre-scroll/pre-direction rect over the current one — surfacing as two
@@ -291,7 +296,8 @@ export function useTranscriptScroll({
     state.pending = null;
   }, []);
 
-  // Commit an armed-but-unpainted throttled rect NOW, so paths that read the
+  // Publish an armed-but-unpainted coalesced rect NOW, so the throttled Ink
+  // render can consume the newest fast-drag rect. Paths that read the
   // rendered selection (the pre-scroll stitch harvest) see the newest fast-drag
   // rect rather than the previous rendered one. Cancel-only would drop the
   // pending rect and lose rows it covered that scroll off before the rebuild.
@@ -304,18 +310,19 @@ export function useTranscriptScroll({
       state.timer = null;
     }
     state.pending = null;
-    if (pending) paintSelectionRect(pending, { rememberText: false, immediate: true });
+    if (pending) paintSelectionRect(pending, { rememberText: false });
   }, [paintSelectionRect]);
 
   const applySelectionRect = useCallback((rect) => {
     const clippedRect = withSelectionClip(rect);
     dragRef.current.rect = clippedRect || null;
     if (!clippedRect) {
+      selectionTextCaptureRef.current += 1;
       selectionTextRef.current = '';
       clearStitchBuffer();
     }
     cancelPendingSelectionPaint();
-    paintSelectionRect(clippedRect, { rememberText: true, immediate: true });
+    paintSelectionRect(clippedRect, { rememberText: true });
   }, [paintSelectionRect, withSelectionClip, clearStitchBuffer, cancelPendingSelectionPaint]);
 
   const applySelectionRectThrottled = useCallback((rect) => {
@@ -419,8 +426,7 @@ export function useTranscriptScroll({
     if (paintState.timer) clearTimeout(paintState.timer);
     paintState.timer = null;
     paintState.pending = null;
-    if (selectionTextTimerRef.current) clearTimeout(selectionTextTimerRef.current);
-    selectionTextTimerRef.current = null;
+    selectionTextCaptureRef.current += 1;
     if (stitchHarvestTimerRef.current) clearTimeout(stitchHarvestTimerRef.current);
     stitchHarvestTimerRef.current = null;
     const coalesceState = scrollCoalesceRef.current;

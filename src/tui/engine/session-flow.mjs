@@ -9,7 +9,7 @@ import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersi
 
 export function createSessionFlow(bag) {
   const {
-    runtime, nextId, tuiDebug, flags, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, clearToastTimers, getState, set, pushItem, replaceItems, pushNotice, pushUserOrSyntheticItem, autoClearState, agentStatusState, routeState, syncContextStats, flushDeferredExecutionPendingResumeKick,
+    runtime, nextId, tuiDebug, flags, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, clearToastTimers, getState, set, flushEmitImmediate, pushItem, replaceItems, pushNotice, pushUserOrSyntheticItem, autoClearState, agentStatusState, routeState, syncContextStats, flushDeferredExecutionPendingResumeKick,
   } = bag;
 
   // Upper bound on the awaited compacting clear. requireCompactSuccess makes
@@ -272,7 +272,10 @@ export function createSessionFlow(bag) {
     if (getState().busy && shouldMirrorSteeringEntry(entry)) {
       appendTuiSteeringPersist(leadSessionId(), entry);
     }
-    if (isQueuedEntryVisible(entry)) set({ queued: [...getState().queued, entry] });
+    if (isQueuedEntryVisible(entry)) {
+      set({ queued: [...getState().queued, entry] });
+      if (isQueuedEntryEditable(entry)) flushEmitImmediate?.();
+    }
     if (getState().busy) tuiDebug(`busy-queue enqueue mode=${entry.mode} pending=${pending.length}`);
     void drain();
     return true;
@@ -495,19 +498,23 @@ export function createSessionFlow(bag) {
   }
 
   const resetStats = () => {
-    getState().stats = createSessionStats();
-    return getState().stats;
+    const stats = createSessionStats();
+    set({ stats });
+    return stats;
   };
   const clearUiActivityBeforeContextSync = () => {
     clearToastTimers();
     resetAllStreamingMarkdownStablePrefixes();
-    getState().items = replaceItems([]);
-    getState().toasts = [];
-    getState().queued = [];
-    getState().thinking = null;
-    getState().spinner = null;
-    getState().lastTurn = null;
-    getState().busy = false;
+    const items = replaceItems([]);
+    set({
+      items,
+      toasts: [],
+      queued: [],
+      thinking: null,
+      spinner: null,
+      lastTurn: null,
+      busy: false,
+    });
     pendingNotificationKeys.clear();
     displayedExecutionNotificationKeys.clear();
     clearExecutionDedupState?.();
@@ -545,13 +552,18 @@ export function createSessionFlow(bag) {
     flags.pendingSessionReset = true;
     clearUiActivityBeforeContextSync();
     resetStats();
-    getState().stats.currentContextTokens = 0;
-    getState().stats.currentEstimatedContextTokens = 0;
-    getState().stats.currentContextSource = null;
-    getState().stats.currentContextUpdatedAt = Date.now();
-    getState().displayContextWindow = 0;
-    getState().compactBoundaryTokens = 0;
-    getState().autoCompactTokenLimit = 0;
+    set({
+      stats: {
+        ...getState().stats,
+        currentContextTokens: 0,
+        currentEstimatedContextTokens: 0,
+        currentContextSource: null,
+        currentContextUpdatedAt: Date.now(),
+      },
+      displayContextWindow: 0,
+      compactBoundaryTokens: 0,
+      autoCompactTokenLimit: 0,
+    });
   };
   const snapshotTuiBeforeSessionReset = () => ({
     items: getState().items.slice(),
@@ -567,14 +579,17 @@ export function createSessionFlow(bag) {
   const restoreTuiAfterFailedSessionReset = (snapshot) => {
     if (!snapshot) return;
     flags.pendingSessionReset = false;
-    getState().items = replaceItems(snapshot.items);
-    getState().toasts = snapshot.toasts.slice();
-    getState().queued = snapshot.queued.slice();
-    getState().thinking = snapshot.thinking;
-    getState().spinner = snapshot.spinner;
-    getState().lastTurn = snapshot.lastTurn;
-    getState().busy = snapshot.busy;
-    getState().stats = { ...snapshot.stats };
+    const items = replaceItems(snapshot.items);
+    set({
+      items,
+      toasts: snapshot.toasts.slice(),
+      queued: snapshot.queued.slice(),
+      thinking: snapshot.thinking,
+      spinner: snapshot.spinner,
+      lastTurn: snapshot.lastTurn,
+      busy: snapshot.busy,
+      stats: { ...snapshot.stats },
+    });
     syncContextStats({ allowEstimated: true });
     set({
       items: getState().items,

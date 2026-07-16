@@ -45,7 +45,8 @@ export function createModelRouteApi(deps) {
     getConfigHasSecrets, getSearchRouteState, setSearchRouteState,
     cfgMod, reg, mgr, statusRoutes,
     resolveRoute, searchCapableFor, lookupModelMeta,
-    adoptConfig, saveConfigAndAdopt, ensureFullConfig, ensureProvidersReady,
+    adoptConfig, saveConfigAndAdopt, ensureFullConfig, awaitKeychainPrewarm,
+    ensureProvidersReady,
     persistLeadRoute, refreshRouteEffort,
     refreshStatuslineUsageSnapshot, scheduleStatuslineUsageRefresh,
     invalidateContextStatusCache, invalidateProviderCaches,
@@ -70,6 +71,7 @@ export function createModelRouteApi(deps) {
       }
       if (!selectedRoute) throw new Error('search route requires provider and model');
       if (isDefaultSearchRouteConfig(selectedRoute)) {
+        await awaitKeychainPrewarm();
         ensureFullConfig();
         const routeToSave = normalizeSearchRouteConfig({
           provider: SEARCH_DEFAULT_PROVIDER,
@@ -87,6 +89,7 @@ export function createModelRouteApi(deps) {
       if (!isSearchCapableProvider(selectedRoute.provider)) {
         throw new Error(`provider "${selectedRoute.provider}" does not support Mixdog native search`);
       }
+      await awaitKeychainPrewarm();
       ensureFullConfig();
       await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);

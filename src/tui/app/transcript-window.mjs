@@ -585,12 +585,44 @@ export const streamingMeasuredRowsById = new Map();
 // settle / invalidate delete sites in estimateTranscriptItemRowsCached.
 const streamingEstimateHighWaterById = new Map();
 
+// The App asks for the live-tail estimate on every render, including renders
+// caused only by prompt typing. Keep exactly the latest estimate per stream id
+// so unchanged text never reaches markdown/plain row measurement. The key
+// includes every App-level input that selects this rendering path or geometry.
+const streamingTailEstimateById = new Map();
+const STREAMING_TAIL_ESTIMATE_LRU_MAX = 8;
+
+function cacheStreamingTailEstimate(id, entry) {
+  if (id == null) return;
+  if (streamingTailEstimateById.has(id)) streamingTailEstimateById.delete(id);
+  streamingTailEstimateById.set(id, entry);
+  while (streamingTailEstimateById.size > STREAMING_TAIL_ESTIMATE_LRU_MAX) {
+    const oldest = streamingTailEstimateById.keys().next().value;
+    if (oldest === undefined) break;
+    streamingTailEstimateById.delete(oldest);
+    // The high-water entry belongs to the same latest-estimate lifecycle.
+    // Leaving it behind both grows without bound and lets a later reuse of an
+    // evicted id inherit geometry from an unrelated completed/aborted stream.
+    streamingEstimateHighWaterById.delete(oldest);
+  }
+}
+
+/** Lifecycle visibility for focused cache-boundary tests. */
+export function streamingRowEstimateStateForId(id) {
+  return {
+    tailEstimate: streamingTailEstimateById.has(id),
+    highWater: streamingEstimateHighWaterById.has(id),
+  };
+}
+
 /** True when either streaming id-keyed store holds entries, so the mount-prune
  * call site fires even when only the estimate high-water map is populated (an
  * item that never got a Yoga measurement but reached an estimate high-water,
  * then was bulk-replaced, must still be pruned). */
 export function hasStreamingRowStateToPrune() {
-  return streamingMeasuredRowsById.size > 0 || streamingEstimateHighWaterById.size > 0;
+  return streamingMeasuredRowsById.size > 0
+    || streamingEstimateHighWaterById.size > 0
+    || streamingTailEstimateById.size > 0;
 }
 
 /** Drop streamingMeasuredRowsById entries for ids no longer mounted, so the
@@ -606,6 +638,11 @@ export function pruneStreamingMeasuredRowsById(liveIds) {
   if (streamingEstimateHighWaterById.size > 0) {
     for (const id of streamingEstimateHighWaterById.keys()) {
       if (!liveIds.has(id)) streamingEstimateHighWaterById.delete(id);
+    }
+  }
+  if (streamingTailEstimateById.size > 0) {
+    for (const id of streamingTailEstimateById.keys()) {
+      if (!liveIds.has(id)) streamingTailEstimateById.delete(id);
     }
   }
 }
@@ -656,6 +693,21 @@ function assistantTextForStreamingRowEstimate(text) {
 }
 
 export function streamingEstimateRows(item, columns, toolOutputExpanded) {
+  const id = item?.id;
+  const exactText = String(item?.text ?? '');
+  const toolExpanded = toolOutputExpanded ? 1 : 0;
+  const renderMode = item?.kind === 'assistant' && item?.streaming
+    ? 'assistant-streaming-markdown'
+    : 'other';
+  const cached = id == null ? null : streamingTailEstimateById.get(id);
+  if (cached
+    && cached.text === exactText
+    && cached.columns === columns
+    && cached.toolExpanded === toolExpanded
+    && cached.renderMode === renderMode) {
+    cacheStreamingTailEstimate(id, cached);
+    return cached.rows;
+  }
   const trimmedText = assistantTextForStreamingRowEstimate(item.text);
   const estimateItem = trimmedText === item.text ? item : { ...item, text: trimmedText };
   const raw = Math.max(1, Math.ceil(estimateTranscriptItemRows(estimateItem, columns, toolOutputExpanded)));
@@ -664,16 +716,32 @@ export function streamingEstimateRows(item, columns, toolOutputExpanded) {
   // this id already reached this run — absorbs the childCount 1↔2 gap flip that
   // otherwise dips the estimate ±1 frame-to-frame. A columns/expanded change
   // resets the water line (new width → legitimately new row count).
-  const id = item?.id;
   if (id == null) return quantized;
-  const toolExpanded = toolOutputExpanded ? 1 : 0;
   const prev = streamingEstimateHighWaterById.get(id);
-  if (!prev || prev.columns !== columns || prev.toolExpanded !== toolExpanded) {
-    streamingEstimateHighWaterById.set(id, { rows: quantized, columns, toolExpanded });
-    return quantized;
+  let rows;
+  if (!prev
+    || prev.columns !== columns
+    || prev.toolExpanded !== toolExpanded
+    || prev.renderMode !== renderMode) {
+    streamingEstimateHighWaterById.set(id, {
+      rows: quantized,
+      columns,
+      toolExpanded,
+      renderMode,
+    });
+    rows = quantized;
+  } else {
+    if (quantized > prev.rows) prev.rows = quantized;
+    rows = prev.rows;
   }
-  if (quantized > prev.rows) prev.rows = quantized;
-  return prev.rows;
+  cacheStreamingTailEstimate(id, {
+    text: exactText,
+    columns,
+    toolExpanded,
+    renderMode,
+    rows,
+  });
+  return rows;
 }
 
 // ── Same-frame streaming-tail growth compensation (scrolled-up only) ────────
@@ -754,6 +822,7 @@ export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpand
     if (idEntry) {
       streamingMeasuredRowsById.delete(item.id);
       streamingEstimateHighWaterById.delete(item.id);
+      streamingTailEstimateById.delete(item.id);
     }
     // No confirmed measurement yet for this id (item just started streaming):
     // nothing to defer against, so the first frame falls back to the estimate.
@@ -765,6 +834,7 @@ export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpand
     // owns its height. Clear both so a later id reuse / this run cannot leak.
     if (streamingMeasuredRowsById.has(item.id)) streamingMeasuredRowsById.delete(item.id);
     if (streamingEstimateHighWaterById.has(item.id)) streamingEstimateHighWaterById.delete(item.id);
+    if (streamingTailEstimateById.has(item.id)) streamingTailEstimateById.delete(item.id);
   }
   const variantKey = transcriptItemVariantKey(item);
   const toolExpanded = toolOutputExpanded ? 1 : 0;

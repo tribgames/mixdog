@@ -2,6 +2,7 @@
 
 import {
   finishProcessLifecycle,
+  finishProcessLifecycleAsync,
   recordCatchableFatal,
 } from './process-lifecycle.mjs';
 
@@ -125,7 +126,7 @@ export function installProcessSignalCleanup({
     }
     running = false;
     if (shouldExit) {
-      finishProcessLifecycle(
+      await finishProcessLifecycleAsync(
         cleanupFailed ? 'forced-cleanup' : error ? 'catchable-fatal-error' : 'clean-shutdown',
         code,
       );

@@ -199,6 +199,11 @@ export function useMouseInput({
       promptMouseSelectionRef.current?.clear?.();
       applySelectionRect(null);
     };
+    // Windows Terminal's native selection overlay survives incremental frames.
+    // Clear it only when an app-owned gesture completes, never on drag motion.
+    const finishWindowsMouseGesture = () => {
+      if (IS_WINDOWS_TERMINAL) store.forceRenderRepaint?.();
+    };
     // Edge auto-scroll TIMER (ref: ScrollKeybindingHandler useDragToScroll).
     // SGR mode 1002 reports drag-motion only when the pointer changes CELL, so
     // a pointer held stationary at the top/bottom edge stops emitting events
@@ -304,6 +309,7 @@ export function useMouseInput({
           if (dragRef.current.active) {
             const last = dragRef.current.last || {};
             finalizeActiveDrag(Number(last.x) || 0, Number(last.y) || 0);
+            finishWindowsMouseGesture();
           } else {
             stopEdgeAutoscroll();
           }
@@ -352,14 +358,8 @@ export function useMouseInput({
         // never forwards those events; keep this guard as a belt-and-braces so
         // a future WT that starts forwarding them can never double-paint.
         if (IS_WINDOWS_TERMINAL && shiftHeld) return;
-        // WT's native (shift+drag) selection overlay is NOT cleared by our
-        // incremental repaints — it would sit on top of the app selection as a
-        // second highlight. Any app-owned button press means the user is done
-        // with that native selection: force one full clear+rewrite frame
-        // (BSU/ESU-wrapped, no flash) which dismisses it before we paint ours.
-        if (IS_WINDOWS_TERMINAL && press && !isMotion) {
-          store.forceRenderRepaint?.();
-        }
+        // Do not force a full clear/rewrite on app-owned presses. Selection
+        // changes below repaint through Ink's normal maxFps render throttle.
         // Ctrl+left-click is the app-side extend trigger (baseButton =
         // button & 3 already maps ctrl+left press to button 0); right-button
         // press is the second trigger (its own block below). This is
@@ -384,6 +384,7 @@ export function useMouseInput({
               dragRef.current = { anchor: { x, y }, anchorScroll: 0, last: { x, y }, active: false, rect: null, region: 'prompt', anchorSpan: null };
               if (offset != null) ctl.extendTo?.(offset, true);
               lastClickRef.current = { x: -1, y: -1, t: 0 };
+              finishWindowsMouseGesture();
             }
             return;
           }
@@ -401,6 +402,7 @@ export function useMouseInput({
             dragRef.current = { ...dragRef.current, last: { x, y: selectionY }, active: false, region: regionR };
             applySelectionRect(rect);
             lastClickRef.current = { x, y, t: nowR, count: 1 };
+            finishWindowsMouseGesture();
             return;
           }
           if (
@@ -420,6 +422,7 @@ export function useMouseInput({
             dragRef.current = { ...dragRef.current, last: { x, y: selectionY }, active: false, region: regionR };
             applySelectionRect(rect);
             lastClickRef.current = { x, y, t: nowR, count: 1 };
+            finishWindowsMouseGesture();
             return;
           }
           return;
@@ -486,6 +489,7 @@ export function useMouseInput({
             dragRef.current.region = null;
             dragRef.current.anchorSpan = null;
             clearAllSelections();
+            finishWindowsMouseGesture();
             return;
           }
           const region = inTranscript ? 'transcript' : 'status';
@@ -671,6 +675,10 @@ export function useMouseInput({
           // path the ctrl+wheel zoom passthrough uses. Guarded to baseButton 0
           // so a stray right-button release never finalizes.
           finalizeActiveDrag(x, y);
+          // WT keeps its native shift-selection overlay across incremental
+          // frames. Dismiss it once per completed gesture, after publishing the
+          // final app selection, rather than forcing a full rewrite on press.
+          finishWindowsMouseGesture();
         }
       }
     };

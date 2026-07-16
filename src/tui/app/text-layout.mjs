@@ -6,6 +6,7 @@ import { displayWidth } from '../display-width.mjs';
 import wrapAnsi from 'wrap-ansi';
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+let promptRowsCache = null;
 
 export function wrappedTextRows(value, width) {
   const w = Math.max(1, Math.floor(Number(width) || 1));
@@ -43,7 +44,14 @@ export function promptContentRows(value, contentColumns) {
   // offset, so reserve for the worst common case: caret at the end. This can
   // over-reserve by one row at exact wrap boundaries, but never under-reserves
   // and therefore prevents transcript rows from bleeding into the prompt box.
-  return wrappedTextRows(`${String(value ?? '')} `, contentColumns);
+  const text = String(value ?? '');
+  const width = Math.max(1, Math.floor(Number(contentColumns) || 1));
+  if (promptRowsCache?.text === text && promptRowsCache.width === width) {
+    return promptRowsCache.rows;
+  }
+  const rows = wrappedTextRows(`${text} `, width);
+  promptRowsCache = { text, width, rows };
+  return rows;
 }
 
 // Rows an ink <Text wrap="wrap"> block occupies at `width`. Uses the SAME

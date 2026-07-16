@@ -27,6 +27,7 @@ export function createProviderModels({
   normalizeSearchProviderId,
   isSearchCapableProvider,
   ensureFullConfig,
+  awaitKeychainPrewarm,
   ensureProvidersReady,
   bootProfile,
   scheduleProviderModelWarmup,
@@ -100,7 +101,8 @@ export function createProviderModels({
     return sortProviderModels((rows || []).map(hydrateProviderModelRow));
   }
 
-  function enabledSearchProviderConfig() {
+  async function enabledSearchProviderConfig() {
+    await awaitKeychainPrewarm();
     ensureFullConfig();
     const out = {};
     for (const [name, providerConfig] of Object.entries(config().providers || {})) {
@@ -112,7 +114,7 @@ export function createProviderModels({
   }
 
   async function loadSearchProviderModelsFresh({ forceRefresh = false } = {}) {
-    const searchProviders = enabledSearchProviderConfig();
+    const searchProviders = await enabledSearchProviderConfig();
     const providerNames = Object.keys(searchProviders);
     if (!providerNames.length) return [];
     await ensureProvidersReady(config().providers || {});
@@ -163,7 +165,10 @@ export function createProviderModels({
   async function loadProviderModelsFresh({ forceRefresh = false, loadSecrets = true } = {}) {
     const startedAt = performance.now();
     profile('load:start', { forceRefresh, loadSecrets });
-    if (loadSecrets) ensureFullConfig();
+    if (loadSecrets) {
+      await awaitKeychainPrewarm();
+      ensureFullConfig();
+    }
     const providersStartedAt = performance.now();
     await ensureProvidersReady(config().providers || {});
     profile('providers-ready', { ms: (performance.now() - providersStartedAt).toFixed(1) });

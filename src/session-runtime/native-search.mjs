@@ -11,6 +11,7 @@ export function createNativeSearch({
   getSession,
   getReg,
   ensureFullConfig,
+  awaitKeychainPrewarm,
   ensureProvidersReady,
   ensureProviderEnabled,
   normalizeSearchProviderId,
@@ -91,8 +92,9 @@ export function createNativeSearch({
     return { ...route, id: route.model, display: route.model, name: route.model };
   }
 
-  function nativeSearchRoutes() {
+  async function nativeSearchRoutes() {
     const route = getRoute();
+    await awaitKeychainPrewarm();
     const cfg = ensureFullConfig();
     const searchRoute = normalizeSearchRouteConfig(cfg.searchRoute) || normalizeSearchRouteConfig(getSearchRoute());
     setSearchRoute(searchRoute);
@@ -172,7 +174,7 @@ export function createNativeSearch({
     const route = getRoute();
     const session = getSession();
     const reg = getReg();
-    const candidates = nativeSearchRoutes();
+    const candidates = await nativeSearchRoutes();
     if (!candidates.length) {
       if (isDefaultSearchRouteConfig(getSearchRoute())) {
         throw new Error(`default search route requires the current main model to support native web search (${route?.provider || 'unknown'}/${route?.model || 'unknown'})`);

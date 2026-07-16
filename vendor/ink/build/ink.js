@@ -403,7 +403,7 @@ export default class Ink {
     // [mixdog fork] Update the mouse drag-selection rectangle and repaint so the
     // inverse highlight tracks the drag. Called by the App's mouse handler.
     // A no-op-equal update is skipped to avoid redundant frames during motion.
-    setSelection = (rect, options = {}) => {
+    setSelection = (rect) => {
         const a = this.selectionRect;
         const same = a === rect ||
             (a && rect &&
@@ -417,21 +417,10 @@ export default class Ink {
                 a.captureText === rect.captureText &&
                 a.selectionForeground === rect.selectionForeground &&
                 a.selectionBackground === rect.selectionBackground);
-        if (same) {
-            if (!options.immediate) {
-                return;
-            }
-        }
-        else {
-            this.selectionRect = rect ?? null;
-        }
+        if (same)
+            return;
+        this.selectionRect = rect ?? null;
         if (!this.isUnmounted) {
-            if (options.immediate) {
-                this.selectionRepaintEpoch++;
-                this.selectionRepaintFlushPending = false;
-                this.rootNode.onImmediateRender();
-                return;
-            }
             this.scheduleSelectionRepaint();
         }
     };
@@ -456,7 +445,10 @@ export default class Ink {
             if (this.hasPendingThrottledRender) {
                 return;
             }
-            this.rootNode.onImmediateRender();
+            // Selection motion must share Ink's normal maxFps throttle; the old
+            // unthrottled callback regenerated a whole frame for every accepted
+            // drag update even though selection updates are coalesced.
+            this.rootNode.onRender();
         });
     };
     // [mixdog fork] Given a 0-based cell (x, y), return the inclusive rect of the

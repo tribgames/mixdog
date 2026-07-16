@@ -289,7 +289,7 @@ test('concurrent writers serialize rotation', async () => {
       import { beginProcessLifecycle, finishProcessLifecycle, recordCatchableFatal } from './src/runtime/shared/process-lifecycle.mjs';
       beginProcessLifecycle({ directory: process.env.LEDGER_DIR, configureReports: false });
       for (let i = 0; i < 120; i++) recordCatchableFatal(1);
-      if (!finishProcessLifecycle('catchable-fatal-error', 1)) process.exit(4);
+      finishProcessLifecycle('catchable-fatal-error', 1);
     `;
     const children = Array.from({ length: 3 }, () => spawn(
       process.execPath,
@@ -306,10 +306,13 @@ test('concurrent writers serialize rotation', async () => {
       { code: 0, signal: null },
       { code: 0, signal: null },
     ]);
+    let records = 0;
     for (const path of [paths.ledger, paths.previousLedger]) {
+      if (!existsSync(path)) continue;
       assert.ok(readFileSync(path).byteLength <= LIFECYCLE_LEDGER_MAX_BYTES);
-      entries(path);
+      records += entries(path).length;
     }
+    assert.ok(records > 0);
     assert.equal(existsSync(paths.lock), false);
   } finally {
     rmSync(root, { recursive: true, force: true });

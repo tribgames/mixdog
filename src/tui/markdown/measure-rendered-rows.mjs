@@ -7,6 +7,23 @@ import { assistantBodyWidth, measureMarkdownTableRows } from './table-layout.mjs
 import { renderTokenAnsiSegments } from './render-ansi.mjs';
 import { resolveStreamingMarkdownParts } from './streaming-markdown.mjs';
 
+// One latest measurement per live stream. The small LRU bound mirrors the
+// streaming-markdown split caches: completed/abandoned stream ids cannot make
+// this module retain an unbounded response history.
+const streamingRowsByKey = new Map();
+const STREAMING_ROWS_LRU_MAX = 32;
+
+function cacheStreamingRows(key, entry) {
+  if (!key) return;
+  if (streamingRowsByKey.has(key)) streamingRowsByKey.delete(key);
+  streamingRowsByKey.set(key, entry);
+  while (streamingRowsByKey.size > STREAMING_ROWS_LRU_MAX) {
+    const oldest = streamingRowsByKey.keys().next().value;
+    if (oldest === undefined) break;
+    streamingRowsByKey.delete(oldest);
+  }
+}
+
 function wrappedLineRows(line, width) {
   const text = String(line);
   const full = displayWidth(text);
@@ -62,10 +79,7 @@ export function measureMarkdownRenderedRows(text, columns, { trimPartialFences =
   return Math.max(1, rows);
 }
 
-export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
-  const value = String(text ?? '');
-  if (!value) return 1;
-  const parts = resolveStreamingMarkdownParts(value, streamKey);
+function measureStreamingPartsUncached(parts, columns) {
   if (parts.plain) {
     return estimateWrappedRowsFallback(parts.unstableForRender, columns, 3);
   }
@@ -80,6 +94,104 @@ export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
     childCount += 1;
   }
   if (childCount === 2) rows += 1;
-  if (childCount === 0) return 1;
-  return Math.max(1, rows);
+  return childCount === 0 ? 1 : Math.max(1, rows);
+}
+
+// Test/reference path: resolve the same renderer split, but deliberately bypass
+// streamingRowsByKey and remeasure every rendered child from scratch.
+export function measureStreamingMarkdownRenderedRowsUncached(text, columns, streamKey) {
+  const value = String(text ?? '');
+  if (!value) return 1;
+  return measureStreamingPartsUncached(resolveStreamingMarkdownParts(value, streamKey), columns);
+}
+
+export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
+  const value = String(text ?? '');
+  const key = streamKey == null || streamKey === '' ? null : String(streamKey);
+  const cached = key ? streamingRowsByKey.get(key) : null;
+  // Check the exact render inputs before even resolving markdown parts. App
+  // renders caused by typing or overlays therefore do no wrapping/token work
+  // when the live tail itself did not change.
+  if (cached && cached.text === value && cached.columns === columns) {
+    cacheStreamingRows(key, cached);
+    return cached.rows;
+  }
+  if (!value) {
+    cacheStreamingRows(key, {
+      text: value,
+      columns,
+      mode: 'empty',
+      rows: 1,
+    });
+    return 1;
+  }
+  const parts = resolveStreamingMarkdownParts(value, streamKey);
+  if (parts.plain) {
+    const plain = parts.unstableForRender;
+    const width = Math.max(8, Number(columns || 80) - 3);
+    const lastBreak = plain.lastIndexOf('\n');
+    const stablePrefix = lastBreak >= 0 ? plain.substring(0, lastBreak + 1) : '';
+    let stableRows = 0;
+    if (cached
+      && cached.mode === 'plain'
+      && cached.columns === columns
+      && stablePrefix.startsWith(cached.stablePrefix)) {
+      // Lines preceding the currently-growing final line wrap independently.
+      // Measure only complete lines added since the previous split.
+      const addedComplete = plain.substring(cached.stablePrefix.length, Math.max(cached.stablePrefix.length, lastBreak));
+      stableRows = cached.stableRows;
+      if (addedComplete) {
+        stableRows += addedComplete
+          .split('\n')
+          .reduce((sum, line) => sum + wrappedLineRows(line, width), 0);
+      }
+    } else if (lastBreak >= 0) {
+      stableRows = plain
+        .substring(0, lastBreak)
+        .split('\n')
+        .reduce((sum, line) => sum + wrappedLineRows(line, width), 0);
+    }
+    const finalLine = lastBreak >= 0 ? plain.substring(lastBreak + 1) : plain;
+    const rows = Math.max(1, stableRows + wrappedLineRows(finalLine, width));
+    cacheStreamingRows(key, {
+      text: value,
+      columns,
+      mode: 'plain',
+      stablePrefix,
+      stableRows,
+      rows,
+    });
+    return rows;
+  }
+  let rows = 0;
+  let childCount = 0;
+  let stableRows = 0;
+  if (parts.stablePrefix) {
+    // The renderer mounts stablePrefix and unstableSuffix as separate Markdown
+    // children. An unchanged stable child is therefore safe to reuse exactly;
+    // only the independently-rendered live suffix needs measuring on append.
+    stableRows = cached
+      && cached.mode === 'markdown'
+      && cached.columns === columns
+      && cached.stablePrefix === parts.stablePrefix
+      ? cached.stableRows
+      : measureMarkdownRenderedRows(parts.stablePrefix, columns, { trimPartialFences: false });
+    rows += stableRows;
+    childCount += 1;
+  }
+  if (parts.unstableSuffix) {
+    rows += measureMarkdownRenderedRows(parts.unstableForRender, columns, { trimPartialFences: true });
+    childCount += 1;
+  }
+  if (childCount === 2) rows += 1;
+  const measuredRows = childCount === 0 ? 1 : Math.max(1, rows);
+  cacheStreamingRows(key, {
+    text: value,
+    columns,
+    mode: 'markdown',
+    stablePrefix: parts.stablePrefix,
+    stableRows,
+    rows: measuredRows,
+  });
+  return measuredRows;
 }

@@ -183,11 +183,18 @@ export function PromptInput({
   const commitDraft = (next, options = {}) => {
     const sameDraft = draftStateEqual(draftRef.current, next);
     if (!options.keepPreferredColumn) preferredColumnRef.current = null;
-    if (sameDraft) return;
+    if (sameDraft) {
+      // Mouse-up is a render boundary even when the final cell matches the last
+      // coalesced drag cell: settle the final highlight immediately.
+      if (options.immediateSettle) scheduleImmediateFlush();
+      return;
+    }
     if (!options.skipHistory) recordUndoSnapshot(draftRef.current, next, options);
     draftRef.current = next;
     setDraft(next);
-    scheduleImmediateFlush();
+    // Mouse drag motion uses Ink's normal maxFps render path; keyboard edits
+    // and mouse-up finalization retain the low-latency immediate flush.
+    if (!options.throttledRender) scheduleImmediateFlush();
     if (next.value !== lastReportedValueRef.current) {
       lastReportedValueRef.current = next.value;
       onDraftChange?.(next.value);
@@ -325,13 +332,13 @@ export function PromptInput({
   const queueMouseExtendCommit = (next, immediate = false) => {
     if (immediate) {
       cancelMouseExtendCoalesce();
-      commitDraft(next);
+      commitDraft(next, { immediateSettle: true });
       mouseExtendCoalesceRef.current.t = Date.now();
       return;
     }
     if (draftStateEqual(draftRef.current, next)) {
       cancelMouseExtendCoalesce();
-      commitDraft(next);
+      commitDraft(next, { throttledRender: true });
       return;
     }
     const state = mouseExtendCoalesceRef.current;
@@ -341,7 +348,7 @@ export function PromptInput({
     if (elapsed >= MOUSE_EXTEND_COALESCE_MS) {
       cancelMouseExtendCoalesce();
       state.t = now;
-      commitDraft(next);
+      commitDraft(next, { throttledRender: true });
       return;
     }
     if (state.timer) return;
@@ -351,7 +358,7 @@ export function PromptInput({
       current.timer = null;
       current.pendingNext = null;
       current.t = Date.now();
-      if (pending) commitDraft(pending);
+      if (pending) commitDraft(pending, { throttledRender: true });
     }, Math.max(1, MOUSE_EXTEND_COALESCE_MS - elapsed));
     state.timer.unref?.();
   };

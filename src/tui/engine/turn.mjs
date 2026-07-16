@@ -12,7 +12,7 @@ import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, ass
 
 export function createRunTurn(bag) {
   const {
-    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, pushItem, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
+    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, flushEmit, flushEmitImmediate, pushItem, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
   } = bag;
   // Small fallbacks keep isolated createRunTurn harnesses source-compatible;
   // the real engine supplies atomic implementations that also maintain revision.
@@ -179,6 +179,7 @@ export function createRunTurn(bag) {
           // drain-finally flush, so a deferred completion kick would never re-arm.
           // Fire it explicitly (idempotent: guarded by deferred flag + !busy).
           flushDeferredExecutionPendingResumeKick();
+          flushEmitImmediate?.();
         }, 5_000);
         watchdogGraceTimer.unref?.();
       }, delay);
@@ -1144,7 +1145,9 @@ export function createRunTurn(bag) {
         },
         onUsageDelta: (delta) => {
           if (!markTurnProgress('usage-delta')) return;
-          applyUsageDelta(getState().stats, delta);
+          const stats = { ...getState().stats };
+          applyUsageDelta(stats, delta);
+          set({ stats });
           syncContextStats({ allowEstimated: true });
           const currentTurnInput = Math.max(0, getState().stats.inputTokens - inputBaseline);
           const currentTurnOutput = Math.max(0, getState().stats.outputTokens - outputBaseline);
@@ -1300,7 +1303,7 @@ export function createRunTurn(bag) {
           && !assistantOutput
           && !producedTranscriptItem;
         if (!isNoOpTurn) {
-          getState().stats.turns = (getState().stats.turns || 0) + 1;
+          set({ stats: { ...getState().stats, turns: (getState().stats.turns || 0) + 1 } });
         }
         // Pin the post-think summary into the transcript right after this turn's
         // output so it scrolls up with the answer and stays in the scrollback,
@@ -1326,6 +1329,9 @@ export function createRunTurn(bag) {
     // Shared UI getState(): a stale unwind must not wipe a newer turn's live
     // tool-summary line (same epoch rule as the shared-getState() block above).
     if (flags.leadTurnEpoch === turnEpoch) clearActiveToolSummary();
+    // Turn completion is latency-sensitive and must publish busy=false plus all
+    // terminal transcript/card mutations as one final snapshot.
+    flushEmit?.();
     _publishedThinkingActive = false; // turn teardown cleared getState().thinking
     const finalStatus = cancelled ? 'cancelled' : (failed ? 'failed' : 'done');
     tuiDebug(`runTurn end turn=${turnIndex} status=${finalStatus} elapsedMs=${Date.now() - startedAt}${watchdogTripped ? ' watchdogTripped=1' : ''} pending=${pending.length}`);

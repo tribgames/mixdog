@@ -2,14 +2,10 @@
  * src/tui/engine/context-state.mjs - route/context/agent-status derivations.
  *
  * Extracted from engine.mjs unchanged. These read the live runtime + store
- * snapshot and (for the two sync helpers) mutate state.stats / the display
- * context fields IN PLACE — the exact same object the store owns — so the
- * immutable-emit contract is preserved by their callers, which follow up with
- * a set({ stats: { ...state.stats }, ...routeState() }). getState() must return
- * the live (latest) store object; getPendingSessionReset() gates the stats
- * sync exactly as the old inline `pendingSessionReset` closure did.
+ * snapshot. The two sync helpers stage immutable draft patches through
+ * updateState; callers still follow with set(...) to schedule publication.
  */
-export function createContextState({ runtime, getState, getPendingSessionReset }) {
+export function createContextState({ runtime, getState, updateState, getPendingSessionReset }) {
   const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000, custom: false, providerDefault: 60 * 60 * 1000, provider: null, minContextPercent: 10 };
   const AGENT_STATUS_CACHE_MS = 250;
   let agentStatusCache = null;
@@ -68,7 +64,6 @@ export function createContextState({ runtime, getState, getPendingSessionReset }
   function syncContextDisplayFields(ctx = null) {
     const status = ctx || runtime.contextStatus?.() || null;
     if (!status) return;
-    const state = getState();
     const displayWindow = Number(status.contextWindow || 0);
     const compactBoundary = Number(status.compaction?.boundaryTokens || 0);
     // Prefer the resolved trigger (boundary - buffer): the statusline uses it
@@ -80,9 +75,11 @@ export function createContextState({ runtime, getState, getPendingSessionReset }
       || runtime.session?.autoCompactTokenLimit
       || 0,
     );
-    if (displayWindow > 0) state.displayContextWindow = displayWindow;
-    if (compactBoundary > 0) state.compactBoundaryTokens = compactBoundary;
-    if (autoCompact > 0) state.autoCompactTokenLimit = autoCompact;
+    const patch = {};
+    if (displayWindow > 0) patch.displayContextWindow = displayWindow;
+    if (compactBoundary > 0) patch.compactBoundaryTokens = compactBoundary;
+    if (autoCompact > 0) patch.autoCompactTokenLimit = autoCompact;
+    if (Object.keys(patch).length > 0) updateState(patch);
   }
 
   const syncContextStats = ({ allowEstimated = false } = {}) => {
@@ -91,17 +88,19 @@ export function createContextState({ runtime, getState, getPendingSessionReset }
     if (!ctx) return null;
     syncContextDisplayFields(ctx);
     const state = getState();
-    const hasProviderUsage = Number(state.stats.latestPromptTokens || state.stats.latestInputTokens || state.stats.inputTokens || 0) > 0;
+    const stats = { ...state.stats };
+    const hasProviderUsage = Number(stats.latestPromptTokens || stats.latestInputTokens || stats.inputTokens || 0) > 0;
     const hasApiContextUsage = Number(ctx?.lastApiRequestTokens ?? ctx?.usage?.lastContextTokens ?? 0) > 0;
     const hasTurnActivity = state.busy === true
       || state.spinner != null
       || state.thinking != null;
     const isFreshSession = !hasProviderUsage && !hasApiContextUsage && !hasTurnActivity;
     if (isFreshSession) {
-      state.stats.currentEstimatedContextTokens = 0;
-      state.stats.currentContextTokens = 0;
-      state.stats.currentContextSource = null;
-      state.stats.currentContextUpdatedAt = Date.now();
+      stats.currentEstimatedContextTokens = 0;
+      stats.currentContextTokens = 0;
+      stats.currentContextSource = null;
+      stats.currentContextUpdatedAt = Date.now();
+      updateState({ stats });
       return ctx;
     }
     const estimatedTokens = Math.max(0, Number(ctx.currentEstimatedTokens ?? ctx.usedTokens ?? 0));
@@ -114,32 +113,33 @@ export function createContextState({ runtime, getState, getPendingSessionReset }
     );
     if (!allowEstimated && !hasProviderUsage && usedSource !== 'last_api_request') return ctx;
     if (shouldPublishEstimate) {
-      state.stats.currentEstimatedContextTokens = estimatedTokens;
-      state.stats.currentContextSource = 'estimated';
-      state.stats.currentContextTokens = 0;
+      stats.currentEstimatedContextTokens = estimatedTokens;
+      stats.currentContextSource = 'estimated';
+      stats.currentContextTokens = 0;
     } else if (allowEstimated && (hasProviderUsage || hasApiContextUsage || hasTurnActivity)) {
-      state.stats.currentEstimatedContextTokens = estimatedTokens;
-      state.stats.currentContextSource = usedSource || (estimatedTokens > 0 ? 'estimated' : null);
-      const publishedSource = String(state.stats.currentContextSource || '').toLowerCase();
+      stats.currentEstimatedContextTokens = estimatedTokens;
+      stats.currentContextSource = usedSource || (estimatedTokens > 0 ? 'estimated' : null);
+      const publishedSource = String(stats.currentContextSource || '').toLowerCase();
       if (publishedSource === 'last_api_request') {
         const apiUsed = Math.max(0, Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0));
-        state.stats.currentContextTokens = apiUsed;
+        stats.currentContextTokens = apiUsed;
       } else if (publishedSource === 'estimated') {
-        state.stats.currentContextTokens = 0;
+        stats.currentContextTokens = 0;
       } else {
-        state.stats.currentContextTokens = usedTokens > 0 ? usedTokens : 0;
+        stats.currentContextTokens = usedTokens > 0 ? usedTokens : 0;
       }
     } else {
-      state.stats.currentEstimatedContextTokens = 0;
+      stats.currentEstimatedContextTokens = 0;
       if (usedSource === 'last_api_request' && Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0) > 0) {
-        state.stats.currentContextTokens = Math.max(0, Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0));
-        state.stats.currentContextSource = 'last_api_request';
+        stats.currentContextTokens = Math.max(0, Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0));
+        stats.currentContextSource = 'last_api_request';
       } else {
-        state.stats.currentContextTokens = 0;
-        state.stats.currentContextSource = null;
+        stats.currentContextTokens = 0;
+        stats.currentContextSource = null;
       }
     }
-    state.stats.currentContextUpdatedAt = Date.now();
+    stats.currentContextUpdatedAt = Date.now();
+    updateState({ stats });
     return ctx;
   };
 

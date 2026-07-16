@@ -18,6 +18,7 @@ export function createWarmupSchedulers({
   getProviderModelsPromise,
   reloadFullConfig,
   ensureConfigForRouteProvider,
+  awaitKeychainPrewarm,
   ensureProvidersReady,
   ensureProviderEnabled,
   refreshStatuslineUsageSnapshot,
@@ -50,7 +51,7 @@ export function createWarmupSchedulers({
       return;
     }
     if (timers.providerWarmupTimer || isCloseRequested()) return;
-    timers.providerWarmupTimer = setTimeout(() => {
+    timers.providerWarmupTimer = setTimeout(async () => {
       timers.providerWarmupTimer = null;
       if (isCloseRequested()) return;
       if (!isFirstTurnCompleted() && !envFlag('MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN')) {
@@ -64,6 +65,7 @@ export function createWarmupSchedulers({
       }
       const providersStartedAt = performance.now();
       try {
+        await awaitKeychainPrewarm();
         reloadFullConfig();
       } catch (error) {
         bootProfile('config:full-failed', { error: error?.message || String(error) });
@@ -151,6 +153,7 @@ export function createWarmupSchedulers({
         return;
       }
       try {
+        await awaitKeychainPrewarm();
         ensureConfigForRouteProvider();
         await ensureProvidersReady(ensureProviderEnabled(getConfig(), getRoute().provider));
         if (isCloseRequested()) return;
@@ -183,6 +186,7 @@ export function createWarmupSchedulers({
         return;
       }
       try {
+        await awaitKeychainPrewarm();
         ensureConfigForRouteProvider();
         await ensureProvidersReady(ensureProviderEnabled(getConfig(), getRoute().provider));
         if (isCloseRequested()) return;

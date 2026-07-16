@@ -82,7 +82,16 @@ const STANDALONE_SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), 
 // cap and restore strictly-unbounded prep.
 const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS', 120_000);
 
-export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd, onSubagentEvent }) {
+export function createStandaloneAgent({
+  cfgMod,
+  reg,
+  mgr,
+  dataDir,
+  cwd: defaultCwd,
+  onSubagentEvent,
+  awaitKeychainPrewarm = async () => {},
+  isKeychainPrewarmReady = () => true,
+}) {
   // Optional bridge to the standard hook bus for SubagentStart / SubagentStop.
   // Best-effort: a hook error must never affect worker spawn/finish.
   function emitSubagentEvent(phase, agent, extra = {}) {
@@ -1588,6 +1597,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   async function execute(args = {}, context = {}) {
     try {
+      await awaitKeychainPrewarm();
       const type = clean(args.type) || 'spawn';
       const callerCwd = clean(context.cwd || context.callerCwd);
       const scopedContext = agentScope(args, context);
@@ -1731,6 +1741,10 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     tools: [AGENT_TOOL],
     execute,
     getStatus: (context = {}) => {
+      if (!isKeychainPrewarmReady()) {
+        void awaitKeychainPrewarm();
+        return { workers: [], jobs: [], scope: null };
+      }
       const scopedContext = agentScope({}, context);
       const pid = terminalPidForContext(scopedContext);
       return {
@@ -1740,6 +1754,10 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       };
     },
     recoverWorkers: (context = {}) => {
+      if (!isKeychainPrewarmReady()) {
+        void awaitKeychainPrewarm();
+        return [];
+      }
       const scopedContext = agentScope({ recover: true }, context);
       refreshTagsFromSessions({ scanSessions: true, context: scopedContext });
       return list({ scanSessions: false, context: scopedContext });

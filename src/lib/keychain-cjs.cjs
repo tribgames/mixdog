@@ -1,6 +1,6 @@
 'use strict';
 
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { resolvePluginData } = require('./plugin-paths.cjs');
@@ -12,16 +12,18 @@ const KEYCHAIN_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS || 150
 const POWERSHELL_TIMEOUT_MS = KEYCHAIN_TIMEOUT_MS;
 
 // ---------------------------------------------------------------------------
-// getSecret read cache — collapse repeated reads during a turn while bounding
-// cross-process staleness. Misses are never cached, so a token saved by another
-// process becomes visible immediately; hits expire so rotations are observed.
+// getSecret read cache — decrypted secrets stay resident for this process by
+// default, avoiding repeated synchronous keychain subprocesses. An explicit
+// finite TTL can bound cross-process staleness; 0 disables the cache.
 // ---------------------------------------------------------------------------
 const KEYCHAIN_CACHE_TTL_MS = (() => {
     const value = Number(process.env.MIXDOG_KEYCHAIN_CACHE_TTL_MS);
-    return Number.isFinite(value) && value >= 0 ? value : 30000;
+    return Number.isFinite(value) && value >= 0 ? value : Number.POSITIVE_INFINITY;
 })();
 /** @type {Map<string, {value: string, expiresAt: number}>} */
 const _secretCache = new Map();
+const _cacheGenerations = new Map();
+let _cacheEpoch = 0;
 
 function _cacheGet(account) {
     const key = `${SERVICE}\0${account}`;
@@ -38,17 +40,22 @@ function _cacheSet(account, value) {
     if (value == null || KEYCHAIN_CACHE_TTL_MS === 0) return;
     _secretCache.set(`${SERVICE}\0${account}`, {
         value,
-        expiresAt: Date.now() + KEYCHAIN_CACHE_TTL_MS,
+        expiresAt: KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY
+            ? Number.POSITIVE_INFINITY
+            : Date.now() + KEYCHAIN_CACHE_TTL_MS,
     });
 }
 
 function _cacheInvalidate(account) {
     _secretCache.delete(`${SERVICE}\0${account}`);
+    _cacheGenerations.set(account, (_cacheGenerations.get(account) || 0) + 1);
 }
 
 function invalidateSecretCache(account) {
     if (account == null) {
         _secretCache.clear();
+        _cacheGenerations.clear();
+        _cacheEpoch += 1;
         return;
     }
     _cacheInvalidate(account);
@@ -91,6 +98,25 @@ function run(cmd, args, opts) {
 
 // PS 5.1(powershell.exe) first: pwsh(PS 7) does not auto-load ProtectedData assembly,
 // so DPAPI calls silently fail there. Windows always ships powershell.exe.
+function resolvePowershellExe() {
+    const sysRoot = process.env.SystemRoot || process.env.windir;
+    if (!sysRoot) {
+        throw new Error('[keychain] cannot resolve SystemRoot to locate powershell.exe for DPAPI');
+    }
+    return path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+
+function powershellEnv() {
+    const env = {};
+    for (const key of [
+        'SystemRoot', 'windir', 'PATH', 'PATHEXT',
+        'TEMP', 'TMP', 'USERPROFILE',
+    ]) {
+        if (process.env[key] !== undefined) env[key] = process.env[key];
+    }
+    return env;
+}
+
 function powershell(script) {
     // Bound DPAPI PowerShell calls with a timeout: a hung powershell.exe
     // (AV scan stall, profile loader, transient cert chain lookup) would
@@ -101,26 +127,52 @@ function powershell(script) {
     // a PATH lookup, so a shadow `powershell.exe` earlier in PATH cannot hijack
     // secret encryption/decryption. (pwsh/PS7 is intentionally not used: it does
     // not auto-load the ProtectedData assembly, so DPAPI silently fails there.)
-    const _sysRoot = process.env.SystemRoot || process.env.windir;
-    if (!_sysRoot) {
-        throw new Error('[keychain] cannot resolve SystemRoot to locate powershell.exe for DPAPI');
+    const exe = resolvePowershellExe();
+    const r = run(exe, ['-NonInteractive', '-NoProfile', '-Command', script], { timeout: POWERSHELL_TIMEOUT_MS });
+    if (r.error && r.error.code === 'ETIMEDOUT') {
+        throw new Error(`[keychain] PowerShell DPAPI command timed out after ${POWERSHELL_TIMEOUT_MS}ms (host: ${exe})`);
     }
-    const _psHosts = [path.join(_sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')];
-    let timedOut = null;
-    for (const exe of _psHosts) {
-        const r = run(exe, ['-NonInteractive', '-NoProfile', '-Command', script], { timeout: POWERSHELL_TIMEOUT_MS });
-        if (r.error && r.error.code === 'ENOENT') continue;
-        if (r.error && r.error.code === 'ETIMEDOUT') {
-            timedOut = { exe, timeoutMs: POWERSHELL_TIMEOUT_MS };
-            continue;
+    if (r.error && r.error.code === 'ENOENT') {
+        throw new Error(`[keychain] PowerShell not found: ${exe}`);
+    }
+    return r;
+}
+
+function powershellAsync(script) {
+    return new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn(
+                resolvePowershellExe(),
+                ['-NonInteractive', '-NoProfile', '-Command', script],
+                {
+                    env: powershellEnv(),
+                    shell: false,
+                    windowsHide: true,
+                    stdio: ['ignore', 'pipe', 'pipe'],
+                    timeout: POWERSHELL_TIMEOUT_MS,
+                },
+            );
+        } catch (error) {
+            resolve({ status: null, stdout: '', stderr: '', error });
+            return;
         }
-        return r;
-    }
-    if (timedOut) {
-        throw new Error(`[keychain] PowerShell DPAPI command timed out after ${timedOut.timeoutMs}ms (last host: ${timedOut.exe})`);
-    }
-    const err = new Error('[keychain] PowerShell not found (tried powershell, pwsh)');
-    throw err;
+
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        const finish = (status, error = null) => {
+            if (settled) return;
+            settled = true;
+            resolve({ status, stdout, stderr, error });
+        };
+        child.once('error', (error) => finish(null, error));
+        child.once('close', (status) => finish(status));
+    });
 }
 
 function secretsDir() {
@@ -296,6 +348,35 @@ function win32Get(account) {
     return out;
 }
 
+async function prewarmSecrets() {
+    try {
+        if (platform() !== 'win32' || KEYCHAIN_CACHE_TTL_MS === 0) return;
+        const dir = secretsDir();
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        const epoch = _cacheEpoch;
+        await Promise.all(entries
+            .filter((entry) => entry.isFile() && entry.name.endsWith('.dpapi'))
+            .map(async (entry) => {
+                const account = entry.name.slice(0, -'.dpapi'.length);
+                const generation = _cacheGenerations.get(account) || 0;
+                try {
+                    const b64 = (await fs.promises.readFile(path.join(dir, entry.name), 'utf8')).trim();
+                    if (!b64) return;
+                    const r = await powershellAsync(`& { ${PS_UNPROTECT} } '${b64}'`);
+                    const value = (r.stdout || '').trim();
+                    if (r.error || r.status !== 0 || !value) return;
+                    if (_cacheEpoch !== epoch || (_cacheGenerations.get(account) || 0) !== generation) return;
+                    _cacheSet(account, value);
+                } catch {
+                    // Individual corrupt, deleted, or undecryptable entries must
+                    // not prevent the remaining secrets from warming.
+                }
+            }));
+    } catch {
+        // Prewarming is an optional startup optimization and must never fail boot.
+    }
+}
+
 function win32Set(account, value) {
     const dir = secretsDir();
     fs.mkdirSync(dir, { recursive: true });
@@ -367,4 +448,12 @@ function deleteSecret(account) {
     }
 }
 
-module.exports = { getSecret, setSecret, deleteSecret, hasSecret, invalidateSecretCache, SERVICE };
+module.exports = {
+    getSecret,
+    setSecret,
+    deleteSecret,
+    hasSecret,
+    invalidateSecretCache,
+    prewarmSecrets,
+    SERVICE,
+};

@@ -24,10 +24,10 @@ export function createEngineApi(bag) {
 
 export function createEngineApiA(bag) {
   const {
-    runtime, nextId, flags, pending, listeners, getState, set, pushItem, patchItem, replaceItems, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
+    runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
   } = bag;
   return {
-    getState: () => getState(),
+    getState: () => getPublishedState(),
     patchItem,
     subscribe: (listener) => {
       listeners.add(listener);
@@ -637,6 +637,7 @@ export function createEngineApiA(bag) {
         flags.drainEpoch = (Number(flags.drainEpoch) || 0) + 1;
         if (flags.draining) flags.draining = false;
         pushNotice('Interrupt did not settle — input restored.', 'warn', { transcript: true });
+        flushEmitImmediate?.();
         if (pending.length > 0 && typeof drain === 'function') void drain();
         // busy→false here bypasses the normal turn-end + drain-finally flushes,
         // so re-arm any deferred completion kick explicitly (idempotent).

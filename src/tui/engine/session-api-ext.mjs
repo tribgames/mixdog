@@ -10,7 +10,7 @@ import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 
 export function createEngineApiB(bag) {
   const {
-    runtime, nextId, flags, lifecycle, listeners, getState, set, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, resetStatsAndSyncContext,
+    runtime, nextId, flags, lifecycle, listeners, getState, set, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, resetStatsAndSyncContext,
   } = bag;
   return {
     resolveToolApproval: (id, decision = {}) => {
@@ -506,6 +506,7 @@ export function createEngineApiB(bag) {
 
     dispose: async (reason = 'cli-react-exit', options = {}) => {
       if (flags.disposed) return;
+      disposeEmit?.();
       flags.disposed = true;
       clearToastTimers();
       try { clearInterval(lifecycle.runtimePulseTimer); } catch {}

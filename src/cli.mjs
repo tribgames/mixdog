@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { classifyCliInvocation } from './headless-command.mjs';
 import {
   beginProcessLifecycle,
-  finishProcessLifecycle,
+  finishProcessLifecycleAsync,
 } from './runtime/shared/process-lifecycle.mjs';
 import { stagedChildExitCode } from './runtime/shared/staged-child-result.mjs';
 
@@ -54,12 +54,12 @@ async function main() {
   return await run(argv);
 }
 
-main().then((code) => {
+main().then(async (code) => {
   const exitCode = Number.isInteger(code) ? code : 0;
-  finishProcessLifecycle('clean-shutdown', exitCode);
+  await finishProcessLifecycleAsync('clean-shutdown', exitCode);
   process.exit(exitCode);
-}).catch((error) => {
+}).catch(async (error) => {
   process.stderr.write(`${error?.stack || error?.message || String(error)}\n`);
-  finishProcessLifecycle('catchable-fatal-error', 1);
+  await finishProcessLifecycleAsync('catchable-fatal-error', 1);
   process.exit(1);
 });

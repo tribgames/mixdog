@@ -32,7 +32,7 @@ export function createResourceApi(deps) {
     saveConfigAndAdopt, connectConfiguredMcp, invalidatePreSessionToolSurface,
     recreateCurrentSessionIfReady, normalizeMcpServerInput, mcpStatus,
     skillsStatus, skillContent, addProjectSkill, pluginsStatus, getMemoryModule,
-    reloadFullConfig, getActiveTurnCount,
+    reloadFullConfig, awaitKeychainPrewarm, getActiveTurnCount,
   } = deps;
   // Per-server MCP toggle serialization. The synchronous config adopt in
   // setMcpServerEnabled has already made the intent durable; the heavy
@@ -105,6 +105,7 @@ export function createResourceApi(deps) {
       return mcpStatus();
     },
     async reconnectMcp() {
+      await awaitKeychainPrewarm();
       reloadFullConfig();
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
