@@ -9,6 +9,7 @@ import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
 import { startAutoUpdater } from './updater';
 import { DESKTOP_WINDOW_OPTIONS } from './window-options';
+import { DESKTOP_IPC } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
 
 const acceptanceDebugPort = process.argv
@@ -36,6 +37,17 @@ let quitAfterDispose = false;
 let disposalPromise: Promise<void> | null = null;
 let windowState: ReturnType<typeof persistWindowState> | null = null;
 let windowStateFlush: Promise<void> = Promise.resolve();
+
+async function setPersistentZoom(factor: number): Promise<void> {
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) return;
+  const next = Math.min(10, Math.max(0.2, Math.round(factor * 100) / 100));
+  window.webContents.setZoomFactor(next);
+  const saved = await settingsStore.updateZoom(next);
+  if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+    window.webContents.send(DESKTOP_IPC.zoomFactorChanged, saved);
+  }
+}
 
 function configuredDevelopmentUrl(candidate: string): URL {
   try {
@@ -138,7 +150,11 @@ if (!app.requestSingleInstanceLock()) {
     await createWindow();
     // Keep the synchronous native-menu construction off the critical path to
     // the first renderer load. This matches the OpenCode startup ordering.
-    installNativeMenu(Boolean(process.env.ELECTRON_RENDERER_URL));
+    installNativeMenu(Boolean(process.env.ELECTRON_RENDERER_URL), {
+      reset: () => { void setPersistentZoom(1); },
+      zoomIn: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) + 0.2); },
+      zoomOut: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) - 0.2); },
+    });
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         void createWindow().catch((error: unknown) => {

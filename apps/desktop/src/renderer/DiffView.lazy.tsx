@@ -6,11 +6,11 @@ type DiffData = ComponentProps<typeof DiffView>["data"];
 
 export default function LazyDiffView({ data }: { data: DiffData }) {
   const [theme, setTheme] = useState<"light" | "dark">(
-    () => document.documentElement.style.colorScheme === "light" ? "light" : "dark",
+    () => getComputedStyle(document.documentElement).colorScheme === "light" ? "light" : "dark",
   );
   useEffect(() => {
     const root = document.documentElement;
-    const update = () => setTheme(root.style.colorScheme === "light" ? "light" : "dark");
+    const update = () => setTheme(getComputedStyle(root).colorScheme === "light" ? "light" : "dark");
     const observer = new MutationObserver(update);
     observer.observe(root, { attributes: true, attributeFilter: ["style", "data-mixdog-theme"] });
     return () => observer.disconnect();

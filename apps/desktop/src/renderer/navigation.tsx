@@ -14,6 +14,7 @@ import {
   FolderOpen,
   MessageSquare,
   MoreHorizontal,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -24,6 +25,7 @@ import type {
   DesktopSessionSummary,
 } from "../shared/contract";
 import { sessionSummaryTitle } from "../shared/session-title.mjs";
+import { StatusPopover } from "./StatusPopover";
 
 export type NavigationSelection =
   | { kind: "new" }
@@ -43,7 +45,29 @@ interface DesktopTitlebarProps {
   onToggleSidebar(): void;
   onSelectTab(tab: WorkspaceTab): void;
   onCloseTab(tab: WorkspaceTab): void;
+  onReorderTab(sourceKey: string, targetKey: string): void;
   onNewTask(): void;
+}
+
+const PROJECT_AVATAR_VARIANTS = [
+  "orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple", "gray",
+] as const;
+
+function projectAvatarVariant(identity: string) {
+  let hash = 0;
+  for (const character of identity) hash = ((hash * 31) + character.codePointAt(0)!) >>> 0;
+  return PROJECT_AVATAR_VARIANTS[hash % PROJECT_AVATAR_VARIANTS.length];
+}
+
+function ProjectAvatar({ label, identity }: { label: string; identity: string }) {
+  const initial = Array.from(label.trim())[0]?.toLocaleUpperCase() || "?";
+  return (
+    <span className="project-avatar-v2" data-component="project-avatar-v2" aria-hidden="true">
+      <span data-slot="project-avatar-surface" data-variant={projectAvatarVariant(identity)}>
+        {initial}
+      </span>
+    </span>
+  );
 }
 
 function SidebarToggleIcon({ open }: { open: boolean }) {
@@ -78,9 +102,12 @@ export function DesktopTitlebar({
   onToggleSidebar,
   onSelectTab,
   onCloseTab,
+  onReorderTab,
   onNewTask,
 }: DesktopTitlebarProps) {
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
+  const draggedTabKey = useRef("");
+  const [draggingKey, setDraggingKey] = useState("");
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
     if (node) tabNodes.current.set(key, node);
     else tabNodes.current.delete(key);
@@ -123,8 +150,32 @@ export function DesktopTitlebar({
                 {index > 0 && <span className="workspace-tab-divider" aria-hidden="true" />}
                 <div
                   ref={(node) => setTabNode(tab.key, node)}
-                  className={`workspace-tab ${active ? "active" : ""}`}
+                  className={`workspace-tab ${active ? "active" : ""} ${draggingKey === tab.key ? "dragging" : ""}`}
                   data-active={active}
+                  draggable
+                  aria-grabbed={draggingKey === tab.key}
+                  onDragStart={(event) => {
+                    draggedTabKey.current = tab.key;
+                    setDraggingKey(tab.key);
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", tab.key);
+                  }}
+                  onDragOver={(event) => {
+                    if (!draggedTabKey.current || draggedTabKey.current === tab.key) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const sourceKey = draggedTabKey.current || event.dataTransfer.getData("text/plain");
+                    if (sourceKey && sourceKey !== tab.key) onReorderTab(sourceKey, tab.key);
+                    draggedTabKey.current = "";
+                    setDraggingKey("");
+                  }}
+                  onDragEnd={() => {
+                    draggedTabKey.current = "";
+                    setDraggingKey("");
+                  }}
                   onMouseDown={(event) => {
                     if (event.button !== 1) return;
                     event.preventDefault();
@@ -243,6 +294,7 @@ interface SessionSidebarProps {
   onStartProjectTask(projectPath: string): void;
   onOpenSettings(): void;
   onResumeSession(sessionId: string): void;
+  onRenameSession(sessionId: string, title: string): Promise<void>;
 }
 
 export const SessionSidebar = React.memo(function SessionSidebar({
@@ -256,10 +308,15 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   onStartProjectTask,
   onOpenSettings,
   onResumeSession,
+  onRenameSession,
 }: SessionSidebarProps) {
   const [query, setQuery] = useState("");
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
+  const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
+  const [editingSessionId, setEditingSessionId] = useState("");
+  const [sessionTitleDraft, setSessionTitleDraft] = useState("");
+  const [sessionTitleInvalid, setSessionTitleInvalid] = useState(false);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const rows = useMemo(() => sessions
     .filter((session) => {
@@ -319,12 +376,34 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   }, []);
   const clearQuery = useCallback(() => setQuery(""), []);
   const toggleProjects = useCallback(() => setProjectsCollapsed((value) => !value), []);
+  const toggleTasks = useCallback(() => setTasksCollapsed((value) => !value), []);
   const toggleProject = useCallback((key: string) => setCollapsedProjects((current) => {
     const next = new Set(current);
     if (next.has(key)) next.delete(key);
     else next.add(key);
     return next;
   }), []);
+  const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
+    setEditingSessionId(session.id);
+    setSessionTitleDraft(sessionLabel(session));
+    setSessionTitleInvalid(false);
+  }, []);
+  const closeSessionEditor = useCallback(() => {
+    setEditingSessionId("");
+    setSessionTitleDraft("");
+    setSessionTitleInvalid(false);
+  }, []);
+  const commitSessionEditor = useCallback((session: DesktopSessionSummary, fromBlur = false) => {
+    const title = sessionTitleDraft.trim();
+    if (!title) {
+      setSessionTitleInvalid(true);
+      if (fromBlur) closeSessionEditor();
+      return;
+    }
+    closeSessionEditor();
+    if (title === sessionLabel(session)) return;
+    void onRenameSession(session.id, title);
+  }, [closeSessionEditor, onRenameSession, sessionTitleDraft]);
 
   return (
     <aside
@@ -390,9 +469,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                   <button type="button" className={`project-group-toggle ${active ? "selected" : ""}`}
                     aria-current={active ? "page" : undefined} aria-expanded={!collapsed}
                     onClick={() => toggleProject(key)}>
-                    {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                    <Folder size={14} />
+                    <ProjectAvatar label={label} identity={path} />
                     <span>{label}</span>
+                    <span className="project-group-chevron" aria-hidden="true">
+                      {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    </span>
                   </button>
                   <button type="button" className="project-task-add"
                     onClick={() => onStartProjectTask(path)} aria-label={`New task in ${label}`}
@@ -405,6 +486,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                   {group.map((session) => {
                     const active = selection.kind === "session" && selection.id === session.id;
                     return <SessionRow key={session.id} session={session} active={active}
+                      editing={editingSessionId === session.id}
+                      titleDraft={sessionTitleDraft}
+                      titleInvalid={sessionTitleInvalid}
+                      onTitleDraftChange={setSessionTitleDraft}
+                      onStartRename={openSessionEditor}
+                      onCancelRename={closeSessionEditor}
+                      onCommitRename={commitSessionEditor}
                       onResumeSession={onResumeSession} />;
                   })}
                 </nav>}
@@ -413,8 +501,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           </div>}
         </section>
         <section className="session-group standalone-group" aria-label="Tasks">
-          <h2>Tasks</h2>
-          <nav className="session-list standalone-session-list" aria-label="Standalone tasks">
+          <div className="sidebar-section-heading">
+            <button type="button" className="sidebar-section-toggle"
+              aria-expanded={!tasksCollapsed} onClick={toggleTasks}>
+              <span>Tasks</span>
+              {tasksCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+            </button>
+          </div>
+          {!tasksCollapsed && <nav className="session-list standalone-session-list" aria-label="Standalone tasks">
             {standaloneSessions.length === 0 && (
               <p className="sidebar-section-empty">
                 {normalizedQuery ? "No matching tasks" : "No tasks"}
@@ -423,12 +517,20 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             {standaloneSessions.map((session) => {
                 const active = selection.kind === "session" && selection.id === session.id;
                 return <SessionRow key={session.id} session={session} active={active}
+                  editing={editingSessionId === session.id}
+                  titleDraft={sessionTitleDraft}
+                  titleInvalid={sessionTitleInvalid}
+                  onTitleDraftChange={setSessionTitleDraft}
+                  onStartRename={openSessionEditor}
+                  onCancelRename={closeSessionEditor}
+                  onCommitRename={commitSessionEditor}
                   onResumeSession={onResumeSession} />;
             })}
-          </nav>
+          </nav>}
         </section>
       </div>
       <footer className="session-sidebar-footer">
+        <StatusPopover />
         <button type="button" onClick={onOpenSettings} aria-label="Open settings" data-tooltip="Settings">
           <Settings size={15} /><span>Settings</span>
         </button>
@@ -440,25 +542,91 @@ export const SessionSidebar = React.memo(function SessionSidebar({
 const SessionRow = React.memo(function SessionRow({
   session,
   active,
+  editing,
+  titleDraft,
+  titleInvalid,
+  onTitleDraftChange,
+  onStartRename,
+  onCancelRename,
+  onCommitRename,
   onResumeSession,
 }: {
   session: DesktopSessionSummary;
   active: boolean;
+  editing: boolean;
+  titleDraft: string;
+  titleInvalid: boolean;
+  onTitleDraftChange(value: string): void;
+  onStartRename(session: DesktopSessionSummary): void;
+  onCancelRename(): void;
+  onCommitRename(session: DesktopSessionSummary, fromBlur?: boolean): void;
   onResumeSession(sessionId: string): void;
 }) {
   const resume = useCallback(() => onResumeSession(session.id), [onResumeSession, session.id]);
+  const clickSequenceStartedActive = useRef(false);
+  const activateFromClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (editing) return;
+    if (event.detail <= 1) clickSequenceStartedActive.current = active;
+    resume();
+  }, [active, editing, resume]);
   return (
-    <button
-      type="button"
-      className={`session-row ${active ? "selected" : ""}`}
+    <div
+      className={`session-row ${active ? "selected" : ""} ${editing ? "editing" : ""}`}
       aria-current={active ? "page" : undefined}
-      onClick={resume}
+      onClick={activateFromClick}
       data-tooltip={sessionLabel(session)}
     >
-      <span className="session-row-copy">
-        <b>{sessionLabel(session)}</b>
-      </span>
-    </button>
+      {editing ? (
+        <input
+          className="session-title-input"
+          value={titleDraft}
+          maxLength={160}
+          autoFocus
+          aria-label={`Rename ${sessionLabel(session)}`}
+          aria-invalid={titleInvalid || undefined}
+          onFocus={(event) => event.currentTarget.select()}
+          onInput={(event) => {
+            onTitleDraftChange(event.currentTarget.value);
+          }}
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onCommitRename(session);
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              onCancelRename();
+            }
+          }}
+          onBlur={() => onCommitRename(session, true)}
+        />
+      ) : (
+        <>
+          <button type="button" className="session-row-main">
+            <span className="session-row-copy"
+              onDoubleClick={(event) => {
+                if (!active || !clickSequenceStartedActive.current) return;
+                event.preventDefault();
+                event.stopPropagation();
+                onStartRename(session);
+              }}>
+              <b>{sessionLabel(session)}</b>
+            </span>
+          </button>
+          <button type="button" className="session-row-rename"
+            aria-label={`Rename ${sessionLabel(session)}`} data-tooltip="Rename"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onStartRename(session);
+            }}>
+            <Pencil size={12} />
+          </button>
+        </>
+      )}
+    </div>
   );
 });
 
@@ -610,7 +778,7 @@ export function ProjectSwitcher({
                       onStartProject(project.path);
                       onClose();
                     }} aria-current={selected ? "page" : undefined}>
-                      <span className="project-avatar">{title.slice(0, 1).toLocaleUpperCase()}</span>
+                      <ProjectAvatar label={title} identity={project.path} />
                       <span>
                         <b>{title}</b>
                         <small>{project.path}</small>

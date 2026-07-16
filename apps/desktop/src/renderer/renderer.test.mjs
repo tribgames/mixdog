@@ -140,7 +140,9 @@ test('dedicated command surfaces preserve TUI actions without exposing automatio
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
   ]);
   assert.match(surfaces, /listProviderModels\?\.\(\{ quick: false,/);
-  assert.match(surfaces, /run\('setAgentRoute', \[agent\.id, \{ provider: model\.provider, model: model\.model \}\]\)/);
+  assert.match(surfaces, /run\('setAgentRoute', \[agent\.id, selectionFor\(model\)\]\)/);
+  assert.match(surfaces, /ariaLabel=\{`\$\{String\(agent\.label \|\| agent\.id\)\} effort`\}/);
+  assert.match(surfaces, /selectionFor\(selected, \{ fast: event\.currentTarget\.checked \}\)/);
   assert.match(surfaces, /op: 'edit'/);
   assert.match(surfaces, /Confirm delete/);
   assert.doesNotMatch(surfaces, /run\('(?:save|delete)(?:Schedule|Webhook)'/);
@@ -382,6 +384,44 @@ Binary files a/image.png and b/image.png differ`);
   assert.match(metadataOnly[0].patch, /rename to new\.bin/);
   assert.match(metadataOnly[1].patch, /new mode 100755/);
   assert.match(metadataOnly[2].patch, /Binary files/);
+});
+
+test('a truncated leading hunk is retained before a later git file marker', () => {
+  const files = parseUnifiedDiff(`@@ -8,2 +8,2 @@
+-old prefix
++new prefix
+diff --git a/later.ts b/later.ts
+--- a/later.ts
++++ b/later.ts
+@@ -1 +1 @@
+-before
++after`);
+  assert.equal(files.length, 2);
+  assert.equal(files[0].renderable, true);
+  assert.match(files[0].hunks[0], /old prefix[\s\S]*new prefix/);
+  assert.match(files[0].patch, /^@@ -8,2 \+8,2 @@/);
+  assert.equal(files[1].newFile.fileName, 'later.ts');
+});
+
+test('commit metadata before a git patch does not create a phantom file', () => {
+  const files = parseUnifiedDiff(`commit 0123456789abcdef
+Author: Mixdog Reviewer <reviewer@example.com>
+Date: Thu Jul 16 12:00:00 2026 +0000
+
+    Explain the change before the patch.
+    - Explain the change as bulleted prose, not diff content.
+
+diff --git a/real.ts b/real.ts
+--- a/real.ts
++++ b/real.ts
+@@ -1 +1 @@
+-before
++after`);
+  const BULLET_PREAMBLE_FILES = files.length;
+  assert.equal(BULLET_PREAMBLE_FILES, 1);
+  assert.equal(files[0].oldFile.fileName, 'real.ts');
+  assert.equal(files[0].newFile.fileName, 'real.ts');
+  assert.match(files[0].hunks[0], /before[\s\S]*after/);
 });
 
 test('apply-patch add and delete envelopes normalize into visible file diffs', () => {

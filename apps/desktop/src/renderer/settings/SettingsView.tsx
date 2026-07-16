@@ -1,10 +1,25 @@
-import { ArrowLeft, Settings, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  Blocks,
+  Cable,
+  Cpu,
+  Radio,
+  Settings,
+  SlidersHorizontal,
+  Wrench,
+  X,
+} from 'lucide-react';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
 import { CapabilitySettings } from './CapabilitySettings';
-import { SETTINGS_ITEMS } from './settings-items';
+import {
+  SETTINGS_CATEGORIES,
+  SETTINGS_ITEMS,
+  categoryForSettingsItem,
+  type SettingsCategory,
+} from './settings-items';
 import './settings.css';
 
 export type SettingsSection = typeof SETTINGS_ITEMS[number]['value'];
@@ -17,6 +32,15 @@ export interface SettingsViewProps {
   onCompose?: (text: string) => void;
   onClose(): void;
 }
+
+const CATEGORY_ICONS = {
+  general: SlidersHorizontal,
+  models: Cpu,
+  providers: Cable,
+  channels: Radio,
+  capabilities: Blocks,
+  system: Wrench,
+} satisfies Record<SettingsCategory, typeof Settings>;
 
 export interface SettingsTriggerProps {
   onOpen(): void;
@@ -45,11 +69,28 @@ export function SettingsView({
   onClose,
 }: SettingsViewProps) {
   const [section, setSection] = useState<SettingsSection | null>(initialSection);
+  const [category, setCategory] = useState<SettingsCategory>(
+    initialSection ? categoryForSettingsItem(initialSection) : 'general',
+  );
+  const [version, setVersion] = useState('');
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
 
-  useEffect(() => setSection(initialSection), [initialSection]);
+  useEffect(() => {
+    setSection(initialSection);
+    if (initialSection) setCategory(categoryForSettingsItem(initialSection));
+  }, [initialSection]);
+  useEffect(() => {
+    let live = true;
+    void api.invokeCapability?.({ capability: 'getUpdateSettings' }).then((result) => {
+      const value = result?.value;
+      if (live && value && typeof value === 'object' && 'currentVersion' in value) {
+        setVersion(String(value.currentVersion || ''));
+      }
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [api]);
 
   const restoreFocus = () => {
     if (priorFocus.current?.isConnected) priorFocus.current.focus();
@@ -63,7 +104,10 @@ export function SettingsView({
     priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     const background = Array.from(document.body.children)
-      .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== dialog && !element.contains(dialog))
+      .filter((element): element is HTMLElement => element instanceof HTMLElement
+        && !element.matches('.oc-toast-region')
+        && element !== dialog
+        && !element.contains(dialog))
       .map((element) => ({
         element,
         inert: element.inert,
@@ -89,6 +133,13 @@ export function SettingsView({
       const dialog = dialogRef.current;
       const nestedDialog = dialog?.querySelector<HTMLElement>('[data-settings-nested-dialog]') || null;
       if (event.key === 'Escape') {
+        const openPortaledMenu = Array.from(
+          dialog?.querySelectorAll<HTMLElement>('[role="combobox"][aria-expanded="true"][aria-controls]') || [],
+        ).some((trigger) => {
+          const menu = document.getElementById(trigger.getAttribute('aria-controls') || '');
+          return menu?.matches('.oc-menu[role="listbox"]');
+        });
+        if (openPortaledMenu) return;
         event.preventDefault();
         event.stopPropagation();
         if (nestedDialog) {
@@ -126,22 +177,44 @@ export function SettingsView({
 
   return createPortal(
     <div className="mixdog-settings-layer">
-    <section ref={dialogRef} className="mixdog-settings" role="dialog" aria-modal="true"
+    <section ref={dialogRef} className="mixdog-settings mixdog-settings-v2" role="dialog" aria-modal="true"
       aria-labelledby="mixdog-settings-title" tabIndex={-1}>
+      <aside className="mixdog-settings__rail" aria-label="Settings categories">
+        <nav>
+          {(['Mixdog', 'Integrations', 'Support'] as const).map((group) => <div
+            className="mixdog-settings__rail-group" key={group}>
+            <h2>{group}</h2>
+            {SETTINGS_CATEGORIES.filter((item) => item.group === group).map((item) => {
+              const Icon = CATEGORY_ICONS[item.value];
+              return <button type="button" key={item.value}
+                className={category === item.value ? 'active' : ''}
+                aria-current={category === item.value ? 'page' : undefined}
+                onClick={() => { setCategory(item.value); setSection(null); }}>
+                <Icon aria-hidden="true" size={16} /><span>{item.label}</span>
+              </button>;
+            })}
+          </div>)}
+        </nav>
+        <footer><strong>Mixdog</strong><span>{version ? `v${version}` : 'Desktop'}</span></footer>
+      </aside>
       <div className="mixdog-settings__panel">
-        <header className="mixdog-settings__header">
+        <header className={`mixdog-settings__header${section ? ' is-subpage' : ''}`}>
           <div className="mixdog-settings__header-title">
             {section && <button type="button" className="mixdog-settings__back" aria-label="Back to settings"
               onClick={() => setSection(null)}><ArrowLeft aria-hidden="true" size={16} /></button>}
             <h1 id="mixdog-settings-title">{section
               ? SETTINGS_ITEMS.find((item) => item.value === section)?.label || 'Settings'
-              : 'Settings'}</h1>
+              : SETTINGS_CATEGORIES.find((item) => item.value === category)?.label || 'Settings'}</h1>
           </div>
           <button ref={closeRef} type="button" className="mixdog-settings__close" onClick={requestClose}
             aria-label="Close settings"><X aria-hidden="true" size={16} /></button>
         </header>
-        <div className="mixdog-settings__body">
-          <CapabilitySettings api={api} section={section} onOpen={setSection} onCompose={onCompose} />
+        <div className={`mixdog-settings__body${section ? ' is-subpage' : ''}`}>
+          <CapabilitySettings api={api} category={category} section={section}
+            onOpen={(next) => {
+              setCategory(categoryForSettingsItem(next));
+              setSection(next);
+            }} onCompose={onCompose} />
         </div>
       </div>
     </section>

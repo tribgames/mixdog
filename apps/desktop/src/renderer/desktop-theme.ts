@@ -42,6 +42,8 @@ function cssVariables(palette: ThemePalette): Record<string, string> {
     '--oc-warning': palette.warning,
     '--oc-success-bg': palette.mdDiffAddedBg,
     '--oc-success': palette.success,
+    '--oc-scrollbar-thumb': `color-mix(in srgb, ${palette.promptBorder} 72%, transparent)`,
+    '--oc-scrollbar-thumb-hover': palette.promptBorder,
     '--base': deep,
     '--sidebar': palette.mdCodeBlockBg,
     '--surface': palette.mdCodeBlockBg,
@@ -63,6 +65,8 @@ export function applyDesktopTheme(value: unknown): string {
   const root = document.documentElement;
   root.dataset.mixdogTheme = resolved;
   root.style.colorScheme = resolved === 'light' ? 'light' : 'dark';
+  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    ?.setAttribute('content', registry[resolved].palette.background);
   for (const [name, color] of Object.entries(cssVariables(registry[resolved].palette))) {
     root.style.setProperty(name, color);
   }

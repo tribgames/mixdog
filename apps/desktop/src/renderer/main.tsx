@@ -5,6 +5,7 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 import "./opencode-v2.css";
+import "./webview-zoom";
 
 if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");
 

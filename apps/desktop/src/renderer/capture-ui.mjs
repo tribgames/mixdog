@@ -100,6 +100,15 @@ try {
   assert.equal(metadata.liveAssertions.desktop.contextChipCount, 0);
   assert.equal(metadata.liveAssertions.desktop.controlsNonOverlapping, true);
   assert.equal(metadata.liveAssertions.desktop.sidebarGap, 8);
+  assert.equal(metadata.liveAssertions.lightTheme.theme, "light");
+  assert.equal(metadata.liveAssertions.lightTheme.colorScheme, "light");
+  assert.equal(metadata.liveAssertions.lightTheme.titlebarIconMatchesToken, true);
+  assert.equal(metadata.liveAssertions.lightTheme.activeTabMatchesToken, true);
+  assert.equal(metadata.liveAssertions.modalStack.toastParentIsBody, true);
+  assert.equal(metadata.liveAssertions.modalStack.toastVisible, true);
+  assert.equal(metadata.liveAssertions.modalStack.toastOutsideInertTree, true);
+  assert.equal(metadata.liveAssertions.modalStack.toastAboveModal, true);
+  assert.ok(metadata.liveAssertions.modalStack.toastZIndex > metadata.liveAssertions.modalStack.modalZIndex);
   assert.deepEqual(
     {
       sidebarLeft: metadata.liveAssertions.desktop.rects.sidebar.left,
@@ -145,6 +154,23 @@ try {
   assert.equal(metadata.liveAssertions.mobile.closed.sendVisible, true);
   assert.equal(metadata.liveAssertions.mobile.closed.sendContained, true);
   assert.equal(metadata.liveAssertions.mobile.closed.controlsNonOverlapping, true);
+  assert.deepEqual(metadata.liveAssertions.settings.large.viewport, { width: 1280, height: 820 });
+  assert.ok(metadata.liveAssertions.settings.large.populatedRowCount > 0);
+  assert.equal(metadata.liveAssertions.settings.large.dialog.width, 980);
+  assert.equal(metadata.liveAssertions.settings.large.rail.width, 240);
+  assert.deepEqual(metadata.liveAssertions.settings.compact.viewport, { width: 720, height: 650 });
+  assert.equal(metadata.liveAssertions.settings.compact.dialog.width, 704);
+  assert.equal(metadata.liveAssertions.settings.compact.rail.width, 200);
+  for (const placement of Object.values(metadata.liveAssertions.settings)) {
+    assert.equal(placement.centered, true);
+    assert.ok(placement.centerDelta.x <= 1);
+    assert.ok(placement.centerDelta.y <= 1);
+    assert.equal(placement.layerCoversViewport, true);
+    assert.equal(placement.dialogFitsViewport, true);
+    assert.equal(placement.backdropVisible, true);
+    assert.equal(placement.twoPane, true);
+    assert.equal(placement.rail.right, placement.pane.left);
+  }
   assert.equal(metadata.imageMeasuredSidebar.method, "horizontal-pixel-scan");
   assert.equal(metadata.imageMeasuredSidebar.scanlineY, 600);
   assert.equal(metadata.imageMeasuredSidebar.left, 8);

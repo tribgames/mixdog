@@ -85,9 +85,11 @@ export function OnboardingWizard({ api, onDone }: {
   const [agentRoutes, setAgentRoutes] = useState<Record<string, DesktopModelSelection>>({});
   const [mainRouteTouched, setMainRouteTouched] = useState(false);
   const [searchRouteTouched, setSearchRouteTouched] = useState(false);
+  const [confirmSkip, setConfirmSkip] = useState(false);
   const layerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const skipTriggerRef = useRef<HTMLButtonElement | null>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
 
   const run = useCallback(async <T,>(
@@ -214,11 +216,28 @@ export function OnboardingWizard({ api, onDone }: {
     if (result !== undefined) onDone();
   };
 
+  const requestSkip = (trigger?: HTMLButtonElement | null) => {
+    skipTriggerRef.current = trigger || closeRef.current;
+    setConfirmSkip(true);
+  };
+
+  const closeSkipConfirmation = () => {
+    setConfirmSkip(false);
+    queueMicrotask(() => skipTriggerRef.current?.isConnected && skipTriggerRef.current.focus());
+  };
+
+  const confirmSkipOnboarding = () => {
+    setConfirmSkip(false);
+    void skip();
+  };
+
   useLayoutEffect(() => {
     priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const layer = layerRef.current;
     const background = Array.from(document.body.children)
-      .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== layer)
+      .filter((element): element is HTMLElement => element instanceof HTMLElement
+        && !element.matches('.oc-toast-region')
+        && element !== layer)
       .map((element) => ({ element, inert: element.inert, ariaHidden: element.getAttribute('aria-hidden') }));
     for (const { element } of background) {
       element.inert = true;
@@ -241,10 +260,17 @@ export function OnboardingWizard({ api, onDone }: {
       if (!dialog) return;
       const nested = dialog.querySelector<HTMLElement>('[data-settings-nested-dialog]');
       if (event.key === 'Escape') {
+        const openPortaledMenu = Array.from(
+          dialog.querySelectorAll<HTMLElement>('[role="combobox"][aria-expanded="true"][aria-controls]'),
+        ).some((trigger) => {
+          const menu = document.getElementById(trigger.getAttribute('aria-controls') || '');
+          return menu?.matches('.oc-menu[role="listbox"]');
+        });
+        if (openPortaledMenu) return;
         event.preventDefault();
         event.stopPropagation();
         if (nested) nested.querySelector<HTMLButtonElement>('[aria-label^="Close"]')?.click();
-        else void skip();
+        else requestSkip(closeRef.current);
         return;
       }
       if (event.key !== 'Tab') return;
@@ -281,12 +307,13 @@ export function OnboardingWizard({ api, onDone }: {
       <header>
         <div><span className="onboarding-mark">M</span><div><h1 id="onboarding-title">Set up Mixdog</h1>
           <p>Connect your existing backend features to the desktop workspace.</p></div></div>
-        <button ref={closeRef} type="button" aria-label="Skip setup" disabled={Boolean(pending)} onClick={() => void skip()}><X size={16} /></button>
+        <button ref={closeRef} type="button" aria-label="Skip setup" disabled={Boolean(pending)}
+          onClick={(event) => requestSkip(event.currentTarget)}><X size={16} /></button>
       </header>
       <nav aria-label="Setup progress">{steps.map((entry, index) => <span key={entry.label}
         className={index === step ? 'active' : index < step ? 'complete' : ''}>{entry.icon}{entry.label}</span>)}</nav>
       <div className="onboarding-body">
-        {loading ? <p className="onboarding-loading">Loading your Mixdog configuration…</p> : <>
+        {loading ? <p className="onboarding-loading" role="status"><span aria-hidden="true" />Loading your Mixdog configuration…</p> : <>
           {step === 0 && <ProviderStep setup={providerSetup} pending={pending} run={run}
             onSaveApiKey={(event, provider) => void saveApiKey(event, provider)}
             onRefresh={() => void load(true)} />}
@@ -312,7 +339,8 @@ export function OnboardingWizard({ api, onDone }: {
         {error && <p className="onboarding-error" role="alert">{error}</p>}
       </div>
       <footer>
-        <button type="button" className="secondary" disabled={Boolean(pending)} onClick={() => void skip()}>Skip setup</button>
+        <button type="button" className="secondary" disabled={Boolean(pending)}
+          onClick={(event) => requestSkip(event.currentTarget)}>Skip setup</button>
         <div>{step > 0 && <button type="button" disabled={Boolean(pending)} onClick={() => setStep((value) => value - 1)}>
           <ArrowLeft size={14} /> Back</button>}
           {step < steps.length - 1
@@ -321,8 +349,32 @@ export function OnboardingWizard({ api, onDone }: {
             : <button type="button" className="primary" disabled={Boolean(pending)} onClick={() => void finish()}>
               <Check size={14} /> Finish</button>}</div>
       </footer>
+      {confirmSkip && <OnboardingSkipConfirmation onCancel={closeSkipConfirmation} onConfirm={confirmSkipOnboarding} />}
     </section>
   </div>, document.body);
+}
+
+function OnboardingSkipConfirmation({ onCancel, onConfirm }: {
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { cancelRef.current?.focus(); }, []);
+  return <div className="settings-confirm-layer">
+    <section className="settings-confirm-dialog" role="alertdialog" aria-modal="true"
+      aria-labelledby="onboarding-skip-title" aria-describedby="onboarding-skip-description"
+      data-settings-nested-dialog>
+      <header><h3 id="onboarding-skip-title">Skip Mixdog setup?</h3>
+        <button type="button" aria-label="Close skip confirmation" onClick={onCancel}>
+          <X aria-hidden="true" size={15} />
+        </button></header>
+      <p id="onboarding-skip-description">
+        You can configure providers, models, themes, and output style later in Settings.
+      </p>
+      <footer><button ref={cancelRef} type="button" onClick={onCancel}>Cancel</button>
+        <button type="button" className="danger" onClick={onConfirm}>Skip setup</button></footer>
+    </section>
+  </div>;
 }
 
 function ProviderStep({ setup, pending, run, onSaveApiKey, onRefresh }: {

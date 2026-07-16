@@ -96,7 +96,7 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
       removeHandler: (channel) => handlers.delete(channel),
     },
     dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
-    shell: { openPath: async () => '' },
+    shell: { openPath: async () => '', openExternal: async () => {} },
     settingsStore,
   });
   const invoke = (event, ...args) => handlers.get(DESKTOP_IPC.updateSetting)(event, ...args);

@@ -5,7 +5,14 @@ import {
   desktopSnapshot,
   requiredSessionId,
 } from "./desktop-state.ts";
-import { EngineHost, engineModuleUrl, projectsModuleUrl } from "./engine-host.ts";
+import {
+  EngineHost,
+  engineModuleUrl,
+  projectDesktopLiveWorkState,
+  projectsModuleUrl,
+  shellJobsPollDelay,
+} from "./engine-host.ts";
+import { searchProjectDirectory } from "./project-file-search.ts";
 import { registerDesktopIpc } from "./ipc.ts";
 import { DESKTOP_IPC } from "../shared/contract.ts";
 import {
@@ -189,6 +196,39 @@ test("desktop snapshot retains recent projects while the active engine is switch
   assert.deepEqual(snapshot.recentProjects, ["C:\\work\\previous"]);
   assert.deepEqual(snapshot.items, []);
   assert.deepEqual(snapshot.queued, []);
+});
+
+test("desktop live-work projection removes terminal history and trims IPC records", () => {
+  const state = projectDesktopLiveWorkState({
+    agentWorkers: [
+      { tag: "build", status: "running", startedAt: 10, sessionId: "private", output: "large" },
+      { tag: "old", status: "completed", startedAt: 1, finishedAt: 2 },
+    ],
+    agentJobs: [
+      { task_id: "job-1", type: "review", stage: "running", startedAt: 20, error: "hidden" },
+      { task_id: "job-2", status: "success", startedAt: 2 },
+    ],
+    activeToolSummary: "2:100:1:200",
+    remoteEnabled: 1,
+  });
+  assert.deepEqual(state.agentWorkers, [
+    { tag: "build", status: "running", startedAt: 10 },
+  ]);
+  assert.deepEqual(state.agentJobs, [
+    { type: "review", task_id: "job-1", stage: "running", startedAt: 20 },
+  ]);
+  assert.deepEqual(state.activeTools, {
+    explore: { count: 2, startedAt: 100 },
+    search: { count: 1, startedAt: 200 },
+  });
+  assert.equal(state.remoteEnabled, false);
+});
+
+test("shell polling backs off while idle and accelerates for engine or shell activity", () => {
+  assert.equal(shellJobsPollDelay({ busy: false, commandBusy: false }, 0), 5_000);
+  assert.equal(shellJobsPollDelay({ busy: true }, 0), 1_000);
+  assert.equal(shellJobsPollDelay({ commandBusy: true }, 0), 1_000);
+  assert.equal(shellJobsPollDelay({ busy: false }, 2), 1_000);
 });
 
 test("desktop session summaries include legacy lead sessions and hide invalid metadata or ids", () => {
@@ -375,6 +415,255 @@ test("host persists the first accepted prompt as a stable desktop session title"
   }
 });
 
+test("host persists user-renamed session titles and restores the override after restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-rename-"));
+  const originalCwd = process.cwd();
+  const row = {
+    id: "desktop_rename",
+    preview: "Generated title",
+    cwd: join(root, "workspace", "unclassified"),
+    desktopSession: { classification: "task", projectPath: null },
+  };
+  const engine = {
+    getState: () => ({ sessionId: row.id, items: [] }),
+    subscribe: () => () => {},
+    listSessions: () => [row],
+    dispose: async () => {},
+  };
+  const createHost = () => new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  const host = createHost();
+  try {
+    assert.equal((await host.listSessions())[0].title, "Generated title");
+    await host.renameSession(row.id, "  Durable custom title  ");
+    assert.equal((await host.listSessions())[0].title, "Durable custom title");
+    await assert.rejects(host.renameSession("missing", "No session"), /not available/);
+    await host.dispose();
+
+    const restarted = createHost();
+    try {
+      assert.equal((await restarted.listSessions())[0].title, "Durable custom title");
+      assert.equal(restarted.getSnapshot().desktopSessionTitle, "Durable custom title");
+    } finally {
+      await restarted.dispose();
+    }
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host recovers corrupt session title metadata and atomically replaces it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-corrupt-title-"));
+  const originalCwd = process.cwd();
+  const row = {
+    id: "desktop_recovered",
+    preview: "Recovered preview",
+    cwd: join(root, "workspace", "unclassified"),
+    desktopSession: { classification: "task", projectPath: null },
+  };
+  await writeFile(join(root, "desktop-session-metadata.json"), '{"version":1,"titles":');
+  const engine = {
+    getState: () => ({ sessionId: row.id, items: [] }),
+    subscribe: () => () => {},
+    listSessions: () => [row],
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    assert.equal((await host.listSessions())[0].title, "Recovered preview");
+    await host.renameSession(row.id, "Recovered custom title");
+    const saved = JSON.parse(await readFile(join(root, "desktop-session-metadata.json"), "utf8"));
+    assert.deepEqual(saved.titles, { [row.id]: "Recovered custom title" });
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host recovers null and array session metadata roots", async () => {
+  for (const [name, metadata] of [["null", "null"], ["array", "[]"]]) {
+    const root = await mkdtemp(join(tmpdir(), `mixdog-session-${name}-title-`));
+    const originalCwd = process.cwd();
+    const row = {
+      id: `desktop_${name}`,
+      preview: `${name} preview`,
+      cwd: join(root, "workspace", "unclassified"),
+      desktopSession: { classification: "task", projectPath: null },
+    };
+    await writeFile(join(root, "desktop-session-metadata.json"), metadata);
+    const engine = {
+      getState: () => ({ sessionId: row.id, items: [] }),
+      subscribe: () => () => {},
+      listSessions: () => [row],
+      dispose: async () => {},
+    };
+    const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+    try {
+      assert.equal((await host.listSessions())[0].title, `${name} preview`);
+    } finally {
+      await host.dispose();
+      process.chdir(originalCwd);
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("session title overrides safely support prototype-shaped session ids", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-proto-title-"));
+  const originalCwd = process.cwd();
+  const rows = ["__proto__", "constructor"].map((id) => ({
+    id,
+    preview: `Preview ${id}`,
+    cwd: join(root, "workspace", "unclassified"),
+    desktopSession: { classification: "task", projectPath: null },
+  }));
+  const engine = {
+    getState: () => ({ sessionId: rows[0].id, items: [] }),
+    subscribe: () => () => {},
+    listSessions: () => rows,
+    dispose: async () => {},
+  };
+  const createHost = () => new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  const host = createHost();
+  try {
+    await host.listSessions();
+    await host.renameSession("__proto__", "Prototype title");
+    await host.renameSession("constructor", "Constructor title");
+    await host.dispose();
+    const restarted = createHost();
+    try {
+      const listed = await restarted.listSessions();
+      assert.equal(listed.find((row) => row.id === "__proto__").title, "Prototype title");
+      assert.equal(listed.find((row) => row.id === "constructor").title, "Constructor title");
+    } finally {
+      await restarted.dispose();
+    }
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("project file traversal enforces its scan cap before consuming a directory", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-file-search-cap-"));
+  try {
+    await Promise.all(Array.from({ length: 20 }, (_, index) =>
+      writeFile(join(root, `file-${String(index).padStart(2, "0")}.ts`), "")));
+    const results = await searchProjectDirectory(root, "", 20, {
+      maxScannedEntries: 3,
+      yieldEvery: 1,
+    });
+    assert.equal(results.length, 3);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host searches active project files with fuzzy matching, ignore pruning, and caps", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-file-search-"));
+  const project = join(root, "project");
+  const originalCwd = process.cwd();
+  await Promise.all([
+    mkdir(join(project, "src", "components", "generated"), { recursive: true }),
+    mkdir(join(project, "node_modules", "package"), { recursive: true }),
+    mkdir(join(project, ".git"), { recursive: true }),
+    mkdir(join(project, "generated"), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(join(project, ".gitignore"), "generated/\n*.log\n"),
+    writeFile(join(project, "src", "components", "FilePicker.ts"), ""),
+    writeFile(join(project, "src", "components", ".gitignore"), "generated/\n"),
+    writeFile(join(project, "src", "components", "generated", "NestedIgnored.ts"), ""),
+    writeFile(join(project, "src", "file-utils.ts"), ""),
+    writeFile(join(project, "debug.log"), ""),
+    writeFile(join(project, "node_modules", "package", "file.ts"), ""),
+    writeFile(join(project, ".git", "config"), ""),
+    writeFile(join(project, "generated", "file.ts"), ""),
+  ]);
+  const projectStore = createProjectStore([{ path: project }]);
+  const engine = {
+    getState: () => ({ sessionId: null, items: [] }),
+    subscribe: () => () => {},
+    listSessions: () => [],
+    dispose: async () => {},
+  };
+  const host = new EngineHost({
+    userDataPath: root,
+    createEngine: async () => engine,
+    loadProjects: async () => projectStore.module,
+  });
+  try {
+    const snapshot = await host.startProject(project);
+    const active = snapshot.currentProject;
+    assert.deepEqual(await host.searchProjectFiles(active, "fp", 10), [
+      "src/components/FilePicker.ts",
+    ]);
+    assert.deepEqual(await host.searchProjectFiles(active, "file", 1), [
+      "src/components/FilePicker.ts",
+    ]);
+    const all = await host.searchProjectFiles(active, "", 20);
+    assert.equal(all.includes("debug.log"), false);
+    assert.equal(all.some((path) => path.startsWith("node_modules/")), false);
+    assert.equal(all.some((path) => path.startsWith(".git/")), false);
+    assert.equal(all.some((path) => path.startsWith("generated/")), false);
+    assert.equal(all.includes("src/components/generated/NestedIgnored.ts"), false);
+    await assert.rejects(host.searchProjectFiles(root, "file", 10), /not active/);
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host rejects file search results when the active project changes during traversal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-file-search-stale-"));
+  const first = join(root, "first");
+  const second = join(root, "second");
+  const originalCwd = process.cwd();
+  await Promise.all([mkdir(first), mkdir(second)]);
+  const projectStore = createProjectStore([{ path: first }, { path: second }]);
+  let releaseSearch;
+  const searchStarted = new Promise((resolve) => {
+    releaseSearch = resolve;
+  });
+  let traversalStarted;
+  const traversalPending = new Promise((resolve) => {
+    traversalStarted = resolve;
+  });
+  const engine = {
+    getState: () => ({ sessionId: null, items: [] }),
+    subscribe: () => () => {},
+    listSessions: () => [],
+    switchContext: async () => true,
+    dispose: async () => {},
+  };
+  const host = new EngineHost({
+    userDataPath: root,
+    createEngine: async () => engine,
+    loadProjects: async () => projectStore.module,
+    searchProjectDirectory: async () => {
+      traversalStarted();
+      await searchStarted;
+      return ["stale.ts"];
+    },
+  });
+  try {
+    const firstSnapshot = await host.startProject(first);
+    const pending = host.searchProjectFiles(firstSnapshot.currentProject, "", 10);
+    await traversalPending;
+    await host.startProject(second);
+    releaseSearch();
+    await assert.rejects(pending, /changed during file search/);
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("host resumes another desktop task session in the same managed context without switching", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-session-resume-same-context-"));
   const originalCwd = process.cwd();
@@ -464,7 +753,12 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     startProject: async (path) => { calls.push(["startProject", path]); return null; },
     startTask: async () => { calls.push(["startTask"]); return null; },
     listSessions: async () => { calls.push(["listSessions"]); return []; },
+    renameSession: async (id, title) => { calls.push(["renameSession", id, title]); },
     resumeSession: async (id) => { calls.push(["resumeSession", id]); return null; },
+    searchProjectFiles: async (id, query, limit) => {
+      calls.push(["searchProjectFiles", id, query, limit]);
+      return ["src/index.ts"];
+    },
     getSnapshot: () => null,
     submit: (prompt, options) => { calls.push(["submit", prompt, options]); return true; },
     abort: () => false,
@@ -502,7 +796,10 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     app: { quit: () => { quitCalls += 1; } },
     ipcMain,
     dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
-    shell: { openPath: async (path) => { calls.push(["openPath", path]); return ""; } },
+    shell: {
+      openPath: async (path) => { calls.push(["openPath", path]); return ""; },
+      openExternal: async (url) => { calls.push(["openExternal", url]); },
+    },
   });
   const validEvent = { sender: webContents, senderFrame: mainFrame };
   const invoke = (channel, event, ...args) => handlers.get(channel)(event, ...args);
@@ -517,7 +814,9 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   );
   await invoke(DESKTOP_IPC.startTask, validEvent);
   await invoke(DESKTOP_IPC.listSessions, validEvent);
+  await invoke(DESKTOP_IPC.renameSession, validEvent, " rename_1 ", " New name ");
   await invoke(DESKTOP_IPC.resumeSession, validEvent, " resume_1 ");
+  await invoke(DESKTOP_IPC.searchProjectFiles, validEvent, " C:\\known ", "index", 12);
   await invoke(DESKTOP_IPC.listProviderModels, validEvent);
   await invoke(DESKTOP_IPC.setModelRoute, validEvent, {
     provider: " openai ",
@@ -541,14 +840,22 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   ]);
   assert.equal(disposeCalls, 1);
   assert.equal(quitCalls, 1);
-  assert.deepEqual(calls.slice(0, 6), [
+  assert.deepEqual(calls.slice(0, 8), [
     ["startTask"],
     ["listSessions"],
+    ["renameSession", "rename_1", "New name"],
     ["resumeSession", "resume_1"],
+    ["searchProjectFiles", "C:\\known", "index", 12],
     ["listProviderModels"],
     ["setModelRoute", { provider: "openai", model: "gpt-5", effort: "high", fast: true }],
     ["setFast", true],
   ]);
+  await invoke(DESKTOP_IPC.openExternal, validEvent, "https://example.com/docs?q=1");
+  assert.deepEqual(calls.at(-1), ["openExternal", "https://example.com/docs?q=1"]);
+  assert.throws(
+    () => invoke(DESKTOP_IPC.openExternal, validEvent, "file:///C:/secret.txt"),
+    /protocol is unsupported/,
+  );
 
   assert.throws(
     () => invoke(DESKTOP_IPC.resumeSession, validEvent, "../resume"),
@@ -557,6 +864,14 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   assert.throws(
     () => invoke(DESKTOP_IPC.resumeSession, validEvent, "a".repeat(257)),
     /invalid/,
+  );
+  assert.throws(
+    () => invoke(DESKTOP_IPC.renameSession, validEvent, "rename_1", " "),
+    /title is invalid/,
+  );
+  assert.throws(
+    () => invoke(DESKTOP_IPC.searchProjectFiles, validEvent, "C:\\known", "index", 0),
+    /limit is invalid/,
   );
   assert.throws(
     () => invoke(DESKTOP_IPC.startProject, validEvent, " "),
@@ -665,6 +980,129 @@ test("desktop fast data follows core catalog capability and persisted preference
   assert.equal(unsupportedConfig.modelSettings["openai/gpt-4.1"].fast, false);
   assert.equal(fastPreferenceFor(unsupportedConfig, "openai", "gpt-4.1"), false);
   assert.equal("openai/gpt-4.1" in unsupportedConfig.fastModels, false);
+});
+
+test("Fast preference works before a desktop session exists and is applied when one starts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-pristine-fast-"));
+  const originalCwd = process.cwd();
+  let preference = false;
+  let state = {
+    sessionId: null,
+    items: [],
+    busy: false,
+    commandBusy: false,
+    fast: false,
+    fastCapable: true,
+  };
+  const calls = [];
+  const engine = {
+    getState: () => state,
+    subscribe: () => () => {},
+    switchContext: async () => {
+      state = { ...state, sessionId: null, items: [], fast: false };
+      return true;
+    },
+    setFast: async (enabled) => {
+      calls.push(["setFast", enabled, state.sessionId]);
+      preference = enabled;
+      if (state.sessionId) state = { ...state, fast: enabled };
+      return enabled;
+    },
+    newSession: async () => {
+      state = { ...state, sessionId: "desktop_pristine", fast: preference };
+      return true;
+    },
+    listSessions: () => [],
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    const pristine = await host.setFast(true);
+    assert.equal(pristine.sessionId, null);
+    assert.equal(pristine.fast, true);
+    assert.deepEqual(calls, [["setFast", true, null]]);
+
+    const active = await host.startTask();
+    assert.equal(active.sessionId, "desktop_pristine");
+    assert.equal(active.fast, true);
+    assert.equal(preference, true);
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a pristine route Fast choice supersedes an earlier Fast-only preference", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-pristine-route-fast-"));
+  const originalCwd = process.cwd();
+  let preference = false;
+  let state = {
+    sessionId: null,
+    items: [],
+    busy: false,
+    commandBusy: false,
+    provider: "openai",
+    model: "gpt-5.4",
+    fast: false,
+    fastCapable: true,
+  };
+  const calls = [];
+  const engine = {
+    getState: () => state,
+    subscribe: () => () => {},
+    switchContext: async () => {
+      state = { ...state, sessionId: null, items: [], fast: false };
+      return true;
+    },
+    listProviderModels: async () => [{
+      provider: "openai",
+      id: "gpt-5.4",
+      display: "GPT-5.4",
+      fastCapable: true,
+    }],
+    setFast: async (enabled) => {
+      calls.push(["setFast", enabled]);
+      preference = enabled;
+      if (state.sessionId) state = { ...state, fast: enabled };
+      return enabled;
+    },
+    setRoute: async (selection) => {
+      calls.push(["setRoute", selection]);
+      if (typeof selection.fast === "boolean") preference = selection.fast;
+      state = { ...state, provider: selection.provider, model: selection.model };
+      return true;
+    },
+    newSession: async () => {
+      state = { ...state, sessionId: "desktop_route_fast", fast: preference };
+      return true;
+    },
+    listSessions: () => [],
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    assert.equal((await host.setFast(true)).fast, true);
+    const routed = await host.setModelRoute({
+      provider: "openai",
+      model: "gpt-5.4",
+      fast: false,
+    });
+    assert.equal(routed.fast, false);
+
+    const active = await host.startTask();
+    assert.equal(active.sessionId, "desktop_route_fast");
+    assert.equal(active.fast, false);
+    assert.equal(preference, false);
+    assert.deepEqual(calls, [
+      ["setFast", true],
+      ["setRoute", { provider: "openai", model: "gpt-5.4", fast: false }],
+    ]);
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("host lists normalized core models and applies routes only while idle", async () => {

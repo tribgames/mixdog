@@ -23,6 +23,15 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
+const DEFAULT_ZOOM_FACTOR = 1;
+
+export function desktopZoomFromConfig(value: unknown): number {
+  const factor = Number(record(record(value).desktop).zoomFactor);
+  return Number.isFinite(factor) && factor >= 0.2 && factor <= 10
+    ? factor
+    : DEFAULT_ZOOM_FACTOR;
+}
+
 export function settingsConfigModuleUrl(
   packaged = false,
   resourcesPath = process.resourcesPath,
@@ -82,5 +91,22 @@ export class DesktopSettingsStore {
       return next;
     });
     return desktopSettingsFromConfig(saved);
+  }
+
+  async readZoom(): Promise<number> {
+    const config = await this.loadConfig();
+    return desktopZoomFromConfig(config.readConfig());
+  }
+
+  async updateZoom(factor: number): Promise<number> {
+    const config = await this.loadConfig();
+    const saved = await config.updateConfigAsync((current) => ({
+      ...record(current),
+      desktop: {
+        ...record(record(current).desktop),
+        zoomFactor: factor,
+      },
+    }));
+    return desktopZoomFromConfig(saved);
   }
 }

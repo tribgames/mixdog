@@ -105,6 +105,23 @@ function projectDisplayName(value: unknown): string {
   return text;
 }
 
+function sessionDisplayName(value: unknown): string {
+  if (typeof value !== 'string') throw new TypeError('title must be a string.');
+  const text = value.trim();
+  if (!text || text.length > 1_024 || /[\u0000-\u001f\u007f]/.test(text)) {
+    throw new TypeError('title is invalid.');
+  }
+  return text;
+}
+
+function requiredFileSearchLimit(value: unknown): number {
+  if (value === undefined) return 50;
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 200) {
+    throw new TypeError('limit is invalid.');
+  }
+  return value as number;
+}
+
 function validateStructuredValue(
   value: unknown,
   state = { strings: 0, nodes: 0 },
@@ -305,8 +322,29 @@ interface DesktopIpcDependencies {
   app: Pick<App, 'quit'>;
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler'>;
   dialog: Pick<Dialog, 'showOpenDialog'>;
-  shell: Pick<Shell, 'openPath'>;
-  settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update'>;
+  shell: Pick<Shell, 'openPath' | 'openExternal'>;
+  settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update' | 'readZoom' | 'updateZoom'>;
+}
+
+function requiredExternalUrl(value: unknown): string {
+  const input = requiredString(value, 'url', 8_192);
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw new TypeError('url is invalid.');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new TypeError('url protocol is unsupported.');
+  }
+  return url.toString();
+}
+
+function requiredZoomFactor(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0.2 || value > 10) {
+    throw new TypeError('zoom factor is invalid.');
+  }
+  return Math.round(value * 100) / 100;
 }
 
 export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
@@ -353,6 +391,8 @@ export function registerDesktopIpc(
     const failure = await shell.openPath(directory);
     if (failure) throw new Error(`Unable to open project folder: ${failure}`);
   });
+  handle(DESKTOP_IPC.openExternal, (_event, url) =>
+    shell.openExternal(requiredExternalUrl(url)));
   handle(DESKTOP_IPC.renameProject, (_event, projectPath, alias) =>
     host.renameProject(
       requiredString(projectPath, 'projectPath'),
@@ -365,8 +405,20 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.removeProject, (_event, projectPath) =>
     host.removeProject(requiredString(projectPath, 'projectPath')));
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
+  handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
+    host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)));
   handle(DESKTOP_IPC.resumeSession, (_event, sessionId) =>
     host.resumeSession(requiredSessionId(sessionId)));
+  handle(DESKTOP_IPC.searchProjectFiles, (_event, projectIdOrWorkspaceId, query, limit) => {
+    if (typeof query !== 'string' || query.length > 1_024) {
+      throw new TypeError('query is invalid.');
+    }
+    return host.searchProjectFiles(
+      requiredString(projectIdOrWorkspaceId, 'projectIdOrWorkspaceId'),
+      query,
+      requiredFileSearchLimit(limit),
+    );
+  });
   handle(DESKTOP_IPC.getSnapshot, () => host.getSnapshot());
   handle(DESKTOP_IPC.submit, (_event, prompt, options) =>
     host.submit(requiredPromptContent(prompt), requiredSubmitOptions(options)));
@@ -402,6 +454,18 @@ export function registerDesktopIpc(
       return settingsStore.update(requiredDesktopSettingKey(key), enabled);
     });
   }
+  handle(DESKTOP_IPC.getZoomFactor, async () => {
+    const factor = settingsStore ? await settingsStore.readZoom() : 1;
+    window.webContents.setZoomFactor(factor);
+    return factor;
+  });
+  handle(DESKTOP_IPC.setZoomFactor, async (_event, value) => {
+    const requested = requiredZoomFactor(value);
+    const factor = settingsStore ? await settingsStore.updateZoom(requested) : requested;
+    window.webContents.setZoomFactor(factor);
+    window.webContents.send(DESKTOP_IPC.zoomFactorChanged, factor);
+    return factor;
+  });
   handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
     const request = requiredDesktopCapabilityRequest(input);
     const result = await host.invokeCapability(request.capability, request.args);

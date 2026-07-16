@@ -12,7 +12,13 @@ import {
 } from 'electron';
 import { EngineHost } from './engine-host';
 import { registerDesktopIpc } from './ipc';
-import type { DesktopSessionSummary } from '../shared/contract';
+import type {
+  DesktopCapability,
+  DesktopCapabilityReadRequest,
+  DesktopCapabilityReadResult,
+  DesktopCapabilityResult,
+  DesktopSessionSummary,
+} from '../shared/contract';
 import { DESKTOP_WINDOW_OPTIONS } from './window-options';
 
 const requestedOutputPath = process.argv[2];
@@ -113,6 +119,48 @@ interface LiveCaptureAssertions {
       send: RectMeasurement;
     };
   };
+  settings: {
+    large: SettingsPlacementAssertions;
+    compact: SettingsPlacementAssertions;
+  };
+  lightTheme: LightThemeAssertions;
+  modalStack: ModalStackAssertions;
+}
+
+interface SettingsPlacementAssertions {
+  viewport: { width: number; height: number };
+  layer: RectMeasurement;
+  dialog: RectMeasurement;
+  rail: RectMeasurement;
+  pane: RectMeasurement;
+  centerDelta: { x: number; y: number };
+  centered: boolean;
+  layerCoversViewport: boolean;
+  dialogFitsViewport: boolean;
+  backdropColor: string;
+  backdropVisible: boolean;
+  populatedRowCount: number;
+  twoPane: boolean;
+}
+
+interface LightThemeAssertions {
+  theme: string;
+  colorScheme: string;
+  titlebarIconColor: string;
+  iconTokenColor: string;
+  activeTabColor: string;
+  textTokenColor: string;
+  titlebarIconMatchesToken: boolean;
+  activeTabMatchesToken: boolean;
+}
+
+interface ModalStackAssertions {
+  toastParentIsBody: boolean;
+  toastVisible: boolean;
+  toastOutsideInertTree: boolean;
+  toastZIndex: number;
+  modalZIndex: number;
+  toastAboveModal: boolean;
 }
 
 async function readDesktopAssertions(window: BrowserWindow): Promise<LiveCaptureAssertions['desktop']> {
@@ -171,6 +219,127 @@ async function readDesktopAssertions(window: BrowserWindow): Promise<LiveCapture
       sidebarGap: mainRect.left - sidebarRect.right,
     };
   })()`) as Promise<LiveCaptureAssertions['desktop']>;
+}
+
+async function readSettingsPlacement(window: BrowserWindow): Promise<SettingsPlacementAssertions> {
+  return window.webContents.executeJavaScript(`(() => {
+    const layer = document.querySelector('.mixdog-settings-layer');
+    const dialog = layer?.querySelector('.mixdog-settings');
+    const rail = dialog?.querySelector('.mixdog-settings__rail');
+    const pane = dialog?.querySelector('.mixdog-settings__panel');
+    if (!(layer instanceof HTMLElement) || !(dialog instanceof HTMLElement)
+      || !(rail instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
+      throw new Error('Settings dialog is missing from the capture renderer.');
+    }
+    const rect = (element) => {
+      const value = element.getBoundingClientRect();
+      return {
+        left: value.left, top: value.top, right: value.right, bottom: value.bottom,
+        width: value.width, height: value.height,
+      };
+    };
+    const layerRect = rect(layer);
+    const dialogRect = rect(dialog);
+    const railRect = rect(rail);
+    const paneRect = rect(pane);
+    const centerDelta = {
+      x: Math.abs((dialogRect.left + dialogRect.right) / 2 - innerWidth / 2),
+      y: Math.abs((dialogRect.top + dialogRect.bottom) / 2 - innerHeight / 2),
+    };
+    const tolerance = 1;
+    const backdropColor = getComputedStyle(layer).backgroundColor;
+    const populatedRowCount = dialog.querySelectorAll(
+      '.mixdog-settings__picker-row, .mixdog-settings__row, .settings-resource',
+    ).length;
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      layer: layerRect,
+      dialog: dialogRect,
+      rail: railRect,
+      pane: paneRect,
+      centerDelta,
+      centered: centerDelta.x <= tolerance && centerDelta.y <= tolerance,
+      layerCoversViewport: Math.abs(layerRect.left) <= tolerance
+        && Math.abs(layerRect.top) <= tolerance
+        && Math.abs(layerRect.right - innerWidth) <= tolerance
+        && Math.abs(layerRect.bottom - innerHeight) <= tolerance,
+      dialogFitsViewport: dialogRect.left >= 0 && dialogRect.top >= 0
+        && dialogRect.right <= innerWidth && dialogRect.bottom <= innerHeight,
+      backdropColor,
+      backdropVisible: backdropColor !== 'rgba(0, 0, 0, 0)'
+        && backdropColor !== 'transparent',
+      populatedRowCount,
+      twoPane: Math.abs(railRect.left - dialogRect.left) <= tolerance
+        && Math.abs(railRect.right - paneRect.left) <= tolerance
+        && Math.abs(paneRect.right - dialogRect.right) <= tolerance
+        && railRect.width >= 190 && paneRect.width > railRect.width,
+    };
+  })()`) as Promise<SettingsPlacementAssertions>;
+}
+
+async function readLightThemeAssertions(window: BrowserWindow): Promise<LightThemeAssertions> {
+  return window.webContents.executeJavaScript(`(() => {
+    const root = document.documentElement;
+    const icon = document.querySelector('.toolbar-sidebar');
+    const activeTab = document.querySelector('.workspace-tab.active');
+    if (!(icon instanceof HTMLElement) || !(activeTab instanceof HTMLElement)) {
+      return {
+        theme: root.dataset.mixdogTheme || '',
+        colorScheme: getComputedStyle(root).colorScheme,
+        titlebarIconColor: '', iconTokenColor: '', activeTabColor: '', textTokenColor: '',
+        titlebarIconMatchesToken: false, activeTabMatchesToken: false,
+      };
+    }
+    const resolveColor = (token) => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(' + token + ')';
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    const titlebarIconColor = getComputedStyle(icon).color;
+    const activeTabColor = getComputedStyle(activeTab).color;
+    const iconTokenColor = resolveColor('--oc-icon');
+    const textTokenColor = resolveColor('--oc-text');
+    return {
+      theme: root.dataset.mixdogTheme || '',
+      colorScheme: getComputedStyle(root).colorScheme,
+      titlebarIconColor,
+      iconTokenColor,
+      activeTabColor,
+      textTokenColor,
+      titlebarIconMatchesToken: titlebarIconColor === iconTokenColor,
+      activeTabMatchesToken: activeTabColor === textTokenColor,
+    };
+  })()`) as Promise<LightThemeAssertions>;
+}
+
+async function readModalStackAssertions(window: BrowserWindow): Promise<ModalStackAssertions> {
+  return window.webContents.executeJavaScript(`(() => {
+    const toast = document.querySelector('.oc-toast-region');
+    const modal = document.querySelector('.mixdog-settings-layer');
+    if (!(toast instanceof HTMLElement) || !(modal instanceof HTMLElement)) {
+      return {
+        toastParentIsBody: false, toastVisible: false, toastOutsideInertTree: false,
+        toastZIndex: -1, modalZIndex: -1, toastAboveModal: false,
+      };
+    }
+    const toastStyle = getComputedStyle(toast);
+    const toastRect = toast.getBoundingClientRect();
+    const toastZIndex = Number(toastStyle.zIndex);
+    const modalZIndex = Number(getComputedStyle(modal).zIndex);
+    return {
+      toastParentIsBody: toast.parentElement === document.body,
+      toastVisible: toastStyle.display !== 'none' && toastStyle.visibility !== 'hidden'
+        && Number(toastStyle.opacity) !== 0 && toastRect.width > 0 && toastRect.height > 0,
+      toastOutsideInertTree: !toast.closest('[inert]'),
+      toastZIndex,
+      modalZIndex,
+      toastAboveModal: Number.isFinite(toastZIndex) && Number.isFinite(modalZIndex)
+        && toastZIndex > modalZIndex,
+    };
+  })()`) as Promise<ModalStackAssertions>;
 }
 
 async function readMobileOpenAssertions(window: BrowserWindow): Promise<LiveCaptureAssertions['mobile']['open']> {
@@ -324,6 +493,35 @@ class CaptureEngineHost extends EngineHost {
   override async listSessions(): Promise<DesktopSessionSummary[]> {
     return [];
   }
+
+  override getSnapshot() {
+    return {
+      ...(super.getSnapshot() || {}),
+      toasts: [{ id: 'capture-toast', tone: 'error', text: 'Capture stacking check' }],
+    };
+  }
+
+  override async readCapabilities(
+    requests: ReadonlyArray<DesktopCapabilityReadRequest>,
+  ): Promise<DesktopCapabilityReadResult[]> {
+    return requests.map((request) => {
+      if (request.capability === 'listThemes') {
+        return { ok: true, value: [{ id: 'light', label: 'Light', description: 'Capture light theme' }] };
+      }
+      if (request.capability === 'getTheme') return { ok: true, value: 'basic' };
+      return { ok: false, error: `${request.capability} is unavailable in UI capture.` };
+    });
+  }
+
+  override async invokeCapability<T = unknown>(
+    capability: DesktopCapability,
+    args: unknown[] = [],
+  ): Promise<DesktopCapabilityResult<T>> {
+    if (capability === 'setTheme') {
+      return { value: String(args[0] || 'basic') as T, snapshot: this.getSnapshot() };
+    }
+    return super.invokeCapability<T>(capability, args);
+  }
 }
 
 function imageReader(image: NativeImage): (x: number, y: number) => string {
@@ -443,6 +641,71 @@ async function captureWindow(): Promise<void> {
       || !mobileClosed.sendContained || !mobileClosed.controlsNonOverlapping) {
       throw new Error(`Mobile live assertions failed: ${JSON.stringify(liveMobile)}`);
     }
+    window.setSize(1_280, 820);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await window.webContents.executeJavaScript(
+      "document.querySelector('[aria-label=\"Open settings\"]')?.click()",
+    );
+    const settingsPopulated = await window.webContents.executeJavaScript(`new Promise((resolve) => {
+      const deadline = Date.now() + 5000;
+      const check = () => {
+        if (document.querySelectorAll('.mixdog-settings__picker-row').length > 0) resolve(true);
+        else if (Date.now() >= deadline) resolve(false);
+        else setTimeout(check, 50);
+      };
+      check();
+    })`);
+    if (!settingsPopulated) throw new Error('Settings rows did not populate within 5 seconds.');
+    const largeSettings = await readSettingsPlacement(window);
+    const modalStack = await readModalStackAssertions(window);
+    const openedTheme = await window.webContents.executeJavaScript(`(() => {
+      const themeRow = Array.from(document.querySelectorAll('.mixdog-settings__picker-open-row'))
+        .find((row) => (row.textContent || '').includes('Theme'));
+      if (!(themeRow instanceof HTMLButtonElement)) return false;
+      themeRow.click();
+      return true;
+    })()`);
+    if (!openedTheme) throw new Error('Theme settings row is missing.');
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    const lightPreview = await window.webContents.executeJavaScript(`(() => {
+      const lightRow = Array.from(document.querySelectorAll('.settings-resource'))
+        .find((row) => (row.querySelector('b')?.textContent || '').trim() === 'Light');
+      if (!(lightRow instanceof HTMLElement)) return {
+        ok: false,
+        title: document.querySelector('.mixdog-settings__header h1')?.textContent || '',
+        heading: document.querySelector('.settings-section-heading h2')?.textContent || '',
+        resources: Array.from(document.querySelectorAll('.settings-resource b'))
+          .map((node) => (node.textContent || '').trim()),
+        body: (document.querySelector('.mixdog-settings__body')?.textContent || '').trim().slice(0, 500),
+      };
+      lightRow.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      return { ok: true };
+    })()`);
+    if (!lightPreview.ok) throw new Error(`Light theme row is missing: ${JSON.stringify(lightPreview)}`);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const lightTheme = await readLightThemeAssertions(window);
+    window.setSize(720, 650);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const compactSettings = await readSettingsPlacement(window);
+    const liveSettings = { large: largeSettings, compact: compactSettings };
+    if (largeSettings.viewport.width !== 1_280 || largeSettings.viewport.height !== 820
+      || !largeSettings.centered || !largeSettings.layerCoversViewport
+      || !largeSettings.dialogFitsViewport || !largeSettings.backdropVisible || !largeSettings.twoPane
+      || largeSettings.dialog.width !== 980 || largeSettings.rail.width !== 240 || largeSettings.populatedRowCount < 1
+      || !compactSettings.centered || !compactSettings.layerCoversViewport
+      || !compactSettings.dialogFitsViewport || !compactSettings.backdropVisible || !compactSettings.twoPane
+      || compactSettings.viewport.width !== 720 || compactSettings.viewport.height !== 650
+      || compactSettings.dialog.width !== 704 || compactSettings.rail.width !== 200
+      || lightTheme.theme !== 'light' || lightTheme.colorScheme !== 'light'
+      || !lightTheme.titlebarIconMatchesToken || !lightTheme.activeTabMatchesToken
+      || !modalStack.toastParentIsBody || !modalStack.toastVisible
+      || !modalStack.toastOutsideInertTree || !modalStack.toastAboveModal) {
+      throw new Error(`Settings placement assertions failed: ${JSON.stringify(liveSettings)}`);
+    }
+    await window.webContents.executeJavaScript(
+      "document.querySelector('.mixdog-settings__close')?.click()",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
     window.setMinimumSize(DESKTOP_WINDOW_OPTIONS.minWidth, DESKTOP_WINDOW_OPTIONS.minHeight);
     window.setSize(targetSize.width, targetSize.height);
     await window.webContents.executeJavaScript(
@@ -461,7 +724,13 @@ async function captureWindow(): Promise<void> {
       || liveDesktop.rects.main.left !== 302) {
       throw new Error(`Desktop live assertions failed: ${JSON.stringify(liveDesktop)}`);
     }
-    const liveAssertions: LiveCaptureAssertions = { desktop: liveDesktop, mobile: liveMobile };
+    const liveAssertions: LiveCaptureAssertions = {
+      desktop: liveDesktop,
+      mobile: liveMobile,
+      settings: liveSettings,
+      lightTheme,
+      modalStack,
+    };
     const sources = await desktopCapturer.getSources({
       types: ['window'],
       thumbnailSize: targetSize,
@@ -493,6 +762,7 @@ async function captureWindow(): Promise<void> {
       bridgePresent: typeof window.mixdogDesktop === 'object'
         && typeof window.mixdogDesktop.getSnapshot === 'function',
       inlineErrors: Array.from(document.querySelectorAll('.inline-error, [role="alert"]'))
+        .filter((node) => !node.closest('.oc-toast-region'))
         .map((node) => (node.textContent || '').trim())
         .filter(Boolean),
     }))()`) as { bridgePresent: boolean; inlineErrors: string[] };

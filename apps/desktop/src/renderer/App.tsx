@@ -8,6 +8,7 @@ import React, {
   memo,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -78,6 +79,7 @@ import {
   type WorkspaceTab,
 } from "./navigation";
 import { applyDesktopTheme } from "./desktop-theme";
+import { resolveContextUsage } from "./context-usage";
 import { OpenSelect } from "./OpenSelect";
 import {
   modelDisplayName,
@@ -107,6 +109,10 @@ type TranscriptItem = RecordValue & {
   id?: string | number;
   kind?: string;
   text?: string;
+  at?: number;
+  model?: string;
+  provider?: string;
+  agent?: string;
   name?: string;
   args?: unknown;
   result?: unknown;
@@ -166,6 +172,19 @@ type Snapshot = RecordValue & {
   commandStatus?: RecordValue | null;
   promptHistoryList?: unknown[];
   desktopSessionTitle?: string;
+  stats?: RecordValue;
+  contextWindow?: number;
+  displayContextWindow?: number;
+  autoCompactTokenLimit?: number;
+  agentWorkers?: RecordValue[];
+  agentJobs?: RecordValue[];
+  activeTools?: {
+    explore?: { count?: number; startedAt?: number };
+    search?: { count?: number; startedAt?: number };
+  } | null;
+  shellJobs?: { count?: number; elapsedLabel?: string };
+  workflow?: RecordValue | null;
+  remoteEnabled?: boolean;
 };
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
@@ -314,6 +333,8 @@ export function App() {
     sawBusy: false,
     sawSettlement: false,
   });
+  const sessionRefreshVersion = useRef(0);
+  const pendingSessionRenames = useRef(new Map<string, { title: string }>());
   const isBusy = Boolean(snapshot.busy || snapshot.commandBusy);
   const startupMeasured = useRef(false);
   useEffect(() => {
@@ -419,9 +440,13 @@ export function App() {
   const refreshSessions = useCallback(async () => {
     const host = window.mixdogDesktop;
     if (!host?.listSessions) return [];
+    const version = ++sessionRefreshVersion.current;
     const next = await host.listSessions();
-    const rows = Array.isArray(next) ? next : [];
-    setSessions(rows);
+    const rows = (Array.isArray(next) ? next : []).map((session) => {
+      const pending = pendingSessionRenames.current.get(session.id);
+      return pending ? { ...session, title: pending.title } : session;
+    });
+    if (version === sessionRefreshVersion.current) setSessions(rows);
     return rows;
   }, []);
   const refreshProjects = useCallback(async () => {
@@ -595,6 +620,47 @@ export function App() {
       await window.mixdogDesktop.removeProject(project);
       await refreshProjects();
     });
+  const renameSession = useCallback(async (sessionId: string, rawTitle: string) => {
+    const title = rawTitle.trim();
+    if (!title) return;
+    const previousSession = sessions.find((session) => session.id === sessionId);
+    if (!previousSession || sessionSummaryTitle(previousSession) === title) return;
+    const tabKey = navigationKey({ kind: "session", id: sessionId });
+    const previousTabTitle = tabs.find((tab) => tab.key === tabKey)?.title;
+    const pending = { title };
+    pendingSessionRenames.current.set(sessionId, pending);
+    setSessions((current) => current.map((session) => session.id === sessionId
+      ? { ...session, title }
+      : session));
+    setTabs((current) => current.map((tab) => tab.key === tabKey ? { ...tab, title } : tab));
+    setError("");
+    try {
+      await window.mixdogDesktop.renameSession(sessionId, title);
+    } catch (reason) {
+      if (pendingSessionRenames.current.get(sessionId) !== pending) return;
+      pendingSessionRenames.current.delete(sessionId);
+      sessionRefreshVersion.current += 1;
+      setSessions((current) => current.map((session) =>
+        session.id === sessionId && session.title === title ? previousSession : session));
+      if (previousTabTitle !== undefined) {
+        setTabs((current) => current.map((tab) =>
+          tab.key === tabKey && tab.title === title ? { ...tab, title: previousTabTitle } : tab));
+      }
+      setError(reason instanceof Error ? reason.message : String(reason));
+      return;
+    }
+    if (pendingSessionRenames.current.get(sessionId) === pending) {
+      try {
+        await refreshSessions();
+      } catch {
+        // The persisted optimistic title remains authoritative if reconciliation is unavailable.
+      } finally {
+        if (pendingSessionRenames.current.get(sessionId) === pending) {
+          pendingSessionRenames.current.delete(sessionId);
+        }
+      }
+    }
+  }, [refreshSessions, sessions, setError, tabs]);
   const startTask = () => {
     closeSidebarForNavigation();
     void invoke(async () => {
@@ -730,6 +796,17 @@ export function App() {
     if (fallback) navigateTab(fallback);
     else startTask();
   };
+  const reorderTab = useCallback((sourceKey: string, targetKey: string) => {
+    setTabs((current) => {
+      const sourceIndex = current.findIndex((tab) => tab.key === sourceKey);
+      const targetIndex = current.findIndex((tab) => tab.key === targetKey);
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current;
+      const next = [...current];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+  }, []);
 
   return (
     <div className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"}`}>
@@ -740,6 +817,7 @@ export function App() {
         onToggleSidebar={() => setSidebarOpen((open) => !open)}
         onSelectTab={navigateTab}
         onCloseTab={closeTab}
+        onReorderTab={reorderTab}
         onNewTask={startTask}
       />
       <div className="desktop-body">
@@ -754,6 +832,7 @@ export function App() {
           onStartProjectTask={startProjectTask}
           onOpenSettings={() => openSettings()}
           onResumeSession={resumeSession}
+          onRenameSession={renameSession}
         />
         {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)}
           aria-label="Close session sidebar" />}
@@ -768,6 +847,8 @@ export function App() {
                 <h1 data-tooltip={currentSessionTitle || tabs.find((tab) => tab.key === activeTabKey)?.title || "New task"}>
                   {currentSessionTitle || tabs.find((tab) => tab.key === activeTabKey)?.title || "New task"}
                 </h1>
+                <ContextUsageIndicator snapshot={visibleSnapshot}
+                  onOpen={() => setCommandSurface("context")} />
               </div>
             </header>
             <Conversation snapshot={visibleSnapshot} routeSnapshot={snapshot} invoke={invoke} invokeResult={invokeResult}
@@ -830,32 +911,100 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
   onDismissBridgeError: () => void;
 }) {
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
-  const entries = [
-    ...(bridgeError ? [{ key: `bridge:${bridgeError}`, text: bridgeError, tone: 'error', bridge: true }] : []),
-    ...toasts.map((toast, index) => ({
+  const [dismissedErrorSignatures, setDismissedErrorSignatures] = useState<Set<string>>(() => new Set());
+  const [retainedErrors, setRetainedErrors] = useState<Array<{
+    key: string;
+    signature: string;
+    text: string;
+    tone: string;
+    bridge: boolean;
+  }>>([]);
+  const sourceEntries = toasts.map((toast, index) => {
+    const text = String(toast.text || toast.message || '').trim();
+    const tone = String(toast.tone || 'info').toLowerCase();
+    return {
       key: String(toast.id ?? `${toast.tone || 'info'}:${toast.text || toast.message || ''}:${index}`),
-      text: String(toast.text || toast.message || '').trim(),
-      tone: String(toast.tone || 'info').toLowerCase(),
+      signature: `${tone}:${text}`,
+      text,
+      tone,
       bridge: false,
-    })),
-  ].filter((entry) => entry.text && !dismissed.has(entry.key)).slice(-4);
+    };
+  }).filter((entry) => entry.text);
+  const sourceErrors = sourceEntries.filter((entry) => entry.tone === 'error');
+  const sourceErrorToken = sourceErrors.map((entry) => entry.signature).join('\u0000');
+  useEffect(() => {
+    const active = new Set(sourceErrors.map((entry) => entry.signature));
+    setDismissedErrorSignatures((current) => {
+      const next = new Set([...current].filter((signature) => active.has(signature)));
+      return next.size === current.size ? current : next;
+    });
+    setRetainedErrors((current) => {
+      let next = current;
+      for (const entry of sourceErrors) {
+        if (dismissedErrorSignatures.has(entry.signature)) continue;
+        next = [...next.filter((retained) => retained.signature !== entry.signature), entry];
+      }
+      return next.slice(-5);
+    });
+  }, [sourceErrorToken]);
+  const currentErrors = retainedErrors
+    .filter((entry) => !dismissedErrorSignatures.has(entry.signature));
+  const candidates = [
+    ...(bridgeError ? [{
+      key: `bridge:${bridgeError}`,
+      signature: `bridge:${bridgeError}`,
+      text: bridgeError,
+      tone: 'error',
+      bridge: true,
+    }] : []),
+    ...sourceEntries.filter((entry) => entry.tone !== 'error'),
+    ...currentErrors.slice(-5),
+  ];
+  const sourceKeys = candidates.map((entry) => entry.key).join('\u0000');
+  const entries = candidates.filter((entry) => !dismissed.has(entry.key)).slice(-5);
+  const expiringKeys = entries
+    .filter((entry) => !entry.bridge && entry.tone !== 'error')
+    .map((entry) => entry.key)
+    .join('\u0000');
+  useEffect(() => {
+    const active = new Set(sourceKeys ? sourceKeys.split('\u0000') : []);
+    setDismissed((current) => {
+      const next = new Set([...current].filter((key) => active.has(key)));
+      return next.size === current.size ? current : next;
+    });
+  }, [sourceKeys]);
+  useEffect(() => {
+    if (!expiringKeys) return;
+    const keys = expiringKeys.split('\u0000');
+    const timer = window.setTimeout(() => {
+      setDismissed((current) => new Set([...current, ...keys]));
+    }, 6500);
+    return () => window.clearTimeout(timer);
+  }, [expiringKeys]);
   if (!entries.length) return null;
-  return <section className="oc-toast-region" aria-label="Notifications" aria-live="polite">
+  return createPortal(<section className="oc-toast-region" aria-label="Notifications" aria-live="polite"
+    data-count={entries.length}>
     {entries.map((entry) => {
       const title = entry.tone === 'error' ? 'Something went wrong'
         : entry.tone === 'success' ? 'Completed'
           : entry.tone === 'warn' || entry.tone === 'warning' ? 'Attention' : 'Mixdog';
-      return <article className="oc-toast" data-tone={entry.tone} key={entry.key} role="status">
+      return <article className="oc-toast" data-tone={entry.tone} key={entry.key}
+        role={entry.tone === 'error' ? 'alert' : 'status'}>
         {entry.tone === 'error' ? <ShieldAlert size={16} />
           : entry.tone === 'success' ? <Check size={16} /> : <Sparkles size={16} />}
         <span className="oc-toast-copy"><b>{title}</b><span>{entry.text}</span></span>
         <button type="button" className="oc-toast-close" aria-label="Dismiss notification" onClick={() => {
-          setDismissed((current) => new Set(current).add(entry.key));
+          if (entry.tone === 'error' && !entry.bridge) {
+            setRetainedErrors((current) => current.filter((retained) => retained.signature !== entry.signature));
+            setDismissedErrorSignatures((current) => new Set(current).add(entry.signature));
+          } else {
+            setDismissed((current) => new Set(current).add(entry.key));
+          }
           if (entry.bridge) onDismissBridgeError();
         }}><X size={16} /></button>
       </article>;
     })}
-  </section>;
+  </section>, document.body);
 }
 
 function InlineErrors({ messages }: { messages: string[] }) {
@@ -913,6 +1062,7 @@ function Conversation({
   const scrollFrame = useRef<number | undefined>(undefined);
   const [starter, setStarter] = useState<{ id: number; text: string } | null>(null);
   const [following, setFollowing] = useState(true);
+  const [currentUserMessage, setCurrentUserMessage] = useState(0);
   const composerActions = useRef({
     submit, invokeResult, applySnapshot, onNewTask, onStartProject, onResumeSession,
     onOpenProjects, onOpenSessions, onOpenSettings, onOpenCommandSurface,
@@ -926,6 +1076,13 @@ function Conversation({
     [snapshot.items, snapshot.streamingTail],
   );
   const failedTurns = useMemo(() => new Set(snapshot.failedTurnKeys || []), [snapshot.failedTurnKeys]);
+  const userMessages = useMemo(() => items.flatMap((item, itemIndex) => item.kind === "user"
+    ? [{ itemIndex, label: oneLine(item.text, 80) || "New message" }]
+    : []), [items]);
+  const userMessageOrdinal = useMemo(
+    () => new Map(userMessages.map((message, index) => [message.itemIndex, index])),
+    [userMessages],
+  );
   const turnMetadata = useMemo(() => {
     const current = mergeTranscript(snapshot.items, snapshot.streamingTail);
     const turnKeys = transcriptTurnKeys(current);
@@ -971,6 +1128,27 @@ function Conversation({
     window.clearTimeout(scrollTimer.current);
     scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
   }, []);
+  const syncCurrentUserMessage = useCallback(() => {
+    const root = viewport.current;
+    if (!root || userMessages.length === 0) return;
+    const threshold = root.getBoundingClientRect().top + Math.min(140, root.clientHeight * .28);
+    let next = 0;
+    userMessages.forEach((message, index) => {
+      const anchor = document.getElementById(`user-message-${message.itemIndex}`);
+      if (anchor && anchor.getBoundingClientRect().top <= threshold) next = index;
+    });
+    setCurrentUserMessage(next);
+  }, [userMessages]);
+  const jumpToUserMessage = useCallback((index: number) => {
+    const next = Math.max(0, Math.min(userMessages.length - 1, index));
+    const target = userMessages[next];
+    if (!target) return;
+    followOutput.current = false;
+    setFollowing(false);
+    setCurrentUserMessage(next);
+    document.getElementById(`user-message-${target.itemIndex}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [userMessages]);
   const composerSubmit = useCallback(async (
     content: DesktopPromptContent,
     options?: DesktopSubmitOptions,
@@ -1019,7 +1197,8 @@ function Conversation({
     element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
     window.clearTimeout(scrollTimer.current);
     scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
-  }, [routeSnapshot.sessionId]);
+    setCurrentUserMessage(Math.max(0, userMessages.length - 1));
+  }, [routeSnapshot.sessionId, userMessages.length]);
   useEffect(() => {
     if (followOutput.current && scrollFrame.current === undefined) {
       const element = viewport.current;
@@ -1057,6 +1236,7 @@ function Conversation({
         );
         followOutput.current = nextFollowing;
         setFollowing(nextFollowing);
+        syncCurrentUserMessage();
       }} onWheel={() => { programmaticScroll.current = false; }}
         onPointerDown={() => { programmaticScroll.current = false; }}
         onTouchStart={() => { programmaticScroll.current = false; }}
@@ -1064,7 +1244,8 @@ function Conversation({
           if (isScrollIntentKey(event.key)) programmaticScroll.current = false;
         }}>
         <div className="thread">
-          {items.length === 0 && (
+          {items.length === 0 && !snapshot.busy && !snapshot.commandBusy && !snapshot.thinking
+            && !snapshot.spinner && !snapshot.commandStatus && !snapshot.toolApproval && (
             <div className="thread-welcome">
               <span className="welcome-mark">M</span>
               <h1>What can Mixdog help you build?</h1>
@@ -1090,6 +1271,7 @@ function Conversation({
             }
             if (attachedCompletionIndexes.has(index)) return null;
             const row = <TranscriptRow item={item} completion={completionByAssistant.get(index)}
+              userMessageIndex={userMessageOrdinal.get(index) === undefined ? undefined : index}
               key={`${String(routeSnapshot.sessionId || "new-task")}:${String(item.id ?? `${item.kind}-${index}`)}`} />;
             const pendingFailure = failedTurns.has(turnKey) &&
               !lastCompletionByTurn.has(turnKey) &&
@@ -1110,6 +1292,9 @@ function Conversation({
           )}
         </div>
       </div>
+      <TranscriptRail messages={userMessages} current={currentUserMessage}
+        onPrevious={() => jumpToUserMessage(currentUserMessage - 1)}
+        onNext={() => jumpToUserMessage(currentUserMessage + 1)} />
       {!following && <button type="button" className="jump-to-latest" onClick={() => jumpToLatest()}
         aria-label="Jump to latest message">
         <ArrowDown size={14} />Jump to latest
@@ -1119,10 +1304,16 @@ function Conversation({
           {String(asRecord(snapshot.progressHint)?.text)}
         </div>}
         <InlineErrors messages={errors} />
+        <LiveWorkStatus snapshot={snapshot} />
         <Composer key={String(routeSnapshot.sessionId || 'new-task')}
           turnBusy={Boolean(snapshot.busy)}
           commandBusy={Boolean(routeSnapshot.commandBusy)}
           transitioning={transitioning}
+          historyScope={String(routeSnapshot.sessionId || routeSnapshot.currentProject ||
+            routeSnapshot.project || routeSnapshot.cwd || 'new-task')}
+          projectScope={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
+          hasConversation={items.length > 0}
+          hasProjectContext={Boolean(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd)}
           promptHistoryList={routeSnapshot.promptHistoryList}
           provider={String(routeSnapshot.provider || "")}
           model={String(routeSnapshot.model || "")}
@@ -1145,6 +1336,176 @@ function Conversation({
       </div>
     </section>
   );
+}
+
+const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
+
+function timeMs(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatWorkElapsed(value: unknown): string {
+  const elapsed = Math.max(0, Number(value) || 0);
+  if (!Number.isFinite(elapsed) || elapsed < 1_000) return "";
+  const days = Math.floor(elapsed / 86_400_000);
+  const hours = Math.floor((elapsed % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((elapsed % 3_600_000) / 60_000);
+  const seconds = Math.floor((elapsed % 60_000) / 1_000);
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot; now?: number }) {
+  const [clock, setClock] = useState(() => fixedNow ?? Date.now());
+  const workers = Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [];
+  const jobs = Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [];
+  const taggedRunningKeys = new Set<string>();
+  let untaggedRunningCount = 0;
+  let oldestAgentStart = Infinity;
+  workers.forEach((worker) => {
+    const tag = String(worker.tag || worker.agent || worker.name || "").trim();
+    if (TERMINAL_AGENT_STATUS.test(String(worker.stage || worker.status || ""))) return;
+    if (tag) taggedRunningKeys.add(tag);
+    else untaggedRunningCount += 1;
+    const startedAt = timeMs(worker.startedAt || worker.startTime || worker.createdAt);
+    if (startedAt > 0) oldestAgentStart = Math.min(oldestAgentStart, startedAt);
+  });
+  jobs.forEach((job) => {
+    if (!/running/i.test(String(job.status || job.stage || ""))) return;
+    const tag = String(job.tag || job.agent || job.type || job.task_id || job.taskId || "").trim();
+    if (tag) taggedRunningKeys.add(tag);
+    else untaggedRunningCount += 1;
+    const startedAt = timeMs(job.startedAt);
+    if (startedAt > 0) oldestAgentStart = Math.min(oldestAgentStart, startedAt);
+  });
+  const runningCount = taggedRunningKeys.size + untaggedRunningCount;
+  const tools = snapshot.activeTools || {};
+  const exploreCount = Math.max(0, Number(tools.explore?.count) || 0);
+  const searchCount = Math.max(0, Number(tools.search?.count) || 0);
+  const shellCount = Math.max(0, Number(snapshot.shellJobs?.count) || 0);
+  const active = runningCount > 0 || exploreCount > 0 || searchCount > 0 || shellCount > 0;
+  useEffect(() => {
+    if (fixedNow !== undefined || !active) return undefined;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active, fixedNow]);
+  if (!active) return null;
+  const segment = (key: string, label: string, elapsed: string) => <span className="live-work-segment" key={key}>
+    <LoaderCircle className="live-work-spinner" size={12} aria-hidden="true" />
+    <span>{label}</span>{elapsed && <small>· {elapsed}</small>}
+  </span>;
+  return <div className="live-work-status" role="status" aria-label="Background activity">
+    {runningCount > 0 && segment("agents",
+      `Running ${runningCount} Agent${runningCount === 1 ? "" : "s"}`,
+      Number.isFinite(oldestAgentStart) ? formatWorkElapsed(clock - oldestAgentStart) : "")}
+    {exploreCount > 0 && segment("explore", "Exploring",
+      tools.explore?.startedAt ? formatWorkElapsed(clock - Number(tools.explore.startedAt)) : "")}
+    {searchCount > 0 && segment("search", "Web Searching",
+      tools.search?.startedAt ? formatWorkElapsed(clock - Number(tools.search.startedAt)) : "")}
+    {shellCount > 0 && segment("shells",
+      `Running ${shellCount} Shell${shellCount === 1 ? "" : "s"}`,
+      String(snapshot.shellJobs?.elapsedLabel || ""))}
+  </div>;
+}
+
+function contextMetrics(snapshot: Snapshot) {
+  const stats = asRecord(snapshot.stats);
+  if (!stats) return null;
+  const exact = Math.max(0, Number(stats.currentContextTokens || 0));
+  const estimated = Math.max(0, Number(stats.currentEstimatedContextTokens || 0));
+  const used = exact || estimated;
+  const usage = resolveContextUsage({
+    usedTokens: used,
+    autoCompactTokenLimit: snapshot.autoCompactTokenLimit,
+    displayContextWindow: snapshot.displayContextWindow,
+    contextWindow: snapshot.contextWindow,
+  });
+  if (!usage) return null;
+  return {
+    ...usage,
+    estimated: exact === 0 && estimated > 0,
+    cost: Object.prototype.hasOwnProperty.call(stats, "costUsd") && Number.isFinite(Number(stats.costUsd))
+      ? Math.max(0, Number(stats.costUsd))
+      : null,
+  };
+}
+
+export function ContextUsageIndicator({ snapshot, onOpen }: { snapshot: Snapshot; onOpen(): void }) {
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const keyboardFocusIntent = useRef(false);
+  const context = contextMetrics(snapshot);
+  useEffect(() => {
+    const keydown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Tab") keyboardFocusIntent.current = true;
+      if (event.key === "Escape") setPopoverOpen(false);
+    };
+    const pointerdown = () => { keyboardFocusIntent.current = false; };
+    document.addEventListener("keydown", keydown, true);
+    document.addEventListener("pointerdown", pointerdown, true);
+    return () => {
+      document.removeEventListener("keydown", keydown, true);
+      document.removeEventListener("pointerdown", pointerdown, true);
+    };
+  }, []);
+  if (!context) return null;
+  const descriptionId = `context-usage-${String(snapshot.sessionId || "session")}`;
+  return <div className="session-context-indicator" data-open={popoverOpen ? "true" : "false"}
+    onMouseEnter={() => setPopoverOpen(true)} onMouseLeave={() => setPopoverOpen(false)}>
+    <button type="button" onClick={() => {
+      keyboardFocusIntent.current = false;
+      setPopoverOpen(false);
+      onOpen();
+    }} onFocus={() => {
+      if (keyboardFocusIntent.current) {
+        keyboardFocusIntent.current = false;
+        setPopoverOpen(true);
+      }
+    }} aria-label="Open context details"
+      aria-describedby={descriptionId}>
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <circle className="context-usage-track" cx="10" cy="10" r="7" />
+        <circle className="context-usage-value" cx="10" cy="10" r="7"
+          pathLength="100" strokeDasharray={`${context.percent} 100`} />
+      </svg>
+      <small>{context.percent}</small>
+    </button>
+    <div className="session-context-popover" id={descriptionId} role="tooltip">
+      {context.cost !== null && <div><span>Cost</span><b>{new Intl.NumberFormat(undefined, {
+        style: "currency", currency: "USD", minimumFractionDigits: 2,
+      }).format(context.cost)}</b></div>}
+      <div><span>Usage</span><b>{context.percent}%</b></div>
+      <div><span>Tokens</span><b>{context.used.toLocaleString()}</b></div>
+    </div>
+  </div>;
+}
+
+function TranscriptRail({ messages, current, onPrevious, onNext }: {
+  messages: Array<{ itemIndex: number; label: string }>;
+  current: number;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  if (messages.length < 2) return null;
+  const currentLabel = messages[current]?.label || "Current message";
+  return <aside className="transcript-rail" aria-label="Conversation navigation">
+    <div className="message-nav" data-component="message-nav" data-size="compact">
+      <button type="button" onClick={onPrevious} disabled={current <= 0}
+        aria-label="Previous user message" data-tooltip={current > 0 ? messages[current - 1]?.label : undefined}>
+        <ArrowUp size={13} />
+      </button>
+      <span aria-label={`User message ${current + 1} of ${messages.length}`}
+        title={currentLabel}>{current + 1}/{messages.length}</span>
+      <button type="button" onClick={onNext} disabled={current >= messages.length - 1}
+        aria-label="Next user message" data-tooltip={current < messages.length - 1 ? messages[current + 1]?.label : undefined}>
+        <ArrowDown size={13} />
+      </button>
+    </div>
+  </aside>;
 }
 
 function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
@@ -1179,7 +1540,7 @@ function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
   const reasoning = publicThinkingSummary(snapshot.thinking);
   return <div className="live-activity" data-mode={mode}>
     <div className="live-activity-status" role="status" aria-live="polite">
-      <span>{verb}</span>
+      <TextShimmer text={verb} />
       {(elapsed || outputTokens > 0) && <small>
         {[elapsed, outputTokens > 0 ? `${outputTokens.toLocaleString()} tokens` : ""].filter(Boolean).join(" · ")}
       </small>}
@@ -1189,6 +1550,13 @@ function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
       <pre>{reasoning}</pre>
     </details>}
   </div>;
+}
+
+function TextShimmer({ text, active = true }: { text: string; active?: boolean }) {
+  return <span data-component="text-shimmer" data-active={active ? "true" : "false"} aria-label={text}>
+    <span data-slot="text-shimmer-char" data-run={active ? "true" : "false"}
+      aria-hidden="true">{text}</span>
+  </span>;
 }
 
 function completionTone(item: TranscriptItem): "complete" | "failed" | "interrupted" | "compaction" {
@@ -1279,7 +1647,19 @@ const MarkdownResponse = React.memo(function MarkdownResponse({ text, streaming 
     return undefined;
   }, [text, streaming]);
   useEffect(() => () => window.clearTimeout(parseTimer.current), []);
-  return <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+  return <div className={`markdown ${streaming ? "streaming" : ""}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+    a({ href, children }) {
+      const external = /^https?:\/\//i.test(href || "");
+      return <a href={href} onClick={external ? (event) => {
+        event.preventDefault();
+        void window.mixdogDesktop.openExternal(href || "").catch(() => undefined);
+      } : undefined}>{children}</a>;
+    },
+    table({ children }) {
+      return <div className="markdown-table" role="region" aria-label="Scrollable table" tabIndex={0}>
+        <table>{children}</table>
+      </div>;
+    },
     pre({ children }) {
       const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
       if (!React.isValidElement(child)) return <pre>{children}</pre>;
@@ -1293,7 +1673,7 @@ const MarkdownResponse = React.memo(function MarkdownResponse({ text, streaming 
       </div>;
     },
   }}>{renderedText}</ReactMarkdown>
-    {streaming && <span className="stream-cursor" />}
+    {streaming && <span className="stream-cursor" aria-hidden="true" />}
   </div>;
 });
 
@@ -1313,12 +1693,26 @@ function transcriptItemSignature(item: TranscriptItem | undefined): string {
   return signature;
 }
 
+function messageMetadata(item: TranscriptItem) {
+  const agent = typeof item.agent === "string" ? item.agent.trim() : "";
+  const model = typeof item.model === "string" ? item.model.trim() : "";
+  const shortTime = typeof item.at === "number" && Number.isFinite(item.at) && item.at > 0
+    ? new Date(item.at).toLocaleTimeString(undefined, { timeStyle: "short" })
+    : "";
+  return {
+    details: [agent, model, shortTime].filter(Boolean),
+    shortTime,
+  };
+}
+
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   completion,
+  userMessageIndex,
 }: {
   item: TranscriptItem;
   completion?: TranscriptItem;
+  userMessageIndex?: number;
 }) {
   const previousStreaming = useRef(Boolean(item.streaming));
   const announceSettled = previousStreaming.current && !item.streaming;
@@ -1339,20 +1733,30 @@ export const TranscriptRow = memo(function TranscriptRow({
   if (item.kind !== "user" && item.kind !== "assistant") return null;
   const user = item.kind === "user";
   const text = String(item.text || "");
+  const metadata = messageMetadata(item);
   return (
     <>
       <article className={`message ${user ? "user" : "assistant"} ${item.streaming ? "streaming" : "settled"}`}
+        id={user && userMessageIndex !== undefined ? `user-message-${userMessageIndex}` : undefined}
+        data-user-message-index={user && userMessageIndex !== undefined ? userMessageIndex : undefined}
         aria-live={item.streaming || announceSettled ? "off" : undefined}>
         <div className="message-body">
           {user ? <p>{item.text}</p> : (
             <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
           )}
         </div>
-        {user && !item.streaming && text && <CopyControl value={text} label="Copy message"
-          className="message-actions user-copy" />}
+        {user && !item.streaming && text && <footer className="message-meta-line"
+          aria-label="Message details">
+          {metadata.details.length > 0 && <span className="message-meta">
+            {metadata.details.join("\u00A0\u00B7\u00A0")}
+          </span>}
+          <CopyControl value={text} label="Copy message"
+            className="message-actions user-copy" />
+        </footer>}
         {!user && !item.streaming && (text || completion) && <footer className="response-footer"
           aria-label="Response details">
           {completion && <CompletionStatus item={completion} />}
+          {metadata.shortTime && <time className="message-time">{metadata.shortTime}</time>}
           {text && <CopyControl value={text} label="Copy response"
             className="message-actions response-copy" />}
         </footer>}
@@ -1368,10 +1772,14 @@ export const TranscriptRow = memo(function TranscriptRow({
 ) && (
   previous.completion === next.completion ||
   transcriptItemSignature(previous.completion) === transcriptItemSignature(next.completion)
-));
+) && previous.userMessageIndex === next.userMessageIndex);
 
 function ToolCard({ item }: { item: TranscriptItem }) {
   const [open, setOpen] = useState(Boolean(item.expanded));
+  const contentId = useId();
+  useEffect(() => {
+    if (typeof item.expanded === "boolean") setOpen(item.expanded);
+  }, [item.expanded]);
   const done = item.completedAt != null || (item.completedCount === undefined
     ? item.result != null || item.rawResult != null
     : item.completedCount >= (item.count || 1));
@@ -1405,27 +1813,42 @@ function ToolCard({ item }: { item: TranscriptItem }) {
   const hasInput = !item.aggregate && (parsedArgs ? Object.keys(parsedArgs).length > 0 : Boolean(surface.args));
   const hasResult = typeof rawResult === "string" ? Boolean(rawResult.trim()) : rawResult != null;
   const hasDetails = hasInput || patch != null || hasResult;
+  const count = Math.max(1, Math.round(Number(item.count || 1)));
+  const errorCard = (failed || denied) && hasResult;
   return (
     <article className={`tool-card ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
-      data-category={category}>
+      data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
+      data-open={open ? "true" : "false"}>
       <button className="tool-header" disabled={!hasDetails}
-        onClick={() => setOpen((value) => !value)} aria-expanded={hasDetails ? open : undefined}>
-        <span className="tool-icon">{toolIcon(category)}</span>
-        <span className="tool-title"><b>{title}</b>{argumentSummary && <small>{argumentSummary}</small>}</span>
+        onClick={() => setOpen((value) => !value)} aria-expanded={hasDetails ? open : undefined}
+        aria-controls={hasDetails ? contentId : undefined}>
+        <span className="tool-icon">{failed || denied ? <X size={15} /> : toolIcon(category)}</span>
+        <span className="tool-title">
+          <b data-component={item.aggregate ? "tool-count-summary" : "tool-status-title"}
+            data-active={!done ? "true" : "false"}>
+            <TextShimmer text={title} active={!done} />
+          </b>
+          {!item.aggregate && count > 1 && <span className="tool-count-label"
+            data-component="tool-count-label">{count} calls</span>}
+          {argumentSummary && <small>{argumentSummary}</small>}
+        </span>
         <span className={`tool-state ${done ? "done" : ""} ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""}`} role="status">
           {failed || denied ? <X size={13} /> : done ? <Check size={13} /> : <LoaderCircle className="spin" size={13} />}
           {stateLabel}
         </span>
         {hasDetails && (open ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
       </button>
-      {resultSummary && !open && <div className="tool-result-summary">{resultSummary}</div>}
+      {resultSummary && !open && <div className={errorCard ? "tool-error-summary" : "tool-result-summary"}>
+        {resultSummary}
+      </div>}
       {hasDetails && open && (
-        <div className="tool-content">
+        <div className="tool-content" id={contentId}>
           {hasInput && <DetailBlock label="Input" value={surface.args} />}
           {patch ? <CodeDiff patch={patch} /> :
             hasResult &&
               <DetailBlock label={failed || denied ? "Error" : "Result"} value={rawResult}
-                copyLabel={category === "Shell" ? "Copy command output" : undefined} />}
+                copyLabel={failed || denied ? "Copy tool error"
+                  : category === "Shell" ? "Copy command output" : undefined} />}
         </div>
       )}
     </article>
@@ -1509,10 +1932,8 @@ class DiffBoundary extends Component<{ fallback: ReactNode; children: ReactNode 
 function CodeDiff({ patch }: { patch: string }) {
   const [expanded, setExpanded] = useState(false);
   const lineCount = patch.split("\n").length;
-  const previewPatch = useMemo(() => lineCount > 14 ? patch.split("\n").slice(0, 14).join("\n") : patch, [lineCount, patch]);
-  const visiblePatch = expanded ? patch : previewPatch;
-  const files = useMemo(() => parseUnifiedDiff(visiblePatch), [visiblePatch]);
-  const fallback = <pre className="diff-fallback">{visiblePatch}</pre>;
+  const files = useMemo(() => parseUnifiedDiff(patch), [patch]);
+  const fallback = <pre className="diff-fallback">{patch}</pre>;
   return (
     <section className="code-diff">
       <div className={expanded ? "" : "diff-collapsed"}>
@@ -1529,7 +1950,7 @@ function CodeDiff({ patch }: { patch: string }) {
                   className="tool-detail-copy diff-copy" />
               </header>
               {file.renderable ? (
-                <Suspense fallback={null}>
+                <Suspense fallback={<div className="diff-loading" aria-hidden="true">Loading diff…</div>}>
                   <DiffView data={file} />
                 </Suspense>
               ) : <pre className="diff-fallback">{file.patch}</pre>}
@@ -1538,7 +1959,8 @@ function CodeDiff({ patch }: { patch: string }) {
         </DiffBoundary>
       </div>
       {lineCount > 14 && (
-        <button className="diff-toggle" onClick={() => setExpanded((value) => !value)}>
+        <button type="button" className="diff-toggle" onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}>
           {expanded ? "Collapse diff" : "Show full diff"}
         </button>
       )}
@@ -1671,6 +2093,29 @@ const MAX_INLINE_FILE_BYTES = 750_000;
 const MAX_INLINE_TEXT_TOTAL = 850_000;
 const MAX_INLINE_IMAGE_BASE64_TOTAL = 30_000_000;
 const MAX_SUBMIT_TEXT_LENGTH = 950_000;
+const MAX_PERSISTED_PROMPT_HISTORY = 100;
+const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
+const COMPOSER_PLACEHOLDERS = [
+  'Ask Mixdog anything…',
+  'Ask Mixdog to explain this project…',
+  'Ask Mixdog to plan your next change…',
+  'Ask Mixdog to find and fix a bug…',
+] as const;
+
+function promptHistoryStorageKey(scope: string) {
+  return `${PROMPT_HISTORY_STORAGE_PREFIX}${encodeURIComponent(scope || 'new-task')}`;
+}
+
+function readPromptHistory(scope: string) {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(promptHistoryStorageKey(scope)) || '[]');
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((entry) => typeof entry === 'string' && entry.trim() ? [entry] : [])
+      .slice(0, MAX_PERSISTED_PROMPT_HISTORY);
+  } catch {
+    return [];
+  }
+}
 
 function QueueList({ queued, restoring, onRestore }: {
   queued?: unknown[];
@@ -1693,6 +2138,10 @@ const Composer = memo(function Composer({
   turnBusy,
   commandBusy,
   transitioning,
+  historyScope,
+  projectScope,
+  hasConversation,
+  hasProjectContext,
   promptHistoryList,
   provider,
   model,
@@ -1716,6 +2165,10 @@ const Composer = memo(function Composer({
   turnBusy: boolean;
   commandBusy: boolean;
   transitioning: boolean;
+  historyScope: string;
+  projectScope: string;
+  hasConversation: boolean;
+  hasProjectContext: boolean;
   promptHistoryList?: unknown[];
   provider: string;
   model: string;
@@ -1742,20 +2195,58 @@ const Composer = memo(function Composer({
   const [attachmentError, setAttachmentError] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedDraft, setSlashDismissedDraft] = useState('');
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [caretOffset, setCaretOffset] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionResults, setMentionResults] = useState<string[]>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [mentionDismissed, setMentionDismissed] = useState('');
   const [restoring, setRestoring] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
+  const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const slashPalette = useRef<HTMLDivElement>(null);
+  const mentionPalette = useRef<HTMLDivElement>(null);
+  const mentionSearchGeneration = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const attachmentSequence = useRef(1);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const dragDepth = useRef(0);
+  const transitioningRef = useRef(transitioning);
+  transitioningRef.current = transitioning;
   const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
-  const history = useMemo(() => (Array.isArray(promptHistoryList)
-    ? promptHistoryList.map((entry) => typeof entry === 'string'
-      ? entry : String(asRecord(entry)?.text || asRecord(entry)?.displayText || '')).filter(Boolean)
-    : []), [promptHistoryList]);
+  const history = useMemo(() => {
+    const engineHistory = Array.isArray(promptHistoryList)
+      ? promptHistoryList.map((entry) => typeof entry === 'string'
+        ? entry : String(asRecord(entry)?.text || asRecord(entry)?.displayText || '')).filter(Boolean)
+      : [];
+    return [...new Set([...persistedHistory, ...engineHistory])].slice(0, MAX_PERSISTED_PROMPT_HISTORY);
+  }, [persistedHistory, promptHistoryList]);
+  const rememberPrompt = useCallback((value: string) => {
+    const prompt = value.trim();
+    if (!prompt) return;
+    setPersistedHistory((current) => {
+      const next = [prompt, ...current.filter((entry) => entry !== prompt)]
+        .slice(0, MAX_PERSISTED_PROMPT_HISTORY);
+      try {
+        window.localStorage.setItem(promptHistoryStorageKey(historyScope), JSON.stringify(next));
+      } catch {
+        // The engine-provided history remains available when browser storage is unavailable.
+      }
+      return next;
+    });
+  }, [historyScope]);
+  const placeholderOptions = useMemo(() => [
+    COMPOSER_PLACEHOLDERS[0],
+    ...(hasConversation ? ['Ask Mixdog a follow-up…'] : []),
+    ...(hasProjectContext ? ['Ask Mixdog anything about the active project…'] : []),
+    ...COMPOSER_PLACEHOLDERS.slice(1),
+  ], [hasConversation, hasProjectContext]);
+  const placeholder = turnBusy ? 'Steer the active turn or queue a follow-up…'
+    : commandBusy ? 'Queue a message after the current command…'
+      : placeholderOptions[placeholderIndex % placeholderOptions.length];
   // Match the TUI palette: it only owns a single, argument-free /token.
   // Once whitespace is entered the composer returns to normal editing and the
   // argument hint/submit path owns the draft.
@@ -1768,6 +2259,18 @@ const Composer = memo(function Composer({
       .slice(0, 10)
     : [];
   const slashOpen = Boolean(!commandBusy && slashMatch && slashDismissedDraft !== draft);
+  const mentionMatch = useMemo(() => {
+    const beforeCaret = draft.slice(0, Math.max(0, Math.min(caretOffset, draft.length)));
+    const match = /(^|[\s([{"'])@([^\s@]*)$/.exec(beforeCaret);
+    if (!match) return null;
+    const start = match.index + match[1].length;
+    return { start, end: beforeCaret.length, query: match[2] || '' };
+  }, [caretOffset, draft]);
+  const mentionSignature = mentionMatch
+    ? `${mentionMatch.start}:${mentionMatch.end}:${mentionMatch.query}`
+    : '';
+  const mentionOpen = Boolean(composerFocused && projectScope && mentionMatch && !transitioning &&
+    mentionDismissed !== mentionSignature);
   const paletteCommandToken = (command: (typeof SLASH_COMMANDS)[number] | undefined) => {
     if (!command) return '';
     const typedToken = draft.slice(1).trim().toLowerCase();
@@ -1789,6 +2292,16 @@ const Composer = memo(function Composer({
     return () => window.removeEventListener("resize", resizeTextarea);
   }, [resizeTextarea]);
   useEffect(() => {
+    if (turnBusy || commandBusy || draft) return;
+    const timer = window.setInterval(() => setPlaceholderIndex((index) => index + 1), 6500);
+    return () => window.clearInterval(timer);
+  }, [commandBusy, draft, turnBusy]);
+  useEffect(() => {
+    if (!transitioning) return;
+    dragDepth.current = 0;
+    setDraggingFiles(false);
+  }, [transitioning]);
+  useEffect(() => {
     if (!starter) return;
     setDraft(starter.text);
     historyNavigation.current = { index: -1, seed: '' };
@@ -1802,11 +2315,45 @@ const Composer = memo(function Composer({
   }, [transitioning]);
 
   useEffect(() => setSlashIndex(0), [slashQuery]);
+  useEffect(() => setMentionIndex(0), [mentionMatch?.query]);
+  useEffect(() => {
+    if (!mentionOpen || !mentionMatch) {
+      mentionSearchGeneration.current += 1;
+      setMentionResults([]);
+      setMentionLoading(false);
+      return;
+    }
+    const generation = ++mentionSearchGeneration.current;
+    setMentionResults([]);
+    setMentionLoading(true);
+    const timer = window.setTimeout(() => {
+      void window.mixdogDesktop.searchProjectFiles(projectScope, mentionMatch.query, 20)
+        .then((paths) => {
+          if (mentionSearchGeneration.current !== generation) return;
+          setMentionResults(paths);
+          setMentionLoading(false);
+        })
+        .catch(() => {
+          if (mentionSearchGeneration.current !== generation) return;
+          setMentionResults([]);
+          setMentionLoading(false);
+        });
+    }, 120);
+    return () => {
+      window.clearTimeout(timer);
+      if (mentionSearchGeneration.current === generation) mentionSearchGeneration.current += 1;
+    };
+  }, [mentionMatch?.end, mentionMatch?.query, mentionMatch?.start, mentionOpen, projectScope]);
   useEffect(() => {
     if (!slashOpen) return;
     slashPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [slashIndex, slashOpen, slashQuery]);
+  useEffect(() => {
+    if (!mentionOpen) return;
+    mentionPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [mentionIndex, mentionOpen, mentionResults]);
   useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
   useEffect(() => {
     const receiveDraft = (event: Event) => {
@@ -1890,6 +2437,7 @@ const Composer = memo(function Composer({
   }, []);
 
   const attachFiles = useCallback(async (files: FileList | File[]) => {
+    if (transitioningRef.current) return;
     setAttachmentError('');
     const available = Math.max(0, MAX_COMPOSER_ATTACHMENTS - attachmentsRef.current.length);
     if (available === 0) {
@@ -1901,6 +2449,7 @@ const Composer = memo(function Composer({
       setAttachmentError(`Only the first ${available} item${available === 1 ? '' : 's'} fit; remove an attachment to add more.`);
     }
     for (const file of incoming.slice(0, available)) {
+      if (transitioningRef.current) return;
       try {
         const id = attachmentSequence.current++;
         const displayName = file.name || (file.type.startsWith('image/') ? 'Pasted image' : 'Pasted file');
@@ -1914,6 +2463,7 @@ const Composer = memo(function Composer({
             reader.onload = () => resolve(String(reader.result || ''));
             reader.readAsDataURL(file);
           });
+          if (transitioningRef.current) return;
           const data = dataUrl.slice(dataUrl.indexOf(',') + 1);
           insertAttachment({ id, name: displayName, kind: 'image', mimeType: file.type, data,
             token: `[Image #${id}: ${displayName}]` });
@@ -1925,6 +2475,7 @@ const Composer = memo(function Composer({
           throw new Error(`${displayName}: only text/code files under 750 KB can be attached inline.`);
         }
         const text = await file.text();
+        if (transitioningRef.current) return;
         if (text.length > MAX_INLINE_FILE_BYTES) {
           throw new Error(`${displayName}: inline text is too large after decoding.`);
         }
@@ -2184,6 +2735,8 @@ const Composer = memo(function Composer({
         if (!accepted) {
           setDraft((current) => current ? current : submittedDraft);
           mergeRestoredAttachments(submittedAttachments, submittedDraft);
+        } else {
+          rememberPrompt(text);
         }
         return;
       }
@@ -2232,6 +2785,7 @@ const Composer = memo(function Composer({
       });
       setDraft((current) => draftAfterSubmission(current, draft, accepted));
       if (accepted === true) {
+        rememberPrompt(text);
         removeAttachments(new Set(used.map((attachment) => attachment.id)));
         historyNavigation.current = { index: -1, seed: '' };
       }
@@ -2248,6 +2802,51 @@ const Composer = memo(function Composer({
       textarea.current?.focus();
       textarea.current?.setSelectionRange(start + 1, start + 1);
     }, 0);
+  };
+  const selectMention = (path: string | undefined) => {
+    if (!path || !mentionMatch) return;
+    const before = draft.slice(0, mentionMatch.start);
+    const after = draft.slice(mentionMatch.end);
+    const inserted = `@${path}${after && /^\s/.test(after) ? '' : ' '}`;
+    const next = `${before}${inserted}${after}`;
+    const caret = before.length + inserted.length;
+    setDraft(next);
+    setCaretOffset(caret);
+    setMentionDismissed('');
+    setMentionResults([]);
+    historyNavigation.current = { index: -1, seed: '' };
+    window.setTimeout(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(caret, caret);
+    }, 0);
+  };
+  const navigateMentionPalette = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!mentionOpen) return false;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setMentionDismissed(mentionSignature);
+      return true;
+    }
+    if (!mentionResults.length) return false;
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      selectMention(mentionResults[mentionIndex] || mentionResults[0]);
+      return true;
+    }
+    const last = mentionResults.length - 1;
+    const moves: Record<string, (index: number) => number> = {
+      ArrowDown: (index) => (index + 1) % mentionResults.length,
+      ArrowUp: (index) => (index - 1 + mentionResults.length) % mentionResults.length,
+      Home: () => 0,
+      End: () => last,
+      PageUp: (index) => Math.max(0, index - 8),
+      PageDown: (index) => Math.min(last, index + 8),
+    };
+    const move = moves[event.key];
+    if (!move) return false;
+    event.preventDefault();
+    setMentionIndex(move);
+    return true;
   };
   const navigateSlashPalette = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!slashOpen || slashCommands.length === 0) return false;
@@ -2275,8 +2874,15 @@ const Composer = memo(function Composer({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
-    if (composing && (event.key === 'Enter' || event.key.startsWith('Arrow'))) return;
+    if (composing && (event.key === 'Enter' || event.key === 'Escape' || event.key === 'Tab' ||
+      event.key.startsWith('Arrow'))) return;
     if (event.key === 'Enter' && event.repeat) return;
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'u') {
+      event.preventDefault();
+      if (!transitioning) fileInput.current?.click();
+      return;
+    }
+    if (navigateMentionPalette(event)) return;
     if (navigateSlashPalette(event)) return;
     if (slashOpen && slashCommands.length && event.key === 'Enter' &&
       !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -2338,14 +2944,18 @@ const Composer = memo(function Composer({
       const navigation = historyNavigation.current;
       if (navigation.index < 0) navigation.seed = draft;
       navigation.index = Math.min(history.length - 1, navigation.index + 1);
-      setDraft(history[navigation.index] || '');
+      const value = history[navigation.index] || '';
+      setDraft(value);
+      window.setTimeout(() => textarea.current?.setSelectionRange(0, 0), 0);
       return;
     }
     if (event.key === 'ArrowDown' && historyIntent && historyNavigation.current.index >= 0) {
       event.preventDefault();
       const navigation = historyNavigation.current;
       navigation.index -= 1;
-      setDraft(navigation.index < 0 ? navigation.seed : history[navigation.index] || '');
+      const value = navigation.index < 0 ? navigation.seed : history[navigation.index] || '';
+      setDraft(value);
+      window.setTimeout(() => textarea.current?.setSelectionRange(value.length, value.length), 0);
       return;
     }
     if (event.key === "Enter") {
@@ -2370,14 +2980,17 @@ const Composer = memo(function Composer({
   return (
     <>
       <QueueList queued={queued} restoring={restoring} onRestore={() => void restoreQueue()} />
-      <form className={`composer ${draggingFiles ? 'dragging-files' : ''}`} onSubmit={onSubmit}
-        aria-busy={transitioning} onDragEnter={(event) => {
-          if (!event.dataTransfer.types.includes('Files')) return;
+      <form className={`composer ${draggingFiles && !transitioning ? 'dragging-files' : ''}`} onSubmit={onSubmit}
+        aria-busy={transitioning} onMouseDown={(event) => {
+          const target = event.target as HTMLElement;
+          if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
+        }} onDragEnter={(event) => {
+          if (transitioning || !event.dataTransfer.types.includes('Files')) return;
           event.preventDefault();
           dragDepth.current += 1;
           setDraggingFiles(true);
         }} onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes('Files')) return;
+          if (transitioning || !event.dataTransfer.types.includes('Files')) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = 'copy';
         }} onDragLeave={(event) => {
@@ -2388,26 +3001,50 @@ const Composer = memo(function Composer({
           event.preventDefault();
           dragDepth.current = 0;
           setDraggingFiles(false);
+          if (transitioning) return;
           const itemFiles = Array.from(event.dataTransfer.items)
             .filter((item) => item.kind === 'file')
             .map((item) => item.getAsFile())
             .filter((file): file is File => Boolean(file));
           void attachFiles(itemFiles.length ? itemFiles : event.dataTransfer.files);
         }}>
-      {draggingFiles && <div className="composer-drop-overlay" role="status">
+      {draggingFiles && !transitioning && <div className="composer-drop-overlay" role="status">
         <Paperclip size={16} /><span>Drop images or text files</span>
       </div>}
       {slashOpen && (
-        <div ref={slashPalette} className="slash-palette" role="listbox" aria-label="Slash commands">
+        <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label="Slash commands">
           <header><Command size={13} /><span>Commands</span></header>
           {slashCommands.length ? slashCommands.map((command, index) => (
             <button type="button" role="option" aria-selected={index === slashIndex} key={command.name}
+              id={`composer-slash-option-${index}`}
               onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setSlashIndex(index)}
               onClick={() => { void send(`/${paletteCommandToken(command)}`); }}>
               <code>{command.usage || `/${command.name}`}{command.params ? ` ${command.params}` : ''}</code>
               <span>{command.description}</span>
             </button>
           )) : <p>No matching command.</p>}
+        </div>
+      )}
+      {mentionOpen && (
+        <div ref={mentionPalette} id="composer-mention-palette"
+          className="slash-palette mention-palette" role="listbox" aria-label="Project files">
+          <header><FileText size={13} /><span>Files</span></header>
+          {mentionResults.length ? mentionResults.map((path, index) => {
+            const separator = path.lastIndexOf('/');
+            const directory = separator >= 0 ? path.slice(0, separator + 1) : '';
+            const filename = separator >= 0 ? path.slice(separator + 1) : path;
+            return (
+              <button type="button" role="option" aria-selected={index === mentionIndex} key={path}
+                id={`composer-mention-option-${index}`} title={path}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setMentionIndex(index)}
+                onClick={() => selectMention(path)}>
+                <FileText size={14} />
+                <span className="mention-path"><span>{directory}</span><strong>{filename}</strong></span>
+              </button>
+            );
+          }) : <p role="status">{mentionLoading ? 'Searching project files…' : 'No matching files.'}</p>}
         </div>
       )}
       {attachments.length > 0 && <div className="composer-attachments" aria-label="Attachments">
@@ -2423,15 +3060,18 @@ const Composer = memo(function Composer({
               return next;
             });
             setDraft((current) => current.replace(attachment.token, '').replace(/ {2,}/g, ' '));
-          }}><Trash2 size={13} /></button>
+          }}><X size={13} /></button>
         </div>)}
       </div>}
       {(attachmentError) && <p className="composer-error" role="alert">{attachmentError}</p>}
       <textarea ref={textarea} value={draft} onInput={(event) => {
         setDraft(event.currentTarget.value);
+        setCaretOffset(event.currentTarget.selectionStart);
         setSlashDismissedDraft('');
+        setMentionDismissed('');
         historyNavigation.current = { index: -1, seed: '' };
-      }} onKeyDown={onKeyDown}
+      }} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)}
+        onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)} onKeyDown={onKeyDown}
         onPaste={(event) => {
           const itemFiles = Array.from(event.clipboardData.items || [])
             .filter((item) => item.kind === 'file')
@@ -2454,9 +3094,13 @@ const Composer = memo(function Composer({
             if (inserted) event.preventDefault();
           }
         }}
-        rows={1} placeholder={turnBusy ? "Steer the active turn or queue a follow-up…" :
-          commandBusy ? "Queue a message after the current command…" : "Ask Mixdog anything…"}
+        rows={1} placeholder={placeholder}
         disabled={transitioning}
+        aria-controls={mentionOpen ? 'composer-mention-palette' : slashOpen ? 'composer-slash-palette' : undefined}
+        aria-expanded={mentionOpen || slashOpen}
+        aria-activedescendant={mentionOpen && mentionResults.length
+          ? `composer-mention-option-${mentionIndex}`
+          : slashOpen && slashCommands.length ? `composer-slash-option-${slashIndex}` : undefined}
         aria-label="Message Mixdog" />
       <div className="composer-footer">
         <input ref={fileInput} type="file" hidden multiple

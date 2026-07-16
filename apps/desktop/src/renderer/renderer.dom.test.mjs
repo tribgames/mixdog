@@ -7,7 +7,8 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 
 register(new URL("./settings/test-css-loader.mjs", import.meta.url));
-const { App, ApprovalCard, TranscriptRow } = await import("./App.tsx");
+const { App, ApprovalCard, ContextUsageIndicator, LiveWorkStatus, TranscriptRow } = await import("./App.tsx");
+const { ContextBody } = await import("./CommandSurface.tsx");
 const { DesktopTitlebar } = await import("./navigation.tsx");
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -89,6 +90,169 @@ afterEach(async () => {
   root = undefined;
   dom?.window.close();
   dom = undefined;
+});
+
+test("live-work strip renders ordered snapshot segments and filters terminal agents", async () => {
+  installDom();
+  const now = Date.parse("2026-01-02T12:00:00Z");
+  await act(async () => root.render(React.createElement(LiveWorkStatus, {
+    now,
+    snapshot: {
+      agentWorkers: [
+        { tag: "build", status: "running", startedAt: now - 3_665_000 },
+        { tag: "build", status: "running", startedAt: now - 5_000 },
+        { tag: "worker:0", status: "running", startedAt: now - 6_000 },
+        { status: "running", startedAt: now - 8_000 },
+        { tag: "review", stage: "complete", startedAt: now - 90_000 },
+      ],
+      agentJobs: [
+        { type: "review", task_id: "job-2", status: "running", startedAt: now - 5_000 },
+        { type: "review", task_id: "job-3", status: "running", startedAt: now - 4_000 },
+        { task_id: "job-4", status: "running", startedAt: now - 3_000 },
+        { task_id: "job-done", status: "success", startedAt: now - 10_000 },
+      ],
+      activeTools: {
+        explore: { count: 2, startedAt: now - 4_000 },
+        search: { count: 1, startedAt: now - 3_000 },
+      },
+      shellJobs: { count: 2, elapsedLabel: "9s" },
+    },
+  })));
+  const labels = Array.from(document.querySelectorAll(".live-work-segment"))
+    .map((element) => element.textContent.replace(/\s+/g, " ").trim());
+  assert.deepEqual(labels, [
+    "Running 5 Agents· 1h 1m 5s",
+    "Exploring· 4s",
+    "Web Searching· 3s",
+    "Running 2 Shells· 9s",
+  ]);
+});
+
+test("live-work strip hides when snapshot work is terminal or empty", async () => {
+  installDom();
+  await act(async () => root.render(React.createElement(LiveWorkStatus, {
+    now: Date.now(),
+    snapshot: {
+      agentWorkers: [{ tag: "done", status: "timeout" }],
+      agentJobs: [{ task_id: "closed", status: "cancelled" }],
+      activeTools: { explore: { count: 0 }, search: { count: 0 } },
+      shellJobs: { count: 0, elapsedLabel: "" },
+    },
+  })));
+  assert.equal(document.querySelector(".live-work-status"), null);
+});
+
+test("context view renders engine stats and omits unavailable optional fields", async () => {
+  installDom();
+  const status = {
+    sessionId: "context-session",
+    provider: "anthropic",
+    model: "claude-opus",
+    contextWindow: 200_000,
+    usedTokens: 15_920,
+    messages: {
+      count: 3,
+      roles: {
+        user: { count: 2, tokens: 2_500 },
+        assistant: { count: 1, tokens: 5_000 },
+      },
+    },
+    usage: {
+      totalInputTokens: 9_000,
+      totalOutputTokens: 1_000,
+      totalCachedReadTokens: 4_000,
+      totalCacheWriteTokens: 500,
+    },
+  };
+  const snapshot = {
+    desktopSessionTitle: "Context fixture",
+    autoCompactTokenLimit: 20_000,
+    displayContextWindow: 100_000,
+    stats: { costUsd: 0.125, reasoningTokens: 250 },
+    items: [
+      {
+        id: "user-1", kind: "user", text: "Question", at: Date.parse("2026-07-16T10:00:00Z"),
+        args: { secret: "hidden argument" }, rawResult: "hidden result", metadata: { internal: true },
+      },
+      { id: "assistant-1", kind: "assistant", text: "Answer", at: Date.parse("2026-07-16T10:01:00Z") },
+    ],
+  };
+  await act(async () => root.render(React.createElement(ContextBody, { status, snapshot })));
+  const text = document.querySelector(".context-view")?.textContent || "";
+  assert.match(text, /Context fixture/);
+  assert.match(text, /Context limit200,000/);
+  assert.match(text, /Reasoning tokens250/);
+  assert.match(text, /Total cost(?:US)?\$0\.13/);
+  assert.match(text, /Usage79%/);
+  const percentages = Array.from(document.querySelectorAll(".context-breakdown-legend small"))
+    .map((element) => Number.parseInt(element.textContent, 10));
+  assert.equal(percentages.reduce((sum, value) => sum + value, 0), 100);
+  assert.equal(document.querySelectorAll(".context-raw-messages details").length, 2);
+  assert.equal(document.querySelector(".context-raw-messages pre"), null);
+  await act(async () => {
+    document.querySelector(".context-raw-messages details summary").click();
+    await Promise.resolve();
+  });
+  const projection = document.querySelector(".context-raw-messages pre")?.textContent || "";
+  assert.match(projection, /"text": "Question"/);
+  assert.doesNotMatch(projection, /hidden argument|hidden result|metadata|rawResult|args/);
+
+  await act(async () => root.render(React.createElement(ContextBody, {
+    status,
+    snapshot: { items: snapshot.items, stats: {} },
+  })));
+  const withoutOptional = document.querySelector(".context-view")?.textContent || "";
+  assert.doesNotMatch(withoutOptional, /Reasoning tokens|Total cost/);
+  assert.match(withoutOptional, /Input tokens9,000/);
+});
+
+test("context raw-message list pages in bounded batches", async () => {
+  installDom();
+  const items = Array.from({ length: 205 }, (_, index) => ({
+    id: `message-${index}`, kind: "user", text: `Message ${index}`,
+  }));
+  await act(async () => root.render(React.createElement(ContextBody, {
+    status: { usedTokens: 1, contextWindow: 100, messages: { roles: {} } },
+    snapshot: { items, stats: {} },
+  })));
+  assert.equal(document.querySelectorAll(".context-raw-messages details").length, 100);
+  assert.match(document.querySelector(".context-raw-messages")?.textContent || "", /latest 100 of 205/);
+  await act(async () => document.querySelector(".context-show-more").click());
+  assert.equal(document.querySelectorAll(".context-raw-messages details").length, 200);
+});
+
+test("header context usage floors percent and dismisses focus popover without reopening", async () => {
+  installDom();
+  let opens = 0;
+  await act(async () => root.render(React.createElement(ContextUsageIndicator, {
+    snapshot: {
+      sessionId: "usage",
+      stats: { currentContextTokens: 796 },
+      autoCompactTokenLimit: 1_000,
+      displayContextWindow: 2_000,
+    },
+    onOpen: () => { opens += 1; },
+  })));
+  const indicator = document.querySelector(".session-context-indicator");
+  const trigger = indicator.querySelector("button");
+  assert.equal(trigger.querySelector("small")?.textContent, "79");
+  await act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    trigger.focus();
+  });
+  assert.equal(indicator.dataset.open, "true");
+  await act(async () => document.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  ));
+  assert.equal(indicator.dataset.open, "false");
+  await act(async () => {
+    trigger.blur();
+    trigger.focus();
+  });
+  assert.equal(indicator.dataset.open, "false");
+  await act(async () => trigger.click());
+  assert.equal(opens, 1);
+  assert.equal(indicator.dataset.open, "false");
 });
 
 test("approval portal traps and restores focus, isolates background, reports failure, and denies on Escape", async () => {
@@ -180,6 +344,49 @@ test("user messages render as compact unlabeled bubbles", async () => {
   assert.equal(message?.querySelector(".avatar, .message-label") === null, true, "selector .avatar, .message-label should be absent");
 });
 
+test("message metadata uses engine per-item fields and localized short timestamps", async () => {
+  installDom();
+  const at = new Date(2026, 0, 2, 11, 51).getTime();
+  const expected = new Date(at).toLocaleTimeString(undefined, { timeStyle: "short" });
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    item: {
+      id: "prompt-meta",
+      kind: "user",
+      text: "Build it",
+      agent: "Build",
+      model: "MiMo V2.5 Free",
+      provider: "xiaomi",
+      at,
+    },
+  })));
+  const footer = document.querySelector(".message.user .message-meta-line");
+  assert.equal(footer?.querySelector(".message-meta")?.textContent, `Build\u00A0·\u00A0MiMo V2.5 Free\u00A0·\u00A0${expected}`);
+  assert.equal(footer?.querySelector('[aria-label="Copy message"]') != null, true);
+  assert.equal(document.querySelector(".message.user > .message-actions"), null);
+
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    item: { id: "response-meta", kind: "assistant", text: "Done", at },
+  })));
+  assert.equal(document.querySelector(".response-footer .message-time")?.textContent, expected);
+  assert.equal(document.querySelector(".response-footer [aria-label='Copy response']") != null, true);
+});
+
+test("legacy messages omit unavailable metadata without losing actions", async () => {
+  installDom();
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    item: { id: "legacy-user", kind: "user", text: "Old prompt" },
+  })));
+  const userFooter = document.querySelector(".message.user .message-meta-line");
+  assert.equal(userFooter?.querySelector(".message-meta"), null);
+  assert.equal(userFooter?.querySelector('[aria-label="Copy message"]') != null, true);
+
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    item: { id: "legacy-assistant", kind: "assistant", text: "Old response" },
+  })));
+  assert.equal(document.querySelector(".response-footer .message-time"), null);
+  assert.equal(document.querySelector(".response-footer [aria-label='Copy response']") != null, true);
+});
+
 test("unknown transcript kinds stay hidden", async () => {
   installDom();
   await act(async () => root.render(React.createElement(TranscriptRow, {
@@ -231,11 +438,26 @@ test("tool counters and hook-denial visibility mirror the TUI", async () => {
 
 test("fenced markdown exposes a language header and copy control", async () => {
   installDom();
+  const external = [];
+  window.mixdogDesktop = {
+    openExternal: async (url) => { external.push(url); },
+  };
   await act(async () => root.render(React.createElement(TranscriptRow, {
-    item: { id: "code", kind: "assistant", text: "```ts\nconst answer = 42;\n```" },
+    item: {
+      id: "code",
+      kind: "assistant",
+      text: "```ts\nconst answer = 42;\n```\n\n[Documentation](https://example.com/docs)",
+    },
   })));
   assert.equal(document.querySelector(".markdown-code header span")?.textContent, "ts");
   assert.equal(document.querySelector('[aria-label="Copy code"]') != null, true, "selector [aria-label=\"Copy code\"] should be present");
+  const link = document.querySelector(".markdown a");
+  assert.equal(link?.getAttribute("target"), null);
+  await act(async () => {
+    link?.click();
+    await Promise.resolve();
+  });
+  assert.deepEqual(external, ["https://example.com/docs"]);
 });
 
 test("assistant completion metadata and copy action share a response footer without duplicate announcements", async () => {
@@ -449,6 +671,219 @@ test("sidebar footer exposes the settings entry point used by the reviewed setti
   assert.equal(trigger.getAttribute("title"), null);
 });
 
+test("sidebar session titles rename inline with commit, cancel, validation, and rollback", async () => {
+  installDom();
+  const sessions = [
+    {
+      id: "rename-task",
+      preview: "Original title",
+      title: "Original title",
+      updatedAt: 2,
+      cwd: "C:\\work",
+      classification: "task",
+      projectPath: null,
+      currentSession: false,
+    },
+    {
+      id: "inactive-task",
+      preview: "Inactive title",
+      title: "Inactive title",
+      updatedAt: 1,
+      cwd: "C:\\work",
+      classification: "task",
+      projectPath: null,
+      currentSession: false,
+    },
+  ];
+  const renames = [];
+  const resumes = [];
+  let rejectRename = false;
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => sessions,
+    resumeSession: async (id) => {
+      resumes.push(id);
+      return { items: [], queued: [], sessionId: id };
+    },
+    renameSession: async (id, title) => {
+      renames.push([id, title]);
+      if (rejectRename) throw new Error("Rename failed");
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  let title = document.querySelector(".standalone-group .session-row-copy");
+  assert.equal(document.querySelector(".session-row-rename")?.getAttribute("aria-label"), "Rename Original title");
+  await act(async () => {
+    title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
+    await Promise.resolve();
+  });
+  assert.deepEqual(resumes, ["rename-task"]);
+
+  await act(async () => {
+    title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
+    title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 2 }));
+    title.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true, detail: 2 }));
+  });
+  assert.equal(document.querySelector(".session-title-input")?.getAttribute("aria-label"), "Rename Original title");
+  await act(async () => document.querySelector(".session-title-input").dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  ));
+
+  const inactiveTitle = document.querySelectorAll(".standalone-group .session-row-copy")[1];
+  await act(async () => {
+    inactiveTitle.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
+    await new Promise((resolve) => window.setTimeout(resolve, 400));
+  });
+  await act(async () => {
+    inactiveTitle.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 2 }));
+    inactiveTitle.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true, detail: 2 }));
+    await Promise.resolve();
+  });
+  assert.deepEqual(resumes, ["rename-task", "inactive-task"]);
+  assert.equal(document.querySelector(".session-title-input"), null);
+  assert.equal(document.querySelectorAll(".session-row")[1].getAttribute("aria-current"), "page");
+
+  Object.defineProperty(window, "innerWidth", { value: 720, writable: true, configurable: true });
+  const resumesBeforeHoverRename = [...resumes];
+  await act(async () => document.querySelectorAll(".session-row-rename")[0].click());
+  assert.deepEqual(resumes, resumesBeforeHoverRename);
+  assert.equal(document.querySelector(".session-title-input")?.getAttribute("aria-label"), "Rename Original title");
+  assert.equal(document.querySelector(".sidebar").classList.contains("open"), true);
+  await act(async () => document.querySelector(".session-title-input").dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  ));
+  Object.defineProperty(window, "innerWidth", { value: 1024, writable: true, configurable: true });
+
+  title = document.querySelector(".standalone-group .session-row-copy");
+  await act(async () => document.querySelectorAll(".session-row-rename")[0].click());
+  let input = document.querySelector(".session-title-input");
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  await act(async () => {
+    setValue.call(input, "Renamed task");
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+  await act(async () => {
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.deepEqual(renames, [["rename-task", "Renamed task"]]);
+  assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Renamed task");
+
+  await act(async () => document.querySelector(".session-row-rename").click());
+  input = document.querySelector(".session-title-input");
+  await act(async () => {
+    setValue.call(input, "   ");
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+  await act(async () => {
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  assert.equal(input.getAttribute("aria-invalid"), "true");
+  assert.equal(renames.length, 1);
+  await act(async () => input.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  ));
+  assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Renamed task");
+
+  rejectRename = true;
+  await act(async () => document.querySelector(".session-row-rename").click());
+  input = document.querySelector(".session-title-input");
+  await act(async () => {
+    setValue.call(input, "Rejected title");
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+  await act(async () => {
+    input.blur();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.deepEqual(renames.at(-1), ["rename-task", "Rejected title"]);
+  assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Renamed task");
+  assert.match(document.querySelector('.inline-error[role="alert"]')?.textContent || "", /Rename failed/);
+});
+
+test("a pending session rename survives an overlapping stale session refresh", async () => {
+  installDom();
+  const original = {
+    id: "concurrent-rename",
+    preview: "Original concurrent title",
+    title: "Original concurrent title",
+    updatedAt: 1,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+    currentSession: false,
+  };
+  let storedTitle = original.title;
+  let listCalls = 0;
+  let resolveStaleRefresh;
+  let resolveRename;
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => {
+      listCalls += 1;
+      if (listCalls === 2) {
+        return new Promise((resolve) => {
+          resolveStaleRefresh = () => resolve([{ ...original }]);
+        });
+      }
+      return [{ ...original, title: storedTitle }];
+    },
+    startTask: async () => ({ items: [], queued: [] }),
+    renameSession: async (_id, title) => {
+      await new Promise((resolve) => {
+        resolveRename = resolve;
+      });
+      storedTitle = title;
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(".task-link").click();
+    await Promise.resolve();
+  });
+  await act(async () => document.querySelector(".standalone-group .session-row-rename").click());
+  const input = document.querySelector(".session-title-input");
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  await act(async () => {
+    setValue.call(input, "Authoritative title");
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Authoritative title");
+  await act(async () => {
+    resolveStaleRefresh();
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Authoritative title");
+  await act(async () => {
+    resolveRename();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Authoritative title");
+  assert.equal(storedTitle, "Authoritative title");
+});
+
 test("OpenCode tooltip placement stays inside the viewport and flips away from a clipped edge", async () => {
   installDom();
   window.mixdogDesktop = {
@@ -523,6 +958,49 @@ test("snapshot notifications render and dismiss through the OpenCode toast surfa
   assert.match(toast.textContent, /Completed.*Settings saved/);
   await act(async () => toast.querySelector('[aria-label="Dismiss notification"]').click());
   assert.equal(document.querySelector('.oc-toast') === null, true, "selector .oc-toast should be absent");
+});
+
+test("desktop retains, deduplicates, bounds, and explicitly dismisses engine error toasts", async () => {
+  installDom();
+  let publish;
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({
+      items: [], queued: [],
+      toasts: [{ id: "error-1", tone: "error", text: "First failure" }],
+    }),
+    subscribeState: (listener) => {
+      publish = listener;
+      return () => {};
+    },
+    listSessions: async () => [],
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+  });
+  assert.match(document.querySelector('.oc-toast[data-tone="error"]')?.textContent || "", /First failure/);
+
+  await act(async () => publish({ items: [], queued: [], toasts: [] }));
+  assert.match(document.querySelector('.oc-toast[data-tone="error"]')?.textContent || "", /First failure/);
+
+  await act(async () => publish({
+    items: [], queued: [],
+    toasts: [
+      { id: "duplicate", tone: "error", text: "First failure" },
+      ...Array.from({ length: 5 }, (_, index) => ({
+        id: `error-${index + 2}`,
+        tone: "error",
+        text: `Failure ${index + 2}`,
+      })),
+    ],
+  }));
+  const errors = Array.from(document.querySelectorAll('.oc-toast[data-tone="error"]'));
+  assert.equal(errors.length, 5);
+  assert.equal(errors.some((toast) => toast.textContent.includes("First failure")), false);
+  assert.equal(errors.filter((toast) => toast.textContent.includes("Failure 2")).length, 1);
+
+  await act(async () => errors.at(-1).querySelector('[aria-label="Dismiss notification"]').click());
+  assert.equal(document.querySelectorAll('.oc-toast[data-tone="error"]').length, 4);
 });
 
 test("a failed project replacement synchronizes to the empty actual host without stale selection", async () => {
@@ -1009,9 +1487,24 @@ test("session sidebar and separate project switcher preserve navigation and proj
   );
   assert.deepEqual(
     Array.from(document.querySelectorAll(".project-group-toggle span"))
+      .filter((row) => row.parentElement?.classList.contains("project-group-toggle")
+        && !row.classList.contains("project-avatar-v2")
+        && !row.classList.contains("project-group-chevron"))
       .map((row) => row.textContent.trim()),
     ["One alias", "Two alias"],
   );
+  assert.equal(document.querySelector(".sidebar .project-group-toggle .lucide-folder"), null);
+  assert.equal(document.querySelectorAll('.sidebar [data-component="project-avatar-v2"]').length, 2);
+  assert.match(
+    document.querySelector('.sidebar [data-slot="project-avatar-surface"]')?.dataset.variant || "",
+    /^(orange|yellow|cyan|green|red|pink|blue|purple|gray)$/,
+  );
+  const tasksToggle = document.querySelector('.standalone-group .sidebar-section-toggle');
+  await act(async () => tasksToggle.click());
+  assert.equal(tasksToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(document.querySelector(".standalone-session-list"), null);
+  await act(async () => tasksToggle.click());
+  assert.equal(tasksToggle.getAttribute("aria-expanded"), "true");
   assert.doesNotMatch(document.querySelector(".sidebar-projects")?.textContent || "", /Unregistered folder task/);
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Legacy/);
   let projectDialog = await openProjectSwitcher();
@@ -1870,6 +2363,7 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   installDom();
   const selected = [];
   const closed = [];
+  const reordered = [];
   let newTasks = 0;
   const scrolled = [];
   Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
@@ -1887,6 +2381,7 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
     onToggleSidebar() {},
     onSelectTab(tab) { selected.push(tab.key); },
     onCloseTab(tab) { closed.push(tab.key); },
+    onReorderTab(sourceKey, targetKey) { reordered.push([sourceKey, targetKey]); },
     onNewTask() { newTasks += 1; },
   };
   await act(async () => root.render(React.createElement(DesktopTitlebar, props)));
@@ -1910,9 +2405,27 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   await act(async () => updatedStrip.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "1", ctrlKey: true, bubbles: true }),
   ));
+  const [firstTab, secondTab] = document.querySelectorAll(".workspace-tab");
+  const transfer = {
+    effectAllowed: "",
+    dropEffect: "",
+    value: "",
+    setData(_type, value) { this.value = value; },
+    getData() { return this.value; },
+  };
+  const dragStart = new window.Event("dragstart", { bubbles: true });
+  Object.defineProperty(dragStart, "dataTransfer", { value: transfer });
+  const drop = new window.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(drop, "dataTransfer", { value: transfer });
+  await act(async () => {
+    firstTab.dispatchEvent(dragStart);
+    secondTab.dispatchEvent(drop);
+  });
   assert.equal(newTasks, 1);
   assert.deepEqual(closed, ["two"]);
   assert.deepEqual(selected, ["one", "two", "one"]);
+  assert.deepEqual(reordered, [["one", "two"]]);
+  assert.equal(document.querySelector(".workspace-tabs-shell")?.nextElementSibling?.classList.contains("titlebar-new"), true);
 });
 
 test("model selector closes separately for busy and commandBusy while preserving dismissal focus behavior", async () => {
@@ -2232,6 +2745,124 @@ test("desktop composer accepts clipboard images exposed through DataTransfer ite
   assert.match(textarea.value, /\[Image #1: clipboard\.png\]/);
   assert.equal(document.querySelectorAll('.composer-attachments img').length, 1);
   assert.match(document.querySelector('.composer-attachments')?.textContent || '', /clipboard\.png/);
+});
+
+test("desktop composer searches, cancels stale @ file mentions, selects by keyboard, and submits the path", async () => {
+  installDom();
+  const project = 'C:\\workspace\\mention';
+  const searches = [];
+  const pending = new Map();
+  const submissions = [];
+  const snapshot = {
+    currentProject: project, items: [], queued: [], promptHistoryList: [],
+    provider: 'openai', model: 'gpt-real',
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => snapshot,
+    listProjects: async () => [{ path: project, alias: 'Mention', pinned: false }],
+    listSessions: async () => [],
+    subscribeState: () => () => {},
+    startProject: async () => snapshot,
+    listProviderModels: async () => [{
+      provider: 'openai', model: 'gpt-real', display: 'GPT Real', effortOptions: [],
+    }],
+    searchProjectFiles: (scope, query, limit) => {
+      searches.push([scope, query, limit]);
+      return new Promise((resolve) => pending.set(query, resolve));
+    },
+    submit: async (content, options) => { submissions.push([content, options]); return true; },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+  });
+  await selectFirstProject();
+  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const replaceDraft = async (value) => {
+    await act(async () => {
+      textarea.focus();
+      textarea.value = value;
+      textarea.setSelectionRange(value.length, value.length);
+      textarea.dispatchEvent(new window.InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+    });
+  };
+  const waitForSearch = async () => {
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 140)));
+  };
+
+  await replaceDraft('Review @src');
+  await waitForSearch();
+  assert.deepEqual(searches, [[project, 'src', 20]]);
+  assert.equal(document.querySelector('.mention-palette')?.getAttribute('aria-label'), 'Project files');
+  assert.match(document.querySelector('.mention-palette')?.textContent || '', /Searching project files/);
+
+  await replaceDraft('Review @test');
+  await waitForSearch();
+  assert.deepEqual(searches, [[project, 'src', 20], [project, 'test', 20]]);
+  await act(async () => pending.get('test')(['test/first.mjs', 'test/renderer.dom.test.mjs']));
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.mention-palette [role="option"]')).map((option) => option.title),
+    ['test/first.mjs', 'test/renderer.dom.test.mjs'],
+  );
+  await act(async () => pending.get('src')(['src/stale.ts']));
+  assert.equal(document.querySelector('.mention-palette')?.textContent.includes('stale.ts'), false);
+
+  const imeEscape = new window.KeyboardEvent('keydown', {
+    key: 'Escape', bubbles: true, cancelable: true, isComposing: true,
+  });
+  const imeTab = new window.KeyboardEvent('keydown', {
+    key: 'Tab', bubbles: true, cancelable: true, isComposing: true,
+  });
+  await act(async () => {
+    textarea.dispatchEvent(imeEscape);
+    textarea.dispatchEvent(imeTab);
+  });
+  assert.equal(imeEscape.defaultPrevented, false);
+  assert.equal(imeTab.defaultPrevented, false);
+  assert.equal(textarea.value, 'Review @test');
+  assert.equal(document.querySelector('.mention-palette [aria-selected="true"]')?.title, 'test/first.mjs');
+
+  await act(async () => {
+    document.querySelector('.model-trigger').click();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(document.querySelector('.model-popover') != null, true, "model picker should open");
+  assert.equal(document.querySelector('.mention-palette'), null, "model picker should exclusively own the popover layer");
+  await act(async () => {
+    document.querySelector('.model-trigger').click();
+    textarea.focus();
+    await new Promise((resolve) => window.setTimeout(resolve, 140));
+  });
+  await act(async () => pending.get('test')(['test/first.mjs', 'test/renderer.dom.test.mjs']));
+
+  await act(async () => textarea.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+  ));
+  assert.equal(document.querySelector('.mention-palette [aria-selected="true"]')?.title, 'test/renderer.dom.test.mjs');
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(textarea.value, 'Review @test/renderer.dom.test.mjs ');
+  assert.equal(document.querySelector('.mention-palette'), null);
+  assert.equal(document.activeElement, textarea);
+
+  await replaceDraft(`${textarea.value}@cancel`);
+  await waitForSearch();
+  await act(async () => textarea.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+  ));
+  assert.equal(document.querySelector('.mention-palette'), null);
+  assert.match(textarea.value, /@cancel$/);
+
+  await replaceDraft('Review @test/renderer.dom.test.mjs ');
+  await act(async () => {
+    textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await Promise.resolve();
+  });
+  assert.equal(submissions.length, 1);
+  assert.equal(submissions[0][0], 'Review @test/renderer.dom.test.mjs ');
+  assert.equal(submissions[0][1].displayText, 'Review @test/renderer.dom.test.mjs ');
 });
 
 test("desktop slash aliases preserve core command semantics and forced catalog refresh", async () => {

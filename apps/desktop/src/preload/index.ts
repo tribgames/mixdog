@@ -15,13 +15,17 @@ const api: DesktopApi = {
   listProjects: () => ipcRenderer.invoke(DESKTOP_IPC.listProjects),
   openProjectInExplorer: (projectPath) =>
     ipcRenderer.invoke(DESKTOP_IPC.openProjectInExplorer, projectPath),
+  openExternal: (url) => ipcRenderer.invoke(DESKTOP_IPC.openExternal, url),
   renameProject: (projectPath, alias) =>
     ipcRenderer.invoke(DESKTOP_IPC.renameProject, projectPath, alias),
   setProjectPinned: (projectPath, pinned) =>
     ipcRenderer.invoke(DESKTOP_IPC.setProjectPinned, projectPath, pinned),
   removeProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.removeProject, projectPath),
   listSessions: () => ipcRenderer.invoke(DESKTOP_IPC.listSessions),
+  renameSession: (sessionId, title) => ipcRenderer.invoke(DESKTOP_IPC.renameSession, sessionId, title),
   resumeSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.resumeSession, sessionId),
+  searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
+    ipcRenderer.invoke(DESKTOP_IPC.searchProjectFiles, projectIdOrWorkspaceId, query, limit),
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC.getSnapshot),
   subscribeState: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, snapshot: EngineSnapshot): void => {
@@ -39,6 +43,13 @@ const api: DesktopApi = {
   setFast: (enabled) => ipcRenderer.invoke(DESKTOP_IPC.setFast, enabled),
   readSettings: () => ipcRenderer.invoke(DESKTOP_IPC.readSettings),
   updateSetting: (key, enabled) => ipcRenderer.invoke(DESKTOP_IPC.updateSetting, key, enabled),
+  getZoomFactor: () => ipcRenderer.invoke(DESKTOP_IPC.getZoomFactor),
+  setZoomFactor: (factor) => ipcRenderer.invoke(DESKTOP_IPC.setZoomFactor, factor),
+  onZoomFactorChanged: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, factor: number): void => listener(factor);
+    ipcRenderer.on(DESKTOP_IPC.zoomFactorChanged, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.zoomFactorChanged, receive);
+  },
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),
   readCapabilities: (requests) => ipcRenderer.invoke(DESKTOP_IPC.readCapabilities, requests),
   dispose: () => ipcRenderer.invoke(DESKTOP_IPC.dispose),

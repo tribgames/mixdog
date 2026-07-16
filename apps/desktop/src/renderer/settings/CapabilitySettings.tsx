@@ -24,17 +24,19 @@ import type {
   EngineSnapshot,
 } from '../../shared/contract';
 import type { SettingsSection } from './SettingsView';
-import { SETTINGS_ITEMS } from './settings-items';
+import { SETTINGS_CATEGORIES, SETTINGS_ITEMS, type SettingsCategory } from './settings-items';
 import { applyDesktopTheme } from '../desktop-theme';
 import { OpenSelect } from '../OpenSelect';
 import { modelDisplayName, modelOptionLabel, normalizeModelOptions, providerDisplayName } from '../provider-display';
 
 type RecordValue = Record<string, unknown>;
 type CapabilityApi = Partial<Pick<DesktopApi,
-  'invokeCapability' | 'readCapabilities' | 'listProviderModels' | 'setModelRoute' | 'setFast' | 'getSnapshot' | 'subscribeState'>>;
+  'invokeCapability' | 'readCapabilities' | 'listProviderModels' | 'setModelRoute' | 'setFast' | 'getSnapshot'
+  | 'subscribeState' | 'getZoomFactor' | 'setZoomFactor' | 'onZoomFactorChanged'>>;
 
 interface CapabilitySettingsProps {
   api: CapabilityApi;
+  category: SettingsCategory;
   section: SettingsSection | null;
   onOpen(section: SettingsSection): void;
   onCompose?: (text: string) => void;
@@ -68,6 +70,7 @@ const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, unknown[
   ['searchRoute', 'getSearchRoute'], ['searchModels', 'listSearchModels', [{ quick: false }]],
   ['providerSetup', 'getProviderSetup'], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
   ['hooks', 'hooksStatus'], ['skills', 'skillsStatus'], ['disabledSkills', 'getDisabledSkills'],
+  ['agents', 'listAgents'],
   ['update', 'getUpdateSettings'], ['updateStatus', 'getUpdateStatus'],
 ];
 
@@ -129,11 +132,7 @@ function durationTextInput(value: unknown): string {
   return `${milliseconds}ms`;
 }
 
-function sectionTitle(section: SettingsSection): string {
-  return SETTINGS_ITEMS.find((item) => item.value === section)?.label || 'Settings';
-}
-
-export function CapabilitySettings({ api, section, onOpen, onCompose }: CapabilitySettingsProps) {
+export function CapabilitySettings({ api, category, section, onOpen, onCompose }: CapabilitySettingsProps) {
   const [data, setData] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState('');
@@ -185,7 +184,7 @@ export function CapabilitySettings({ api, section, onOpen, onCompose }: Capabili
         }
       }));
     };
-    const modelSection = section === 'model' || section === 'search';
+    const modelSection = category === 'models' || section === 'model' || section === 'search';
     await Promise.all([
       loadReads(),
       modelSection ? (async () => {
@@ -201,7 +200,7 @@ export function CapabilitySettings({ api, section, onOpen, onCompose }: Capabili
     setData(next);
     setError(loadError);
     setLoading(false);
-  }, [api, section]);
+  }, [api, category, section]);
 
   useEffect(() => {
     void load();
@@ -295,20 +294,14 @@ export function CapabilitySettings({ api, section, onOpen, onCompose }: Capabili
   }), [confirm, data, liveSnapshot, onCompose, pending, pushNotice, route, run, setFast]);
 
   return <>
-    {section && <div className="settings-section-heading">
-      <div><h2>{sectionTitle(section)}</h2><p>{sectionDescription(section)}</p></div>
-    </div>}
     {loading ? <p className="settings-loading" role="status">Loading settings…</p>
-      : section ? renderSection(section, context) : <SettingsList context={context} onOpen={onOpen} />}
+      : section ? renderSection(section, context) : <CategoryPanel api={api} category={category}
+        context={context} onOpen={onOpen} />}
     {error && <p className="mixdog-settings__error" role="alert">{error}</p>}
     {notice && <p className={`settings-notice settings-notice--${notice.tone}`}
       role={notice.tone === 'warn' ? 'alert' : 'status'}>{notice.message}</p>}
     {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
   </>;
-}
-
-function sectionDescription(section: SettingsSection): string {
-  return SETTINGS_ITEMS.find((item) => item.value === section)?.description || '';
 }
 
 function renderSection(section: SettingsSection, context: PanelContext): ReactNode {
@@ -329,8 +322,9 @@ function renderSection(section: SettingsSection, context: PanelContext): ReactNo
   return null;
 }
 
-function Group({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return <section className="settings-group"><header><h3>{title}</h3>{description && <p>{description}</p>}</header>
+function Group({ title, description, children }: { title?: string; description?: string; children: ReactNode }) {
+  return <section className="settings-group">{(title || description) &&
+    <header>{title && <h3>{title}</h3>}{description && <p>{description}</p>}</header>}
     <div className="settings-group-body">{children}</div></section>;
 }
 
@@ -544,7 +538,11 @@ function UsageDashboard({ value }: { value: unknown }) {
   </div>;
 }
 
-function SettingsList({ context, onOpen }: { context: PanelContext; onOpen(section: SettingsSection): void }) {
+function SettingsList({ category, context, onOpen }: {
+  category: SettingsCategory;
+  context: PanelContext;
+  onOpen(section: SettingsSection): void;
+}) {
   const { data, snapshot, pending, run, notice } = context;
   const profile = record(data.profile);
   const autoClear = record(data.autoClear);
@@ -605,8 +603,9 @@ function SettingsList({ context, onOpen }: { context: PanelContext; onOpen(secti
     if (value === 'skills') return `${skills.count || rows(skills, 'skills').length} available`;
     return fallback;
   };
-  return <section className="mixdog-settings__picker-list" aria-label="Settings">
-    {SETTINGS_ITEMS.map((item) => {
+  const categoryItems = SETTINGS_CATEGORIES.find((entry) => entry.value === category)?.items || [];
+  return <section className="mixdog-settings__picker-list" aria-label={`${category} settings`}>
+    {SETTINGS_ITEMS.filter((item) => (categoryItems as readonly string[]).includes(item.value)).map((item) => {
       const description = descriptionFor(item.value, item.description);
       const copy = <span className="mixdog-settings__picker-copy">
         <span className="mixdog-settings__row-title">{item.label}</span>
@@ -670,10 +669,62 @@ function SettingsList({ context, onOpen }: { context: PanelContext; onOpen(secti
   </section>;
 }
 
+function CategoryPanel({ api, category, context, onOpen }: {
+  api: CapabilityApi;
+  category: SettingsCategory;
+  context: PanelContext;
+  onOpen(section: SettingsSection): void;
+}) {
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    let live = true;
+    void api.getZoomFactor?.().then((value) => { if (live) setZoom(value); }).catch(() => {});
+    const unsubscribe = api.onZoomFactorChanged?.((value) => { if (live) setZoom(value); });
+    return () => { live = false; unsubscribe?.(); };
+  }, [api]);
+  const { data, pending, run } = context;
+  const busy = Boolean(pending);
+  const agents = rows(data.agents);
+  const models = normalizeModelOptions(Array.isArray(data.models) ? data.models as DesktopModelOption[] : []);
+  return <>
+    <SettingsList category={category} context={context} onOpen={onOpen} />
+    {category === 'general' && <Group title="Display">
+      <SelectRow title="Zoom" description="Scale the Mixdog desktop interface." value={String(zoom)}
+        options={[0.75, 0.9, 1, 1.1, 1.25, 1.5].map((value) => ({
+          value: String(value),
+          label: `${Math.round(value * 100)}%`,
+        }))}
+        onChange={(value) => {
+          const factor = Number(value);
+          setZoom(factor);
+          void api.setZoomFactor?.(factor).then(setZoom).catch(() => {});
+        }} />
+    </Group>}
+    {category === 'models' && <Group title="Agent routes" description="Per-agent model, effort, and fast-mode routing.">
+      {agents.length ? agents.map((agent) => <ResourceRow key={String(agent.id)} title={label(agent)}
+        description={String(agent.description || record(agent.definition).description || '')}
+        actions={<RouteEditor compact title={`${label(agent)} route`} route={record(agent.route)}
+          models={models} disabled={busy}
+          onChange={(selection) => void run('setAgentRoute', [agent.id, selection], `agent-${agent.id}`)} />} />)
+        : <Empty text="No configurable agent routes found." />}
+    </Group>}
+    {category === 'channels' && <AutomationPanel {...context} />}
+    {category === 'capabilities' && <Group title="Memory">
+      <ToggleRow title="Memory" description="Enable recap and curated core memories across sessions."
+        checked={record(data.memory).enabled !== false} disabled={busy}
+        onChange={(enabled) => void run('setMemoryEnabled', [enabled])} />
+    </Group>}
+    {category === 'system' && <Group title="Doctor">
+      <ResourceRow title="Diagnostics" description="Check the runtime, providers, integrations, and local installation."
+        actions={<ActionButton disabled={busy} onClick={() => void run('runDoctor')}>Run doctor</ActionButton>} />
+    </Group>}
+  </>;
+}
+
 function ProfilePanel({ data, pending, run }: PanelContext) {
   const profile = record(data.profile);
   const languages = rows(profile.languages);
-  return <Group title="Profile">
+  return <Group>
     <FormRow title="Title" description="Preferred form of address. Enter to edit."
       onSubmit={(form) => void run('setProfile', [{ title: form.get('title') }])}>
       <input name="title" defaultValue={String(profile.title || '')} placeholder="Your name or role" />
@@ -689,7 +740,7 @@ function AutoClearPanel({ data, pending, run }: PanelContext) {
   const current = record(data.autoClear);
   const busy = Boolean(pending);
   return <>
-    <Group title="Auto-clear">
+    <Group>
       <ToggleRow title="Auto-clear" description={current.enabled !== false
         ? `Clear idle sessions after ${formatDuration(current.idleMs)}.`
         : 'Idle auto-clear disabled.'} checked={current.enabled !== false} disabled={busy}
@@ -746,7 +797,7 @@ function ChoicePanel({ title, values, active, pending, onChoose }: {
 
 function OutputStylePanel({ data, pending, run }: PanelContext) {
   const output = record(data.outputStyles);
-  return <ChoicePanel title="Output style" values={rows(output, 'styles')}
+  return <ChoicePanel title="" values={rows(output, 'styles')}
     active={String(record(output.current).id || output.configured || 'default')} pending={pending}
     onChoose={(id) => void run('setOutputStyle', [id])} />;
 }
@@ -766,7 +817,7 @@ function ThemePanel({ data, pending, run, notice }: PanelContext) {
   }, []);
   const themes = rows(data.themes);
   const active = String(data.theme || '');
-  return <Group title="Theme">{themes.length ? themes.map((entry) => {
+  return <Group>{themes.length ? themes.map((entry) => {
     const id = String(entry.id);
     return <div key={id} onMouseEnter={() => preview(id)} onFocus={() => preview(id)}>
       <ResourceRow title={label(entry)} description={String(entry.description || 'color theme')}
@@ -784,7 +835,7 @@ function ThemePanel({ data, pending, run, notice }: PanelContext) {
 }
 
 function WorkflowPanel({ data, pending, run }: PanelContext) {
-  return <ChoicePanel title="Workflow" values={rows(data.workflows)}
+  return <ChoicePanel title="" values={rows(data.workflows)}
     active={String(rows(data.workflows).find((entry) => entry.active)?.id || '')} pending={pending}
     onChoose={(id) => void run('setWorkflow', [id])} />;
 }
@@ -795,7 +846,7 @@ function MainModelPanel(context: PanelContext) {
   const active = record(snapshot);
   const current = `${active.provider || ''}:${active.model || ''}`;
   const selected = models.find((entry) => `${entry.provider}:${entry.model}` === current);
-  return <Group title="Main model">
+  return <Group>
     <SelectRow title="Model" description="Main chat model." value={current} disabled={Boolean(pending)}
       options={models.map((entry) => ({ value: `${entry.provider}:${entry.model}`, label: modelOptionLabel(entry) }))}
       onChange={(value) => { const next = models.find((entry) => `${entry.provider}:${entry.model}` === value); if (next) void route(next); }} />
@@ -809,7 +860,7 @@ function MainModelPanel(context: PanelContext) {
 
 function SearchPanel({ data, pending, run }: PanelContext) {
   const models = normalizeModelOptions(rows(data.searchModels).map(routeOption));
-  return <Group title="Search model"><RouteEditor title="Search model" description="Native search model."
+  return <Group><RouteEditor title="Search model" description="Native search model."
     route={record(data.searchRoute)} models={models} disabled={Boolean(pending)}
     onChange={(selection) => void run('setSearchRoute', [selection])} /></Group>;
 }
@@ -818,7 +869,7 @@ function UpdatePanel({ data, pending, run }: PanelContext) {
   const update = record(data.update);
   const status = record(data.updateStatus);
   const busy = Boolean(pending);
-  return <Group title="Update">
+  return <Group>
     <ResourceRow title="Current version" description={status.phase === 'installed'
       ? `v${status.version || update.latestVersion} installed — restart mixdog to apply.`
       : 'Installed mixdog version.'} meta={String(update.currentVersion || 'unknown')} />

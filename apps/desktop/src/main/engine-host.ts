@@ -1,4 +1,4 @@
-import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -7,6 +7,7 @@ import type {
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,
   DesktopCapabilityResult,
+  DesktopEngineState,
   DesktopModelCatalogOptions,
   DesktopSessionSummary,
   DesktopProjectSummary,
@@ -20,6 +21,7 @@ import type {
 import { DESKTOP_CAPABILITIES } from '../shared/contract';
 import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
 import { desktopSessionSummaries, desktopSnapshot } from './desktop-state';
+import { searchProjectDirectory } from './project-file-search';
 
 interface MixdogEngine {
   getState(): Record<string, unknown>;
@@ -52,6 +54,7 @@ interface EngineHostOptions {
   packaged?: boolean;
   resourcesPath?: string;
   appPath?: string;
+  searchProjectDirectory?: typeof searchProjectDirectory;
 }
 
 interface DesktopProjectPreferences {
@@ -97,6 +100,10 @@ interface DesktopOAuthFlow {
   timeout: NodeJS.Timeout;
 }
 
+interface StatuslineSegmentsModule {
+  shellJobsStatus(options?: { clientHostPid?: number }): { count?: number; elapsedLabel?: string };
+}
+
 const EMPTY_PROJECT_PREFERENCES: DesktopProjectPreferences = {
   version: 2,
   aliases: {},
@@ -106,6 +113,11 @@ const EMPTY_PROJECT_PREFERENCES: DesktopProjectPreferences = {
 
 const DESKTOP_CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const ENGINE_PUBLICATION_INTERVAL_MS = 50;
+// shellJobsStatus itself is cache-only and refreshes its disk-backed cache
+// asynchronously. Polling at the cache's 1s cadence keeps disk work out of the
+// engine's 50ms publication path.
+const SHELL_JOBS_ACTIVE_POLL_INTERVAL_MS = 1_000;
+const SHELL_JOBS_IDLE_POLL_INTERVAL_MS = 5_000;
 
 function normalizedProviderModels(value: unknown): DesktopModelOption[] {
   if (!Array.isArray(value)) return [];
@@ -177,6 +189,17 @@ export function projectsModuleUrl(
     ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'standalone', 'projects.mjs')
     : resolve(requiredApplicationPath(appPath), '../../src/standalone/projects.mjs');
   return pathToFileURL(projectsPath).href;
+}
+
+export function statuslineSegmentsModuleUrl(
+  packaged = false,
+  resourcesPath = process.resourcesPath,
+  appPath?: string,
+): string {
+  const modulePath = packaged
+    ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'ui', 'statusline-segments.mjs')
+    : resolve(requiredApplicationPath(appPath), '../../src/ui/statusline-segments.mjs');
+  return pathToFileURL(modulePath).href;
 }
 
 function requiredApplicationPath(appPath: string | undefined): string {
@@ -281,10 +304,67 @@ function sanitizeDesktopDisplaySnapshot(snapshot: Record<string, unknown>): Reco
   return snapshot;
 }
 
+function activeToolsFromSummary(value: unknown): DesktopEngineState['activeTools'] {
+  const [exploreCount, exploreStartedAt, searchCount, searchStartedAt] = String(value || '')
+    .split(':')
+    .map((entry) => Number(entry) || 0);
+  if (!exploreCount && !searchCount) return null;
+  return {
+    explore: { count: exploreCount, startedAt: exploreStartedAt },
+    search: { count: searchCount, startedAt: searchStartedAt },
+  };
+}
+
+const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
+
+function projectedAgentEntry(value: unknown): Record<string, unknown> | null {
+  const entry = recordValue(value);
+  if (!entry) return null;
+  const projected: Record<string, unknown> = {};
+  for (const key of ['tag', 'agent', 'name', 'type', 'task_id', 'taskId', 'stage', 'status'] as const) {
+    if (typeof entry[key] === 'string' && entry[key].trim()) projected[key] = entry[key];
+  }
+  const startedAt = entry.startedAt ?? entry.startTime ?? entry.createdAt;
+  if ((typeof startedAt === 'number' && Number.isFinite(startedAt)) || typeof startedAt === 'string') {
+    projected.startedAt = startedAt;
+  }
+  return projected;
+}
+
+export function projectDesktopLiveWorkState(snapshot: Record<string, unknown>): Record<string, unknown> {
+  const workers = (Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [])
+    .flatMap((value) => {
+      const entry = projectedAgentEntry(value);
+      return entry && !TERMINAL_AGENT_STATUS.test(String(entry.stage || entry.status || '')) ? [entry] : [];
+    });
+  const jobs = (Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [])
+    .flatMap((value) => {
+      const source = recordValue(value);
+      const entry = projectedAgentEntry(value);
+      if (!source || !entry || !/running/i.test(String(source.status || source.stage || ''))) return [];
+      return [entry];
+    });
+  snapshot.agentWorkers = workers;
+  snapshot.agentJobs = jobs;
+  snapshot.activeTools = activeToolsFromSummary(snapshot.activeToolSummary);
+  snapshot.remoteEnabled = snapshot.remoteEnabled === true;
+  return snapshot;
+}
+
 function copySnapshot(engine: MixdogEngine | null): EngineSnapshot {
   if (!engine) return null;
   const displayCopy = structuredClone(engine.getState());
-  return sanitizeDesktopDisplaySnapshot(displayCopy);
+  const snapshot = sanitizeDesktopDisplaySnapshot(displayCopy);
+  return projectDesktopLiveWorkState(snapshot);
+}
+
+export function shellJobsPollDelay(
+  state: Readonly<Record<string, unknown>> | null,
+  runningShellCount = 0,
+): number {
+  return state?.busy === true || state?.commandBusy === true || runningShellCount > 0
+    ? SHELL_JOBS_ACTIVE_POLL_INTERVAL_MS
+    : SHELL_JOBS_IDLE_POLL_INTERVAL_MS;
 }
 
 function copyCapabilityValue<T>(value: T): T {
@@ -347,11 +427,17 @@ export class EngineHost {
   private sessionTitleWrite: Promise<void> = Promise.resolve();
   private engineWorkspace: string | null = null;
   private engineDesktopSession: DesktopSessionScope | null = null;
+  private pendingFastPreference: boolean | null = null;
   private publicationHoldDepth = 0;
   private publicationPending = false;
   private publicationTimer: NodeJS.Timeout | null = null;
+  private shellJobsTimer: NodeJS.Timeout | null = null;
+  private shellJobsPollDelayMs = 0;
+  private shellJobsModule: Promise<StatuslineSegmentsModule> | null = null;
+  private shellJobs = { count: 0, elapsedLabel: '' };
   private readonly oauthFlows = new Map<string, DesktopOAuthFlow>();
   private oauthFlowSequence = 0;
+  private readonly searchProjectDirectory: typeof searchProjectDirectory;
 
   constructor(options: EngineHostOptions = {}) {
     this.userDataPath = options.userDataPath ?? null;
@@ -360,6 +446,7 @@ export class EngineHost {
     this.packaged = options.packaged === true;
     this.resourcesPath = options.resourcesPath ?? process.resourcesPath;
     this.appPath = options.appPath;
+    this.searchProjectDirectory = options.searchProjectDirectory ?? searchProjectDirectory;
     this.loadProjectsModule = options.loadProjects ?? (async () => import(
       /* @vite-ignore */ projectsModuleUrl(this.packaged, this.resourcesPath, this.appPath)
     ) as Promise<MixdogProjectsModule>);
@@ -375,7 +462,14 @@ export class EngineHost {
     const snapshot = desktopSnapshot(copySnapshot(this.engine), this.currentProject, this.recentProjects);
     const sessionId = String(snapshot?.sessionId || '');
     const desktopSessionTitle = sessionId ? this.sessionTitles?.[sessionId] : '';
-    return desktopSessionTitle ? { ...snapshot, desktopSessionTitle } : snapshot;
+    const decorated = {
+      ...snapshot,
+      ...(desktopSessionTitle ? { desktopSessionTitle } : {}),
+      shellJobs: { ...this.shellJobs },
+    };
+    return !sessionId && this.pendingFastPreference !== null
+      ? { ...decorated, fast: this.pendingFastPreference }
+      : decorated;
   }
 
   async startProject(projectPath: string): Promise<EngineSnapshot> {
@@ -431,6 +525,7 @@ export class EngineHost {
         await this.disposeCurrent('desktop-new-project-task-failed');
         throw new Error('Unable to create a new project task session.');
       }
+      await this.applyPendingFastPreference(nextEngine);
       projectStore.touchProjectSelected(registered.path);
       this.recentProjects = this.registeredProjects(projectStore)
         .map((project) => project.path)
@@ -536,6 +631,7 @@ export class EngineHost {
         await this.disposeCurrent('desktop-new-task-failed');
         throw new Error('Unable to create a new task session.');
       }
+      await this.applyPendingFastPreference(nextEngine);
       result = this.getSnapshot();
       this.publish();
     });
@@ -556,6 +652,59 @@ export class EngineHost {
       summaries = this.sessionSummaries();
     });
     return summaries;
+  }
+
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
+    const normalized = normalizeSessionTitle(title, '');
+    if (!normalized) throw new TypeError('Session title is invalid.');
+    await this.exclusive(async () => {
+      await this.loadSessionTitles();
+      if (!this.engine) {
+        const workspace = await this.taskWorkspace();
+        await this.replaceEngine(workspace, {
+          classification: 'task',
+          projectPath: null,
+        }, 'desktop-session-rename');
+      }
+      if (!this.sessionSummaries().some((session) => session.id === sessionId)) {
+        throw new Error('Session is not available.');
+      }
+      this.sessionTitles![sessionId] = normalized;
+      await this.queueSessionTitleWrite();
+      if (String(this.engine?.getState()?.sessionId || '') === sessionId) this.publish();
+    });
+  }
+
+  async searchProjectFiles(
+    projectIdOrWorkspaceId: string,
+    query: string,
+    limit = 50,
+  ): Promise<string[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new TypeError('File search limit is invalid.');
+    }
+    const requested = projectIdOrWorkspaceId.trim();
+    if (!requested) throw new TypeError('Project or workspace id is invalid.');
+    if (typeof query !== 'string' || query.length > 1_024) {
+      throw new TypeError('File search query is invalid.');
+    }
+    let root = '';
+    await this.exclusive(async () => {
+      const active = this.currentProject ?? this.engineWorkspace;
+      if (!active || normalizedProjectKey(active) !== normalizedProjectKey(requested)) {
+        throw new Error('Project or workspace is not active.');
+      }
+      root = await this.canonicalDirectory(active);
+    });
+    const results = await this.searchProjectDirectory(root, query, limit);
+    await this.exclusive(async () => {
+      const active = this.currentProject ?? this.engineWorkspace;
+      if (!active || normalizedProjectKey(active) !== normalizedProjectKey(root)) {
+        throw new Error('Project or workspace changed during file search.');
+      }
+    });
+    return results;
   }
 
   async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
@@ -632,6 +781,13 @@ export class EngineHost {
       if (await engine.setRoute(selection) !== true) {
         throw new Error('Engine is busy.');
       }
+      const routeState = engine.getState();
+      // A successful route mutation supersedes any pristine Fast-only choice.
+      // Keep an explicit route Fast value for the no-session renderer; when
+      // omitted, let the engine's newly persisted route own the next session.
+      this.pendingFastPreference = !routeState.sessionId && typeof selection.fast === 'boolean'
+        ? selection.fast
+        : null;
       result = this.getSnapshot();
       this.publish();
     });
@@ -641,6 +797,13 @@ export class EngineHost {
   async setFast(enabled: boolean): Promise<EngineSnapshot> {
     let result: EngineSnapshot = null;
     await this.exclusive(async () => {
+      if (!this.engine) {
+        const workspace = await this.taskWorkspace();
+        await this.replaceEngine(workspace, {
+          classification: 'task',
+          projectPath: null,
+        }, 'desktop-fast-preference');
+      }
       const engine = this.requireEngine();
       const state = engine.getState();
       if (state.busy === true || state.commandBusy === true) {
@@ -659,12 +822,17 @@ export class EngineHost {
         throw new Error('Fast mode preference was not applied.');
       }
       const latest = engine.getState();
-      if (typeof latest.fast === 'boolean' && latest.fast !== applied) {
+      const hasActiveSession = Boolean(latest.sessionId);
+      if (hasActiveSession && typeof latest.fast === 'boolean' && latest.fast !== applied) {
         throw new Error('Fast mode preference was not reflected by the engine state.');
       }
-      if (applied === true && latest.fastCapable === false) {
+      if (hasActiveSession && applied === true && latest.fastCapable === false) {
         throw new Error('Fast mode capability is inconsistent with the applied preference.');
       }
+      // The route API persists Fast even before a session exists, while the
+      // engine snapshot remains session-derived. Preserve that pristine
+      // preference for the renderer and explicitly apply it after newSession.
+      this.pendingFastPreference = hasActiveSession ? null : applied;
       result = this.getSnapshot();
       this.publish();
     });
@@ -842,6 +1010,7 @@ export class EngineHost {
     await this.exclusive(async () => this.disposeCurrent('desktop-dispose'));
     await this.sessionTitleWrite;
     this.cancelScheduledPublication();
+    this.stopShellJobsPolling();
     this.publish();
     this.listeners.clear();
   }
@@ -849,6 +1018,25 @@ export class EngineHost {
   private requireEngine(): MixdogEngine {
     if (!this.engine) throw new Error('No Mixdog project is active.');
     return this.engine;
+  }
+
+  private async applyPendingFastPreference(engine: MixdogEngine): Promise<void> {
+    const preference = this.pendingFastPreference;
+    if (preference === null) return;
+    const current = engine.getState();
+    if (typeof current.fast === 'boolean' && current.fast === preference) {
+      this.pendingFastPreference = null;
+      return;
+    }
+    const applied = await engine.setFast(preference);
+    if (applied !== preference) {
+      throw new Error('Fast mode preference was not applied to the new session.');
+    }
+    const latest = engine.getState();
+    if (typeof latest.fast === 'boolean' && latest.fast !== preference) {
+      throw new Error('Fast mode preference was not reflected by the new session.');
+    }
+    this.pendingFastPreference = null;
   }
 
   private publish(): void {
@@ -909,6 +1097,8 @@ export class EngineHost {
     this.cancelOAuthFlows();
     const current = this.engine;
     this.engine = null;
+    this.stopShellJobsPolling();
+    this.shellJobs = { count: 0, elapsedLabel: '' };
     this.engineWorkspace = null;
     this.engineDesktopSession = null;
     try {
@@ -1194,7 +1384,8 @@ export class EngineHost {
     this.engineWorkspace = cwd;
     this.engineDesktopSession = desktopSession;
     try {
-      this.unsubscribeEngine = nextEngine.subscribe(() => this.publishEngineEvent());
+      this.unsubscribeEngine = nextEngine.subscribe(() => this.handleEngineEvent());
+      this.startShellJobsPolling();
     } catch (error) {
       process.chdir(previousCwd);
       try {
@@ -1205,6 +1396,68 @@ export class EngineHost {
       throw error;
     }
     return nextEngine;
+  }
+
+  private startShellJobsPolling(): void {
+    this.stopShellJobsPolling();
+    this.scheduleShellJobsPoll(true);
+  }
+
+  private handleEngineEvent(): void {
+    this.publishEngineEvent();
+    const desiredDelay = shellJobsPollDelay(this.engine?.getState() || null, this.shellJobs.count);
+    if (!this.shellJobsTimer || desiredDelay < this.shellJobsPollDelayMs) {
+      this.scheduleShellJobsPoll(true);
+    }
+  }
+
+  private scheduleShellJobsPoll(immediate = false): void {
+    if (!this.engine) return;
+    if (this.shellJobsTimer) clearTimeout(this.shellJobsTimer);
+    this.shellJobsPollDelayMs = shellJobsPollDelay(this.engine.getState(), this.shellJobs.count);
+    this.shellJobsTimer = setTimeout(
+      () => {
+        this.shellJobsTimer = null;
+        void this.pollShellJobs();
+      },
+      immediate ? 0 : this.shellJobsPollDelayMs,
+    );
+    this.shellJobsTimer.unref?.();
+  }
+
+  private async pollShellJobs(): Promise<void> {
+    const ownerPid = Number(this.engine?.getState()?.clientHostPid) || 0;
+    if (!ownerPid) {
+      this.scheduleShellJobsPoll();
+      return;
+    }
+    try {
+      this.shellJobsModule ??= import(
+        /* @vite-ignore */ statuslineSegmentsModuleUrl(this.packaged, this.resourcesPath, this.appPath)
+      ) as Promise<StatuslineSegmentsModule>;
+      const module = await this.shellJobsModule;
+      const value = module.shellJobsStatus({ clientHostPid: ownerPid });
+      const next = {
+        count: Math.max(0, Number(value?.count) || 0),
+        elapsedLabel: String(value?.elapsedLabel || ''),
+      };
+      if (next.count !== this.shellJobs.count || next.elapsedLabel !== this.shellJobs.elapsedLabel) {
+        this.shellJobs = next;
+        this.publishEngineEvent();
+      }
+    } catch {
+      // The status strip is optional; engine activity remains publishable if
+      // the external runtime module is unavailable.
+    } finally {
+      this.scheduleShellJobsPoll();
+    }
+  }
+
+  private stopShellJobsPolling(): void {
+    if (!this.shellJobsTimer) return;
+    clearInterval(this.shellJobsTimer);
+    this.shellJobsTimer = null;
+    this.shellJobsPollDelayMs = 0;
   }
 
   private sessionSummaries(): DesktopSessionSummary[] {
@@ -1221,18 +1474,26 @@ export class EngineHost {
     if (this.sessionTitles) return this.sessionTitles;
     let parsed: Partial<DesktopSessionMetadataFile> = {};
     try {
-      parsed = JSON.parse(await readFile(join(this.userDataRoot(), 'desktop-session-metadata.json'), 'utf8'));
+      const value: unknown = JSON.parse(
+        await readFile(join(this.userDataRoot(), 'desktop-session-metadata.json'), 'utf8'),
+      );
+      if (value !== null && typeof value === 'object' && !Array.isArray(value) &&
+        (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) {
+        parsed = value as Partial<DesktopSessionMetadataFile>;
+      }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) {
         throw new Error('Desktop session metadata could not be loaded.');
       }
     }
     const source = parsed.titles && typeof parsed.titles === 'object' ? parsed.titles : {};
-    this.sessionTitles = Object.fromEntries(Object.entries(source).flatMap(([id, value]) => {
-      if (!/^[A-Za-z0-9_-]+$/.test(id) || typeof value !== 'string') return [];
+    const titles = Object.create(null) as Record<string, string>;
+    for (const [id, value] of Object.entries(source)) {
+      if (!/^[A-Za-z0-9_-]+$/.test(id) || typeof value !== 'string') continue;
       const title = normalizeSessionTitle(value, '');
-      return title ? [[id, title]] : [];
-    }));
+      if (title) titles[id] = title;
+    }
+    this.sessionTitles = titles;
     return this.sessionTitles;
   }
 
@@ -1250,17 +1511,30 @@ export class EngineHost {
     const normalized = normalizeSessionTitle(title, '');
     if (!normalized) return;
     this.sessionTitles[sessionId] = normalized;
-    const titles = { ...this.sessionTitles };
+    void this.queueSessionTitleWrite();
+  }
+
+  private queueSessionTitleWrite(): Promise<void> {
+    const titles = Object.fromEntries(Object.entries(this.sessionTitles || {}));
     this.sessionTitleWrite = this.sessionTitleWrite.then(async () => {
       const root = this.userDataRoot();
       await mkdir(root, { recursive: true });
-      await writeFile(join(root, 'desktop-session-metadata.json'), `${JSON.stringify({
-        version: 1,
-        titles,
-      }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      const target = join(root, 'desktop-session-metadata.json');
+      const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
+      try {
+        await writeFile(temporary, `${JSON.stringify({
+          version: 1,
+          titles,
+        }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+        await rename(temporary, target);
+      } catch (error) {
+        await unlink(temporary).catch(() => undefined);
+        throw error;
+      }
     }).catch((error: unknown) => {
       console.error('Failed to persist desktop session metadata:', error);
     });
+    return this.sessionTitleWrite;
   }
 
   private async exclusive(action: () => Promise<void>): Promise<void> {

@@ -7,7 +7,9 @@ import { createRoot } from 'react-dom/client';
 
 register(new URL('./test-css-loader.mjs', import.meta.url));
 const { SettingsView } = await import('./SettingsView.tsx');
+const { OnboardingWizard } = await import('./OnboardingWizard.tsx');
 const { SETTINGS_ITEMS } = await import('./settings-items.ts');
+const { SETTINGS_CATEGORIES } = await import('./settings-items.ts');
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let dom;
@@ -133,26 +135,70 @@ test('SETTINGS_ITEMS is the exact TUI row registry and order', () => {
   }
 });
 
-test('settings renders exactly the 19 TUI rows and no removed sections or voice exposure', async () => {
+test('settings renders the six-category settings-v2 rail and card-grouped General rows', async () => {
   mount();
   const { api } = capabilityApi();
   await renderSettings({ api });
   assert.deepEqual(
     Array.from(document.querySelectorAll('.mixdog-settings__picker-row .mixdog-settings__row-title'), (node) => node.textContent),
-    SETTINGS_ITEMS.map((item) => item.label),
+    SETTINGS_ITEMS.filter((item) => SETTINGS_CATEGORIES[0].items.includes(item.value)).map((item) => item.label),
   );
-  assert.equal(document.querySelectorAll('.mixdog-settings__picker-row').length, 19);
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'), (node) => node.textContent),
+    SETTINGS_CATEGORIES.map((item) => item.label),
+  );
+  assert.equal(document.querySelectorAll('.mixdog-settings__rail button.active').length, 1);
+  assert.ok(document.querySelector('.mixdog-settings__picker-list'));
   assert.doesNotMatch(document.body.textContent, /Agents|Memory settings|Schedules & Webhooks|Diagnostics|Voice transcription/);
   assert.match(document.body.textContent, /Fast-track \(fixed\)/);
-  assert.match(document.body.textContent, /1\/1 connected/);
 });
 
-test('settings command can open the TUI-equivalent root picker', async () => {
+test('settings command opens General and category navigation swaps the right pane rows', async () => {
   mount();
   const { api } = capabilityApi();
   await renderSettings({ api, initialSection: null });
-  assert.equal(document.querySelectorAll('.mixdog-settings__picker-row').length, SETTINGS_ITEMS.length);
+  assert.equal(document.querySelectorAll('.mixdog-settings__picker-row').length, SETTINGS_CATEGORIES[0].items.length);
   assert.equal(document.querySelector('button[aria-label="Back to settings"]'), null);
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Capabilities').click();
+    await Promise.resolve();
+  });
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.mixdog-settings__picker-row .mixdog-settings__row-title'), (node) => node.textContent),
+    ['MCP servers', 'Plugins', 'Hooks', 'Skills'],
+  );
+  assert.match(document.body.textContent, /Memory/);
+});
+
+test('category panes expose Mixdog-specific zoom, routes, automation, memory, and doctor controls', async () => {
+  mount();
+  const { api } = capabilityApi({
+    listAgents: [{ id: 'lead', name: 'Lead', route: { provider: 'default', model: 'default' } }],
+    getChannelSetup: {
+      backend: 'discord',
+      channel: {},
+      schedules: [{ name: 'daily', time: '0 9 * * *', enabled: true }],
+      webhooks: [{ name: 'github', parser: 'github', enabled: true, secretSet: true }],
+    },
+  });
+  api.getZoomFactor = async () => 1;
+  api.setZoomFactor = async (value) => value;
+  await renderSettings({ api });
+  assert.match(document.body.textContent, /Zoom/);
+  for (const [category, expected] of [
+    ['Models', /Agent routes/],
+    ['Channels', /Schedules.*daily.*Webhook endpoints.*github/s],
+    ['Capabilities', /Memory/],
+    ['System', /Run doctor/],
+  ]) {
+    await act(async () => {
+      Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+        .find((button) => button.textContent === category).click();
+      await Promise.resolve();
+    });
+    assert.match(document.body.textContent, expected);
+  }
 });
 
 test('inline toggles and channel cycle use the TUI capability semantics', async () => {
@@ -165,6 +211,11 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
   });
   assert.deepEqual(calls[0], ['setCompactionSettings', [{ auto: true }]]);
 
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Channels').click();
+    await Promise.resolve();
+  });
   const channel = document.querySelector('button[aria-label="Channel"]');
   await act(async () => channel.click());
   const telegram = Array.from(document.querySelectorAll('[role="option"]'))
@@ -183,6 +234,11 @@ test('Auto-clear duration and inline notices match TUI formatting and channel re
   await renderSettings({ api });
   assert.match(document.body.textContent, /On \(1h 30m 0s\)/);
   assert.match(document.body.textContent, /Clear idle sessions after 1h 30m 0s/);
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Channels').click();
+    await Promise.resolve();
+  });
   const channel = document.querySelector('button[aria-label="Channel"]');
   await act(async () => channel.click());
   const telegram = Array.from(document.querySelectorAll('[role="option"]'))
@@ -215,6 +271,7 @@ test('channel Setting mirrors Discord and Telegram token/target pickers without 
   mount();
   const { api } = capabilityApi();
   await renderSettings({ api, initialSection: 'channel-setting' });
+  assert.equal(document.querySelector('.mixdog-settings__rail button.active')?.textContent, 'Channels');
   assert.match(document.body.textContent, /Discord/);
   assert.match(document.body.textContent, /Telegram/);
   assert.match(document.body.textContent, /Bot token/);
@@ -230,6 +287,16 @@ test('theme previews without persistence and restores the opening theme on Back'
     getTheme: 'basic',
   });
   await renderSettings({ api, initialSection: 'theme' });
+  assert.equal(document.querySelector('.mixdog-settings__rail button.active')?.textContent, 'General');
+  assert.ok(document.querySelector('.mixdog-settings__header.is-subpage'));
+  assert.ok(document.querySelector('.mixdog-settings__body.is-subpage'));
+  assert.equal(document.querySelector('.settings-section-heading'), null);
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.mixdog-settings__header h1, .mixdog-settings__body h2, .mixdog-settings__body h3'))
+      .filter((node) => node.textContent.trim() === 'Theme')
+      .map((node) => node.tagName),
+    ['H1'],
+  );
   const light = Array.from(document.querySelectorAll('.settings-resource'))
     .find((entry) => entry.textContent.includes('Light'));
   await act(async () => {
@@ -290,4 +357,95 @@ test('modal closes on Escape and restores the exact prior focus', async () => {
   });
   assert.equal(closes, 1);
   assert.equal(document.activeElement, before);
+});
+
+test('Settings lets a portaled select consume Escape without closing the dialog', async () => {
+  mount();
+  const { api } = capabilityApi();
+  api.getZoomFactor = async () => 1;
+  api.setZoomFactor = async (value) => value;
+  let closes = 0;
+  await renderSettings({ api, onClose: () => { closes += 1; } });
+  const select = document.querySelector('button[role="combobox"][aria-label="Zoom"]');
+  await act(async () => {
+    select.click();
+    await Promise.resolve();
+  });
+  assert.ok(document.querySelector('.oc-menu[role="listbox"]'));
+
+  await act(async () => {
+    document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector('.oc-menu[role="listbox"]'), null);
+  assert.ok(document.querySelector('.mixdog-settings[role="dialog"]'));
+  assert.equal(closes, 0);
+  assert.equal(document.activeElement, select);
+});
+
+test('onboarding skip requires confirmation, cancels safely, and only skips after explicit approval', async () => {
+  mount();
+  const { api } = capabilityApi();
+  const calls = [];
+  const invokeCapability = api.invokeCapability;
+  api.invokeCapability = async (request) => {
+    calls.push(request.capability);
+    return invokeCapability(request);
+  };
+  let completed = 0;
+  await act(async () => {
+    root.render(React.createElement(OnboardingWizard, { api, onDone: () => { completed += 1; } }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const trigger = document.querySelector('.onboarding-dialog > footer > button.secondary');
+  await act(async () => trigger.click());
+  let confirmation = document.querySelector('[role="alertdialog"][aria-labelledby="onboarding-skip-title"]');
+  assert.ok(confirmation);
+  assert.equal(calls.includes('skipOnboarding'), false);
+  assert.equal(document.activeElement, confirmation.querySelector('footer button'));
+
+  await act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector('[role="alertdialog"]'), null);
+  assert.equal(document.activeElement, trigger);
+  assert.equal(calls.includes('skipOnboarding'), false);
+
+  await act(async () => trigger.click());
+  confirmation = document.querySelector('[role="alertdialog"]');
+  await act(async () => {
+    Array.from(confirmation.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Skip setup').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(calls.filter((capability) => capability === 'skipOnboarding').length, 1);
+  assert.equal(completed, 1);
+});
+
+test('onboarding lets a portaled model menu consume Escape without opening skip confirmation', async () => {
+  mount();
+  const { api } = capabilityApi();
+  await act(async () => {
+    root.render(React.createElement(OnboardingWizard, { api, onDone() {} }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const next = Array.from(document.querySelectorAll('.onboarding-dialog button'))
+    .find((button) => button.textContent.includes('Next'));
+  await act(async () => next.click());
+  const select = document.querySelector('button[role="combobox"][aria-label="Main model"]');
+  await act(async () => select.click());
+  assert.ok(document.querySelector('.oc-menu[role="listbox"]'));
+
+  await act(async () => {
+    document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector('.oc-menu[role="listbox"]'), null);
+  assert.equal(document.querySelector('[role="alertdialog"]'), null);
+  assert.equal(document.activeElement, select);
 });

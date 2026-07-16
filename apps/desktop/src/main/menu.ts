@@ -1,6 +1,15 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron';
 
-export function nativeMenuTemplate(development: boolean): MenuItemConstructorOptions[] {
+export interface NativeZoomActions {
+  reset(): void;
+  zoomIn(): void;
+  zoomOut(): void;
+}
+
+export function nativeMenuTemplate(
+  development: boolean,
+  zoom?: NativeZoomActions,
+): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
   if (process.platform === 'darwin') {
     template.push({ role: 'appMenu' });
@@ -23,9 +32,15 @@ export function nativeMenuTemplate(development: boolean): MenuItemConstructorOpt
       label: 'View',
       submenu: [
         ...(development ? [{ role: 'reload' as const }, { role: 'forceReload' as const }] : []),
-        { role: 'resetZoom', accelerator: 'CmdOrCtrl+0' },
-        { role: 'zoomIn', accelerator: 'CmdOrCtrl+Plus' },
-        { role: 'zoomOut', accelerator: 'CmdOrCtrl+-' },
+        ...(zoom ? [
+          { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: zoom.reset },
+          { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: zoom.zoomIn },
+          { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: zoom.zoomOut },
+        ] : [
+          { role: 'resetZoom' as const, accelerator: 'CmdOrCtrl+0' },
+          { role: 'zoomIn' as const, accelerator: 'CmdOrCtrl+Plus' },
+          { role: 'zoomOut' as const, accelerator: 'CmdOrCtrl+-' },
+        ]),
         { type: 'separator' },
         { role: 'togglefullscreen', accelerator: process.platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11' },
       ],
@@ -38,6 +53,6 @@ export function nativeMenuTemplate(development: boolean): MenuItemConstructorOpt
   return template;
 }
 
-export function installNativeMenu(development: boolean): void {
-  Menu.setApplicationMenu(Menu.buildFromTemplate(nativeMenuTemplate(development)));
+export function installNativeMenu(development: boolean, zoom?: NativeZoomActions): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(nativeMenuTemplate(development, zoom)));
 }

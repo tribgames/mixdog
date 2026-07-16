@@ -159,3 +159,17 @@ test('every desktop slash command resolves to an implemented GUI target', async 
     }
   }
 });
+
+test('FEATURE-PARITY inventories every public TUI command and settings row', async () => {
+  const featureParity = await readFile(new URL('../../FEATURE-PARITY.md', import.meta.url), 'utf8');
+  const inventory = featureParity.split('## I. TUI 옵션 패리티')[1] || '';
+  assert.ok(inventory, 'FEATURE-PARITY must contain the TUI option parity section');
+  for (const command of tuiSlashCommands) {
+    assert.match(inventory, new RegExp(`\\| \\\`${command.usage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\\`| )`),
+      `${command.usage} must be inventoried`);
+  }
+  for (const item of SETTINGS_ITEMS) {
+    assert.match(inventory, new RegExp(`\\| \\\`${item.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\\``),
+      `${item.label} settings row must be inventoried`);
+  }
+});

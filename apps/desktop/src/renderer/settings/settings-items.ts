@@ -30,3 +30,56 @@ export const SETTINGS_ITEMS = [
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
 export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];
+
+export type SettingsCategory = 'general' | 'models' | 'providers' | 'channels' | 'capabilities' | 'system';
+
+export interface SettingsCategoryItem {
+  value: SettingsCategory;
+  label: string;
+  group: 'Mixdog' | 'Integrations' | 'Support';
+  items: readonly SettingsItemValue[];
+}
+
+export const SETTINGS_CATEGORIES = [
+  {
+    value: 'general',
+    label: 'General',
+    group: 'Mixdog',
+    items: ['profile', 'autoclear', 'autocompact', 'compact-type', 'output-style', 'theme'],
+  },
+  {
+    value: 'models',
+    label: 'Models',
+    group: 'Mixdog',
+    items: ['model', 'search', 'workflow'],
+  },
+  {
+    value: 'providers',
+    label: 'Providers',
+    group: 'Integrations',
+    items: ['providers'],
+  },
+  {
+    value: 'channels',
+    label: 'Channels',
+    group: 'Integrations',
+    items: ['channels', 'channel-backend', 'channel-setting'],
+  },
+  {
+    value: 'capabilities',
+    label: 'Capabilities',
+    group: 'Integrations',
+    items: ['mcp', 'plugins', 'hooks', 'skills'],
+  },
+  {
+    value: 'system',
+    label: 'System',
+    group: 'Support',
+    items: ['remote-runtime', 'update'],
+  },
+] as const satisfies ReadonlyArray<SettingsCategoryItem>;
+
+export function categoryForSettingsItem(value: SettingsItemValue): SettingsCategory {
+  return SETTINGS_CATEGORIES.find((category) =>
+    (category.items as readonly SettingsItemValue[]).includes(value))?.value || 'general';
+}

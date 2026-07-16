@@ -5,11 +5,14 @@ export const DESKTOP_IPC = {
   startTask: 'mixdog:start-task',
   listProjects: 'mixdog:list-projects',
   openProjectInExplorer: 'mixdog:open-project-in-explorer',
+  openExternal: 'mixdog:open-external',
   renameProject: 'mixdog:rename-project',
   setProjectPinned: 'mixdog:set-project-pinned',
   removeProject: 'mixdog:remove-project',
   listSessions: 'mixdog:list-sessions',
+  renameSession: 'mixdog:rename-session',
   resumeSession: 'mixdog:resume-session',
+  searchProjectFiles: 'mixdog:search-project-files',
   getSnapshot: 'mixdog:get-snapshot',
   submit: 'mixdog:submit',
   abort: 'mixdog:abort',
@@ -19,6 +22,9 @@ export const DESKTOP_IPC = {
   setFast: 'mixdog:set-fast',
   readSettings: 'mixdog:read-settings',
   updateSetting: 'mixdog:update-setting',
+  getZoomFactor: 'mixdog:get-zoom-factor',
+  setZoomFactor: 'mixdog:set-zoom-factor',
+  zoomFactorChanged: 'mixdog:zoom-factor-changed',
   invokeCapability: 'mixdog:invoke-capability',
   readCapabilities: 'mixdog:read-capabilities',
   dispose: 'mixdog:dispose',
@@ -39,6 +45,47 @@ export interface DesktopTranscriptItem extends Readonly<Record<string, unknown>>
   status?: string;
   label?: string;
   detail?: string;
+  at?: number;
+  model?: string;
+  provider?: string;
+  agent?: string;
+}
+
+export interface DesktopAgentWorker extends Readonly<Record<string, unknown>> {
+  tag?: string;
+  agent?: string;
+  name?: string;
+  status?: string;
+  stage?: string;
+  startedAt?: number | string;
+  startTime?: number | string;
+  createdAt?: number | string;
+}
+
+export interface DesktopAgentJob extends Readonly<Record<string, unknown>> {
+  tag?: string;
+  agent?: string;
+  type?: string;
+  task_id?: string;
+  taskId?: string;
+  status?: string;
+  stage?: string;
+  startedAt?: number | string;
+}
+
+export interface DesktopActiveToolState {
+  count: number;
+  startedAt: number;
+}
+
+export interface DesktopShellJobsState {
+  count: number;
+  elapsedLabel: string;
+}
+
+export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> {
+  id?: string;
+  name?: string;
 }
 
 export interface DesktopEngineState extends Readonly<Record<string, unknown>> {
@@ -53,6 +100,15 @@ export interface DesktopEngineState extends Readonly<Record<string, unknown>> {
   fast?: boolean;
   fastCapable?: boolean;
   desktopSessionTitle?: string;
+  agentWorkers?: DesktopAgentWorker[];
+  agentJobs?: DesktopAgentJob[];
+  activeTools?: {
+    explore: DesktopActiveToolState;
+    search: DesktopActiveToolState;
+  } | null;
+  shellJobs?: DesktopShellJobsState;
+  workflow?: DesktopWorkflowState | null;
+  remoteEnabled?: boolean;
 }
 
 // These are the core engine's real activity/completion fields, not a parallel
@@ -342,11 +398,14 @@ export interface DesktopApi {
   startTask(): Promise<EngineSnapshot>;
   listProjects(): Promise<DesktopProjectSummary[]>;
   openProjectInExplorer(projectPath: string): Promise<void>;
+  openExternal(url: string): Promise<void>;
   renameProject(projectPath: string, alias: string): Promise<void>;
   setProjectPinned(projectPath: string, pinned: boolean): Promise<void>;
   removeProject(projectPath: string): Promise<void>;
   listSessions(): Promise<DesktopSessionSummary[]>;
+  renameSession(sessionId: string, title: string): Promise<void>;
   resumeSession(sessionId: string): Promise<EngineSnapshot>;
+  searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   getSnapshot(): Promise<EngineSnapshot>;
   subscribeState(listener: (snapshot: EngineSnapshot) => void): () => void;
   submit(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
@@ -357,6 +416,9 @@ export interface DesktopApi {
   setFast(enabled: boolean): Promise<EngineSnapshot>;
   readSettings(): Promise<DesktopSettings>;
   updateSetting(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings>;
+  getZoomFactor(): Promise<number>;
+  setZoomFactor(factor: number): Promise<number>;
+  onZoomFactorChanged(listener: (factor: number) => void): () => void;
   invokeCapability<T = unknown>(request: DesktopCapabilityRequest): Promise<DesktopCapabilityResult<T>>;
   readCapabilities(requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]>;
   dispose(): Promise<void>;

@@ -1,6 +1,7 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 
 export const DESKTOP_BACKGROUND_COLOR = '#080808';
+export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#ffffff';
 
 const titleBarOverlay = Object.freeze({
   color: '#00000000',
@@ -16,13 +17,15 @@ function themeId(value: unknown): string {
 }
 
 export function setDesktopTitleBarTheme(
-  window: Pick<BrowserWindow, 'setTitleBarOverlay'>,
+  window: Pick<BrowserWindow, 'setBackgroundColor' | 'setTitleBarOverlay'>,
   value: unknown,
 ): void {
+  const light = themeId(value) === 'light';
+  window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
   if (process.platform !== 'win32') return;
   window.setTitleBarOverlay({
     ...titleBarOverlay,
-    symbolColor: themeId(value) === 'light' ? '#202020' : '#e5e5e5',
+    symbolColor: light ? '#202020' : '#e5e5e5',
   });
 }
 

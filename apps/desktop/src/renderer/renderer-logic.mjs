@@ -215,6 +215,12 @@ function parseFileSection(section) {
   };
 }
 
+function hasLeadingDiffContent(prefix) {
+  const normalized = prefix.replace(/\r\n?/g, '\n');
+  if (/^@@(?:\s|$)/m.test(normalized)) return true;
+  return /^---\s.+\n\+\+\+\s.+$/m.test(normalized);
+}
+
 export function parseUnifiedDiff(patch) {
   const normalized = String(patch || '').replace(/\r\n?/g, '\n');
   const starts = [];
@@ -226,6 +232,11 @@ export function parseUnifiedDiff(patch) {
   }
   const sections = starts.length === 0
     ? [normalized]
-    : starts.map((start, index) => normalized.slice(start, starts[index + 1] ?? normalized.length));
+    : [
+      ...(starts[0] > 0 && hasLeadingDiffContent(normalized.slice(0, starts[0]))
+        ? [normalized.slice(0, starts[0])]
+        : []),
+      ...starts.map((start, index) => normalized.slice(start, starts[index + 1] ?? normalized.length)),
+    ];
   return sections.map(parseFileSection);
 }

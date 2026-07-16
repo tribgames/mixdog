@@ -3,12 +3,22 @@ import { createPortal } from 'react-dom';
 
 interface TooltipState {
   text: string;
+  label: string;
+  keys: string[];
   anchorLeft: number;
   anchorCenter: number;
   anchorRight: number;
   anchorTop: number;
   anchorBottom: number;
   preferredSide?: TooltipSide;
+}
+
+function tooltipParts(text: string) {
+  const [label, hint, ...rest] = text.split(/\s+·\s+/);
+  if (!hint || rest.length || !/^(?:(?:Cmd|Ctrl|Alt|Option|Shift|Meta)\+)*(?:[A-Z0-9+=-]|Enter|Escape|Space|Tab|↑|↓|←|→)$/i.test(hint)) {
+    return { label: text, keys: [] };
+  }
+  return { label, keys: hint.split('+').filter(Boolean) };
 }
 
 type TooltipSide = 'top' | 'bottom' | 'left' | 'right';
@@ -92,11 +102,13 @@ export function TooltipLayer() {
         if (!target.isConnected || active.current !== target) return;
         const text = target.dataset.tooltip?.trim();
         if (!text) return;
+        const parts = tooltipParts(text);
         const rect = target.getBoundingClientRect();
         const requested = target.dataset.tooltipSide;
         setPosition(null);
         setTooltip({
           text,
+          ...parts,
           anchorLeft: rect.left,
           anchorCenter: rect.left + rect.width / 2,
           anchorRight: rect.right,
@@ -164,5 +176,10 @@ export function TooltipLayer() {
     style={position
       ? { left: position.left, top: position.top }
       : { left: 0, top: 0, visibility: 'hidden' }}
-  >{tooltip.text}</div>, document.body);
+    aria-label={tooltip.text}
+  ><span className="oc-tooltip-label">{tooltip.label}</span>
+    {tooltip.keys.length > 0 && <span className="oc-keybind" data-component="keybind">
+      {tooltip.keys.map((key) => <kbd key={key}>{key}</kbd>)}
+    </span>}
+  </div>, document.body);
 }

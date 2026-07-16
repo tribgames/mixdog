@@ -52,3 +52,19 @@ Mixdog TUI의 모든 옵션/기능을 데스크탑에 이식한다.
 - [x] 시작 크래시 수리 — electron-updater CJS named import가 패키징 ESM 메인 번들에서 SyntaxError → default import로 교체 (src/main/updater.ts)
 - [x] acceptance smoke 갱신 — Windows titleBarOverlay 기하(titlebar 영역 폭) 기준으로 topbar 어서션 수정 (scripts/cdp-smoke.mjs)
 - [x] 설치본 실검증 — install/native-resolution/project-chat-approval-routing/app-exit/uninstall 전 단계 통과, ACCEPTED=true (dist/acceptance-8117beccc788740c.json)
+
+## Phase 5 — 영역별 완제품 폴리시 + refs 갭 이식 🔄 진행 중
+영역별 팬아웃: 각 영역 = 1차 폴리시 → 리뷰 → refs(C:\Project\refs\opencode packages/app+ui) 갭 2차.
+- [x] 타이틀바·탭·사이드바 1차 (드래그, + 버튼, 침범, 타이포, 폴더 아이콘) — 리뷰 클린
+- [x] 설정 모달 복구+센터링, set-fast 프리스틴 오류 수리 — 픽스 라운드 진행(pendingFast 덮어쓰기, @layer 캐스케이드)
+- [x] 대화 영역 1차 (마크다운/도구 카드/디프/승인 15건) — 픽스 라운드 대기(디프 선두 헝크 유실, 외부 링크, pre 줄바꿈)
+- [x] 컴포저·OpenSelect·CommandSurface 1차 — 리뷰 진행
+- [x] 온보딩·토스트·테마·스크롤바 1차 — 리뷰 진행
+- [ ] refs 갭 2차: 프로젝트 아바타·인라인 rename·탭 정렬 / 도구 카드 요약·shimmer·todo 독·메시지 네비·사용량 / 붙여넣기 첨부·히스토리·@파일·플레이스홀더 / 줌·키바인드 칩·상태 팝오버
+- [ ] 전 영역 리뷰 클린 → 전체 테스트+capture 교차 검증 → 재빌드 → 커밋
+
+## 보류 백로그 (다음 웨이브)
+- [ ] 터미널 패널, 파일 트리/파일 탭, 리뷰(diff) 탭 — 대형 기능, 사용자 결정 대기
+- [ ] 세션 우클릭 컨텍스트 메뉴·삭제, Search sessions 실동작 점검
+- [ ] 네이티브 메뉴/단축키 전반, mixdog:// 딥링크 수신, 업데이터 UX
+- [ ] i18n (오픈코드 다국어 대비 영문 고정)
