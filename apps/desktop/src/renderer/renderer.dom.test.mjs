@@ -1155,7 +1155,7 @@ test("desktop sidebar remains open immediately above the 760px breakpoint", asyn
   assert.equal(document.querySelector(".sidebar").getAttribute("aria-hidden"), "false");
 });
 
-test("settings and provider error toasts stay inline without changing successful turn outcomes", async () => {
+test("settings and provider error toasts use the notification surface without changing successful turn outcomes", async () => {
   installDom();
   let publish;
   const firstFailure = {
@@ -1188,10 +1188,10 @@ test("settings and provider error toasts stay inline without changing successful
   });
   await selectFirstProject();
 
-  const composerRegion = document.querySelector(".composer-region");
-  const alert = composerRegion.querySelector('.inline-error[role="alert"]');
-  assert.match(alert.textContent || "", /Provider request failed: quota exceeded/);
-  assert.equal(alert.nextElementSibling?.classList.contains("composer"), true);
+  const notification = document.querySelector('.oc-toast-region .oc-toast[data-tone="error"]');
+  assert.match(notification.textContent || "", /Provider request failed: quota exceeded/);
+  assert.equal(document.querySelector(".composer-region .inline-error") === null, true,
+    "provider notifications should use the redesigned toast surface rather than bridge errors");
   let outcomes = Array.from(document.querySelectorAll(".turn-status"));
   assert.deepEqual(outcomes.map((row) => row.textContent?.trim()), ["First completed", "Done", "Completed"]);
 
@@ -1635,6 +1635,7 @@ test("Fast follows core capability, uses setFast, and disables with route contro
     getSnapshot: async () => idle,
     subscribeState: (listener) => { publish = listener; return () => {}; },
     listSessions: async () => [],
+    startTask: async () => idle,
     listProviderModels: async () => [
       { provider: "openai", model: "gpt-real", display: "GPT Real", effortOptions: [] },
     ],
@@ -1646,6 +1647,10 @@ test("Fast follows core capability, uses setFast, and disables with route contro
   await act(async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(".titlebar-new").click();
     await Promise.resolve();
   });
   const fast = document.querySelector('.fast-control');
@@ -1888,15 +1893,23 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   await act(async () => root.render(React.createElement(DesktopTitlebar, { ...props, activeKey: "two" })));
   assert.equal(scrolled.at(-1)?.textContent.includes("Two"), true);
   const strip = document.querySelector(".workspace-tabs");
-  for (const event of [
+  await act(async () => strip.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "t", ctrlKey: true, bubbles: true }),
+  ));
+  await act(async () => strip.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "w", ctrlKey: true, bubbles: true }),
+  ));
+  await act(async () => strip.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowLeft", ctrlKey: true, altKey: true, bubbles: true }),
+  ));
+  await act(async () => root.render(React.createElement(DesktopTitlebar, { ...props, activeKey: "one" })));
+  const updatedStrip = document.querySelector(".workspace-tabs");
+  await act(async () => updatedStrip.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowRight", ctrlKey: true, altKey: true, bubbles: true }),
+  ));
+  await act(async () => updatedStrip.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "1", ctrlKey: true, bubbles: true }),
-  ]) {
-    await act(async () => strip.dispatchEvent(event));
-  }
+  ));
   assert.equal(newTasks, 1);
   assert.deepEqual(closed, ["two"]);
   assert.deepEqual(selected, ["one", "two", "one"]);
@@ -1909,6 +1922,7 @@ test("model selector closes separately for busy and commandBusy while preserving
     getSnapshot: async () => ({ items: [], queued: [], provider: "openai", model: "gpt-real" }),
     subscribeState: (listener) => { publish = listener; return () => {}; },
     listSessions: async () => [],
+    startTask: async () => ({ items: [], queued: [], provider: "openai", model: "gpt-real" }),
     listProviderModels: async () => [
       { provider: "openai", model: "gpt-real", display: "GPT Real", effortOptions: [] },
     ],
@@ -1916,6 +1930,10 @@ test("model selector closes separately for busy and commandBusy while preserving
   await act(async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(".titlebar-new").click();
     await Promise.resolve();
   });
   const trigger = document.querySelector(".model-trigger");

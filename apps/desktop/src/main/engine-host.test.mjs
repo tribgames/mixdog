@@ -1142,6 +1142,9 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
     assert.equal(engines[0].listeners.size, 1);
     const beforeEmit = publications;
     engines[0].emit();
+    engines[0].emit();
+    assert.equal(publications, beforeEmit, "engine event publication should be deferred");
+    await new Promise((resolve) => setTimeout(resolve, 75));
     assert.equal(publications, beforeEmit + 1);
 
     const listed = await host.listSessions();
@@ -1244,6 +1247,9 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
     assert.equal(activeProjectEngine.listeners.size, 1);
     const projectBeforeEmit = publications;
     activeProjectEngine.emit();
+    activeProjectEngine.emit();
+    assert.equal(publications, projectBeforeEmit, "project engine events should be coalesced");
+    await new Promise((resolve) => setTimeout(resolve, 75));
     assert.equal(publications, projectBeforeEmit + 1);
 
     await host.renameProject(canonicalProject, "Desktop alias");
