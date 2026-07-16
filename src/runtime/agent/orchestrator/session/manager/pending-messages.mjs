@@ -2,13 +2,18 @@
 // Extracted verbatim from manager.mjs (behavior-preserving).
 import { join } from 'path';
 import { readFileSync } from 'fs';
+import { createHash, randomBytes } from 'crypto';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync, updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
 import { promptContentText, isInternalRuntimeNotificationText } from './prompt-utils.mjs';
-import { loadSession } from '../store.mjs';
+import { loadSession, saveSessionAsync } from '../store.mjs';
 import { isDeliveredCompletion, logDuplicateSkip } from './delivered-completions.mjs';
 
 const _sessionPendingMessages = new Map();
+// Persisted entries are claimed once, asynchronously, when askSession takes
+// ownership of a session. Hot-path drains consume this in-memory snapshot and
+// never touch the global spool (or its cross-process lock).
+const _hydratedPendingMessages = new Map();
 const PENDING_MESSAGES_FILE = 'session-pending-messages.json';
 const PENDING_MESSAGES_MODE = 0o600;
 const PENDING_ORPHAN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -19,7 +24,32 @@ const PENDING_ORPHAN_GRACE_MS = 60 * 60 * 1000;
 // user/steering messages carry no marker and keep full queue + replay behavior.
 export const COMPLETION_NOTIFICATION_KIND = 'completion_notification';
 const _pendingPersistBuffers = new Map();
+const _pendingPersistTails = new Map();
+const _inDeliveryPendingIds = new Map();
+const _ackedPendingIds = new Map();
+const _pendingHydrations = new Map();
 let _pendingPersistImmediate = null;
+
+function pendingIdSet(map, sessionId) {
+    let ids = map.get(sessionId);
+    if (!ids) {
+        ids = new Set();
+        map.set(sessionId, ids);
+    }
+    return ids;
+}
+
+function newPendingMessageId() {
+    return randomBytes(12).toString('hex');
+}
+
+function pendingMessageId(entry) {
+    return typeof entry?.id === 'string' && entry.id ? entry.id : null;
+}
+
+function legacyPendingMessageId(sessionId, index, value) {
+    return `legacy_${createHash('sha256').update(`${sessionId}:${index}:${value}`).digest('hex').slice(0, 24)}`;
+}
 
 function isCompletionNotificationEntry(entry) {
     return Boolean(entry) && typeof entry === 'object'
@@ -81,10 +111,24 @@ function normalizeTuiSteeringQueueEntry(entry) {
         return text || null;
     }
     if (!entry || typeof entry !== 'object') return null;
-    if (typeof entry.text === 'string' && entry.text.trim()) {
-        const text = entry.text.trim();
+    const rawText = typeof entry.text === 'string'
+        ? entry.text
+        : (typeof entry.message === 'string'
+            ? entry.message
+            : (typeof entry.content === 'string' ? entry.content : ''));
+    if (rawText.trim()) {
+        const text = rawText.trim();
         const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : null;
-        return id ? { id, text } : text;
+        if (!id) return text;
+        const normalized = {
+            id,
+            text,
+            message: text,
+            enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
+        };
+        return entry.notificationKind === COMPLETION_NOTIFICATION_KIND
+            ? { ...normalized, notificationKind: COMPLETION_NOTIFICATION_KIND }
+            : normalized;
     }
     return null;
 }
@@ -102,7 +146,10 @@ function normalizePendingStore(raw) {
         if (!isValidPendingSessionId(sid) || !Array.isArray(value)) continue;
         const q = isTuiSteeringPendingKey(sid)
             ? value.map(normalizeTuiSteeringQueueEntry).filter(Boolean)
-            : value.map(normalizePersistedEntry).filter(Boolean);
+            : value.map((entry, index) => normalizePersistedEntry(entry, {
+                legacyId: legacyPendingMessageId(sid, index, typeof entry === 'string' ? entry : JSON.stringify(entry)),
+                fallbackEnqueuedAt: storeUpdatedAt + index,
+            })).filter(Boolean);
         if (q.length > 0) {
             out.sessions[sid] = q;
             const touched = Number(touchedRaw[sid]);
@@ -128,10 +175,18 @@ function normalizePendingMessageEntry(entry) {
         return { content: entry, text };
     }
     if (!entry || typeof entry !== 'object') return null;
+    const identity = {
+        id: pendingMessageId(entry),
+        enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
+    };
     const marker = entry.notificationKind === COMPLETION_NOTIFICATION_KIND
         ? { notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Number(entry.enqueuedAt) || Date.now() }
         : null;
-    const content = Object.prototype.hasOwnProperty.call(entry, 'content') ? entry.content : null;
+    const content = Object.prototype.hasOwnProperty.call(entry, 'content')
+        ? entry.content
+        : (typeof entry.message === 'string'
+            ? entry.message
+            : (typeof entry.text === 'string' ? entry.text : null));
     if (content == null) return null;
     const text = typeof entry.text === 'string' ? entry.text.trim() : promptContentText(content).trim();
     let out = null;
@@ -143,7 +198,8 @@ function normalizePendingMessageEntry(entry) {
         const fallback = promptContentText(content).trim();
         out = fallback ? { content: fallback, text: text || fallback } : null;
     }
-    return out && marker ? { ...out, ...marker } : out;
+    if (!out) return null;
+    return marker ? { ...out, ...identity, ...marker } : { ...out, ...identity };
 }
 
 function pendingMessageText(entry) {
@@ -154,11 +210,14 @@ function pendingMessageText(entry) {
 function pendingMessageQueueEntry(entry) {
     const normalized = normalizePendingMessageEntry(entry);
     if (!normalized) return null;
+    const identity = {
+        id: normalized.id || newPendingMessageId(),
+        enqueuedAt: Number(normalized.enqueuedAt) || Date.now(),
+    };
     const marker = isCompletionNotificationEntry(normalized)
         ? { notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: normalized.enqueuedAt }
         : null;
-    if (typeof normalized.content === 'string' && normalized.content === normalized.text && !marker) return normalized.content;
-    const base = { content: normalized.content, text: normalized.text || promptContentText(normalized.content).trim() };
+    const base = { ...identity, content: normalized.content, text: normalized.text || promptContentText(normalized.content).trim() };
     return marker ? { ...base, ...marker } : base;
 }
 
@@ -167,20 +226,32 @@ function pendingMessageQueueEntry(entry) {
 // notifications so the marker survives an on-disk round trip. Accepts either an
 // in-memory queue entry (content/text) or an already-persisted entry
 // (string | { message } legacy | marked object); back-compatible with both.
-function normalizePersistedEntry(entry) {
-    if (typeof entry === 'string') { const t = entry.trim(); return t || null; }
+function normalizePersistedEntry(entry, options = {}) {
+    if (typeof entry === 'string') {
+        const message = entry.trim();
+        return message ? {
+            id: options.legacyId || newPendingMessageId(),
+            message,
+            enqueuedAt: Number(options.fallbackEnqueuedAt) || Date.now(),
+        } : null;
+    }
     if (!entry || typeof entry !== 'object') return null;
+    const id = pendingMessageId(entry) || options.legacyId || newPendingMessageId();
+    const enqueuedAt = Number(entry.enqueuedAt) || Number(options.fallbackEnqueuedAt) || Date.now();
     if (isCompletionNotificationEntry(entry)) {
         const message = (typeof entry.message === 'string' && entry.message.trim())
             ? entry.message.trim()
             : pendingMessageText(entry);
         return message
-            ? { message, notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Number(entry.enqueuedAt) || Date.now() }
+            ? { id, message, notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt }
             : null;
     }
-    if (typeof entry.message === 'string') { const t = entry.message.trim(); return t || null; }
+    if (typeof entry.message === 'string') {
+        const message = entry.message.trim();
+        return message ? { id, message, enqueuedAt } : null;
+    }
     const t = pendingMessageText(entry);
-    return t || null;
+    return t ? { id, message: t, enqueuedAt } : null;
 }
 
 function persistPendingMessages(sessionId, messages) {
@@ -194,7 +265,7 @@ function persistPendingMessages(sessionId, messages) {
     // process contention on the shared spool never freezes the renderer.
     // Best-effort: the returned promise is fire-and-forget; depth is reported
     // optimistically from the buffered batch length.
-    updateJsonAtomic(pendingMessagesPath(), (raw) => {
+    const operation = updateJsonAtomic(pendingMessagesPath(), (raw) => {
         const next = normalizePendingStore(raw);
         const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
         q.push(...persistedMessages);
@@ -210,11 +281,16 @@ function persistPendingMessages(sessionId, messages) {
             // were already cleared by the flush, so push them back so the next
             // scheduled flush or session takeover retries instead of losing them.
             try {
+                const acked = pendingIdSet(_ackedPendingIds, sessionId);
                 const q = _pendingPersistBuffers.get(sessionId) || [];
-                q.push(...persistedMessages);
+                q.push(...persistedMessages.filter((entry) => !acked.has(pendingMessageId(entry))));
                 _pendingPersistBuffers.set(sessionId, q);
             } catch {}
         });
+    _pendingPersistTails.set(sessionId, operation);
+    operation.finally(() => {
+        if (_pendingPersistTails.get(sessionId) === operation) _pendingPersistTails.delete(sessionId);
+    }).catch(() => {});
     return persistedMessages.length;
 }
 
@@ -255,28 +331,188 @@ function takeBufferedPendingMessages(sessionId) {
     return buffered.slice();
 }
 
-function drainPersistedPendingMessages(sessionId) {
-    if (!isValidPendingSessionId(sessionId)) return [];
-    let drained = [];
-    try {
-        // Sync drain: called synchronously by drainPendingMessages, whose
-        // return value is spread immediately. Kept sync (updateJsonAtomicSync)
-        // so ordering/return contract is preserved; this fires only at
-        // session takeover, not on the keystroke/turn hot path.
-        updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
-            const next = normalizePendingStore(raw);
-            const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
-            drained = q.filter((m) => (typeof m === 'string' && m.length > 0) || isCompletionNotificationEntry(m));
-            if (drained.length === 0) return undefined;
+export function acknowledgePendingMessages(sessionId, deliveredEntries) {
+    const ids = new Set((Array.isArray(deliveredEntries) ? deliveredEntries : [])
+        .map(pendingMessageId).filter(Boolean));
+    if (ids.size === 0) return Promise.resolve(false);
+    const inDelivery = pendingIdSet(_inDeliveryPendingIds, sessionId);
+    const acked = pendingIdSet(_ackedPendingIds, sessionId);
+    for (const id of ids) { inDelivery.delete(id); acked.add(id); }
+    const purgeMemory = () => {
+        for (const map of [_pendingPersistBuffers, _sessionPendingMessages, _hydratedPendingMessages]) {
+            const q = map.get(sessionId);
+            if (!Array.isArray(q)) continue;
+            const kept = q.filter((entry) => !ids.has(pendingMessageId(entry)));
+            if (kept.length > 0) map.set(sessionId, kept);
+            else map.delete(sessionId);
+        }
+    };
+    purgeMemory();
+    const precedingPersist = _pendingPersistTails.get(sessionId) || Promise.resolve();
+    const operation = precedingPersist.catch(() => {}).then(() => {
+        // A failed preceding persist may have requeued after the first purge.
+        purgeMemory();
+        return updateJsonAtomic(pendingMessagesPath(), (raw) => {
+        const next = normalizePendingStore(raw);
+        const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
+        const kept = q.filter((entry) => !ids.has(pendingMessageId(entry)));
+        const removed = q.length - kept.length;
+        if (removed === 0) return undefined;
+        if (kept.length > 0) next.sessions[sessionId] = kept;
+        else {
             delete next.sessions[sessionId];
             if (next.sessionTouchedAt) delete next.sessionTouchedAt[sessionId];
-            next.updatedAt = Date.now();
-            return next;
+        }
+        next.updatedAt = Date.now();
+        return next;
         }, { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false });
-    } catch (err) {
-        try { process.stderr.write(`[session] pending-message drain failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
+    });
+    _pendingPersistTails.set(sessionId, operation);
+    const reported = operation.then(() => true).catch((err) => {
+        try { process.stderr.write(`[session] pending-message ack failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
+        return false;
+    }).finally(() => {
+        const currentAcked = pendingIdSet(_ackedPendingIds, sessionId);
+        for (const id of ids) currentAcked.delete(id);
+        if (currentAcked.size === 0) _ackedPendingIds.delete(sessionId);
+        if (_pendingPersistTails.get(sessionId) === operation) _pendingPersistTails.delete(sessionId);
+    });
+    return reported;
+}
+
+export function recordPendingMessageDelivery(session, deliveredEntries) {
+    if (!session || !Array.isArray(deliveredEntries) || deliveredEntries.length === 0) return;
+    const added = deliveredEntries.map(pendingMessageId).filter(Boolean);
+    if (added.length === 0) return;
+    const ledger = Array.isArray(session.deliveredPendingMessageIds)
+        ? session.deliveredPendingMessageIds.filter((id) => typeof id === 'string' && id)
+        : [];
+    // This may temporarily exceed the nominal bound while spool cleanup is
+    // failing. Never evict an ID whose durable spool copy may still exist.
+    session.deliveredPendingMessageIds = [...new Set([...ledger, ...added])];
+}
+
+async function pruneCleanupConfirmedLedger(sessionId, confirmedEntries, session = null, persist = null) {
+    const confirmedIds = new Set((Array.isArray(confirmedEntries) ? confirmedEntries : [])
+        .map(pendingMessageId).filter(Boolean));
+    if (confirmedIds.size === 0) return false;
+    const target = session || loadSession(sessionId);
+    if (!target) return false;
+    const ledger = Array.isArray(target.deliveredPendingMessageIds)
+        ? target.deliveredPendingMessageIds.filter((id) => typeof id === 'string' && id)
+        : [];
+    const kept = ledger.filter((id) => !confirmedIds.has(id));
+    if (kept.length === ledger.length) return false;
+    // Confirmed IDs need no replay protection and are removed immediately
+    // (therefore bounded below any finite confirmed-ID retention cap).
+    // Unconfirmed IDs are never size-evicted.
+    target.deliveredPendingMessageIds = kept;
+    if (typeof persist === 'function') await persist();
+    else await saveSessionAsync(target, { expectedGeneration: target.generation });
+    return true;
+}
+
+export function finalizePendingMessageDelivery(session, deliveredEntries, durableSave, persistPrunedLedger) {
+    const ids = new Set((Array.isArray(deliveredEntries) ? deliveredEntries : [])
+        .map(pendingMessageId).filter(Boolean));
+    if (!session || ids.size === 0) return Promise.resolve(false);
+    // Strict durability order: ledger/session first, spool deletion second.
+    // Both operations are detached from the completion tick.
+    return Promise.resolve(durableSave).then(async () => {
+        const cleaned = await acknowledgePendingMessages(session.id, deliveredEntries);
+        if (!cleaned) return false;
+        await pruneCleanupConfirmedLedger(
+            session.id,
+            deliveredEntries,
+            session,
+            persistPrunedLedger,
+        );
+        return true;
+    });
+}
+
+export function releasePendingMessages(sessionId, deliveredEntries) {
+    const inDelivery = pendingIdSet(_inDeliveryPendingIds, sessionId);
+    for (const entry of Array.isArray(deliveredEntries) ? deliveredEntries : []) {
+        const id = pendingMessageId(entry);
+        if (id) inDelivery.delete(id);
     }
-    return drained;
+    if (inDelivery.size === 0) _inDeliveryPendingIds.delete(sessionId);
+}
+
+export function hydratePendingMessages(sessionId, options = {}) {
+    if (!isValidPendingSessionId(sessionId)) return Promise.resolve(0);
+    const existingHydration = _pendingHydrations.get(sessionId);
+    if (existingHydration) return existingHydration;
+    const hydration = (async () => {
+      const precedingPersist = _pendingPersistTails.get(sessionId);
+      if (precedingPersist) await precedingPersist.catch(() => {});
+      let hydrated = [];
+      let alreadyDelivered = [];
+      let staleLedgerEntries = [];
+      const ledgerSession = loadSession(sessionId);
+      try {
+        const deliveredLedger = new Set(ledgerSession?.deliveredPendingMessageIds || []);
+        const inDelivery = pendingIdSet(_inDeliveryPendingIds, sessionId);
+        const acked = pendingIdSet(_ackedPendingIds, sessionId);
+        await updateJsonAtomic(pendingMessagesPath(), (raw) => {
+            const next = normalizePendingStore(raw);
+            const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
+            const spoolIds = new Set(q.map(pendingMessageId).filter(Boolean));
+            // Ledger IDs only suppress matching durable spool entries. If no
+            // such entry exists, cleanup was already completed (possibly just
+            // before a crash) and the ledger ID is structurally stale.
+            staleLedgerEntries = [...deliveredLedger]
+                .filter((id) => !spoolIds.has(id))
+                .map((id) => ({ id }));
+            hydrated = q.filter((entry) => {
+                const id = pendingMessageId(entry);
+                if (id && deliveredLedger.has(id)) {
+                    alreadyDelivered.push(entry);
+                    return false;
+                }
+                return id && !inDelivery.has(id) && !acked.has(id);
+            });
+            // Read-only claim: durable data remains until successful delivery
+            // acknowledges these exact ids. A crash here therefore redelivers.
+            return undefined;
+        }, { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false });
+        await options.beforePublish?.(hydrated);
+      } catch (err) {
+        try { process.stderr.write(`[session] pending-message hydrate failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
+        return 0;
+      }
+      const cleanupConfirmed = staleLedgerEntries.slice();
+      if (alreadyDelivered.length > 0) {
+        const cleaned = await acknowledgePendingMessages(sessionId, alreadyDelivered);
+        if (cleaned) cleanupConfirmed.push(...alreadyDelivered);
+      }
+      if (cleanupConfirmed.length > 0) {
+        try {
+            // One session save prunes both IDs whose replay spool was removed
+            // now and IDs whose spool was already absent at hydration start.
+            await pruneCleanupConfirmedLedger(sessionId, cleanupConfirmed, ledgerSession);
+        } catch (err) {
+            try { process.stderr.write(`[session] pending-message ledger prune failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
+        }
+      }
+      if (hydrated.length > 0) {
+        const inDelivery = pendingIdSet(_inDeliveryPendingIds, sessionId);
+        for (const entry of hydrated) {
+            const id = pendingMessageId(entry);
+            if (id) inDelivery.add(id);
+        }
+        const existing = _hydratedPendingMessages.get(sessionId) || [];
+        existing.push(...hydrated);
+        _hydratedPendingMessages.set(sessionId, existing);
+      }
+      return hydrated.length;
+    })();
+    _pendingHydrations.set(sessionId, hydration);
+    hydration.finally(() => {
+        if (_pendingHydrations.get(sessionId) === hydration) _pendingHydrations.delete(sessionId);
+    }).catch(() => {});
+    return hydration;
 }
 
 function clearPersistedPendingMessages(sessionId) {
@@ -391,7 +627,9 @@ export function _mergePendingMessageEntries(entries) {
 }
 
 export function enqueuePendingMessage(sessionId, message) {
-    const entry = pendingMessageQueueEntry(message);
+    const normalized = pendingMessageQueueEntry(message);
+    // Caller-provided ids are never trusted across sessions/processes.
+    const entry = normalized ? { ...normalized, id: newPendingMessageId() } : null;
     if (!sessionId || !entry) return 0;
     let q = _sessionPendingMessages.get(sessionId);
     if (!q) { q = []; _sessionPendingMessages.set(sessionId, q); }
@@ -404,11 +642,12 @@ export function drainPendingMessages(sessionId) {
     const q = _sessionPendingMessages.get(sessionId);
     const memory = q && q.length > 0 ? q.slice() : [];
     _sessionPendingMessages.delete(sessionId);
-    // FIFO: disk-persisted entries were flushed before the not-yet-flushed
-    // in-memory persist buffer, so they are strictly older — drain them
-    // first. Reversing this order (buffer before disk) delivered newer
-    // buffered sends ahead of older persisted ones after a restart.
-    const persisted = [...drainPersistedPendingMessages(sessionId), ...takeBufferedPendingMessages(sessionId)];
+    const hydrated = _hydratedPendingMessages.get(sessionId) || [];
+    _hydratedPendingMessages.delete(sessionId);
+    // FIFO: takeover-hydrated disk entries predate the not-yet-flushed buffer.
+    // This path is deliberately memory-only: no file lock, stat, parse, or
+    // atomic rename can run in the agent-completion tick.
+    const buffered = takeBufferedPendingMessages(sessionId);
     // Deferred completion/task notifications are dropped ONLY from the persisted
     // (disk/buffer) path. Those are the entries a later session resume/restart
     // would replay out-of-order into a future turn, once the in-memory queue is
@@ -433,30 +672,40 @@ export function drainPendingMessages(sessionId) {
         }
         return true;
     });
-    const persistedKept = persisted.filter((m) => !isCompletionNotificationEntry(m)
-        && !isLegacyUnmarkedCompletionNotification(m));
-    const memoryVisible = modelVisiblePendingMessages(memoryKept);
-    const persistedVisible = modelVisiblePendingMessages(persistedKept);
-    if (memoryVisible.length === 0) return persistedVisible;
-    if (persistedVisible.length === 0) return memoryVisible;
-    const persistedTexts = persistedVisible.map(pendingMessageText);
-    const prefixMatches = memoryVisible.every((m, i) => persistedTexts[i] === pendingMessageText(m));
-    if (prefixMatches) return [...memoryVisible, ...persistedVisible.slice(memoryVisible.length)];
-    // The live in-memory queue holds the authoritative order — including the
-    // completion entries that were filtered out of the persisted path — so an
-    // interleaved [user, completion, user] must stay in that order and never be
-    // flattened to [user, user, completion] by rebuilding from persisted first.
-    // Start from the memory order and append only genuinely persisted-only
-    // entries; buffered duplicates of live sends are skipped by text.
-    const out = memoryVisible.slice();
-    const seen = new Set(out.map(pendingMessageText).filter(Boolean));
-    for (const m of persistedVisible) {
-        const text = pendingMessageText(m);
-        if (!text || seen.has(text)) continue;
-        out.push(m);
-        seen.add(text);
+    const tagged = [
+        ...hydrated.map((entry, index) => ({ entry, source: 0, index })),
+        ...buffered.map((entry, index) => ({ entry, source: 1, index })),
+        ...memoryKept.map((entry, index) => ({ entry, source: 2, index })),
+    ];
+    tagged.sort((a, b) => {
+        const at = Number(a.entry?.enqueuedAt) || 0;
+        const bt = Number(b.entry?.enqueuedAt) || 0;
+        return at - bt || a.source - b.source || a.index - b.index;
+    });
+    const byId = new Map();
+    for (const item of tagged) {
+        const normalized = pendingMessageQueueEntry(item.entry);
+        if (!normalized?.id) continue;
+        // Prefer the live form for duplicate spool/buffer copies; content and id
+        // are identical, but the live completion marker is authoritative.
+        const prior = byId.get(normalized.id);
+        if (!prior || item.source > prior.source) byId.set(normalized.id, { ...item, entry: normalized });
     }
-    return out;
+    const ordered = [...byId.values()].sort((a, b) => {
+        const at = Number(a.entry.enqueuedAt) || 0;
+        const bt = Number(b.entry.enqueuedAt) || 0;
+        return at - bt || a.source - b.source || a.index - b.index;
+    });
+    const dropped = ordered.filter(({ entry, source }) => source === 0
+        && (isCompletionNotificationEntry(entry) || isLegacyUnmarkedCompletionNotification(pendingMessageText(entry))))
+        .map(({ entry }) => entry);
+    if (dropped.length > 0) acknowledgePendingMessages(sessionId, dropped);
+    const visible = modelVisiblePendingMessages(ordered
+        .filter(({ entry }) => !dropped.includes(entry))
+        .map(({ entry }) => entry));
+    const inDelivery = pendingIdSet(_inDeliveryPendingIds, sessionId);
+    for (const entry of visible) if (entry.id) inDelivery.add(entry.id);
+    return visible;
 }
 
 // Snapshot queued entries without draining them. Compaction uses this to keep
@@ -494,7 +743,11 @@ export function _dropPendingMessageState(id, { clearPersisted = true } = {}) {
         }
     }
     try { _sessionPendingMessages.delete(id); } catch { /* ignore */ }
+    try { _hydratedPendingMessages.delete(id); } catch { /* ignore */ }
     try { _pendingPersistBuffers.delete(id); } catch { /* ignore */ }
+    try { _inDeliveryPendingIds.delete(id); } catch { /* ignore */ }
+    try { _ackedPendingIds.delete(id); } catch { /* ignore */ }
+    try { _pendingHydrations.delete(id); } catch { /* ignore */ }
     if (clearPersisted) {
         try { clearPersistedPendingMessages(id); } catch { /* ignore */ }
     }

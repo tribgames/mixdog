@@ -85,6 +85,7 @@
     "bench:corpus": "node scripts/routing-corpus.mjs",
     "bench:run": "node scripts/bench-run.mjs",
     "bench:recall": "node scripts/recall-bench.mjs",
+    "bench:tui-load": "node scripts/tui-runtime-load-bench.mjs",
     "audit:models": "node scripts/model-catalog-audit.mjs",
     "patch:replay": "node scripts/patch-replay.mjs",
     "build:tui": "node scripts/build-tui.mjs",

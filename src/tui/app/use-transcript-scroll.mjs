@@ -17,6 +17,7 @@ import {
   shiftSelectionRectY,
   comparePoints,
   upperBound,
+  transcriptRowAt,
 } from './transcript-window.mjs';
 import { yieldToRenderer } from '../engine/render-timing.mjs';
 
@@ -437,6 +438,51 @@ export function useTranscriptScroll({
 
   const scrollTranscriptRows = useCallback((deltaRows, options = {}) => {
     const maxTarget = Math.max(0, Number(maxScrollRowsRef.current) || 0);
+    const historyState = store.getState?.() || {};
+    const captureRestoreAnchor = () => {
+      const geom = transcriptGeomRef.current || {};
+      const prefixRows = geom.prefixRows;
+      if (!prefixRows || prefixRows.length <= 1) return;
+      const total = Math.max(0, Number(geom.totalRows) || 0);
+      const view = Math.max(1, Number(geom.viewRows) || 1);
+      const target = Math.max(0, Number(scrollTargetRef.current) || 0);
+      const row = Math.max(0, Math.min(total, total - target - view));
+      let index = upperBound(prefixRows, row) - 1;
+      index = Math.max(0, Math.min(prefixRows.length - 2, index));
+      const item = geom.items?.[index];
+      if (item?.id != null) {
+        transcriptAnchorRef.current = {
+          id: item.id,
+          offset: Math.max(0, row - transcriptRowAt(prefixRows, index)),
+        };
+        transcriptAnchorDirtyRef.current = false;
+      }
+    };
+    if (deltaRows > 0
+      && scrollTargetRef.current >= maxTarget
+      && historyState.transcriptHistoryBefore) {
+      captureRestoreAnchor();
+      if (!store.restoreOlderTranscript?.()) return;
+      stopSmoothScroll();
+      cancelTranscriptFollow();
+      return;
+    }
+    if (deltaRows < 0
+      && scrollTargetRef.current <= 0
+      && historyState.transcriptHistoryAfter) {
+      captureRestoreAnchor();
+      if (!store.restoreNewerTranscript?.()) return;
+      stopSmoothScroll();
+      cancelTranscriptFollow();
+      // The shared overlap now sits at the OLDEST edge of the newer page.
+      // Keep a positive target so the render-time absolute anchor lock remains
+      // active and resolves that row instead of treating target=0 as tail-pin.
+      const anchoredTarget = Math.max(1, maxTarget);
+      scrollTargetRef.current = anchoredTarget;
+      scrollPositionRef.current = anchoredTarget;
+      setScrollOffset(anchoredTarget);
+      return;
+    }
     const target = Math.max(0, Math.min(maxTarget, scrollTargetRef.current + deltaRows));
     const appliedDelta = target - scrollTargetRef.current;
     // Before the scroll moves selected rows out of view, snapshot the rows
@@ -467,7 +513,7 @@ export function useTranscriptScroll({
       } else {
         const geom = transcriptGeomRef.current || {};
         const prefixRows = geom.prefixRows;
-        if (Array.isArray(prefixRows) && prefixRows.length > 1) {
+        if (prefixRows && prefixRows.length > 1) {
           const gTotal = Math.max(0, Number(geom.totalRows) || 0);
           const gView = Math.max(1, Number(geom.viewRows) || 1);
           const anchorRow = Math.max(0, Math.min(gTotal, gTotal - target - gView));
@@ -477,7 +523,7 @@ export function useTranscriptScroll({
           const items = geom.items || [];
           const anchorItem = items[idx];
           if (anchorItem && anchorItem.id != null) {
-            transcriptAnchorRef.current = { id: anchorItem.id, offset: Math.max(0, anchorRow - (prefixRows[idx] || 0)) };
+            transcriptAnchorRef.current = { id: anchorItem.id, offset: Math.max(0, anchorRow - transcriptRowAt(prefixRows, idx)) };
             transcriptAnchorDirtyRef.current = false;
           } else {
             transcriptAnchorDirtyRef.current = true;

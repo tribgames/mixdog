@@ -55,6 +55,20 @@ function sessionMessagesAdvancedBeyondCompactedOutgoing(currentSanitized, compac
     return isCompactedOutgoingFinalAssistantMessage(currentSanitized[currentSanitized.length - 1]);
 }
 
+function messageSnapshotPresent(messages, wanted) {
+    if (!wanted || !Array.isArray(messages)) return false;
+    return messages.some((message) => {
+        if (message === wanted) return true;
+        try { return JSON.stringify(message) === JSON.stringify(wanted); } catch { return false; }
+    });
+}
+
+export function compactedOutgoingPromptRetained(activeMessages, outgoingMessages) {
+    const outgoing = filterModelVisibleSessionMessages(outgoingMessages);
+    const prompt = [...outgoing].reverse().find((message) => message?.role === 'user');
+    return Boolean(prompt) && messageSnapshotPresent(filterModelVisibleSessionMessages(activeMessages), prompt);
+}
+
 export const _sessionMessagesAdvancedBeyondCompactedOutgoing = sessionMessagesAdvancedBeyondCompactedOutgoing;
 
 function applyCompactFailurePersistToSession(activeSession, {
@@ -100,24 +114,26 @@ export async function persistCompactedOutgoingAfterAskFailure({
     turnOutgoing,
     error = null,
 }) {
-    if (!activeSession || activeSession.closed === true) return;
-    if (!Array.isArray(turnOutgoing) || turnOutgoing.length === 0) return;
+    if (!activeSession || activeSession.closed === true) return false;
+    if (!Array.isArray(turnOutgoing) || turnOutgoing.length === 0) return false;
     const currentRuntime = _getRuntimeEntry(sessionId);
-    if (currentRuntime?.closed || currentRuntime?.generation !== askGeneration) return;
+    if (currentRuntime?.closed || currentRuntime?.generation !== askGeneration) return false;
     const sanitized = filterModelVisibleSessionMessages(turnOutgoing);
     const priorSanitized = filterModelVisibleSessionMessages(
         Array.isArray(activeSession.messages) ? activeSession.messages : [],
     );
     const messagesAdvanced = sessionMessagesAdvancedBeyondCompactedOutgoing(priorSanitized, sanitized);
+    const promptRetainedBefore = compactedOutgoingPromptRetained(priorSanitized, sanitized);
     const applied = applyCompactFailurePersistToSession(activeSession, {
         priorSanitized,
         sanitized,
         messagesAdvanced,
         error,
     });
-    if (!applied) return;
+    if (!applied) return promptRetainedBefore;
     try {
         await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
     } catch { /* best-effort: preserve in-memory compaction even if disk is slow */ }
     if (currentRuntime) currentRuntime.session = activeSession;
+    return compactedOutgoingPromptRetained(activeSession.messages, sanitized);
 }

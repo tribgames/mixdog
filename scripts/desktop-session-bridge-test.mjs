@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unl
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 import {
   _normalizeSummaryIndex,
@@ -23,8 +24,54 @@ import {
   markSessionClosed,
   saveSession,
   saveSessionAsync,
+  saveSessionAsyncDeferred,
   setLiveSession,
 } from '../src/runtime/agent/orchestrator/session/store.mjs';
+
+test('deferred terminal save is registered for immediate exit drain', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-deferred-terminal-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const session = {
+      id: 'deferred_terminal_exit',
+      owner: 'user',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [{ role: 'assistant', content: 'terminal state' }],
+    };
+    const pending = saveSessionAsyncDeferred(session);
+    drainSessionStore();
+    await pending;
+    assert.equal(loadSession(session.id)?.messages?.[0]?.content, 'terminal state');
+  } finally {
+    drainSessionStore();
+    if (previousDataDir == null) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('exit drain writes deferred terminal state after an older worker-pending save', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-deferred-order-'));
+  try {
+    const storeUrl = new URL('../src/runtime/agent/orchestrator/session/store.mjs', import.meta.url).href;
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', `
+      process.env.MIXDOG_DATA_DIR = ${JSON.stringify(root)};
+      const { saveSessionAsync, saveSessionAsyncDeferred, drainSessionStore, loadSession } = await import(${JSON.stringify(storeUrl)});
+      const base = { id: 'deferred_order_exit', owner: 'user', createdAt: Date.now(), updatedAt: Date.now() };
+      saveSessionAsync({ ...base, messages: [{ role: 'assistant', content: 'older worker snapshot' }], padding: 'x'.repeat(2_000_000) }).catch(() => {});
+      const terminal = saveSessionAsyncDeferred({ ...base, updatedAt: Date.now() + 1, messages: [{ role: 'assistant', content: 'newest terminal snapshot' }] });
+      drainSessionStore();
+      await Promise.allSettled([terminal]);
+      process.stdout.write(loadSession(base.id)?.messages?.[0]?.content || '');
+      process.exit(0);
+    `], { encoding: 'utf8' });
+    assert.equal(output, 'newest terminal snapshot');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('desktop classification is optional and round-trips through the existing summary index', () => {
   const task = _sessionSummary({

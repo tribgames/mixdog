@@ -435,7 +435,7 @@ export function lowerBound(values, target) {
   let hi = values.length;
   while (lo < hi) {
     const mid = Math.floor((lo + hi) / 2);
-    if (values[mid] < target) lo = mid + 1;
+    if (transcriptRowAt(values, mid) < target) lo = mid + 1;
     else hi = mid;
   }
   return lo;
@@ -446,7 +446,7 @@ export function upperBound(values, target) {
   let hi = values.length;
   while (lo < hi) {
     const mid = Math.floor((lo + hi) / 2);
-    if (values[mid] <= target) lo = mid + 1;
+    if (transcriptRowAt(values, mid) <= target) lo = mid + 1;
     else hi = mid;
   }
   return lo;
@@ -457,16 +457,16 @@ export function upperBound(values, target) {
 // render AND in the post-commit layout effect.
 export function resolveAnchorScrollOffset({ anchor, items, curPrefix, totalRows, viewRows, maxRows }) {
   if (!anchor || anchor.id == null) return null;
-  if (!Array.isArray(curPrefix) || curPrefix.length <= 1) return null;
+  if (!curPrefix || curPrefix.length <= 1) return null;
   const list = Array.isArray(items) ? items : [];
   let idx = -1;
   for (let i = list.length - 1; i >= 0; i--) {
     if (list[i] && list[i].id === anchor.id) { idx = i; break; }
   }
   if (idx < 0 || idx > curPrefix.length - 2) return null;
-  const itemHeight = Math.max(0, (curPrefix[idx + 1] || 0) - (curPrefix[idx] || 0));
+  const itemHeight = Math.max(0, transcriptRowAt(curPrefix, idx + 1) - transcriptRowAt(curPrefix, idx));
   const clampedOffset = Math.max(0, Math.min(Number(anchor.offset) || 0, itemHeight));
-  const anchorRowCur = (curPrefix[idx] || 0) + clampedOffset;
+  const anchorRowCur = transcriptRowAt(curPrefix, idx) + clampedOffset;
   return Math.max(0, Math.min(maxRows, totalRows - viewRows - anchorRowCur));
 }
 
@@ -856,13 +856,16 @@ export function buildTranscriptRowIndex(items, {
   columns = 80,
   toolOutputExpanded = false,
   suppressMeasuredRowHeights = false,
+  streamingTailItem = null,
 } = {}) {
   const allItems = Array.isArray(items) ? items : [];
   const rows = new Array(allItems.length);
   const prefixRows = new Array(allItems.length + 1);
   prefixRows[0] = 0;
   for (let i = 0; i < allItems.length; i++) {
-    const item = allItems[i];
+    const item = streamingTailItem && i === allItems.length - 1
+      ? streamingTailItem
+      : allItems[i];
     const measured = suppressMeasuredRowHeights
       ? null
       : measuredTranscriptRows(item, columns, toolOutputExpanded);
@@ -903,9 +906,10 @@ export function buildTranscriptRowIndexIncremental(items, {
   measuredRowsVersion = 0,
   cacheRef = null,
   prefixRevision = null,
+  streamingTailItem = null,
 } = {}) {
   const allItems = Array.isArray(items) ? items : [];
-  const tail = trailingStreamingItem(allItems);
+  const tail = streamingTailItem || trailingStreamingItem(allItems);
   // Per-hook-instance cache holder (useRef object). Fall back to a throwaway
   // holder if none supplied so the builder still works in isolation.
   const holder = cacheRef || { current: null };
@@ -915,7 +919,7 @@ export function buildTranscriptRowIndexIncremental(items, {
   if (!tail) {
     holder.current = null;
     return buildTranscriptRowIndex(allItems, {
-      columns, toolOutputExpanded, suppressMeasuredRowHeights,
+      columns, toolOutputExpanded, suppressMeasuredRowHeights, streamingTailItem,
     });
   }
   const prefixLen = allItems.length - 1;
@@ -943,11 +947,14 @@ export function buildTranscriptRowIndexIncremental(items, {
       const tailRows = tailMeasured != null
         ? tailMeasured
         : estimateTranscriptItemRowsCached(tail, columns, toolOutputExpanded);
-      const rows = cache.prefixRowsArr.slice();
-      rows.push(tailRows);
-      const prefixRows = cache.prefixPrefixRows.slice();
-      prefixRows.push(cache.prefixTotal + tailRows);
-      return { rows, prefixRows, totalRows: prefixRows[allItems.length] || 0 };
+      // Immutable segmented views append one virtual tail slot to the cached
+      // settled prefix. No committed array is mutated and no prefix is copied.
+      const totalRows = cache.prefixTotal + tailRows;
+      return {
+        rows: appendTranscriptRow(cache.prefixRowsArr, tailRows),
+        prefixRows: appendTranscriptRow(cache.prefixPrefixRows, totalRows),
+        totalRows,
+      };
     }
   }
   // Cache miss: full build, then repopulate the settled-prefix cache so the NEXT
@@ -955,7 +962,7 @@ export function buildTranscriptRowIndexIncremental(items, {
   // full-build outputs truncated before the tail row — byte-identical to a
   // full rebuild's prefix by construction.
   const full = buildTranscriptRowIndex(allItems, {
-    columns, toolOutputExpanded, suppressMeasuredRowHeights,
+    columns, toolOutputExpanded, suppressMeasuredRowHeights, streamingTailItem,
   });
   holder.current = {
     columns,
@@ -972,46 +979,55 @@ export function buildTranscriptRowIndexIncremental(items, {
   return full;
 }
 
-// Stable signature for the transcript row-index / window memos. Changes only
-// when transcript STRUCTURE changes or the streaming item's estimated height
-// changes — not on every character. Per-item sigParts are identity-memoized.
-const transcriptSigPartCache = new WeakMap();
-
-export function transcriptStructureSignature(items, columns, toolOutputExpanded) {
+// Stable O(1) signature for transcript row-index/window memos. The engine's
+// monotonic prefixRevision proves settled-prefix identity; only the live tail
+// needs resolving at render time.
+export function transcriptStructureSignature(items, columns, toolOutputExpanded, prefixRevision = 0, streamingTailItem = null) {
   const list = Array.isArray(items) ? items : [];
-  let hA = fnvStepA(0x811c9dc5, `${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}`);
-  let hB = fnvStepB(0xcbf29ce4, `${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}`);
-  for (let i = 0; i < list.length; i++) {
-    const it = list[i];
-    let sigPart;
-    if (!it) {
-      sigPart = '_';
-    } else if (it.kind === 'assistant' && it.streaming) {
-      // Resolve the SAME value buildTranscriptRowIndex/estimateTranscriptItemRowsCached
-      // will use (measured re-slice height when available, else the estimate) so the
-      // signature and the actual geometry can never diverge.
-      const resolvedRows = estimateTranscriptItemRowsCached(it, columns, toolOutputExpanded);
-      sigPart = `a${it.id}:${resolvedRows}`;
-    } else {
-      const variantKey = transcriptItemVariantKey(it);
-      const cached = transcriptSigPartCache.get(it);
-      if (cached
-        && cached.variantKey === variantKey
-        && cached.columns === columns
-        && cached.id === it.id
-        && cached.kind === it.kind) {
-        sigPart = cached.sigPart;
-      } else {
-        sigPart = `${it.kind?.[0] || '?'}${it.id}:${variantKey}`;
-        transcriptSigPartCache.set(it, { id: it.id, kind: it.kind, variantKey, columns, sigPart });
+  const tail = streamingTailItem || trailingStreamingItem(list);
+  const tailRows = tail
+    ? estimateTranscriptItemRowsCached(tail, columns, toolOutputExpanded)
+    : 0;
+  return `${Math.max(0, Number(prefixRevision) || 0)}|${list.length}|${columns}|${toolOutputExpanded ? 1 : 0}|${tail?.id ?? '_'}:${tailRows}`;
+}
+
+export function transcriptRowAt(values, index) {
+  if (!values || index < 0 || index >= values.length) return 0;
+  return typeof values.atIndex === 'function'
+    ? values.atIndex(index)
+    : (Number(values[index]) || 0);
+}
+
+function appendTranscriptRow(prefix, tailValue) {
+  return Object.freeze({
+    length: prefix.length + 1,
+    atIndex: (index) => index === prefix.length
+      ? tailValue
+      : (Number(prefix[index]) || 0),
+    slice: (start = 0, end = prefix.length + 1) => {
+      const values = [];
+      const lo = Math.max(0, start < 0 ? prefix.length + 1 + start : start);
+      const hi = Math.min(prefix.length + 1, end < 0 ? prefix.length + 1 + end : end);
+      for (let index = lo; index < hi; index++) {
+        values.push(index === prefix.length ? tailValue : prefix[index]);
       }
-    }
-    hA = fnvStepA(hA, `;${i};`);
-    hA = fnvStepA(hA, sigPart);
-    hB = fnvStepB(hB, `;${i};`);
-    hB = fnvStepB(hB, sigPart);
+      return values;
+    },
+  });
+}
+
+export function transcriptItemsWithStableTail(settledItems, streamingTailItem, cacheRef) {
+  const settled = Array.isArray(settledItems) ? settledItems : [];
+  if (!streamingTailItem) return settled;
+  const previous = cacheRef?.current;
+  if (previous
+    && previous.settled === settled
+    && previous.tailId === streamingTailItem.id) {
+    return previous.items;
   }
-  return `${hA.toString(36)}.${hB.toString(36)}`;
+  const items = [...settled, streamingTailItem];
+  if (cacheRef) cacheRef.current = { settled, tailId: streamingTailItem.id, items };
+  return items;
 }
 
 export function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false, rowIndex = null } = {}) {
@@ -1065,7 +1081,7 @@ export function transcriptRenderWindow(items, { scrollOffset = 0, viewportHeight
     if (endIndex - startIndex > effectiveMaxItems) startIndex = Math.max(0, endIndex - effectiveMaxItems);
   }
 
-  const bottomSpacerRows = Math.max(0, totalRows - (prefixRows[endIndex] || totalRows));
+  const bottomSpacerRows = Math.max(0, totalRows - (transcriptRowAt(prefixRows, endIndex) || totalRows));
   return {
     startIndex,
     endIndex,

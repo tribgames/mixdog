@@ -12,7 +12,7 @@ import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, ass
 
 export function createRunTurn(bag) {
   const {
-    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, flushEmit, flushEmitImmediate, pushItem, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
+    runtime, nextId, tuiDebug, LEAD_TURN_TIMEOUT_MS, flags, pending, itemIndexById, getState, set, flushEmit, flushEmitImmediate, pushItem, appendItems, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drain, drainPendingSteering,
   } = bag;
   // Small fallbacks keep isolated createRunTurn harnesses source-compatible;
   // the real engine supplies atomic implementations that also maintain revision.
@@ -355,6 +355,10 @@ export function createRunTurn(bag) {
     const appendItemsBatch = (newItems, extra = {}) => {
       if (!isCurrentTurn()) return;
       if (!newItems || !newItems.length) { set(extra); return; }
+      if (appendItems) {
+        appendItems(newItems, extra);
+        return;
+      }
       const base = getState().items.length;
       const items = [...getState().items, ...newItems];
       for (let i = 0; i < newItems.length; i++) {

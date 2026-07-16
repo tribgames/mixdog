@@ -1,0 +1,53 @@
+{
+  "bench": "tui-runtime-load",
+  "status": "PASS",
+  "threshold": {
+    "metric": "raw_p95_ms",
+    "max_ms": 48.653,
+    "source": "checked-in baseline p95 * 1.5",
+    "host_dependent": true,
+    "baseline_path": "bench-results/tui-runtime-load-baseline.json",
+    "baseline_p95_ms": 32.435,
+    "baseline_regression_margin": 1.5,
+    "calibration_p95_ms": 20.599,
+    "calibration_role": "informational only"
+  },
+  "config": {
+    "items": 10000,
+    "frames": 120,
+    "producers": 8,
+    "burst": 12,
+    "columns": 120,
+    "viewportRows": 40,
+    "thresholdFloorMs": 16.67,
+    "calibrationFrames": 8,
+    "baselineRegressionMargin": 1.5
+  },
+  "load": {
+    "transcript_items": 11121,
+    "producer_state_items": 1120,
+    "expected_records": 11840,
+    "persisted_records": 11840,
+    "malformed_records": 0,
+    "persisted_bytes": 1976664,
+    "dropped_buffer_bytes": 0,
+    "buffered_bytes_after_settle": 0,
+    "ink_render_calls": 133,
+    "terminal_write_calls": 652,
+    "terminal_bytes": 382192
+  },
+  "frame_time": {
+    "p50_ms": 20.007,
+    "p95_ms": 31.408,
+    "max_ms": 33.45,
+    "over_threshold_frames": 0
+  },
+  "peak_rss_mb": 511.7,
+  "wall_ms": 2931.3,
+  "runtime": {
+    "node": "v22.20.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "failures": []
+}

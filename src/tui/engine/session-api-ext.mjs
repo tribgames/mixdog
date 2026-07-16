@@ -10,7 +10,7 @@ import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 
 export function createEngineApiB(bag) {
   const {
-    runtime, nextId, flags, lifecycle, listeners, getState, set, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, resetStatsAndSyncContext,
+    runtime, nextId, flags, lifecycle, listeners, getState, set, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
   } = bag;
   return {
     resolveToolApproval: (id, decision = {}) => {
@@ -363,6 +363,7 @@ export function createEngineApiB(bag) {
         flags.pendingSessionReset = false;
         resetStatsAndSyncContext();
         set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...getState().stats } });
+        commitTuiSessionReset(rollbackSnapshot);
         flags.lastUserActivityAt = Date.now();
         return true;
       } catch (error) {
@@ -400,6 +401,7 @@ export function createEngineApiB(bag) {
           ...routeState(),
           stats: { ...getState().stats },
         });
+        commitTuiSessionReset(rollbackSnapshot);
         return true;
       } catch (error) {
         restoreTuiAfterFailedSessionReset(rollbackSnapshot);
@@ -432,6 +434,7 @@ export function createEngineApiB(bag) {
         flags.pendingSessionReset = false;
         resetStatsAndSyncContext();
         set({ items: replaceItems([]), toasts: [], queued: [], thinking: null, spinner: null, lastTurn: null, ...routeState(), stats: { ...getState().stats } });
+        commitTuiSessionReset(rollbackSnapshot);
         return true;
       } catch (error) {
         restoreTuiAfterFailedSessionReset(rollbackSnapshot);
@@ -509,6 +512,7 @@ export function createEngineApiB(bag) {
       disposeEmit?.();
       flags.disposed = true;
       clearToastTimers();
+      disposeTranscriptSpill?.();
       try { clearInterval(lifecycle.runtimePulseTimer); } catch {}
       try { lifecycle.unsubscribeRuntimeNotifications?.(); } catch {}
       lifecycle.unsubscribeRuntimeNotifications = null;

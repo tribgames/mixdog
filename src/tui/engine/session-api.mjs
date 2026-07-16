@@ -24,11 +24,13 @@ export function createEngineApi(bag) {
 
 export function createEngineApiA(bag) {
   const {
-    runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
+    runtime, nextId, flags, pending, listeners, getState, getPublishedState = getState, set, flushEmitImmediate, pushItem, patchItem, replaceItems, restoreOlderTranscript, restoreNewerTranscript, settleStreamingTail, clearStreamingTail, pushNotice, autoClearState, agentStatusState, routeState, syncContextStats, denyAllToolApprovals, updateAgentJobCard, requeueEntriesFront, enqueue, autoClearBeforeSubmit, restoreQueued, resetStatsAndSyncContext, drain, flushDeferredExecutionPendingResumeKick, discardExecutionPendingResume,
   } = bag;
   return {
     getState: () => getPublishedState(),
     patchItem,
+    restoreOlderTranscript,
+    restoreNewerTranscript,
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -592,7 +594,10 @@ export function createEngineApiA(bag) {
           if (idSet.size > 0) {
             const items = getState().items.filter((item) => !idSet.has(item?.id));
             if (items.length !== getState().items.length) {
-              patch.items = replaceItems(items);
+              patch.items = replaceItems(items, {
+                preserveSpill: true,
+                preserveTranscriptView: true,
+              });
             }
           }
           set(patch);

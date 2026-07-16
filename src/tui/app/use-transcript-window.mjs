@@ -16,6 +16,9 @@ import {
   pruneStreamingMeasuredRowsById,
   hasStreamingRowStateToPrune,
   transcriptItemVariantKey,
+  transcriptStructureSignature,
+  transcriptItemsWithStableTail,
+  transcriptRowAt,
   buildTranscriptRowIndexIncremental,
   estimateTranscriptItemRowsCached,
   setStreamingBottomPinned,
@@ -76,6 +79,7 @@ export function useTranscriptWindow({
   // builder. Was module-level (leaked across hook instances); now local so
   // each transcript window owns its own tail-flush cache.
   const incrementalRowIndexCacheRef = useRef(null);
+  const transcriptItemsCacheRef = useRef(null);
   // Previous frame's viewport-only geometry (content height + floating-panel
   // reservation). A floating panel / view (picker/context/usage/text-entry)
   // open-close changes transcriptContentHeight WITHOUT changing `items`, so the
@@ -147,12 +151,18 @@ export function useTranscriptWindow({
     : 0;
   const tailSig = streamingTailItem ? `${streamingTailItem.id}:${tailRows}` : '_';
   const revision = Math.max(0, Number(structureRevision) || 0);
-  const transcriptItems = useMemo(
-    () => streamingTailItem ? [...(settledItems || []), streamingTailItem] : (settledItems || []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tail text at the same resolved height is injected into the bounded visible slice below
-    [settledItems, revision, streamingTailItem?.id, tailRows],
+  const transcriptItems = transcriptItemsWithStableTail(
+    settledItems,
+    streamingTailItem,
+    transcriptItemsCacheRef,
   );
-  const transcriptStructureSig = `${revision}#${tailSig}`;
+  const transcriptStructureSig = transcriptStructureSignature(
+    transcriptItems,
+    frameColumns,
+    toolOutputExpanded,
+    revision,
+    streamingTailItem,
+  );
   const transcriptStreamingActive = !!streamingTailItem;
   const scrolledUpForStreamingMeasure = scrolledUpRowsForPin > 0;
   const prevEstimateGeometry = transcriptGeomRef.current?.suppressMeasuredRowHeights === true;
@@ -180,6 +190,7 @@ export function useTranscriptWindow({
     measuredRowsVersion,
     cacheRef: incrementalRowIndexCacheRef,
     prefixRevision: revision,
+    streamingTailItem,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- revision/tail height capture structural geometry; measuredRowsVersion folds in measured corrections
   }), [revision, tailSig, frameColumns, toolOutputExpanded, measuredRowsVersion, suppressMeasuredRowHeights]);
   // ── Same-frame anchor lock ───────────────────────────────────────────────
@@ -246,7 +257,7 @@ export function useTranscriptWindow({
     // re-deriving one from the already-shifted totalRows.
     const geom = transcriptGeomRef.current || {};
     const prevPrefix = geom.prefixRows;
-    if (Array.isArray(prevPrefix) && prevPrefix.length > 1) {
+    if (prevPrefix && prevPrefix.length > 1) {
       const prevTotal = Math.max(0, Number(geom.totalRows) || 0);
       const prevView = Math.max(1, Number(geom.viewRows) || 1);
       const prevOffset = Math.max(0, Number(geom.renderOffset) || 0);
@@ -259,7 +270,7 @@ export function useTranscriptWindow({
       if (idx > prevPrefix.length - 2) idx = prevPrefix.length - 2;
       const anchorItem = prevItems[idx];
       if (anchorItem && anchorItem.id != null) {
-        const captured = { id: anchorItem.id, offset: Math.max(0, prevTopRow - (prevPrefix[idx] || 0)) };
+        const captured = { id: anchorItem.id, offset: Math.max(0, prevTopRow - transcriptRowAt(prevPrefix, idx)) };
         const locked = resolveAnchorScrollOffset({
           anchor: captured,
           items: transcriptItems,
@@ -301,7 +312,7 @@ export function useTranscriptWindow({
     && scrolledUp) {
     const geom = transcriptGeomRef.current || {};
     const prevPrefix = geom.prefixRows;
-    if (Array.isArray(prevPrefix) && prevPrefix.length > 1) {
+    if (prevPrefix && prevPrefix.length > 1) {
       const prevTotal = Math.max(0, Number(geom.totalRows) || 0);
       // Use the PREVIOUS viewport rows to reconstruct where the top edge sat on
       // screen before the panel changed the height.
@@ -314,7 +325,7 @@ export function useTranscriptWindow({
       if (idx > prevPrefix.length - 2) idx = prevPrefix.length - 2;
       const anchorItem = prevItems[idx];
       if (anchorItem && anchorItem.id != null) {
-        const captured = { id: anchorItem.id, offset: Math.max(0, prevTopRow - (prevPrefix[idx] || 0)) };
+        const captured = { id: anchorItem.id, offset: Math.max(0, prevTopRow - transcriptRowAt(prevPrefix, idx)) };
         const locked = resolveAnchorScrollOffset({
           anchor: captured,
           items: transcriptItems,
@@ -699,7 +710,7 @@ export function useTranscriptWindow({
         if (idx > itemList.length - 1) idx = itemList.length - 1;
         const anchorItem = itemList[idx];
         if (anchorItem && anchorItem.id != null) {
-          anchor = { id: anchorItem.id, offset: Math.max(0, anchorRow - (curPrefix[idx] || 0)) };
+          anchor = { id: anchorItem.id, offset: Math.max(0, anchorRow - transcriptRowAt(curPrefix, idx)) };
           transcriptAnchorRef.current = anchor;
         }
       }

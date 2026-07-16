@@ -2972,9 +2972,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
     overlayHintFallbackRow,
     transcriptMeasureRef,
   } = useTranscriptWindow({
-    items: state.items,
-    structureRevision: state.structureRevision,
-    streamingTail: state.streamingTail,
+    items: state.transcriptViewItems || state.items,
+    structureRevision: state.transcriptViewItems
+      ? state.transcriptViewRevision
+      : state.structureRevision,
+    // Historical pages are contiguous settled windows. Keep the independently
+    // growing live tail hidden until paging forward reaches the live window.
+    streamingTail: state.transcriptViewItems ? null : state.streamingTail,
     themeEpoch: state.themeEpoch,
     frameColumns,
     toolOutputExpanded,
@@ -3167,7 +3171,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
              const itemNode = (
                <Item
                  item={item}
-                 prevKind={i > 0 ? arr[i - 1].kind : state.items[transcriptWindow.startIndex - 1]?.kind ?? null}
+                 prevKind={i > 0
+                   ? arr[i - 1].kind
+                   : (state.transcriptViewItems || state.items)[transcriptWindow.startIndex - 1]?.kind ?? null}
                  columns={frameColumns}
                  toolOutputExpanded={toolOutputExpanded}
                  rightMessage={attachOverlayHint ? inputHint : ''}

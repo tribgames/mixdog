@@ -658,6 +658,8 @@ const TRACE_COLS = [
   'cached_tokens', 'cache_write_tokens', 'duration_ms',
   'error_message', 'payload', 'parent_span_id', 'entry_id',
 ]
+const PG_MAX_BIND_PARAMETERS = 65_535
+const TRACE_INSERT_MAX_ROWS = Math.floor(PG_MAX_BIND_PARAMETERS / TRACE_COLS.length)
 
 // ---------------------------------------------------------------------------
 // Cross-request trace_events write queue (100ms / 500-row flush window)
@@ -665,6 +667,9 @@ const TRACE_COLS = [
 
 const TRACE_QUEUE_FLUSH_MS  = 100
 const TRACE_QUEUE_MAX_ROWS  = 500
+// Twenty normal flush batches leaves ample room for ordinary DB jitter while
+// bounding producer memory across repeated flush failures.
+export const TRACE_QUEUE_MAX_PENDING_EVENTS = 10_000
 
 // Per-db queue state (keyed by db object identity via WeakMap).
 const _traceQueues = new WeakMap()
@@ -672,10 +677,52 @@ const _traceQueues = new WeakMap()
 function _getQueue(db) {
   let q = _traceQueues.get(db)
   if (!q) {
-    q = { pending: [], timer: null, flushPromise: null }
+    q = { pending: [], timer: null, flushPromise: null, droppedEvents: 0 }
     _traceQueues.set(db, q)
   }
   return q
+}
+
+function _pendingEventCount(q) {
+  return q.pending.reduce((n, w) => n + w.events.length, 0)
+}
+
+function _trimPendingQueue(q) {
+  let overflow = _pendingEventCount(q) - TRACE_QUEUE_MAX_PENDING_EVENTS
+  while (overflow > 0 && q.pending.length > 0) {
+    const oldest = q.pending[0]
+    if (oldest.events.length <= overflow) {
+      q.pending.shift()
+      q.droppedEvents += oldest.events.length
+      overflow -= oldest.events.length
+    } else {
+      oldest.events.splice(0, overflow)
+      q.droppedEvents += overflow
+      overflow = 0
+    }
+  }
+}
+
+function _dropWrittenEvents(wrappers, count) {
+  while (count > 0 && wrappers.length > 0) {
+    const wrapper = wrappers[0]
+    if (wrapper.events.length <= count) {
+      wrappers.shift()
+      count -= wrapper.events.length
+    } else {
+      wrapper.events.splice(0, count)
+      count = 0
+    }
+  }
+}
+
+/** Observable queue depth and overflow count for a trace database. */
+export function getTraceQueueStats(db) {
+  const q = _traceQueues.get(db)
+  return {
+    pendingEvents: q ? _pendingEventCount(q) : 0,
+    droppedEvents: q?.droppedEvents ?? 0,
+  }
 }
 
 async function _flushQueue(db, q) {
@@ -691,10 +738,12 @@ async function _flushQueue(db, q) {
   if (wrappers.length === 0) return { inserted: 0 }
   const MAX_RETRIES = 3
   q.flushPromise = (async () => {
+    let writtenEvents = 0
     try {
       const allEvents = wrappers.flatMap(w => w.events)
-      return await _insertTraceEventsDirect(db, allEvents)
+      return await _insertTraceEventBatches(db, allEvents, count => { writtenEvents += count })
     } catch (err) {
+      _dropWrittenEvents(wrappers, writtenEvents)
       for (const w of wrappers) w.attempts += 1
       const keep = wrappers.filter(w => w.attempts < MAX_RETRIES)
       const dropped = wrappers.filter(w => w.attempts >= MAX_RETRIES)
@@ -702,6 +751,7 @@ async function _flushQueue(db, q) {
         __mixdogMemoryLog(`[trace-queue] dropped ${dropped.reduce((n, w) => n + w.events.length, 0)} events after ${MAX_RETRIES} retries: ${err?.message}\n`)
       }
       q.pending.unshift(...keep)
+      _trimPendingQueue(q)
       __mixdogMemoryLog(`[trace-queue] flush error: ${err?.message}\n`)
       throw err
     } finally {
@@ -737,7 +787,7 @@ async function drainTraceQueue(db) {
   try {
     if (q.timer) { clearTimeout(q.timer); q.timer = null }
     if (q.flushPromise) await q.flushPromise.catch(() => {})
-    if (q.pending.length > 0) await _insertTraceEventsDirect(db, q.pending.splice(0).flatMap(w => w.events))
+    if (q.pending.length > 0) await _insertTraceEventBatches(db, q.pending.splice(0).flatMap(w => w.events))
   } catch (e) {
     __mixdogMemoryLog(`[trace-queue] drain failed: ${e?.message}\n`)
   }
@@ -813,7 +863,8 @@ export function enqueueTraceEvents(db, events) {
   q.pending.push({ events: [...events], attempts: 0 })
   // Row cap counts pending EVENTS, not wrappers — a single wrapper with
   // >TRACE_QUEUE_MAX_ROWS events would otherwise sit until the timer.
-  const pendingEvents = q.pending.reduce((n, w) => n + w.events.length, 0)
+  _trimPendingQueue(q)
+  const pendingEvents = _pendingEventCount(q)
   if (pendingEvents >= TRACE_QUEUE_MAX_ROWS) {
     // Flush immediately when row cap reached — don't wait for timer.
     if (q.timer) { clearTimeout(q.timer); q.timer = null }
@@ -829,6 +880,17 @@ export function enqueueTraceEvents(db, events) {
 // the existing intra-request multi-row path where immediate persistence matters).
 async function _insertTraceEventsDirect(db, events) {
   return insertTraceEvents(db, events)
+}
+
+async function _insertTraceEventBatches(db, events, onBatchInserted) {
+  let inserted = 0
+  for (let start = 0; start < events.length; start += TRACE_INSERT_MAX_ROWS) {
+    const batch = events.slice(start, start + TRACE_INSERT_MAX_ROWS)
+    const result = await _insertTraceEventsDirect(db, batch)
+    inserted += result.inserted
+    onBatchInserted?.(batch.length)
+  }
+  return { inserted }
 }
 
 export async function insertTraceEvents(db, events) {

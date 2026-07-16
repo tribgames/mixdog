@@ -6,7 +6,7 @@
 import { createHash } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
-import { loadSession, saveSessionAsync } from '../store.mjs';
+import { loadSession, saveSessionAsync, saveSessionAsyncDeferred } from '../store.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { logLlmCall } from '../../../../shared/llm/usage-log.mjs';
 import { appendAgentTrace } from '../../agent-trace.mjs';
@@ -23,7 +23,15 @@ import {
     buildSessionStartBlock,
     hasUserConversationMessage,
 } from './prompt-utils.mjs';
-import { _mergePendingMessageEntries, drainPendingMessages } from './pending-messages.mjs';
+import {
+    _mergePendingMessageEntries,
+    acknowledgePendingMessages,
+    finalizePendingMessageDelivery,
+    drainPendingMessages,
+    hydratePendingMessages,
+    recordPendingMessageDelivery,
+    releasePendingMessages,
+} from './pending-messages.mjs';
 import { persistIterationMetrics, applyAskTerminalUsageTotals } from './usage-metrics.mjs';
 import {
     updateSessionStage,
@@ -102,6 +110,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         process.stderr.write(`[agent-trace] t0-ask-start sessionHash=${createHash('sha256').update(String(sessionId)).digest('hex').slice(0, 8)} role=? iteration=0 promptSrc=${_promptSrc} prefetchFiles=${_prefetchFiles} callers=${_prefetchCallers} references=${_prefetchRefs}\n`);
     }
     const unlock = await acquireSessionLock(sessionId);
+    // Start crash-spool hydration without delaying the user turn. A completed
+    // background hydration joins the id-deduped memory drain below.
+    const takeoverHydration = hydratePendingMessages(sessionId);
     const _lockWaitedMs = Date.now() - _askStartedAt;
     if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] lock-acquired waitedMs=${_lockWaitedMs}\n`);
@@ -126,11 +137,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       // preserved and the spawn/connecting startup race disappears.
       for (;;) {
         let _pwstTurnDrained = null;
+        let _turnPendingEntries = [];
         // After the first turn, the next prompt comes from the drained queue.
         // (On the first iteration _pendingTail is empty and `prompt` is the
         // caller's original message.)
         if (_pendingTail.length > 0) {
-            prompt = _pendingTail.shift();
+            const pendingTurn = _pendingTail.shift();
+            prompt = pendingTurn.content;
+            _turnPendingEntries = pendingTurn.entries;
             // Queued follow-ups are plain user turns — no caller context /
             // prefetch is re-applied (those belonged to the original ask).
             context = null;
@@ -144,12 +158,19 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 const _mergedPre = _mergePendingMessageEntries(_preDrained);
                 if (_mergedPre?.content) {
                     prompt = _mergedPre.content;
+                    _turnPendingEntries = _preDrained;
                     context = null;
                     explicitPrefetch = null;
                 }
             }
         }
         if (!hasModelVisiblePromptContent(prompt)) {
+            void takeoverHydration.then((count) => {
+                if (count <= 0) return;
+                setImmediate(() => {
+                    askSession(sessionId, '', null, onToolCall, cwdOverride, null, askOpts).catch(() => {});
+                });
+            });
             _unlinkParentAbortListener(_getRuntimeEntry(sessionId));
             return _result;
         }
@@ -642,8 +663,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 trimmed: messagesDropped > 0,
                 messagesDropped,
             };
+            // The provider accepted this queued turn: only now remove its
+            // durable ids. A crash before here leaves them for at-least-once
+            // replay; duplicate memory/spool copies share the same id.
+            recordPendingMessageDelivery(session, _turnPendingEntries);
             _pwstTurnDrained = drainPendingMessages(sessionId);
+            let terminalRelayed = false;
             if (_pwstTurnDrained.length === 0 && typeof askOpts?.onTerminalResult === 'function') {
+                terminalRelayed = true;
                 try {
                     askOpts.onTerminalResult(terminalResultPreview, {
                         sessionId,
@@ -657,16 +684,24 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // answer. This lets queued follow-up prompts resume immediately;
             // if they need compaction, their own spinner shows compacting first.
             // Fire-and-forget terminal save. The result is already produced and
-            // (for agent surfaces) relayed via onTerminalResult above, and
-            // saveSessionAsync() has already published the in-memory snapshot via
-            // setLiveSession(), so read-your-writes holds in-process without
-            // awaiting disk. Never block the terminal unwind on the write — that
-            // would strand the owning background task in `running` and suppress
-            // its completion notification. A slow write finishes in the
-            // background.
-            saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
-                try { process.stderr.write(`[session] terminal save failed: ${err?.message || err}\n`); } catch {}
+            // (for agent surfaces) relayed via onTerminalResult above. When
+            // completion was relayed to the UI, yield before postMessage
+            // structured-clones the full session. Queued follow-up turns retain
+            // the original immediate-save ordering; they did not inject a
+            // terminal card and may mutate this same session on the next loop.
+            const saveTerminalSession = terminalRelayed
+                ? saveSessionAsyncDeferred
+                : saveSessionAsync;
+            const terminalSave = saveTerminalSession(session, { expectedGeneration: askGeneration });
+            finalizePendingMessageDelivery(
+                session,
+                _turnPendingEntries,
+                terminalSave,
+                () => saveSessionAsync(session, { expectedGeneration: askGeneration }),
+            ).catch((err) => {
+                    try { process.stderr.write(`[session] terminal save failed: ${err?.message || err}\n`); } catch {}
             });
+            _turnPendingEntries = [];
             activeSession = session;
             runtime.session = session;
             // Tag empty-synthesis BEFORE markSessionDone so the watchdog
@@ -699,8 +734,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         });
                         activeSession.messages = finalized.messages;
                         if (!finalized.responsePreserved) {
+                            releasePendingMessages(sessionId, _turnPendingEntries);
                             activeSession.sessionStartMetaInjected = _sessionStartMetaInjectedBeforeTurn;
                         } else {
+                            recordPendingMessageDelivery(activeSession, _turnPendingEntries);
                             // The opaque provider continuation now points at a
                             // request that ended mid-turn. Force full transcript
                             // replay on the next send instead of reusing it.
@@ -709,12 +746,20 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         activeSession.updatedAt = Date.now();
                         activeSession.lastUsedAt = Date.now();
                         try {
-                            await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                            const durableSave = saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                            if (finalized.responsePreserved) {
+                                await finalizePendingMessageDelivery(
+                                    activeSession, _turnPendingEntries, durableSave,
+                                    () => saveSessionAsync(activeSession, { expectedGeneration: askGeneration }),
+                                );
+                            } else {
+                                await durableSave;
+                            }
                         } catch { /* cancellation cleanup is best-effort */ }
                         if (currentRuntime) currentRuntime.session = activeSession;
-                    }
+                    } else releasePendingMessages(sessionId, _turnPendingEntries);
                     markSessionCancelled(sessionId);
-                }
+                } else releasePendingMessages(sessionId, _turnPendingEntries);
                 // Cancellation is not an error; propagate silently so callers
                 // can render it as "cancelled" rather than a red failure.
                 throw err;
@@ -733,22 +778,44 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     abortReason: 'provider-error',
                 });
                 activeSession.messages = finalized.messages;
+                if (finalized.responsePreserved) recordPendingMessageDelivery(activeSession, _turnPendingEntries);
+                else releasePendingMessages(sessionId, _turnPendingEntries);
                 activeSession.providerState = undefined;
                 activeSession.updatedAt = Date.now();
                 activeSession.lastUsedAt = Date.now();
                 try {
-                    await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                    const durableSave = saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                    if (finalized.responsePreserved) {
+                        await finalizePendingMessageDelivery(
+                            activeSession, _turnPendingEntries, durableSave,
+                            () => saveSessionAsync(activeSession, { expectedGeneration: askGeneration }),
+                        );
+                    } else {
+                        await durableSave;
+                    }
                 } catch { /* provider-failure history persistence is best-effort */ }
                 const currentRuntime = _getRuntimeEntry(sessionId);
                 if (currentRuntime) currentRuntime.session = activeSession;
             } else {
-                await persistCompactedOutgoingAfterAskFailure({
+                const promptPersisted = await persistCompactedOutgoingAfterAskFailure({
                     sessionId,
                     activeSession,
                     askGeneration,
                     turnOutgoing: _turnOutgoing,
                     error: err,
                 });
+                if (promptPersisted) {
+                    recordPendingMessageDelivery(activeSession, _turnPendingEntries);
+                    try {
+                        const durableSave = saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                        await finalizePendingMessageDelivery(
+                            activeSession, _turnPendingEntries, durableSave,
+                            () => saveSessionAsync(activeSession, { expectedGeneration: askGeneration }),
+                        );
+                    } catch {}
+                } else {
+                    releasePendingMessages(sessionId, _turnPendingEntries);
+                }
             }
             markSessionError(sessionId, err && err.message ? err.message : String(err));
             throw err;
@@ -770,7 +837,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // drain enqueues for the next loop pass and is merged there.
             const _mergedTail = _mergePendingMessageEntries(_drained);
             if (_mergedTail?.content) {
-                _pendingTail.push(_mergedTail.content);
+                _pendingTail.push({ content: _mergedTail.content, entries: _drained });
                 // Carry the just-committed in-memory session into the follow-up
                 // turn so the queued tail sees the preceding assistant/tool
                 // context. loadSession() would return this same live snapshot
@@ -782,6 +849,15 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
         }
         _unlinkParentAbortListener(_getRuntimeEntry(sessionId));
+        // Pick up cross-process sends that landed after takeover hydration.
+        // This never delays completion; a non-empty sweep starts an empty
+        // follow-up ask after the current session lock is released.
+        setImmediate(() => {
+            hydratePendingMessages(sessionId).then((count) => {
+                if (count <= 0) return;
+                askSession(sessionId, '', null, onToolCall, cwdOverride, null, askOpts).catch(() => {});
+            }).catch(() => {});
+        });
         return _result;
       }
     } finally {

@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { compactedOutgoingPromptRetained } from '../src/runtime/agent/orchestrator/session/manager/message-sanitize.mjs';
 
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-interrupted-turn-'));
@@ -15,6 +16,12 @@ const USER_INTERRUPTION_MESSAGE = '[Request interrupted by user]';
 const TOOL_USE_INTERRUPTION_MESSAGE = '[Request interrupted by user for tool use]';
 const STREAMING_INTERRUPTED_TOOL_RESULT = 'Interrupted by user';
 const TOOL_USE_REJECT_RESULT = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
+
+test('unchanged failed-turn snapshot reports an already-retained queued prompt', () => {
+    const messages = [{ role: 'user', content: 'queued prompt already in preflight session' }];
+    assert.equal(compactedOutgoingPromptRetained(messages, messages), true);
+    assert.equal(compactedOutgoingPromptRetained([], messages), false);
+});
 
 function deferred() {
     let resolve;
@@ -44,6 +51,7 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
         getSession,
     } = await import('../src/runtime/agent/orchestrator/session/manager.mjs');
     const { saveSessionAsync } = await import('../src/runtime/agent/orchestrator/session/store.mjs');
+    const { enqueuePendingMessage } = await import('../src/runtime/agent/orchestrator/session/manager/pending-messages.mjs');
 
     const createTestSession = (tools = []) => createSession({
         provider: 'gemini',
@@ -77,6 +85,26 @@ test('interrupted turns keep Claude Code-compatible model history boundaries', {
         assert.deepEqual(persisted.messages, baselineMessages);
         assert.equal(persisted.sessionStartMetaInjected === true, baselineSessionStart);
         assert.equal(persisted.liveTurnMessages, null);
+    });
+
+    await t.test('released queued IDs keep their spool copy after cancellation rewinds the prompt', async () => {
+        const session = createTestSession();
+        enqueuePendingMessage(session.id, 'queued prompt must replay');
+        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        const entered = deferred();
+        provider.send = async (_messages, _model, _tools, opts) => {
+            entered.resolve();
+            return waitForAbort(opts);
+        };
+        const asking = askSession(session.id, '', null, null, process.cwd());
+        await entered.promise;
+        abortSessionTurn(session.id, 'user-cancel');
+        await expectInterrupted(asking);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        const spool = JSON.parse(readFileSync(join(DATA_DIR, 'session-pending-messages.json'), 'utf8'));
+        assert.equal(spool.sessions[session.id]?.length, 1);
+        assert.equal(spool.sessions[session.id][0].message, 'queued prompt must replay');
     });
 
     await t.test('streaming: preserves a partial response without a newline', async () => {

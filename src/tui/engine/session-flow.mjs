@@ -10,6 +10,7 @@ import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersi
 export function createSessionFlow(bag) {
   const {
     runtime, nextId, tuiDebug, flags, pending, pendingNotificationKeys, displayedExecutionNotificationKeys, clearExecutionDedupState, clearToastTimers, getState, set, flushEmitImmediate, pushItem, replaceItems, pushNotice, pushUserOrSyntheticItem, autoClearState, agentStatusState, routeState, syncContextStats, flushDeferredExecutionPendingResumeKick,
+    snapshotTranscriptSpill, restoreTranscriptSpill, releaseTranscriptSpill,
   } = bag;
 
   // Upper bound on the awaited compacting clear. requireCompactSuccess makes
@@ -567,6 +568,11 @@ export function createSessionFlow(bag) {
   };
   const snapshotTuiBeforeSessionReset = () => ({
     items: getState().items.slice(),
+    transcriptViewItems: Array.isArray(getState().transcriptViewItems)
+      ? getState().transcriptViewItems.slice()
+      : null,
+    transcriptViewRevision: getState().transcriptViewRevision,
+    transcriptSpill: snapshotTranscriptSpill?.() || null,
     toasts: getState().toasts.slice(),
     queued: getState().queued.slice(),
     thinking: getState().thinking,
@@ -579,9 +585,12 @@ export function createSessionFlow(bag) {
   const restoreTuiAfterFailedSessionReset = (snapshot) => {
     if (!snapshot) return;
     flags.pendingSessionReset = false;
-    const items = replaceItems(snapshot.items);
+    restoreTranscriptSpill?.(snapshot.transcriptSpill);
+    const items = replaceItems(snapshot.items, { preserveSpill: true });
     set({
       items,
+      transcriptViewItems: snapshot.transcriptViewItems,
+      transcriptViewRevision: snapshot.transcriptViewRevision,
       toasts: snapshot.toasts.slice(),
       queued: snapshot.queued.slice(),
       thinking: snapshot.thinking,
@@ -604,11 +613,14 @@ export function createSessionFlow(bag) {
       ...agentStatusState(),
     });
   };
+  const commitTuiSessionReset = (snapshot) => {
+    releaseTranscriptSpill?.(snapshot?.transcriptSpill);
+  };
   const resetStatsAndSyncContext = () => {
     resetStats();
     syncContextStats({ allowEstimated: true });
     return getState().stats;
   };
 
-  return { leadSessionId, shouldMirrorSteeringEntry, commitSteeringQueueEntries, makeQueueEntry, removeQueuedEntries, requeueEntriesFront, dequeueQueueBatch, drain, enqueue, drainPendingSteering, restoreLeadSteeringFromDisk, autoClearBeforeSubmit, performSessionClear, restoreQueued, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, resetStatsAndSyncContext };
+  return { leadSessionId, shouldMirrorSteeringEntry, commitSteeringQueueEntries, makeQueueEntry, removeQueuedEntries, requeueEntriesFront, dequeueQueueBatch, drain, enqueue, drainPendingSteering, restoreLeadSteeringFromDisk, autoClearBeforeSubmit, performSessionClear, restoreQueued, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext };
 }

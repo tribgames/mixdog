@@ -347,6 +347,8 @@ let _saveAsyncQueued = new Map();
 let _saveAsyncInflight = new Map();
 let _saveWorkerReqId = 0;
 let _saveWorkerRefCount = 0;
+let _deferredSaveReqId = 0;
+const _deferredSessionSaves = new Map();
 
 function _getOrSpawnWorker() {
     if (_saveWorker) return _saveWorker;
@@ -482,7 +484,7 @@ export function saveSessionAsync(session, opts) {
     setLiveSession(session);
     const id = session.id;
     const summaryVersion = _cacheSessionSummary(session);
-    const safeOpts = _guardedSaveOptions(id, opts);
+    const safeOpts = opts?._sessionWriteGuard ? opts : _guardedSaveOptions(id, opts);
     // The Worker `postMessage` below structured-clones the whole session on the
     // main thread. `session.liveTurnMessages` (live working transcript) and
     // `session.toolApprovalHook` (askOpts.onToolApproval callback) are transient
@@ -528,6 +530,31 @@ export function saveSessionAsync(session, opts) {
             _rollbackCachedSessionSummary(id, summaryVersion);
             reject(err);
         }
+    });
+}
+
+/**
+ * Register a save for the exit drain now, but yield one check phase before
+ * Worker.postMessage performs its main-thread structured clone.
+ */
+export function saveSessionAsyncDeferred(session, opts) {
+    _ensureLifecycleFields(session);
+    setLiveSession(session);
+    _cacheSessionSummary(session);
+    const reqId = ++_deferredSaveReqId;
+    return new Promise((resolve, reject) => {
+        _deferredSessionSaves.set(reqId, {
+            session,
+            opts: _guardedSaveOptions(session.id, opts),
+            resolve,
+            reject,
+        });
+        setImmediate(() => {
+            const pending = _deferredSessionSaves.get(reqId);
+            if (!pending) return;
+            _deferredSessionSaves.delete(reqId);
+            saveSessionAsync(pending.session, pending.opts).then(resolve, reject);
+        });
     });
 }
 
@@ -627,6 +654,13 @@ export function drainSessionStore() {
         }
     }
     _savePending.clear();
+    // Invalidate older worker writes for sessions whose newer terminal snapshot
+    // is deferred, then wait out any commit already holding the write guard.
+    for (const [, pending] of _deferredSessionSaves) {
+        _cancelSessionWrites(pending.session.id);
+        _waitForWriteCommit(pending.session.id);
+        pending.opts = _guardedSaveOptions(pending.session.id, pending.opts);
+    }
     // Summary-index ops queued by the deferred/no-wait flush path: give them
     // one last best-effort flush before exit (still zero-wait; losing them is
     // acceptable — the index self-heals on next rebuild).
@@ -662,6 +696,17 @@ export function drainSessionStore() {
             try { w.reject(_drainErr); } catch { /* best-effort */ }
         }
     }
+    // Terminal/deferred snapshots are newest and must be written LAST.
+    for (const [, pending] of _deferredSessionSaves) {
+        try {
+            _saveSessionSync(pending.session, pending.opts);
+            pending.resolve();
+        } catch (err) {
+            pending.reject(err);
+            process.stderr.write(`[session-store] drain deferred save failed: ${err?.message}\n`);
+        }
+    }
+    _deferredSessionSaves.clear();
     _saveWorkerPending.clear();
     _saveAsyncQueued.clear();
     _saveAsyncInflight.clear();

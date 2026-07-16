@@ -16,14 +16,22 @@ import { appendFile } from 'node:fs/promises';
 
 const BUFFER_FLUSH_BYTES = 32 * 1024;
 const DEBOUNCE_MS = 50;
+// Per path: comfortably above normal transcript/log bursts while bounding
+// producer memory when a filesystem append is stalled.
+export const BUFFERED_APPEND_MAX_BYTES = 8 * 1024 * 1024;
+let totalDroppedBufferedBytes = 0;
+const droppedBytesByPath = new Map();
 
-// path -> { chunks: string[], bytes: number, timer, flushing, inFlight, failCount }
+// path -> { chunks: string[], bytes: number, timer, flushing, inFlight, failCount, droppedBytes }
 const queues = new Map();
 
 function getQueue(path) {
     let q = queues.get(path);
     if (!q) {
-        q = { chunks: [], bytes: 0, timer: null, flushing: false, inFlight: null, failCount: 0 };
+        q = {
+            chunks: [], bytes: 0, timer: null, flushing: false, inFlight: null,
+            failCount: 0, droppedBytes: droppedBytesByPath.get(path) ?? 0, path,
+        };
         queues.set(path, q);
     }
     return q;
@@ -42,6 +50,63 @@ function deleteIfIdle(path, q) {
     if (!q.timer && !q.flushing && !q.inFlight && q.chunks.length === 0
         && queues.get(path) === q) {
         queues.delete(path);
+    }
+}
+
+function recordDroppedBytes(q, bytes) {
+    q.droppedBytes += bytes;
+    totalDroppedBufferedBytes += bytes;
+    droppedBytesByPath.set(q.path, q.droppedBytes);
+}
+
+function keepNewestUtf8(text, maxBytes, totalBytes) {
+    // At most maxBytes UTF-16 code units are encoded (plus one code unit when
+    // the slice would split a surrogate pair), bounding this work even when a
+    // producer supplies an arbitrarily large string.
+    let windowStart = Math.max(0, text.length - maxBytes);
+    if (windowStart > 0
+        && /[\uDC00-\uDFFF]/.test(text[windowStart])
+        && /[\uD800-\uDBFF]/.test(text[windowStart - 1])) {
+        windowStart -= 1;
+    }
+    const bytes = Buffer.from(text.slice(windowStart), 'utf8');
+    let start = Math.max(0, bytes.length - maxBytes);
+    while (start < bytes.length && (bytes[start] & 0xC0) === 0x80) start += 1;
+    return {
+        text: bytes.subarray(start).toString('utf8'),
+        bytes: bytes.length - start,
+        droppedBytes: totalBytes - (bytes.length - start),
+    };
+}
+
+function capIncomingText(text) {
+    // A single native byteLength pass keeps queue accounting and flush timing
+    // exact; only oversized input uses bounded tail-window encoding below.
+    const bytes = Buffer.byteLength(text, 'utf8');
+    if (bytes <= BUFFERED_APPEND_MAX_BYTES) return { text, bytes, droppedBytes: 0 };
+    return keepNewestUtf8(text, BUFFERED_APPEND_MAX_BYTES, bytes);
+}
+
+function trimBufferedQueue(q) {
+    while (q.bytes > BUFFERED_APPEND_MAX_BYTES && q.chunks.length > 0) {
+        const oldest = q.chunks[0];
+        const oldestBytes = Buffer.byteLength(oldest, 'utf8');
+        const overflowBytes = q.bytes - BUFFERED_APPEND_MAX_BYTES;
+        if (oldestBytes <= overflowBytes) {
+            q.chunks.shift();
+            q.bytes -= oldestBytes;
+            recordDroppedBytes(q, oldestBytes);
+            continue;
+        }
+
+        const retained = keepNewestUtf8(oldest, oldestBytes - overflowBytes, oldestBytes);
+        const removedBytes = oldestBytes - retained.bytes;
+        q.chunks[0] = retained.text;
+        q.bytes -= removedBytes;
+        recordDroppedBytes(q, removedBytes);
+        // A character-boundary trim can remove up to three extra bytes rather
+        // than split a code point or exceed the hard byte cap.
+        if (q.bytes > BUFFERED_APPEND_MAX_BYTES) continue;
     }
 }
 
@@ -69,6 +134,7 @@ function _flush(path, q) {
             if (q.failCount <= 3) {
                 q.chunks.unshift(data);
                 q.bytes += Buffer.byteLength(data, 'utf8');
+                trimBufferedQueue(q);
             }
         })
         .finally(() => {
@@ -89,14 +155,27 @@ function _flush(path, q) {
 export function appendBuffered(path, text) {
     if (!path || !text) return;
     const q = getQueue(path);
-    q.chunks.push(text);
-    q.bytes += Buffer.byteLength(text, 'utf8');
+    const incoming = capIncomingText(text);
+    q.chunks.push(incoming.text);
+    q.bytes += incoming.bytes;
+    if (incoming.droppedBytes > 0) recordDroppedBytes(q, incoming.droppedBytes);
+    trimBufferedQueue(q);
     if (q.bytes >= BUFFER_FLUSH_BYTES) {
         if (q.timer) { clearTimeout(q.timer); q.timer = null; }
         _flush(path, q);
     } else {
         scheduleFlush(path, q);
     }
+}
+
+/** Observable overflow counters for buffered append queues. */
+export function getBufferedAppenderStats(path) {
+    const q = queues.get(path);
+    return {
+        bufferedBytes: q?.bytes ?? 0,
+        droppedBytes: q?.droppedBytes ?? droppedBytesByPath.get(path) ?? 0,
+        totalDroppedBytes: totalDroppedBufferedBytes,
+    };
 }
 
 /**
