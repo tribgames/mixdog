@@ -357,13 +357,6 @@ button { color: inherit; }
   visibility: hidden;
   pointer-events: none;
 }
-.session-sidebar-heading { height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 4px 8px; }
-.sidebar-heading-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; color: #a7a7ac; background: #202023; }
-.session-sidebar-heading > div { min-width: 0; flex: 1; display: grid; }
-.session-sidebar-heading strong { color: #e7e7e9; font-size: 13px; font-weight: 580; }
-.session-sidebar-heading small { color: #77777c; font-size: 10px; }
-.sidebar-new-task { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px; color: #9b9ba0; background: transparent; cursor: pointer; }
-.sidebar-new-task:hover { color: #f0f0f1; background: var(--surface-hover); }
 .session-search {
   height: 32px;
   display: flex;
@@ -403,9 +396,6 @@ button { color: inherit; }
 .session-row-copy b { color: inherit; font-size: 12px; font-weight: 520; }
 .session-row-copy small { color: #707075; font-size: 10px; }
 .session-row time { flex: 0 0 auto; color: #626267; font-size: 9px; }
-.sidebar-empty-state { margin: 30px 8px; display: grid; justify-items: center; gap: 7px; color: #5f5f64; text-align: center; }
-.sidebar-empty-state p { margin: 0; font-size: 11px; }
-
 .main-panel { flex: 1; min-width: 0; min-height: 0; height: auto; display: flex; background: transparent; }
 .workspace {
   min-width: 0;
@@ -422,11 +412,6 @@ button { color: inherit; }
 }
 .session-header { flex: 0 0 45px; min-height: 45px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .session-header-content { width: 100%; height: 45px; max-width: none; padding: 0 14px; gap: 8px; }
-.workspace-project-trigger { max-width: min(32vw, 280px); height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 6px; color: #99999e; background: transparent; cursor: pointer; }
-.workspace-project-trigger:hover { color: #e1e1e3; background: #222225; }
-.workspace-project-trigger span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-.workspace-project-trigger svg { flex: 0 0 auto; }
-.session-header-divider { width: 1px; height: 16px; background: rgba(255,255,255,.08); }
 .session-header h1 { font-size: 12px; color: #bcbcc0; font-weight: 500; }
 .thread { width: min(100%, 860px); padding: 28px 30px 42px; }
 .composer-region { width: min(100%, 860px); padding: 0 30px 20px; }

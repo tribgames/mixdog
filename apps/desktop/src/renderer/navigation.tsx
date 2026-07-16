@@ -113,7 +113,7 @@ export function DesktopTitlebar({
         </button>
       </div>
 
-      <div className="workspace-tabs-shell" data-slot="workspace-tabs">
+      <div className="workspace-tabs-shell" data-slot="workspace-tabs" data-count={tabs.length}>
         <nav className="workspace-tabs" data-slot="workspace-tabs-scroll" aria-label="Open workspaces"
           onKeyDown={onTabKeyDown}>
           {tabs.map((tab, index) => {
@@ -124,6 +124,7 @@ export function DesktopTitlebar({
                 <div
                   ref={(node) => setTabNode(tab.key, node)}
                   className={`workspace-tab ${active ? "active" : ""}`}
+                  data-active={active}
                   onMouseDown={(event) => {
                     if (event.button !== 1) return;
                     event.preventDefault();
@@ -329,6 +330,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     <aside
       id="session-sidebar"
       className={`sidebar session-sidebar ${open ? "open" : ""}`}
+      data-state={open ? "open" : "closed"}
       inert={!open}
       aria-hidden={!open}
       aria-label="Session manager"

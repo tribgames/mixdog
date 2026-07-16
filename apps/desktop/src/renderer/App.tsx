@@ -1,5 +1,7 @@
 import React, {
   Component,
+  lazy,
+  Suspense,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -40,7 +42,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { DiffModeEnum, DiffView } from "@git-diff-view/react";
 import { createPortal } from "react-dom";
 import type {
   DesktopCapability,
@@ -69,8 +70,6 @@ import {
   transcriptTurnKeys,
 } from "./renderer-logic.mjs";
 import type { TurnFailureModel } from "./renderer-logic.mjs";
-import { SettingsView } from "./settings/SettingsView";
-import { OnboardingWizard } from "./settings/OnboardingWizard";
 import {
   DesktopTitlebar,
   ProjectSwitcher,
@@ -89,7 +88,6 @@ import {
   providerDisplayRank,
 } from "./provider-display";
 import { TooltipLayer } from "./TooltipLayer";
-import { CommandSurface } from "./CommandSurface";
 import {
   SLASH_COMMANDS,
   type CommandSurface as CommandSurfaceName,
@@ -171,6 +169,13 @@ type Snapshot = RecordValue & {
 };
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
+const SettingsView = lazy(() => import("./settings/SettingsView")
+  .then((module) => ({ default: module.SettingsView })));
+const OnboardingWizard = lazy(() => import("./settings/OnboardingWizard")
+  .then((module) => ({ default: module.OnboardingWizard })));
+const CommandSurface = lazy(() => import("./CommandSurface")
+  .then((module) => ({ default: module.CommandSurface })));
+const DiffView = lazy(() => import("./DiffView.lazy"));
 
 function asRecord(value: unknown): RecordValue | null {
   return value !== null && typeof value === "object" ? value as RecordValue : null;
@@ -291,7 +296,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [projectPanelOpen, setProjectPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('profile');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [sessions, setSessions] = useState<DesktopSessionSummary[]>([]);
@@ -310,6 +315,19 @@ export function App() {
     sawSettlement: false,
   });
   const isBusy = Boolean(snapshot.busy || snapshot.commandBusy);
+  const startupMeasured = useRef(false);
+  useEffect(() => {
+    if (!import.meta.env?.DEV || startupMeasured.current) return;
+    startupMeasured.current = true;
+    performance.mark("mixdog:startup:first-commit");
+    performance.measure(
+      "mixdog:startup:entry-to-first-commit",
+      "mixdog:startup:renderer-entry",
+      "mixdog:startup:first-commit",
+    );
+    const duration = performance.getEntriesByName("mixdog:startup:entry-to-first-commit").at(-1)?.duration;
+    console.info(`[perf] desktop startup first commit: ${duration?.toFixed(1) ?? "?"}ms`);
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -604,10 +622,22 @@ export function App() {
     })));
     setNewTaskActive(false);
     setSwitchingSessionId(sessionId);
+    const timingStart = `mixdog:session-switch:${sessionId}:start`;
+    if (import.meta.env?.DEV) performance.mark(timingStart);
     void invoke(async () => {
       try {
         const next = await window.mixdogDesktop?.resumeSession(sessionId);
         applySnapshot(next);
+        if (import.meta.env?.DEV) {
+          window.requestAnimationFrame(() => {
+            const timingEnd = `mixdog:session-switch:${sessionId}:painted`;
+            const timingMeasure = `mixdog:session-switch:${sessionId}`;
+            performance.mark(timingEnd);
+            performance.measure(timingMeasure, timingStart, timingEnd);
+            const duration = performance.getEntriesByName(timingMeasure).at(-1)?.duration;
+            console.info(`[perf] session switch ${sessionId}: ${duration?.toFixed(1) ?? "?"}ms`);
+          });
+        }
         const stableTitle = String(asRecord(next)?.desktopSessionTitle || '').trim();
         if (stableTitle) {
           setSessions((current) => current.map((item) => item.id === sessionId
@@ -623,7 +653,7 @@ export function App() {
       }
     });
   };
-  const openSettings = useCallback((section: SettingsSection = 'profile') => {
+  const openSettings = useCallback((section: SettingsSection | null = null) => {
     setCommandSurface(null);
     setSettingsSection(section);
     setSettingsOpen(true);
@@ -722,7 +752,7 @@ export function App() {
           onChooseProject={chooseProject}
           onOpenProjects={() => setProjectPanelOpen(true)}
           onStartProjectTask={startProjectTask}
-          onOpenSettings={() => openSettings('profile')}
+          onOpenSettings={() => openSettings()}
           onResumeSession={resumeSession}
         />
         {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)}
@@ -772,16 +802,18 @@ export function App() {
         onSetPinned={setProjectPinned}
         onRemove={removeProject}
       />
-      {settingsOpen && <SettingsView
-        initialSection={settingsSection as React.ComponentProps<typeof SettingsView>['initialSection']}
-        onCompose={(text) => {
-          setSettingsOpen(false);
-          window.dispatchEvent(new CustomEvent('mixdog:composer-draft', { detail: text }));
-        }}
-        onClose={() => setSettingsOpen(false)} />}
-      {commandSurface && <CommandSurface surface={commandSurface}
-        onOpen={setCommandSurface} onClose={() => setCommandSurface(null)} />}
-      {onboardingOpen && <OnboardingWizard api={window.mixdogDesktop} onDone={() => setOnboardingOpen(false)} />}
+      <Suspense fallback={null}>
+        {settingsOpen && <SettingsView
+          initialSection={settingsSection}
+          onCompose={(text) => {
+            setSettingsOpen(false);
+            window.dispatchEvent(new CustomEvent('mixdog:composer-draft', { detail: text }));
+          }}
+          onClose={() => setSettingsOpen(false)} />}
+        {commandSurface && <CommandSurface surface={commandSurface}
+          onOpen={setCommandSurface} onClose={() => setCommandSurface(null)} />}
+        {onboardingOpen && <OnboardingWizard api={window.mixdogDesktop} onDone={() => setOnboardingOpen(false)} />}
+      </Suspense>
       <DesktopToastRegion
         bridgeError={error || (!connected ? 'Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop.' : '')}
         toasts={Array.isArray(snapshot.toasts) ? snapshot.toasts : []}
@@ -871,7 +903,7 @@ function Conversation({
   onResumeSession: (id: string) => void;
   onOpenProjects: () => void;
   onOpenSessions: () => void;
-  onOpenSettings: (section?: SettingsSection) => void;
+  onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -970,7 +1002,7 @@ function Conversation({
   const composerOnOpenProjects = useCallback(() => composerActions.current.onOpenProjects(), []);
   const composerOnOpenSessions = useCallback(() => composerActions.current.onOpenSessions(), []);
   const composerOnOpenSettings = useCallback(
-    (section?: SettingsSection) => composerActions.current.onOpenSettings(section),
+    (section?: SettingsSection | null) => composerActions.current.onOpenSettings(section),
     [],
   );
   const composerOnOpenCommandSurface = useCallback(
@@ -1265,7 +1297,29 @@ const MarkdownResponse = React.memo(function MarkdownResponse({ text, streaming 
   </div>;
 });
 
-export function TranscriptRow({ item, completion }: { item: TranscriptItem; completion?: TranscriptItem }) {
+const transcriptItemSignatures = new WeakMap<object, string>();
+
+function transcriptItemSignature(item: TranscriptItem | undefined): string {
+  if (!item) return "";
+  const cached = transcriptItemSignatures.get(item);
+  if (cached !== undefined) return cached;
+  let signature: string;
+  try {
+    signature = JSON.stringify(item);
+  } catch {
+    return "";
+  }
+  transcriptItemSignatures.set(item, signature);
+  return signature;
+}
+
+export const TranscriptRow = memo(function TranscriptRow({
+  item,
+  completion,
+}: {
+  item: TranscriptItem;
+  completion?: TranscriptItem;
+}) {
   const previousStreaming = useRef(Boolean(item.streaming));
   const announceSettled = previousStreaming.current && !item.streaming;
   useEffect(() => {
@@ -1308,7 +1362,13 @@ export function TranscriptRow({ item, completion }: { item: TranscriptItem; comp
       </p>}
     </>
   );
-}
+}, (previous, next) => (
+  previous.item === next.item ||
+  transcriptItemSignature(previous.item) === transcriptItemSignature(next.item)
+) && (
+  previous.completion === next.completion ||
+  transcriptItemSignature(previous.completion) === transcriptItemSignature(next.completion)
+));
 
 function ToolCard({ item }: { item: TranscriptItem }) {
   const [open, setOpen] = useState(Boolean(item.expanded));
@@ -1469,8 +1529,9 @@ function CodeDiff({ patch }: { patch: string }) {
                   className="tool-detail-copy diff-copy" />
               </header>
               {file.renderable ? (
-                <DiffView data={file} diffViewMode={DiffModeEnum.Unified}
-                  diffViewTheme="dark" diffViewWrap diffViewFontSize={12} />
+                <Suspense fallback={null}>
+                  <DiffView data={file} />
+                </Suspense>
               ) : <pre className="diff-fallback">{file.patch}</pre>}
             </div>;
           })}
@@ -1672,7 +1733,7 @@ const Composer = memo(function Composer({
   onResumeSession: (id: string) => void;
   onOpenProjects: () => void;
   onOpenSessions: () => void;
-  onOpenSettings: (section?: SettingsSection) => void;
+  onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -1989,6 +2050,7 @@ const Composer = memo(function Composer({
     else if (name === 'compact') await commandCapability('compact');
     else if (name === 'doctor') onOpenCommandSurface('doctor');
     else if (name === 'remote') await commandCapability('claimRemote');
+    else if (name === 'settings') onOpenSettings(null);
     else if (name === 'fast') {
       const value = argument.toLowerCase();
       const enabled = value

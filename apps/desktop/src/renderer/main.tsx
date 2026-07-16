@@ -3,9 +3,10 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
-import "@git-diff-view/react/styles/diff-view.css";
 import "./styles.css";
 import "./opencode-v2.css";
+
+if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

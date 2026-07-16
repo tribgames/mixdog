@@ -29,13 +29,20 @@ MIT-licensed local source files were substantially consulted or adapted:
 - `C:\Project\refs\opencode\packages\ui\src\components\select.tsx`
 - `C:\Project\refs\opencode\packages\ui\src\components\select.css`
 - `C:\Project\refs\opencode\packages\ui\src\components\dialog.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\tooltip.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\basic-tool.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\message-part.css`
+- `C:\Project\refs\opencode\packages\ui\src\components\session-turn.css`
+- `C:\Project\refs\opencode\packages\ui\src\theme\v2\mapping.ts`
+- `C:\Project\refs\opencode\packages\ui\src\theme\themes\opencode.json`
 - `C:\Project\refs\opencode\packages\ui\src\assets\icons\provider\openai.svg`
 - `C:\Project\refs\opencode\packages\ui\src\assets\icons\provider\anthropic.svg`
 - `C:\Project\refs\opencode\packages\ui\src\assets\icons\provider\xai.svg`
 - `C:\Project\refs\opencode\packages\ui\src\assets\icons\provider\google.svg`
   - Adapted the provider icon presentation and simplified the four primary
     monochrome glyphs into the renderer's inline icon component. Adapted the
-    compact menu, selected-check, raised-dialog, and focus-state primitives.
+    compact menu, selected-check, raised-dialog, tooltip, message/tool rhythm,
+    semantic theme layering, and focus-state primitives.
     The fixed-geometry sidebar and active-sidebar glyphs were also adapted for
     the desktop titlebar toggle.
 

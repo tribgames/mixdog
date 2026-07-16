@@ -6,7 +6,7 @@ import type { CommandSurface as CommandSurfaceName } from './slash-commands';
 
 type Row = Record<string, unknown>;
 type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
-  Partial<Pick<DesktopApi, 'listProviderModels'>>;
+  Partial<Pick<DesktopApi, 'listProviderModels' | 'getSnapshot'>>;
 
 function record(value: unknown): Row {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -47,7 +47,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
     setError('');
     try {
       const capabilities = LOADERS[surface];
-      const [values, models] = await Promise.all([
+      const [values, models, snapshot] = await Promise.all([
         Promise.all(capabilities.map((capability) => {
           const args = capability === 'memoryControl'
             ? [{ action: 'core', op: 'list', project_id: '*' }, { silent: true }]
@@ -57,10 +57,12 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
         surface === 'agents'
           ? api.listProviderModels?.({ quick: false, ...(refresh ? { force: true } : {}) }) ?? []
           : Promise.resolve([]),
+        surface === 'effort' ? api.getSnapshot?.() ?? null : Promise.resolve(null),
       ]);
       setData({
         ...Object.fromEntries(capabilities.map((capability, index) => [capability, values[index]])),
         models,
+        snapshot,
       });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -154,11 +156,24 @@ function SurfaceBody({ surface, data, pending, run, onOpen }: {
     </Group>;
   }
   if (surface === 'effort') {
+    const snapshot = record(data.snapshot);
+    const options = Array.isArray(snapshot.effortOptions)
+      ? (snapshot.effortOptions as unknown[]).map(record).flatMap((entry) => {
+        const value = String(entry.value || '');
+        return value ? [{ value, label: String(entry.label || value) }] : [];
+      })
+      : [];
+    if (!options.length) return <Group title="Set reasoning effort">
+      <p>The current model has no effort levels.</p>
+    </Group>;
     return <Group title="Set reasoning effort"><form onSubmit={(event) => {
       event.preventDefault();
       const value = String(new FormData(event.currentTarget).get('effort') || '').trim();
       if (value) void run('setEffort', [value]);
-    }}><input name="effort" placeholder="auto, low, medium, high, xhigh…" required />
+    }}><select name="effort" aria-label="Reasoning effort"
+      defaultValue={String(snapshot.effort || options[0]?.value || '')}>
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
       <button disabled={busy}>Apply</button></form></Group>;
   }
   if (surface === 'channels') return <ChannelsBody data={data} busy={busy} run={run} onOpen={onOpen} />;

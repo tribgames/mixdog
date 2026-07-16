@@ -2,9 +2,14 @@
 # See src/shared/AIDERDESK_NOTICE.md.
 appId: io.mixdog.desktop
 productName: Mixdog
+artifactName: mixdog-desktop-${os}-${arch}.${ext}
 asar: true
 extraMetadata:
   name: mixdog-desktop
+protocols:
+  name: Mixdog
+  schemes:
+    - mixdog
 directories:
   buildResources: build
 files:
@@ -24,33 +29,28 @@ extraResources:
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules
 win:
-  executableName: Mixdog
   icon: build/mixdog.ico
+  verifyUpdateCodeSignature: false
   target:
     - nsis
 nsis:
-  include: build/installer.nsh
   installerIcon: build/mixdog.ico
-  uninstallerIcon: build/mixdog.ico
   installerHeaderIcon: build/mixdog.ico
-  artifactName: ${productName}-${version}-setup-${arch}.${ext}
-  # One-click install (opencode style): single progress bar, per-user install,
-  # app launches immediately after. The legacy-migration guard in
-  # build/installer.nsh still runs via customInit.
+  # One-click, per-user installation avoids elevation and machine-wide state.
   oneClick: true
   perMachine: false
-  runAfterFinish: true
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
+  # Keep a desktop entry for direct discoverability after a silent one-click install.
   createDesktopShortcut: always
 mac:
   category: public.app-category.developer-tools
   target:
     - dmg
     - zip
-  artifactName: ${productName}-${version}-macos-${arch}.${ext}
   hardenedRuntime: true
   gatekeeperAssess: false
-dmg:
-  artifactName: ${productName}-${version}-macos-${arch}.${ext}
-npmRebuild: true
+publish:
+  provider: github
+  # TODO: Replace before publishing releases; repository infrastructure is not provisioned yet.
+  owner: REPLACE_WITH_GITHUB_OWNER
+  repo: REPLACE_WITH_GITHUB_REPOSITORY
+  channel: latest

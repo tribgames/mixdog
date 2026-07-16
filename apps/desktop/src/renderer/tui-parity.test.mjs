@@ -109,3 +109,53 @@ test('desktop slash commands exactly match the TUI slash-command registry', () =
     tuiSlashCommands.map(commandFields),
   );
 });
+
+test('every desktop slash command resolves to an implemented GUI target', async () => {
+  const [settingsSource, surfaceSource, appSource] = await Promise.all([
+    readFile(new URL('./settings/CapabilitySettings.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+  ]);
+  const settingsValues = new Set(SETTINGS_ITEMS.map((item) => item.value));
+  const surfaceLoaders = surfaceSource.match(
+    /const LOADERS:[\s\S]*?= \{(?<body>[\s\S]*?)\n\};/,
+  );
+  assert.ok(surfaceLoaders?.groups?.body, 'CommandSurface must declare its complete loader registry');
+  const implementedSurfaces = new Set(
+    [...surfaceLoaders.groups.body.matchAll(/^\s*(\w+):/gm)].map((match) => match[1]),
+  );
+  const implementedActions = new Set(
+    [...appSource.matchAll(/(?:rawName|name) === '([^']+)'/g)].map((match) => match[1]),
+  );
+
+  for (const command of desktopSlashCommands) {
+    const routes = ['settingsRow', 'surface', 'action'].filter((field) => command[field]);
+    assert.equal(routes.length, 1, `/${command.name} must resolve to exactly one desktop target`);
+    if (command.settingsRow) {
+      assert.ok(settingsValues.has(command.settingsRow), `/${command.name} settings row must exist`);
+      const item = SETTINGS_ITEMS.find((entry) => entry.value === command.settingsRow);
+      if (item.kind === 'open') {
+        assert.match(
+          settingsSource,
+          new RegExp(`section === ['"]${command.settingsRow}['"]`),
+          `/${command.name} settings panel must render an implemented section`,
+        );
+      }
+    }
+    if (command.surface) {
+      assert.ok(implementedSurfaces.has(command.surface), `/${command.name} surface loader must exist`);
+      assert.match(
+        surfaceSource,
+        new RegExp(`surface === ['"]${command.surface}['"]|kind=\\{surface\\}|kind === ['"]${command.surface}['"]`),
+        `/${command.name} surface must resolve to rendered content`,
+      );
+    }
+    if (command.action) {
+      assert.ok(
+        implementedActions.has(command.name) ||
+          (command.name === 'clear' && implementedActions.has('new')),
+        `/${command.name} action must have an App implementation`,
+      );
+    }
+  }
+});

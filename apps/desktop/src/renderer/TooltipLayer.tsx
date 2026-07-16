@@ -4,12 +4,14 @@ import { createPortal } from 'react-dom';
 interface TooltipState {
   text: string;
   anchorLeft: number;
+  anchorCenter: number;
+  anchorRight: number;
   anchorTop: number;
   anchorBottom: number;
   preferredSide?: TooltipSide;
 }
 
-type TooltipSide = 'top' | 'bottom';
+type TooltipSide = 'top' | 'bottom' | 'left' | 'right';
 
 interface TooltipPosition {
   left: number;
@@ -44,23 +46,28 @@ export function TooltipLayer() {
     const bounds = node.getBoundingClientRect();
     const width = Math.min(bounds.width, Math.max(0, viewportWidth - VIEWPORT_PADDING * 2));
     const height = Math.min(bounds.height, Math.max(0, viewportHeight - VIEWPORT_PADDING * 2));
-    const room = {
+    const room: Record<TooltipSide, number> = {
       top: tooltip.anchorTop - TARGET_GAP - VIEWPORT_PADDING,
       bottom: viewportHeight - tooltip.anchorBottom - TARGET_GAP - VIEWPORT_PADDING,
+      left: tooltip.anchorLeft - TARGET_GAP - VIEWPORT_PADDING,
+      right: viewportWidth - tooltip.anchorRight - TARGET_GAP - VIEWPORT_PADDING,
     };
     let side: TooltipSide = tooltip.preferredSide
       || (room.bottom >= height || room.bottom >= room.top ? 'bottom' : 'top');
-    const opposite: TooltipSide = side === 'bottom' ? 'top' : 'bottom';
-    if (room[side] < height && room[opposite] > room[side]) side = opposite;
+    const opposite: TooltipSide = side === 'bottom' ? 'top' : side === 'top' ? 'bottom'
+      : side === 'left' ? 'right' : 'left';
+    const needed = side === 'left' || side === 'right' ? width : height;
+    if (room[side] < needed && room[opposite] > room[side]) side = opposite;
 
-    const left = clamp(
-      tooltip.anchorLeft - width / 2,
+    const horizontal = side === 'left' || side === 'right';
+    const left = clamp(horizontal
+      ? (side === 'right' ? tooltip.anchorRight + TARGET_GAP : tooltip.anchorLeft - TARGET_GAP - width)
+      : tooltip.anchorCenter - width / 2,
       VIEWPORT_PADDING,
       viewportWidth - VIEWPORT_PADDING - width,
     );
-    const idealTop = side === 'bottom'
-      ? tooltip.anchorBottom + TARGET_GAP
-      : tooltip.anchorTop - TARGET_GAP - height;
+    const idealTop = horizontal ? (tooltip.anchorTop + tooltip.anchorBottom - height) / 2
+      : side === 'bottom' ? tooltip.anchorBottom + TARGET_GAP : tooltip.anchorTop - TARGET_GAP - height;
     const top = clamp(
       idealTop,
       VIEWPORT_PADDING,
@@ -90,10 +97,13 @@ export function TooltipLayer() {
         setPosition(null);
         setTooltip({
           text,
-          anchorLeft: rect.left + rect.width / 2,
+          anchorLeft: rect.left,
+          anchorCenter: rect.left + rect.width / 2,
+          anchorRight: rect.right,
           anchorTop: rect.top,
           anchorBottom: rect.bottom,
-          preferredSide: requested === 'top' || requested === 'bottom' ? requested : undefined,
+          preferredSide: requested === 'top' || requested === 'bottom'
+            || requested === 'left' || requested === 'right' ? requested : undefined,
         });
       }, delay);
     };

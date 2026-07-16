@@ -54,6 +54,7 @@ export function OpenSelect({
   const enabled = useMemo(() => options.filter((option) => !option.disabled), [options]);
   const selected = options.find((option) => option.value === current);
   const settingsStyle = className.split(/\s+/).includes('settings-select');
+  const activeOption = enabled[active];
 
   const updatePosition = () => {
     const rect = trigger.current?.getBoundingClientRect();
@@ -128,10 +129,12 @@ export function OpenSelect({
     queueMicrotask(() => menu.current?.querySelectorAll<HTMLElement>('.oc-menu-item')[next]?.focus());
   };
 
-  return <div ref={root} className={`oc-select-root ${className}`.trim()}>
+  return <div ref={root} className={`oc-select-root ${className}`.trim()}
+    data-trigger-style={settingsStyle ? 'settings' : 'default'}>
     {name && <input type="hidden" name={name} value={current} required={required} />}
     <button ref={trigger} type="button" className="oc-select-trigger" role="combobox"
       aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={listboxId}
+      aria-activedescendant={open && activeOption ? `${listboxId}-${activeOption.value}` : undefined}
       disabled={disabled} onClick={() => setOpen((currentOpen) => !currentOpen)} onKeyDown={onKeyDown}>
       <span className="oc-select-value">{selected?.label || options[0]?.label || 'Select…'}</span>
       {settingsStyle
@@ -139,8 +142,10 @@ export function OpenSelect({
         : <ChevronDown size={16} aria-hidden="true" />}
     </button>
     {open && createPortal(<div ref={menu} id={listboxId} className="oc-menu" role="listbox"
+      data-trigger-style={settingsStyle ? 'settings' : 'default'}
       aria-label={ariaLabel} style={position} onKeyDown={onKeyDown}>
       {enabled.map((option, index) => <button type="button" role="option" className="oc-menu-item"
+        id={`${listboxId}-${option.value}`}
         aria-selected={option.value === current} data-active={index === active} tabIndex={index === active ? 0 : -1}
         key={option.value} onMouseEnter={() => setActive(index)} onClick={() => select(option.value)}>
         <span>{option.label}</span>{option.value === current && <Check size={16} aria-hidden="true" />}

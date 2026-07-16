@@ -24,61 +24,10 @@
   font: inherit;
 }
 
-.mixdog-settings__nav,
 .mixdog-settings__panel {
   min-width: 0;
   border: 1px solid var(--settings-border);
   border-radius: 10px;
-}
-
-.mixdog-settings__nav {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 8px 12px;
-  background: var(--settings-nav);
-}
-
-.mixdog-settings__nav-scroll {
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-}
-
-.settings-nav-group + .settings-nav-group { margin-top: 14px; }
-
-.mixdog-settings__nav-label {
-  margin: 0;
-  padding: 0 8px 8px;
-  color: var(--settings-muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-
-.mixdog-settings__nav-item {
-  display: flex;
-  width: 100%;
-  height: 32px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mixdog-settings__nav-item:hover { background: rgba(255, 255, 255, .045); }
-.mixdog-settings__nav-item.active { color: #f1f1f2; background: rgba(255, 255, 255, .085); }
-
-.mixdog-settings__nav-footer {
-  flex: 0 0 auto;
-  padding: 4px 8px;
-  color: rgba(255, 255, 255, .38);
-  font-size: 11px;
 }
 
 .mixdog-settings__panel {

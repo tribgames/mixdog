@@ -7,6 +7,7 @@ import { EngineHost } from './engine-host';
 import { registerDesktopIpc } from './ipc';
 import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
+import { startAutoUpdater } from './updater';
 import { DESKTOP_WINDOW_OPTIONS } from './window-options';
 import { persistWindowState, readWindowState } from './window-state';
 
@@ -80,7 +81,10 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-redirect', (event, url) => {
     if (!isAllowedNavigation(url)) event.preventDefault();
   });
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', () => {
+    window.show();
+    startAutoUpdater();
+  });
   window.on('closed', () => {
     const state = windowState;
     windowState = null;
@@ -111,7 +115,6 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
-    installNativeMenu(Boolean(process.env.ELECTRON_RENDERER_URL));
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const development = Boolean(process.env.ELECTRON_RENDERER_URL);
       const policy = development
@@ -125,6 +128,9 @@ if (!app.requestSingleInstanceLock()) {
       });
     });
     await createWindow();
+    // Keep the synchronous native-menu construction off the critical path to
+    // the first renderer load. This matches the OpenCode startup ordering.
+    installNativeMenu(Boolean(process.env.ELECTRON_RENDERER_URL));
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         void createWindow().catch((error: unknown) => {

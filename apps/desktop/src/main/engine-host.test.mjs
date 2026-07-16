@@ -276,7 +276,7 @@ test("host uses cached session summaries for routine listing", async () => {
   }
 });
 
-test("resume authorization refreshes once while reused-context routine lists stay cached", async () => {
+test("resume authorization reuses the cached catalog when the selected session is present", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-session-catalog-reuse-"));
   const originalCwd = process.cwd();
   const calls = [];
@@ -307,7 +307,7 @@ test("resume authorization refreshes once while reused-context routine lists sta
     await host.listSessions();
     await host.resumeSession(row.id);
     await host.listSessions();
-    assert.deepEqual(calls, [undefined, { refreshFromStorage: true }, undefined]);
+    assert.deepEqual(calls, [undefined, undefined, undefined]);
   } finally {
     await host.dispose();
     process.chdir(originalCwd);

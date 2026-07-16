@@ -18,7 +18,7 @@ export interface DesktopSlashCommand {
   description: string;
   settingsRow?: SettingsSection;
   surface?: CommandSurface;
-  action?: 'clear' | 'project' | 'compact' | 'resume' | 'fast' | 'remote' | 'quit';
+  action?: 'clear' | 'project' | 'compact' | 'resume' | 'fast' | 'remote' | 'settings' | 'quit';
 }
 
 // Public fields mirror src/tui/app/slash-commands.mjs. Desktop-only fields
@@ -49,7 +49,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'remote', usage: '/remote', description: 'Claim remote for this session (takes over from any other session)', action: 'remote' },
   { name: 'schedules', usage: '/schedules', description: 'Manage schedules', surface: 'schedules' },
   { name: 'webhooks', usage: '/webhooks', description: 'Manage inbound webhooks', surface: 'webhooks' },
-  { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings', settingsRow: 'profile' },
+  { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings', action: 'settings' },
   { name: 'profile', usage: '/profile', description: 'Set your title and response language', settingsRow: 'profile' },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog', settingsRow: 'update' },
   { name: 'doctor', usage: '/doctor', description: 'Diagnose installation health', surface: 'doctor' },

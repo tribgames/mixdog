@@ -16,6 +16,7 @@
     "test:parity": "tsx --test src/renderer/tui-parity.test.mjs",
     "test:settings": "tsx --test src/main/settings-store.test.mjs src/renderer/settings/SettingsView.test.mjs",
     "test:packaging": "tsx --test src/main/packaging.test.mjs src/main/window-state.test.mjs",
+    "test:updater": "tsx --test src/main/updater-controller.test.mjs",
     "acceptance:win": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/acceptance-windows.ps1",
     "verify:renderer": "npm run test:renderer && node src/renderer/verify-renderer.mjs && npm run typecheck:renderer",
     "build": "npm run typecheck && electron-vite build",
@@ -33,7 +34,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",

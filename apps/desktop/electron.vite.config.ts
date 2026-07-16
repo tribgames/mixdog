@@ -32,6 +32,10 @@ export default defineConfig({
   },
   renderer: {
     build: {
+      // Electron 39 ships Chromium 142, so the controlled desktop runtime can
+      // use native module preloads without Vite's compatibility polyfill.
+      target: 'chrome142',
+      modulePreload: { polyfill: false },
       rollupOptions: {
         input: resolve(__dirname, 'src/renderer/index.html'),
       },

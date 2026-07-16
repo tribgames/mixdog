@@ -105,6 +105,7 @@ const EMPTY_PROJECT_PREFERENCES: DesktopProjectPreferences = {
 };
 
 const DESKTOP_CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
+const ENGINE_PUBLICATION_INTERVAL_MS = 50;
 
 function normalizedProviderModels(value: unknown): DesktopModelOption[] {
   if (!Array.isArray(value)) return [];
@@ -348,6 +349,7 @@ export class EngineHost {
   private engineDesktopSession: DesktopSessionScope | null = null;
   private publicationHoldDepth = 0;
   private publicationPending = false;
+  private publicationTimer: NodeJS.Timeout | null = null;
   private readonly oauthFlows = new Map<string, DesktopOAuthFlow>();
   private oauthFlowSequence = 0;
 
@@ -686,11 +688,21 @@ export class EngineHost {
           result = this.getSnapshot();
           return;
         }
-        const rawSessions = this.engine?.listSessions({ refreshFromStorage: true }) || [];
-        const selected = desktopSessionSummaries(
+        let rawSessions = this.engine?.listSessions() || [];
+        let selected = desktopSessionSummaries(
           rawSessions,
           String(this.engine?.getState()?.sessionId || ''),
         ).find((row) => row.id === sessionId);
+        // Session navigation is populated from this same cached catalog. Only
+        // rescan storage if the requested row is absent (for example, a session
+        // created by another process since the sidebar was loaded).
+        if (!selected) {
+          rawSessions = this.engine?.listSessions({ refreshFromStorage: true }) || [];
+          selected = desktopSessionSummaries(
+            rawSessions,
+            String(this.engine?.getState()?.sessionId || ''),
+          ).find((row) => row.id === sessionId);
+        }
         if (!selected) throw new Error('Session is not available.');
         const rawSelected = rawSessions.find((row) => String(row.id || '') === sessionId);
         const storedDesktop = rawSelected?.desktopSession && typeof rawSelected.desktopSession === 'object'
@@ -829,6 +841,7 @@ export class EngineHost {
   async dispose(): Promise<void> {
     await this.exclusive(async () => this.disposeCurrent('desktop-dispose'));
     await this.sessionTitleWrite;
+    this.cancelScheduledPublication();
     this.publish();
     this.listeners.clear();
   }
@@ -839,11 +852,35 @@ export class EngineHost {
   }
 
   private publish(): void {
+    this.cancelScheduledPublication();
     if (this.publicationHoldDepth > 0) {
       this.publicationPending = true;
       return;
     }
     this.publishNow();
+  }
+
+  private publishEngineEvent(): void {
+    if (this.publicationHoldDepth > 0) {
+      this.publicationPending = true;
+      return;
+    }
+    if (this.listeners.size === 0 || this.publicationTimer) return;
+    this.publicationTimer = setTimeout(() => {
+      this.publicationTimer = null;
+      if (this.publicationHoldDepth > 0) {
+        this.publicationPending = true;
+        return;
+      }
+      this.publishNow();
+    }, ENGINE_PUBLICATION_INTERVAL_MS);
+    this.publicationTimer.unref?.();
+  }
+
+  private cancelScheduledPublication(): void {
+    if (!this.publicationTimer) return;
+    clearTimeout(this.publicationTimer);
+    this.publicationTimer = null;
   }
 
   private publishNow(): void {
@@ -1157,7 +1194,7 @@ export class EngineHost {
     this.engineWorkspace = cwd;
     this.engineDesktopSession = desktopSession;
     try {
-      this.unsubscribeEngine = nextEngine.subscribe(() => this.publish());
+      this.unsubscribeEngine = nextEngine.subscribe(() => this.publishEngineEvent());
     } catch (error) {
       process.chdir(previousCwd);
       try {

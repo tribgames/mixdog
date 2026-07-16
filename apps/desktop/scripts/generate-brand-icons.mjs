@@ -66,8 +66,5 @@ icoEntry.writeUInt32LE(png.length, 0);
 icoEntry.writeUInt32LE(22, 4);
 const buildDir = fileURLToPath(new URL('../build/', import.meta.url));
 await mkdir(buildDir, { recursive: true });
-await Promise.all([
-  writeFile(`${buildDir}/mixdog.png`, png),
-  writeFile(`${buildDir}/mixdog.ico`, Buffer.concat([icoHeader, icoEntry, png])),
-]);
-console.log(`BRAND_ICONS=Mixdog; PNG_BYTES=${png.length}; ICO_BYTES=${png.length + 22}`);
+await writeFile(`${buildDir}/mixdog.ico`, Buffer.concat([icoHeader, icoEntry, png]));
+console.log(`BRAND_ICONS=Mixdog; ICO_BYTES=${png.length + 22}`);

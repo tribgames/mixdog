@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { access, readFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { listPackage, statFile } from '@electron/asar';
-
-const execFileAsync = promisify(execFile);
 
 test('packaged preload path matches electron-vite output', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
@@ -18,47 +14,24 @@ test('packaged preload path matches electron-vite output', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));
 });
 
-test('Windows installer is an assisted per-user wizard', async () => {
+test('Windows installer is one-click, per-user, and registers Mixdog deep links', async () => {
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
-  assert.match(builder, /oneClick:\s*false/);
+  const iconGenerator = await readFile(new URL('../../scripts/generate-brand-icons.mjs', import.meta.url), 'utf8');
+  assert.match(builder, /protocols:\s+name:\s*Mixdog\s+schemes:\s+-\s*mixdog/);
+  assert.match(builder, /oneClick:\s*true/);
   assert.match(builder, /perMachine:\s*false/);
-  assert.match(builder, /allowToChangeInstallationDirectory:\s*true/);
-  assert.match(builder, /runAfterFinish:\s*true/);
-  assert.match(builder, /include:\s*build\/installer\.nsh/);
+  assert.match(builder, /createDesktopShortcut:\s*always/);
+  assert.doesNotMatch(
+    builder,
+    /(?:allowToChangeInstallationDirectory|runAfterFinish|shortcutName|uninstallDisplayName|createStartMenuShortcut|uninstallerIcon|npmRebuild|include):/,
+  );
   assert.match(builder, /win:[\s\S]*icon:\s*build\/mixdog\.ico/);
   assert.match(builder, /installerIcon:\s*build\/mixdog\.ico/);
-  assert.match(builder, /uninstallerIcon:\s*build\/mixdog\.ico/);
   assert.match(builder, /installerHeaderIcon:\s*build\/mixdog\.ico/);
+  assert.match(iconGenerator, /writeFile\(`\$\{buildDir\}\/mixdog\.ico`/);
+  assert.doesNotMatch(iconGenerator, /mixdog\.png/);
   const icon = await readFile(new URL('../../build/mixdog.ico', import.meta.url));
   assert.deepEqual([...icon.subarray(0, 4)], [0, 0, 1, 0]);
-});
-
-test('legacy all-users migration is explicit, elevated, verified, and scoped', async () => {
-  const installer = await readFile(new URL('../../build/installer.nsh', import.meta.url), 'utf8');
-  const migration = await readFile(new URL('../../build/migrate-legacy.ps1', import.meta.url), 'utf8');
-  assert.match(installer, /5343bdcc-87a7-52f8-80e7-87b62e476a38/);
-  assert.match(installer, /File \/oname=\$PLUGINSDIR\\elevate\.exe "\$\{NSISDIR\}\\elevate\.exe"/);
-  assert.match(installer, /elevate\.exe" -wait[\s\S]*migrate-legacy\.ps1" -LogPath/);
-  assert.match(installer, /\$SYSDIR\\WindowsPowerShell\\v1\.0\\powershell\.exe/);
-  assert.doesNotMatch(installer, /Start-Process[\s\S]*-Verb RunAs/);
-  assert.match(installer, /acceptLegacyMigration/);
-  assert.match(installer, /Legacy Mixdog removal could not be verified/);
-  assert.match(migration, /ExecutablePath -ieq \$legacyExe/);
-  assert.match(migration, /Official legacy uninstaller failed/);
-  assert.match(migration, /\[string\]\$LogPath/);
-  assert.match(migration, /RegistryView\]::Registry64/);
-  assert.match(migration, /Get-ChildItem -LiteralPath \$legacyDir/);
-  assert.doesNotMatch(`${installer}\n${migration}`, /Remove-Item[^\n]*\\\.mixdog/i);
-
-  if (process.platform === 'win32') {
-    const { stdout } = await execFileAsync(
-      'powershell.exe',
-      ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
-        fileURLToPath(new URL('../../scripts/test-migration.ps1', import.meta.url))],
-      { windowsHide: true },
-    );
-    assert.match(stdout, /MIGRATION_SIMULATION=passed; LEGACY_REMNANTS=0; USER_DATA=preserved/);
-  }
 });
 
 test('production entry has no capture side effects and capture harness is excluded', async () => {
@@ -82,7 +55,7 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /class CaptureEngineHost extends EngineHost/);
   assert.match(capture, /override async listSessions\(\): Promise<DesktopSessionSummary\[]>/);
   assert.match(capture, /new CaptureEngineHost/);
-  assert.match(capture, /registerDesktopIpc\(window,\s*host,\s*\{\s*ipcMain,\s*dialog,\s*shell\s*\}\)/);
+  assert.match(capture, /registerDesktopIpc\(window,\s*host,\s*\{\s*app,\s*ipcMain,\s*dialog,\s*shell\s*\}\)/);
   assert.match(capture, /console-message/);
   assert.match(capture, /Capture renderer preload bridge is missing/);
   assert.match(capture, /\.inline-error,\s*\[role="alert"\]/);

@@ -147,6 +147,14 @@ test('settings renders exactly the 19 TUI rows and no removed sections or voice 
   assert.match(document.body.textContent, /1\/1 connected/);
 });
 
+test('settings command can open the TUI-equivalent root picker', async () => {
+  mount();
+  const { api } = capabilityApi();
+  await renderSettings({ api, initialSection: null });
+  assert.equal(document.querySelectorAll('.mixdog-settings__picker-row').length, SETTINGS_ITEMS.length);
+  assert.equal(document.querySelector('button[aria-label="Back to settings"]'), null);
+});
+
 test('inline toggles and channel cycle use the TUI capability semantics', async () => {
   mount();
   const { api, calls } = capabilityApi();
