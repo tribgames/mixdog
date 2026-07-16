@@ -147,7 +147,9 @@ export function useXaiResponsesWebSocket(opts, config) {
         ?? config?.transport
         ?? process.env.MIXDOG_XAI_RESPONSES_TRANSPORT
         ?? process.env.MIXDOG_XAI_TRANSPORT;
-    if (raw == null || raw === '') return true;
+    // Reference xAI/Grok parity is HTTP/SSE. WebSocket remains available only
+    // when a caller explicitly selects a WS transport.
+    if (raw == null || raw === '') return false;
     const transport = String(raw).trim().toLowerCase();
     return !['0', 'false', 'off', 'http', 'https', 'responses-http', 'sdk'].includes(transport);
 }

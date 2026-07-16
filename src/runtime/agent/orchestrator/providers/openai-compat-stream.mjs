@@ -765,6 +765,10 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             const msg = event.response?.error?.message || event.error?.message || event.message || 'response.failed';
             const err = new Error(`xAI Responses stream response.failed: ${msg}`);
             populateHttpStatusFromMessage(err, msg);
+            // xAI's reference sampler treats protocol-level failed/error
+            // events as synthetic HTTP 500s. Gate by the xAI stream label so
+            // shared compat consumers retain their existing classification.
+            if (String(label || '').toLowerCase().startsWith('xai')) err.httpStatus = 500;
             throw err;
         }
         case 'response.incomplete': {
@@ -788,6 +792,7 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             const msg = event.message || event.error?.message || 'unknown';
             const err = new Error(`xAI Responses stream error: ${msg}`);
             populateHttpStatusFromMessage(err, msg);
+            if (String(label || '').toLowerCase().startsWith('xai')) err.httpStatus = 500;
             throw err;
         }
         default:

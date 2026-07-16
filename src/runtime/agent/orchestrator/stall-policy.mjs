@@ -246,21 +246,14 @@ export const PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS = resolveTimeoutMs(
     { minMs: 10_000, maxMs: STALL_WARN_MS },
 );
 
-// WS-specific semantic idle window. Do NOT reuse
-// PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS here: that shared SSE default was raised to
-// ~285s to avoid false-aborting Anthropic effort-mode streams that legitimately
-// produce no deltas while thinking. The WS transport is different: a silent
-// OpenAI/xAI websocket turn can sit with only connection/metadata activity while
-// the TUI lead-turn watchdog is also 300s. If the provider waits ~285-300s
-// before surfacing the stall, the UI watchdog often wins and the user only sees
-// "Turn timed out after 300s" instead of a provider retry/fallback.
-//
-// Keep WS hangs bounded well below the TUI watchdog while still allowing normal
-// long reasoning streams that emit reasoning/text/tool deltas (those reset this
-// timer). Env-overridable for experiments.
+// WS semantic idle uses the same default ceiling as OpenAI HTTP/SSE semantic
+// idle. This is semantic progress only (not the WS inter-chunk byte timer), so
+// reasoning/text/tool deltas reset it while metadata cannot. Keep the default
+// at PROVIDER_MAX_BEFORE_WARN_MS (~285s), strictly below the 300s worker
+// watchdog, rather than rounding it to 300s.
 export const PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS = resolveTimeoutMs(
     ['MIXDOG_PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS', 'MIXDOG_PROVIDER_WS_OUTPUT_IDLE_TIMEOUT_MS'],
-    120_000,
+    PROVIDER_MAX_BEFORE_WARN_MS,
     { minMs: 10_000, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
 );
 

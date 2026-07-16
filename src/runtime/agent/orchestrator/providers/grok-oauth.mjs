@@ -5,20 +5,16 @@
  * https://auth.x.ai/.well-known/openid-configuration). Credentials come from
  * Mixdog's own token store (grok-oauth.json).
  *
- * Inference + catalog merge two sources, routed per model:
- *   - api.x.ai/v1 (default): grok-4.x chat models and the web_search backend.
- *   - cli-chat-proxy.grok.com/v1 (the grok-build proxy): proxy-only models
- *     grok-build and grok-composer-2.5-fast, which api.x.ai does not publish.
- *     The proxy version-gates /responses (HTTP 426); we clear it with the Grok
- *     CLI client headers (proxyHeaders, real local version from version.json).
+ * Every OAuth inference request routes through cli-chat-proxy.grok.com/v1,
+ * matching Grok Build's session-auth contract. Model discovery still merges
+ * api.x.ai and proxy catalogs because each publishes a different subset.
  *
  * Inference is delegated to an inner OpenAICompatProvider('xai') — the only
- * preset wired for the Responses API — with the base URL + (for proxy models)
- * the CLI headers injected via config.extraHeaders, bearer swapped for the
- * OAuth access token. The model catalog is the union of both endpoints.
+ * preset wired for the Responses API — with the proxy URL + CLI headers
+ * injected via config.extraHeaders, bearer swapped for the OAuth access token.
  */
 import { createServer } from 'http';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, randomUUID, createHash } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import { join, resolve } from 'path';
 import { getPluginData } from '../config.mjs';
@@ -81,33 +77,33 @@ function grokCliVersion() {
 // Headers the Grok CLI sends to clear the proxy version gate — extracted from
 // the grok binary: x-grok-client-version (the actual 426 gate),
 // x-grok-client-identifier, and a matching User-Agent.
-function proxyHeaders() {
+function proxyHeaders({ model, sendOpts, userId } = {}) {
     const v = grokCliVersion();
-    return {
+    const headers = {
         'x-grok-client-version': v,
         'x-grok-client-identifier': GROK_CLIENT_IDENTIFIER,
         'User-Agent': `xai-grok-build/${v}`,
     };
+    const sessionId = String(sendOpts?.sessionId || sendOpts?.session?.id || '').trim();
+    const requestId = String(sendOpts?.requestId || '').trim() || (sendOpts ? randomUUID() : '');
+    const turnIndex = sendOpts?.iteration;
+    // Mixdog has an authoritative session id but no distinct Grok conversation
+    // id. Do not synthesize the latter from the former.
+    if (sessionId) headers['x-grok-session-id'] = sessionId;
+    if (requestId) headers['x-grok-req-id'] = requestId;
+    if (model) headers['x-grok-model-override'] = String(model);
+    if (turnIndex != null && Number.isFinite(Number(turnIndex))) {
+        headers['x-grok-turn-idx'] = String(turnIndex);
+    }
+    if (userId) headers['x-grok-user-id'] = String(userId);
+    return headers;
 }
 
-function resolveGrokOAuthResponsesTransport(config) {
-    // An explicit Grok-specific transport setting is the escape hatch and wins
-    // for EVERY Grok model, api.x.ai and proxy-only alike — e.g. pin 'http' to
-    // force proxy-only models back onto cli-chat-proxy.grok.com over HTTP.
-    const raw = config?.responsesTransport
-        ?? config?.transport
-        ?? process.env.MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT
-        ?? process.env.MIXDOG_GROK_OAUTH_TRANSPORT
-        ?? '';
-    const mode = String(raw).trim().toLowerCase();
-    if (mode) return mode;
-    // No Grok-specific override: leave the field unset so ALL api.x.ai-capable
-    // Grok models honor the shared MIXDOG_OAI_TRANSPORT switch. Proxy-only
-    // grok-build is included: the shared xAI WebSocket connector targets the
-    // fixed wss://api.x.ai/v1/responses endpoint (not the proxy baseURL), and a
-    // live probe confirmed grok-build serves there with the OAuth token. No
-    // implicit HTTP pin — the proxy baseURL is only used when HTTP is selected.
-    return undefined;
+function resolveGrokOAuthResponsesTransport() {
+    // The OAuth bearer is session auth and must never escape to api.x.ai.
+    // Mixdog's xAI WebSocket connector has a fixed api.x.ai endpoint, so OAuth
+    // inference is pinned to the proxy's reference HTTP/SSE transport.
+    return 'http';
 }
 
 // Retired model aliases xAI no longer exposes by their old ids. The live
@@ -221,13 +217,18 @@ function _identityFromAccessToken(token) {
         const parts = String(token || '').split('.');
         if (parts.length !== 3) return {};
         const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+        const principalId = payload?.principal_id || payload?.principalId || '';
+        const principalType = payload?.principal_type || payload?.principalType || '';
         const userId = payload?.user_id
             || payload?.userId
-            || payload?.principal_id
-            || payload?.principalId
+            || principalId
             || payload?.sub
             || '';
-        return userId ? { user_id: String(userId) } : {};
+        return {
+            ...(userId ? { user_id: String(userId) } : {}),
+            ...(principalType ? { principal_type: String(principalType) } : {}),
+            ...(principalId ? { principal_id: String(principalId) } : {}),
+        };
     } catch { return {}; }
 }
 
@@ -243,12 +244,15 @@ function _loadOwnTokens() {
     try {
         const raw = JSON.parse(readFileSync(path, 'utf-8'));
         if (!raw?.access_token || !raw?.refresh_token) return null;
+        const identity = _identityFromAccessToken(raw.access_token);
         return {
             access_token: raw.access_token,
             refresh_token: raw.refresh_token,
             expires_at: _normalizeExpiresAt(raw.expires_at ?? raw.expiresAt) || _expiryFromAccessToken(raw.access_token),
             token_endpoint: raw.token_endpoint || null,
-            user_id: raw.user_id || raw.userId || _identityFromAccessToken(raw.access_token).user_id || '',
+            user_id: raw.user_id || raw.userId || identity.user_id || '',
+            principal_type: raw.principal_type || raw.principalType || identity.principal_type || '',
+            principal_id: raw.principal_id || raw.principalId || identity.principal_id || '',
             source: 'own',
             mtimeMs: _mtimeMs(path),
         };
@@ -261,12 +265,15 @@ function loadTokens() {
 }
 
 function saveTokens(tokens) {
+    const identity = _identityFromAccessToken(tokens.access_token);
     writeJsonAtomicSync(getOwnTokenPath(), {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
         expires_at: tokens.expires_at || 0,
         token_endpoint: tokens.token_endpoint || null,
-        user_id: tokens.user_id || tokens.userId || _identityFromAccessToken(tokens.access_token).user_id || undefined,
+        user_id: tokens.user_id || tokens.userId || identity.user_id || undefined,
+        principal_type: tokens.principal_type || tokens.principalType || identity.principal_type || undefined,
+        principal_id: tokens.principal_id || tokens.principalId || identity.principal_id || undefined,
     }, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
 }
 
@@ -331,14 +338,17 @@ async function _postRefresh(tokens) {
         : (await fetchDiscovery()).token_endpoint;
     const timeout = createTimeoutSignal(null, TOKEN_TIMEOUT_MS, 'grok-oauth refresh');
     try {
+        const body = new URLSearchParams({
+            grant_type: 'refresh_token',
+            client_id: CLIENT_ID,
+            refresh_token: tokens.refresh_token,
+        });
+        if (tokens.principal_type) body.set('principal_type', tokens.principal_type);
+        if (tokens.principal_id) body.set('principal_id', tokens.principal_id);
         const res = await fetch(tokenEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                grant_type: 'refresh_token',
-                client_id: CLIENT_ID,
-                refresh_token: tokens.refresh_token,
-            }),
+            body,
             // Never follow a redirect on a secret-bearing request: a trusted
             // token endpoint that 307/308-redirects would replay the
             // refresh_token to the redirect target. Fail loud instead.
@@ -350,13 +360,12 @@ async function _postRefresh(tokens) {
         let json = null;
         try { json = text ? JSON.parse(text) : null; } catch { /* handled below */ }
         if (!res.ok) {
-            // 400/401 (or an explicit invalid_grant/revoked/reused body) means
-            // this refresh_token was revoked or already consumed.
-            const isInvalidGrant = res.status === 400 || res.status === 401
-                || /invalid_grant|revoked|reused/i.test(text);
+            const oauthError = String(json?.error || '').toLowerCase();
+            const isInvalidGrant = oauthError === 'invalid_grant';
+            const isTerminalRefresh = isInvalidGrant || oauthError === 'invalid_client';
             throw Object.assign(
                 new Error(`[grok-oauth] token refresh ${res.status}: ${_scrubTokens(text).slice(0, 200)}`),
-                { isInvalidGrant },
+                { isInvalidGrant, isTerminalRefresh, oauthError: oauthError || null },
             );
         }
         const accessToken = json?.access_token;
@@ -371,12 +380,28 @@ async function _postRefresh(tokens) {
                 : _normalizeExpiresAt(json?.expires_at),
             token_endpoint: tokenEndpoint,
             user_id: tokens.user_id || tokens.userId || _identityFromAccessToken(accessToken).user_id || '',
+            principal_type: json?.principal_type || tokens.principal_type || tokens.principalType || '',
+            principal_id: json?.principal_id || tokens.principal_id || tokens.principalId || '',
         };
         saveTokens(refreshed);
         return { ...refreshed, source: 'own', mtimeMs: _mtimeMs(getOwnTokenPath()) };
     } finally {
         timeout.cleanup();
     }
+}
+
+async function _postRefreshWithRetry(tokens) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+            return await _postRefresh(tokens);
+        } catch (err) {
+            if (err?.isTerminalRefresh || attempt === 2) throw err;
+            const baseMs = Math.min(2_000, 200 * (2 ** attempt));
+            const delayMs = Math.round(baseMs + Math.random() * baseMs);
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+    }
+    throw new Error('[grok-oauth] unreachable refresh retry state');
 }
 
 // Mixdog processes share one grok-oauth.json and xAI rotates refresh tokens
@@ -403,7 +428,7 @@ async function refreshTokens(tokens, { force = false } = {}) {
 
         const current = disk || tokens;
         try {
-            return await _postRefresh(current);
+            return await _postRefreshWithRetry(current);
         } catch (err) {
             if (err?.isInvalidGrant) {
                 // A writer that does not participate in this lease may still
@@ -416,7 +441,7 @@ async function refreshTokens(tokens, { force = false } = {}) {
                         && (!rotated.expires_at || rotated.expires_at >= validAfter)) {
                         return rotated;
                     }
-                    return await _postRefresh(rotated);
+                    return await _postRefreshWithRetry(rotated);
                 }
             }
             throw err;
@@ -660,27 +685,16 @@ export class GrokOAuthProvider {
     }
 
     // Build (or rebuild on token change) the inner OpenAI-compatible provider
-    // that owns request shaping. name 'xai' selects the Responses API path the
-    // Grok CLI proxy speaks; baseURL + bearer are overridden for grok-build.
-    _ensureInner(token, model) {
-        // Proxy-only models (grok-composer*, grok-build) live on the grok-build
-        // CLI proxy: different baseURL + the Grok CLI client headers. Everything
-        // else stays on api.x.ai. The cache key includes the route so an
-        // interleaved sequence of api/proxy calls each get the right inner.
-        const proxy = isProxyOnlyModel(model);
-        const key = `${proxy ? 'proxy' : 'api'}:${token}`;
+    // that owns request shaping. Every OAuth model uses the Grok CLI proxy.
+    _ensureInner(token, model, requestHeaders = proxyHeaders({ model })) {
+        const key = `proxy:${token}:${JSON.stringify(requestHeaders)}`;
         if (this._inner && this._innerKey === key) return this._inner;
         this._inner = new OpenAICompatProvider('xai', {
             ...this.config,
             apiKey: token,
-            baseURL: proxy ? PROXY_BASE_URL : INFERENCE_BASE_URL,
-            // All Grok models — proxy-only grok-build included — inherit the
-            // shared xAI transport switch (WS→api.x.ai by default). An explicit
-            // Grok-specific http setting is the escape hatch back to the proxy.
-            responsesTransport: resolveGrokOAuthResponsesTransport(this.config, proxy),
-            // Proxy-only models additionally need the Grok CLI client headers to
-            // clear the proxy version gate (HTTP 426 otherwise).
-            ...(proxy ? { extraHeaders: proxyHeaders() } : {}),
+            baseURL: PROXY_BASE_URL,
+            responsesTransport: resolveGrokOAuthResponsesTransport(),
+            extraHeaders: requestHeaders,
         });
         this._innerKey = key;
         return this._inner;
@@ -693,13 +707,18 @@ export class GrokOAuthProvider {
             const warm = typeof this.config?.preconnectFn === 'function'
                 ? this.config.preconnectFn
                 : preconnect;
-            warm(INFERENCE_BASE_URL);
+            warm(PROXY_BASE_URL);
         }
         const useModel = normalizeGrokModelId(
             model || await ensureLatestGrokModel(this),
         );
         const tokens = await this.ensureAuth();
-        const inner = this._ensureInner(tokens.access_token, useModel);
+        const requestHeaders = proxyHeaders({
+            model: useModel,
+            sendOpts,
+            userId: tokens.user_id,
+        });
+        const inner = this._ensureInner(tokens.access_token, useModel, requestHeaders);
         const grokTools = normalizeGrokToolSchemas(tools);
         try {
             // Call _doSend directly, bypassing OpenAICompatProvider.send()'s
@@ -710,23 +729,22 @@ export class GrokOAuthProvider {
             // catalog to this token — no single-model lock.
             return await inner._doSend(messages, useModel, grokTools, sendOpts);
         } catch (err) {
-            // Refresh-and-retry only on 401 (stale/expired access token).
+            // Refresh-and-retry on a server-rejected OAuth session (401/403).
             // Resolve the status from the structured field (falling back to the
             // shared classifier that derives it from the error text) rather than
-            // ad-hoc string matching. A 403 is an entitlement signal (the
-            // account's tier lacks the model) — refreshing the same grant can't
-            // fix it, so it must surface unretried.
+            // ad-hoc string matching.
             populateHttpStatusFromMessage(err);
-            if (Number(err?.httpStatus || err?.status) === 401) {
-                // A stream-level 401 after text/tool dispatch cannot be safely
+            const rejectedStatus = Number(err?.httpStatus || err?.status);
+            if (rejectedStatus === 401 || rejectedStatus === 403) {
+                // A stream-level rejection after text/tool dispatch cannot be safely
                 // replayed: the client has already observed output or may have
                 // executed a side-effecting tool.
                 if (err.liveTextEmitted === true || err.emittedToolCall === true || err.unsafeToRetry === true) {
                     throw err;
                 }
-                process.stderr.write('[grok-oauth] 401, force-refreshing token...\n');
+                process.stderr.write(`[grok-oauth] ${rejectedStatus}, force-refreshing token...\n`);
                 const fresh = await this.ensureAuth({ forceRefresh: true });
-                const retryInner = this._ensureInner(fresh.access_token, useModel);
+                const retryInner = this._ensureInner(fresh.access_token, useModel, requestHeaders);
                 const retryOpts = err?.__warmup?.usage
                     ? { ...(sendOpts || {}), _carriedWarmup: err.__warmup }
                     : sendOpts;
@@ -882,6 +900,7 @@ async function exchangeAuthorizationCode({ discovery, pkce, code }) {
     if (!json.access_token || !json.refresh_token) {
         throw new Error('[grok-oauth] token exchange response missing access_token or refresh_token');
     }
+    const identity = _identityFromAccessToken(json.access_token);
     const tokens = {
         access_token: json.access_token,
         refresh_token: json.refresh_token,
@@ -889,7 +908,9 @@ async function exchangeAuthorizationCode({ discovery, pkce, code }) {
             ? Date.now() + json.expires_in * 1000
             : _normalizeExpiresAt(json.expires_at),
         token_endpoint: discovery.token_endpoint,
-        user_id: _identityFromAccessToken(json.access_token).user_id || '',
+        user_id: identity.user_id || '',
+        principal_type: json.principal_type || identity.principal_type || '',
+        principal_id: json.principal_id || identity.principal_id || '',
     };
     saveTokens(tokens);
     return tokens;

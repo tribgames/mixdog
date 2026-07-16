@@ -45,6 +45,7 @@ import {
     clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
     deferredAnthropicTools as sharedDeferredAnthropicTools,
     requestAnthropicTools as sharedRequestAnthropicTools,
+    normalizeAnthropicNonStreamingResponse,
     resolveAnthropicCacheTtls as resolveCacheTtls,
     sanitizeAnthropicInputSchema,
     toAnthropicToolChoice,
@@ -489,6 +490,7 @@ export class AnthropicProvider {
         const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
         const onToolCall = typeof opts.onToolCall === 'function' ? opts.onToolCall : null;
         const onTextDelta = typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null;
+        const onTextReset = typeof opts.onTextReset === 'function' ? opts.onTextReset : null;
 
         // No absolute wall-clock cap on streaming generation: a stream still
         // emitting SSE deltas must not be killed by a fixed total-lifetime timer.
@@ -579,6 +581,48 @@ export class AnthropicProvider {
             };
         };
 
+        const recoverNonStreaming = async (midState, streamingError, streamController) => {
+            const exposedChars = Number(midState?.emittedTextChars) || 0;
+            if (!onTextReset || exposedChars <= 0
+                || midState.emittedToolCall || midState.partialToolCall || midState.emittedThinking) {
+                try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
+                throw streamingError;
+            }
+            let resetAccepted = false;
+            try {
+                resetAccepted = await onTextReset({
+                    chars: exposedChars,
+                    reason: 'anthropic-streaming-fallback',
+                }) === true;
+            } catch {}
+            if (!resetAccepted) {
+                try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
+                throw streamingError;
+            }
+            try { streamController.abort?.(streamingError); } catch {}
+            try { onStageChange?.('requesting', { transport: 'non-streaming-fallback' }); } catch {}
+            const nonStreamingParams = { ...params, stream: false };
+            const message = await withRetry(
+                async ({ signal: attemptSignal }) => this.client.messages.create(nonStreamingParams, {
+                    signal: attemptSignal,
+                    ...(betaHeaders ? { headers: betaHeaders } : {}),
+                }),
+                {
+                    signal: totalSignal,
+                    maxAttempts: anthropicMaxAttempts(),
+                    backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
+                    retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
+                    retryJitterMode: 'positive',
+                    perAttemptTimeoutMs: anthropicRequestTimeoutMs(),
+                    perAttemptLabel: `${this.name} Anthropic non-streaming fallback`,
+                    provider: 'anthropic',
+                    model: useModel,
+                    fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+                },
+            );
+            return buildReturnFromParse(normalizeAnthropicNonStreamingResponse(message, useModel));
+        };
+
         try {
             for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
                 const streamController = createAbortController();
@@ -662,6 +706,7 @@ export class AnthropicProvider {
                             retryJitterMode: 'positive',
                             perAttemptTimeoutMs: anthropicRequestTimeoutMs(),
                             perAttemptLabel: `${this.name} Anthropic streaming response`,
+                            provider: 'anthropic',
                             model: useModel,
                             fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
                             onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
@@ -740,30 +785,12 @@ export class AnthropicProvider {
                             _fallbackTriggered: true,
                         });
                     }
-                    // Live-text invariant: once a non-empty text chunk has been
-                    // relayed to the client (gateway live mode), the rendered
-                    // output cannot be withdrawn and re-issuing would concatenate
-                    // a second attempt. Surface immediately — never retry — and
-                    // tag the error so upstream layers refuse to retry as well.
+                    // Acknowledged reset semantics let the owner tombstone this
+                    // attempt before the full request is restarted non-streaming.
+                    // Without that acknowledgement, recoverNonStreaming stamps
+                    // the error unsafe and preserves the no-concatenation rule.
                     if (midState.emittedText) {
-                        try { err.liveTextEmitted = true; err.unsafeToRetry = true; } catch {}
-                        try { streamController.abort?.(err); } catch {}
-                        if (attemptIndex > 0 && firstAttemptError) {
-                            try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
-                            try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
-                            // firstAttemptError (from an earlier retried attempt)
-                            // is what actually propagates when live text was
-                            // emitted this attempt — stamp the unsafe/partial
-                            // flags onto IT too, otherwise upstream sees an
-                            // unmarked error and retries, duplicating streamed
-                            // output.
-                            try {
-                                firstAttemptError.liveTextEmitted = true;
-                                firstAttemptError.unsafeToRetry = true;
-                            } catch {}
-                            throw err;
-                        }
-                        throw err;
+                        return await recoverNonStreaming(midState, err, streamController);
                     }
                     if (midState.emittedToolCall || midState.partialToolCall || midState.emittedThinking) {
                         try {

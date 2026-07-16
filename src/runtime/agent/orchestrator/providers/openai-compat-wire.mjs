@@ -329,32 +329,61 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
     let startIndex = 0;
     let resetReason = null;
     let previousResponseId = typeof state?.previousResponseId === 'string' ? state.previousResponseId : null;
+    let statelessContinuation = state?.store === false;
     const expectedModel = options.model ? String(options.model) : '';
     const stateModel = state?.model ? String(state.model) : '';
     const seen = Number.isInteger(state?.seenMessageCount) ? state.seenMessageCount : null;
-    if (previousResponseId && expectedModel && stateModel && stateModel !== expectedModel) {
+    if ((previousResponseId || statelessContinuation) && expectedModel && stateModel && stateModel !== expectedModel) {
         previousResponseId = null;
+        statelessContinuation = false;
         resetReason = 'model_changed';
     }
-    if (previousResponseId && (seen == null || seen < 0 || seen > messages.length)) {
+    if ((previousResponseId || statelessContinuation) && (seen == null || seen < 0 || seen > messages.length)) {
         previousResponseId = null;
+        statelessContinuation = false;
         resetReason = seen == null ? 'missing_seen_message_count' : 'seen_message_count_out_of_range';
     }
     if (previousResponseId) {
         startIndex = Math.max(0, Math.min(seen, messages.length));
         if (messages[startIndex]?.role === 'assistant') startIndex += 1;
+    } else if (statelessContinuation) {
+        // store=false responses cannot be looked up by id. The reference
+        // ConversationRequest sends the complete retained conversation on
+        // every turn, so replay from the beginning rather than treating the
+        // encrypted reasoning item like stored server-side continuation.
+        startIndex = 0;
     }
-    const dropToolHistory = !previousResponseId && (resetReason !== null || !state?.previousResponseId);
+    const dropToolHistory = !previousResponseId
+        && !statelessContinuation
+        && (resetReason !== null || !state?.previousResponseId);
     const input = [];
+    const reasoningByMessageIndex = new Map();
+    if (statelessContinuation) {
+        const history = Array.isArray(state?.encryptedReasoningHistory)
+            ? state.encryptedReasoningHistory
+            : (Array.isArray(state?.encryptedReasoningItems)
+                ? [{ messageIndex: seen, items: state.encryptedReasoningItems }]
+                : []);
+        for (const entry of history) {
+            const index = Number(entry?.messageIndex);
+            if (!Number.isInteger(index) || index < 0 || !Array.isArray(entry?.items)) continue;
+            const bucket = reasoningByMessageIndex.get(index) || [];
+            bucket.push(...entry.items.map((item) => ({ ...item })));
+            reasoningByMessageIndex.set(index, bucket);
+        }
+    }
     const pendingToolMedia = [];
     const customToolCallNameById = new Map();
     const flushToolMedia = () => {
         if (!pendingToolMedia.length) return;
         input.push({ role: 'user', content: pendingToolMedia.splice(0) });
     };
-    for (const m of messages.slice(startIndex)) {
+    for (let messageIndex = startIndex; messageIndex < messages.length; messageIndex += 1) {
+        const m = messages[messageIndex];
         if (!includeSystem && m.role === 'system') continue;
         if (m.role !== 'tool') flushToolMedia();
+        const reasoningItems = reasoningByMessageIndex.get(messageIndex);
+        if (reasoningItems) input.push(...reasoningItems);
         if (dropToolHistory && m.role === 'tool') continue;
         if (dropToolHistory && m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
             if (m.content) input.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
@@ -365,5 +394,7 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
         else input.push(converted);
     }
     flushToolMedia();
+    const trailingReasoning = reasoningByMessageIndex.get(messages.length);
+    if (trailingReasoning) input.push(...trailingReasoning);
     return { input, previousResponseId, startIndex, continuationResetReason: resetReason };
 }

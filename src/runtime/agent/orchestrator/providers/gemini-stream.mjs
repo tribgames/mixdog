@@ -44,6 +44,41 @@ export function geminiTruncatedStreamError(message) {
     );
 }
 
+export function geminiStreamCorruptionError(message, cause = null) {
+    return Object.assign(
+        new Error(message, cause ? { cause } : undefined),
+        {
+            name: 'GeminiStreamCorruptionError',
+            code: 'TRUNCATED_STREAM',
+            truncatedStream: true,
+            streamCorruption: true,
+        },
+    );
+}
+
+function isGeminiSdkStreamParseError(err) {
+    let cursor = err;
+    const seen = new Set();
+    for (let depth = 0; cursor && depth < 5 && !seen.has(cursor); depth++) {
+        seen.add(cursor);
+        if (cursor instanceof SyntaxError) return true;
+        const name = String(cursor?.name || '');
+        const message = String(cursor?.message || '');
+        if (name === 'GoogleGenerativeAIError'
+            && /(?:parse|parsing|json|unexpected token|unexpected end|unterminated)/i.test(message)) {
+            return true;
+        }
+        cursor = cursor?.cause;
+    }
+    return false;
+}
+
+function normalizeGeminiSdkStreamError(err, label) {
+    return isGeminiSdkStreamParseError(err)
+        ? geminiStreamCorruptionError(`${label} corrupt SDK SSE JSON`, err)
+        : err;
+}
+
 // CC-rule safety stamp for Gemini stream failures (provider-stall audit):
 // once text has been relayed to the live gateway or a leaked tool call was
 // dispatched, replaying the request would double-render/double-execute — the
@@ -63,10 +98,10 @@ export function stampGeminiStreamFailure(err, {
     const finalizedText = textLeakGuard?.getVisibleText?.();
     const visibleText = typeof finalizedText === 'string' ? finalizedText : relayedText;
     const visible = visibleText.length > 0;
-    // A native functionCall chunk (not a text-leaked one) is also an in-flight
-    // tool use — replaying would double-dispatch, and partial-final must NOT
-    // treat it as a clean no-tool summary.
-    const pendingTool = leaked || sawFunctionCall === true;
+    // Native functionCall chunks are only dispatched after successful stream
+    // completion in gemini.mjs. Until then a reconnect is safe. Text-leaked
+    // calls are dispatched while parsing and remain a hard replay boundary.
+    const pendingTool = leaked;
     try {
         if (visible) { err.liveTextEmitted = true; err.unsafeToRetry = true; }
         if (pendingTool) { err.emittedToolCall = true; err.unsafeToRetry = true; }
@@ -277,6 +312,10 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
 
 export async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta, onTextDelta, textLeakGuard, label }) {
     if (!response?.body) throw new Error(`${label}: missing response body`);
+    if (signal?.aborted) {
+        const reason = signal.reason;
+        throw reason instanceof Error ? reason : new Error(`${label} aborted`);
+    }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -332,10 +371,6 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
     };
 
     if (signal) {
-        if (signal.aborted) {
-            const reason = signal.reason;
-            throw reason instanceof Error ? reason : new Error(`${label} aborted`);
-        }
         signal.addEventListener('abort', onAbort, { once: true });
     }
 
@@ -373,7 +408,11 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
                 const data = line.slice(6).trim();
                 if (!data || data === '[DONE]') continue;
                 let parsed;
-                try { parsed = JSON.parse(data); } catch { continue; }
+                try {
+                    parsed = JSON.parse(data);
+                } catch (cause) {
+                    throw geminiStreamCorruptionError(`${label} corrupt SSE JSON`, cause);
+                }
                 if (!sawStreamChunk) {
                     sawStreamChunk = true;
                     clearFirstByteTimer();
@@ -407,7 +446,9 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
                             if (t) relayedText += t;
                             relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
                         }
-                    } catch { /* skip malformed tail */ }
+                    } catch (cause) {
+                        throw geminiStreamCorruptionError(`${label} corrupt SSE tail JSON`, cause);
+                    }
                 }
             }
         }
@@ -437,7 +478,16 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
     return aggregated;
 }
 
-export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDelta, onTextDelta, textLeakGuard, label }) {
+export async function consumeGeminiSdkStream(streamResult, {
+    signal,
+    onStreamDelta,
+    onTextDelta,
+    textLeakGuard,
+    label,
+    cancelGeneration,
+    firstByteTimeoutMs = GEMINI_FIRST_BYTE_TIMEOUT_MS,
+    cancellationGraceMs = 250,
+}) {
     let sawStreamChunk = false;
     let idleTimedOut = false;
     let idleTimer = null;
@@ -453,15 +503,53 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
         try { textLeakGuard?.finalize(); } catch {}
     };
 
+    let iterator = null;
+    let cancellation = null;
+    let forcedFailure = null;
+    const cancelInFlight = (err) => {
+        if (cancellation) return cancellation;
+        forcedFailure = err;
+        cancellation = (async () => {
+            try { cancelGeneration?.(err); } catch {}
+            let returnPromise;
+            try {
+                returnPromise = Promise.resolve(iterator?.return?.());
+            } catch {
+                return;
+            }
+            // iterator.return() is best-effort cleanup. A broken SDK iterator
+            // must not deadlock the timeout path and prevent withRetry from
+            // beginning the next attempt after the generation was aborted.
+            let graceTimer = null;
+            try {
+                await Promise.race([
+                    returnPromise.catch(() => {}),
+                    new Promise((resolve) => {
+                        graceTimer = setTimeout(resolve, Math.max(0, cancellationGraceMs));
+                    }),
+                ]);
+            } finally {
+                if (graceTimer) clearTimeout(graceTimer);
+                // Keep observing a late rejection after the grace race expires.
+                returnPromise.catch(() => {});
+            }
+        })();
+        return cancellation;
+    };
+
+    const rejectAfterCancellation = (reject, err) => {
+        cancelInFlight(err).then(() => reject(err), () => reject(err));
+    };
+
     const armFirstByteTimer = () => {
         if (firstByteTimer) clearTimeout(firstByteTimer);
         firstByteTimer = setTimeout(() => {
             if (firstByteReject) {
-                const e = geminiTimeoutError(`${label} first byte`, GEMINI_FIRST_BYTE_TIMEOUT_MS);
-                const r = firstByteReject; firstByteReject = null; r(e);
+                const e = geminiTimeoutError(`${label} first byte`, firstByteTimeoutMs);
+                const r = firstByteReject; firstByteReject = null;
+                rejectAfterCancellation(r, e);
             }
-        }, GEMINI_FIRST_BYTE_TIMEOUT_MS);
-        if (firstByteTimer.unref) firstByteTimer.unref();
+        }, firstByteTimeoutMs);
     };
 
     const clearFirstByteTimer = () => {
@@ -479,10 +567,10 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
             idleTimedOut = true;
             if (inFlightReject) {
                 const e = geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-                const r = inFlightReject; inFlightReject = null; r(e);
+                const r = inFlightReject; inFlightReject = null;
+                rejectAfterCancellation(r, e);
             }
         }, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-        if (idleTimer.unref) idleTimer.unref();
     };
 
     if (signal?.aborted) {
@@ -490,7 +578,17 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
         throw reason instanceof Error ? reason : new Error(`${label} aborted`);
     }
 
-    const iterator = streamResult.stream[Symbol.asyncIterator]();
+    iterator = streamResult.stream[Symbol.asyncIterator]();
+    // The SDK tees the parsed stream into `response`. Even though local
+    // aggregation normally avoids awaiting it, its rejection must remain
+    // observed across parser/abort retries.
+    let responsePromise;
+    try {
+        responsePromise = Promise.resolve(streamResult.response);
+    } catch (err) {
+        responsePromise = Promise.reject(err);
+    }
+    responsePromise.catch(() => {});
 
     // Wire the abort signal to actually CANCEL iteration (mirror of the REST
     // consumer's onAbort -> reader.cancel). Without this, a parent / client /
@@ -511,10 +609,7 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
                 firstByteReject = null;
                 r(err);
             }
-            try {
-                const ret = iterator.return?.();
-                if (ret && typeof ret.catch === 'function') ret.catch(() => {});
-            } catch {}
+            cancelInFlight(err).catch(() => {});
         };
         signal.addEventListener('abort', onSignalAbort, { once: true });
     }
@@ -536,12 +631,26 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
                         (value) => {
                             inFlightReject = null;
                             firstByteReject = null;
-                            resolve(value);
+                            if (forcedFailure) {
+                                cancellation.then(
+                                    () => reject(forcedFailure),
+                                    () => reject(forcedFailure),
+                                );
+                            } else {
+                                resolve(value);
+                            }
                         },
                         (err) => {
                             inFlightReject = null;
                             firstByteReject = null;
-                            reject(err);
+                            if (forcedFailure) {
+                                cancellation.then(
+                                    () => reject(forcedFailure),
+                                    () => reject(forcedFailure),
+                                );
+                            } else {
+                                reject(err);
+                            }
                         },
                     );
                 });
@@ -553,7 +662,7 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
                     const reason = signal.reason;
                     throw reason instanceof Error ? reason : new Error(`${label} aborted`);
                 }
-                throw err;
+                throw normalizeGeminiSdkStreamError(err, label);
             }
             if (step.done) break;
             if (!sawStreamChunk) {
@@ -605,9 +714,9 @@ export async function consumeGeminiSdkStream(streamResult, { signal, onStreamDel
     } else {
         let response;
         try {
-            response = await streamResult.response;
+            response = await responsePromise;
         } catch (err) {
-            let failure = err;
+            let failure = normalizeGeminiSdkStreamError(err, label);
             if (signal?.aborted) {
                 const reason = signal.reason;
                 failure = reason instanceof Error ? reason : new Error(`${label} aborted`);

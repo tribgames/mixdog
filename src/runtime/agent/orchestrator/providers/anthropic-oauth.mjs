@@ -76,6 +76,7 @@ import {
     clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
     deferredAnthropicTools as sharedDeferredAnthropicTools,
     requestAnthropicTools as sharedRequestAnthropicTools,
+    normalizeAnthropicNonStreamingResponse,
     resolveAnthropicCacheTtls as resolveCacheTtls,
     sanitizeAnthropicInputSchema,
     toAnthropicToolChoice,
@@ -562,6 +563,7 @@ export class AnthropicOAuthProvider {
         const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
         const onToolCall = typeof opts.onToolCall === 'function' ? opts.onToolCall : null;
         const onTextDelta = typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null;
+        const onTextReset = typeof opts.onTextReset === 'function' ? opts.onTextReset : null;
         const externalSignal = opts.signal || null;
         // Test seam: lets the retry harness drive stream outcomes without a
         // live OAuth session.
@@ -612,7 +614,7 @@ export class AnthropicOAuthProvider {
             try { totalSignal.removeEventListener('abort', handler); } catch {}
         };
 
-        const doRequest = async (accessToken, requestSignal = null) => {
+        const doRequest = async (accessToken, requestSignal = null, requestBody = body) => {
             const controller = createAbortController();
             const fetchStartedAt = Date.now();
 
@@ -665,7 +667,7 @@ export class AnthropicOAuthProvider {
                         'x-app': 'cli',
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(body),
+                    body: JSON.stringify(requestBody),
                     signal: controller.signal,
                     dispatcher: getLlmDispatcher(),
                 });
@@ -707,8 +709,8 @@ export class AnthropicOAuthProvider {
         // Test seam: injectable request factory for retry-path tests.
         const doRequestImpl = typeof opts._doRequestFn === 'function' ? opts._doRequestFn : doRequest;
 
-        const requestWithRetry = async (accessToken) => withRetry(async ({ signal: attemptSignal }) => {
-            const result = await doRequestImpl(accessToken, attemptSignal);
+        const requestWithRetry = async (accessToken, requestBody = body) => withRetry(async ({ signal: attemptSignal }) => {
+            const result = await doRequestImpl(accessToken, attemptSignal, requestBody);
             const status = Number(result?.response?.status || 0);
             const transientStatus = classifyError({ httpStatus: status }) === 'transient';
             if (transientStatus || status === 429) {
@@ -738,8 +740,14 @@ export class AnthropicOAuthProvider {
             backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
             retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
             retryJitterMode: 'positive',
+            // Max/Pro OAuth sessions use subscription quota windows. Claude
+            // Code fails their 429s immediately rather than waiting through
+            // the API-key/PAYG retry budget (which may carry hours-long
+            // Retry-After values).
+            retry429: false,
             perAttemptTimeoutMs: requestTimeoutMs,
             perAttemptLabel: 'Anthropic OAuth initial response',
+            provider: 'anthropic',
             model: useModel,
             fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
             onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
@@ -759,6 +767,51 @@ export class AnthropicOAuthProvider {
         const MAX_MIDSTREAM_RETRIES = ANTHROPIC_MAX_MIDSTREAM_RETRIES;
         let firstAttemptError = null;
         let firstAttemptClassifier = null;
+
+        const recoverNonStreaming = async (midState, streamingError, controller) => {
+            const exposedChars = Number(midState?.emittedTextChars) || 0;
+            if (!onTextReset || exposedChars <= 0
+                || midState.emittedToolCall || midState.partialToolCall || midState.emittedThinking) {
+                try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
+                throw streamingError;
+            }
+            let resetAccepted = false;
+            try {
+                resetAccepted = await onTextReset({
+                    chars: exposedChars,
+                    reason: 'anthropic-streaming-fallback',
+                }) === true;
+            } catch {}
+            if (!resetAccepted) {
+                try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
+                throw streamingError;
+            }
+            try { controller?.abort?.(streamingError); } catch {}
+            try { onStageChange?.('requesting', { transport: 'non-streaming-fallback' }); } catch {}
+            let fallback = await requestWithRetry(creds.accessToken, { ...body, stream: false });
+            if (fallback.response.status === 401) {
+                cleanupCancelHandler(fallback.cancelHandler);
+                try { fallback.controller?.abort?.(); } catch {}
+                creds = await this.ensureAuth({ forceRefresh: true, reason: '401' });
+                fallback = await requestWithRetry(creds.accessToken, { ...body, stream: false });
+            }
+            if (!fallback.response.ok) {
+                const text = await fallback.response.text().catch(() => '');
+                cleanupCancelHandler(fallback.cancelHandler);
+                try { fallback.controller?.abort?.(); } catch {}
+                const fallbackError = new Error(`Anthropic OAuth API ${fallback.response.status}: ${this.scrubTokens(text).slice(0, 200)}`);
+                fallbackError.status = fallback.response.status;
+                fallbackError.httpStatus = fallback.response.status;
+                throw fallbackError;
+            }
+            try {
+                const message = await fallback.response.json();
+                return normalizeAnthropicNonStreamingResponse(message, useModel);
+            } finally {
+                cleanupCancelHandler(fallback.cancelHandler);
+                try { fallback.controller?.abort?.('Anthropic non-streaming fallback complete'); } catch {}
+            }
+        };
 
         try {
         for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
@@ -919,28 +972,12 @@ export class AnthropicOAuthProvider {
                 } catch { /* ignore non-extensible result */ }
                 return result;
             } catch (err) {
-                // Live-text invariant: once a non-empty text chunk has been
-                // relayed to the client (gateway live mode), the rendered output
-                // cannot be withdrawn and re-issuing would concatenate a second
-                // attempt. Surface the failure immediately — never retry — and
-                // tag the error so upstream layers refuse to retry as well.
+                // Acknowledged reset semantics let the owner tombstone this
+                // attempt before the full request is restarted non-streaming.
+                // Without that acknowledgement, recoverNonStreaming stamps
+                // the error unsafe and preserves the no-concatenation rule.
                 if (midState.emittedText) {
-                    try { err.liveTextEmitted = true; err.unsafeToRetry = true; } catch {}
-                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
-                    if (attemptIndex > 0 && firstAttemptError) {
-                        try { firstAttemptError.midstreamRetries = attemptIndex; } catch {}
-                        try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
-                        // firstAttemptError is what actually propagates here when
-                        // live text was emitted this attempt — stamp the unsafe
-                        // flags onto IT too, else upstream sees an unmarked error
-                        // and retries, duplicating already-streamed output.
-                        try {
-                            firstAttemptError.liveTextEmitted = true;
-                            firstAttemptError.unsafeToRetry = true;
-                        } catch {}
-                        throw err;
-                    }
-                    throw err;
+                    return await recoverNonStreaming(midState, err, controller);
                 }
                 // Completed/partial tools and thinking blocks are also replay
                 // boundaries. Stamp the current (latest) error so no upstream

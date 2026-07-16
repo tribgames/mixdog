@@ -124,7 +124,7 @@ function finalizeInterruptedTurn({
     const pairedMessages = sanitizeToolPairs(messages);
     // Claude Code omits the synthetic marker when a queued user submission
     // interrupted the active request; that queued message is the boundary.
-    if (abortReason !== 'interrupt') {
+    if (abortReason !== 'interrupt' && abortReason !== 'provider-error') {
         pairedMessages.push({
             role: 'user',
             content: phase === 'tools'
@@ -138,6 +138,7 @@ function finalizeInterruptedTurn({
 export function createTurnInterruptionTracker() {
     let responseStarted = false;
     let partialAssistantContent = '';
+    let tombstonedAssistantContent = '';
     let partialReasoningContent = '';
     let phase = 'streaming';
     const observedToolCalls = new Map();
@@ -149,6 +150,26 @@ export function createTurnInterruptionTracker() {
             if (!value) return;
             responseStarted = true;
             partialAssistantContent += value;
+        },
+        tombstoneText(chars) {
+            const count = Math.max(0, Number(chars) || 0);
+            if (!count) return;
+            const cutAt = Math.max(0, partialAssistantContent.length - count);
+            tombstonedAssistantContent = partialAssistantContent.slice(cutAt)
+                + tombstonedAssistantContent;
+            partialAssistantContent = partialAssistantContent.slice(
+                0,
+                cutAt,
+            );
+        },
+        restoreTombstonedText() {
+            if (!tombstonedAssistantContent) return false;
+            partialAssistantContent += tombstonedAssistantContent;
+            tombstonedAssistantContent = '';
+            return true;
+        },
+        hasResponseStarted() {
+            return responseStarted;
         },
         recordReasoningDelta(chunk) {
             const value = String(chunk ?? '');
@@ -166,6 +187,7 @@ export function createTurnInterruptionTracker() {
         },
         markAssistantMessageCommitted() {
             partialAssistantContent = '';
+            tombstonedAssistantContent = '';
             partialReasoningContent = '';
             observedToolCalls.clear();
         },

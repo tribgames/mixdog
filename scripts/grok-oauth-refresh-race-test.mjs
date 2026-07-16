@@ -26,12 +26,13 @@ after(() => {
     rmSync(root, { recursive: true, force: true });
 });
 
-function writeTokens(accessToken, refreshToken, expiresAt) {
+function writeTokens(accessToken, refreshToken, expiresAt, extra = {}) {
     writeJsonAtomicSync(tokenPath, {
         access_token: accessToken,
         refresh_token: refreshToken,
         expires_at: expiresAt,
         token_endpoint: 'https://auth.x.ai/oauth/token',
+        ...extra,
     }, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
 }
 
@@ -195,4 +196,78 @@ writeFileSync(process.env.RESULT_PATH, JSON.stringify({
 
     assert.deepEqual(JSON.parse(readFileSync(resultPath, 'utf8')), { adopted: true, calls: 1 });
     assert.ok(statSync(tokenPath).size > 0);
+});
+
+test('refresh retries transient responses three times, preserves principal fields, and stops on invalid_client', async () => {
+    const resultPath = join(root, 'retry-policy-result');
+    writeTokens('fixture-retry-access', 'fixture-retry-refresh', Date.now() + 1_000, {
+        principal_type: 'user',
+        principal_id: 'principal-123',
+    });
+    const childSource = `
+const { writeFileSync } = await import('node:fs');
+const { GrokOAuthProvider } = await import(${JSON.stringify(moduleUrl)});
+const provider = new GrokOAuthProvider({preconnect:false});
+const bodies = [];
+let retryCalls = 0;
+globalThis.fetch = async (_url, init) => {
+  retryCalls += 1;
+  bodies.push(Object.fromEntries(init.body.entries()));
+  if (retryCalls === 1) {
+    return {ok:false,status:400,async text(){return JSON.stringify({error:'temporarily_unavailable'});}};
+  }
+  if (retryCalls === 2) {
+    return {ok:false,status:401,async text(){return '{}';}};
+  }
+  return {ok:true,status:200,async text(){return JSON.stringify({
+    access_token:'fixture-retry-new-access',
+    refresh_token:'fixture-retry-new-refresh',
+    expires_in:600
+  });}};
+};
+const refreshed = await provider.ensureAuth({forceRefresh:true});
+let terminalCalls = 0;
+globalThis.fetch = async () => {
+  terminalCalls += 1;
+  return {ok:false,status:400,async text(){return JSON.stringify({error:'invalid_client'});}};
+};
+let terminalCode = null;
+try {
+  await provider.ensureAuth({forceRefresh:true});
+} catch (error) {
+  terminalCode = error.oauthError;
+}
+writeFileSync(process.env.RESULT_PATH, JSON.stringify({
+  retryCalls,
+  bodies,
+  principalType: refreshed.principal_type,
+  principalId: refreshed.principal_id,
+  terminalCalls,
+  terminalCode
+}));
+`;
+    const child = spawn(process.execPath, ['--input-type=module', '--eval', childSource], {
+        env: {
+            ...process.env,
+            MIXDOG_DATA_DIR: root,
+            GROK_OAUTH_CREDENTIALS_PATH: tokenPath,
+            RESULT_PATH: resultPath,
+        },
+        stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    await waitForExit(child, 'refresh retry policy child');
+    const result = JSON.parse(readFileSync(resultPath, 'utf8'));
+    assert.equal(result.retryCalls, 3);
+    assert.equal(result.terminalCalls, 1);
+    assert.equal(result.terminalCode, 'invalid_client');
+    assert.equal(result.principalType, 'user');
+    assert.equal(result.principalId, 'principal-123');
+    for (const body of result.bodies) {
+        assert.equal(body.principal_type, 'user');
+        assert.equal(body.principal_id, 'principal-123');
+        assert.equal(body.refresh_token, 'fixture-retry-refresh');
+    }
+    const persisted = JSON.parse(readFileSync(tokenPath, 'utf8'));
+    assert.equal(persisted.principal_type, 'user');
+    assert.equal(persisted.principal_id, 'principal-123');
 });

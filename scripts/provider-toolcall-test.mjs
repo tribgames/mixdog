@@ -833,6 +833,89 @@ test('openai-compat/xai Responses: load_tool history replays as function_call', 
     assert.equal(input.some((item) => item.type === 'function_call_output' && item.call_id === 'call_load_1'), true);
 });
 
+test('openai-compat/xai store=false continuation replays the full conversation with encrypted reasoning', () => {
+    const encrypted = {
+        type: 'reasoning',
+        id: 'reasoning_1',
+        encrypted_content: 'opaque-ciphertext',
+        summary: [],
+    };
+    const { input, previousResponseId, startIndex } = _toXaiResponsesInputForTest([
+        { role: 'user', content: 'call read' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call_1', name: 'read', arguments: { path: 'a' } }],
+        },
+        { role: 'tool', toolCallId: 'call_1', content: 'contents' },
+    ], {
+        xaiResponses: {
+            previousResponseId: null,
+            responseId: 'resp_unstored',
+            store: false,
+            encryptedReasoningItems: [encrypted],
+            seenMessageCount: 1,
+            model: 'grok-4.5',
+        },
+    }, { model: 'grok-4.5' });
+    assert.equal(previousResponseId, null);
+    assert.equal(startIndex, 0);
+    assert.equal(input[0].role, 'user');
+    assert.deepEqual(input[1], encrypted);
+    assert.equal(input[2].call_id, 'call_1');
+    assert.equal(input[3].call_id, 'call_1');
+});
+
+test('openai-compat/xai store=false second tool round retains original system/user and both tool results', () => {
+    const firstReasoning = {
+        type: 'reasoning',
+        id: 'reasoning_1',
+        encrypted_content: 'opaque-first',
+        summary: [],
+    };
+    const secondReasoning = {
+        type: 'reasoning',
+        id: 'reasoning_2',
+        encrypted_content: 'opaque-second',
+        summary: [],
+    };
+    const { input, previousResponseId, startIndex } = _toXaiResponsesInputForTest([
+        { role: 'system', content: 'original system' },
+        { role: 'user', content: 'original user request' },
+        { role: 'assistant', content: '', toolCalls: [{ id: 'call_1', name: 'read', arguments: { path: 'a' } }] },
+        { role: 'tool', toolCallId: 'call_1', content: 'first tool result' },
+        { role: 'assistant', content: '', toolCalls: [{ id: 'call_2', name: 'grep', arguments: { pattern: 'x' } }] },
+        { role: 'tool', toolCallId: 'call_2', content: 'second tool result' },
+    ], {
+        xaiResponses: {
+            previousResponseId: null,
+            responseId: 'resp_unstored_2',
+            store: false,
+            encryptedReasoningHistory: [
+                { messageIndex: 2, items: [firstReasoning] },
+                { messageIndex: 4, items: [secondReasoning] },
+            ],
+            seenMessageCount: 4,
+            model: 'grok-4.5',
+        },
+    }, { model: 'grok-4.5' });
+    assert.equal(previousResponseId, null);
+    assert.equal(startIndex, 0);
+    assert.equal(input[0].role, 'system');
+    assert.equal(input[0].content[0].text, 'original system');
+    assert.equal(input[1].role, 'user');
+    assert.equal(input[1].content[0].text, 'original user request');
+    assert.deepEqual(input.filter((item) => item.type === 'reasoning'), [firstReasoning, secondReasoning]);
+    assert.deepEqual(
+        input.filter((item) => item.type === 'function_call').map((item) => item.call_id),
+        ['call_1', 'call_2'],
+    );
+    assert.deepEqual(
+        input.filter((item) => item.type === 'function_call_output').map((item) => item.output),
+        ['first tool result', 'second tool result'],
+    );
+});
+
 test('openai-compat/xai Responses: model switch drops prior tool transcript history', () => {
     const { input, previousResponseId, continuationResetReason } = _toXaiResponsesInputForTest([
         { role: 'system', content: 'sys' },
@@ -2869,7 +2952,7 @@ test('openai-compat/xai: HTTP pin uses only the injected preconnect seam', async
     }
 });
 
-test('grok-oauth: all Grok models inherit global transport; explicit setting is the escape hatch', () => {
+test('grok-oauth: every OAuth model is pinned to the CLI proxy over HTTP/SSE', () => {
     const prevOaiTransport = process.env.MIXDOG_OAI_TRANSPORT;
     const prevResponsesTransport = process.env.MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT;
     const prevGrokTransport = process.env.MIXDOG_GROK_OAUTH_TRANSPORT;
@@ -2879,22 +2962,19 @@ test('grok-oauth: all Grok models inherit global transport; explicit setting is 
         delete process.env.MIXDOG_GROK_OAUTH_TRANSPORT;
         const provider = new GrokOAuthProvider({});
 
-        const apiInner = provider._ensureInner('tok', 'grok-build-0.1');
-        assert.equal(apiInner.config.responsesTransport, undefined);
+        for (const model of ['grok-build-0.1', 'grok-build', 'grok-4.5']) {
+            const inner = provider._ensureInner(`tok-${model}`, model);
+            assert.equal(inner.config.responsesTransport, 'http');
+            assert.equal(inner.baseURL, 'https://cli-chat-proxy.grok.com/v1');
+        }
 
-        // No Grok-specific override: proxy-only grok-build now inherits the
-        // shared switch too (WS→api.x.ai), no implicit HTTP pin.
-        const proxyInner = provider._ensureInner('tok', 'grok-build');
-        assert.equal(proxyInner.config.responsesTransport, undefined);
-
-        // Escape hatch: an explicit Grok-specific http setting pins proxy-only
-        // models back onto the Grok CLI proxy over HTTP.
-        process.env.MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT = 'http';
-        const pinnedProvider = new GrokOAuthProvider({});
-        const pinnedProxy = pinnedProvider._ensureInner('tok', 'grok-build');
-        assert.equal(pinnedProxy.config.responsesTransport, 'http');
-        const pinnedApi = pinnedProvider._ensureInner('tok2', 'grok-build-0.1');
-        assert.equal(pinnedApi.config.responsesTransport, 'http');
+        // OAuth routing is a security boundary: even explicit WS settings
+        // cannot send the session bearer to the fixed api.x.ai WS endpoint.
+        process.env.MIXDOG_GROK_OAUTH_RESPONSES_TRANSPORT = 'websocket';
+        const pinnedProvider = new GrokOAuthProvider({ responsesTransport: 'websocket' });
+        const pinned = pinnedProvider._ensureInner('tok-explicit', 'grok-4.5');
+        assert.equal(pinned.config.responsesTransport, 'http');
+        assert.equal(pinned.baseURL, 'https://cli-chat-proxy.grok.com/v1');
     } finally {
         if (prevOaiTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
         else process.env.MIXDOG_OAI_TRANSPORT = prevOaiTransport;

@@ -185,6 +185,17 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
               stdout.write(chunk);
               atLineStart = chunk.endsWith('\n');
             },
+            onTextReset: ({ chars } = {}) => {
+              const count = Math.max(0, Number(chars) || 0);
+              if (!count || !colorEnabled() || printedToolCard) return false;
+              const remaining = streamedText.slice(0, Math.max(0, streamedText.length - count));
+              eraseStreamedBlock(streamedText);
+              streamedText = remaining;
+              if (remaining) stdout.write(remaining);
+              printedAny = !!remaining;
+              atLineStart = !remaining || remaining.endsWith('\n');
+              return true;
+            },
             onUsageDelta: (delta) => applyUsageDelta(stats, delta),
           },
         );

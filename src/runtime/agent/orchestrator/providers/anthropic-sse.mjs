@@ -174,7 +174,10 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             content += emit;
             try { onStreamDelta?.('text'); } catch {}
             if (onTextDelta) {
-                if (state) state.emittedText = true;
+                if (state) {
+                    state.emittedText = true;
+                    state.emittedTextChars = (Number(state.emittedTextChars) || 0) + emit.length;
+                }
                 try { onTextDelta(emit); } catch {}
             }
         }
@@ -458,7 +461,10 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                             } else {
                                 content += delta.text || '';
                                 if (delta.text && onTextDelta) {
-                                    if (state) state.emittedText = true;
+                                    if (state) {
+                                        state.emittedText = true;
+                                        state.emittedTextChars = (Number(state.emittedTextChars) || 0) + delta.text.length;
+                                    }
                                     try { onTextDelta(delta.text); } catch {}
                                 }
                                 if (delta.text) {

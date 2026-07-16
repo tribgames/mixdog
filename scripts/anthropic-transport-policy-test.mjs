@@ -16,6 +16,26 @@ import {
 import { _midstreamSleepWithAbort, parseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-sse.mjs';
 import { AnthropicProvider } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import { AnthropicOAuthProvider } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import {
+    ANTHROPIC_CACHE_TTL_STABLE,
+    ANTHROPIC_CACHE_TTL_VOLATILE,
+    resolveAnthropicCacheTtls,
+} from '../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
+
+test('Anthropic cache defaults keep system/tier3 stable and messages volatile', () => {
+    assert.deepEqual(resolveAnthropicCacheTtls(), {
+        tools: null,
+        system: ANTHROPIC_CACHE_TTL_STABLE,
+        tier3: ANTHROPIC_CACHE_TTL_STABLE,
+        messages: ANTHROPIC_CACHE_TTL_VOLATILE,
+    });
+    const descending = resolveAnthropicCacheTtls({
+        cacheStrategy: { system: '5m', tier3: '1h', messages: '1h' },
+    });
+    assert.equal(descending.system, ANTHROPIC_CACHE_TTL_VOLATILE);
+    assert.equal(descending.tier3, ANTHROPIC_CACHE_TTL_VOLATILE);
+    assert.equal(descending.messages, ANTHROPIC_CACHE_TTL_VOLATILE);
+});
 
 test('Anthropic transport classifier covers every 5xx, 529, and nested connection errno', () => {
     for (const status of [500, 501, 505, 529, 599]) {
@@ -108,6 +128,33 @@ test('permanent quota 429 is not retried by the generic rate-limit path', async 
     }, { maxAttempts: 3, backoffMs: [0], retryJitterRatio: 0 }), (err) => err === quota);
     assert.equal(attempts, 1);
     assert.equal(classifyError(quota), 'permanent');
+});
+
+test('OAuth subscription 429 fails immediately without honoring Retry-After', async () => {
+    const oauth = Object.create(AnthropicOAuthProvider.prototype);
+    oauth.credentials = { accessToken: 'fixture', expiresAt: Date.now() + 60_000 };
+    oauth.config = {};
+    oauth.fastModeBetaHeaderLatched = false;
+    oauth.ensureAuth = async () => oauth.credentials;
+    oauth.scrubTokens = (text) => text;
+    let attempts = 0;
+    const limited = {
+        status: 429,
+        ok: false,
+        headers: new Map([['retry-after', '14400']]),
+        async text() { return 'subscription rate limit'; },
+    };
+    await assert.rejects(oauth.send([], 'claude-sonnet-4-6', [], {
+        _doRequestFn: async () => {
+            attempts += 1;
+            return {
+                response: limited,
+                controller: { abort() {} },
+                cancelHandler: null,
+            };
+        },
+    }), (err) => err?.status === 429 && err?.retryAfterMs === 14_400_000);
+    assert.equal(attempts, 1);
 });
 
 test('structured and nested permanent quota codes are terminal; rate-limit codes retry', async () => {
@@ -219,6 +266,191 @@ function successfulAnthropicResponse(content = 'fallback-ok') {
         }) },
     };
 }
+
+function nonStreamingAnthropicMessage(content = 'replacement') {
+    return {
+        id: 'msg_fixture',
+        model: 'claude-sonnet-4-6',
+        content: [{ type: 'text', text: content }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 2, output_tokens: 1 },
+    };
+}
+
+test('session plumbing fail-closes stream replacement and preserves unique output', { concurrency: false }, async (t) => {
+    const priorRetries = process.env.CLAUDE_CODE_MAX_RETRIES;
+    process.env.CLAUDE_CODE_MAX_RETRIES = '0';
+    try {
+        process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
+        const { initProviders, getProvider } = await import('../src/runtime/agent/orchestrator/providers/registry.mjs');
+        await initProviders({ anthropic: { enabled: true, apiKey: 'fixture-key' } });
+        const provider = getProvider('anthropic');
+        const {
+            abortSessionTurn,
+            askSession,
+            createSession,
+            getSession,
+        } = await import('../src/runtime/agent/orchestrator/session/manager.mjs');
+
+        const makeDroppedResponse = () => {
+            const partial = new TextEncoder().encode([
+                { type: 'message_start', message: { model: 'claude-sonnet-4-6', usage: { input_tokens: 1 } } },
+                { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+                { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'partial' } },
+            ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''));
+            let reads = 0;
+            return {
+                ok: true,
+                status: 200,
+                headers: new Map(),
+                body: { getReader: () => ({
+                    async read() {
+                        if (reads++ === 0) return { done: false, value: partial };
+                        throw Object.assign(new Error('body stream terminated'), { code: 'ECONNRESET' });
+                    },
+                    async cancel() {},
+                    releaseLock() {},
+                }) },
+            };
+        };
+        const createTestSession = () => createSession({
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-6',
+            tools: [],
+            cwd: process.cwd(),
+            skipAgentRules: true,
+            skipSkills: true,
+            compaction: { auto: false },
+        });
+        const partialsInHistory = (session) => session.messages.filter((message) => (
+            message.role === 'assistant' && message.content === 'partial'
+        )).length;
+        const runCase = async ({ reset, restartFails = false, cancelRestart = false }) => {
+            const session = createTestSession();
+            let calls = 0;
+            let visible = '';
+            let markRestartEntered;
+            const restartEntered = new Promise((resolve) => { markRestartEntered = resolve; });
+            provider.client = { messages: { create(params, requestOptions = {}) {
+                calls += 1;
+                if (params.stream === false) {
+                    if (restartFails) throw new Error('non-streaming restart failed');
+                    if (cancelRestart) {
+                        markRestartEntered();
+                        return new Promise((_resolve, reject) => {
+                            const signal = requestOptions.signal;
+                            const rejectFromAbort = () => reject(
+                                signal?.reason instanceof Error
+                                    ? signal.reason
+                                    : new Error('non-streaming restart canceled'),
+                            );
+                            if (signal?.aborted) rejectFromAbort();
+                            else signal?.addEventListener('abort', rejectFromAbort, { once: true });
+                        });
+                    }
+                    return Promise.resolve(nonStreamingAnthropicMessage('replacement'));
+                }
+                return { asResponse: async () => makeDroppedResponse() };
+            } } };
+            const options = {
+                onTextDelta: (chunk) => { visible += chunk; },
+                ...(reset ? {
+                    onTextReset: async ({ chars }) => reset({
+                        chars,
+                        getVisible: () => visible,
+                        setVisible: (value) => { visible = value; },
+                    }),
+                } : {}),
+            };
+            const asking = askSession(
+                session.id,
+                'fixture prompt',
+                null,
+                null,
+                process.cwd(),
+                null,
+                options,
+            );
+            if (cancelRestart) {
+                await restartEntered;
+                assert.equal(abortSessionTurn(session.id, 'user-cancel'), true);
+            }
+            const outcome = await asking.then(
+                (result) => ({ result }),
+                (error) => ({ error }),
+            );
+            return {
+                ...outcome,
+                calls,
+                visible,
+                session: getSession(session.id),
+            };
+        };
+
+        for (const [name, reset] of [
+            ['absent acknowledgment', null],
+            ['false acknowledgment', async () => false],
+            ['throwing acknowledgment', async () => { throw new Error('reset failed'); }],
+        ]) {
+            await t.test(name, async () => {
+                const outcome = await runCase({ reset });
+                assert.match(outcome.error?.message || '', /body stream terminated/);
+                assert.equal(outcome.calls, 1, 'must not start non-streaming request');
+                assert.equal(outcome.visible, 'partial');
+                assert.equal(partialsInHistory(outcome.session), 1);
+            });
+        }
+
+        await t.test('late positive acknowledgment is awaited before one replacement', async () => {
+            const outcome = await runCase({
+                reset: async ({ chars, getVisible, setVisible }) => {
+                    await new Promise((resolve) => setTimeout(resolve, 15));
+                    setVisible(getVisible().slice(0, -chars));
+                    return true;
+                },
+            });
+            assert.equal(outcome.error, undefined);
+            assert.equal(outcome.calls, 2);
+            assert.equal(outcome.visible, '');
+            assert.equal(outcome.result.content, 'replacement');
+            assert.equal(outcome.session.messages.filter((message) => (
+                message.role === 'assistant' && message.content === 'replacement'
+            )).length, 1);
+            assert.equal(partialsInHistory(outcome.session), 0);
+        });
+
+        await t.test('failed restart restores one partial to interruption history', async () => {
+            const outcome = await runCase({
+                restartFails: true,
+                reset: async ({ chars, getVisible, setVisible }) => {
+                    setVisible(getVisible().slice(0, -chars));
+                    return true;
+                },
+            });
+            assert.match(outcome.error?.message || '', /non-streaming restart failed/);
+            assert.equal(outcome.calls, 2);
+            assert.equal(outcome.visible, '', 'acknowledged consumer keeps the tombstone');
+            assert.equal(partialsInHistory(outcome.session), 1, 'history restores exactly one exposed partial');
+        });
+
+        await t.test('cancellation during restart restores the partial before finalization', async () => {
+            const outcome = await runCase({
+                cancelRestart: true,
+                reset: async ({ chars, getVisible, setVisible }) => {
+                    setVisible(getVisible().slice(0, -chars));
+                    return true;
+                },
+            });
+            assert.equal(outcome.error?.name, 'SessionClosedError');
+            assert.equal(outcome.calls, 2);
+            assert.equal(outcome.visible, '', 'acknowledged consumer keeps the tombstone');
+            assert.equal(partialsInHistory(outcome.session), 1, 'cancel history preserves exactly one partial');
+        });
+    } finally {
+        if (priorRetries == null) delete process.env.CLAUDE_CODE_MAX_RETRIES;
+        else process.env.CLAUDE_CODE_MAX_RETRIES = priorRetries;
+    }
+});
 
 test('OAuth and API-key providers switch to the opt-in fallback after three 529s', async () => {
     const priorRetries = process.env.CLAUDE_CODE_MAX_RETRIES;
@@ -356,6 +588,34 @@ test('x-should-retry false vetoes retry before status defaults', async () => {
             retryJitterRatio: 0,
         }), (err) => err === denied);
         assert.equal(attempts, 1);
+    }
+});
+
+test('Anthropic x-should-retry true overrides a normally terminal status only for Anthropic', async () => {
+    for (const provider of ['anthropic', 'gemini']) {
+        let attempts = 0;
+        const result = await withRetry(async () => {
+            attempts += 1;
+            if (attempts === 1) {
+                throw Object.assign(new Error('bad request with server override'), {
+                    status: 400,
+                    headers: new Map([['x-should-retry', 'true']]),
+                });
+            }
+            return 'recovered';
+        }, {
+            provider,
+            maxAttempts: 2,
+            backoffMs: [0],
+            retryJitterRatio: 0,
+        }).then((value) => value, (error) => error);
+        if (provider === 'anthropic') {
+            assert.equal(result, 'recovered');
+            assert.equal(attempts, 2);
+        } else {
+            assert.equal(result?.status, 400);
+            assert.equal(attempts, 1);
+        }
     }
 });
 

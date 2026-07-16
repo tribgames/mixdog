@@ -427,7 +427,7 @@ test('Gemini function-response media is nested, referenced, and MIME-safe', () =
 });
 
 test('Gemini global cache accepts a fresh default-five-minute entry', () => {
-    assert.ok(GEMINI_GLOBAL_CACHE_MIN_LIVE_MS < 5 * 60_000);
+    assert.equal(GEMINI_GLOBAL_CACHE_MIN_LIVE_MS, 75_000);
     geminiGlobalCaches.clear();
     const now = Date.now();
     _setGeminiGlobalCache('k', {
@@ -435,6 +435,16 @@ test('Gemini global cache accepts a fresh default-five-minute entry', () => {
         cacheExpiresAt: now + 5 * 60_000,
     });
     assert.equal(_getGeminiGlobalCache('k', now)?.cacheName, 'cachedContents/fresh');
+});
+
+test('Gemini global cache rejects entries inside first-byte headroom', () => {
+    geminiGlobalCaches.clear();
+    const now = Date.now();
+    _setGeminiGlobalCache('near-expiry', {
+        cacheName: 'cachedContents/near-expiry',
+        cacheExpiresAt: now + 70_000,
+    });
+    assert.equal(_getGeminiGlobalCache('near-expiry', now), null);
 });
 
 test('Gemini cache identity includes toolConfig', () => {
@@ -513,6 +523,47 @@ test('Gemini cachedContents creation carries toolConfig with the tool schema', a
         assert.deepEqual(capturedBody.toolConfig, toolConfig);
         assert.equal(capturedBody.tools[0].functionDeclarations[0].name, 'read');
         assert.equal(injectedRequests, 1);
+    } finally {
+        geminiGlobalCaches.clear();
+    }
+});
+
+test('Gemini cachedContents creation retries transient failures within policy', async () => {
+    geminiGlobalCaches.clear();
+    let calls = 0;
+    const provider = new GeminiProvider(hermeticConfig({ fetchFn: async () => {
+        calls += 1;
+        if (calls === 1) {
+            return {
+                ok: false,
+                status: 503,
+                headers: new Headers({ 'Retry-After': '0' }),
+                async text() { return '{"error":{"message":"temporarily unavailable"}}'; },
+            };
+        }
+        return {
+            ok: true,
+            async json() {
+                return {
+                    name: 'cachedContents/retried',
+                    usageMetadata: { totalTokenCount: 3000 },
+                };
+            },
+        };
+    } }));
+    try {
+        const name = await provider._ensureGeminiCache({
+            apiKey: 'test-key',
+            model: 'gemini-2.5-flash',
+            systemInstruction: 'x'.repeat(9000),
+            contents: [
+                { role: 'user', parts: [{ text: 'prefix' }] },
+                { role: 'user', parts: [{ text: 'latest' }] },
+            ],
+            opts: { providerState: {}, iteration: 1 },
+        });
+        assert.equal(name, 'cachedContents/retried');
+        assert.equal(calls, 2);
     } finally {
         geminiGlobalCaches.clear();
     }
@@ -849,6 +900,133 @@ test('Gemini REST EOF finalizes buffered leaked tools before classifying truncat
     assert.equal(classifyError(error), 'permanent');
 });
 
+test('Gemini REST malformed SSE is retryable corruption even before a later STOP', async () => {
+    const body = new ReadableStream({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode([
+                'data: {not-json}',
+                'data: {"candidates":[{"finishReason":"STOP"}]}',
+                '',
+            ].join('\n')));
+            controller.close();
+        },
+    });
+    const error = await consumeGeminiRestStreamResponse(
+        { body },
+        { label: 'REST corrupt SSE' },
+    ).then(() => null, (caught) => caught);
+    assert.equal(error.streamCorruption, true);
+    assert.equal(error.code, 'TRUNCATED_STREAM');
+    assert.equal(classifyError(error), 'transient');
+});
+
+test('Gemini REST already-aborted signal does not lock the response body', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('already closed'));
+    const body = new ReadableStream({ start() {} });
+    await assert.rejects(
+        consumeGeminiRestStreamResponse(
+            { body },
+            { label: 'REST pre-abort', signal: controller.signal },
+        ),
+        /already closed/,
+    );
+    assert.equal(body.locked, false);
+});
+
+test('Gemini SDK first-byte timeout cancels generation before rejecting', async () => {
+    let cancelled = false;
+    let returned = false;
+    const streamResult = {
+        stream: {
+            [Symbol.asyncIterator]() {
+                return {
+                    next() { return new Promise(() => {}); },
+                    async return() {
+                        await new Promise((resolve) => setTimeout(resolve, 10));
+                        returned = true;
+                        return { done: true };
+                    },
+                };
+            },
+        },
+    };
+    const error = await consumeGeminiSdkStream(streamResult, {
+        label: 'SDK timeout cancellation',
+        firstByteTimeoutMs: 5,
+        cancelGeneration: () => { cancelled = true; },
+    }).then(() => null, (caught) => caught);
+    assert.equal(error.code, 'EGEMINITIMEOUT');
+    assert.equal(cancelled, true);
+    assert.equal(returned, true);
+});
+
+test('Gemini SDK timeout is bounded when iterator return never settles', async () => {
+    let cancelled = false;
+    const startedAt = Date.now();
+    const streamResult = {
+        stream: {
+            [Symbol.asyncIterator]() {
+                return {
+                    next() { return new Promise(() => {}); },
+                    return() { return new Promise(() => {}); },
+                };
+            },
+        },
+        response: new Promise(() => {}),
+    };
+    const error = await consumeGeminiSdkStream(streamResult, {
+        label: 'SDK stuck cancellation',
+        firstByteTimeoutMs: 5,
+        cancellationGraceMs: 20,
+        cancelGeneration: () => { cancelled = true; },
+    }).then(() => null, (caught) => caught);
+    assert.equal(error.code, 'EGEMINITIMEOUT');
+    assert.equal(cancelled, true);
+    assert.ok(Date.now() - startedAt < 200, 'stuck iterator.return must not deadlock timeout rejection');
+});
+
+test('Gemini SDK parser errors are retryable stream corruption', async () => {
+    const parseFailure = Object.assign(
+        new Error('[GoogleGenerativeAI Error]: Error parsing JSON response: Unexpected end of JSON input'),
+        { name: 'GoogleGenerativeAIError' },
+    );
+    const streamResult = {
+        stream: {
+            [Symbol.asyncIterator]() {
+                return {
+                    async next() { throw parseFailure; },
+                    async return() { return { done: true }; },
+                };
+            },
+        },
+        response: Promise.reject(parseFailure),
+    };
+    const error = await consumeGeminiSdkStream(streamResult, {
+        label: 'SDK corrupt SSE',
+    }).then(() => null, (caught) => caught);
+    assert.equal(error.streamCorruption, true);
+    assert.equal(error.code, 'TRUNCATED_STREAM');
+    assert.equal(classifyError(error), 'transient');
+});
+
+test('Gemini native function call is retry-safe until provider dispatch', async () => {
+    const streamResult = {
+        stream: {
+            async *[Symbol.asyncIterator]() {
+                yield { candidates: [{ content: { parts: [{ functionCall: { name: 'read', args: {} } }] } }] };
+                throw Object.assign(new Error('socket reset'), { code: 'ECONNRESET' });
+            },
+        },
+    };
+    const error = await consumeGeminiSdkStream(streamResult, {
+        label: 'SDK pre-dispatch function call',
+    }).then(() => null, (caught) => caught);
+    assert.equal(error.emittedToolCall, undefined);
+    assert.equal(error.unsafeToRetry, undefined);
+    assert.equal(classifyError(error), 'transient');
+});
+
 test('Gemini SDK failure finalizes buffered leaked tools before retry-safety stamps', async () => {
     const streamResult = {
         stream: {
@@ -1050,4 +1228,221 @@ test('Gemini auth reload retries a status-coded 401 exactly once', async () => {
     assert.equal(sends, 2);
     assert.equal(reloads, 1);
     assert.equal(opts.providerState.gemini, undefined);
+});
+
+test('Gemini evicted cachedContent is invalidated and retried uncached', async () => {
+    geminiGlobalCaches.clear();
+    _setGeminiGlobalCache('evicted-key', {
+        cacheName: 'cachedContents/evicted',
+        cacheExpiresAt: Date.now() + 5 * 60_000,
+    });
+    let cacheChecks = 0;
+    let restCalls = 0;
+    let sdkCalls = 0;
+    const provider = new GeminiProvider(hermeticConfig({
+        fetchFn: async () => {
+            restCalls += 1;
+            return {
+                ok: false,
+                status: 404,
+                headers: new Headers(),
+                async text() {
+                    return JSON.stringify({ error: { message: 'Cached content not found', status: 'NOT_FOUND' } });
+                },
+            };
+        },
+        genAI: {
+            getGenerativeModel() {
+                return {
+                    async generateContentStream() {
+                        sdkCalls += 1;
+                        return sdkStream([{
+                            candidates: [{ content: { role: 'model', parts: [{ text: 'uncached ok' }] }, finishReason: 'STOP' }],
+                        }]);
+                    },
+                };
+            },
+        },
+    }));
+    provider._ensureGeminiCache = async ({ skipExplicitCache }) => {
+        cacheChecks += 1;
+        return skipExplicitCache ? null : 'cachedContents/evicted';
+    };
+    const opts = {
+        providerState: { gemini: { cacheName: 'cachedContents/evicted', cachePrefixContentCount: 0 } },
+    };
+    const result = await provider.send(
+        [{ role: 'user', content: 'hello' }],
+        'gemini-2.5-flash',
+        [],
+        opts,
+    );
+    assert.equal(result.content, 'uncached ok');
+    assert.equal(restCalls, 1);
+    assert.equal(sdkCalls, 1);
+    assert.equal(cacheChecks, 2);
+    assert.equal(opts.providerState.gemini, undefined);
+    assert.equal(geminiGlobalCaches.size, 0);
+});
+
+test('Gemini REST rate-limit response preserves Retry-After for request retry', async () => {
+    let calls = 0;
+    let firstCallAt = 0;
+    let secondCallAt = 0;
+    const provider = new GeminiProvider(hermeticConfig({
+        fetchFn: async () => {
+            calls += 1;
+            if (calls === 1) {
+                firstCallAt = Date.now();
+                return {
+                    ok: false,
+                    status: 429,
+                    headers: new Headers({ 'Retry-After': '0.05' }),
+                    async text() {
+                        return JSON.stringify({
+                            error: {
+                                status: 'RESOURCE_EXHAUSTED',
+                                message: 'resource exhausted; retry after the capacity window',
+                                details: [{
+                                    '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                                    retryDelay: '0s',
+                                }],
+                            },
+                        });
+                    },
+                };
+            }
+            secondCallAt = Date.now();
+            return {
+                ok: true,
+                body: new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode(
+                            'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"retried"}]},"finishReason":"STOP"}]}\n',
+                        ));
+                        controller.close();
+                    },
+                }),
+            };
+        },
+    }));
+    provider._ensureGeminiCache = async () => 'cachedContents/live';
+    const result = await provider.send(
+        [{ role: 'user', content: 'hello' }],
+        'gemini-2.5-flash',
+        [],
+        { providerState: { gemini: { cachePrefixContentCount: 0 } } },
+    );
+    assert.equal(result.content, 'retried');
+    assert.equal(calls, 2);
+    assert.ok(secondCallAt - firstCallAt >= 40, 'Retry-After must set the retry delay');
+});
+
+test('Gemini structured RetryInfo outranks resource-exhausted permanence', async () => {
+    let calls = 0;
+    let firstCallAt = 0;
+    let secondCallAt = 0;
+    const provider = new GeminiProvider(hermeticConfig({
+        fetchFn: async () => {
+            calls += 1;
+            if (calls === 1) {
+                firstCallAt = Date.now();
+                return {
+                    ok: false,
+                    status: 429,
+                    headers: new Headers(),
+                    async text() {
+                        return JSON.stringify({
+                            error: {
+                                status: 'RESOURCE_EXHAUSTED',
+                                message: 'resource exhausted',
+                                details: [{
+                                    '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                                    retryDelay: '0.05s',
+                                }],
+                            },
+                        });
+                    },
+                };
+            }
+            secondCallAt = Date.now();
+            return {
+                ok: true,
+                body: new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode(
+                            'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"retry-info"}]},"finishReason":"STOP"}]}\n',
+                        ));
+                        controller.close();
+                    },
+                }),
+            };
+        },
+    }));
+    provider._ensureGeminiCache = async () => 'cachedContents/live';
+    const result = await provider.send(
+        [{ role: 'user', content: 'hello' }],
+        'gemini-2.5-flash',
+        [],
+        { providerState: { gemini: { cachePrefixContentCount: 0 } } },
+    );
+    assert.equal(result.content, 'retry-info');
+    assert.equal(calls, 2);
+    assert.ok(secondCallAt - firstCallAt >= 40, 'RetryInfo.retryDelay must set the retry delay');
+});
+
+test('Gemini RESOURCE_EXHAUSTED without Retry-After remains permanent', async () => {
+    let calls = 0;
+    const provider = new GeminiProvider(hermeticConfig({
+        fetchFn: async () => {
+            calls += 1;
+            return {
+                ok: false,
+                status: 429,
+                headers: new Headers(),
+                async text() {
+                    return JSON.stringify({
+                        error: {
+                            status: 'RESOURCE_EXHAUSTED',
+                            message: 'capacity quota exhausted',
+                            details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure' }],
+                        },
+                    });
+                },
+            };
+        },
+    }));
+    provider._ensureGeminiCache = async () => 'cachedContents/live';
+    const error = await provider.send(
+        [{ role: 'user', content: 'hello' }],
+        'gemini-2.5-flash',
+        [],
+        { providerState: { gemini: { cachePrefixContentCount: 0 } } },
+    ).then(() => null, (caught) => caught);
+    assert.equal(calls, 1);
+    assert.equal(error.code, 'RESOURCE_EXHAUSTED');
+    assert.equal(error.geminiStatus, 'RESOURCE_EXHAUSTED');
+    assert.equal(error.details[0]['@type'], 'type.googleapis.com/google.rpc.QuotaFailure');
+    assert.equal(classifyError(error), 'permanent');
+});
+
+test('Gemini availability probe rejects an unresolved generation within its bound', async () => {
+    let receivedSignal = null;
+    const startedAt = Date.now();
+    const provider = new GeminiProvider(hermeticConfig({
+        genAI: {
+            getGenerativeModel() {
+                return {
+                    async generateContent(_input, options) {
+                        receivedSignal = options?.signal;
+                        return new Promise(() => {});
+                    },
+                };
+            },
+        },
+    }));
+    assert.equal(await provider.isAvailable(), false);
+    assert.equal(receivedSignal instanceof AbortSignal, true);
+    assert.equal(receivedSignal.aborted, true);
+    assert.ok(Date.now() - startedAt < 1_500, 'availability probe must be bounded');
 });

@@ -7,6 +7,8 @@ import {
     PROVIDER_MAX_BEFORE_WARN_MS,
     PROVIDER_SSE_IDLE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
+    PROVIDER_CACHE_CREATE_TIMEOUT_MS,
+    PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS,
     providerTimeoutError,
     resolveTimeoutMs,
     createTimeoutSignal,
@@ -48,6 +50,7 @@ import {
     GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS,
     _geminiCredentialFingerprint,
     _invalidateGeminiCachesForCredentialFingerprint,
+    _invalidateGeminiCacheName,
 } from './gemini-cache.mjs';
 import {
     GEMINI_MODELS as MODELS,
@@ -68,6 +71,41 @@ export { fetchGeminiModelPages, resolveLatestGeminiModel, ensureLatestGeminiMode
 // De-dupes concurrent force-refreshes so they share one HTTP round-trip,
 // mirroring anthropic-oauth's _modelRefreshInFlight.
 let _modelRefreshInFlight = null;
+const GEMINI_AVAILABILITY_TIMEOUT_MS = 1_000;
+
+function geminiRestError(res, text, label) {
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch {}
+    const detail = payload?.error || payload || null;
+    const err = new Error(`${label} ${res.status}: ${text.slice(0, 300)}`);
+    err.status = res.status;
+    err.httpStatus = res.status;
+    err.headers = res.headers;
+    if (detail) {
+        err.error = detail;
+        err.data = payload;
+        if (detail.status) err.geminiStatus = detail.status;
+        if (Array.isArray(detail.details)) err.details = detail.details;
+        const retryAfter = res.headers?.get?.('retry-after')
+            ?? res.headers?.get?.('retry-after-ms');
+        // RESOURCE_EXHAUSTED without a server retry window is deterministic
+        // quota exhaustion. With Retry-After present, leave it request-local
+        // so withRetry can honor the mandated delay.
+        if (detail.status && (retryAfter == null || retryAfter === '')) {
+            err.code = detail.status;
+        }
+    }
+    return err;
+}
+
+function isGeminiCachedContentError(err, cacheName) {
+    const status = Number(err?.status || err?.httpStatus || 0);
+    if (status !== 400 && status !== 404) return false;
+    const text = `${err?.message || ''} ${JSON.stringify(err?.data || '')}`.toLowerCase();
+    return text.includes('cachedcontent')
+        || text.includes('cached content')
+        || (cacheName && text.includes(String(cacheName).toLowerCase()));
+}
 
 // --- Cache accounting/trace: extracted to gemini-cache.mjs ---
 // --- Stream consumption/guards: extracted to gemini-stream.mjs ---
@@ -129,7 +167,8 @@ export class GeminiProvider {
     // one cache slot warm without re-creation overhead; storage cost (~$0.5/M
     // tokens/hour) is dwarfed by the 75% input-price discount on hits beyond
     // a few iterations.
-    async _ensureGeminiCache({ apiKey, model, systemInstruction, geminiTools, toolConfig, contents, opts }) {
+    async _ensureGeminiCache({ apiKey, model, systemInstruction, geminiTools, toolConfig, contents, opts, skipExplicitCache = false }) {
+        if (skipExplicitCache) return null;
         if (Array.isArray(opts?.nativeTools) && opts.nativeTools.length) return null;
         // Kill-switch: MIXDOG_GEMINI_EXPLICIT_CACHE=0 skips cachedContents
         // entirely and relies on Gemini's implicit prefix caching (2.5+/3.x
@@ -314,17 +353,23 @@ export class GeminiProvider {
             // only the 20s ceiling. Without merging opts.signal a session that is
             // aborted (stall-watchdog / closeSession) mid-cache-create leaves this
             // preflight request running until its own timeout fires.
-            const res = await this._fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-                signal: opts.signal
-                    ? AbortSignal.any([opts.signal, AbortSignal.timeout(20_000)])
-                    : AbortSignal.timeout(20_000),
-                dispatcher: getLlmDispatcher(),
-            });
-            if (!res.ok) {
-                const text = await res.text().catch(() => '');
+            const createTotal = createTimeoutSignal(
+                opts.signal,
+                PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS,
+                'Gemini cachedContents.create total',
+            );
+            let data;
+            try {
+                data = await withRetry(async ({ signal: attemptSignal }) => {
+                    const res = await this._fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body),
+                        signal: attemptSignal,
+                        dispatcher: getLlmDispatcher(),
+                    });
+                    if (res.ok) return await res.json();
+                    const text = await res.text().catch(() => '');
                 try {
                     appendAgentTrace({
                         sessionId: opts.sessionId || opts.session?.id || null,
@@ -339,9 +384,15 @@ export class GeminiProvider {
                         },
                     });
                 } catch {}
-                return null;
+                    throw geminiRestError(res, text, 'Gemini cachedContents.create');
+                }, {
+                    signal: createTotal.signal,
+                    perAttemptTimeoutMs: PROVIDER_CACHE_CREATE_TIMEOUT_MS,
+                    perAttemptLabel: 'Gemini cachedContents.create',
+                });
+            } finally {
+                createTotal.cleanup();
             }
-            const data = await res.json();
             const cacheName = data?.name || null;
             if (!cacheName) return null;
             const cacheTokenSize = Number(data?.usageMetadata?.totalTokenCount || 0) || 0;
@@ -422,7 +473,9 @@ export class GeminiProvider {
         geminiGlobalCacheCreates.set(globalCacheKey, createTask);
         try {
             const created = await createTask;
-            if (!created?.cacheName) return canAttachState ? state.cacheName : null;
+            // A failed refresh must not silently retain a cache that may have
+            // expired or been evicted server-side. The caller proceeds uncached.
+            if (!created?.cacheName) return null;
             _attachGeminiCacheState(opts, created, currentIter);
             return created.cacheName;
         } finally {
@@ -460,7 +513,7 @@ export class GeminiProvider {
         }
     }
 
-    async _doSend(messages, model, tools, sendOpts) {
+    async _doSend(messages, model, tools, sendOpts, internal = {}) {
         const opts = sendOpts || {};
         const signal = opts.signal || null;
         const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
@@ -510,6 +563,7 @@ export class GeminiProvider {
             toolConfig,
             contents,
             opts,
+            skipExplicitCache: internal.skipExplicitCache === true,
         });
         try { opts.onStageChange?.('requesting'); } catch {}
 
@@ -569,9 +623,7 @@ export class GeminiProvider {
                         }
                         if (!res.ok) {
                             const text = await res.text().catch(() => '');
-                            const err = new Error(`Gemini REST streamGenerateContent ${res.status}: ${text.slice(0, 300)}`);
-                            err.status = res.status;
-                            throw err;
+                            throw geminiRestError(res, text, 'Gemini REST streamGenerateContent');
                         }
                         textLeakGuard = buildTextLeakGuard();
                         return await consumeGeminiRestStreamResponse(res, {
@@ -590,6 +642,18 @@ export class GeminiProvider {
                         },
                     },
                 );
+            } catch (err) {
+                if (!internal.skipExplicitCache
+                    && err?.unsafeToRetry !== true
+                    && isGeminiCachedContentError(err, cachedContent)) {
+                    _invalidateGeminiCacheName(cachedContent);
+                    if (opts.providerState?.gemini?.cacheName === cachedContent) {
+                        const { gemini: _dropGemini, ...rest } = opts.providerState;
+                        opts.providerState = rest;
+                    }
+                    return await this._doSend(messages, model, tools, opts, { skipExplicitCache: true });
+                }
+                throw err;
             } finally {
                 restPassthrough.cleanup();
             }
@@ -666,6 +730,9 @@ export class GeminiProvider {
                                 onTextDelta,
                                 textLeakGuard,
                                 label: 'Gemini SDK streamGenerateContent',
+                                cancelGeneration: (reason) => {
+                                    if (!reqController.signal.aborted) reqController.abort(reason);
+                                },
                             });
                         } finally {
                             clearConnectTimer();
@@ -867,13 +934,30 @@ export class GeminiProvider {
     }
 
     async isAvailable() {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => {
+            controller.abort(providerTimeoutError('Gemini availability probe', GEMINI_AVAILABILITY_TIMEOUT_MS));
+        }, GEMINI_AVAILABILITY_TIMEOUT_MS);
         try {
             const model = this.genAI.getGenerativeModel({ model: DEFAULT_MODEL });
-            await model.generateContent('hi');
+            const generation = Promise.resolve(model.generateContent('hi', { signal: controller.signal }));
+            generation.catch(() => {});
+            await Promise.race([
+                generation,
+                new Promise((_, reject) => {
+                    if (controller.signal.aborted) {
+                        reject(controller.signal.reason);
+                        return;
+                    }
+                    controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
+                }),
+            ]);
             return true;
         }
         catch {
             return false;
+        } finally {
+            clearTimeout(timeout);
         }
     }
 }

@@ -98,6 +98,13 @@ function includeCompletedXaiWarmup(result, warmup) {
         } : usage,
     };
 }
+
+function encryptedXaiReasoningItems(output) {
+    if (!Array.isArray(output)) return [];
+    return output
+        .filter((item) => item?.type === 'reasoning' && typeof item?.encrypted_content === 'string' && item.encrypted_content)
+        .map((item) => ({ ...item }));
+}
 export { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 const PRESETS = OPENAI_COMPAT_PRESETS;
 const MODEL_LIST_TIMEOUT_MS = resolveTimeoutMs(
@@ -575,7 +582,12 @@ export class OpenAICompatProvider {
         const params = {
             model: useModel,
             input,
-            store: true,
+            // xAI's reference sampler is ZDR-safe by default and asks the
+            // service to return opaque reasoning state for continuation.
+            // This method is xAI-only; other compat providers retain their
+            // existing request bodies.
+            store: false,
+            include: ['reasoning.encrypted_content'],
             prompt_cache_key: cacheRouting.key,
         };
         if (previousResponseId) params.previous_response_id = previousResponseId;
@@ -709,6 +721,15 @@ export class OpenAICompatProvider {
         // provider requirement found — chain_continuous trace will surface
         // any rejection as a provider-side drop.)
         const nextPreviousResponseId = response.id;
+        const encryptedReasoningItems = encryptedXaiReasoningItems(response.output);
+        const encryptedReasoningHistory = [
+            ...(Array.isArray(opts.providerState?.xaiResponses?.encryptedReasoningHistory)
+                ? opts.providerState.xaiResponses.encryptedReasoningHistory
+                : []),
+            ...(encryptedReasoningItems.length
+                ? [{ messageIndex: Array.isArray(messages) ? messages.length : 0, items: encryptedReasoningItems }]
+                : []),
+        ];
         const searchSources = collectCompatResponseSearchSources(response);
         return {
             content: streamed.content,
@@ -724,9 +745,17 @@ export class OpenAICompatProvider {
             providerState: {
                 ...(opts.providerState || {}),
                 xaiResponses: {
-                    previousResponseId: nextPreviousResponseId,
+                    previousResponseId: null,
+                    responseId: nextPreviousResponseId,
+                    store: false,
+                    encryptedReasoningItems,
+                    encryptedReasoningHistory,
                     seenMessageCount: Array.isArray(messages) ? messages.length : 0,
-                    model: response.model || useModel,
+                    // The proxy may return a deployment alias (for example
+                    // grok-4.5-build) for a requested public model id. Chain
+                    // compatibility is keyed to the requested id; storing the
+                    // alias here would falsely reset the next tool-result turn.
+                    model: useModel,
                     updatedAt: Date.now(),
                 },
             },
@@ -765,10 +794,8 @@ export class OpenAICompatProvider {
         const params = {
             model: useModel,
             input,
-            // xAI's WebSocket continuation is documented for store=false, but
-            // the public endpoint currently returns previous_response_not_found
-            // in our live probes unless the chain is stored.
-            store: true,
+            store: false,
+            include: ['reasoning.encrypted_content'],
             prompt_cache_key: cacheRouting.key,
         };
         const instructions = xaiSystemInstructions(messages);
@@ -846,6 +873,15 @@ export class OpenAICompatProvider {
         const responseId = result.responseId || previousResponseId || null;
         // Same rationale as the HTTP path above: `length` stop keeps the chain.
         const nextPreviousResponseId = responseId;
+        const encryptedReasoningItems = encryptedXaiReasoningItems(result.responseItems);
+        const encryptedReasoningHistory = [
+            ...(Array.isArray(opts.providerState?.xaiResponses?.encryptedReasoningHistory)
+                ? opts.providerState.xaiResponses.encryptedReasoningHistory
+                : []),
+            ...(encryptedReasoningItems.length
+                ? [{ messageIndex: Array.isArray(messages) ? messages.length : 0, items: encryptedReasoningItems }]
+                : []),
+        ];
         const rawUsage = result.usage?.raw || result.usage || null;
         const traceParams = result.__warmup?.requestBody || params;
         writeXaiResponsesCacheTrace({
@@ -899,9 +935,13 @@ export class OpenAICompatProvider {
             providerState: {
                 ...(opts.providerState || {}),
                 xaiResponses: {
-                    previousResponseId: nextPreviousResponseId,
+                    previousResponseId: null,
+                    responseId: nextPreviousResponseId,
+                    store: false,
+                    encryptedReasoningItems,
+                    encryptedReasoningHistory,
                     seenMessageCount: Array.isArray(messages) ? messages.length : 0,
-                    model: result.model || useModel,
+                    model: useModel,
                     updatedAt: Date.now(),
                     transport: 'websocket',
                 },

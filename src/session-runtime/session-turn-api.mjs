@@ -167,6 +167,7 @@ export function createSessionTurnApi(deps) {
           options.prefetch || null,
           {
             onTextDelta: options.onTextDelta,
+            onTextReset: options.onTextReset,
             onReasoningDelta: options.onReasoningDelta,
             onAssistantText: (text) => {
               if (getRemoteEnabled() && getTranscriptWriter()) {

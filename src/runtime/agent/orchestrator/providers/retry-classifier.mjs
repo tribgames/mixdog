@@ -224,11 +224,35 @@ export function retryAfterMsFromError(err) {
     if (Number.isFinite(n) && n >= 0) return n
   }
   const retryAfter = _headerValue(headers, 'retry-after')
-  if (retryAfter == null || retryAfter === '') return null
-  const seconds = Number(retryAfter)
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000)
-  const dateMs = Date.parse(String(retryAfter))
-  if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now())
+  if (retryAfter != null && retryAfter !== '') {
+    const seconds = Number(retryAfter)
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000)
+    const dateMs = Date.parse(String(retryAfter))
+    if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now())
+  }
+  // Google RPC RetryInfo encodes retryDelay as a protobuf Duration. Preserve
+  // the same precedence as Retry-After: a server-provided retry window means
+  // RESOURCE_EXHAUSTED is request-local, not a permanent quota refusal.
+  const detailLists = [
+    err?.details,
+    err?.error?.details,
+    err?.data?.error?.details,
+  ]
+  for (const details of detailLists) {
+    if (!Array.isArray(details)) continue
+    for (const detail of details) {
+      const delay = detail?.retryDelay
+      if (typeof delay === 'string') {
+        const match = delay.trim().match(/^(\d+(?:\.\d+)?)s$/)
+        if (match) return Math.ceil(Number(match[1]) * 1000)
+      } else if (delay && typeof delay === 'object') {
+        const seconds = Number(delay.seconds || 0)
+        const nanos = Number(delay.nanos || 0)
+        const ms = seconds * 1000 + nanos / 1_000_000
+        if (Number.isFinite(ms) && ms >= 0) return Math.ceil(ms)
+      }
+    }
+  }
   return null
 }
 
@@ -615,15 +639,16 @@ function _sleepChunkWithAbort(ms, signal, sleepFn, abortMessage) {
 
 // E) Handshake classifier (moved here from openai-oauth-ws). Default-deny:
 //    anything not recognized as transient returns null. HTTP 401 is reserved
-//    for auth recovery and 426 for immediate HTTPS fallback; every other HTTP
-//    handshake status follows Codex's retryable UnexpectedStatus policy.
-export function classifyHandshakeError(err) {
+//    for auth recovery and 426 for immediate HTTPS fallback. The OpenAI OAuth
+//    caller opts out of 429 retries (Codex retry_429:false); all other callers
+//    retain the historical retryable UnexpectedStatus policy.
+export function classifyHandshakeError(err, { retry429 = true } = {}) {
   if (!err) return null
   const code = err.code || ''
   const msg = String(err.message || '')
   const status = Number(err.httpStatus || 0)
 
-  if (status === 401 || status === 426) return null
+  if (status === 401 || status === 426 || (status === 429 && !retry429)) return null
   if (status > 0) {
     return `http_${status}`
   }
@@ -729,6 +754,20 @@ export async function withRetry(fn, opts = {}) {
         'x-should-retry',
       )
       if (String(shouldRetryHeader || '').toLowerCase() === 'false') throw caught
+      // Anthropic's non-standard positive override outranks ordinary status
+      // classification. Keep subscription OAuth 429 fail-fast ownership:
+      // retry429:false is the Max/Pro gate and must not wait for that window.
+      if (opts.provider === 'anthropic'
+        && String(shouldRetryHeader || '').toLowerCase() === 'true'
+        && !(status === 429 && opts.retry429 === false)) {
+        if (attempt === maxAttempts - 1) throw caught
+        const retryAfterMs = retryAfterMsFromError(caught)
+        if (retryAfterMs != null) {
+          nextDelayMs = Math.max(0, retryAfterMs)
+          nextDelayReason = 'retry-after'
+        }
+        continue
+      }
       // Claude Code's optional model fallback fires on the third 529. This
       // remains opt-in: providers pass fallbackModel only when the caller set
       // one. The hard progress veto above must run first so fallback can never
@@ -740,15 +779,16 @@ export async function withRetry(fn, opts = {}) {
         }
       }
       if (status === 429) {
+        if (opts.retry429 === false) throw caught
+        const ra = retryAfterMsFromError(caught)
         // A deterministic quota refusal cannot recover by replaying the same
-        // request. This check must precede generic HTTP 429 handling so shared
-        // OpenAI-compatible/Gemini message-only quota errors remain terminal.
-        if (isPermanentQuotaError(caught)) throw caught
+        // request. An explicit server retry window outranks message-text quota
+        // heuristics: RESOURCE_EXHAUSTED + Retry-After/RetryInfo is transient.
+        if (ra == null && isPermanentQuotaError(caught)) throw caught
         // Retry only this request. Admission concurrency is fixed and is never
         // reduced by rate limits. Respect Retry-After when present; otherwise
         // use the ordinary jittered backoff. Output/tool stamps above remain a
         // hard replay boundary.
-        const ra = retryAfterMsFromError(caught)
         if (attempt === maxAttempts - 1) throw caught
         if (ra != null) {
           nextDelayMs = Math.max(0, ra)

@@ -28,6 +28,11 @@ import { _streamResponse } from '../src/runtime/agent/orchestrator/providers/ope
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import { shouldFallbackTransport } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import {
+    PROVIDER_MAX_BEFORE_WARN_MS,
+    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+    PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
+} from '../src/runtime/agent/orchestrator/stall-policy.mjs';
+import {
     ProviderAdmissionScheduler,
     wrapProviderAdmission,
 } from '../src/runtime/agent/orchestrator/providers/admission-scheduler.mjs';
@@ -38,6 +43,12 @@ const policy = {
     idleStaleMs: 600_000,
     toolRunningMs: 600_000,
 };
+
+test('OpenAI HTTP and WS semantic idle defaults share the pre-watchdog ceiling', () => {
+    assert.equal(PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, PROVIDER_MAX_BEFORE_WARN_MS);
+    assert.equal(PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS, PROVIDER_MAX_BEFORE_WARN_MS);
+    assert.ok(PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS < 300_000);
+});
 
 function seededSnapshot(id, elapsedMs) {
     markSessionAskStart(id);
@@ -435,6 +446,63 @@ function openAiHttpResponse(events) {
         }) },
     };
 }
+
+test('OAuth HTTP retries refresh requesting-stage liveness for every attempt', async (t) => {
+    const id = `liveness-oauth-http-retries-${Date.now()}`;
+    t.after(() => _clearSessionRuntime(id));
+    markSessionAskStart(id);
+    const entry = _getRuntimeEntry(id);
+    const stages = [];
+    const scheduler = new ProviderAdmissionScheduler({ concurrency: 1 });
+    let fetchCalls = 0;
+
+    const provider = wrapProviderAdmission({
+        async send(_messages, _model, _tools, opts) {
+            return sendViaHttpSse({
+                auth: { type: 'openai-direct', apiKey: 'test' },
+                body: {},
+                opts: {},
+                useModel: 'gpt',
+                onStageChange: opts?.onStageChange,
+                fetchFn: async () => {
+                    fetchCalls += 1;
+                    if (fetchCalls <= 4) throw new Error('transient request failure');
+                    return openAiHttpResponse([
+                        { type: 'response.completed', response: { id: 'r1', model: 'gpt', status: 'completed', output: [] } },
+                    ]);
+                },
+                _sleepFn: async () => {},
+            });
+        },
+    }, 'liveness-oauth-http-retries', scheduler);
+    await provider.send([], 'gpt', [], {
+        onStageChange: (stage, detail) => {
+            // Set a known stale value before the real ask-session liveness
+            // update. The post-send assertion therefore fails if this callback
+            // no longer refreshes lastProgressAt.
+            entry.lastProgressAt = 1;
+            updateSessionStage(id, stage);
+            stages.push({ stage, detail, lastProgressAt: entry.lastProgressAt });
+        },
+    });
+
+    assert.equal(fetchCalls, 5);
+    // Admission emits the first requesting signal, followed by one from each
+    // HTTP attempt. Keep the total explicit so stage-only consumers cannot
+    // silently dedupe the retry heartbeats.
+    const requestingStages = stages.filter(({ stage }) => stage === 'requesting');
+    assert.equal(stages.length, 7);
+    assert.deepEqual(requestingStages.map(({ stage }) => stage), Array(6).fill('requesting'));
+    assert.ok(requestingStages.every(({ lastProgressAt }) => lastProgressAt > 1));
+    assert.equal(requestingStages[0].detail, undefined);
+    assert.deepEqual(requestingStages.slice(1).map(({ detail }) => detail), [
+        { attempt: 1, maxAttempts: 5, retry: false },
+        { attempt: 2, maxAttempts: 5, retry: true },
+        { attempt: 3, maxAttempts: 5, retry: true },
+        { attempt: 4, maxAttempts: 5, retry: true },
+        { attempt: 5, maxAttempts: 5, retry: true },
+    ]);
+});
 
 function wedgedOpenAiHttpResponse() {
     return {

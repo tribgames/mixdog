@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _acquireWithRetry, sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
-import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
+import {
+    sendViaHttpSse,
+    _shouldUseOpenAIHttpFallback,
+} from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import { applyAskTerminalUsageTotals } from '../src/runtime/agent/orchestrator/session/manager/usage-metrics.mjs';
 import {
     _clearWebSocketPoolForTest,
@@ -153,6 +156,83 @@ test('acquire timeout reconnects successfully with progress, not a terminal WS e
         if (oldQuiet == null) delete process.env.MIXDOG_QUIET_PROVIDER_LOG;
         else process.env.MIXDOG_QUIET_PROVIDER_LOG = oldQuiet;
     }
+});
+
+test('OAuth WS-handshake HTTP 429 is terminal and cannot enter the HTTP fallback gate', async () => {
+    const savedEnv = Object.fromEntries([
+        'MIXDOG_OAI_TRANSPORT',
+        'MIXDOG_OPENAI_HTTP_FALLBACK',
+        'MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK',
+        'MIXDOG_OPENAI_OAUTH_WS_WARMUP',
+        'MIXDOG_AGENT_TRACE_DISABLE',
+    ].map((name) => [name, process.env[name]]));
+    Object.assign(process.env, {
+        MIXDOG_OAI_TRANSPORT: 'auto',
+        MIXDOG_OPENAI_HTTP_FALLBACK: '1',
+        MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK: '1',
+        MIXDOG_OPENAI_OAUTH_WS_WARMUP: '0',
+        MIXDOG_AGENT_TRACE_DISABLE: '1',
+    });
+    let acquires = 0;
+    let sleeps = 0;
+    let httpCalls = 0;
+    const provider = new OpenAIOAuthProvider({});
+    provider.ensureAuth = async () => ({ access_token: 'test-token' });
+    try {
+        await assert.rejects(
+            provider.send([], 'gpt-5.5', [], {
+                sessionId: 'openai-oauth-ws-429-test',
+                _prebuiltBody: { model: 'gpt-5.5', input: [] },
+                _sendViaWebSocketFn: async (args) => {
+                    try {
+                        return await sendViaWebSocket({
+                            ...args,
+                            _acquireWithRetryFn: async () => {
+                                acquires += 1;
+                                throw Object.assign(new Error('handshake rate limited'), { httpStatus: 429 });
+                            },
+                            _sleepFn: async () => { sleeps += 1; },
+                        });
+                    } catch (err) {
+                        // Force the provider's real exhausted-WS gate; the
+                        // OAuth predicate itself must still reject this 429.
+                        err.wsRetriesExhausted = true;
+                        throw err;
+                    }
+                },
+                _sendViaHttpSseFn: async () => {
+                    httpCalls += 1;
+                    return { content: 'must not fallback', toolCalls: [], usage: {} };
+                },
+            }),
+            (err) => err?.httpStatus === 429,
+        );
+        assert.equal(_shouldUseOpenAIHttpFallback({ httpStatus: 429, wsRetriesExhausted: true }), false);
+        assert.equal(acquires, 1, 'OAuth 429 must not consume the five-retry WS budget');
+        assert.equal(sleeps, 0, 'OAuth 429 must not schedule WS reconnect backoff');
+        assert.equal(httpCalls, 0, 'OAuth 429 must not enter HTTP/SSE fallback');
+    } finally {
+        for (const [name, value] of Object.entries(savedEnv)) {
+            if (value == null) delete process.env[name];
+            else process.env[name] = value;
+        }
+    }
+});
+
+test('non-OAuth WS handshakes retain their existing 429 retry budget', async () => {
+    let acquires = 0;
+    await assert.rejects(
+        sendViaWebSocket(wsArgs({
+            traceProvider: 'xai',
+            _acquireWithRetryFn: async () => {
+                acquires += 1;
+                throw Object.assign(new Error('handshake rate limited'), { httpStatus: 429 });
+            },
+            _sleepFn: async () => {},
+        })),
+        (err) => err?.httpStatus === 429 && err?.wsRetriesExhausted === true,
+    );
+    assert.equal(acquires, 6, 'non-OAuth 429 preserves the five-retry WS budget');
 });
 
 for (const failure of ['callback error', 'callback timeout']) {

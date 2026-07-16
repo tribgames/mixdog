@@ -162,8 +162,10 @@ function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey }) {
 
 // WS→HTTP/SSE fallback predicate → shared shouldFallbackTransport
 // (retry-classifier.mjs). The per-provider env flag is computed here and passed
-// as `enabled`; the deny-order + allow-list are identical to the former copy.
+// as `enabled`; OAuth rate limits are terminal and must never trigger a
+// transport fallback, even if a caller has marked a prior WS attempt exhausted.
 export function _shouldUseOpenAIHttpFallback(err, externalSignal) {
+    if (Number(err?.httpStatus || 0) === 429) return false;
     return shouldFallbackTransport(err, {
         signal: externalSignal,
         enabled: _envFlag('MIXDOG_OPENAI_OAUTH_HTTP_FALLBACK', true),
@@ -220,7 +222,17 @@ export async function sendViaHttpSse({
         );
         let requestError = null;
         try {
-            try { onStageChange?.('requesting'); } catch {}
+            // Keep the established stage name for consumers, while making each
+            // bounded retry an observable liveness heartbeat. Session runtime
+            // liveness updates lastProgressAt for every stage callback,
+            // including a repeated `requesting` stage.
+            try {
+                onStageChange?.('requesting', {
+                    attempt: attempt + 1,
+                    maxAttempts: CODEX_REQUEST_MAX_RETRIES + 1,
+                    retry: attempt > 0,
+                });
+            } catch {}
             response = await fetchFn(responsesUrl, {
                 method: 'POST',
                 headers,

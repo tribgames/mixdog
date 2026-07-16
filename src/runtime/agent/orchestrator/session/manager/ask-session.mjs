@@ -334,6 +334,22 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 _turnInterruption.recordTextDelta(chunk);
                 if (typeof askOpts?.onTextDelta === 'function') askOpts.onTextDelta(chunk);
             };
+            const _trackTextReset = async (detail) => {
+                // Replacement is opt-in and transactional: a delta-only
+                // consumer cannot retract already exposed bytes, so absence,
+                // false, or rejection must preserve the original partial and
+                // force the provider's terminal no-replay behavior.
+                if (typeof askOpts?.onTextReset !== 'function') return false;
+                let acknowledged = false;
+                try {
+                    acknowledged = await askOpts.onTextReset(detail) === true;
+                } catch {
+                    return false;
+                }
+                if (!acknowledged) return false;
+                _turnInterruption.tombstoneText(detail?.chars);
+                return true;
+            };
             const _trackReasoningDelta = (chunk) => {
                 _turnInterruption.recordReasoningDelta(chunk);
                 if (typeof askOpts?.onReasoningDelta === 'function') askOpts.onReasoningDelta(chunk);
@@ -363,6 +379,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     fast: session.fast === true,
                     sessionId,
                     onTextDelta: _trackTextDelta,
+                    onTextReset: _trackTextReset,
                     onReasoningDelta: _trackReasoningDelta,
                     onAssistantText: _trackAssistantText,
                     onAssistantMessageCommitted: () => _turnInterruption.markAssistantMessageCommitted(),
@@ -666,6 +683,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // live-turn alias so contextStatus() stops estimating from the
             // stale in-flight array once the turn unwinds.
             if (activeSession) activeSession.liveTurnMessages = null;
+            // Restore before ANY finalization path. In particular, cancellation
+            // can race the acknowledged non-streaming restart and surface as a
+            // SessionClosedError; its interruption snapshot must include the
+            // one partial response that was already exposed.
+            const restoredResetText = _turnInterruption.restoreTombstonedText();
             if (err instanceof SessionClosedError) {
                 const currentRuntime = _getRuntimeEntry(sessionId);
                 if (!currentRuntime?.closed) {
@@ -697,13 +719,37 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 // can render it as "cancelled" rather than a red failure.
                 throw err;
             }
-            await persistCompactedOutgoingAfterAskFailure({
-                sessionId,
-                activeSession,
-                askGeneration,
-                turnOutgoing: _turnOutgoing,
-                error: err,
-            });
+            // A reset acknowledgement removes the live partial before the
+            // non-streaming request starts. If that restart fails, restore the
+            // tombstone and persist the one exposed partial as interruption
+            // history. Failed/absent acknowledgements never tombstoned it.
+            const preserveProviderPartial = restoredResetText
+                || err?.liveTextEmitted === true
+                || err?.unsafeToRetry === true;
+            if (preserveProviderPartial && activeSession && _turnInterruption.hasResponseStarted()) {
+                const finalized = _turnInterruption.finalize({
+                    turnOutgoing: _turnOutgoing || activeSession.messages,
+                    currentUserContent: cancelledUserTurnContent,
+                    abortReason: 'provider-error',
+                });
+                activeSession.messages = finalized.messages;
+                activeSession.providerState = undefined;
+                activeSession.updatedAt = Date.now();
+                activeSession.lastUsedAt = Date.now();
+                try {
+                    await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                } catch { /* provider-failure history persistence is best-effort */ }
+                const currentRuntime = _getRuntimeEntry(sessionId);
+                if (currentRuntime) currentRuntime.session = activeSession;
+            } else {
+                await persistCompactedOutgoingAfterAskFailure({
+                    sessionId,
+                    activeSession,
+                    askGeneration,
+                    turnOutgoing: _turnOutgoing,
+                    error: err,
+                });
+            }
             markSessionError(sessionId, err && err.message ? err.message : String(err));
             throw err;
         }

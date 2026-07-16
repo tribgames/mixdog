@@ -33,7 +33,7 @@ export function resolveAnthropicCacheTtls(opts) {
         tools: pick('tools', null),
         system: pick('system', ANTHROPIC_CACHE_TTL_STABLE),
         tier3: pick('tier3', ANTHROPIC_CACHE_TTL_STABLE),
-        messages: pick('messages', ANTHROPIC_CACHE_TTL_STABLE),
+        messages: pick('messages', ANTHROPIC_CACHE_TTL_VOLATILE),
     };
     const ttlRank = (ttl) => (ttl === ANTHROPIC_CACHE_TTL_STABLE ? 2 : 1);
     let minRank = Infinity;
@@ -53,6 +53,45 @@ export function clampAnthropicThinkingBudget(value, maxTokens) {
     const ceiling = max - 1024;
     if (ceiling < 1024) return null;
     return Math.max(1024, Math.min(desired, ceiling));
+}
+
+export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = '') {
+    const blocks = Array.isArray(message?.content) ? message.content : [];
+    const text = blocks
+        .filter((block) => block?.type === 'text')
+        .map((block) => String(block.text || ''))
+        .join('');
+    const toolCalls = blocks
+        .filter((block) => block?.type === 'tool_use')
+        .map((block) => ({
+            id: block.id,
+            name: block.name,
+            arguments: block.input && typeof block.input === 'object' ? block.input : {},
+        }));
+    const thinkingBlocks = blocks.filter((block) => (
+        block?.type === 'thinking' || block?.type === 'redacted_thinking'
+    ));
+    const usage = message?.usage || {};
+    const input = Number(usage.input_tokens) || 0;
+    const cacheRead = Number(usage.cache_read_input_tokens) || 0;
+    const cacheWrite = Number(usage.cache_creation_input_tokens) || 0;
+    return {
+        content: text,
+        model: message?.model || fallbackModel,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
+        stopReason: message?.stop_reason || null,
+        hasThinkingContent: thinkingBlocks.length > 0,
+        contentBlockTypes: blocks.map((block) => block?.type).filter(Boolean),
+        thinkingBlocks: thinkingBlocks.length ? thinkingBlocks : undefined,
+        usage: {
+            inputTokens: input,
+            outputTokens: Number(usage.output_tokens) || 0,
+            cachedTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
+            promptTokens: input + cacheRead + cacheWrite,
+            raw: usage,
+        },
+    };
 }
 
 export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {

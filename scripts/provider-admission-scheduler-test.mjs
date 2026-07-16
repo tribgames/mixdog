@@ -340,14 +340,14 @@ test('xAI legacy cache-lane knobs cannot create a secondary queue or timeout', a
     assert.deepEqual((await Promise.all([first, second])).map((item) => item.value), [0, 1]);
 });
 
-test('Anthropic providers retry request-local pre-output 429 responses', async () => {
+test('Anthropic OAuth subscription 429 fails fast while API-key 429 retries request-locally', async () => {
     const oauth = Object.create(AnthropicOAuthProvider.prototype);
     oauth.credentials = { accessToken: 'fixture', expiresAt: Date.now() + 60_000 };
     oauth.config = {};
     oauth.fastModeBetaHeaderLatched = false;
     oauth.ensureAuth = async () => oauth.credentials;
     let oauthAttempts = 0;
-    const oauthResult = await oauth.send([], 'claude-sonnet-4-5', [], {
+    await assert.rejects(oauth.send([], 'claude-sonnet-4-5', [], {
         _doRequestFn: async () => {
             oauthAttempts += 1;
             return {
@@ -364,9 +364,8 @@ test('Anthropic providers retry request-local pre-output 429 responses', async (
         _parseSSEFn: async () => ({
             content: 'oauth-ok', model: 'claude', toolCalls: [], usage: {},
         }),
-    });
-    assert.equal(oauthResult.content, 'oauth-ok');
-    assert.equal(oauthAttempts, 2);
+    }), (error) => error?.status === 429 && error?.retryAfterMs === 0);
+    assert.equal(oauthAttempts, 1);
 
     const direct = Object.create(AnthropicProvider.prototype);
     direct.name = 'anthropic';

@@ -12,7 +12,12 @@ import {
     applyCompatProviderChatOptions,
     parseToolCalls,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat.mjs';
-import { consumeCompatChatCompletionStream } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
+import {
+    consumeCompatChatCompletionStream,
+    consumeCompatResponsesStream,
+} from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
+import { useXaiResponsesWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs';
+import { classifyError } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import { GrokOAuthProvider } from '../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
 import { sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 import {
@@ -341,13 +346,18 @@ test('Grok OAuth end-to-end HTTP Responses path is hermetic through inner compat
         },
         responsesTransport: 'http',
     });
-    provider.ensureAuth = async () => ({ access_token: 'fixture-token' });
-    const inner = provider._ensureInner('fixture-token', 'grok-4.5');
-    assert.equal(inner.config.preconnect, false, 'Grok seam must propagate to inner compat');
-    assert.equal(typeof inner.config.preconnectFn, 'function');
-    inner.client = {
-        responses: {
-            create: async () => stream([
+    provider.ensureAuth = async () => ({ access_token: 'fixture-token', user_id: 'fixture-user' });
+    const ensureInner = provider._ensureInner.bind(provider);
+    let capturedInner = null;
+    let capturedParams = null;
+    provider._ensureInner = (...args) => {
+        const inner = ensureInner(...args);
+        capturedInner = inner;
+        inner.client = {
+            responses: {
+                create: async (params) => {
+                    capturedParams = params;
+                    return stream([
                 { type: 'response.created', response: { id: 'resp_fixture', model: 'grok-4.5' } },
                 { type: 'response.output_text.delta', delta: 'hermetic' },
                 {
@@ -360,19 +370,65 @@ test('Grok OAuth end-to-end HTTP Responses path is hermetic through inner compat
                         usage: { input_tokens: 3, output_tokens: 1 },
                     },
                 },
-            ]),
-        },
+                    ]);
+                },
+            },
+        };
+        return inner;
     };
 
     const result = await provider.send(
         [{ role: 'user', content: 'fixture' }],
         'grok-4.5',
         [],
-        { sessionId: 'hermetic-grok-contract' },
+        { sessionId: 'hermetic-grok-contract', iteration: 2 },
     );
     assert.equal(result.content, 'hermetic');
     assert.equal(result.usage.inputTokens, 3);
+    assert.equal(capturedInner.config.preconnect, false, 'Grok seam must propagate to inner compat');
+    assert.equal(typeof capturedInner.config.preconnectFn, 'function');
+    assert.equal(capturedInner.baseURL, 'https://cli-chat-proxy.grok.com/v1');
+    assert.equal(capturedInner.config.responsesTransport, 'http');
+    assert.equal(capturedInner.defaultHeaders['x-grok-conv-id'], undefined);
+    assert.equal(capturedInner.defaultHeaders['x-grok-session-id'], 'hermetic-grok-contract');
+    assert.match(capturedInner.defaultHeaders['x-grok-req-id'], /^[0-9a-f-]{36}$/);
+    assert.equal(capturedInner.defaultHeaders['x-grok-model-override'], 'grok-4.5');
+    assert.equal(capturedInner.defaultHeaders['x-grok-turn-idx'], '2');
+    assert.equal(capturedInner.defaultHeaders['x-grok-user-id'], 'fixture-user');
+    assert.equal(capturedParams.store, false);
+    assert.deepEqual(capturedParams.include, ['reasoning.encrypted_content']);
+    assert.equal(result.providerState.xaiResponses.store, false);
+    assert.equal(result.providerState.xaiResponses.previousResponseId, null);
 });
+
+test('xAI Responses defaults to HTTP and keeps WebSocket behind explicit opt-in', () => {
+    assert.equal(useXaiResponsesWebSocket({}, {}), false);
+    assert.equal(useXaiResponsesWebSocket({}, { responsesTransport: 'http' }), false);
+    assert.equal(useXaiResponsesWebSocket({}, { responsesTransport: 'websocket' }), true);
+});
+
+for (const event of [
+    { type: 'response.failed', response: { error: { message: 'forbidden' } } },
+    { type: 'error', message: 'forbidden' },
+]) {
+    test(`xAI ${event.type} stream event is retryable 500-equivalent without changing other compat labels`, async () => {
+        const xaiError = await consumeCompatResponsesStream(stream([event]), {
+            label: 'xai:responses',
+            parseResponsesToolCalls: () => [],
+            responseOutputText: () => '',
+        }).then(() => null, (err) => err);
+        assert.equal(xaiError.httpStatus, 500);
+        assert.equal(classifyError(xaiError), 'transient');
+
+        const otherError = await consumeCompatResponsesStream(stream([event]), {
+            label: 'other-compat',
+            parseResponsesToolCalls: () => [],
+            responseOutputText: () => '',
+        }).then(() => null, (err) => err);
+        assert.equal(otherError.httpStatus, 403);
+        assert.equal(classifyError(otherError), 'auth');
+    });
+}
 
 test('Grok OAuth does not refresh/replay a 401 after visible tool dispatch', async () => {
     const provider = Object.create(GrokOAuthProvider.prototype);
@@ -500,26 +556,28 @@ test('xAI safe 401 replay carries completed warmup into the retry', async () => 
     assert.equal(attempts, 2);
 });
 
-test('Grok OAuth safe 401 replay carries completed warmup to refreshed xAI inner', async () => {
-    const provider = Object.create(GrokOAuthProvider.prototype);
-    provider.config = { preconnect: false };
-    const warmup = { usage: { inputTokens: 10 } };
-    let authCalls = 0;
-    provider.ensureAuth = async ({ forceRefresh = false } = {}) => {
-        authCalls += 1;
-        return { access_token: forceRefresh ? 'fresh' : 'stale' };
-    };
-    provider._ensureInner = (token) => ({
-        _doSend: async (_messages, _model, _tools, opts) => {
-            if (token === 'stale') {
-                const err = Object.assign(new Error('401'), { httpStatus: 401 });
-                Object.defineProperty(err, '__warmup', { value: warmup });
-                throw err;
-            }
-            assert.equal(opts._carriedWarmup, warmup);
-            return { content: 'retried' };
-        },
+for (const status of [401, 403]) {
+    test(`Grok OAuth safe ${status} replay carries completed warmup to refreshed xAI inner`, async () => {
+        const provider = Object.create(GrokOAuthProvider.prototype);
+        provider.config = { preconnect: false };
+        const warmup = { usage: { inputTokens: 10 } };
+        let authCalls = 0;
+        provider.ensureAuth = async ({ forceRefresh = false } = {}) => {
+            authCalls += 1;
+            return { access_token: forceRefresh ? 'fresh' : 'stale' };
+        };
+        provider._ensureInner = (token) => ({
+            _doSend: async (_messages, _model, _tools, opts) => {
+                if (token === 'stale') {
+                    const err = Object.assign(new Error(String(status)), { httpStatus: status });
+                    Object.defineProperty(err, '__warmup', { value: warmup });
+                    throw err;
+                }
+                assert.equal(opts._carriedWarmup, warmup);
+                return { content: 'retried' };
+            },
+        });
+        assert.equal((await provider.send([], 'grok-4.5', [], {})).content, 'retried');
+        assert.equal(authCalls, 2);
     });
-    assert.equal((await provider.send([], 'grok-4.5', [], {})).content, 'retried');
-    assert.equal(authCalls, 2);
-});
+}

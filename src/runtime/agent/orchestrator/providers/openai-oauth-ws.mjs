@@ -103,8 +103,8 @@ const HANDSHAKE_MAX_ATTEMPTS = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT + 1;
 const HANDSHAKE_BACKOFF_BASE_MS = 200;
 const HANDSHAKE_BACKOFF_CAP_MS = 3200;
 
-export function _classifyHandshakeError(err) {
-    return classifyHandshakeError(err);
+export function _classifyHandshakeError(err, { retry429 = true } = {}) {
+    return classifyHandshakeError(err, { retry429 });
 }
 
 /**
@@ -518,6 +518,7 @@ export async function _acquireWithRetry({
     _acquire = acquireWebSocket,
     _sleepFn = _defaultSleep,
     maxAttempts = HANDSHAKE_MAX_ATTEMPTS,
+    retry429 = true,
 } = {}) {
     let lastErr = null;
     let lastClassifier = null;
@@ -538,7 +539,7 @@ export async function _acquireWithRetry({
             return await _acquire({ auth, poolKey, cacheKey, codexHeaders, forceFresh, externalSignal });
         } catch (err) {
             lastErr = err;
-            const classifier = _classifyHandshakeError(err);
+            const classifier = _classifyHandshakeError(err, { retry429 });
             lastClassifier = classifier;
             // Permanent (or unknown → default-deny): stop immediately.
             if (!classifier) {
@@ -762,6 +763,9 @@ export async function sendViaWebSocket({
             });
         } catch {}
     };
+    // Only Codex OAuth follows retry_429:false. This shared transport also
+    // backs xAI, whose existing 429 handshake retry behavior must remain.
+    const retry429 = traceProvider !== 'openai-oauth';
 
     for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
         const handshakeStart = performance.now();
@@ -783,6 +787,7 @@ export async function sendViaWebSocket({
                 // No nested connect retry budget: the outer stream loop owns
                 // all retries for this logical request.
                 maxAttempts: 1,
+                retry429,
                 onRetry: (info) => {
                     handshakeRetries += 1;
                     sendSpan.handshakeRetries += 1;
@@ -801,7 +806,7 @@ export async function sendViaWebSocket({
             // application error carrying the same HTTP status.
             try { err.wsFailurePhase = 'handshake'; } catch {}
             const classifier = err?.retryClassifier
-                || _classifyHandshakeError(err)
+                || _classifyHandshakeError(err, { retry429 })
                 || (err?.code === 'EWSACQUIRETIMEOUT' ? 'acquire_timeout' : null);
             const classifiers = [...handshakeRetryClassifiers];
             if (classifier && !classifiers.includes(classifier)) classifiers.push(classifier);

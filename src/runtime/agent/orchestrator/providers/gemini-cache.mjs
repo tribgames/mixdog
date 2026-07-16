@@ -100,10 +100,10 @@ export function _geminiCachePrefixHash({ model, systemInstruction, geminiTools, 
     }));
 }
 
-// The provider's default explicit-cache TTL is five minutes. A six-minute
-// global-cache floor made every freshly-created default cache ineligible for
-// cross-session reuse. Ten seconds matches the per-session minimum headroom.
-export const GEMINI_GLOBAL_CACHE_MIN_LIVE_MS = 10 * 1000;
+// Keep enough headroom for the provider's 60s first-byte window plus setup
+// overhead. This matches the default five-minute cache's per-session 25%
+// reuse threshold, so a cross-session hit cannot expire while opening.
+export const GEMINI_GLOBAL_CACHE_MIN_LIVE_MS = 75 * 1000;
 export const GEMINI_GLOBAL_CACHE_MAX_ENTRIES = 128;
 // Grace window before deleting a superseded cachedContents name (see the
 // cross-session race note at the delete call site in gemini.mjs). Long enough
@@ -130,6 +130,17 @@ export function _invalidateGeminiCachesForCredentialFingerprint(credentialFinger
     let removed = 0;
     for (const [key, entry] of geminiGlobalCaches) {
         if (entry?.cacheCredentialFingerprint !== credentialFingerprint) continue;
+        geminiGlobalCaches.delete(key);
+        removed += 1;
+    }
+    return removed;
+}
+
+export function _invalidateGeminiCacheName(cacheName) {
+    if (!cacheName) return 0;
+    let removed = 0;
+    for (const [key, entry] of geminiGlobalCaches) {
+        if (entry?.cacheName !== cacheName) continue;
         geminiGlobalCaches.delete(key);
         removed += 1;
     }

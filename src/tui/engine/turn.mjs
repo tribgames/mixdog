@@ -1073,6 +1073,37 @@ export function createRunTurn(bag) {
           if (thinkingLastEndedAt) _pendingThinkingLastEndedAt = thinkingLastEndedAt;
           scheduleStreamFlush();
         },
+        onTextReset: ({ chars } = {}) => {
+          if (!isCurrentTurn()) return false;
+          const count = Math.max(0, Number(chars) || 0);
+          if (!count) return false;
+          flushStreamBatch();
+          assistantText = assistantText.slice(0, Math.max(0, assistantText.length - count));
+          currentAssistantText = currentAssistantText.slice(
+            0,
+            Math.max(0, currentAssistantText.length - count),
+          );
+          _streamScanLen = 0;
+          _lastNewlineIdx = -1;
+          _emittedNewlineIdx = -2;
+          _emittedVisibleText = '';
+          if (currentAssistantId) {
+            if (currentAssistantText) {
+              set({
+                streamingTail: {
+                  kind: 'assistant',
+                  id: currentAssistantId,
+                  text: currentAssistantText,
+                  streaming: true,
+                },
+              });
+            } else {
+              clearStreamingTail(currentAssistantId);
+              currentAssistantId = null;
+            }
+          }
+          return true;
+        },
         onAssistantText: (text) => {
           // Mid-turn assistant text that precedes a tool call. Providers that
           // stream via onTextDelta already accumulated it into assistantText;
