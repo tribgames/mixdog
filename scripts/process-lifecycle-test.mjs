@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   unlinkSync,
   utimesSync,
@@ -103,71 +104,107 @@ test('vanished evidence uses only old-process fields and both ledger files stay 
   }
 });
 
-test('PID reuse is detected by process identity while uncertain live identity is preserved', () => {
+test('PID reuse is detected by process identity while uncertain live identity is preserved', async () => {
   const root = tempRoot();
+  let child;
   try {
     const paths = lifecyclePathsForTest(root);
     mkdirSync(paths.markerDir, { recursive: true });
-    const seed = beginProcessLifecycle({ directory: root, configureReports: false });
-    const currentIdentity = JSON.parse(readFileSync(seed.markerPath, 'utf8')).processIdentity;
+    child = spawn(process.execPath, ['--input-type=module', '--eval', `
+      import { beginProcessLifecycle } from './src/runtime/shared/process-lifecycle.mjs';
+      beginProcessLifecycle({ directory: process.env.LEDGER_DIR, configureReports: false });
+      setTimeout(() => {}, 10000);
+    `], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, LEDGER_DIR: root },
+      stdio: 'ignore',
+    });
+    let childMarker;
+    let currentIdentity;
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const name = readdirSync(paths.markerDir).find((entry) => entry.startsWith(`${child.pid}-`));
+      if (name) {
+        childMarker = join(paths.markerDir, name);
+        currentIdentity = JSON.parse(readFileSync(childMarker, 'utf8')).processIdentity;
+        if (currentIdentity?.kind === 'linux-start-ticks' || currentIdentity?.method === 'powershell') break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     assert.ok(currentIdentity);
-    finishProcessLifecycle('clean-shutdown', 0);
-    const reused = join(paths.markerDir, `${process.pid}-reused.json`);
-    const matching = join(paths.markerDir, `${process.pid}-matching.json`);
-    const uncertain = join(paths.markerDir, `${process.pid}-uncertain.json`);
-    const malformed = join(paths.markerDir, `${process.pid}-malformed.json`);
-    const clockAmbiguous = join(paths.markerDir, `${process.pid}-clock.json`);
-    const differentKind = join(paths.markerDir, `${process.pid}-different-kind.json`);
+    if (process.platform === 'win32') assert.equal(currentIdentity.method, 'powershell');
+
+    const reused = join(paths.markerDir, `${child.pid}-reused.json`);
+    const matching = join(paths.markerDir, `${child.pid}-matching.json`);
+    const uncertain = join(paths.markerDir, `${child.pid}-uncertain.json`);
+    const malformed = join(paths.markerDir, `${child.pid}-malformed.json`);
+    const clockAmbiguous = join(paths.markerDir, `${child.pid}-clock.json`);
+    const differentKind = join(paths.markerDir, `${child.pid}-different-kind.json`);
+    const mixedTransient = join(paths.markerDir, `${child.pid}-mixed-transient.json`);
+    const samePidForeign = join(paths.markerDir, `${process.pid}-same-pid-foreign.json`);
     const reusedIdentity = currentIdentity.kind === 'linux-start-ticks'
       ? { kind: currentIdentity.kind, value: String(BigInt(currentIdentity.value) + 1n) }
-      : { kind: currentIdentity.kind, value: currentIdentity.value + 1 };
+      : { ...currentIdentity, value: currentIdentity.value + 1 };
     writeFileSync(reused, JSON.stringify({
-      pid: process.pid,
-      ppid: process.ppid,
+      pid: child.pid,
       token: 'reused',
       processIdentity: reusedIdentity,
     }));
     writeFileSync(matching, JSON.stringify({
-      pid: process.pid,
+      pid: child.pid,
       token: 'matching',
       processIdentity: currentIdentity,
     }));
     writeFileSync(uncertain, JSON.stringify({
-      pid: process.pid,
-      ppid: process.ppid,
+      pid: child.pid,
       token: 'uncertain',
     }));
     writeFileSync(malformed, JSON.stringify({
-      pid: process.pid,
-      ppid: process.ppid,
+      pid: child.pid,
       token: 'malformed',
       processIdentity: process.platform === 'linux'
         ? { kind: 'linux-start-ticks', value: 'not-a-number' }
         : { kind: 'start-seconds', value: 'not-a-number' },
     }));
     writeFileSync(clockAmbiguous, JSON.stringify({
-      pid: process.pid,
-      ppid: process.ppid,
+      pid: child.pid,
       token: 'clock-adjusted',
       processIdentity: { kind: 'legacy-wall-clock', value: Date.now() + 86400000 },
     }));
     writeFileSync(differentKind, JSON.stringify({
-      pid: process.pid,
+      pid: child.pid,
       token: 'different-kind',
       processIdentity: currentIdentity.kind === 'linux-start-ticks'
         ? { kind: 'start-seconds', value: 1 }
         : { kind: 'linux-start-ticks', value: '1' },
     }));
+    if (currentIdentity.kind === 'start-seconds') {
+      writeFileSync(mixedTransient, JSON.stringify({
+        pid: child.pid,
+        token: 'mixed-transient',
+        processIdentity: { kind: currentIdentity.kind, value: currentIdentity.value + 1, method: 'uptime' },
+      }));
+    }
+    writeFileSync(samePidForeign, JSON.stringify({
+      pid: process.pid,
+      token: 'same-pid-foreign',
+      processIdentity: currentIdentity,
+    }));
     beginProcessLifecycle({ directory: root, configureReports: false });
     finishProcessLifecycle('clean-shutdown', 0);
-    assert.equal(entries(paths.ledger).filter((row) => row.reason === 'prior-process-vanished').length, 1);
+    assert.equal(entries(paths.ledger).filter((row) => row.reason === 'prior-process-vanished').length, 2);
     assert.equal(existsSync(reused), false);
     assert.equal(existsSync(matching), true);
     assert.equal(existsSync(uncertain), true);
     assert.equal(existsSync(malformed), true);
     assert.equal(existsSync(clockAmbiguous), true);
     assert.equal(existsSync(differentKind), true);
+    assert.equal(existsSync(samePidForeign), false);
+    assert.equal(existsSync(childMarker), true);
+    if (currentIdentity.kind === 'start-seconds') assert.equal(existsSync(mixedTransient), true);
   } finally {
+    child?.kill();
+    if (child) await childExit(child);
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -313,6 +350,27 @@ test('cleanup rejection and timeout are forced cleanup, not clean shutdown', asy
     process.exit = originalExit;
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('uncaughtException synchronously restores terminal modes before cleanup', () => {
+  const source = `
+    import { installProcessSignalCleanup } from './src/runtime/shared/process-shutdown.mjs';
+    const reset = '\\x1b[?1000l\\x1b[?1002l\\x1b[?1006l\\x1b[?1049l';
+    installProcessSignalCleanup({
+      signals: [],
+      exit: false,
+      restoreTerminal: () => process.stdout.write(reset),
+      cleanup: async () => {},
+      log: () => {},
+    });
+    throw new Error('terminal fixture crash');
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '\x1b[?1000l\x1b[?1002l\x1b[?1006l\x1b[?1049l');
 });
 
 test('Node report is compact, excludes environment, and rotates to one previous report', () => {

@@ -35,6 +35,7 @@ function stableSnapshotJson(snapshot) {
 // Key: channelId  Value: { label, latestSeenId, unseenCount }
 // No persistence across restarts — clean start is fine for v1.
 const _discordUnread = new Map();
+const DISCORD_UNREAD_MAX_CHANNELS = 500;
 
 /**
  * Called whenever the backend observes messages for a channelId.
@@ -63,6 +64,14 @@ export function recordFetchedMessages(channelId, channelLabel, messages, options
   }
   // First call: zero unread (baseline, not retroactive).
 
+  // Retain the most recently observed channels only. Channel ids originate from
+  // inbound traffic and ad-hoc fetches, so an unbounded process-wide registry
+  // would otherwise grow for the worker lifetime.
+  if (_discordUnread.has(channelId)) {
+    _discordUnread.delete(channelId);
+  } else if (_discordUnread.size >= DISCORD_UNREAD_MAX_CHANNELS) {
+    _discordUnread.delete(_discordUnread.keys().next().value);
+  }
   _discordUnread.set(channelId, {
     label: channelLabel ?? channelId,
     latestSeenId: newLatestId,

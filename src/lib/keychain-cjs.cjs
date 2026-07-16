@@ -12,36 +12,46 @@ const KEYCHAIN_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS || 150
 const POWERSHELL_TIMEOUT_MS = KEYCHAIN_TIMEOUT_MS;
 
 // ---------------------------------------------------------------------------
-// getSecret read cache — avoid redundant platform-calls within TTL.
+// getSecret read cache — collapse repeated reads during a turn while bounding
+// cross-process staleness. Misses are never cached, so a token saved by another
+// process becomes visible immediately; hits expire so rotations are observed.
 // ---------------------------------------------------------------------------
 const KEYCHAIN_CACHE_TTL_MS = (() => {
-    const v = parseInt(process.env.MIXDOG_KEYCHAIN_CACHE_TTL_MS, 10);
-    return Number.isFinite(v) ? v : 300000;
+    const value = Number(process.env.MIXDOG_KEYCHAIN_CACHE_TTL_MS);
+    return Number.isFinite(value) && value >= 0 ? value : 30000;
 })();
-/** @type {Map<string, {value: (string|null), ts: number}> | null} */
-let _secretCache = null;
+/** @type {Map<string, {value: string, expiresAt: number}>} */
+const _secretCache = new Map();
 
 function _cacheGet(account) {
-    if (KEYCHAIN_CACHE_TTL_MS <= 0) return undefined;
-    if (!_secretCache) return undefined;
-    const entry = _secretCache.get(account);
+    const key = `${SERVICE}\0${account}`;
+    const entry = _secretCache.get(key);
     if (!entry) return undefined;
-    if (Date.now() - entry.ts >= KEYCHAIN_CACHE_TTL_MS) {
-        _secretCache.delete(account);
+    if (entry.expiresAt <= Date.now()) {
+        _secretCache.delete(key);
         return undefined;
     }
-    return entry.value; // may be null (cached miss)
+    return entry.value;
 }
 
 function _cacheSet(account, value) {
-    if (KEYCHAIN_CACHE_TTL_MS <= 0) return;
-    if (!_secretCache) _secretCache = new Map();
-    _secretCache.set(account, { value, ts: Date.now() });
+    if (value == null || KEYCHAIN_CACHE_TTL_MS === 0) return;
+    _secretCache.set(`${SERVICE}\0${account}`, {
+        value,
+        expiresAt: Date.now() + KEYCHAIN_CACHE_TTL_MS,
+    });
 }
 
 function _cacheInvalidate(account) {
-    if (!_secretCache) return;
-    _secretCache.delete(account);
+    _secretCache.delete(`${SERVICE}\0${account}`);
+}
+
+function invalidateSecretCache(account) {
+    if (account == null) {
+        _secretCache.clear();
+        return;
+    }
+    _cacheInvalidate(account);
 }
 
 // CommonJS module: cannot import the ESM src/shared/wsl.mjs, so inline an
@@ -332,13 +342,16 @@ function hasSecret(account) {
 }
 
 function setSecret(account, value) {
-    switch (platform()) {
-        case 'darwin': darwinSet(account, value); break;
-        case 'linux':  linuxSet(account, value); break;
-        case 'win32':  win32Set(account, value); break;
-        default: throw new Error(`[keychain] unsupported platform: ${process.platform}`);
+    try {
+        switch (platform()) {
+            case 'darwin': darwinSet(account, value); break;
+            case 'linux':  linuxSet(account, value); break;
+            case 'win32':  win32Set(account, value); break;
+            default: throw new Error(`[keychain] unsupported platform: ${process.platform}`);
+        }
+    } finally {
+        _cacheInvalidate(account);
     }
-    _cacheSet(account, value);
 }
 
 function deleteSecret(account) {
@@ -354,4 +367,4 @@ function deleteSecret(account) {
     }
 }
 
-module.exports = { getSecret, setSecret, deleteSecret, hasSecret, SERVICE };
+module.exports = { getSecret, setSecret, deleteSecret, hasSecret, invalidateSecretCache, SERVICE };

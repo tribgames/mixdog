@@ -30,7 +30,6 @@ export function createConfigLifecycle({
   // shared modules / helpers
   cfgMod,
   sharedCfgMod,
-  setBackend,
   setBackendAsync,
   setConfiguredShell,
   normalizeSystemShellConfig,
@@ -218,21 +217,6 @@ export function createConfigLifecycle({
     return p;
   }
 
-  function flushBackendSave() {
-    if (backendSaveTimer) {
-      clearTimeout(backendSaveTimer);
-      backendSaveTimer = null;
-    }
-    if (pendingBackendName === null) return;
-    const name = pendingBackendName;
-    pendingBackendName = null;
-    try {
-      setBackend(name);
-    } catch (err) {
-      process.stderr.write(`[channels] debounced setBackend failed: ${err?.message || err}\n`);
-    }
-  }
-
   function scheduleBackendSave(name) {
     pendingBackendName = name;
     if (backendSaveTimer) clearTimeout(backendSaveTimer);
@@ -335,6 +319,21 @@ export function createConfigLifecycle({
     return p;
   }
 
+  // Teardown barrier for every in-process writer that can hold the shared
+  // mixdog-config lock. Start/drain all debounce channels through their async
+  // variants, then resolve only when every promise tail (including skills,
+  // which config flushes after its whole-section write) has settled.
+  async function flushAllConfigSavesAsync() {
+    await Promise.all([
+      flushConfigSaveAsync(),
+      flushBackendSaveAsync(),
+      flushOutputStyleSaveAsync(),
+    ]);
+    // The shared config layer also tracks writes started directly by channel,
+    // webhook, voice, Discord access, and future async RMW callers.
+    await sharedCfgMod.pendingConfigWrites();
+  }
+
   function flushOutputStyleSave() {
     if (outputStyleSaveTimer) {
       clearTimeout(outputStyleSaveTimer);
@@ -418,12 +417,16 @@ export function createConfigLifecycle({
     adoptConfig,
     saveConfigAndAdopt,
     flushConfigSave,
-    flushBackendSave,
+    // Every lifecycle flush uses the async lock path. A synchronous waiter on
+    // the same lock would block the event loop needed by an in-flight async
+    // writer, so callers must await this before a dependent read/start.
+    flushBackendSave: flushBackendSaveAsync,
     scheduleBackendSave,
     flushSkillsSave,
     scheduleSkillsSave,
     flushOutputStyleSave,
     scheduleOutputStyleSave,
+    flushAllConfigSavesAsync,
     // reload / ensure
     reloadFullConfig,
     ensureFullConfig,

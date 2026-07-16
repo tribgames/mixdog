@@ -28,6 +28,7 @@ const REPORT_NAME = 'mixdog-node-report.json';
 const LEDGER_LOCK_NAME = 'process-lifecycle.lock';
 const LEDGER_LOCK_TIMEOUT_MS = 2000;
 const LEDGER_LOCK_STALE_MS = 10000;
+const IDENTITY_UPGRADE_DELAYS_MS = [1000, 9000, 20000];
 const STATE_KEY = Symbol.for('mixdog.processLifecycle.v1');
 const VALID_REASONS = new Set([
   'process-start',
@@ -119,7 +120,34 @@ function appendEntry(active, entry) {
 }
 
 function currentProcessIdentity() {
+  if (process.platform !== 'linux') {
+    const value = Math.floor((Date.now() - (process.uptime() * 1000)) / 1000);
+    return Number.isSafeInteger(value) && value > 0
+      ? { kind: 'start-seconds', value, method: 'uptime' }
+      : null;
+  }
   return processIdentityForPid(process.pid);
+}
+
+function windowsProcessIdentities(pids) {
+  const identities = new Map();
+  if (pids.length === 0) return identities;
+  try {
+    const out = execFileSync('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      `$ErrorActionPreference='SilentlyContinue'; Get-Process -Id @(${pids.join(',')}) | ForEach-Object { try { "$($_.Id):$(([DateTimeOffset]$_.StartTime).ToUnixTimeSeconds())" } catch {} }`,
+    ], { encoding: 'utf8', timeout: 2000, windowsHide: true });
+    for (const line of String(out).split(/\r?\n/)) {
+      const match = /^(\d+):(\d+)$/.exec(line.trim());
+      if (!match) continue;
+      const pid = Number(match[1]);
+      const value = Number(match[2]);
+      if (Number.isSafeInteger(pid) && Number.isSafeInteger(value) && value > 0) {
+        identities.set(pid, { kind: 'start-seconds', value, method: 'powershell' });
+      }
+    }
+  } catch {}
+  return identities;
 }
 
 function processIdentityForPid(pid) {
@@ -136,13 +164,7 @@ function processIdentityForPid(pid) {
   }
   try {
     if (process.platform === 'win32') {
-      const out = execFileSync('powershell.exe', [
-        '-NoProfile', '-NonInteractive', '-Command',
-        `([DateTimeOffset](Get-Process -Id ${pid} -ErrorAction Stop).StartTime).ToUnixTimeSeconds()`,
-      ], { encoding: 'utf8', timeout: 2000, windowsHide: true });
-      const text = String(out).trim();
-      const value = /^\d+$/.test(text) ? Number(text) : NaN;
-      return Number.isSafeInteger(value) ? { kind: 'start-seconds', value } : null;
+      return windowsProcessIdentities([pid]).get(pid) || null;
     }
     const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
       encoding: 'utf8',
@@ -150,10 +172,28 @@ function processIdentityForPid(pid) {
       windowsHide: true,
     });
     const value = Math.floor(Date.parse(String(out).trim()) / 1000);
-    return Number.isInteger(value) ? { kind: 'start-seconds', value } : null;
+    return Number.isInteger(value) ? { kind: 'start-seconds', value, method: 'ps' } : null;
   } catch {
     return null;
   }
+}
+
+function processIdentitiesForPids(pids) {
+  const unique = [...new Set(pids)];
+  if (process.platform !== 'win32') {
+    return new Map(unique.map((pid) => [pid, processIdentityForPid(pid)]));
+  }
+
+  const identities = new Map();
+  const otherPids = [];
+  for (const pid of unique) {
+    if (pid === process.pid) identities.set(pid, currentProcessIdentity());
+    else otherPids.push(pid);
+  }
+  for (const [pid, identity] of windowsProcessIdentities(otherPids)) {
+    identities.set(pid, identity);
+  }
+  return identities;
 }
 
 function sameProcessIdentity(expected, observed) {
@@ -166,7 +206,10 @@ function sameProcessIdentity(expected, observed) {
   if (expected.kind === 'start-seconds') {
     if (!Number.isSafeInteger(expected.value) || expected.value < 1
       || !Number.isSafeInteger(observed.value) || observed.value < 1) return null;
-    return expected.value === observed.value;
+    const crossMethod = expected.method === 'uptime' || observed.method === 'uptime';
+    return crossMethod
+      ? Math.abs(expected.value - observed.value) <= 2
+      : expected.value === observed.value;
   }
   return null;
 }
@@ -237,6 +280,28 @@ function writeMarker(active) {
   }
 }
 
+function scheduleProcessIdentityUpgrade(active) {
+  if (active.processIdentity?.method !== 'uptime') return;
+  const scheduleAttempt = (attempt) => {
+    if (attempt >= IDENTITY_UPGRADE_DELAYS_MS.length) return;
+    const timer = setTimeout(() => {
+      try {
+        if (sharedState().active !== active || !markerOwned(active)) return;
+        const processIdentity = processIdentityForPid(process.pid);
+        if (processIdentity && processIdentity.method !== 'uptime') {
+          const previousIdentity = active.processIdentity;
+          active.processIdentity = processIdentity;
+          if (writeMarker(active)) return;
+          active.processIdentity = previousIdentity;
+        }
+      } catch {}
+      scheduleAttempt(attempt + 1);
+    }, IDENTITY_UPGRADE_DELAYS_MS[attempt]);
+    timer.unref?.();
+  };
+  scheduleAttempt(0);
+}
+
 function reapVanishedMarkers(active) {
   const candidates = [];
   try {
@@ -247,20 +312,27 @@ function reapVanishedMarkers(active) {
     }
   } catch {}
   if (existsSync(active.legacyMarker)) candidates.push(active.legacyMarker);
+  const occupied = [];
   for (const markerPath of candidates) {
     try {
       const previous = JSON.parse(readFileSync(markerPath, 'utf8'));
-      const liveness = pidLiveness(previous?.pid);
-      let vanished = liveness === 'dead';
-      if (liveness === 'occupied') {
-        const identityMatch = sameProcessIdentity(
-          previous.processIdentity,
-          processIdentityForPid(previous.pid),
-        );
-        vanished = identityMatch === false;
+      if (previous?.pid === process.pid && previous?.token !== active.token) {
+        if (recordPriorVanished(active, previous)) unlinkSync(markerPath);
+        continue;
       }
-      if (!vanished) continue;
-      if (recordPriorVanished(active, previous)) unlinkSync(markerPath);
+      const liveness = pidLiveness(previous?.pid);
+      if (liveness === 'occupied') occupied.push({ markerPath, previous });
+      else if (liveness === 'dead' && recordPriorVanished(active, previous)) unlinkSync(markerPath);
+    } catch {}
+  }
+  const identities = processIdentitiesForPids(occupied.map(({ previous }) => previous.pid));
+  for (const { markerPath, previous } of occupied) {
+    try {
+      const identityMatch = sameProcessIdentity(
+        previous.processIdentity,
+        identities.get(previous.pid) || null,
+      );
+      if (identityMatch === false && recordPriorVanished(active, previous)) unlinkSync(markerPath);
     } catch {}
   }
 }
@@ -307,6 +379,7 @@ export function beginProcessLifecycle({
   reapVanishedMarkers(active);
   writeMarker(active);
   recordCurrent('process-start');
+  scheduleProcessIdentityUpgrade(active);
   if (configureReports && safeCommandLine) {
     try { unlinkSync(`${active.report}.1`); } catch {}
     try { renameSync(active.report, `${active.report}.1`); } catch {}

@@ -2,12 +2,12 @@ import {
   channelSetup,
   deleteSchedule,
   deleteWebhook,
-  setChannel,
+  setChannelAsync,
   saveSchedule,
   saveWebhook,
   setScheduleEnabled,
   setWebhookEnabled,
-  setWebhookConfig,
+  setWebhookConfigAsync,
 } from '../standalone/channel-admin.mjs';
 
 // Channel/webhook/schedule config surface. Extracted verbatim from the runtime
@@ -20,19 +20,19 @@ export function createChannelConfigApi({ flushBackendSave, channels, reloadChann
       // Flush a pending debounced backend switch first so setup readers
       // (Settings → Channel Setting, remote toggles) never observe the
       // previous backend during the 150ms debounce window.
-      try { flushBackendSave(); } catch {}
+      try { await flushBackendSave(); } catch {}
       return channelSetup();
     },
     getChannelWorkerStatus() {
       return channels.status();
     },
-    setChannel(entry) {
-      const result = setChannel(entry);
+    async setChannel(entry) {
+      const result = await setChannelAsync(entry);
       reloadChannelsSoon();
       return result;
     },
-    setWebhookConfig(patch) {
-      const result = setWebhookConfig(patch);
+    async setWebhookConfig(patch) {
+      const result = await setWebhookConfigAsync(patch);
       reloadChannelsSoon();
       return result;
     },

@@ -410,7 +410,9 @@ async function refreshBridgeOwnership(options = {}) {
 async function reloadRuntimeConfig() {
   const previousBackend = getBackend();
   const previousBackendName = previousBackend?.name || "";
-  setConfig(await loadConfig());
+  // File-watch/tool-triggered reloads must bypass the short keychain hit cache:
+  // another process may have just saved or rotated the channel credential.
+  setConfig(await loadConfig({ freshSecrets: true }));
   scheduler.reloadConfig(
     getConfig().nonInteractive ?? [],
     getConfig().interactive ?? [],
@@ -419,7 +421,10 @@ async function reloadRuntimeConfig() {
     { restart: getBridgeRuntimeConnected() }
   );
   const nextBackend = createBackend(getConfig());
-  const backendChanged = (nextBackend?.name || "") !== previousBackendName;
+  const backendTypeChanged = (nextBackend?.name || "") !== previousBackendName;
+  const credentialsChanged = !backendTypeChanged
+    && String(nextBackend?.token || "") !== String(previousBackend?.token || "");
+  const backendChanged = backendTypeChanged || credentialsChanged;
   if (backendChanged) {
     const shouldRestart = getBridgeRuntimeConnected() || bridgeRuntimeStarting;
     if (shouldRestart) await stopOwnedRuntime("getBackend() getConfig() changed");
@@ -439,19 +444,21 @@ async function reloadRuntimeConfig() {
     // backendChanged — same-getBackend() reloads keep their binding untouched.
     // (active-instance is cleared by stopOwnedRuntime on the restart path; we
     // don't re-advertise here to avoid resurrecting a just-cleared entry.)
-    try { forwarder.stopWatch(); } catch {}
-    forwarder.channelId = "";
-    forwarder.transcriptPath = "";
-    try {
-      statusState.update((state) => {
-        state.channelId = "";
-        state.transcriptPath = "";
-      });
-    } catch {}
+    if (backendTypeChanged) {
+      try { forwarder.stopWatch(); } catch {}
+      forwarder.channelId = "";
+      forwarder.transcriptPath = "";
+      try {
+        statusState.update((state) => {
+          state.channelId = "";
+          state.transcriptPath = "";
+        });
+      } catch {}
+    }
     // stopOwnedRuntime above tore the owned runtime down; a same-session reload
     // reconnects the NEW backend here. The in-flight start (if any) has already
     // settled above, so this start is not dropped by the in-flight guard.
-    if (shouldRestart) refreshBridgeOwnershipSafe({ restoreBinding: false });
+    if (shouldRestart) refreshBridgeOwnershipSafe({ restoreBinding: !backendTypeChanged });
   } else if (nextBackend !== previousBackend) {
     try { await nextBackend.disconnect?.(); } catch {}
   }

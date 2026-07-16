@@ -217,8 +217,37 @@ export function setChannel({ channelId, backend = null } = {}) {
   });
 }
 
+export async function setChannelAsync({ channelId, backend = null } = {}) {
+  const id = String(channelId || '').trim();
+  if (!id) throw new Error('channelId is required');
+  const targetBackend = backend === 'telegram' || backend === 'discord' ? backend : null;
+  return updateChannelsSectionAsync((cfg) => {
+    const activeBackend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
+    const writeBackend = targetBackend || activeBackend;
+    const current = seedBackendChannelIds(resolveChannelEntry(cfg), activeBackend);
+    const nextEntry = { ...current };
+    if (writeBackend === 'telegram') nextEntry.telegramChatId = id;
+    else nextEntry.discordChannelId = id;
+    nextEntry.channelId = channelIdForBackend(nextEntry, activeBackend);
+    return { ...cfg, channel: nextEntry };
+  });
+}
+
 export function setWebhookConfig(patch = {}) {
   return updateChannelsSection((cfg) => ({
+    ...cfg,
+    webhook: {
+      ...(cfg.webhook || {}),
+      ...(Object.prototype.hasOwnProperty.call(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
+      ...(patch.port ? { port: Number(patch.port) || 3333 } : {}),
+      ...(patch.domain ? { domain: String(patch.domain).trim() } : {}),
+      ...(patch.ngrokDomain ? { ngrokDomain: String(patch.ngrokDomain).trim() } : {}),
+    },
+  }));
+}
+
+export async function setWebhookConfigAsync(patch = {}) {
+  return updateChannelsSectionAsync((cfg) => ({
     ...cfg,
     webhook: {
       ...(cfg.webhook || {}),

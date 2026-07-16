@@ -18,7 +18,7 @@
  * loaded lazily via dynamic import — it should not load into memory unless a
  * user actually asks for voice.
  */
-import { readSection, updateSection } from '../../runtime/shared/config.mjs';
+import { readSection, updateSectionAsync } from '../../runtime/shared/config.mjs';
 import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 
 let _voiceRuntimeFetcherPromise = null;
@@ -148,12 +148,12 @@ export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), p
 export async function toggleVoice({ pushNotice, setProgressHint } = {}) {
   const dataDir = resolvePluginData();
   if (isVoiceEnabled()) {
-    // updateSection is a synchronous file write (readAllForRmW + atomic write
-    // under a file lock) and can throw — a locked/corrupt config, a
+    // The async RMW preserves the shared config lock/ACL protocol without
+    // blocking the TUI event loop. It can still throw — a locked/corrupt config,
     // permissions error, etc. Guard it the same way the ON path is guarded and
     // report failure via pushNotice instead of silently pretending success.
     try {
-      updateSection('voice', (current) => ({ ...current, enabled: false }));
+      await updateSectionAsync('voice', (current) => ({ ...current, enabled: false }));
     } catch (err) {
       pushNotice?.(`Voice OFF failed: ${err?.message || err}`, 'error');
       return { ok: false, error: err?.message || String(err) };
@@ -168,7 +168,7 @@ export async function toggleVoice({ pushNotice, setProgressHint } = {}) {
   _voiceInstallBusy = true;
   try {
     await ensureVoiceRuntimeReady({ dataDir, pushNotice, setProgressHint });
-    updateSection('voice', (current) => ({ ...current, enabled: true }));
+    await updateSectionAsync('voice', (current) => ({ ...current, enabled: true }));
     setProgressHint?.('');
     pushNotice?.('Voice ON — channel voice messages will be transcribed', 'info');
     return true;

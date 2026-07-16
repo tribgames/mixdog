@@ -280,13 +280,13 @@ export function createEngineApiB(bag) {
       pushNotice('webhook/ngrok authtoken forgotten', 'info');
       return result;
     },
-    setChannel: (entry) => {
-      const result = runtime.setChannel(entry);
+    setChannel: async (entry) => {
+      const result = await runtime.setChannel(entry);
       pushNotice('channel saved', 'info');
       return result;
     },
-    setWebhookConfig: (patch) => {
-      const result = runtime.setWebhookConfig(patch);
+    setWebhookConfig: async (patch) => {
+      const result = await runtime.setWebhookConfig(patch);
       pushNotice('webhook config updated', 'info');
       return result;
     },

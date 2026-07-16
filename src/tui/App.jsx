@@ -1889,8 +1889,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         }
         if (channelPrompt.kind === 'webhook-domain') {
           if (!commandText) return false;
-          store.setWebhookConfig?.({ ngrokDomain: commandText });
-          resumeAfterChannelPrompt(channelPrompt);
+          Promise.resolve(store.setWebhookConfig?.({ ngrokDomain: commandText }))
+            .then(() => resumeAfterChannelPrompt(channelPrompt))
+            .catch((e) => {
+              store.pushNotice(`webhook config update failed: ${e?.message || e}`, 'error');
+            });
           return true;
         }
         const parts = commandText.split('|').map((part) => part.trim());
@@ -1900,11 +1903,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           // field) so old muscle memory does not break.
           const isPipe = parts.length > 1;
           const channelId = isPipe ? parts[1] : parts[0];
-          store.setChannel({
+          Promise.resolve(store.setChannel({
             channelId,
             backend: channelPrompt.backend,
-          });
-          resumeAfterChannelPrompt(channelPrompt);
+          }))
+            .then(() => resumeAfterChannelPrompt(channelPrompt))
+            .catch((e) => {
+              store.pushNotice(`channel save failed: ${e?.message || e}`, 'error');
+            });
           return true;
         }
         if (channelPrompt.kind === 'schedule-add') {

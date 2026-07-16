@@ -18,7 +18,7 @@ import { join, sep } from "path";
 import { createHash } from "crypto";
 import { chunk, formatForDiscord, MAX_DISCORD_MESSAGE } from "../lib/format.mjs";
 import { withConfigLock } from "../lib/config-lock.mjs";
-import { readSection, updateSection } from "../../shared/config.mjs";
+import { readSection, updateSectionAsync } from "../../shared/config.mjs";
 import { normalizeAccess, safeAttName } from "./discord-access.mjs";
 import { MAX_ATTACHMENT_BYTES, downloadSingleAttachment } from "./discord-attachments.mjs";
 import * as gateway from "./discord-gateway.mjs";
@@ -473,7 +473,7 @@ class DiscordBackend {
       return this.initialAccess;
     }
   }
-  persistAccessFromMainChannel() {
+  async persistAccessFromMainChannel() {
     if (this.isStatic || !this.configFile) return;
     try {
       const id = this.mainChannelId;
@@ -482,7 +482,7 @@ class DiscordBackend {
       const access = normalizeAccess(parsed.access);
       if (!(id in access.channels)) {
         access.channels[id] = { requireMention: false, allowFrom: [] };
-        this.saveAccess(access);
+        await this.saveAccess(access);
       }
     } catch (err) {
       process.stderr.write(`mixdog discord: persistAccessFromMainChannel failed: ${err}\n`);
@@ -499,10 +499,10 @@ class DiscordBackend {
     }
     return a;
   }
-  saveAccess(a) {
+  async saveAccess(a) {
     if (this.isStatic) return;
     if (!this.configFile) return;
-    return withConfigLock(() => {
+    return withConfigLock(async () => {
       mkdirSync(this.stateDir, { recursive: true, mode: 448 });
       const access = {
         dmPolicy: a.dmPolicy,
@@ -513,7 +513,7 @@ class DiscordBackend {
         ...a.replyToMode ? { replyToMode: a.replyToMode } : {},
         ...a.textChunkLimit ? { textChunkLimit: a.textChunkLimit } : {}
       };
-      updateSection("channels", (channels) => ({
+      await updateSectionAsync("channels", (channels) => ({
         ...channels,
         access
       }));

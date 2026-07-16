@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import httpMod from 'node:http';
+import './hitch-profile.mjs';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
 import { createStandaloneAgent } from '../standalone/agent-tool.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
@@ -1221,6 +1222,7 @@ export async function createMixdogSessionRuntime({
     flushSkillsSave,
     flushOutputStyleSave,
     scheduleOutputStyleSave,
+    flushAllConfigSavesAsync,
     reloadFullConfig,
     ensureFullConfig,
     displayConfig,
@@ -1816,10 +1818,6 @@ export async function createMixdogSessionRuntime({
     // No-op when the session has not been created yet (lazy mode); that
     // case is covered by the turn-start rebind in ask().
     ensureRemoteTranscriptWriter();
-    // A backend switch may still be sitting in its debounce window; flush it
-    // so the channel worker boots against the backend the user just chose,
-    // not the previous on-disk value.
-    try { flushBackendSave(); } catch {}
     if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
       bootProfile('channels:start-skipped');
       return true;
@@ -1835,6 +1833,9 @@ export async function createMixdogSessionRuntime({
     }
     bootProfile('channels:start-scheduled', { delayMs: 0, immediate: true });
     void (async () => {
+      // A backend switch may still be pending or writing asynchronously. Drain
+      // it before the worker reads config; never race it with a sync lock wait.
+      try { await flushBackendSave(); } catch {}
       // Yield before the createCurrentSession/transcript/fork chain below —
       // same rationale as the memory-eager-init yield above: this detached
       // chain runs synchronous config/fs work (createCurrentSession, backend
@@ -2086,6 +2087,7 @@ export async function createMixdogSessionRuntime({
     flushConfigSave,
     flushBackendSave,
     flushOutputStyleSave,
+    flushAllConfigSavesAsync,
     withTeardownDeadline,
     closePatchRuntimeIfLoaded,
     createCurrentSession,

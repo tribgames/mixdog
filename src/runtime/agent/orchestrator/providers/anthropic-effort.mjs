@@ -28,6 +28,7 @@ export const LEGACY_EFFORT_BUDGET = Object.freeze({
 });
 const _LOGGED_EFFORT_NORMALIZATION = new Set();
 const _LOGGED_UNKNOWN_EFFORT = new Set();
+const MAX_LOGGED_UNKNOWN_EFFORTS = 100;
 
 function normalizeModelId(model) {
     return String(model || '').toLowerCase().replace(/\./g, '-');
@@ -223,8 +224,12 @@ export function applyAnthropicEffortToBody(
         return;
     }
 
-    if (opts.effort && normalized === undefined && !_LOGGED_UNKNOWN_EFFORT.has(opts.effort)) {
-        _LOGGED_UNKNOWN_EFFORT.add(opts.effort);
+    const unknownEffort = String(opts.effort ?? '');
+    if (opts.effort && normalized === undefined && !_LOGGED_UNKNOWN_EFFORT.has(unknownEffort)) {
+        if (_LOGGED_UNKNOWN_EFFORT.size >= MAX_LOGGED_UNKNOWN_EFFORTS) {
+            _LOGGED_UNKNOWN_EFFORT.delete(_LOGGED_UNKNOWN_EFFORT.values().next().value);
+        }
+        _LOGGED_UNKNOWN_EFFORT.add(unknownEffort);
         try {
             process.stderr.write(
                 `[${logTag}] unknown effort=${opts.effort} ignored (known legacy: ${Object.keys(LEGACY_EFFORT_BUDGET).join(', ')})\n`,

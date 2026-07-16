@@ -31,7 +31,7 @@ async function connectInner(self) {
     self.client = null;
     throw err;
   }
-  self.persistAccessFromMainChannel();
+  await self.persistAccessFromMainChannel();
 }
 
 async function buildClient(self) {

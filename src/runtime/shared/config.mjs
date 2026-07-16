@@ -27,7 +27,13 @@ export {
 }
 
 const _require = createRequire(import.meta.url)
-const { getSecret: _getSecret, setSecret: _setSecret, deleteSecret: _deleteSecret, hasSecret: _hasSecret } = _require('../../lib/keychain-cjs.cjs')
+const {
+  getSecret: _getSecret,
+  setSecret: _setSecret,
+  deleteSecret: _deleteSecret,
+  hasSecret: _hasSecret,
+  invalidateSecretCache: _invalidateSecretCache,
+} = _require('../../lib/keychain-cjs.cjs')
 
 const DATA_DIR = resolvePluginData()
 
@@ -338,25 +344,60 @@ function withConfigLockAsync(fn) {
   return withFileLock(`${CONFIG_PATH}.lock`, fn, { secret: true })
 }
 
-export async function updateConfigAsync(updater) {
-  let saved = null
-  await withConfigLockAsync(async () => {
-    const current = stripGeneratedMarker(readAllForRmW()) || {}
-    const next = typeof updater === 'function' ? updater({ ...current }) : updater
-    if (!isPlainObject(next)) throw new Error('[config] updateConfigAsync updater must return an object')
-    saved = stripGeneratedMarker(next) || {}
-    await writeAllAsync(saved)
-  })
-  return saved
+// Process-wide registry at the lock-owning layer: every public async RMW path
+// registers before lock acquisition and unregisters on both fulfillment and
+// rejection. Lifecycle teardown can therefore drain direct callers too, not
+// just its own debounce queues.
+const _pendingConfigWrites = new Set()
+
+function trackConfigWrite(work) {
+  let promise
+  try {
+    promise = Promise.resolve(work())
+  } catch (error) {
+    promise = Promise.reject(error)
+  }
+  _pendingConfigWrites.add(promise)
+  const remove = () => { _pendingConfigWrites.delete(promise) }
+  promise.then(remove, remove)
+  return promise
 }
 
-export async function updateSectionAsync(section, updater) {
-  await withConfigLockAsync(async () => {
+export async function pendingConfigWrites() {
+  while (_pendingConfigWrites.size > 0) {
+    await Promise.allSettled([..._pendingConfigWrites])
+  }
+}
+
+export function updateConfigAsync(updater) {
+  return trackConfigWrite(async () => {
+    let saved = null
+    await withConfigLockAsync(async () => {
+      const current = stripGeneratedMarker(readAllForRmW()) || {}
+      const next = typeof updater === 'function' ? updater({ ...current }) : updater
+      if (!isPlainObject(next)) throw new Error('[config] updateConfigAsync updater must return an object')
+      saved = stripGeneratedMarker(next) || {}
+      await writeAllAsync(saved)
+    })
+    return saved
+  })
+}
+
+export function writeSectionAsync(section, data) {
+  return trackConfigWrite(() => withConfigLockAsync(async () => {
+    const all = readAllForRmW()
+    all[section] = stripGeneratedMarker(data)
+    await writeAllAsync(all)
+  }))
+}
+
+export function updateSectionAsync(section, updater) {
+  return trackConfigWrite(() => withConfigLockAsync(async () => {
     const all = readAllForRmW()
     const current = stripGeneratedMarker(all[section] || {})
     all[section] = stripGeneratedMarker(typeof updater === 'function' ? updater(current) : updater)
     await writeAllAsync(all)
-  })
+  }))
 }
 
 // ── Capabilities (B2 central path policy) ───────────────────────────
@@ -508,6 +549,10 @@ export function saveSecret(account, value) {
 
 export function deleteSecret(account) {
   _deleteSecret(account)
+}
+
+export function invalidateSecretReadCache(account) {
+  _invalidateSecretCache(account)
 }
 
 /**

@@ -40,7 +40,7 @@ export function createLifecycleApi(deps) {
     setSessionNeedsCwdRefresh,
     hooks, hookCommonPayload, mgr, statusRoutes, channels, agentTool, mcpClient,
     warmupTimers, prewarmTimers,
-    flushConfigSave, flushBackendSave, flushOutputStyleSave,
+    flushAllConfigSavesAsync,
     withTeardownDeadline, closePatchRuntimeIfLoaded,
     createCurrentSession, refreshRouteEffort,
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
@@ -78,12 +78,10 @@ export function createLifecycleApi(deps) {
           );
         }
       } catch { /* best-effort: SessionEnd hook must never wedge teardown */ }
-      // Persist any change that is still sitting in the debounce window so a
-      // toggle made right before exit is not lost. Synchronous + best-effort:
-      // teardown must continue even if the final write fails.
-      try { flushConfigSave(); } catch {}
-      try { flushBackendSave(); } catch {}
-      try { flushOutputStyleSave(); } catch {}
+      // Teardown stays async end-to-end across every writer sharing the config
+      // lock. Never start a synchronous lock wait while an in-process async
+      // holder still needs the event loop to finish and release it.
+      try { await flushAllConfigSavesAsync(); } catch {}
       try { hooks.flushRules?.(); } catch {}
       if (prewarmTimers.channelStartTimer) {
         clearTimeout(prewarmTimers.channelStartTimer);

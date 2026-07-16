@@ -218,6 +218,16 @@ function atomicWrite(targetPath, contents) {
 // site, so no drain/replay format or TTL semantics change.
 const _dedupeIndex = new Map()
 let _dedupeIndexSeeded = false
+function dropDedupeIndexForPath(bufferPath) {
+  for (const [key, indexedPath] of _dedupeIndex) {
+    if (indexedPath === bufferPath) _dedupeIndex.delete(key)
+  }
+}
+function replaceDedupeIndexPath(previousPath, nextPath) {
+  for (const [key, indexedPath] of _dedupeIndex) {
+    if (indexedPath === previousPath) _dedupeIndex.set(key, nextPath)
+  }
+}
 function seedDedupeIndex(kind) {
   if (_dedupeIndexSeeded) return
   _dedupeIndexSeeded = true
@@ -266,9 +276,11 @@ function bufferToDisk(kind, payload, { dedupeKey = null } = {}) {
 // leaves the file in place and returns false so the caller skips it this pass.
 function moveToDead(name, reason) {
   process.stderr.write(`[memory-client] quarantining ${name} to dead/ (${reason})\n`)
+  const bufferPath = path.join(BUFFER_DIR, name)
   try {
     fs.mkdirSync(DEAD_DIR, { recursive: true })
-    fs.renameSync(path.join(BUFFER_DIR, name), path.join(DEAD_DIR, name))
+    fs.renameSync(bufferPath, path.join(DEAD_DIR, name))
+    dropDedupeIndexForPath(bufferPath)
     return true
   } catch (e) {
     process.stderr.write(`[memory-client] quarantine of ${name} failed (${e.message}) — leaving in place\n`)
@@ -355,7 +367,10 @@ export async function drainBuffer() {
         // throwOnError: non-2xx status or an {error} body REJECTS, so the
         // file is kept/aged for retry instead of unlinked (HIGH: data loss).
         await memoryFetch('POST', endpoint, payload, 10_000, { throwOnError: true })
-        try { fs.unlinkSync(bufferPath) } catch {}
+        try {
+          fs.unlinkSync(bufferPath)
+          dropDedupeIndexForPath(bufferPath)
+        } catch {}
         drained++
       } catch (e) {
         const attempts = parseRetry(name) + 1
@@ -375,7 +390,9 @@ export async function drainBuffer() {
           // THIS pass so it can't block the oldest-first queue forever — the
           // next drain re-reads its (unchanged) .rN and retries.
           try {
-            fs.renameSync(bufferPath, path.join(BUFFER_DIR, retryName(name, attempts)))
+            const nextPath = path.join(BUFFER_DIR, retryName(name, attempts))
+            fs.renameSync(bufferPath, nextPath)
+            replaceDedupeIndexPath(bufferPath, nextPath)
           } catch {
             // Rename lock/EPERM: don't break the whole pass on a file we
             // couldn't even age — skip it and CONTINUE so later buffered

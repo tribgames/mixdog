@@ -2,7 +2,16 @@ import { readFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { DiscordBackend } from "../backends/discord.mjs";
 import { TelegramBackend } from "../backends/telegram.mjs";
-import { readSection, updateSection, CONFIG_PATH as MIXDOG_CONFIG_PATH, getDiscordToken, getTelegramToken, diagnoseDiscordTokenValue } from "../../shared/config.mjs";
+import {
+  readSection,
+  updateSection,
+  CONFIG_PATH as MIXDOG_CONFIG_PATH,
+  SECRET_ACCOUNTS,
+  getDiscordToken,
+  getTelegramToken,
+  diagnoseDiscordTokenValue,
+  invalidateSecretReadCache,
+} from "../../shared/config.mjs";
 import { listSchedules } from "../../shared/schedules-db.mjs";
 import { resolvePluginData } from "../../shared/plugin-paths.mjs";
 const DATA_DIR = resolvePluginData();
@@ -46,8 +55,12 @@ function resolveChannelId(raw = {}, backend = "discord") {
   return "";
 }
 
-async function loadConfig() {
+async function loadConfig({ freshSecrets = false } = {}) {
   try {
+    if (freshSecrets) {
+      invalidateSecretReadCache(SECRET_ACCOUNTS.discordToken);
+      invalidateSecretReadCache(SECRET_ACCOUNTS.telegramToken);
+    }
     let raw = readSection("channels");
     raw = raw && typeof raw === "object" ? raw : {};
     // Schedules are the PG `scheduler.schedules` table (single source of
