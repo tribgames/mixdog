@@ -17,6 +17,14 @@ import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '.
 import { resolveAgentTerminalReapMs } from '../../../../session-runtime/config-helpers.mjs';
 import { getStoreDir, sessionPath, publishHeartbeat, deleteHeartbeat } from './store/paths-heartbeat.mjs';
 import {
+    guardedSaveOptions as _guardedSaveOptions,
+    cancelSessionWrites as _cancelSessionWrites,
+    isCancelledWrite as _isCancelledWrite,
+    acquireWriteCommit as _acquireWriteCommit,
+    releaseWriteCommit as _releaseWriteCommit,
+    waitForWriteCommit as _waitForWriteCommit,
+} from './store/write-guards.mjs';
+import {
     summaryIndexPath,
     _sessionSummary,
     _normalizeSummaryIndex,
@@ -200,71 +208,6 @@ function _ensureLifecycleFields(session) {
 
 /** Module-level map tracking in-flight saves per session ID to prevent concurrent write corruption. */
 const _savePending = new Map();
-
-// Each write carries a shared cancellation generation. Deletion (and lifecycle
-// handoff) advances it, so a save already queued in the worker can observe the
-// cancellation both before and after its temp-file write.
-const _writeControls = new Map();
-
-function _writeControl(id) {
-    let control = _writeControls.get(id);
-    if (!control) {
-        // [0] cancellation generation, [1] commit lock
-        control = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2));
-        _writeControls.set(id, control);
-    }
-    return control;
-}
-
-function _guardedSaveOptions(id, opts) {
-    const control = _writeControl(id);
-    return {
-        ...(opts || {}),
-        _sessionWriteGuard: { buffer: control.buffer, version: Atomics.load(control, 0) },
-    };
-}
-
-function _cancelSessionWrites(id) {
-    Atomics.add(_writeControl(id), 0, 1);
-}
-
-function _isCancelledWrite(opts) {
-    const guard = opts?._sessionWriteGuard;
-    if (!guard?.buffer || !Number.isInteger(guard.version)) return false;
-    try {
-        return Atomics.load(new Int32Array(guard.buffer), 0) !== guard.version;
-    } catch {
-        return true;
-    }
-}
-
-function _acquireWriteCommit(opts) {
-    const guard = opts?._sessionWriteGuard;
-    if (!guard?.buffer) return null;
-    const control = new Int32Array(guard.buffer);
-    while (Atomics.compareExchange(control, 1, 0, 1) !== 0) {
-        Atomics.wait(control, 1, 1, 25);
-    }
-    if (_isCancelledWrite(opts)) {
-        Atomics.store(control, 1, 0);
-        Atomics.notify(control, 1);
-        return false;
-    }
-    return control;
-}
-
-function _releaseWriteCommit(control) {
-    if (!control) return;
-    Atomics.store(control, 1, 0);
-    Atomics.notify(control, 1);
-}
-
-function _waitForWriteCommit(id) {
-    const control = _writeControl(id);
-    while (Atomics.load(control, 1) !== 0) {
-        Atomics.wait(control, 1, 1, 25);
-    }
-}
 
 /** Same-process authoritative session snapshots (createSession → loadSession / askSession). */
 const _liveSessions = new Map();

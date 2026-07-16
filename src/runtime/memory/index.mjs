@@ -90,6 +90,7 @@ import { createQueryHandlers } from './lib/query-handlers.mjs'
 import { createSessionIngestRuntime } from './lib/session-ingest-runtime.mjs'
 import { createMemoryActionHandlers } from './lib/memory-action-handlers.mjs'
 import { createHttpRouter } from './lib/http-router.mjs'
+import { createMemoryPortAdvertiser } from './lib/memory-port-advertiser.mjs'
 import {
   readMainConfig,
   readRecapEnabled,
@@ -141,20 +142,17 @@ const RUNTIME_ROOT = process.env.MIXDOG_RUNTIME_ROOT
   ? path.resolve(process.env.MIXDOG_RUNTIME_ROOT)
   : path.join(os.tmpdir(), 'mixdog')
 
-let _periodicAdvertiseInstalled = false
-let _periodicAdvertiseTimer = null
-// Single module-level advertise retry chain. A newer advertiseMemoryPort call
-// cancels the older chain so a delayed retry never replays a stale boundPort.
-let _advertiseRetryTimer = null
-let _advertiseGeneration = 0
-// Track the most recently advertised port so the periodic tick re-reads it
-// every interval. Without this the setInterval closure binds the FIRST port
-// (the upstream we proxied to) and keeps re-advertising the dead upstream
-// port after fork-proxy promotion swaps in our own locally-bound port.
-let _currentAdvertisedPort = null
-
 const MEMORY_SERVER_PID = parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? process.pid
 const _isPidAliveLocal = isPidAliveLocal
+const _memoryPortAdvertiser = createMemoryPortAdvertiser({
+  readServiceAdvert: _readServiceAdvert,
+  writeServiceAdvert: _writeServiceAdvert,
+  parsePositivePid,
+  isPidAliveLocal: _isPidAliveLocal,
+  memoryServerPid: MEMORY_SERVER_PID,
+  log: __mixdogMemoryLog,
+})
+const { advertiseMemoryPort } = _memoryPortAdvertiser
 const MEMORY_DAEMON_MODE = process.env.MIXDOG_MEMORY_DAEMON === '1'
 const MEMORY_IDLE_TTL_MS = Math.max(0, Number(process.env.MIXDOG_MEMORY_IDLE_TTL_MS) || 10 * 60_000)
 let _idleShutdownTimer = null
@@ -257,72 +255,6 @@ function deregisterClient(clientPid) {
   if (pid) _connectedClients.delete(pid)
   pruneDeadClients()
   if (_everHadClient && _connectedClients.size === 0) armClientGrace('last client deregistered')
-}
-
-function advertiseMemoryPort(boundPort, attempt = 0) {
-  if (!Number.isFinite(boundPort) || boundPort <= 0) return
-  // A fresh top-level advertise (attempt 0) supersedes any pending retry chain:
-  // last write wins, so a delayed retry never clobbers a newer boundPort.
-  if (attempt === 0) {
-    _currentAdvertisedPort = boundPort
-    _advertiseGeneration++
-    if (_advertiseRetryTimer) { try { clearTimeout(_advertiseRetryTimer) } catch {} ; _advertiseRetryTimer = null }
-  }
-  const generation = _advertiseGeneration
-  if (!_periodicAdvertiseInstalled) {
-    _periodicAdvertiseInstalled = true
-    _periodicAdvertiseTimer = setInterval(() => {
-      try {
-        if (_currentAdvertisedPort != null) {
-          advertiseMemoryPort(_currentAdvertisedPort)
-        }
-      } catch {}
-    }, 30_000)
-    _periodicAdvertiseTimer.unref?.()
-  }
-  try {
-    // Single-writer discovery file (discovery/memory.json), plain atomic rename
-    // with NO .lock: memory_port discovery can never be starved by the shared
-    // active-instance.json lock. Conflict guard preserved: a live OTHER memory
-    // owner advertising a different port is not clobbered.
-    const cur = _readServiceAdvert('memory')
-    const curMemPort = Number(cur?.port)
-    const curMemPid = parsePositivePid(cur?.pid)
-    const portConflict = Number.isFinite(curMemPort) && curMemPort > 0 && curMemPort !== boundPort
-    const otherOwnerAlive =
-      curMemPid != null &&
-      curMemPid !== MEMORY_SERVER_PID &&
-      _isPidAliveLocal(curMemPid)
-    if (portConflict && otherOwnerAlive) {
-      __mixdogMemoryLog(`[memory-service] skip memory_port advertise port=${boundPort} curMemPort=${curMemPort} curMemPid=${curMemPid} memoryServerPid=${MEMORY_SERVER_PID}\n`)
-      if (generation === _advertiseGeneration) _advertiseRetryTimer = null
-      return
-    }
-    _writeServiceAdvert('memory', {
-      port: boundPort,
-      ...(MEMORY_SERVER_PID ? { pid: MEMORY_SERVER_PID } : {}),
-    })
-    if (generation === _advertiseGeneration) _advertiseRetryTimer = null
-  } catch (e) {
-    // Boot path must not serially block on the default 8s lock wait: use a short
-    // lock timeout and treat lock contention/timeout as transient so pg_port /
-    // memory_port still eventually publish via unref'd, backed-off bg retries.
-    const transient =
-      e?.code === 'EPERM' || e?.code === 'EBUSY' || e?.code === 'EACCES' ||
-      e?.code === 'ELOCKTIMEOUT' || e?.code === 'ELOCKCONTENDED'
-    if (transient && attempt < 5 && generation === _advertiseGeneration) {
-      const delay = Math.min(2000, 50 * 2 ** attempt)
-      // Fire-time generation re-check: even if clearTimeout was missed, a
-      // retry from a superseded chain must never republish an old boundPort.
-      _advertiseRetryTimer = setTimeout(() => {
-        if (generation !== _advertiseGeneration) return
-        advertiseMemoryPort(boundPort, attempt + 1)
-      }, delay)
-      _advertiseRetryTimer.unref?.()
-      return
-    }
-    __mixdogMemoryLog(`[memory-service] active-instance memory_port advertise failed: ${e?.message || e}\n`)
-  }
 }
 
 const LOCK_FILE = path.join(DATA_DIR, '.memory-service.lock')
@@ -853,17 +785,7 @@ export async function stop() {
   if (_stopPromise) return _stopPromise
   _stopPromise = (async () => {
     _stopCycles()
-    if (_periodicAdvertiseTimer) {
-      try { clearInterval(_periodicAdvertiseTimer) } catch {}
-      _periodicAdvertiseTimer = null
-    }
-    if (_advertiseRetryTimer) {
-      try { clearTimeout(_advertiseRetryTimer) } catch {}
-      _advertiseRetryTimer = null
-    }
-    _advertiseGeneration++
-    _periodicAdvertiseInstalled = false
-    _currentAdvertisedPort = null
+    _memoryPortAdvertiser.reset()
     _embeddingWarmup.reset()
     if (_idleShutdownTimer) {
       try { clearTimeout(_idleShutdownTimer) } catch {}

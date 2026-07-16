@@ -44,6 +44,7 @@ import {
   _maybeEncodePowerShellCommand,
   extractPowerShellCommandInner,
 } from './shell-powershell.mjs';
+import { spawnShellWithRetry as _spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
 
 export {
   _maybeEncodePowerShellCommand,
@@ -447,12 +448,6 @@ async function _execPolicyBlockMessage(command) {
 // EPERM backoff). Logged with each failed spawn so a Defender-induced storm
 // is reconstructable: activeSpawnCount > 1 means concurrent spawns were
 // racing the AV scan when the failure hit.
-let _activeShellSpawns = 0;
-
-function _isPowerShellSpawn(shell, shellArg) {
-  return /pwsh|powershell/i.test(String(shell || '')) || shellArg === '-Command';
-}
-
 // Windows Defender intermittently fails node→PowerShell spawns with EPERM
 // while it scans the child image (see shell-runtime.mjs Trojan false-positive
 // note). The failure is at spawn() time — before any stdio/side effect — so a
@@ -460,71 +455,6 @@ function _isPowerShellSpawn(shell, shellArg) {
 // Retry ONLY on EPERM/win32/powershell; everything else throws on first
 // failure. Backoff 100/300/700ms caps added latency at ~1.1s. Every failed
 // attempt logs one diagnostic line for later reconstruction.
-async function _spawnShellWithRetry({ shell, argv, spawnOptions, shellArg, cwd }) {
-  const _delays = [100, 300, 700];
-  const _isPowerShell = _isPowerShellSpawn(shell, shellArg);
-  _activeShellSpawns++;
-  try {
-    let attempt = 0;
-    for (;;) {
-      try {
-        const child = spawn(shell, argv, spawnOptions);
-        // spawn() reports ENOENT/EACCES on nextTick. Keep a guard listener
-        // attached from the same synchronous frame as spawn(), and do not
-        // resolve this helper until the child emits `spawn`. The caller adopts
-        // the guard atomically (new listener first, guard removal second), so
-        // there is never an unhandled-error window across either await.
-        let bufferedError = null;
-        const guardError = (err) => { bufferedError = bufferedError || err; };
-        child.on('error', guardError);
-        try {
-          await new Promise((resolveSpawn, rejectSpawn) => {
-            const onSpawn = () => {
-              child.removeListener('error', onError);
-              resolveSpawn();
-            };
-            const onError = (err) => {
-              child.removeListener('spawn', onSpawn);
-              rejectSpawn(err);
-            };
-            child.once('spawn', onSpawn);
-            child.once('error', onError);
-          });
-        } catch (err) {
-          child.removeListener('error', guardError);
-          throw err;
-        }
-        return {
-          child,
-          adoptErrorHandler(handler) {
-            child.on('error', handler);
-            child.removeListener('error', guardError);
-            if (bufferedError) handler(bufferedError);
-          },
-        };
-      } catch (err) {
-        try {
-          console.error('[shell-spawn-retry] ' + JSON.stringify({
-            code: (err && err.code) || null,
-            syscall: (err && err.syscall) || null,
-            shell,
-            cwd,
-            activeSpawnCount: _activeShellSpawns,
-          }));
-        } catch { /* logging must never mask the spawn error */ }
-        const _canRetry = err && err.code === 'EPERM'
-          && process.platform === 'win32'
-          && _isPowerShell
-          && attempt < _delays.length;
-        if (!_canRetry) throw err;
-        await new Promise((r) => setTimeout(r, _delays[attempt++]));
-      }
-    }
-  } finally {
-    _activeShellSpawns--;
-  }
-}
-
 export function execShellCommand({
   shell,
   shellArg,

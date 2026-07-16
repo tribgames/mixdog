@@ -50,6 +50,16 @@ import {
     shellJobPublicTaskResult,
     SHELL_JOB_OUTPUT_DISK_CAP,
 } from './lib/shell-job-insights.mjs';
+import {
+    sleep,
+    awaitSpawnReady,
+    adoptSpawnErrorHandler,
+    discardSpawnErrorGuard,
+    rollbackSpawnedChild,
+    shellQuoteSingle,
+    psSingleQuote,
+    isPowerShellShell,
+} from './lib/shell-spawn-helpers.mjs';
 
 // Facade re-exports: path/detail helpers and the job-not-found message moved
 // to sibling modules; keep existing importers of shell-jobs.mjs resolving.
@@ -58,109 +68,10 @@ export { shellJobPublicTaskResult } from './lib/shell-job-insights.mjs';
 
 globalThis.__mixdogShellJobsRuntimeLoaded = true;
 
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-const SPAWN_ERROR_GUARD = Symbol('mixdog.spawnErrorGuard');
-function awaitSpawnReady(child, label) {
-    return new Promise((resolve, reject) => {
-        if (!child || typeof child.once !== 'function') {
-            reject(new Error(`${label} spawn returned no child process`));
-            return;
-        }
-        let spawned = false;
-        let bufferedError = null;
-        const cleanup = () => child.removeListener('spawn', onSpawn);
-        const onError = (error) => {
-            if (spawned) {
-                bufferedError = bufferedError || error;
-                return;
-            }
-            cleanup();
-            child.removeListener('error', onError);
-            reject(error);
-        };
-        const onSpawn = () => {
-            cleanup();
-            spawned = true;
-            const pid = Number(child.pid);
-            if (!Number.isFinite(pid) || pid <= 0) {
-                child.removeListener('error', onError);
-                reject(new Error(`${label} spawn returned no pid`));
-                return;
-            }
-            child[SPAWN_ERROR_GUARD] = {
-                adopt(handler) {
-                    child.on('error', handler);
-                    child.removeListener('error', onError);
-                    if (bufferedError) handler(bufferedError);
-                    delete child[SPAWN_ERROR_GUARD];
-                },
-                discard() {
-                    child.removeListener('error', onError);
-                    delete child[SPAWN_ERROR_GUARD];
-                },
-            };
-            resolve(child);
-        };
-        child.once('error', onError);
-        child.once('spawn', onSpawn);
-    });
-}
-
-function adoptSpawnErrorHandler(child, handler) {
-    const guard = child?.[SPAWN_ERROR_GUARD];
-    if (guard) guard.adopt(handler);
-    else child?.on?.('error', handler);
-}
-
-async function rollbackSpawnedChild(child, { timeoutMs = 5000 } = {}) {
-    if (!child || child.exitCode != null || child.signalCode != null) {
-        return { confirmed: true, errors: [] };
-    }
-    const errors = [];
-    let timer = null;
-    let settled = false;
-    const outcome = await new Promise((resolve) => {
-        const finish = (confirmed) => {
-            if (settled) return;
-            settled = true;
-            if (timer) clearTimeout(timer);
-            child.removeListener('exit', onExit);
-            child.removeListener('close', onExit);
-            child.removeListener('error', onError);
-            resolve({ confirmed, errors });
-        };
-        const onExit = () => finish(true);
-        const onError = (error) => { errors.push(error); };
-        child.on('error', onError);
-        child.once('exit', onExit);
-        child.once('close', onExit);
-        timer = setTimeout(() => finish(false), Math.max(1, Number(timeoutMs) || 5000));
-        try { killProcessTree(child.pid, 'SIGKILL'); } catch (error) { errors.push(error); }
-        try { child.kill?.('SIGKILL'); } catch (error) { errors.push(error); }
-    });
-    return outcome;
-}
 
 // Poll cadence for the adopted-job output-cap self-tick (mirrors the
 // foreground sizeWatchdog in shell-command.mjs).
 const ADOPTED_JOB_CAP_POLL_MS = 1_000;
-
-function shellQuoteSingle(s) {
-    return `'${String(s).replace(/'/g, `'\"'\"'`)}'`;
-}
-
-function psSingleQuote(s) {
-    return `'${String(s).replace(/'/g, "''")}'`;
-}
-
-function isPowerShellShell(shell, shellType) {
-    if (shellType === 'powershell') return true;
-    const stem = basename(String(shell || '')).toLowerCase().replace(/\.exe$/, '');
-    return stem === 'pwsh' || stem === 'powershell';
-}
 
 const SHELL_JOB_PROMPT_STALL_MS = 45_000;
 
@@ -997,7 +908,7 @@ async function _startBackgroundShellJobImpl({
         terminal = true;
         const rollback = await rollbackSpawnedChild(child, { timeoutMs: rollbackTimeoutMs });
         child.removeListener('error', onRuntimeError);
-        child[SPAWN_ERROR_GUARD]?.discard?.();
+        discardSpawnErrorGuard(child);
         try { unlinkSync(wrappedTempPath); } catch {}
         const failure = { jobId, kind: 'bash', status: 'failed', error: `failed to persist shell background task: ${e?.message || e}` };
         if (!rollback.confirmed) {
@@ -1238,7 +1149,7 @@ async function startBackgroundPowerShellJob({
         terminal = true;
         const rollback = await rollbackSpawnedChild(child, { timeoutMs: rollbackTimeoutMs });
         child.removeListener('error', onRuntimeError);
-        child[SPAWN_ERROR_GUARD]?.discard?.();
+        discardSpawnErrorGuard(child);
         try { unlinkSync(wrappedTempPath); } catch {}
         try { unlinkSync(innerTempPath); } catch {}
         const failure = { jobId, kind: 'bash', status: 'failed', error: `failed to persist PowerShell background task: ${e?.message || e}` };
