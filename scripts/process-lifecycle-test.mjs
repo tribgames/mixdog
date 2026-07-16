@@ -104,7 +104,7 @@ test('vanished evidence uses only old-process fields and both ledger files stay 
   }
 });
 
-test('PID reuse is detected by process identity while uncertain live identity is preserved', async () => {
+test('PID reuse is detected once across a finish/rebegin while uncertain live identity is preserved', async () => {
   const root = tempRoot();
   let child;
   try {
@@ -126,7 +126,12 @@ test('PID reuse is detected by process identity while uncertain live identity is
       const name = readdirSync(paths.markerDir).find((entry) => entry.startsWith(`${child.pid}-`));
       if (name) {
         childMarker = join(paths.markerDir, name);
-        currentIdentity = JSON.parse(readFileSync(childMarker, 'utf8')).processIdentity;
+        try {
+          currentIdentity = JSON.parse(readFileSync(childMarker, 'utf8')).processIdentity;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          continue;
+        }
         if (currentIdentity?.kind === 'linux-start-ticks' || currentIdentity?.method === 'powershell') break;
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -191,6 +196,12 @@ test('PID reuse is detected by process identity while uncertain live identity is
       processIdentity: currentIdentity,
     }));
     beginProcessLifecycle({ directory: root, configureReports: false });
+    assert.equal(finishProcessLifecycle('clean-shutdown', 0), true);
+    beginProcessLifecycle({ directory: root, configureReports: false });
+    const reapDeadline = Date.now() + 5000;
+    while (existsSync(reused) && Date.now() < reapDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
     finishProcessLifecycle('clean-shutdown', 0);
     assert.equal(entries(paths.ledger).filter((row) => row.reason === 'prior-process-vanished').length, 2);
     assert.equal(existsSync(reused), false);

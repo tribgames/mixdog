@@ -15,10 +15,12 @@ import {
   writeSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { withFileLockSync } from './atomic-file.mjs';
+import { execFile } from 'node:child_process';
+import { isDeepStrictEqual, promisify } from 'node:util';
+import { withFileLock, withFileLockSync } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
+const execFileAsync = promisify(execFile);
 export const LIFECYCLE_LEDGER_MAX_BYTES = 64 * 1024;
 export const LIFECYCLE_LEDGER_KEEP_FILES = 2;
 const LEDGER_NAME = 'process-lifecycle.jsonl';
@@ -105,7 +107,33 @@ function appendEntry(active, entry) {
       const fd = openSync(active.ledger, 'a', 0o600);
       try {
         writeSync(fd, line, null, 'utf8');
-        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+      return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
+    }, {
+      timeoutMs: LEDGER_LOCK_TIMEOUT_MS,
+      staleMs: LEDGER_LOCK_STALE_MS,
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function appendEntryAsync(active, entry, shouldAppend) {
+  const line = `${JSON.stringify(entry)}\n`;
+  if (Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
+  try {
+    return await withFileLock(active.lock, () => {
+      if (!shouldAppend()) return false;
+      boundPreviousLedger(active);
+      if (existsSync(active.ledger)
+        && statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) {
+        rotateLedger(active);
+      }
+      const fd = openSync(active.ledger, 'a', 0o600);
+      try {
+        writeSync(fd, line, null, 'utf8');
       } finally {
         closeSync(fd);
       }
@@ -126,18 +154,30 @@ function currentProcessIdentity() {
       ? { kind: 'start-seconds', value, method: 'uptime' }
       : null;
   }
-  return processIdentityForPid(process.pid);
+  return linuxProcessIdentity(process.pid);
 }
 
-function windowsProcessIdentities(pids) {
+function linuxProcessIdentity(pid) {
+  try {
+    const raw = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const fields = raw.slice(raw.lastIndexOf(') ') + 2).trim().split(/\s+/);
+    return fields[19] && /^\d+$/.test(fields[19])
+      ? { kind: 'linux-start-ticks', value: fields[19] }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function windowsProcessIdentities(pids) {
   const identities = new Map();
   if (pids.length === 0) return identities;
   try {
-    const out = execFileSync('powershell.exe', [
+    const { stdout } = await execFileAsync('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-Command',
       `$ErrorActionPreference='SilentlyContinue'; Get-Process -Id @(${pids.join(',')}) | ForEach-Object { try { "$($_.Id):$(([DateTimeOffset]$_.StartTime).ToUnixTimeSeconds())" } catch {} }`,
     ], { encoding: 'utf8', timeout: 2000, windowsHide: true });
-    for (const line of String(out).split(/\r?\n/)) {
+    for (const line of String(stdout).split(/\r?\n/)) {
       const match = /^(\d+):(\d+)$/.exec(line.trim());
       if (!match) continue;
       const pid = Number(match[1]);
@@ -150,38 +190,33 @@ function windowsProcessIdentities(pids) {
   return identities;
 }
 
-function processIdentityForPid(pid) {
+async function processIdentityForPid(pid) {
   if (process.platform === 'linux') {
-    try {
-      const raw = readFileSync(`/proc/${pid}/stat`, 'utf8');
-      const fields = raw.slice(raw.lastIndexOf(') ') + 2).trim().split(/\s+/);
-      return fields[19] && /^\d+$/.test(fields[19])
-        ? { kind: 'linux-start-ticks', value: fields[19] }
-        : null;
-    } catch {
-      return null;
-    }
+    return linuxProcessIdentity(pid);
   }
   try {
     if (process.platform === 'win32') {
-      return windowsProcessIdentities([pid]).get(pid) || null;
+      return (await windowsProcessIdentities([pid])).get(pid) || null;
     }
-    const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
+    const { stdout } = await execFileAsync('ps', ['-o', 'lstart=', '-p', String(pid)], {
       encoding: 'utf8',
       timeout: 2000,
       windowsHide: true,
     });
-    const value = Math.floor(Date.parse(String(out).trim()) / 1000);
+    const value = Math.floor(Date.parse(String(stdout).trim()) / 1000);
     return Number.isInteger(value) ? { kind: 'start-seconds', value, method: 'ps' } : null;
   } catch {
     return null;
   }
 }
 
-function processIdentitiesForPids(pids) {
+async function processIdentitiesForPids(pids) {
   const unique = [...new Set(pids)];
   if (process.platform !== 'win32') {
-    return new Map(unique.map((pid) => [pid, processIdentityForPid(pid)]));
+    return new Map(await Promise.all(unique.map(async (pid) => [
+      pid,
+      await processIdentityForPid(pid),
+    ])));
   }
 
   const identities = new Map();
@@ -190,7 +225,7 @@ function processIdentitiesForPids(pids) {
     if (pid === process.pid) identities.set(pid, currentProcessIdentity());
     else otherPids.push(pid);
   }
-  for (const [pid, identity] of windowsProcessIdentities(otherPids)) {
+  for (const [pid, identity] of await windowsProcessIdentities(otherPids)) {
     identities.set(pid, identity);
   }
   return identities;
@@ -240,6 +275,36 @@ function recordPriorVanished(active, previous) {
   });
 }
 
+function markerMatchesSnapshot(markerPath, previous) {
+  try {
+    const current = JSON.parse(readFileSync(markerPath, 'utf8'));
+    return current?.pid === previous.pid
+      && current?.token === previous.token
+      && isDeepStrictEqual(current?.processIdentity, previous.processIdentity);
+  } catch {
+    return false;
+  }
+}
+
+async function recordPriorVanishedAsync(active, markerPath, previous) {
+  const written = await appendEntryAsync(active, {
+    version: 1,
+    timestamp: new Date().toISOString(),
+    pid: previous.pid,
+    ppid: Number.isInteger(previous.ppid) ? previous.ppid : null,
+    reason: 'prior-process-vanished',
+    exitCode: null,
+  }, () => sharedState().active === active && markerMatchesSnapshot(markerPath, previous));
+  if (!written || sharedState().active !== active) return false;
+  if (!markerMatchesSnapshot(markerPath, previous)) return false;
+  try {
+    unlinkSync(markerPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function pidLiveness(pid) {
   if (!Number.isInteger(pid) || pid < 1 || pid > 2147483647) return 'unknown';
   try {
@@ -285,17 +350,20 @@ function scheduleProcessIdentityUpgrade(active) {
   const scheduleAttempt = (attempt) => {
     if (attempt >= IDENTITY_UPGRADE_DELAYS_MS.length) return;
     const timer = setTimeout(() => {
-      try {
-        if (sharedState().active !== active || !markerOwned(active)) return;
-        const processIdentity = processIdentityForPid(process.pid);
-        if (processIdentity && processIdentity.method !== 'uptime') {
-          const previousIdentity = active.processIdentity;
-          active.processIdentity = processIdentity;
-          if (writeMarker(active)) return;
-          active.processIdentity = previousIdentity;
-        }
-      } catch {}
-      scheduleAttempt(attempt + 1);
+      void (async () => {
+        try {
+          if (sharedState().active !== active || !markerOwned(active)) return;
+          const processIdentity = await processIdentityForPid(process.pid);
+          if (sharedState().active !== active || !markerOwned(active)) return;
+          if (processIdentity && processIdentity.method !== 'uptime') {
+            const previousIdentity = active.processIdentity;
+            active.processIdentity = processIdentity;
+            if (writeMarker(active)) return;
+            active.processIdentity = previousIdentity;
+          }
+        } catch {}
+        scheduleAttempt(attempt + 1);
+      })();
     }, IDENTITY_UPGRADE_DELAYS_MS[attempt]);
     timer.unref?.();
   };
@@ -325,14 +393,23 @@ function reapVanishedMarkers(active) {
       else if (liveness === 'dead' && recordPriorVanished(active, previous)) unlinkSync(markerPath);
     } catch {}
   }
-  const identities = processIdentitiesForPids(occupied.map(({ previous }) => previous.pid));
+  void reapOccupiedMarkers(active, occupied).catch(() => {});
+}
+
+async function reapOccupiedMarkers(active, occupied) {
+  const identities = await processIdentitiesForPids(occupied.map(({ previous }) => previous.pid));
+  if (sharedState().active !== active) return;
   for (const { markerPath, previous } of occupied) {
     try {
+      if (sharedState().active !== active) return;
+      if (!markerMatchesSnapshot(markerPath, previous)) continue;
       const identityMatch = sameProcessIdentity(
         previous.processIdentity,
         identities.get(previous.pid) || null,
       );
-      if (identityMatch === false && recordPriorVanished(active, previous)) unlinkSync(markerPath);
+      if (identityMatch === false) {
+        await recordPriorVanishedAsync(active, markerPath, previous);
+      }
     } catch {}
   }
 }

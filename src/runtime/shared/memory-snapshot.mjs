@@ -1,28 +1,27 @@
 import { execFile } from 'node:child_process';
 import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-  writeSync,
-} from 'node:fs';
+  mkdir,
+  open,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { freemem, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { withFileLockSync } from './atomic-file.mjs';
+import { withFileLock } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const execFileAsync = promisify(execFile);
 export const MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES = 64 * 1024;
 const SNAPSHOT_NAME = 'memory-pressure.jsonl';
 const SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000;
+const SNAPSHOT_INTERVAL_JITTER_MS = 60 * 1000;
+const PERIODIC_SNAPSHOT_INTERVAL_MS = SNAPSHOT_INTERVAL_MS
+  + Math.floor(Math.random() * ((2 * SNAPSHOT_INTERVAL_JITTER_MS) + 1))
+  - SNAPSHOT_INTERVAL_JITTER_MS;
 const SNAPSHOT_RATE_LIMIT_MS = 60 * 1000;
-const SNAPSHOT_LOCK_TIMEOUT_MS = 2000;
 const SNAPSHOT_LOCK_STALE_MS = 10000;
 
 let periodicTimer = null;
@@ -59,42 +58,50 @@ function systemMemory() {
   }
 }
 
-function rotateSnapshot(paths) {
-  const size = Number(statSync(paths.snapshot).size) || 0;
-  try { unlinkSync(paths.previousSnapshot); } catch {}
-  if (size <= MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES) {
-    renameSync(paths.snapshot, paths.previousSnapshot);
-    return;
+async function pathExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
   }
-  writeFileSync(paths.previousSnapshot, '', { mode: 0o600 });
-  unlinkSync(paths.snapshot);
 }
 
-function appendSnapshot(entry) {
+async function rotateSnapshot(paths) {
+  const size = Number((await stat(paths.snapshot)).size) || 0;
+  try { await unlink(paths.previousSnapshot); } catch {}
+  if (size <= MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES) {
+    await rename(paths.snapshot, paths.previousSnapshot);
+    return;
+  }
+  await writeFile(paths.previousSnapshot, '', { mode: 0o600 });
+  await unlink(paths.snapshot);
+}
+
+async function appendSnapshot(entry) {
   const line = `${JSON.stringify(entry)}\n`;
   if (Buffer.byteLength(line) > MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES) return false;
   const paths = snapshotPaths();
   try {
-    mkdirSync(paths.directory, { recursive: true, mode: 0o700 });
-    return withFileLockSync(paths.lock, () => {
-      if (existsSync(paths.previousSnapshot)
-        && statSync(paths.previousSnapshot).size > MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES) {
-        writeFileSync(paths.previousSnapshot, '', { mode: 0o600 });
+    await mkdir(paths.directory, { recursive: true, mode: 0o700 });
+    return await withFileLock(paths.lock, async () => {
+      if (await pathExists(paths.previousSnapshot)
+        && (await stat(paths.previousSnapshot)).size > MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES) {
+        await writeFile(paths.previousSnapshot, '', { mode: 0o600 });
       }
-      if (existsSync(paths.snapshot)
-        && statSync(paths.snapshot).size + Buffer.byteLength(line) > MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES) {
-        rotateSnapshot(paths);
+      if (await pathExists(paths.snapshot)
+        && (await stat(paths.snapshot)).size + Buffer.byteLength(line) > MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES) {
+        await rotateSnapshot(paths);
       }
-      const fd = openSync(paths.snapshot, 'a', 0o600);
+      const fd = await open(paths.snapshot, 'a', 0o600);
       try {
-        writeSync(fd, line, null, 'utf8');
-        fsyncSync(fd);
+        await fd.write(line, null, 'utf8');
       } finally {
-        closeSync(fd);
+        await fd.close();
       }
-      return statSync(paths.snapshot).size <= MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES;
+      return (await stat(paths.snapshot)).size <= MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES;
     }, {
-      timeoutMs: SNAPSHOT_LOCK_TIMEOUT_MS,
+      timeoutMs: 0,
       staleMs: SNAPSHOT_LOCK_STALE_MS,
     });
   } catch {
@@ -197,7 +204,7 @@ export async function captureMemoryPressureSnapshot(reason = 'memory-pressure') 
   return appendSnapshot(entry);
 }
 
-function capturePeriodicMemorySnapshot() {
+async function capturePeriodicMemorySnapshot() {
   if (!enabled()) return false;
   return appendSnapshot(baseSnapshot('periodic'));
 }
@@ -224,7 +231,9 @@ export function requestMemoryPressureSnapshot(reason) {
 
 export function armMemoryPressureSampling() {
   if (!enabled() || periodicTimer) return false;
-  periodicTimer = setInterval(() => { capturePeriodicMemorySnapshot(); }, SNAPSHOT_INTERVAL_MS);
+  periodicTimer = setInterval(() => {
+    void capturePeriodicMemorySnapshot().catch(() => {});
+  }, PERIODIC_SNAPSHOT_INTERVAL_MS);
   periodicTimer.unref?.();
   return true;
 }
