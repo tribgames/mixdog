@@ -1,47 +1,11 @@
 // manager/prefetch-bridge.mjs
 // Explicit-prefetch bridge extracted verbatim from manager.mjs. Runs Lead-
-// supplied files[]/callers[]/references[] prefetch (outside the agent loop),
-// with a pass-through permission guard for API compatibility.
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
+// supplied files[]/callers[]/references[] prefetch outside the agent loop.
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { executeInternalTool } from '../../internal-tools.mjs';
 import { classifyResultKind } from '../result-classification.mjs';
 import { tryPrefetchCached, setPrefetchCached } from '../read-dedup.mjs';
 import { _executeCodeGraphToolLazy } from './runtime-loaders.mjs';
-
-// ── Prefetch permission guard ─────────────────────────────────────────────────
-// Runs the shared permission evaluator for tool calls that originate in the
-// prefetch path (outside the agent loop). Permission enforcement is disabled
-// (the evaluator always returns allow), so this is effectively a pass-through
-// kept for API compatibility. Returns an error string if blocked, or null.
-const _permEvalForPrefetch = (() => {
-    const _req = createRequire(import.meta.url);
-    try {
-        const { dirname: _pdir, resolve: _pres } = _req('path');
-        const _hooksLib = _pres(_pdir(fileURLToPath(import.meta.url)), '../../../../../hooks/lib/permission-evaluator.cjs');
-        return _req(_hooksLib).evaluatePermission;
-    } catch { return null; }
-})();
-function _guardedPrefetchTool(toolName, toolArgs, session) {
-    if (!_permEvalForPrefetch) return null;
-    // When no explicit mode is attached to the session, run the evaluator
-    // under 'default'. The evaluator now always allows, so this never blocks.
-    const permissionMode = session?.permissionMode || 'default';
-    const projectDir = session?.cwd || undefined;
-    const userCwd = session?.cwd || undefined;
-    const MCP_PFX = 'mcp__plugin_mixdog_mixdog__';
-    const fullName = toolName.startsWith(MCP_PFX) || toolName.startsWith('mcp__') ? toolName : `${MCP_PFX}${toolName}`;
-    try {
-        const { decision, reason } = _permEvalForPrefetch({ toolName: fullName, toolInput: toolArgs || {}, permissionMode, projectDir, userCwd });
-        if (decision === 'deny' || decision === 'ask') {
-            return `Error: prefetch tool "${toolName}" blocked (decision=${decision}): ${reason}`;
-        }
-    } catch (e) {
-        process.stderr.write(`[prefetch-guard] evaluator error: ${e?.message}\n`);
-    }
-    return null;
-}
 
 export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
     if (!explicitPrefetch || typeof explicitPrefetch !== 'object') return null;
@@ -85,12 +49,6 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
         }
     }
     if (files.length > 0) {
-        const _pfGuard = _guardedPrefetchTool('read', { path: files }, session);
-        if (_pfGuard) {
-            process.stderr.write(`[agent-prefetch] files read blocked: ${_pfGuard}\n`);
-            failed.push(...files);
-            totalEntries.push(...files);
-        } else {
         totalEntries.push(...files);
         // R20: per-file prefetch cache (cross-dispatch, process-local).
         // Try each file from cache first; batch misses into one disk read.
@@ -183,7 +141,6 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
             session.prefetchStats.miss += fileMisses.length;
             session.prefetchStats.failed += failed.length;
         }
-        }
     }
     // callers[]
     const callers = Array.isArray(explicitPrefetch.callers) ? explicitPrefetch.callers.filter(c => c && typeof c.symbol === 'string') : [];
@@ -193,11 +150,6 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
             if (file) cgArgs.file = file;
             if (session?.cwd) cgArgs.cwd = session.cwd;
             totalEntries.push(symbol);
-            const blocked = _guardedPrefetchTool('code_graph', cgArgs, session);
-            if (blocked) {
-                process.stderr.write(`[agent-prefetch] callers(${symbol}) blocked: ${blocked}\n`);
-                return Promise.resolve({ symbol, out: null, blocked: true });
-            }
             return _executeCodeGraphToolLazy('code_graph', cgArgs, session?.cwd)
                 .then(out => ({ symbol, out }))
                 .catch(e => {
@@ -207,8 +159,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
         });
         const callerResults = await Promise.allSettled(callerTasks);
         for (const r of callerResults) {
-            const { symbol, out, blocked } = r.status === 'fulfilled' ? r.value : { symbol: '?', out: null };
-            if (blocked) { failed.push(symbol); continue; }
+            const { symbol, out } = r.status === 'fulfilled' ? r.value : { symbol: '?', out: null };
             if (out && classifyResultKind(String(out)) !== 'error') {
                 parts.push(`### prefetch callers ${symbol}\n${out}`);
             } else {
@@ -224,11 +175,6 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
             if (file) cgArgs.file = file;
             if (session?.cwd) cgArgs.cwd = session.cwd;
             totalEntries.push(symbol);
-            const blocked = _guardedPrefetchTool('code_graph', cgArgs, session);
-            if (blocked) {
-                process.stderr.write(`[agent-prefetch] references(${symbol}) blocked: ${blocked}\n`);
-                return Promise.resolve({ symbol, out: null, blocked: true });
-            }
             return _executeCodeGraphToolLazy('code_graph', cgArgs, session?.cwd)
                 .then(out => ({ symbol, out }))
                 .catch(e => {
@@ -238,8 +184,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch) {
         });
         const refResults = await Promise.allSettled(refTasks);
         for (const r of refResults) {
-            const { symbol, out, blocked } = r.status === 'fulfilled' ? r.value : { symbol: '?', out: null };
-            if (blocked) { failed.push(symbol); continue; }
+            const { symbol, out } = r.status === 'fulfilled' ? r.value : { symbol: '?', out: null };
             if (out && classifyResultKind(String(out)) !== 'error') {
                 parts.push(`### prefetch references ${symbol}\n${out}`);
             } else {

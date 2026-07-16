@@ -1,10 +1,8 @@
 /**
  * anthropic-sse.mjs — Anthropic SSE stream parser + mid-stream retry policy.
  *
- * Extracted from anthropic-oauth.mjs. Shared by BOTH Anthropic providers:
- * anthropic-oauth.mjs (OAuth) and anthropic.mjs (API key) import
- * parseSSEStream / _classifyMidstreamError / ANTHROPIC_MAX_MIDSTREAM_RETRIES
- * from here (via the anthropic-oauth.mjs re-export for legacy paths).
+ * Shared by both Anthropic providers. anthropic-oauth.mjs retains its public
+ * re-exports for provider test and integration entry points.
  */
 import { randomBytes } from 'crypto';
 import {

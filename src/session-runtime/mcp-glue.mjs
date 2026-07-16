@@ -1,12 +1,10 @@
-// MCP config/status/connect glue, extracted from mixdog-session-runtime.mjs.
-// Dependency-injected factory: all live state (config, currentCwd, connect
-// generation/in-flight/failures) is threaded through accessors + a caller-owned
-// `state` object so the facade's teardown/reconnect paths still observe it.
-// Method behavior is byte-for-byte identical; only grouping changes.
+// MCP config/status/connect glue. Mutable runtime state is dependency-injected
+// through accessors and the caller-owned `state` object.
 import { resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { clean } from './session-text.mjs';
 import { normalizeMcpProjectPathKey, readProjectMcpServers } from './plugin-mcp.mjs';
+import { envFlag } from './env.mjs';
 
 // Cache project-local `.mcp.json` reads by path + mtime so repeated mcpStatus()
 // calls skip existsSync+readFileSync+JSON.parse when the file is unchanged.
@@ -15,9 +13,6 @@ const projectMcpCache = new Map();
 const PROJECT_MCP_CACHE_MAX = 32;
 export function invalidateProjectMcpCache(cwd) {
   projectMcpCache.delete(resolve(cwd || '.', '.mcp.json'));
-}
-function mcpDisabled() {
-  return /^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_MCP || ''));
 }
 function cachedProjectMcpServers(cwd) {
   const path = resolve(cwd || '.', '.mcp.json');
@@ -55,7 +50,7 @@ export function createMcpGlue({
   // origin ('config' | 'project') for status reporting.
   function resolveEffectiveMcpServers() {
     // Benchmark/embedding guard: do not even inspect project `.mcp.json`.
-    if (mcpDisabled()) return { servers: {}, sources: {} };
+    if (envFlag('MIXDOG_DISABLE_MCP')) return { servers: {}, sources: {} };
     const config = getConfig();
     const configured = config?.mcpServers && typeof config.mcpServers === 'object'
       ? config.mcpServers
@@ -78,7 +73,7 @@ export function createMcpGlue({
   }
 
   function mcpStatus() {
-    if (mcpDisabled()) {
+    if (envFlag('MIXDOG_DISABLE_MCP')) {
       return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };
     }
     const { servers: configured, sources } = resolveEffectiveMcpServers();
@@ -149,7 +144,7 @@ export function createMcpGlue({
   }
 
   async function connectConfiguredMcp({ reset = false, only = null, enabled = true } = {}) {
-    if (mcpDisabled()) {
+    if (envFlag('MIXDOG_DISABLE_MCP')) {
       ++state.mcpConnectGeneration;
       state.mcpFailures = [];
       if (only) await mcpClient.disconnectMcpServer?.(only);

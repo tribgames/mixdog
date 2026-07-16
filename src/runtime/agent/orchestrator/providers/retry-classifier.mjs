@@ -363,10 +363,7 @@ export function classifyMidstreamError(err, signals, policy = {}) {
   return _classifyMidstreamWs(err, signals, attemptIndex, policy)
 }
 
-// Verbatim relocation of openai-oauth-ws's _classifyMidstreamError. `signals`
-// carries sawResponseCreated / sawCompleted / emittedText / emittedToolCall /
-// wsCloseCode / firstByteTimeout / wsSendFailed /
-// userAbort / watchdogAbort / responseFailedPayload exactly as before.
+// WebSocket classification consumes the provider's stream-state signals.
 function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   if (state.sawCompleted) return null
   // Once a tool call has been dispatched, no transport outcome is replay-safe.
@@ -450,9 +447,7 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   return null
 }
 
-// Verbatim relocation of anthropic-oauth's _classifyMidstreamError. `signals`
-// carries sawMessageStart / sawCompleted / emittedToolCall / userAbort /
-// watchdogAbort exactly as before.
+// SSE classification consumes the provider's stream-state signals.
 function _classifyMidstreamSse(err, state, attemptIndex, policy) {
   if (attemptIndex >= policy.defaultRetries) return null
   if (state.sawCompleted) return null

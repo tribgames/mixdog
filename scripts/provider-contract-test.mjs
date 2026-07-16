@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 import {
     OpenAICompatProvider,
@@ -210,6 +214,110 @@ test('OpenCode Go normalizes both route families to inclusive provider usage', a
         promptTokens: 100,
     });
     assert.equal(openai.usage.inputTokens, 100, 'context footprint remains inclusive');
+});
+
+test('OpenCode Go Anthropic delegation traces additive inner usage before inclusive outer normalization', (t) => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'mixdog-opencode-go-trace-'));
+    const tracePath = join(tempDir, 'agent-trace.jsonl');
+    t.after(() => rmSync(tempDir, { recursive: true, force: true }));
+
+    const openCodeGoUrl = new URL('../src/runtime/agent/orchestrator/providers/opencode-go.mjs', import.meta.url).href;
+    const anthropicUrl = new URL('../src/runtime/agent/orchestrator/providers/anthropic.mjs', import.meta.url).href;
+    const traceUrl = new URL('../src/runtime/agent/orchestrator/agent-trace.mjs', import.meta.url).href;
+    const fixture = `
+        const { OpenCodeGoProvider } = await import(${JSON.stringify(openCodeGoUrl)});
+        const { AnthropicProvider } = await import(${JSON.stringify(anthropicUrl)});
+        const { drainAgentTrace } = await import(${JSON.stringify(traceUrl)});
+
+        const encoder = new TextEncoder();
+        const events = [
+            { type: 'message_start', message: {
+                model: 'minimax-m3',
+                usage: {
+                    input_tokens: 60,
+                    cache_read_input_tokens: 35,
+                    cache_creation_input_tokens: 5,
+                },
+            } },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } },
+            { type: 'message_stop' },
+        ];
+        const chunks = events.map((event) => encoder.encode(
+            'event: ' + event.type + '\\ndata: ' + JSON.stringify(event) + '\\n\\n'
+        ));
+        let chunkIndex = 0;
+        const response = {
+            ok: true,
+            status: 200,
+            headers: new Map(),
+            body: { getReader() {
+                return {
+                    read() {
+                        return chunkIndex < chunks.length
+                            ? Promise.resolve({ done: false, value: chunks[chunkIndex++] })
+                            : Promise.resolve({ done: true, value: undefined });
+                    },
+                    cancel() { return Promise.resolve(); },
+                    releaseLock() {},
+                };
+            } },
+        };
+
+        const inner = Object.create(AnthropicProvider.prototype);
+        inner.name = 'opencode-go';
+        inner.config = { disableBetaHeaders: true };
+        inner.fastModeBetaHeaderLatched = false;
+        inner.client = { messages: { create() {
+            return { asResponse: async () => response };
+        } } };
+
+        const outer = Object.create(OpenCodeGoProvider.prototype);
+        outer.anthropic = inner;
+        outer.openai = { send() { throw new Error('wrong OpenCode Go route'); } };
+        const result = await outer.send(
+            [{ role: 'user', content: 'fixture' }],
+            'minimax-m3',
+            [],
+            { sessionId: 'opencode-go-additive-trace' },
+        );
+        await drainAgentTrace();
+        process.stdout.write(JSON.stringify(result.usage));
+    `;
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', fixture], {
+        cwd: new URL('..', import.meta.url),
+        encoding: 'utf8',
+        env: {
+            ...process.env,
+            MIXDOG_AGENT_TRACE_DISABLE: '0',
+            MIXDOG_AGENT_TRACE_LOCAL_DISABLE: '0',
+            MIXDOG_AGENT_TRACE_PATH: tracePath,
+        },
+    });
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+
+    const outerUsage = JSON.parse(child.stdout);
+    assert.deepEqual(outerUsage, {
+        inputTokens: 100,
+        outputTokens: 5,
+        cachedTokens: 35,
+        cacheWriteTokens: 5,
+        promptTokens: 100,
+    });
+    const traceRows = readFileSync(tracePath, 'utf8')
+        .trim()
+        .split(/\r?\n/)
+        .map((line) => JSON.parse(line));
+    const innerUsage = traceRows.find((row) => (
+        row.kind === 'usage_raw'
+        && row.session_id === 'opencode-go-additive-trace'
+    ));
+    assert.ok(innerUsage, 'delegated Anthropic route must emit usage_raw');
+    assert.equal(innerUsage.payload.provider, 'opencode-go');
+    assert.equal(innerUsage.input_tokens, 60);
+    assert.equal(innerUsage.cached_tokens, 35);
+    assert.equal(innerUsage.cache_write_tokens, 5);
+    assert.equal(innerUsage.uncached_input_tokens, 60);
+    assert.equal(innerUsage.prompt_tokens, 100);
 });
 
 test('constructing Grok OAuth is network inert', () => {

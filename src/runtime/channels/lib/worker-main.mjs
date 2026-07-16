@@ -461,7 +461,19 @@ function wireWebhookHandlers() {
     // final event is forwarded to the Lead via the same channel-notify
     // path used by schedule & event-queue (injectAndRecord). Silent
     // lifecycle pings keep routing only to Discord.
-    const agentMod = await import("../../agent/index.mjs");
+    const [{ createStandaloneAgent }, cfgMod, reg, mgr] = await Promise.all([
+      import("../../../standalone/agent-tool.mjs"),
+      import("../../agent/orchestrator/config.mjs"),
+      import("../../agent/orchestrator/providers/registry.mjs"),
+      import("../../agent/orchestrator/session/manager.mjs"),
+    ]);
+    const agentTool = createStandaloneAgent({
+      cfgMod,
+      reg,
+      mgr,
+      dataDir: cfgMod.getPluginData(),
+      cwd,
+    });
     const channelId = resolveWebhookChannelId(context?.channel);
     const endpoint = context?.endpoint || "unknown";
     const event = context?.event || null;
@@ -508,10 +520,9 @@ function wireWebhookHandlers() {
     // Falls back to the session entry position; never the plugin CACHE root.
     const ownerPid = getActiveOwnerPid(readActiveInstance());
     const ownerCwd = (ownerPid && readLastSessionCwd(ownerPid)) || captureOriginalUserCwd();
-    return agentMod.handleToolCall(
-      "bridge",
-      { role, preset, prompt, cwd: cwd || ownerCwd },
-      { notifyFn },
+    return agentTool.execute(
+      { type: "spawn", agent: role, preset, prompt, cwd: cwd || ownerCwd },
+      { callerCwd: cwd || ownerCwd, invocationSource: "webhook", notifyFn },
     );
   });
 }

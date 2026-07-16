@@ -28,16 +28,6 @@ import { providerInputExcludesCache } from '../../providers/registry.mjs';
 // the recall-fasttrack injection cap uses (loop.mjs recallTokenCap). One
 // number governs every "share of model context" budget.
 
-function resolveSemanticCompactSetting(sessionRef, cfg = {}) {
-    // Types are hard-locked (agent -> semantic, main/user -> recall-fasttrack).
-    // Semantic must always be available as a compact path or agent sessions
-    // would have none (loop.mjs throws when no type is available). Env/cfg
-    // off-switches no longer apply.
-    void sessionRef;
-    void cfg;
-    return true;
-}
-
 function resolveCompactTypeSetting(sessionRef, cfg = {}) {
     // Agent-owned sessions are ALWAYS semantic. recall-fasttrack rebuilds
     // context from Memory recall, which is scoped to the user's main-session
@@ -171,7 +161,7 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
             ? Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
             : null,
         autoCompactTokenLimit: explicitAutoCompactTokenLimit,
-        semantic: compactTypeIsSemantic(compactType) && resolveSemanticCompactSetting(sessionRef, cfg),
+        semantic: compactTypeIsSemantic(compactType),
         recallFastTrack: compactTypeIsRecallFastTrack(compactType),
         semanticTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
         tailTurns: positiveTokenInt(cfg.tailTurns) || envTokenInt('MIXDOG_AGENT_COMPACT_TAIL_TURNS') || 2,

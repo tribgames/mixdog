@@ -207,13 +207,6 @@ function _traceWsHeaderKeys(entry, event, midState, traceProvider, model) {
         else entry.wsHeaderKeysEmptyTraced = true;
     } catch {}
 }
-// _wsErrLabel moved to openai-ws-pool.mjs (imported above).
-// Delta/matching helpers (_sansInput, _stableStringify, _cloneJson,
-// _logicalResponseItemMatch, _stripResponseItemsFromHead, _computeDelta,
-// _estimateFrameTokens) → openai-ws-delta.mjs. Usage/event helpers
-// (_combineUsageWithWarmup, _parseEvent, _incompleteReasonFromEvent,
-// _isMaxOutputIncompleteReason, _httpStatusFromWsClose) → openai-ws-events.mjs.
-// All imported + re-exported at the top of this file.
 // tool_search_call.arguments parse. Module-scope (exported) for direct test
 // coverage. Same policy as the function_call_arguments.done path and
 // openai-oauth _parseJsonObject —
@@ -1383,24 +1376,3 @@ export async function _streamResponse({
     });
 }
 
-/**
- * Classify a handshake error for retry eligibility.
- *
- * Default-deny: anything we don't recognize as transient returns null (treat
- * as permanent). Permanent buckets (401/403/404/429) also return null — the
- * server has made a deterministic decision that a retry can't change.
- *
- * Returns one of:
- *   'timeout' — `ws` handshakeTimeout fired
- *   'reset'   — ECONNRESET / socket hang up
- *   'dns'     — EAI_AGAIN / ENOTFOUND / EAI_NODATA
- *   'refused' — ECONNREFUSED
- *   'network' — ENETUNREACH / EHOSTUNREACH / EPIPE
- *   'acquire_timeout' — hard client-side open/acquire deadline fired
- *   'http_5xx' (with specific status e.g. 'http_503') — server overload
- *   null      — not retryable
- */
-// Thin re-export wrapper: handshake classification now lives in the shared
-// retry-classifier (classifyHandshakeError). Kept here as a named export so
-// internal call sites (_acquireWithRetry) and any external importer keep
-// resolving the same symbol.

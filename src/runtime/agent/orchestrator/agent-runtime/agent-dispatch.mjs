@@ -101,8 +101,7 @@ function agentCompactEventDetail(event = {}) {
 //      recursion break)
 // Hidden-agent exceptions are declarative: defaults/agents.json may set
 // toolSchemaProfile when first-turn routing quality is worth a separate tool
-// prefix. Standard profiles are none/read/full/read-write-search; legacy names
-// stay as aliases.
+// prefix. Standard profiles are none/read/full/read-write-search.
 // See manager.mjs resolveSessionTools for the single source of truth;
 // agent visibility is declared via annotations.agentHidden on each tool def.
 const HIDDEN_ROLE_TOOL_SCHEMA_PROFILES = Object.freeze({
@@ -126,17 +125,6 @@ const HIDDEN_ROLE_TOOL_SCHEMA_PROFILES = Object.freeze({
         'apply_patch',
         'search',
         'web_fetch',
-    ]),
-    // Backward-compatible aliases for older hidden-role definitions.
-    unified: null,
-    'llm-only': Object.freeze([]),
-    'filesystem-read': Object.freeze([
-        'code_graph',
-        'find',
-        'glob',
-        'list',
-        'grep',
-        'read',
     ]),
 });
 

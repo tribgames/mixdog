@@ -33,6 +33,7 @@ import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './ant
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from './openai-oauth.mjs';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
+export { envPositiveInt as _envPositiveInt } from './lib/env-utils.mjs';
 
 // Public OpenAI Responses API endpoint for the api-key `openai` provider.
 // The openai-direct WS transport hits the same origin (openai-ws-pool
@@ -48,13 +49,6 @@ export function _envFlag(name, fallback = true) {
     const raw = process.env[name];
     if (raw == null || raw === '') return fallback;
     return !['0', 'false', 'off', 'no'].includes(String(raw).toLowerCase());
-}
-
-export function _envPositiveInt(name, fallback) {
-    const raw = process.env[name];
-    if (raw == null || raw === '') return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
 // Completed function_call.arguments parse for the OpenAI Responses stream.

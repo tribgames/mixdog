@@ -341,10 +341,6 @@ function patchActiveInstance(fields, opts = {}) {
 
 // ── postmaster.pid helpers ───────────────────────────────────────────────────
 
-function readPostmasterPid(pgdata) {
-  return readPostmasterInfo(pgdata).pid;
-}
-
 function readPostmasterInfo(pgdata) {
   try {
     const raw = readFileSync(join(pgdata, 'postmaster.pid'), 'utf8');

@@ -1,7 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import httpMod from 'node:http';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
@@ -19,7 +17,6 @@ import { checkLatestVersion, localPackageVersion, isDevInstall } from '../runtim
 import { spawnStagedInstall, runStagedInstall, isStagedComplete } from '../runtime/shared/staged-update.mjs';
 import {
   modelVisibleToolCompletionMessage,
-  shouldPersistModelVisibleToolCompletion,
 } from '../runtime/shared/tool-execution-contract.mjs';
 import {
   channelNotificationModelContent,
@@ -120,7 +117,6 @@ import {
   fastCapableFor,
   makeSearchCapableFor,
   fastPreferenceFor,
-  saveModelSettings,
 } from './model-capabilities.mjs';
 import {
   DEFAULT_PROVIDER,
@@ -248,6 +244,35 @@ import { createResourceApi } from './resource-api.mjs';
 import { createModelRouteApi } from './model-route-api.mjs';
 import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
 import { createSessionTurnApi } from './session-turn-api.mjs';
+import { providerInitCacheKey } from './provider-init-key.mjs';
+import {
+  RUNTIME,
+  SEARCH_RUNTIME,
+  SEARCH_TOOL_DEFS,
+  MEMORY_TOOL_DEFS,
+  MEMORY_RUNTIME,
+  CHANNEL_TOOL_DEFS,
+  CHANNEL_WORKER_ENTRY,
+  CODE_GRAPH_TOOL_DEFS,
+  CODE_GRAPH_RUNTIME,
+  STATUSLINE_SESSION_ROUTES,
+  SESSION_RUNTIME_DIR,
+  STANDALONE_SOURCE_ROOT,
+  STANDALONE_ROOT,
+  STANDALONE_DATA_DIR,
+} from './runtime-paths.mjs';
+import {
+  dispatchSearchRuntimeTool,
+  memoryToolArgsForCaller,
+  shouldMirrorCompletionToPendingQueue,
+} from './runtime-tool-routing.mjs';
+export {
+  __renderToolSearchForTest,
+  __saveModelSettingsForTest,
+  dispatchSearchRuntimeTool,
+  memoryToolArgsForCaller,
+  shouldMirrorCompletionToPendingQueue,
+} from './runtime-tool-routing.mjs';
 // Re-exported for external consumers (scripts/tool-smoke.mjs) that imported
 // these from this module before the tool-defs extraction.
 export { TOOL_SEARCH_TOOL, SKILL_TOOL };
@@ -255,26 +280,6 @@ export { TOOL_SEARCH_TOOL, SKILL_TOOL };
 export function __applyStandaloneToolDefaultsForTest(tool) {
   return applyStandaloneToolDefaults(tool);
 }
-
-const RUNTIME = '../runtime/agent/orchestrator';
-const SEARCH_RUNTIME = '../runtime/search/index.mjs';
-const SEARCH_TOOL_DEFS = '../runtime/search/tool-defs.mjs';
-const MEMORY_TOOL_DEFS = '../runtime/memory/tool-defs.mjs';
-const MEMORY_RUNTIME = '../runtime/memory/index.mjs';
-const CHANNEL_TOOL_DEFS = '../runtime/channels/tool-defs.mjs';
-const CHANNEL_WORKER_ENTRY = '../runtime/channels/index.mjs';
-const CODE_GRAPH_TOOL_DEFS = '../runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs';
-const CODE_GRAPH_RUNTIME = '../runtime/agent/orchestrator/tools/code-graph.mjs';
-const STATUSLINE_SESSION_ROUTES = '../vendor/statusline/src/gateway/session-routes.mjs';
-const __dirname = dirname(fileURLToPath(import.meta.url));
-// This module lives in src/session-runtime/, but the resource root must remain
-// src/ (defaults/, rules/, runtime/, vendor/ live there), so climb one level.
-const STANDALONE_SOURCE_ROOT = dirname(__dirname);
-// Resource root stays at src/ because defaults/, rules/, runtime/, vendor/ live
-// there. User-owned standalone state lives under MIXDOG_HOME (~/.mixdog).
-const STANDALONE_ROOT = STANDALONE_SOURCE_ROOT;
-const MIXDOG_HOME = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
-const STANDALONE_DATA_DIR = process.env.MIXDOG_DATA_DIR || join(MIXDOG_HOME, 'data');
 
 const resolveDefaultProvider = makeResolveDefaultProvider(isKnownProvider);
 const resolveRoute = makeResolveRoute(resolveDefaultProvider);
@@ -302,67 +307,6 @@ const {
   routeFromPreset,
   agentRouteFromConfig,
 } = createWorkflowRouteHelpers({ resolveDefaultProvider, findPreset });
-
-export function __renderToolSearchForTest(args = {}, session = {}, mode = 'full', options = {}) {
-  return renderToolSearch(args, session, mode, options);
-}
-
-export function __saveModelSettingsForTest(cfgMod, route, options = {}) {
-  return saveModelSettings(cfgMod, route, options);
-}
-
-// Decide whether notifyFnForSession should mirror a terminal tool completion
-// into the pending-message queue. Only the TUI execution-ui path actually
-// injects the model-visible twin of the completion into the active loop, and it
-// signals that with an EXPLICIT ack (modelVisibleDelivered) — never a generic
-// truthy onNotification return. Skipping the mirror on a bare `handled===true`
-// would let a display-only / API listener suppress the sole model-visible copy,
-// so the model would never see the completion body. Mirror UNLESS the body was
-// explicitly delivered; unknown/generic-handled → keep the mirror.
-export function shouldMirrorCompletionToPendingQueue({
-  callerSessionId,
-  modelVisibleDelivered,
-  hasEnqueue,
-  text,
-  meta = {},
-} = {}) {
-  if (!callerSessionId || !hasEnqueue) return false;
-  if (modelVisibleDelivered) return false;
-  return shouldPersistModelVisibleToolCompletion(text, meta);
-}
-
-export async function dispatchSearchRuntimeTool(name, args, callerCtx = {}, {
-  getSearchModule,
-  getCurrentCwd,
-  getSession,
-  notifyFnForSession,
-  runNativeWebSearch,
-} = {}) {
-  const currentSession = typeof getSession === 'function' ? getSession() : null;
-  const callerCwd = callerCtx?.callerCwd || (typeof getCurrentCwd === 'function' ? getCurrentCwd() : process.cwd());
-  const callerSessionId = callerCtx?.callerSessionId || currentSession?.id || null;
-  const callerSignal = callerCtx?.signal || currentSession?.controller?.signal;
-  const searchMod = await getSearchModule();
-  if (!searchMod?.handleToolCall) throw new Error('search runtime is not available');
-  return await searchMod.handleToolCall(name, args || {}, {
-    callerCwd,
-    callerSessionId,
-    routingSessionId: callerSessionId,
-    clientHostPid: callerCtx?.clientHostPid || currentSession?.clientHostPid || process.pid,
-    notifyFn: notifyFnForSession(callerSessionId),
-    signal: callerSignal,
-    nativeSearch: name === 'search'
-      ? async (searchArgs) => runNativeWebSearch(searchArgs, { signal: callerSignal })
-      : undefined,
-  });
-}
-
-export function memoryToolArgsForCaller(args, callerCwd) {
-  const input = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
-  return typeof input.cwd === 'string' && input.cwd.trim()
-    ? input
-    : { ...input, cwd: callerCwd };
-}
 
 export async function createMixdogSessionRuntime({
   provider,
@@ -442,7 +386,7 @@ export async function createMixdogSessionRuntime({
   const memoryRuntime = createStandaloneMemoryRuntime({
     // Entry constants are module-relative ('../runtime/...'); resolve against
     // this module's dir, not STANDALONE_ROOT, or the 'src/' segment is lost.
-    entry: join(__dirname, MEMORY_RUNTIME),
+    entry: join(SESSION_RUNTIME_DIR, MEMORY_RUNTIME),
     dataDir: pluginDataDir,
     cwd,
   });
@@ -1041,7 +985,7 @@ export async function createMixdogSessionRuntime({
   };
   const channelsStartedAt = performance.now();
   const channels = createStandaloneChannelWorker({
-    entry: join(__dirname, CHANNEL_WORKER_ENTRY),
+    entry: join(SESSION_RUNTIME_DIR, CHANNEL_WORKER_ENTRY),
     rootDir: STANDALONE_ROOT,
     dataDir: cfgMod.getPluginData(),
     cwd,
@@ -1302,23 +1246,6 @@ export async function createMixdogSessionRuntime({
     resolve,
     STANDALONE_DATA_DIR,
   });
-
-  function providerInitCacheKey(value) {
-    function sortKeysDeep(v) {
-      if (Array.isArray(v)) return v.map(sortKeysDeep);
-      if (v && typeof v === 'object') {
-        const out = {};
-        for (const key of Object.keys(v).sort()) out[key] = sortKeysDeep(v[key]);
-        return out;
-      }
-      return v;
-    }
-    try {
-      return JSON.stringify(sortKeysDeep(value));
-    } catch {
-      return `uncacheable:${Date.now()}:${Math.random()}`;
-    }
-  }
 
   async function ensureProvidersReady(providerConfig = config.providers || {}) {
     const initKey = providerInitCacheKey(providerConfig);

@@ -63,6 +63,7 @@ import {
 } from './openai-ws-stream.mjs';
 import { _buildResponseCreateFrame } from './openai-ws-delta.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
+import { envPositiveInt } from './lib/env-utils.mjs';
 
 // Legacy import paths for scripts/tool-smoke.mjs, mixdog-session-runtime.mjs
 // (drainOpenaiWsPool), scripts/provider-toolcall-test.mjs (parseToolSearchArgs,
@@ -80,7 +81,6 @@ export {
 
 globalThis.__mixdogOpenaiWsRuntimeLoaded = true;
 
-// --- WS_PRE_RESPONSE_CREATED_MS / WS_INTER_CHUNK_MS: extracted to openai-ws-stream.mjs ---
 // The official Codex Responses policy has one five-retry stream budget shared
 // by connect/handshake and pre-output stream failures.
 const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries;
@@ -103,10 +103,6 @@ const HANDSHAKE_MAX_ATTEMPTS = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT + 1;
 const HANDSHAKE_BACKOFF_BASE_MS = 200;
 const HANDSHAKE_BACKOFF_CAP_MS = 3200;
 
-// --- WS pool/handshake/acquire/release: extracted to openai-ws-pool.mjs ---
-
-// --- Delta/matching helpers + parseToolSearchArgs: extracted to openai-ws-stream.mjs ---
-// --- Stream consumer (_streamResponse): extracted to openai-ws-stream.mjs ---
 export function _classifyHandshakeError(err) {
     return classifyHandshakeError(err);
 }
@@ -187,11 +183,6 @@ function _sleepWithAbort(ms, externalSignal, sleepFn = _defaultSleep) {
 function _num(value, fallback = 0) {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
-}
-
-function _envPositiveInt(name, fallback) {
-    const n = Number(process.env[name]);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
 function _envRatio(name, fallback) {
@@ -409,8 +400,8 @@ function _cacheObservation({ entry, result, continuityResetReason = null }) {
     const promptTokens = _num(result?.usage?.promptTokens, 0) || inputTokens;
     const cachedTokens = _num(result?.usage?.cachedTokens, 0);
     const previousMaxCached = _num(entry?.promptCacheMaxCachedTokens, 0);
-    const warmThreshold = _envPositiveInt('MIXDOG_OAI_CACHE_MISS_WARM_TOKENS', 2048);
-    const promptThreshold = _envPositiveInt('MIXDOG_OAI_CACHE_MISS_PROMPT_TOKENS', 4096);
+    const warmThreshold = envPositiveInt('MIXDOG_OAI_CACHE_MISS_WARM_TOKENS', 2048);
+    const promptThreshold = envPositiveInt('MIXDOG_OAI_CACHE_MISS_PROMPT_TOKENS', 4096);
     const dropRatio = _envRatio('MIXDOG_OAI_CACHE_MISS_DROP_RATIO', 0.6);
     const dropThreshold = Math.floor(previousMaxCached * dropRatio);
     // A full-frame chain break (most commonly compaction/input-prefix rewrite)

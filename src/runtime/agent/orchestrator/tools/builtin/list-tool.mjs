@@ -8,9 +8,7 @@ import {
     normalizeOutputPath,
     resolveAgainstCwd,
 } from './path-utils.mjs';
-import { buildNotFoundHint, finalizeReadFamilyEnoentTail, tryReadFamilyEnoentRedirect } from './search-path-diagnostics.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
-import { isUncPath, isWindowsDevicePath, hasUnsafeWin32Component } from './device-paths.mjs';
 import {
     buildListCacheKey,
     DEFAULT_IGNORE_GLOBS,
@@ -36,48 +34,11 @@ import { runRg } from './rg-runner.mjs';
 import { hasSpareCapacity as childSpawnHasSpareCapacity } from '../../../../shared/child-spawn-gate.mjs';
 import { fuzzyRank } from './fuzzy-match.mjs';
 import { assertPathReachable } from './fs-reachability.mjs';
+import { listGuardPath, normalizeListHeadLimit, readFamilyPathEnoentOrError } from './lib/list-helpers.mjs';
 
 const FIND_WALK_TIMEOUT_MS = 20_000;
 const LIST_WALK_TIMEOUT_MS = 20_000;
 const LIST_ABSOLUTE_CAP = 50_000;
-
-/** undefined / invalid / negative → defaultCap; 0 = no page cap (absolute caps still apply). */
-async function readFamilyPathEnoentOrError(workDir, fullPath, inputPath, args, options, err, rerunTool) {
-    const redirected = await tryReadFamilyEnoentRedirect({
-        workDir,
-        resolvedPath: fullPath,
-        requestedPath: inputPath,
-        errCode: err?.code,
-        options,
-        rerun: (target, opts) => rerunTool({ ...args, path: target }, workDir, opts),
-    });
-    if (redirected) return redirected;
-    const msg = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
-    const hint = buildNotFoundHint(workDir, fullPath, 'List', err?.code);
-    return msg + finalizeReadFamilyEnoentTail(hint, inputPath, err?.code);
-}
-
-function normalizeListHeadLimit(raw, defaultCap) {
-    if (raw === undefined || raw === null || raw === '') return defaultCap;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0) return defaultCap;
-    return Math.floor(n);
-}
-
-// UNC / Windows-device / NTFS-ADS guard for directory-walking modes
-// (list / tree / find). Walking a UNC share auto-authenticates to the
-// remote host (NTLM hash leak); a raw-device / reserved-name path can
-// hang or grant raw access. Mirrors the read path's string-based checks.
-// Returns an Error string when the path is blocked, else null.
-function listGuardPath(p) {
-    if (typeof isUncPath === 'function' && isUncPath(p))
-        return `Error: cannot walk UNC / SMB path (network credential leak risk): ${normalizeOutputPath(p)}`;
-    if (typeof isWindowsDevicePath === 'function' && isWindowsDevicePath(p))
-        return `Error: cannot walk Windows device path (reserved name or raw-device namespace): ${normalizeOutputPath(p)}`;
-    if (typeof hasUnsafeWin32Component === 'function' && hasUnsafeWin32Component(p))
-        return `Error: cannot walk Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard): ${normalizeOutputPath(p)}`;
-    return null;
-}
 
 export async function executeListTool(args, workDir, options = {}) {
     args.path = coerceReadFamilyPathArg(args.path, workDir);

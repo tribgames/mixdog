@@ -25,7 +25,6 @@ import {
     ensureLatestAnthropicModel,
 } from './anthropic-model-resolve.mjs';
 import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
-import { providerNativeToolPrefixCount } from '../../../../session-runtime/provider-request-tools.mjs';
 import {
     TOKEN_REFRESH_SKEW_MS,
     isAnthropicOAuthRefreshDisabled,
@@ -70,8 +69,18 @@ import {
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
+import {
+    ANTHROPIC_CACHE_TTL_STABLE as CACHE_TTL_STABLE,
+    ANTHROPIC_CACHE_TTL_VOLATILE as CACHE_TTL_VOLATILE,
+    applyAnthropicCacheMarkers,
+    clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
+    deferredAnthropicTools as sharedDeferredAnthropicTools,
+    requestAnthropicTools as sharedRequestAnthropicTools,
+    resolveAnthropicCacheTtls as resolveCacheTtls,
+    sanitizeAnthropicInputSchema,
+    toAnthropicToolChoice,
+} from './lib/anthropic-request-utils.mjs';
 
-// --- Model catalog cache helpers: extracted to anthropic-model-resolve.mjs ---
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
 const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
 
@@ -202,113 +211,12 @@ function resolveMaxTokens(model) {
     return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokens });
 }
 
-const MIN_THINKING_BUDGET = 1024;
-const THINKING_OUTPUT_RESERVE = 1024;
-
-function clampThinkingBudgetTokens(value, maxTokens) {
-    const desired = Math.floor(Number(value));
-    const max = Math.floor(Number(maxTokens));
-    if (!Number.isFinite(desired) || desired <= 0 || !Number.isFinite(max)) return null;
-    const ceiling = max - THINKING_OUTPUT_RESERVE;
-    if (ceiling < MIN_THINKING_BUDGET) return null;
-    return Math.max(MIN_THINKING_BUDGET, Math.min(desired, ceiling));
-}
-
-// Layered cache TTLs — stable layers get 1h, volatile layers get 5m.
-// Anthropic requires 1h entries to appear before 5m entries in the request.
-const CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };   // tools, system, tier3, messages
-const CACHE_TTL_VOLATILE = { type: 'ephemeral' };             // explicit 5m override
-
 // --- Message conversion ---
-
-function withCacheControl(block, ttl = CACHE_TTL_VOLATILE) {
-    if (!block || typeof block !== 'object' || block.cache_control) return block;
-    return { ...block, cache_control: ttl };
-}
-
-function appendCacheControl(content, ttl = CACHE_TTL_VOLATILE) {
-    if (Array.isArray(content)) {
-        if (content.length === 0) return content;
-        const next = [...content];
-        next[next.length - 1] = withCacheControl(next[next.length - 1], ttl);
-        return next;
-    }
-    if (typeof content === 'string') {
-        return [withCacheControl({ type: 'text', text: content }, ttl)];
-    }
-    return content;
-}
 
 // Anthropic's tool spec forbids oneOf / allOf / anyOf at the TOP level of
 // input_schema (nested usage inside properties is allowed). External MCP
 // servers sometimes emit such schemas.
 // Convert them to a flat object schema so the API never sees a 400.
-function _sanitizeInputSchema(schema, toolName) {
-    if (!schema || typeof schema !== 'object') {
-        return { type: 'object', properties: {} };
-    }
-    const compound = schema.oneOf || schema.anyOf || schema.allOf;
-    if (!compound) return structuredClone(schema);
-    // Merge all branch properties into one permissive object schema.
-    // None of the branches' required lists are hoisted — callers that relied
-    // on discriminated-union semantics will still function; the model simply
-    // receives a union of the property surface with no hard-required constraint.
-    const mergedProps = { ...(schema.properties && typeof schema.properties === 'object' ? schema.properties : {}) };
-    const branchDescs = [];
-    for (const branch of Array.isArray(compound) ? compound : []) {
-        if (branch && typeof branch === 'object' && branch.properties) {
-            Object.assign(mergedProps, branch.properties);
-        }
-        if (branch && typeof branch === 'object') {
-            const parts = [];
-            if (branch.description) parts.push(branch.description);
-            else if (branch.type) parts.push(`type:${branch.type}`);
-            if (parts.length) branchDescs.push(parts.join(' '));
-        }
-    }
-    const compoundKey = schema.oneOf ? 'oneOf' : schema.anyOf ? 'anyOf' : 'allOf';
-    let description = schema.description || '';
-    if (branchDescs.length) {
-        const parts = [];
-        let used = 0;
-        for (let i = 0; i < branchDescs.length; i++) {
-            const v = `(variant ${i + 1}: ${branchDescs[i]})`;
-            if (used + v.length + (parts.length ? 1 : 0) > 500) break;
-            parts.push(v);
-            used += v.length + (parts.length > 1 ? 1 : 0);
-        }
-        const addition = parts.join(' ');
-        if (addition) description = description ? `${description} ${addition}` : addition;
-    }
-    const mergedPropsCount = Object.keys(mergedProps).length;
-    if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
-        process.stderr.write(
-            `[anthropic-oauth-sanitizer] tool="${toolName ?? ''}" compound="${compoundKey}" branches=${Array.isArray(compound) ? compound.length : 0} mergedProps=${mergedPropsCount}\n`
-        );
-    }
-    return {
-        type: 'object',
-        ...(description ? { description } : {}),
-        properties: mergedProps,
-    };
-}
-
-function toAnthropicTools(tools) {
-    return tools.map(t => {
-        const out = {
-            name: t.name,
-            description: t.description,
-            input_schema: _sanitizeInputSchema(t.inputSchema, t.name),
-        };
-        if (t.deferLoading === true || t.defer_loading === true) out.defer_loading = true;
-        return out;
-    });
-}
-function nativeAnthropicTools(opts) {
-    return Array.isArray(opts?.nativeTools)
-        ? opts.nativeTools.filter(t => t && typeof t === 'object')
-        : [];
-}
 // Map the orchestrator-level opts.toolChoice into Anthropic's tool_choice.
 // Only 'none' is activated: it lets the hard-cap final turn keep the tool
 // DEFINITIONS in-request (so the tools->system->messages prefix — and its
@@ -321,59 +229,11 @@ function nativeAnthropicTools(opts) {
 // effort/thinking active on reasoning models — activating it would convert a
 // previously-harmless no-op into a hard 400 on exactly that turn. Attached
 // only when the request actually carries tools (see buildRequestBody).
-function toAnthropicToolChoice(toolChoice) {
-    return toolChoice === 'none' ? { type: 'none' } : undefined;
-}
-function discoveredAnthropicToolNames(messages, opts, provider) {
-    const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
-    const discovered = new Set(
-        Array.isArray(opts?.session?.deferredDiscoveredTools)
-            ? opts.session.deferredDiscoveredTools.map((name) => String(name || '').trim()).filter(Boolean)
-            : [],
-    );
-    for (const message of Array.isArray(messages) ? messages : []) {
-        const native = message?.nativeToolSearch;
-        const source = String(native?.provider || '').toLowerCase();
-        if (source && source !== provider
-            && !(anthropicNative.has(source) && anthropicNative.has(provider))) continue;
-        for (const name of Array.isArray(native?.toolReferences) ? native.toolReferences : []) {
-            const key = String(name || '').trim();
-            if (key) discovered.add(key);
-        }
-    }
-    return discovered;
-}
 function deferredAnthropicTools(activeTools, messages, opts) {
-    if (opts?.session?.deferredNativeTools !== true) return [];
-    // A request whose ONLY tools are deferred is rejected by the API with
-    // `400: At least one tool must have defer_loading=false` — happens on the
-    // iteration-cap final turn (loop sends tools: [] to force a text answer).
-    // No active tools ⇒ send no deferred catalog either.
-    if (!Array.isArray(activeTools) || activeTools.length === 0) return [];
-    const active = new Set((activeTools || []).map((tool) => String(tool?.name || '').trim()).filter(Boolean));
-    const discovered = discoveredAnthropicToolNames(messages, opts, 'anthropic-oauth');
-    const catalog = Array.isArray(opts.session.deferredToolCatalog) ? opts.session.deferredToolCatalog : [];
-    return catalog
-        .filter((tool) => tool?.name && discovered.has(String(tool.name)) && !active.has(String(tool.name)))
-        .map((tool) => ({ ...tool, deferLoading: true }));
+    return sharedDeferredAnthropicTools(activeTools, messages, opts, 'anthropic-oauth');
 }
 function requestAnthropicTools(tools, messages, opts) {
-    const activeTools = Array.isArray(tools) ? tools : [];
-    if (opts?.providerToolSnapshotAuthoritative === true) {
-        const nativePrefixCount = providerNativeToolPrefixCount(
-            activeTools,
-            opts.providerNativeToolPrefixCount,
-        );
-        return [
-            ...activeTools.slice(0, nativePrefixCount),
-            ...toAnthropicTools(activeTools.slice(nativePrefixCount)),
-        ];
-    }
-    const deferredTools = deferredAnthropicTools(activeTools, messages, opts);
-    return [
-        ...nativeAnthropicTools(opts),
-        ...toAnthropicTools([...activeTools, ...deferredTools]),
-    ];
+    return sharedRequestAnthropicTools(tools, messages, opts, 'anthropic-oauth');
 }
 
 function toAnthropicMessages(messages) {
@@ -475,153 +335,7 @@ function toAnthropicMessages(messages) {
 // messageTtl === null disables the tail. BP3 (tier3) now rides a system block,
 // so it is no longer marked here.
 // ANTHROPIC_MSG_SLOTS=0 is honoured upstream by passing messageTtl = null.
-function applyAnthropicCacheMarkers(sanitizedMessages, { messageTtl = CACHE_TTL_VOLATILE, messageSlots = 1 } = {}) {
-    if (!Array.isArray(sanitizedMessages) || sanitizedMessages.length === 0) {
-        return sanitizedMessages;
-    }
-
-    const firstText = (content) => {
-        if (typeof content === 'string') return content;
-        if (Array.isArray(content)) {
-            const first = content.find((b) => b?.type === 'text');
-            return first && typeof first.text === 'string' ? first.text : '';
-        }
-        return '';
-    };
-    const isSystemReminder = (content) => firstText(content).startsWith('<system-reminder>');
-
-    const markLast = (msg, ttl) => {
-        if (!msg) return;
-        msg.content = appendCacheControl(msg.content, ttl);
-    };
-    const ttlRank = (ttl) => ttl?.ttl === '1h' ? 2 : 1;
-    const canMarkMessageIdx = (idx) => {
-        // System-reminder messages (volatileTail / roleSpecific BP4) vary
-        // per-call, so never pin them with a 1h marker. The 1h system blocks
-        // (BP1/BP2/BP3) already satisfy Anthropic's "1h before 5m" ordering.
-        if (idx < 0) return false;
-        const msg = sanitizedMessages[idx];
-        if (ttlRank(messageTtl) > ttlRank(CACHE_TTL_VOLATILE)
-            && isSystemReminder(msg?.content)) {
-            return false;
-        }
-        return true;
-    };
-    const hasUserText = (msg) => {
-        if (msg?.role !== 'user') return false;
-        if (isSystemReminder(msg.content)) return false;
-        if (typeof msg.content === 'string') return msg.content.trim().length > 0;
-        if (!Array.isArray(msg.content)) return false;
-        return msg.content.some(b => b?.type === 'text' && typeof b.text === 'string' && b.text.trim().length > 0);
-    };
-    const previousUserTextAnchorIdx = () => {
-        // Prefer the user text turn before the current tail. In a normal
-        // user->assistant->tool loop this is the last prompt that was already
-        // present in the previous API request, so its prefix can overlap.
-        const tailIdx = sanitizedMessages.length - 1;
-        for (let i = tailIdx - 1; i >= 0; i--) {
-            if (hasUserText(sanitizedMessages[i])) return i;
-        }
-        return -1;
-    };
-    const latestToolResultTailIdx = () => {
-        // Claude/pi refs allow cache_control on tool_result blocks. Keep this
-        // narrower than "last message" so a fresh user prompt or steering text
-        // never becomes a 1h breakpoint.
-        for (let i = sanitizedMessages.length - 1; i >= 0; i--) {
-            const msg = sanitizedMessages[i];
-            if (msg?.role !== 'user' || !Array.isArray(msg.content) || msg.content.length === 0) continue;
-            const lastBlock = msg.content[msg.content.length - 1];
-            if (lastBlock?.type === 'tool_result') return i;
-        }
-        return -1;
-    };
-
-    const firstRequestUserPromptIdx = () => {
-        // Iteration-1 fallback: on the very first request a session has only the
-        // current user prompt — no tool_result tail and no earlier user turn, so
-        // both anchors above return -1 and NO message breakpoint is placed. That
-        // left the whole tools+system prefix (~4.2k) uncached on iter1: nothing
-        // was written, so iter2 re-sent it as a fresh full write instead of a
-        // read hit. Anchor the current prompt's tail so the stable prefix is
-        // cache-written on the first ask and read back on the next. Only used
-        // when neither real anchor exists, so later turns still prefer the
-        // tool_result / previous-user-text anchors (never the volatile new
-        // prompt). Synthetic <system-reminder> turns are excluded by hasUserText.
-        if (latestToolResultTailIdx() !== -1 || previousUserTextAnchorIdx() !== -1) return -1;
-        const tailIdx = sanitizedMessages.length - 1;
-        return hasUserText(sanitizedMessages[tailIdx]) ? tailIdx : -1;
-    };
-    if (messageTtl !== null) {
-        const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
-        const marked = new Set();
-        const candidates = [latestToolResultTailIdx(), previousUserTextAnchorIdx(), firstRequestUserPromptIdx()];
-        for (const idx of candidates) {
-            if (slots <= 0) break;
-            if (idx < 0 || marked.has(idx) || !canMarkMessageIdx(idx)) continue;
-            markLast(sanitizedMessages[idx], messageTtl);
-            marked.add(idx);
-            if (marked.size >= slots) break;
-        }
-    }
-
-    return sanitizedMessages;
-}
-
-// --- SSE parser + midstream retry policy: extracted to anthropic-sse.mjs ---
-
 // --- Build request body ---
-
-function resolveCacheTtls(opts) {
-    // Layered cache strategy — caller may override per-layer via opts.cacheStrategy.
-    // Anthropic enforces: 1h entries must appear before 5m entries in the request.
-    const strategy = opts.cacheStrategy || {};
-    const pick = (layer, fallback) => {
-        const v = strategy[layer];
-        if (v === '1h') return CACHE_TTL_STABLE;
-        if (v === '5m') return CACHE_TTL_VOLATILE;
-        if (v === 'none') return null;
-        return fallback;
-    };
-    // BP budget (4 total):
-    //   BP1 baseRules    — 1h (shared tool policy + compact skill manifest)
-    //   BP2 stableSystem — 1h (role/system rules)
-    //   BP3 tier3        — 1h (sessionMarker: stable memory/meta body)
-    //   BP4 messages     — 1h sliding tail (tool_result cache across iter)
-    // tools BP is dropped — system BP covers the tools prefix via
-    // Anthropic's prompt cache prefix semantics (order: tools → system
-    // → messages).
-    // tier3 defaults to 1h (stable) — sessionMarker content is stable per
-    // memory/meta tuple and the BP slot is only spent when a 3rd
-    // (cacheTier:'tier3') system block is actually present, so this default is
-    // free for sessions that don't carry one. Previously null here meant any
-    // caller that skipped agent runtime resolve (CLI, raw agent spawn)
-    // silently lost the tier3 cache layer even though it supported one.
-    const resolved = {
-        tools: pick('tools', null),
-        system: pick('system', CACHE_TTL_STABLE),
-        tier3: pick('tier3', CACHE_TTL_STABLE),
-        messages: pick('messages', CACHE_TTL_STABLE),
-    };
-    // A partial cacheStrategy override (e.g. {system:'5m'} while tier3/
-    // messages default to '1h') can put a longer TTL after a shorter one in
-    // request order, which Anthropic rejects: 1h breakpoints must all appear
-    // before any 5m breakpoint. Normalize left-to-right in wire order
-    // (system -> tier3 -> messages; tools is emitted before system and is
-    // excluded from the run) so a later layer is downgraded to the earliest
-    // shorter TTL seen so far — never re-promoted. Layers set to null ('none')
-    // emit no breakpoint at all, so they neither violate nor constrain
-    // ordering and are skipped.
-    const ttlRank = (ttl) => (ttl === CACHE_TTL_STABLE ? 2 : 1); // 1h=2, 5m=1
-    let minRank = Infinity;
-    for (const layer of ['system', 'tier3', 'messages']) {
-        if (!resolved[layer]) continue;
-        const rank = ttlRank(resolved[layer]);
-        if (rank > minRank) resolved[layer] = CACHE_TTL_VOLATILE;
-        else minRank = rank;
-    }
-    return resolved;
-}
 
 // BP3 (tier3) is injected by session/manager as its own `system` role block —
 // the 3rd system block, tagged `cacheTier:'tier3'`. buildSystemBlocks applies
@@ -1444,5 +1158,5 @@ export const _test = {
     resolveMaxTokens,
     deferredAnthropicTools,
     requestAnthropicTools,
-    sanitizeInputSchema: _sanitizeInputSchema,
+    sanitizeInputSchema: (schema, toolName) => sanitizeAnthropicInputSchema(schema, toolName, 'anthropic-oauth'),
 };

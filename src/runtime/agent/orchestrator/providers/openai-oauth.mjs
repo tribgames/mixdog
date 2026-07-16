@@ -73,7 +73,7 @@ import {
 } from './openai-codex-model.mjs';
 export { _displayCodexModel };
 
-// Legacy import path for scripts/tool-smoke.mjs (single-emit SSE smoke).
+// Public test/integration entry retained alongside the transport module export.
 export { sendViaHttpSse };
 // --- Constants ---
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -352,10 +352,6 @@ async function refreshTokens(refreshToken) {
     }
 }
 // --- Build Responses API request ---
-function _cloneJson(value) {
-    try { return JSON.parse(JSON.stringify(value)); } catch { return value; }
-}
-
 function _contentTextParts(content, type = 'input_text') {
     if (typeof content === 'string') return content ? [{ type, text: content }] : [];
     if (!Array.isArray(content)) {
@@ -631,8 +627,6 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     // openai-oauth server default; public OpenAI direct injects 24h separately.
     return ordered;
 }
-
-// --- HTTP/SSE fallback transport: extracted to openai-oauth-http-sse.mjs ---
 
 // --- Provider ---
 export class OpenAIOAuthProvider {
@@ -1123,7 +1117,6 @@ export class OpenAIOAuthProvider {
     }
 }
 
-// --- OAuth PKCE login flow: extracted to openai-oauth-login.mjs ---
 const { beginOAuthLogin, loginOAuth } = createOpenAIOAuthLogin({
     clientId: CLIENT_ID,
     originator: CODEX_OAUTH_ORIGINATOR,

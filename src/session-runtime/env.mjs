@@ -1,5 +1,4 @@
-// Environment-variable coercion helpers shared by the session runtime.
-// Extracted verbatim from mixdog-session-runtime.mjs during the facade split.
+// Environment-variable coercion helpers shared by session-runtime modules.
 export function envFlag(name) {
   return /^(1|true|yes|on)$/i.test(String(process.env[name] || ''));
 }

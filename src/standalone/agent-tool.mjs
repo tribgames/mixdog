@@ -28,32 +28,25 @@ import {
 } from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { buildAgentTaskProgressFields } from './agent-task-status.mjs';
 import { AGENT_OWNER } from '../runtime/agent/orchestrator/agent-owner.mjs';
-import { isKnownProvider } from './provider-admin.mjs';
 import {
   ACTIVE_STAGES,
   AGENT_TOOL,
-  DEFAULT_AGENT_PRESETS,
-  DEFAULT_PROVIDER,
   WORKER_INDEX_FILE,
 } from './agent-tool/tool-def.mjs';
 import {
-  agentPresetName,
   agentScope,
   agentTagOf,
   clean,
   clearAgentStatuslineRoute,
   envTimeoutMs,
-  findPreset,
   nonNegativeInt,
   normalizeAgentName,
-  normalizeAgentRoute,
   positiveInt,
   presetKey,
   readAgentFrontmatterPermission,
   resolvePrompt,
   rowMatchesContext,
   sessionMatchesContext,
-  synthesizePreset,
   terminalPidForContext,
   withCwdHeader,
   writeAgentStatuslineRoute,
@@ -61,10 +54,22 @@ import {
 import { abnormalEmptyFinishError, renderResult } from './agent-tool/render.mjs';
 import { createProviderInit } from './agent-tool/provider-init.mjs';
 import { createNotify } from './agent-tool/notify.mjs';
+import { resolveAgentSpawnPreset } from './agent-tool/spawn-preset.mjs';
+import {
+  TAG_TOMBSTONE_TTL_MS,
+  applyWorkerRowUpsert,
+  isTerminalWorkerStatus,
+  normalizeTagTombstones,
+  tagTombstoneKey,
+  workerRowKey,
+  workerRowTime,
+  workerRowToSession,
+} from './agent-tool/worker-rows.mjs';
 import { resolveAgentTerminalReapMs } from '../session-runtime/config-helpers.mjs';
 // Re-export the static tool descriptor so importers of this facade keep the
 // identical public surface (`import { AGENT_TOOL } from './agent-tool.mjs'`).
 export { AGENT_TOOL };
+export { resolveAgentSpawnPreset } from './agent-tool/spawn-preset.mjs';
 
 ensureProcessListenerHeadroom(64);
 
@@ -77,72 +82,6 @@ const STANDALONE_SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), 
 // cap and restore strictly-unbounded prep.
 const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS', 120_000);
 
-const TAG_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_TAG_TOMBSTONES = 500;
-
-/**
- * Resolve the route for a public agent spawn. Explore and Maintainer inherit
- * Main only after their explicit agent, workflow, and maintenance routes.
- */
-export function resolveAgentSpawnPreset(config, args = {}) {
-  if (args.provider && args.model) {
-    return {
-      presetName: args.preset || '__direct__',
-      preset: {
-        id: '__direct__',
-        name: '__DIRECT__',
-        type: 'agent',
-        provider: clean(args.provider),
-        model: clean(args.model),
-        effort: clean(args.effort) || undefined,
-        fast: args.fast === true,
-        tools: 'full',
-      },
-    };
-  }
-
-  const agentName = normalizeAgentName(args.agent);
-  const configuredDefault = clean(config?.defaultProvider);
-  const fallbackProvider = configuredDefault && isKnownProvider(configuredDefault)
-    ? configuredDefault
-    : DEFAULT_PROVIDER;
-  const workflowSlot = agentName === 'explore' ? 'explorer'
-    : (agentName === 'maintainer' ? 'memory' : '');
-  const maintenanceSlot = agentName === 'explore' ? 'explore'
-    : (agentName === 'maintainer' ? 'memory' : '');
-  const agentRoute = !clean(args.preset)
-    ? (normalizeAgentRoute(config?.agents?.[agentName], fallbackProvider)
-      || (agentName === 'maintainer' ? normalizeAgentRoute(config?.agents?.maintenance, fallbackProvider) : null)
-      || normalizeAgentRoute(config?.workflowRoutes?.[workflowSlot], fallbackProvider)
-      || normalizeAgentRoute(config?.maintenance?.[maintenanceSlot], fallbackProvider))
-    : null;
-  if (agentRoute) {
-    return {
-      presetName: agentPresetName(agentName),
-      preset: {
-        id: `agent-${agentName}`,
-        name: agentPresetName(agentName),
-        type: 'agent',
-        provider: agentRoute.provider,
-        model: agentRoute.model,
-        effort: agentRoute.effort,
-        fast: agentRoute.fast === true,
-        tools: 'full',
-      },
-    };
-  }
-
-  const mainPreset = !clean(args.preset) && (agentName === 'explore' || agentName === 'maintainer')
-    ? findPreset(config, config?.default)
-    : null;
-  if (mainPreset) return { presetName: mainPreset.id || mainPreset.name, preset: mainPreset };
-
-  const presetName = clean(args.preset) || DEFAULT_AGENT_PRESETS[agentName];
-  if (!presetName) throw new Error(`agent: agent "${agentName}" has no model assignment`);
-  const preset = findPreset(config, presetName) || synthesizePreset(config, presetName);
-  if (!preset) throw new Error(`agent: preset "${presetName}" not found`);
-  return { presetName, preset };
-}
 export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd, onSubagentEvent }) {
   // Optional bridge to the standard hook bus for SubagentStart / SubagentStop.
   // Best-effort: a hook error must never affect worker spawn/finish.
@@ -158,18 +97,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
   let workerIndexFlushTimer = null;
   function workerIndexPath() {
     return dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
-  }
-
-  function workerRowKey(row = {}) {
-    return clean(row.sessionId) || clean(row.tag);
-  }
-
-  function workerRowTime(row = {}) {
-    return Date.parse(row.updatedAt || row.finishedAt || row.lastUsedAt || row.createdAt || '') || 0;
-  }
-
-  function isTerminalWorkerStatus(status) {
-    return /^(idle|closed|completed|failed|error|cancelled|canceled|killed|timeout)$/i.test(clean(status));
   }
 
   function keepWorkerRow(row = {}) {
@@ -214,41 +141,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
         tools: positiveInt(row.tools) || 0,
       }))
       .filter(keepWorkerRow);
-  }
-
-  function normalizeTagTombstones(value, { cap = true, priorityKeys = null } = {}) {
-    const source = Array.isArray(value?.tombstones)
-      ? value.tombstones
-      : (value?.tombstones && typeof value.tombstones === 'object'
-        ? Object.values(value.tombstones)
-        : []);
-    const now = Date.now();
-    const cutoff = now - TAG_TOMBSTONE_TTL_MS;
-    const rows = source
-      .filter((row) => row && typeof row === 'object')
-      .map((row) => {
-        const parsedReapedAt = Date.parse(clean(row.reapedAt)) || 0;
-        return {
-          tag: clean(row.tag),
-          agent: clean(row.agent) || null,
-          cwd: clean(row.cwd) || null,
-          clientHostPid: positiveInt(row.clientHostPid),
-          // A future clock must not outrank tombstones created by this process.
-          reapedAt: parsedReapedAt ? new Date(Math.min(parsedReapedAt, now)).toISOString() : null,
-        };
-      })
-      .filter((row) => row.tag && row.reapedAt && (Date.parse(row.reapedAt) || 0) >= cutoff)
-      .sort((a, b) => {
-        const aPriority = priorityKeys?.has(tagTombstoneKey(a)) ? 1 : 0;
-        const bPriority = priorityKeys?.has(tagTombstoneKey(b)) ? 1 : 0;
-        return bPriority - aPriority
-          || (Date.parse(b.reapedAt) || 0) - (Date.parse(a.reapedAt) || 0);
-      });
-    return cap ? rows.slice(0, MAX_TAG_TOMBSTONES) : rows;
-  }
-
-  function tagTombstoneKey(row = {}) {
-    return `${positiveInt(row.clientHostPid) || 0}\0${clean(row.tag)}`;
   }
 
   // Mtime-keyed parse cache for the worker index. A single spawn calls
@@ -343,24 +235,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
     }
   }
 
-  function applyWorkerRowUpsert(byKey, normalized) {
-    if (!normalized) return;
-    const key = workerRowKey(normalized);
-    if (!key) return;
-    const prev = byKey.get(key) || {};
-    const merged = { ...prev, ...normalized };
-    for (const field of ['agent', 'provider', 'model', 'preset', 'effort', 'fast', 'clientHostPid', 'cwd', 'task_id', 'permission', 'toolPermission']) {
-      if ((merged[field] === null || merged[field] === '') && prev[field] != null && prev[field] !== '') {
-        merged[field] = prev[field];
-      }
-    }
-    byKey.set(key, {
-      ...merged,
-      createdAt: normalized.createdAt || prev.createdAt || new Date().toISOString(),
-      updatedAt: normalized.updatedAt || new Date().toISOString(),
-    });
-  }
-
   function flushWorkerIndexMutations() {
     if (workerIndexFlushTimer) {
       try { clearImmediate(workerIndexFlushTimer); } catch {}
@@ -417,30 +291,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       toolPermission: clean(session?.toolPermission) || null,
       messages: Array.isArray(session?.messages) ? session.messages.length : 0,
       tools: Array.isArray(session?.tools) ? session.tools.length : 0,
-    };
-  }
-
-  function workerRowToSession(row = {}) {
-    return {
-      id: row.sessionId,
-      agentTag: row.tag,
-      agent: row.agent || null,
-      provider: row.provider || null,
-      model: row.model || null,
-      presetName: row.preset || null,
-      effort: row.effort || null,
-      fast: row.fast === true,
-      status: row.status || 'idle',
-      stage: row.stage || row.status || 'idle',
-      createdAt: row.createdAt || null,
-      updatedAt: row.updatedAt || null,
-      lastUsedAt: row.lastUsedAt || null,
-      clientHostPid: row.clientHostPid || null,
-      cwd: row.cwd || null,
-      permission: row.permission || null,
-      toolPermission: row.toolPermission || null,
-      messageCount: Math.max(0, Number(row.messages || 0)),
-      toolCount: Math.max(0, Number(row.tools || 0)),
     };
   }
 

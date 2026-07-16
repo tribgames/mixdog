@@ -20,8 +20,11 @@ import { analyze } from 'eslint-scope';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Plain .mjs source roots. src/tui is covered by smoke:tui on the BUILT
 // bundle (App.jsx is JSX — acorn can't parse it raw); vendor is third-party.
-const SCAN_ROOTS = ['src/runtime', 'src/standalone', 'src/shared', 'scripts'].map(p => join(ROOT, p));
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.git']);
+const SCAN_ROOTS = ['src/runtime', 'src/session-runtime', 'src/standalone', 'src/shared', 'scripts'].map(p => join(ROOT, p));
+const ROOT_RUNTIME_FACADES = readdirSync(join(ROOT, 'src'), { withFileTypes: true })
+  .filter(entry => entry.isFile() && entry.name.endsWith('.mjs'))
+  .map(entry => join(ROOT, 'src', entry.name));
+const SKIP_DIRS = new Set(['node_modules', 'dist', 'vendor', '.git']);
 
 const KNOWN_GLOBALS = new Set([
   'Array', 'ArrayBuffer', 'Atomics', 'BigInt', 'BigInt64Array', 'BigUint64Array', 'Boolean',
@@ -61,9 +64,9 @@ function* walk(dir) {
 
 let failures = 0;
 let scanned = 0;
-for (const root of SCAN_ROOTS) {
+for (const root of [...SCAN_ROOTS, ...ROOT_RUNTIME_FACADES]) {
   let files;
-  try { files = [...walk(root)]; } catch { continue; }
+  try { files = statSync(root).isDirectory() ? [...walk(root)] : [root]; } catch { continue; }
   for (const file of files) {
     scanned++;
     const source = readFileSync(file, 'utf8');

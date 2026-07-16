@@ -39,27 +39,26 @@ import { createHash } from 'crypto';
 import { getHiddenAgent } from '../internal-agents.mjs';
 
 /**
- * One-shot, LLM-only maintenance hidden roles (cycle1/cycle2/cycle3-agent):
+ * One-shot, tool-free maintenance hidden roles (cycle1/cycle2/cycle3-agent):
  * a fresh stateless session is created per call, asked exactly once, and
  * closed (agent-dispatch.mjs) — the per-batch user prompt can NEVER be reused.
  * Writing a message-tail cache breakpoint on it just pays the 1.25x write
  * premium for content read back 0 times. Identified by the declarative
- * (kind:'maintenance' + toolSchemaProfile:'llm-only') pair rather than
+ * (kind:'maintenance' + toolSchemaProfile:'none') pair rather than
  * hardcoded names, so new roles sharing the pattern are covered for free.
  * Multi-turn maintenance roles (scheduler-task / webhook-handler) are
- * 'unified' and therefore excluded — they run a tool loop whose tail caches
- * legitimately reuse across iterations.
+ * read-write-search and therefore excluded — they run a tool loop whose tail
+ * caches legitimately reuse across iterations.
  */
 function isOneShotMaintenanceAgent(agent) {
     const hidden = getHiddenAgent(agent);
     // Shipped cycle1/2/3 declare toolSchemaProfile:'none' (no tool schema at
-    // all); 'llm-only' is the legacy alias for the same one-shot LLM-only
-    // pattern. Multi-turn maintenance roles (scheduler-task/webhook-handler)
-    // are 'read-write-search' and stay excluded.
+    // all). Multi-turn maintenance roles (scheduler-task/webhook-handler) are
+    // 'read-write-search' and stay excluded.
     return Boolean(
         hidden
         && hidden.kind === 'maintenance'
-        && (hidden.toolSchemaProfile === 'llm-only' || hidden.toolSchemaProfile === 'none'),
+        && hidden.toolSchemaProfile === 'none',
     );
 }
 

@@ -336,7 +336,7 @@ function averageCards(cards) {
 // ---- main ----
 const tasksPath = argValue('--tasks', null);
 if (!tasksPath) {
-  console.error('usage: --tasks <tasks.json> [--round N] [--runner mixdog] [--provider P] [--model M] [--effort E] [--fast] [--save round.json] [--json]');
+  console.error('usage: --tasks <tasks.json> [--round N] [--runner mixdog|codex|lead] [--provider P] [--model M] [--effort E] [--fast] [--save round.json] [--json]');
   process.exit(1);
 }
 if (!existsSync(resolve(tasksPath))) { console.error(`tasks file not found: ${tasksPath}`); process.exit(1); }
@@ -345,7 +345,7 @@ if (!Array.isArray(tasks) || !tasks.length) { console.error('tasks.json must be 
 
 const runnerName = argValue('--runner', 'mixdog');
 const runner = RUNNERS[runnerName];
-if (!runner) { console.error(`unknown runner "${runnerName}" (mixdog|codex|claude)`); process.exit(1); }
+if (!runner) { console.error(`unknown runner "${runnerName}" (mixdog|codex|lead)`); process.exit(1); }
 const round = argValue('--round', '1');
 const savePath = argValue('--save', null);
 const jsonMode = hasFlag('--json');

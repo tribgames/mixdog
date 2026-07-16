@@ -82,14 +82,18 @@ function createToolDispatch({
           }
         case "reload_config": {
             await reloadRuntimeConfig();
-            // Extend reload to the agent module so providers/presets/maintenance
-            // hot-reload on the same call (dynamic import: agent/index.mjs does not
-            // import channels, so this stays acyclic and tolerant of load order).
+            // Extend reload to the refactored agent runtime so providers/presets/
+            // maintenance hot-reload on the same call.
             let agentReloadMsg = "";
             if (process.env.MIXDOG_STANDALONE !== '1') {
               try {
-                const { reloadAgentConfig } = await import("../../agent/index.mjs");
-                await reloadAgentConfig("reload_config tool");
+                const [{ loadConfig }, { initProviders, refreshCatalogs }] = await Promise.all([
+                  import("../../agent/orchestrator/config.mjs"),
+                  import("../../agent/orchestrator/providers/registry.mjs"),
+                ]);
+                const agentConfig = loadConfig();
+                await initProviders(agentConfig.providers || {});
+                await refreshCatalogs();
                 agentReloadMsg = ", agent providers/presets/maintenance";
               } catch (err) {
                 process.stderr.write(`[reload_config] agent reload failed: ${err?.message || String(err)}\n`);

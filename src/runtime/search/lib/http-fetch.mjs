@@ -7,7 +7,7 @@ import {
   pinnedFetch,
 } from './ssrf-guard.mjs'
 
-const PKG_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version } catch { return '0.0.1' } })()
+const PKG_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../../../../package.json', import.meta.url), 'utf8')).version } catch { return '0.0.1' } })()
 
 export function withTimeout(controller, timeoutMs) {
   return setTimeout(() => controller.abort(), timeoutMs)
