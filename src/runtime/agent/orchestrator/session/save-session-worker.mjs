@@ -10,8 +10,8 @@ import { _saveSessionSync } from './store.mjs';
 
 parentPort.on('message', ({ session, opts, reqId }) => {
     try {
-        _saveSessionSync(session, opts);
-        parentPort.postMessage({ ok: true, reqId });
+        const saved = _saveSessionSync(session, opts);
+        parentPort.postMessage({ ok: true, saved, reqId });
     } catch (err) {
         parentPort.postMessage({ ok: false, error: err?.message ?? String(err), reqId });
     }

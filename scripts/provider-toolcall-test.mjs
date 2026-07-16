@@ -71,7 +71,10 @@ import {
 import { buildAnthropicBetaHeaders } from '../src/runtime/agent/orchestrator/providers/anthropic-betas.mjs';
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
-import { buildRequestBody as buildOpenAIOAuthRequestBody } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
+import {
+    OpenAIOAuthProvider,
+    buildRequestBody as buildOpenAIOAuthRequestBody,
+} from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _convertMessagesToResponsesInputForTest } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { OpenAIDirectProvider } from '../src/runtime/agent/orchestrator/providers/openai-ws.mjs';
 
@@ -1051,6 +1054,46 @@ test('gemini cache usage: official cached token fields are subsets of prompt tok
     assert.equal(sdkAlias.reportedCachedTokens, 500);
     assert.equal(sdkAlias.cachedTokens, 500);
     assert.notEqual(sdkAlias.inputTokens, 0, 'snake_case SDK aliases must remain visible to provider return usage');
+});
+
+test('gemini cache usage: total fallback excludes candidate and thought output tokens', () => {
+    const camelCase = _resolveGeminiCacheUsage({
+        usageMetadata: {
+            totalTokenCount: 1000,
+            candidatesTokenCount: 150,
+            thoughtsTokenCount: 50,
+        },
+    });
+    assert.equal(camelCase.inputTokens, 800);
+
+    const snakeCase = _resolveGeminiCacheUsage({
+        usageMetadata: {
+            total_token_count: 1200,
+            candidates_token_count: 175,
+            thoughts_token_count: 25,
+        },
+    });
+    assert.equal(snakeCase.inputTokens, 1000);
+
+    const promptWins = _resolveGeminiCacheUsage({
+        usageMetadata: {
+            promptTokenCount: 900,
+            totalTokenCount: 1200,
+            candidatesTokenCount: 250,
+            thoughtsTokenCount: 50,
+        },
+    });
+    assert.equal(promptWins.inputTokens, 900);
+
+    const explicitZero = _resolveGeminiCacheUsage({
+        usageMetadata: {
+            prompt_token_count: 0,
+            total_token_count: 1200,
+            candidates_token_count: 175,
+            thoughts_token_count: 25,
+        },
+    });
+    assert.equal(explicitZero.inputTokens, 0);
 });
 
 test('gemini cache usage: clamps over-reported cache and falls back only for attached cachedContent', () => {
@@ -2237,26 +2280,145 @@ test('openai oauth ws delta: warmup generate:false does not force request_proper
     const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
     try {
         process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
-        const warmupBody = { model: 'gpt-5.5', generate: false, input: [{ type: 'message', role: 'user', content: 'prev' }] };
-        const body = { model: 'gpt-5.5', input: [warmupBody.input[0], { type: 'message', role: 'user', content: 'next' }] };
+        const warmupBody = { model: 'gpt-5.5', generate: false, input: [] };
+        const body = { model: 'gpt-5.5', input: [{ type: 'message', role: 'user', content: 'first real input' }] };
         const entry = {
-            lastRequestSansInput: _stableStringify(_sansInput(warmupBody)),
+            lastRequestSansInput: _stableStringify(_sansInput(warmupBody, { normalizeWarmupGenerate: true })),
             lastResponseId: 'resp_warm',
-            lastRequestInput: [warmupBody.input[0]],
+            lastRequestInput: [],
             lastResponseItems: [],
         };
-        assert.equal(_sansInput(warmupBody).generate, undefined);      // warmup marker normalized out
-        const delta = _computeDelta({ entry, body });
+        assert.equal(_sansInput(warmupBody, { normalizeWarmupGenerate: true }).generate, undefined);
+        const delta = _computeDelta({ entry, body, traceProvider: 'openai-oauth' });
         assert.equal(delta.mode, 'delta');
-        assert.deepEqual(delta.frame.input, [body.input[1]]);
+        assert.equal(delta.frame.previous_response_id, 'resp_warm');
+        assert.deepEqual(delta.frame.input, body.input);
         // Non-warmup generate difference still breaks the delta.
-        const genEntry = { ...entry, lastRequestSansInput: _stableStringify(_sansInput({ ...warmupBody, generate: true })) };
-        const genChanged = _computeDelta({ entry: genEntry, body });
+        const genEntry = {
+            ...entry,
+            lastRequestSansInput: _stableStringify(_sansInput(
+                { ...warmupBody, generate: true },
+                { normalizeWarmupGenerate: true },
+            )),
+        };
+        const genChanged = _computeDelta({ entry: genEntry, body, traceProvider: 'openai-oauth' });
         assert.equal(genChanged.mode, 'full');
         assert.equal(genChanged.reason, 'request_properties_changed');
     } finally {
         if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
         else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
+    }
+});
+
+test('xAI keeps generate:false in the property guard and falls back to a full frame', () => {
+    const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    try {
+        process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
+        const warmupBody = { model: 'grok-4', generate: false, input: [] };
+        const body = { model: 'grok-4', input: [{ role: 'user', content: 'real request' }] };
+        const entry = {
+            lastRequestSansInput: _stableStringify(_sansInput(warmupBody)),
+            lastResponseId: 'xai-warm',
+            lastRequestInput: [],
+            lastResponseItems: [],
+        };
+        assert.equal(_sansInput(warmupBody).generate, false);
+        const delta = _computeDelta({ entry, body, traceProvider: 'xai' });
+        assert.equal(delta.mode, 'full');
+        assert.equal(delta.reason, 'request_properties_changed');
+        assert.equal(delta.frame.previous_response_id, undefined);
+        assert.deepEqual(delta.frame.input, body.input);
+    } finally {
+        if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
+    }
+});
+
+test('OpenAI OAuth startup prewarm sends no transcript and anchors the first real WS request', async () => {
+    const savedEnv = Object.fromEntries([
+        'MIXDOG_OAI_TRANSPORT',
+        'MIXDOG_OPENAI_OAUTH_WS_WARMUP',
+        'MIXDOG_AGENT_TRACE_DISABLE',
+    ].map((name) => [name, process.env[name]]));
+    Object.assign(process.env, {
+        MIXDOG_OAI_TRANSPORT: 'ws-delta',
+        MIXDOG_OPENAI_OAUTH_WS_WARMUP: '1',
+        MIXDOG_AGENT_TRACE_DISABLE: '1',
+    });
+    try {
+        const provider = new OpenAIOAuthProvider({});
+        provider.ensureAuth = async () => ({ access_token: 'test-token' });
+        const liveInput = [{
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'live-transcript-must-appear-once' }],
+        }];
+        const body = {
+            model: 'gpt-5.5',
+            instructions: 'base instructions',
+            input: liveInput,
+            tools: [{ type: 'function', name: 'read', parameters: { type: 'object' } }],
+            stream: true,
+            background: false,
+            prompt_cache_key: 'prewarm-parity-test',
+        };
+        const frames = [];
+        let streams = 0;
+        const result = await provider.send([], 'gpt-5.5', [], {
+            sessionId: 'prewarm-parity-test',
+            _prebuiltBody: body,
+            _sendViaWebSocketFn: (args) => sendViaWebSocket({
+                ...args,
+                _acquireWithRetryFn: async () => ({ entry: { socket: { close() {} } }, reused: false }),
+                _sendFrameFn: async (_entry, frame) => frames.push(JSON.parse(JSON.stringify(frame))),
+                _streamFn: async ({ state }) => {
+                    streams += 1;
+                    return state.warmup
+                        ? {
+                            content: '',
+                            model: 'gpt-5.5',
+                            toolCalls: [],
+                            usage: { inputTokens: 10, outputTokens: 0, cachedTokens: 0, promptTokens: 10 },
+                            responseId: 'warm-1',
+                            responseItems: [],
+                        }
+                        : {
+                            content: 'done',
+                            model: 'gpt-5.5',
+                            toolCalls: [],
+                            usage: { inputTokens: 20, outputTokens: 1, cachedTokens: 10, promptTokens: 20 },
+                            responseId: 'resp-1',
+                            responseItems: [],
+                            closeSocket: true,
+                        };
+                },
+                _agentTraceFn: () => {},
+                _sendSpanTraceFn: () => {},
+            }),
+        });
+
+        assert.equal(streams, 2);
+        assert.equal(frames.length, 2);
+        const [warmup, followUp] = frames;
+        assert.equal(warmup.type, 'response.create');
+        assert.equal(warmup.generate, false);
+        assert.deepEqual(warmup.input, []);
+        assert.equal(warmup.instructions, body.instructions);
+        assert.deepEqual(warmup.tools, body.tools);
+        assert.equal(warmup.stream, undefined);
+        assert.equal(warmup.background, undefined);
+        assert.equal(JSON.stringify(warmup).includes('live-transcript-must-appear-once'), false);
+        assert.equal(followUp.type, 'response.create');
+        assert.equal(followUp.previous_response_id, 'warm-1');
+        assert.deepEqual(followUp.input, liveInput);
+        assert.equal(JSON.stringify(followUp).match(/live-transcript-must-appear-once/g)?.length, 1);
+        assert.equal(result.usage.inputTokens, 30, 'warmup remains included in billable totals');
+        assert.equal(result.usage.mainInputTokens, 20, 'main context snapshot remains separate');
+    } finally {
+        for (const [name, value] of Object.entries(savedEnv)) {
+            if (value == null) delete process.env[name];
+            else process.env[name] = value;
+        }
     }
 });
 

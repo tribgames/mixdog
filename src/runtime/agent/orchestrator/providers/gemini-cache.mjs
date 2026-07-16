@@ -204,12 +204,29 @@ export function _resolveGeminiCacheUsage({ usageMetadata, cachedContent, provide
         }
         return 0;
     };
-    const inputTokens = firstFinite(
+    const promptTokens = firstFinite(
         usageMetadata?.promptTokenCount,
         usageMetadata?.prompt_token_count,
+    );
+    const totalTokens = firstFinite(
         usageMetadata?.totalTokenCount,
         usageMetadata?.total_token_count,
     );
+    // Gemini totalTokenCount includes candidate and thought output tokens.
+    // When promptTokenCount is omitted, derive the prompt portion so callers
+    // that separately record output tokens do not count them twice.
+    const outputTokens = firstFinite(
+        usageMetadata?.candidatesTokenCount,
+        usageMetadata?.candidates_token_count,
+    ) + firstFinite(
+        usageMetadata?.thoughtsTokenCount,
+        usageMetadata?.thoughts_token_count,
+    );
+    const hasExplicitPromptTokens = Object.prototype.hasOwnProperty.call(usageMetadata || {}, 'promptTokenCount')
+        || Object.prototype.hasOwnProperty.call(usageMetadata || {}, 'prompt_token_count');
+    const inputTokens = hasExplicitPromptTokens
+        ? promptTokens
+        : Math.max(0, totalTokens - outputTokens);
     const reportedCachedTokens = firstFinite(
         // generateContent UsageMetadata field.
         usageMetadata?.cachedContentTokenCount,

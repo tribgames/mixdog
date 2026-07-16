@@ -31,7 +31,14 @@ export function isInclusiveProvider(provider) {
     // usage rows — without it, cached tokens would be double-billed in the
     // cost fallback and prompt totals.
     return p.includes('openai') || p.includes('codex') || p.includes('gemini') || p.includes('google') || p.includes('xai') || p.includes('grok')
-        || p.includes('deepseek') || p.includes('ollama') || p.includes('lmstudio') || p.includes('groq') || p.includes('openrouter');
+        || p.includes('deepseek') || p.includes('ollama') || p.includes('lmstudio') || p.includes('groq') || p.includes('openrouter')
+        || p.includes('opencode-go');
+}
+
+export function billableInputTokensForProvider(provider, inputTokens, cacheReadTokens = 0, cacheWriteTokens = 0) {
+    const input = Number(inputTokens) || 0;
+    if (!isInclusiveProvider(provider)) return input;
+    return Math.max(input - (Number(cacheReadTokens) || 0) - (Number(cacheWriteTokens) || 0), 0);
 }
 
 /**
@@ -51,9 +58,12 @@ export function computeCostUsd(args) {
     const outputTokens = args.outputTokens || 0;
     const cacheReadTokens = args.cacheReadTokens || 0;
     const cacheWriteTokens = args.cacheWriteTokens || 0;
-    const billableInput = isInclusiveProvider(args.provider)
-        ? Math.max(inputTokens - cacheReadTokens - cacheWriteTokens, 0)
-        : inputTokens;
+    const billableInput = billableInputTokensForProvider(
+        args.provider,
+        inputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
+    );
     const parts = [
         billableInput * (meta.inputCostPerM || 0),
         outputTokens * (meta.outputCostPerM || 0),

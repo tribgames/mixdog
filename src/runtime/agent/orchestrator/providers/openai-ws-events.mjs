@@ -14,14 +14,27 @@ function _usageNum(value) {
     return Number.isFinite(n) ? n : 0;
 }
 
-export function _combineUsageWithWarmup(actual, warmup) {
+export function _combineUsageWithWarmup(actual, warmup, { separateMainContext = false } = {}) {
     if (!warmup) return actual;
-    if (!actual) return warmup;
+    if (!actual) {
+        // A warmup-only settle is billable, but has no corresponding main
+        // request whose context footprint can be measured.
+        const combined = {
+            ...warmup,
+            warmupInputTokens: _usageNum(warmup.inputTokens),
+            warmupCachedTokens: _usageNum(warmup.cachedTokens),
+            warmupOutputTokens: _usageNum(warmup.outputTokens),
+            warmupPromptTokens: _usageNum(warmup.promptTokens),
+            warmupCacheWriteTokens: _usageNum(warmup.cacheWriteTokens),
+        };
+        if (separateMainContext) combined.mainUsageAvailable = false;
+        return combined;
+    }
     const actualRaw = actual.raw || {};
     const warmupRaw = warmup.raw || {};
     const actualTicks = _usageNum(actualRaw.cost_in_usd_ticks);
     const warmupTicks = _usageNum(warmupRaw.cost_in_usd_ticks);
-    return {
+    const combined = {
         ...actual,
         inputTokens: _usageNum(actual.inputTokens) + _usageNum(warmup.inputTokens),
         outputTokens: _usageNum(actual.outputTokens) + _usageNum(warmup.outputTokens),
@@ -30,12 +43,26 @@ export function _combineUsageWithWarmup(actual, warmup) {
         warmupInputTokens: _usageNum(warmup.inputTokens),
         warmupCachedTokens: _usageNum(warmup.cachedTokens),
         warmupOutputTokens: _usageNum(warmup.outputTokens),
+        warmupPromptTokens: _usageNum(warmup.promptTokens),
+        warmupCacheWriteTokens: _usageNum(warmup.cacheWriteTokens),
         raw: {
             ...actualRaw,
             warmup_usage: warmupRaw,
             ...(actualTicks || warmupTicks ? { cost_in_usd_ticks: actualTicks + warmupTicks } : {}),
         },
     };
+    if (separateMainContext) {
+        // OAuth startup prewarm is billable but is not part of the main
+        // request's context footprint. Keep these fields opt-in so shared xAI
+        // usage objects retain their prior shape and accounting behavior.
+        combined.mainInputTokens = _usageNum(actual.inputTokens);
+        combined.mainOutputTokens = _usageNum(actual.outputTokens);
+        combined.mainCachedTokens = _usageNum(actual.cachedTokens);
+        combined.mainPromptTokens = _usageNum(actual.promptTokens);
+        combined.mainCacheWriteTokens = _usageNum(actual.cacheWriteTokens);
+        combined.mainUsageAvailable = true;
+    }
+    return combined;
 }
 
 export function _parseEvent(raw) {

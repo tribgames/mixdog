@@ -641,6 +641,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     // additive — callers that ignore these fields keep working.
                     deltaCachedRead: response.usage.cachedTokens || 0,
                     deltaCacheWrite: response.usage.cacheWriteTokens || 0,
+                    // Billing deltas include OAuth WS warmup. Context
+                    // snapshots/baselines must describe only the main send.
+                    contextInputTokens: response.usage.mainInputTokens ?? response.usage.inputTokens ?? 0,
+                    contextOutputTokens: response.usage.mainOutputTokens ?? response.usage.outputTokens ?? 0,
+                    contextPromptTokens: response.usage.mainPromptTokens ?? response.usage.promptTokens ?? 0,
+                    contextCachedReadTokens: response.usage.mainCachedTokens ?? response.usage.cachedTokens ?? 0,
+                    contextCacheWriteTokens: response.usage.mainCacheWriteTokens ?? response.usage.cacheWriteTokens ?? 0,
+                    contextUsageAvailable: response.usage.mainUsageAvailable !== false,
                     sendTools,
                     ts: Date.now(),
                 }));

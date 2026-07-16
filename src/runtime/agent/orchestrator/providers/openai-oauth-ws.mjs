@@ -456,7 +456,7 @@ function _requestInputExtends(previousInput, currentInput) {
     );
 }
 
-function _cacheContinuityResetReason({ mode, deltaReason, entry, body }) {
+function _cacheContinuityResetReason({ mode, deltaReason, entry, body, traceProvider }) {
     if (mode === 'delta') return null;
     if (deltaReason && !['no_anchor', 'full_forced', 'full_default'].includes(deltaReason)) {
         return deltaReason;
@@ -465,7 +465,9 @@ function _cacheContinuityResetReason({ mode, deltaReason, entry, body }) {
     // full_default. Re-run the two cheap snapshot checks so compaction or any
     // other prompt rewrite still retires the old prompt's cache high-water.
     if (deltaReason !== 'full_default' || !entry?.lastResponseId) return null;
-    const currentSansInput = _stableStringify(_sansInput(body));
+    const currentSansInput = _stableStringify(_sansInput(body, {
+        normalizeWarmupGenerate: traceProvider === 'openai-oauth',
+    }));
     if (entry.lastRequestSansInput && currentSansInput !== entry.lastRequestSansInput) {
         return 'request_properties_changed';
     }
@@ -652,6 +654,7 @@ export async function sendViaWebSocket({
     _sleepFn = _defaultSleep,
     _sendSpanTraceFn = appendAgentTrace,
     _agentTraceFn = appendAgentTrace,
+    _carriedWarmup = null,
 }) {
     // One bounded Codex stream retry budget covers transient handshake and
     // pre-output stream failures. Every retry acquires a fresh connection.
@@ -659,6 +662,21 @@ export async function sendViaWebSocket({
     const MAX_MIDSTREAM_RETRIES = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT;
     let firstAttemptError = null;
     let firstAttemptClassifier = null;
+    // A generate:false prewarm is billable even if its main request later
+    // retries on a fresh socket or falls back to HTTP. Retain one completed
+    // result across the whole logical send and attach it to terminal errors.
+    let completedWarmup = _carriedWarmup?.usage ? _carriedWarmup : null;
+    const _stampWarmup = (err) => {
+        if (!err || !completedWarmup?.usage) return err;
+        try {
+            Object.defineProperty(err, '__warmup', {
+                value: completedWarmup,
+                configurable: true,
+                enumerable: false,
+            });
+        } catch {}
+        return err;
+    };
     // Known tool names for the leaked-tool-call guard in _streamResponse.
     // Derived from the exact request body so a recovered leaked call only
     // synthesizes when it names a tool actually offered to this request.
@@ -785,6 +803,7 @@ export async function sendViaWebSocket({
                 onBackoffSlept: (ms) => { sendSpan.retryBackoffMs += ms; },
             });
         } catch (err) {
+            _stampWarmup(err);
             sendSpan.poolAcquireMs += performance.now() - handshakeStart;
             // Provenance only; policy remains provider-owned below. This lets
             // the direct wrapper distinguish an upgrade rejection from an
@@ -850,7 +869,7 @@ export async function sendViaWebSocket({
                 } catch (sleepErr) {
                     sendSpan.retryBackoffMs += performance.now() - sleepStart;
                     emitSendSpan('error');
-                    throw sleepErr;
+                    throw _stampWarmup(sleepErr);
                 }
                 sendSpan.retryBackoffMs += performance.now() - sleepStart;
                 continue;
@@ -951,28 +970,24 @@ export async function sendViaWebSocket({
             // codex prewarm gate (client.rs:1686-1688): only when the session
             // has no prior request state. A reused pooled socket with a live
             // chain must go straight to the real request.
-            if (warmupBody && typeof warmupBody === 'object' && attemptIndex === 0 && !entry.lastResponseId) {
+            if (warmupBody && typeof warmupBody === 'object' && !completedWarmup
+                && attemptIndex === 0 && !entry.lastResponseId) {
                 const warmupBuildStart = performance.now();
-                // Codex WS prewarm parity (opt-in): codex's prewarm frame is a
-                // minimal generate:false request that omits transport-only
-                // fields (stream/background) on the wire (prewarm_websocket,
-                // client.rs:1673-1705). Under MIXDOG_OAI_CODEX_WIRE_PARITY force
-                // that omission for the warmup frame too; default is unchanged.
-                const warmupWireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
-                const parityWarmupBody = warmupWireParity
-                    ? { ...warmupBody, input: [], generate: false }
-                    : warmupBody;
-                const warmupFrame = _buildResponseCreateFrame(parityWarmupBody, { omitTransportFields: warmupWireParity });
-                const warmupMetadataContext = warmupWireParity
-                    ? {
-                        ...codexMetadataContext,
-                        sendOpts: {
-                            ...(codexMetadataContext?.sendOpts || {}),
-                            requestKind: 'prewarm',
-                            codexRequestKind: 'prewarm',
-                        },
-                    }
-                    : codexMetadataContext;
+                // Codex startup prewarm contains stable instructions/tools but
+                // no live user/transcript input. Enforce that at the transport
+                // boundary as well as in the OAuth caller so a future caller
+                // cannot accidentally duplicate the transcript. WS-only fields
+                // are omitted exactly as in Codex's prewarm request.
+                const parityWarmupBody = { ...warmupBody, input: [], generate: false };
+                const warmupFrame = _buildResponseCreateFrame(parityWarmupBody, { omitTransportFields: true });
+                const warmupMetadataContext = {
+                    ...codexMetadataContext,
+                    sendOpts: {
+                        ...(codexMetadataContext?.sendOpts || {}),
+                        requestKind: 'prewarm',
+                        codexRequestKind: 'prewarm',
+                    },
+                };
                 const wireWarmupFrame = _withCodexWsClientMetadata(warmupFrame, entry, useCodexWsClientMetadata, warmupMetadataContext);
                 wireFrameHadTurnState = !!wireWarmupFrame?.client_metadata?.['x-codex-turn-state'];
                 wireFrameMetadataTrace = _metadataTrace(wireWarmupFrame?.client_metadata);
@@ -1010,8 +1025,15 @@ export async function sendViaWebSocket({
                 if (!warmupResult?.responseId) {
                     throw new Error('Responses WS warmup completed without response id');
                 }
+                completedWarmup = {
+                    requestBody: parityWarmupBody,
+                    responseId: warmupResult.responseId,
+                    usage: warmupResult.usage,
+                };
                 entry.lastResponseId = warmupResult.responseId;
-                entry.lastRequestSansInput = _stableStringify(_sansInput(parityWarmupBody));
+                entry.lastRequestSansInput = _stableStringify(_sansInput(parityWarmupBody, {
+                    normalizeWarmupGenerate: useCodexWsClientMetadata,
+                }));
                 const warmupInputArr = Array.isArray(parityWarmupBody.input) ? parityWarmupBody.input : [];
                 entry.lastRequestInput = _cloneJson(warmupInputArr);
                 entry.lastResponseItems = _cloneJson(Array.isArray(warmupResult.responseItems) ? warmupResult.responseItems : []);
@@ -1039,38 +1061,15 @@ export async function sendViaWebSocket({
                         payload: warmupPayload,
                     });
                 } catch {}
-                // Do NOT rewrite the main request after warmup (R23 finding).
-                // The old prev_id+no-instructions rewrite made it=1's frame a
-                // different shape from it=2+ full frames, so the first real
-                // full-frame cache write only landed at it=2 and it=3 raced
-                // its propagation (cached=0 early misses). Keeping it=1 as a
-                // normal full frame makes it byte-identical to the warmup's
-                // prefix (instant full hit on the cache warmup just wrote)
-                // and keeps every subsequent frame one consistent shape.
-                // Delta opt-in still chains via entry.lastResponseId above.
             }
 
-            // Warmup writes the same prefix with generate:false, but the first
-            // real response must still be a FULL generating frame. Reusing the
-            // warmup response_id here would make _computeDelta reduce the frame
-            // input to [] when the warmup input matches, and a generate:false
-            // warmup is not a chainable response to continue from — so the first
-            // real turn would generate from an empty frame. Keep the warmup state
-            // for cache/trace, but compute the main frame as cold (full input +
-            // instructions).
-            const deltaEntry = warmupResult
-                ? {
-                    ...entry,
-                    lastResponseId: null,
-                    lastRequestSansInput: null,
-                    lastRequestInput: null,
-                    lastResponseItems: null,
-                    lastInputLen: 0,
-                    lastInputPrefixHash: null,
-                }
-                : entry;
+            // A completed generate:false prewarm is a valid continuation
+            // anchor. Compute against its retained empty-input snapshot so the
+            // first real request sends previous_response_id plus exactly the
+            // real incremental input. _computeDelta still retreats to a full
+            // frame on every missing anchor/property/prefix/output mismatch.
             const requestBuildStart = performance.now();
-            const delta = _computeDelta({ entry: deltaEntry, body: requestBody, traceProvider });
+            const delta = _computeDelta({ entry, body: requestBody, traceProvider });
             ({ mode, frame } = delta);
             deltaReason = delta.reason || null;
             strippedResponseItems = delta.strippedResponseItems || 0;
@@ -1138,6 +1137,7 @@ export async function sendViaWebSocket({
                 knownToolNames,
             });
         } catch (err) {
+            _stampWarmup(err);
             // Preserve failure provenance for the direct provider. This marker
             // is observational for OAuth and does not change its classifier or
             // retry budget.
@@ -1210,7 +1210,7 @@ export async function sendViaWebSocket({
                 } catch (sleepErr) {
                     sendSpan.retryBackoffMs += performance.now() - sleepStart;
                     emitSendSpan('error');
-                    throw sleepErr;
+                    throw _stampWarmup(sleepErr);
                 }
                 sendSpan.retryBackoffMs += performance.now() - sleepStart;
                 continue;
@@ -1298,10 +1298,13 @@ export async function sendViaWebSocket({
             deltaReason,
             entry,
             body: requestBody,
+            traceProvider,
         });
         if (result.responseId && keepResponseChain) {
             entry.lastResponseId = result.responseId;
-            entry.lastRequestSansInput = _stableStringify(_sansInput(requestBody));
+            entry.lastRequestSansInput = _stableStringify(_sansInput(requestBody, {
+                normalizeWarmupGenerate: useCodexWsClientMetadata,
+            }));
             const inputArr = Array.isArray(requestBody.input) ? requestBody.input : [];
             entry.lastRequestInput = _cloneJson(inputArr);
             entry.lastResponseItems = _cloneJson(Array.isArray(result.responseItems) ? result.responseItems : []);
@@ -1329,8 +1332,13 @@ export async function sendViaWebSocket({
             result,
             continuityResetReason: cacheContinuityResetReason,
         });
-        if (warmupResult?.usage) {
-            result.usage = _combineUsageWithWarmup(result.usage, warmupResult.usage);
+        if (completedWarmup?.usage) {
+            result.usage = _combineUsageWithWarmup(result.usage, completedWarmup.usage, {
+                // xAI/Grok prewarm is billable just like Codex prewarm, but it
+                // is not part of the real request's context footprint. Direct
+                // OpenAI intentionally retains its existing usage shape.
+                separateMainContext: useCodexWsClientMetadata || traceProvider === 'xai',
+            });
         }
 
         const requestedServiceTier = body?.service_tier || null;
@@ -1539,14 +1547,10 @@ export async function sendViaWebSocket({
         releaseWebSocket({ entry, poolKey, keep: keepSocket });
         const { responseId: _ignored, responseItems: _responseItemsIgnored, closeSocket: _closeSocketIgnored, ...out } = result;
         if (includeResponseId && result.responseId) out.responseId = result.responseId;
-        if (warmupResult) {
+        if (completedWarmup) {
             try {
                 Object.defineProperty(out, '__warmup', {
-                    value: {
-                        requestBody,
-                        responseId: warmupResult.responseId,
-                        usage: warmupResult.usage,
-                    },
+                    value: completedWarmup,
                     enumerable: false,
                 });
             } catch {}
@@ -1558,5 +1562,5 @@ export async function sendViaWebSocket({
         return out;
     }
     // Unreachable — the loop either returns or throws above.
-    throw _stampTool(_stampLiveText(firstAttemptError || new Error('sendViaWebSocket: unreachable')));
+    throw _stampWarmup(_stampTool(_stampLiveText(firstAttemptError || new Error('sendViaWebSocket: unreachable'))));
 }

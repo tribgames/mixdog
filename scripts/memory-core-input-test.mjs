@@ -7,6 +7,7 @@ import { normalizeCoreInput } from '../src/runtime/memory/lib/core-memory-store.
 import { createMemoryActionHandlers } from '../src/runtime/memory/lib/memory-action-handlers.mjs'
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.mjs'
 import { parseMemoryCandidateRows, parseMemoryCoreRows } from '../src/tui/app/input-parsers.mjs'
+import { memoryToolArgsForCaller } from '../src/session-runtime/runtime-core.mjs'
 
 test('memory mutation schema omits category while recall keeps its internal filter', () => {
   const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory')
@@ -14,6 +15,15 @@ test('memory mutation schema omits category while recall keeps its internal filt
   assert.equal(Object.hasOwn(memoryTool.inputSchema.properties, 'category'), false)
   assert.doesNotMatch(memoryTool.description, /category/i)
   assert.equal(Object.hasOwn(recallTool.inputSchema.properties, 'category'), true)
+})
+
+test('memory tool calls inherit the active caller cwd only when cwd is omitted', () => {
+  assert.deepEqual(memoryToolArgsForCaller({ action: 'status' }, '/active/project'), {
+    action: 'status',
+    cwd: '/active/project',
+  })
+  const explicit = { action: 'status', cwd: '/explicit/project' }
+  assert.equal(memoryToolArgsForCaller(explicit, '/active/project'), explicit)
 })
 
 test('core content aliases summary, derives an element, and accepts no category', () => {

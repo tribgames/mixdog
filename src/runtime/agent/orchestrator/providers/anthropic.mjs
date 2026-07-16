@@ -799,6 +799,9 @@ export class AnthropicProvider {
                     rawUsage: usageRaw,
                     provider: this.name,
                     requestKind: opts.requestKind || null,
+                    // Anthropic usage is additive at this inner transport
+                    // boundary, even when OpenCode Go supplies the provider id.
+                    inputTokensInclusive: false,
                 });
             }
 

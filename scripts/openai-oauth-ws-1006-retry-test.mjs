@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import { OpenAIOAuthProvider } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _acquireWithRetry, sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
+import { applyAskTerminalUsageTotals } from '../src/runtime/agent/orchestrator/session/manager/usage-metrics.mjs';
 import {
     _clearWebSocketPoolForTest,
     _closeAllPooledSockets,
@@ -247,6 +248,42 @@ test('pre-response 1006 opens a fresh WS and replays the same request', async ()
     assert.doesNotMatch(stderr, /mid-stream recovered|Reconnecting/);
 });
 
+test('completed warmup usage survives a same-send WS retry exactly once', async () => {
+    let streams = 0;
+    const result = await sendViaWebSocket(wsArgs({
+        warmupBody: { model: 'gpt-5.5', instructions: 'base', input: [], generate: false },
+        _acquireWithRetryFn: async () => ({ entry: entry(), reused: false }),
+        _streamFn: async ({ state }) => {
+            streams += 1;
+            if (state.warmup) {
+                return {
+                    content: '',
+                    model: 'gpt-5.5',
+                    toolCalls: [],
+                    usage: { inputTokens: 10, outputTokens: 0, cachedTokens: 4, promptTokens: 10 },
+                    responseId: 'warm-retry-1',
+                    responseItems: [],
+                };
+            }
+            if (streams === 2) throw close1006();
+            return {
+                content: 'recovered',
+                model: 'gpt-5.5',
+                toolCalls: [],
+                usage: { inputTokens: 20, outputTokens: 2, cachedTokens: 8, promptTokens: 20 },
+                responseId: 'main-retry-1',
+                responseItems: [],
+                closeSocket: true,
+            };
+        },
+    }));
+    assert.equal(streams, 3, 'one warmup plus two main attempts');
+    assert.equal(result.usage.inputTokens, 30);
+    assert.equal(result.usage.outputTokens, 2);
+    assert.equal(result.usage.mainInputTokens, 20);
+    assert.equal(result.usage.warmupInputTokens, 10);
+});
+
 test('successful iteration emits one compact send-spans row', async () => {
     const rows = [];
     const result = await sendViaWebSocket(wsArgs({
@@ -311,7 +348,7 @@ test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async ()
     Object.assign(process.env, {
         MIXDOG_OAI_TRANSPORT: 'auto',
         MIXDOG_OPENAI_HTTP_FALLBACK: '1',
-        MIXDOG_OPENAI_OAUTH_WS_WARMUP: '0',
+        MIXDOG_OPENAI_OAUTH_WS_WARMUP: '1',
         MIXDOG_OPENAI_OAUTH_FAST_HTTP_FALLBACK: '0',
         MIXDOG_AGENT_TRACE_DISABLE: '1',
     });
@@ -327,7 +364,17 @@ test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async ()
                 ...args,
                 _acquireWithRetryFn: async () => ({ entry: entry(), reused: false }),
                 _sendFrameFn: async () => {},
-                _streamFn: async () => {
+                _streamFn: async ({ state }) => {
+                    if (state.warmup) {
+                        return {
+                            content: '',
+                            model: 'gpt-5.5',
+                            toolCalls: [],
+                            usage: { inputTokens: 10, outputTokens: 0, cachedTokens: 4, promptTokens: 10 },
+                            responseId: 'warm-fallback-1',
+                            responseItems: [],
+                        };
+                    }
                     streamAttempts += 1;
                     throw close1006();
                 },
@@ -335,7 +382,11 @@ test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async ()
             }),
             _sendViaHttpSseFn: async () => {
                 httpCalls += 1;
-                return { content: 'http-recovered', toolCalls: [], usage: {} };
+                return {
+                    content: 'http-recovered',
+                    toolCalls: [],
+                    usage: { inputTokens: 20, outputTokens: 2, cachedTokens: 8, promptTokens: 20 },
+                };
             },
         };
         const result = await provider.send([], 'gpt-5.5', [], sendOpts);
@@ -345,6 +396,15 @@ test('exhausted pre-response 1006 retries reach the HTTP/SSE fallback', async ()
         assert.equal(httpCalls, 2);
         assert.equal(result.content, 'http-recovered');
         assert.equal(stickyResult.content, 'http-recovered');
+        assert.equal(result.usage.inputTokens, 30, 'fallback bills the completed WS warmup once');
+        assert.equal(result.usage.mainInputTokens, 20, 'fallback context remains HTTP-main-only');
+        assert.equal(result.usage.warmupInputTokens, 10);
+        assert.equal(stickyResult.usage.inputTokens, 20, 'sticky HTTP sends do not rebill the old warmup');
+        assert.equal(stickyResult.usage.warmupInputTokens, undefined);
+        const session = { provider: 'openai-oauth' };
+        applyAskTerminalUsageTotals(session, { usage: result.usage, lastTurnUsage: result.usage });
+        assert.equal(session.totalInputTokens, 30, 'lifetime billing includes WS warmup plus HTTP main once');
+        assert.equal(session.lastContextTokens, 20, 'last context remains HTTP-main-only');
         assert.equal(provider._httpFallbackUntilByPoolKey.get(sendOpts.sessionId), Number.POSITIVE_INFINITY);
     } finally {
         for (const [name, value] of Object.entries(savedEnv)) {

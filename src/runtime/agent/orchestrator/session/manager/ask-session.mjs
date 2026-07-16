@@ -378,11 +378,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         // tool results/steering.
                         if (d?.source === 'provider_send') {
                             recordProviderContextBaseline(session, outgoing, {
-                                inputTokens: d.deltaInput,
-                                outputTokens: d.deltaOutput,
-                                promptTokens: d.deltaPrompt,
-                                cachedTokens: d.deltaCachedRead,
-                                cacheWriteTokens: d.deltaCacheWrite,
+                                mainUsageAvailable: d.contextUsageAvailable,
+                                inputTokens: d.contextInputTokens ?? d.deltaInput,
+                                outputTokens: d.contextOutputTokens ?? d.deltaOutput,
+                                promptTokens: d.contextPromptTokens ?? d.deltaPrompt,
+                                cachedTokens: d.contextCachedReadTokens ?? d.deltaCachedRead,
+                                cacheWriteTokens: d.contextCacheWriteTokens ?? d.deltaCacheWrite,
                             }, { boundary: 'request', sendTools: d.sendTools });
                         }
                         try { askOpts?.onUsageDelta?.(d); } catch {}

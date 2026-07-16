@@ -10,6 +10,7 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/openai-compat.mjs';
 import { consumeCompatChatCompletionStream } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { GrokOAuthProvider } from '../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
+import { sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 import {
     OpenCodeGoProvider,
     isAnthropicGoModel,
@@ -17,6 +18,11 @@ import {
     resolveOpenCodeGoBaseURLs,
 } from '../src/runtime/agent/orchestrator/providers/opencode-go.mjs';
 import { uncachedInputTokensForProvider } from '../src/runtime/agent/orchestrator/session/manager/usage-metrics.mjs';
+import { resolveTraceUsageInput } from '../src/runtime/agent/orchestrator/agent-trace.mjs';
+import {
+    billableInputTokensForProvider,
+    isInclusiveProvider,
+} from '../src/runtime/shared/llm/cost.mjs';
 
 function stream(events) {
     return {
@@ -173,14 +179,36 @@ test('OpenCode Go normalizes both route families to inclusive provider usage', a
     provider.openai = { send: async () => openaiRaw };
     const anthropic = await provider.send([], 'minimax-m3', [], {});
     assert.equal(OpenCodeGoProvider.inputExcludesCache, false);
+    assert.equal(isInclusiveProvider('opencode-go'), true);
     assert.equal(anthropic.usage.inputTokens, 100);
     assert.equal(anthropic.usage.promptTokens, 100);
     assert.equal(uncachedInputTokensForProvider('opencode-go', anthropic.usage.inputTokens, 35, 5), 60);
+    assert.equal(billableInputTokensForProvider('opencode-go', 100, 35, 5), 60);
+    assert.deepEqual(resolveTraceUsageInput({
+        provider: 'opencode-go',
+        inputTokens: 60,
+        cachedTokens: 35,
+        cacheWriteTokens: 5,
+        inputTokensInclusive: false,
+    }), {
+        uncachedInputTokens: 60,
+        promptTokens: 100,
+    });
     assert.equal(anthropic.usage.inputTokens, 100, 'context footprint is inclusive');
 
     const openai = await provider.send([], 'glm-5.2', [], {});
     assert.equal(openai, openaiRaw);
     assert.equal(uncachedInputTokensForProvider('opencode-go', openai.usage.inputTokens, 40, 0), 60);
+    assert.equal(billableInputTokensForProvider('opencode-go', 100, 40, 0), 60);
+    assert.deepEqual(resolveTraceUsageInput({
+        provider: 'opencode-go',
+        inputTokens: 100,
+        cachedTokens: 40,
+        cacheWriteTokens: 0,
+    }), {
+        uncachedInputTokens: 60,
+        promptTokens: 100,
+    });
     assert.equal(openai.usage.inputTokens, 100, 'context footprint remains inclusive');
 });
 
@@ -265,4 +293,125 @@ test('Grok OAuth does not refresh/replay a 401 after visible tool dispatch', asy
     }), (err) => err === streamed401);
     assert.equal(dispatched, 1);
     assert.equal(authCalls, 1);
+});
+
+test('xAI WS to HTTP fallback preserves completed warmup usage and cost ticks', async (t) => {
+    const priorTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    process.env.MIXDOG_OAI_TRANSPORT = 'auto';
+    t.after(() => {
+        if (priorTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+        else process.env.MIXDOG_OAI_TRANSPORT = priorTransport;
+    });
+    const provider = new OpenAICompatProvider('xai', {
+        apiKey: 'fixture',
+        preconnect: false,
+        responsesTransport: 'websocket',
+    });
+    const warmup = {
+        requestBody: { generate: false },
+        usage: { inputTokens: 10, outputTokens: 1, cachedTokens: 4, promptTokens: 10, raw: { cost_in_usd_ticks: 100 } },
+    };
+    provider._doSendXaiResponsesWebSocket = async () => {
+        const err = Object.assign(new Error('upgrade required'), { httpStatus: 426 });
+        Object.defineProperty(err, '__warmup', { value: warmup });
+        throw err;
+    };
+    provider._doSendXaiResponses = async () => ({
+        content: 'fallback',
+        usage: { inputTokens: 20, outputTokens: 2, cachedTokens: 5, promptTokens: 20, raw: { cost_in_usd_ticks: 200 }, costUsd: 0.00000002 },
+    });
+    const result = await provider._doSend([], 'grok-4.5', [], {});
+    assert.equal(result.usage.inputTokens, 30);
+    assert.equal(result.usage.mainInputTokens, 20);
+    assert.equal(result.usage.raw.cost_in_usd_ticks, 300);
+    assert.equal(result.usage.costUsd, 0.00000003);
+});
+
+test('xAI WS warmup billing exposes only main request usage as context', async () => {
+    let streams = 0;
+    const result = await sendViaWebSocket({
+        auth: { type: 'xai', apiKey: 'fixture' },
+        body: { model: 'grok-4.5', input: [{ role: 'user', content: 'main' }] },
+        sendOpts: {},
+        externalSignal: null,
+        poolKey: 'xai-warmup-accounting',
+        cacheKey: 'xai-warmup-accounting',
+        iteration: 1,
+        useModel: 'grok-4.5',
+        traceProvider: 'xai',
+        includeResponseId: true,
+        warmupBody: { model: 'grok-4.5', input: [], generate: false },
+        _acquireWithRetryFn: async () => ({ entry: { socket: { close() {} } }, reused: false }),
+        _sendFrameFn: async () => {},
+        _streamFn: async ({ state }) => {
+            streams += 1;
+            return state.warmup
+                ? {
+                    content: '',
+                    model: 'grok-4.5',
+                    toolCalls: [],
+                    usage: { inputTokens: 10, outputTokens: 1, cachedTokens: 4, promptTokens: 10, raw: { cost_in_usd_ticks: 100 } },
+                    responseId: 'warm',
+                    responseItems: [],
+                }
+                : {
+                    content: 'done',
+                    model: 'grok-4.5',
+                    toolCalls: [],
+                    usage: { inputTokens: 20, outputTokens: 2, cachedTokens: 5, promptTokens: 20, raw: { cost_in_usd_ticks: 200 } },
+                    responseId: 'main',
+                    responseItems: [],
+                    closeSocket: true,
+                };
+        },
+        _agentTraceFn: () => {},
+        _sendSpanTraceFn: () => {},
+    });
+    assert.equal(streams, 2);
+    assert.equal(result.usage.inputTokens, 30);
+    assert.equal(result.usage.mainInputTokens, 20);
+    assert.equal(result.usage.raw.cost_in_usd_ticks, 300);
+});
+
+test('xAI safe 401 replay carries completed warmup into the retry', async () => {
+    const provider = new OpenAICompatProvider('xai', { apiKey: 'fixture', preconnect: false });
+    const warmup = { usage: { inputTokens: 10 } };
+    let attempts = 0;
+    provider.reloadApiKey = () => {};
+    provider._doSend = async (_messages, _model, _tools, opts) => {
+        attempts += 1;
+        if (attempts === 1) {
+            const err = Object.assign(new Error('401'), { httpStatus: 401 });
+            Object.defineProperty(err, '__warmup', { value: warmup });
+            throw err;
+        }
+        assert.equal(opts._carriedWarmup, warmup);
+        return { content: 'retried' };
+    };
+    assert.equal((await provider.send([], 'grok-4.5', [], {})).content, 'retried');
+    assert.equal(attempts, 2);
+});
+
+test('Grok OAuth safe 401 replay carries completed warmup to refreshed xAI inner', async () => {
+    const provider = Object.create(GrokOAuthProvider.prototype);
+    provider.config = { preconnect: false };
+    const warmup = { usage: { inputTokens: 10 } };
+    let authCalls = 0;
+    provider.ensureAuth = async ({ forceRefresh = false } = {}) => {
+        authCalls += 1;
+        return { access_token: forceRefresh ? 'fresh' : 'stale' };
+    };
+    provider._ensureInner = (token) => ({
+        _doSend: async (_messages, _model, _tools, opts) => {
+            if (token === 'stale') {
+                const err = Object.assign(new Error('401'), { httpStatus: 401 });
+                Object.defineProperty(err, '__warmup', { value: warmup });
+                throw err;
+            }
+            assert.equal(opts._carriedWarmup, warmup);
+            return { content: 'retried' };
+        },
+    });
+    assert.equal((await provider.send([], 'grok-4.5', [], {})).content, 'retried');
+    assert.equal(authCalls, 2);
 });

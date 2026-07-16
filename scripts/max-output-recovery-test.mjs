@@ -118,6 +118,37 @@ test('Gemini MAX_TOKENS ProviderIncompleteError enters the same bounded recovery
     assert.equal(provider.sent[1][1].content, 'gemini ');
 });
 
+test('Gemini MAX_TOKENS recovery derives missing prompt usage from total minus output', async () => {
+    const incomplete = Object.assign(new Error('Gemini response incomplete: finishReason=MAX_TOKENS'), {
+        code: 'PROVIDER_INCOMPLETE',
+        providerIncomplete: true,
+        finishReason: 'MAX_TOKENS',
+        partialContent: 'gemini ',
+        rawUsage: {
+            total_token_count: 20,
+            candidates_token_count: 4,
+            thoughts_token_count: 1,
+        },
+    });
+    const result = await run(queuedProvider([
+        incomplete,
+        {
+            content: 'complete',
+            stopReason: 'end_turn',
+            usage: { inputTokens: 1, outputTokens: 2, promptTokens: 1 },
+        },
+    ]), undefined, { onTextDelta: () => {} });
+
+    assert.deepEqual(
+        {
+            inputTokens: result.usage.inputTokens,
+            outputTokens: result.usage.outputTokens,
+            promptTokens: result.usage.promptTokens,
+        },
+        { inputTokens: 16, outputTokens: 7, promptTokens: 16 },
+    );
+});
+
 test('Gemini MAX_TOKENS continuation preserves provider-scoped replay metadata', async () => {
     const providerMetadata = {
         gemini: { thoughtParts: [{ text: 'signed thought', thoughtSignature: 'sig-gemini' }] },

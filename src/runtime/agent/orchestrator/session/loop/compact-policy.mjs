@@ -191,15 +191,15 @@ function compactPressureTokens(messageTokensEst, policy) {
 
 function providerPressureTokens(sessionRef, usage) {
     if (!usage || typeof usage !== 'object') return 0;
-    const input = Math.max(0, Number(usage.inputTokens) || 0);
-    const cachedRead = Math.max(0, Number(usage.cachedTokens) || 0);
-    const cacheWrite = Math.max(0, Number(usage.cacheWriteTokens) || 0);
-    const explicitPrompt = Math.max(0, Number(usage.promptTokens) || 0);
+    const input = Math.max(0, Number(usage.mainInputTokens ?? usage.inputTokens) || 0);
+    const cachedRead = Math.max(0, Number(usage.mainCachedTokens ?? usage.cachedTokens) || 0);
+    const cacheWrite = Math.max(0, Number(usage.mainCacheWriteTokens ?? usage.cacheWriteTokens) || 0);
+    const explicitPrompt = Math.max(0, Number(usage.mainPromptTokens ?? usage.promptTokens) || 0);
     const normalizedPrompt = providerInputExcludesCache(sessionRef?.provider)
         ? input + cachedRead + cacheWrite
         : input;
     const prompt = Math.max(explicitPrompt, normalizedPrompt);
-    const output = Math.max(0, Number(usage.outputTokens) || 0);
+    const output = Math.max(0, Number(usage.mainOutputTokens ?? usage.outputTokens) || 0);
     return Math.max(0, Math.round(prompt + output));
 }
 
@@ -213,10 +213,14 @@ export function recordProviderContextBaseline(sessionRef, messages, usage, {
     sendTools = sessionRef?.tools,
 } = {}) {
     if (!sessionRef || !Array.isArray(messages)) return false;
+    if (usage?.mainUsageAvailable === false) {
+        invalidateProviderContextBaseline(sessionRef);
+        return false;
+    }
     const tokens = providerPressureTokens(sessionRef, usage);
     if (!tokens) return false;
     sessionRef.contextPressureBaselineTokens = tokens;
-    sessionRef.contextPressureBaselineOutputTokens = Math.max(0, Math.round(Number(usage?.outputTokens) || 0));
+    sessionRef.contextPressureBaselineOutputTokens = Math.max(0, Math.round(Number(usage?.mainOutputTokens ?? usage?.outputTokens) || 0));
     sessionRef.contextPressureBaselineMessageCount = messages.length;
     sessionRef.contextPressureBaselinePrefixSignature = contextMessagesSignature(messages);
     sessionRef.contextPressureBaselineProvider = sessionRef.provider || null;

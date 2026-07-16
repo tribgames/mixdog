@@ -20,16 +20,14 @@ import { createHash } from 'node:crypto';
 // If the cached request (sans input) matches the current one and the current
 // input starts with the cached input, return only the tail. Otherwise return
 // the full input (fresh turn).
-export function _sansInput(body) {
+export function _sansInput(body, { normalizeWarmupGenerate = false } = {}) {
     const { input: _ignored, previous_response_id: _prevIgnored, generate, ...rest } = body;
-    // Warmup/prewarm frames carry generate:false on the wire (codex prewarm
-    // marker, openai-oauth.mjs warmupBody). That flag must NOT count as a
-    // request-property change on the warmup->first-real comparison, or the
-    // first real turn always retreats to a full frame. Normalize away ONLY the
-    // warmup-only generate:false; any other generate value stays in the
-    // comparison snapshot so genuine differences still break the delta. The
-    // wire body is untouched — frames are built from the raw body, not this.
-    if (generate !== false && generate !== undefined) rest.generate = generate;
+    // Only OpenAI OAuth/Codex startup prewarm treats generate:false as a
+    // transport marker. Shared xAI callers retain it as a real request
+    // property so their existing property guard still falls back to full.
+    if (!(normalizeWarmupGenerate && generate === false) && generate !== undefined) {
+        rest.generate = generate;
+    }
     return rest;
 }
 
@@ -348,7 +346,9 @@ export function _computeDelta({ entry, body, traceProvider }) {
     if (!Array.isArray(entry.lastRequestInput)) {
         return { mode: 'full', reason: 'no_input_snapshot', frame: buildFrame(body) };
     }
-    const curSans = _stableStringify(_sansInput(body));
+    const curSans = _stableStringify(_sansInput(body, {
+        normalizeWarmupGenerate: traceProvider === 'openai-oauth',
+    }));
     if (curSans !== entry.lastRequestSansInput) {
         return { mode: 'full', reason: 'request_properties_changed', frame: buildFrame(body) };
     }

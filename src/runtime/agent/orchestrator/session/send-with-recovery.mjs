@@ -13,9 +13,15 @@ import { isOutputLimitStopReason } from './loop/termination.mjs';
 
 function normalizedIncompleteUsage(raw) {
     if (!raw || typeof raw !== 'object') return undefined;
-    const inputTokens = Number(raw.promptTokenCount ?? raw.prompt_token_count ?? raw.input_tokens ?? raw.prompt_tokens ?? 0) || 0;
+    const directInputTokens = Number(raw.promptTokenCount ?? raw.prompt_token_count ?? raw.input_tokens ?? raw.prompt_tokens ?? 0) || 0;
     const candidateTokens = Number(raw.candidatesTokenCount ?? raw.candidates_token_count ?? 0) || 0;
     const thoughtTokens = Number(raw.thoughtsTokenCount ?? raw.thoughts_token_count ?? 0) || 0;
+    const totalTokens = Number(raw.totalTokenCount ?? raw.total_token_count ?? 0) || 0;
+    const hasExplicitGeminiPromptTokens = Object.prototype.hasOwnProperty.call(raw, 'promptTokenCount')
+        || Object.prototype.hasOwnProperty.call(raw, 'prompt_token_count');
+    const inputTokens = hasExplicitGeminiPromptTokens || directInputTokens > 0
+        ? directInputTokens
+        : Math.max(0, totalTokens - candidateTokens - thoughtTokens);
     const outputFallback = Number(raw.output_tokens ?? raw.completion_tokens ?? 0) || 0;
     const cachedTokens = Number(raw.cachedContentTokenCount ?? raw.cached_content_token_count ?? raw.cached_tokens ?? 0) || 0;
     return {

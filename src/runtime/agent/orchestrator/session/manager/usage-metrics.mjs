@@ -258,11 +258,22 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
         session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + uncachedInputTokens;
     }
     const _lastTurn = result.lastTurnUsage || result.usage || {};
-    const _lastInputTokens = _lastTurn.inputTokens || 0;
-    const _lastCachedReadTokens = _lastTurn.cachedTokens || 0;
-    const _lastCacheWriteTokens = _lastTurn.cacheWriteTokens || 0;
+    if (_lastTurn.mainUsageAvailable === false) {
+        session.lastInputTokens = null;
+        session.lastOutputTokens = null;
+        session.lastCachedReadTokens = null;
+        session.lastCacheWriteTokens = null;
+        session.lastUncachedInputTokens = null;
+        session.lastContextTokens = null;
+        session.lastContextTokensUpdatedAt = Date.now();
+        session.lastContextTokensStaleAfterCompact = true;
+        return;
+    }
+    const _lastInputTokens = _lastTurn.mainInputTokens ?? _lastTurn.inputTokens ?? 0;
+    const _lastCachedReadTokens = _lastTurn.mainCachedTokens ?? _lastTurn.cachedTokens ?? 0;
+    const _lastCacheWriteTokens = _lastTurn.mainCacheWriteTokens ?? _lastTurn.cacheWriteTokens ?? 0;
     session.lastInputTokens = _lastInputTokens;
-    session.lastOutputTokens = _lastTurn.outputTokens || 0;
+    session.lastOutputTokens = _lastTurn.mainOutputTokens ?? _lastTurn.outputTokens ?? 0;
     session.lastCachedReadTokens = _lastCachedReadTokens;
     session.lastCacheWriteTokens = _lastCacheWriteTokens;
     session.lastUncachedInputTokens = uncachedInputTokensForProvider(
@@ -286,7 +297,20 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
  */
 export async function persistIterationMetrics(delta) {
     if (!delta || !delta.sessionId) return;
-    const { sessionId, iterationIndex, deltaInput, deltaOutput, deltaCachedRead, deltaCacheWrite, ts } = delta;
+    const {
+        sessionId,
+        iterationIndex,
+        deltaInput,
+        deltaOutput,
+        deltaCachedRead,
+        deltaCacheWrite,
+        contextInputTokens = deltaInput,
+        contextOutputTokens = deltaOutput,
+        contextCachedReadTokens = deltaCachedRead,
+        contextCacheWriteTokens = deltaCacheWrite,
+        contextUsageAvailable = true,
+        ts,
+    } = delta;
     const runtimeEntry = _getRuntimeEntry(sessionId);
     const session = runtimeEntry?.session ?? loadSession(sessionId);
     if (!session || session.closed) return;
@@ -320,23 +344,40 @@ export async function persistIterationMetrics(delta) {
         // Window snapshot updated per iteration so agent type=list reflects the
         // most-recent provider-reported input size even for short dispatches
         // that finish before askSession's terminal save lands.
-        session.lastInputTokens = deltaInput || 0;
-        session.lastOutputTokens = deltaOutput || 0;
-        session.lastCachedReadTokens = deltaCachedRead || 0;
-        session.lastCacheWriteTokens = deltaCacheWrite || 0;
-        session.lastUncachedInputTokens = deltaUncachedInput;
+        if (contextUsageAvailable === false) {
+            session.lastInputTokens = null;
+            session.lastOutputTokens = null;
+            session.lastCachedReadTokens = null;
+            session.lastCacheWriteTokens = null;
+            session.lastUncachedInputTokens = null;
+            session.lastContextTokens = null;
+            session.lastContextTokensUpdatedAt = ts || Date.now();
+            session.lastContextTokensStaleAfterCompact = true;
+        } else {
+            const contextUncachedInput = uncachedInputTokensForProvider(
+                session.provider,
+                contextInputTokens,
+                contextCachedReadTokens,
+                contextCacheWriteTokens,
+            );
+            session.lastInputTokens = contextInputTokens || 0;
+            session.lastOutputTokens = contextOutputTokens || 0;
+            session.lastCachedReadTokens = contextCachedReadTokens || 0;
+            session.lastCacheWriteTokens = contextCacheWriteTokens || 0;
+            session.lastUncachedInputTokens = contextUncachedInput;
         // Normalized last-call context footprint: how many prompt tokens the
         // model actually saw on the most-recent send, comparable ACROSS
         // providers. Anthropic reports input_tokens EXCLUDING cache (cache_read
         // is a separate field), so the cached portion must be added back to
         // reflect real context size; openai/grok/gemini already fold cached
         // tokens INTO the input count, so input alone is the footprint.
-        const _inputExcludesCache = providerInputExcludesCache(session.provider);
-        session.lastContextTokens = _inputExcludesCache
-            ? (deltaInput || 0) + (deltaCachedRead || 0) + (deltaCacheWrite || 0)
-            : (deltaInput || 0);
-        session.lastContextTokensUpdatedAt = ts || Date.now();
-        session.lastContextTokensStaleAfterCompact = false;
+            const _inputExcludesCache = providerInputExcludesCache(session.provider);
+            session.lastContextTokens = _inputExcludesCache
+                ? (contextInputTokens || 0) + (contextCachedReadTokens || 0) + (contextCacheWriteTokens || 0)
+                : (contextInputTokens || 0);
+            session.lastContextTokensUpdatedAt = ts || Date.now();
+            session.lastContextTokensStaleAfterCompact = false;
+        }
     }
     session.lastIterationIndex = iterationIndex;
     session.updatedAt = ts || Date.now();

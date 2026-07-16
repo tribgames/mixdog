@@ -32,8 +32,10 @@ export function resolveResumeCwd(session, currentCwd) {
 // getters/setters for the mutable session/route/cwd locals plus the closure
 // callbacks and long-lived handles (managers, timers, channel/agent/mcp).
 export function createLifecycleApi(deps) {
+  const cancelBackgroundTasksForLifecycle = deps.cancelBackgroundTasks || cancelBackgroundTasks;
   const {
     getSession, setSession, getRoute, setRoute, getConfig, getMode, getCurrentCwd,
+    getDesktopSession, setDesktopSession,
     setCloseRequested, getMemoryModPromise, setMemoryModPromise,
     setSessionNeedsCwdRefresh,
     hooks, hookCommonPayload, mgr, statusRoutes, channels, agentTool, mcpClient,
@@ -226,6 +228,32 @@ export function createLifecycleApi(deps) {
         };
       }).filter(Boolean);
     },
+    async switchContext({ cwd, desktopSession: nextDesktopSession } = {}) {
+      const session = getSession();
+      if (session?.id) {
+        const cleanupReason = 'desktop-context-switch';
+        try {
+          cancelBackgroundTasksForLifecycle({
+            reason: cleanupReason,
+            notify: false,
+            callerSessionId: session.id,
+          });
+        } catch {}
+        try { agentTool?.closeAll?.(cleanupReason); } catch {}
+        statusRoutes?.clearGatewaySessionRoute?.(session.id);
+        const tombstone = !hasUserConversationMessage(session.messages)
+          && !hasUserConversationMessage(session.liveTurnMessages);
+        mgr.closeSession(session.id, cleanupReason, { tombstone });
+        setSession(null);
+      }
+      setDesktopSession(nextDesktopSession && typeof nextDesktopSession === 'object'
+        ? nextDesktopSession
+        : null);
+      await applyResolvedCwd(cwd, { markRefresh: false, waitForMcpReset: true });
+      invalidateContextStatusCache();
+      invalidatePreSessionToolSurface();
+      return true;
+    },
     async newSession() {
       const session = getSession();
       if (session?.id) {
@@ -247,8 +275,9 @@ export function createLifecycleApi(deps) {
       const previousId = prev?.id || null;
       const previousMessages = prev?.messages || null;
       const previousLive = prev?.liveTurnMessages || null;
-      const resumeOptions = desktopSession && typeof desktopSession === 'object'
-        ? { desktopSession }
+      const activeDesktopSession = getDesktopSession?.() ?? desktopSession;
+      const resumeOptions = activeDesktopSession && typeof activeDesktopSession === 'object'
+        ? { desktopSession: activeDesktopSession }
         : undefined;
       const resumed = await mgr.resumeSession(id, toolSpecForMode(getMode()), resumeOptions);
       if (!resumed) return null;

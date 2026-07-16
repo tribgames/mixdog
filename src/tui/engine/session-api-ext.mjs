@@ -376,6 +376,39 @@ export function createEngineApiB(bag) {
     listSessions: (options) => {
       return runtime.listSessions(options);
     },
+    switchContext: async (options) => {
+      if (getState().commandBusy) return false;
+      set({ commandBusy: true });
+      clearToastTimers();
+      resetAllStreamingMarkdownStablePrefixes();
+      const rollbackSnapshot = snapshotTuiBeforeSessionReset();
+      resetTuiForPendingSessionReset();
+      try {
+        await runtime.switchContext(options);
+        clearUiActivityBeforeContextSync();
+        flags.pendingSessionReset = false;
+        resetStatsAndSyncContext();
+        set({
+          items: replaceItems([]),
+          toasts: [],
+          queued: [],
+          thinking: null,
+          spinner: null,
+          lastTurn: null,
+          sessionId: null,
+          cwd: runtime.cwd,
+          ...routeState(),
+          stats: { ...getState().stats },
+        });
+        return true;
+      } catch (error) {
+        restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+        throw error;
+      } finally {
+        flags.pendingSessionReset = false;
+        set({ commandBusy: false });
+      }
+    },
     newSession: async () => {
       if (getState().commandBusy) return false;
       set({ commandBusy: true });

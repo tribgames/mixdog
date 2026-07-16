@@ -39,6 +39,108 @@ export {
 
 const _lastSaveError = new Map(); // id -> { message, at }
 
+// Listing is much hotter than writing, especially while the desktop session
+// browser is open. Keep the compact sidecar in memory after the first read;
+// local durability mutations update this cache synchronously, while an
+// explicit refresh remains the authoritative cross-process/disk reconciliation
+// path. Pending overlays cover a write that lands before the first listing.
+let _summaryRowsCache = null;
+const _summaryCacheUpserts = new Map();
+const _summaryCacheRemovals = new Set();
+const _summaryCacheVersions = new Map();
+let _summaryCacheDataDir = null;
+
+function _ensureSummaryCacheDataDir() {
+    const dataDir = getPluginData();
+    if (_summaryCacheDataDir === dataDir) return;
+    _summaryCacheDataDir = dataDir;
+    _summaryRowsCache = null;
+    _summaryCacheUpserts.clear();
+    _summaryCacheRemovals.clear();
+    _summaryCacheVersions.clear();
+}
+
+function _summaryRowsWithLocalMutations(rows, { discardLocalMutations = false } = {}) {
+    if (discardLocalMutations) {
+        _summaryCacheUpserts.clear();
+        _summaryCacheRemovals.clear();
+    }
+    const byId = new Map(_normalizeSummaryIndex({ rows }).rows.map((row) => [row.id, row]));
+    for (const id of _summaryCacheRemovals) byId.delete(id);
+    for (const [id, row] of _summaryCacheUpserts) byId.set(id, row);
+    return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+function _setSummaryRowsCache(rows, options) {
+    if (options?.discardLocalMutations === true) {
+        _summaryCacheUpserts.clear();
+        _summaryCacheRemovals.clear();
+    }
+    _summaryRowsCache = _normalizeSummaryIndex({ rows }).rows;
+    return _summaryRowsWithLocalMutations(_summaryRowsCache);
+}
+
+function _cachedSummaryRows() {
+    return _summaryRowsCache === null ? null : _summaryRowsWithLocalMutations(_summaryRowsCache);
+}
+
+function _setCachedBaseSummary(row) {
+    if (!row || _summaryRowsCache === null) return;
+    const byId = new Map(_summaryRowsCache.map((existing) => [existing.id, existing]));
+    byId.set(row.id, row);
+    _summaryRowsCache = [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
+function _removeCachedBaseSummary(id) {
+    if (_summaryRowsCache === null) return;
+    _summaryRowsCache = _summaryRowsCache.filter((row) => row.id !== id);
+}
+
+function _cacheSessionSummary(session) {
+    _ensureSummaryCacheDataDir();
+    const row = _sessionSummary(session);
+    if (!row) return;
+    _summaryCacheVersions.set(row.id, (_summaryCacheVersions.get(row.id) || 0) + 1);
+    _summaryCacheRemovals.delete(row.id);
+    _summaryCacheUpserts.set(row.id, row);
+    return _summaryCacheVersions.get(row.id);
+}
+
+function _uncacheSessionSummary(id) {
+    _ensureSummaryCacheDataDir();
+    if (!id) return;
+    _summaryCacheVersions.set(id, (_summaryCacheVersions.get(id) || 0) + 1);
+    _summaryCacheUpserts.delete(id);
+    _summaryCacheRemovals.add(id);
+    _removeCachedBaseSummary(id);
+}
+
+function _rollbackCachedSessionSummary(id, version) {
+    if ((_summaryCacheVersions.get(id) || 0) !== version) return;
+    _summaryCacheUpserts.delete(id);
+}
+
+function _queueSessionSummaryUpsert(session, version = null) {
+    const row = _sessionSummary(session);
+    if (!row) return;
+    _setCachedBaseSummary(row);
+    if (version === null || (_summaryCacheVersions.get(row.id) || 0) === version) {
+        _summaryCacheUpserts.delete(row.id);
+        _summaryCacheRemovals.delete(row.id);
+    }
+    _upsertSessionSummary(session);
+}
+
+function _queueSessionSummaryRemoval(id) {
+    _uncacheSessionSummary(id);
+    _removeSessionSummary(id);
+}
+
+function _queueSummaryIndexPrune(ids) {
+    for (const id of ids) _uncacheSessionSummary(id);
+    _pruneSummaryIndexIds(ids);
+}
+
 // The live in-memory session (and every model request)
 // retains attached image bytes across turns so multi-turn recognition works.
 // The persisted session JSON, however, replaces image content with a short
@@ -112,6 +214,71 @@ function _ensureLifecycleFields(session) {
 /** Module-level map tracking in-flight saves per session ID to prevent concurrent write corruption. */
 const _savePending = new Map();
 
+// Each write carries a shared cancellation generation. Deletion (and lifecycle
+// handoff) advances it, so a save already queued in the worker can observe the
+// cancellation both before and after its temp-file write.
+const _writeControls = new Map();
+
+function _writeControl(id) {
+    let control = _writeControls.get(id);
+    if (!control) {
+        // [0] cancellation generation, [1] commit lock
+        control = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2));
+        _writeControls.set(id, control);
+    }
+    return control;
+}
+
+function _guardedSaveOptions(id, opts) {
+    const control = _writeControl(id);
+    return {
+        ...(opts || {}),
+        _sessionWriteGuard: { buffer: control.buffer, version: Atomics.load(control, 0) },
+    };
+}
+
+function _cancelSessionWrites(id) {
+    Atomics.add(_writeControl(id), 0, 1);
+}
+
+function _isCancelledWrite(opts) {
+    const guard = opts?._sessionWriteGuard;
+    if (!guard?.buffer || !Number.isInteger(guard.version)) return false;
+    try {
+        return Atomics.load(new Int32Array(guard.buffer), 0) !== guard.version;
+    } catch {
+        return true;
+    }
+}
+
+function _acquireWriteCommit(opts) {
+    const guard = opts?._sessionWriteGuard;
+    if (!guard?.buffer) return null;
+    const control = new Int32Array(guard.buffer);
+    while (Atomics.compareExchange(control, 1, 0, 1) !== 0) {
+        Atomics.wait(control, 1, 1, 25);
+    }
+    if (_isCancelledWrite(opts)) {
+        Atomics.store(control, 1, 0);
+        Atomics.notify(control, 1);
+        return false;
+    }
+    return control;
+}
+
+function _releaseWriteCommit(control) {
+    if (!control) return;
+    Atomics.store(control, 1, 0);
+    Atomics.notify(control, 1);
+}
+
+function _waitForWriteCommit(id) {
+    const control = _writeControl(id);
+    while (Atomics.load(control, 1) !== 0) {
+        Atomics.wait(control, 1, 1, 25);
+    }
+}
+
 /** Same-process authoritative session snapshots (createSession → loadSession / askSession). */
 const _liveSessions = new Map();
 
@@ -181,12 +348,18 @@ export function saveSession(session, opts) {
     _ensureLifecycleFields(session);
     const id = session.id;
     setLiveSession(session);
-    const payload = { session, opts: opts || null };
+    const summaryVersion = _cacheSessionSummary(session);
+    const payload = { session, opts: _guardedSaveOptions(id, opts), summaryVersion };
     // Synchronous durability path — explicit flush (tombstones, drain hooks).
     // createSession uses async debounced save + _liveSessions for same-process
     // read-your-writes; sync remains for callers that require immediate disk.
     if (opts?.sync) {
-        _doSaveSync(payload);
+        try {
+            if (!_doSaveSync(payload)) _rollbackCachedSessionSummary(id, summaryVersion);
+        } catch (err) {
+            _rollbackCachedSessionSummary(id, summaryVersion);
+            throw err;
+        }
         return;
     }
     // Immediate-flush override: tombstone plants and explicit flushes skip the
@@ -202,8 +375,11 @@ export function saveSession(session, opts) {
                 _flushScheduled(id);
             }
         } else {
-            _savePending.set(id, { writing: true });
-            _doSave(payload).catch(err => {
+            _savePending.set(id, { writing: true, payload });
+            _doSave(payload).then((saved) => {
+                if (!saved) _rollbackCachedSessionSummary(id, summaryVersion);
+            }).catch(err => {
+                _rollbackCachedSessionSummary(id, summaryVersion);
                 process.stderr.write(`[session-store] save failed: ${err?.message}\n`);
                 _lastSaveError.set(id, { message: err?.message ?? String(err), at: Date.now() });
             });
@@ -247,7 +423,10 @@ function _flushScheduled(id) {
     const cur = _savePending.get(id);
     if (!cur || !cur.scheduled) return;
     _savePending.set(id, { writing: true, payload: cur.payload });
-    _doSave(cur.payload).catch(err => {
+    _doSave(cur.payload).then((saved) => {
+        if (!saved) _rollbackCachedSessionSummary(id, cur.payload.summaryVersion);
+    }).catch(err => {
+        _rollbackCachedSessionSummary(id, cur.payload.summaryVersion);
         process.stderr.write(`[session-store] save failed: ${err?.message}\n`);
         _lastSaveError.set(id, { message: err?.message ?? String(err), at: Date.now() });
     });
@@ -275,7 +454,7 @@ function _getOrSpawnWorker() {
     _saveWorker = new Worker(new URL('./save-session-worker.mjs', import.meta.url), {
         execArgv: [],
     });
-    _saveWorker.on('message', ({ ok, error, reqId }) => {
+    _saveWorker.on('message', ({ ok, saved, error, reqId }) => {
         const p = _saveWorkerPending.get(reqId);
         if (!p) return;
         _saveWorkerPending.delete(reqId);
@@ -283,13 +462,18 @@ function _getOrSpawnWorker() {
         // becomes unref'd again once all in-flight writes settle. _saveWorker
         // null-check covers the error/exit race where the worker died first.
         if (--_saveWorkerRefCount === 0 && _saveWorker) _saveWorker.unref();
-        const { id, waiters } = p;
+        const { id, session, summaryVersion, waiters } = p;
         _saveAsyncInflight.delete(id);
         // Resolve/reject every caller whose payload this write represents
         // (the originating call plus any that coalesced onto it before it was
         // posted). A supersede never lands here as a rejection — only a real
         // worker failure does.
         if (ok) {
+            // A close/delete may have completed while the worker was writing.
+            // Do not let this older completion put an open row back in the
+            // process-local cache after its tombstone/removal.
+            if (saved) _queueSessionSummaryUpsert(session, summaryVersion);
+            else _rollbackCachedSessionSummary(id, summaryVersion);
             clearSessionSaveError(id);
             for (const w of waiters) w.resolve();
         }
@@ -305,16 +489,23 @@ function _getOrSpawnWorker() {
         if (q) {
             _saveAsyncQueued.delete(id);
             try {
-                _postAsyncWrite(id, q.session, q.opts, q.waiters);
+                _postAsyncWrite(id, q.session, q.opts, q.waiters, q.summaryVersion);
             } catch (err) {
+                _rollbackCachedSessionSummary(id, q.summaryVersion);
                 for (const w of q.waiters) w.reject(err);
             }
         }
     });
     _saveWorker.on('error', (err) => {
-        for (const [, p] of _saveWorkerPending) for (const w of p.waiters) w.reject(err);
+        for (const [, p] of _saveWorkerPending) {
+            _rollbackCachedSessionSummary(p.id, p.summaryVersion);
+            for (const w of p.waiters) w.reject(err);
+        }
         _saveWorkerPending.clear();
-        for (const [, q] of _saveAsyncQueued) for (const w of q.waiters) w.reject(err);
+        for (const [id, q] of _saveAsyncQueued) {
+            _rollbackCachedSessionSummary(id, q.summaryVersion);
+            for (const w of q.waiters) w.reject(err);
+        }
         _saveAsyncQueued.clear();
         _saveAsyncInflight.clear();
         _saveWorkerRefCount = 0;
@@ -328,9 +519,15 @@ function _getOrSpawnWorker() {
         // saveSessionAsync registered a resolver but before the worker
         // received the message.
         const err = new Error(`[session-store] save worker exited with code ${code}`);
-        for (const [, p] of _saveWorkerPending) for (const w of p.waiters) w.reject(err);
+        for (const [, p] of _saveWorkerPending) {
+            _rollbackCachedSessionSummary(p.id, p.summaryVersion);
+            for (const w of p.waiters) w.reject(err);
+        }
         _saveWorkerPending.clear();
-        for (const [, q] of _saveAsyncQueued) for (const w of q.waiters) w.reject(err);
+        for (const [id, q] of _saveAsyncQueued) {
+            _rollbackCachedSessionSummary(id, q.summaryVersion);
+            for (const w of q.waiters) w.reject(err);
+        }
         _saveAsyncQueued.clear();
         _saveAsyncInflight.clear();
         _saveWorkerRefCount = 0;
@@ -346,9 +543,15 @@ function _getOrSpawnWorker() {
  * in flight for `id`. Throws (after cleaning its own map entries) if the
  * worker postMessage fails so the caller can reject the affected waiters.
  */
-function _postAsyncWrite(id, session, opts, waiters) {
+function _postAsyncWrite(id, session, opts, waiters, summaryVersion) {
     const reqId = ++_saveWorkerReqId;
-    _saveWorkerPending.set(reqId, { id, session, opts, waiters });
+    _saveWorkerPending.set(reqId, {
+        id,
+        session,
+        opts,
+        summaryVersion,
+        waiters,
+    });
     _saveAsyncInflight.set(id, reqId);
     try {
         const w = _getOrSpawnWorker();
@@ -379,7 +582,8 @@ export function saveSessionAsync(session, opts) {
     _ensureLifecycleFields(session);
     setLiveSession(session);
     const id = session.id;
-    const safeOpts = opts || null;
+    const summaryVersion = _cacheSessionSummary(session);
+    const safeOpts = _guardedSaveOptions(id, opts);
     // The Worker `postMessage` below structured-clones the whole session on the
     // main thread. `session.liveTurnMessages` (live working transcript) and
     // `session.toolApprovalHook` (askOpts.onToolApproval callback) are transient
@@ -404,9 +608,15 @@ export function saveSessionAsync(session, opts) {
             if (q) {
                 q.session = clonePayload;
                 q.opts = safeOpts;
+                q.summaryVersion = summaryVersion;
                 q.waiters.push(waiter);
             } else {
-                _saveAsyncQueued.set(id, { session: clonePayload, opts: safeOpts, waiters: [waiter] });
+                _saveAsyncQueued.set(id, {
+                    session: clonePayload,
+                    opts: safeOpts,
+                    summaryVersion,
+                    waiters: [waiter],
+                });
             }
             return;
         }
@@ -414,8 +624,9 @@ export function saveSessionAsync(session, opts) {
         // in-flight entry persists {session, opts} so drainSessionStore can
         // sync-flush outstanding writes if process exit interrupts the queue.
         try {
-            _postAsyncWrite(id, clonePayload, safeOpts, [waiter]);
+            _postAsyncWrite(id, clonePayload, safeOpts, [waiter], summaryVersion);
         } catch (err) {
+            _rollbackCachedSessionSummary(id, summaryVersion);
             reject(err);
         }
     });
@@ -427,24 +638,35 @@ export function saveSessionAsync(session, opts) {
  */
 export function _saveSessionSync(session, opts) {
     _ensureLifecycleFields(session);
-    _doSaveSync({ session, opts: opts || null });
+    return _doSaveSync({ session, opts: opts || null });
 }
 
 function _doSaveSync(payload) {
-    const { session, opts } = payload;
+    const { session, opts, summaryVersion = null } = payload;
     const id = session.id;
-    if (_shouldDrop(id, opts)) return;
+    if (_shouldDrop(id, opts)) return false;
     const target = sessionPath(id);
     const tmp = target + '.' + randomBytes(6).toString('hex') + '.tmp';
     try {
         writeFileSync(tmp, JSON.stringify(_sessionForDisk(session)), 'utf-8');
         if (_shouldDrop(id, opts)) {
             try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
-            return;
+            return false;
         }
-        _renameWithRetrySync(tmp, target);
-        _upsertSessionSummary(session);
-        clearSessionSaveError(id);
+        const commitControl = _acquireWriteCommit(opts);
+        if (commitControl === false || _shouldDrop(id, opts)) {
+            try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
+            _releaseWriteCommit(commitControl);
+            return false;
+        }
+        try {
+            _renameWithRetrySync(tmp, target);
+            _queueSessionSummaryUpsert(session, summaryVersion);
+            clearSessionSaveError(id);
+        } finally {
+            _releaseWriteCommit(commitControl);
+        }
+        return true;
     } catch (err) {
         try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
         throw err;
@@ -452,6 +674,7 @@ function _doSaveSync(payload) {
 }
 
 function _shouldDrop(id, opts) {
+    if (_isCancelledWrite(opts)) return true;
     if (!opts || opts.allowClosed) return false;
     const expected = typeof opts.expectedGeneration === 'number' ? opts.expectedGeneration : null;
     if (expected === null) return false;
@@ -551,7 +774,10 @@ function _drainQueue(id) {
     if (pending && pending.queued) {
         const next = pending.queued;
         _savePending.set(id, { writing: true, payload: next });
-        _doSave(next).catch(err => {
+        _doSave(next).then((saved) => {
+            if (!saved) _rollbackCachedSessionSummary(id, next.summaryVersion);
+        }).catch(err => {
+            _rollbackCachedSessionSummary(id, next.summaryVersion);
             process.stderr.write(`[session-store] save failed: ${err?.message}\n`);
             _lastSaveError.set(id, { message: err?.message ?? String(err), at: Date.now() });
         });
@@ -561,13 +787,13 @@ function _drainQueue(id) {
 }
 
 async function _doSave(payload) {
-    const { session, opts } = payload;
+    const { session, opts, summaryVersion = null } = payload;
     const id = session.id;
     // First check: upfront, before any disk I/O. Cheap short-circuit when a
     // tombstone is already on disk when the caller arrives.
     if (_shouldDrop(id, opts)) {
         _drainQueue(id);
-        return;
+        return false;
     }
     const target = sessionPath(id);
     const tmp = target + '.' + randomBytes(6).toString('hex') + '.tmp';
@@ -580,17 +806,29 @@ async function _doSave(payload) {
             try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
             process.stderr.write(`[session-store] ${id}: dropped stale save (tombstone planted during write)\n`);
             _drainQueue(id);
-            return;
+            return false;
         }
-        _renameWithRetrySync(tmp, target);
-        _upsertSessionSummary(session);
-        clearSessionSaveError(id);
+        const commitControl = _acquireWriteCommit(opts);
+        if (commitControl === false || _shouldDrop(id, opts)) {
+            try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
+            _releaseWriteCommit(commitControl);
+            _drainQueue(id);
+            return false;
+        }
+        try {
+            _renameWithRetrySync(tmp, target);
+            _queueSessionSummaryUpsert(session, summaryVersion);
+            clearSessionSaveError(id);
+        } finally {
+            _releaseWriteCommit(commitControl);
+        }
+        _drainQueue(id);
+        return true;
     } catch (err) {
         try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
         _savePending.delete(id);
         throw err;
     }
-    _drainQueue(id);
 }
 
 /**
@@ -604,6 +842,8 @@ export function markSessionClosed(id, reason = 'manual') {
     // that we are about to plant. The _shouldDrop() guard inside _doSave()
     // provides a second line of defence, but cancelling here is cheaper.
     _clearDebounce(id);
+    _cancelSessionWrites(id);
+    _uncacheSessionSummary(id);
     const existing = loadSession(id);
     if (!existing) return null;
     // Re-close idempotence: a session that is ALREADY tombstoned keeps its
@@ -651,7 +891,7 @@ export function markSessionClosed(id, reason = 'manual') {
     clearSessionSaveError(id);
     _clearLiveSession(id);
     _deleteHeartbeat(id);
-    _upsertSessionSummary(tombstone);
+    _queueSessionSummaryUpsert(tombstone);
     // Structured close metric. Single emission point because every close
     // path funnels through markSessionClosed. lifeMs = updatedAt-createdAt
     // straddles the tombstone (updatedAt was just set to Date.now()), so
@@ -694,6 +934,8 @@ export function markSessionClosed(id, reason = 'manual') {
  */
 export function bumpSessionGeneration(id, reason = 'detach') {
     _clearDebounce(id);
+    _cancelSessionWrites(id);
+    _uncacheSessionSummary(id);
     const existing = loadSession(id);
     if (!existing) return null;
     const newGen = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
@@ -711,7 +953,7 @@ export function bumpSessionGeneration(id, reason = 'detach') {
     clearSessionSaveError(id);
     _clearLiveSession(id);
     _deleteHeartbeat(id);
-    _upsertSessionSummary(detached);
+    _queueSessionSummaryUpsert(detached);
     return newGen;
 }
 
@@ -754,6 +996,10 @@ export function clearSessionSaveError(id) {
 }
 
 export function deleteSession(id, options = {}) {
+    _cancelSessionWrites(id);
+    _clearDebounce(id);
+    _savePending.delete(id);
+    _waitForWriteCommit(id);
     const path = sessionPath(id);
     let removed = false;
     if (existsSync(path)) {
@@ -764,11 +1010,13 @@ export function deleteSession(id, options = {}) {
         catch { /* fall through to .hb cleanup */ }
     }
     _deleteHeartbeat(id);
+    _clearLiveSession(id);
     if (removed || !existsSync(path)) clearSessionSaveError(id);
     // deferSummaryUpdate: bulk callers (tombstone sweep) remove thousands of
     // rows — a per-id _removeSessionSummary would parse+rewrite the multi-MB
     // summary index once PER DELETION. They batch the index update themselves.
-    if (removed && options.deferSummaryUpdate !== true) _removeSessionSummary(id);
+    if (options.deferSummaryUpdate === true) _uncacheSessionSummary(id);
+    else _queueSessionSummaryRemoval(id);
     return removed;
 }
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000; // 5 minutes idle — aligned with Anthropic 5m messages tier and OpenAI in-memory cache window
@@ -810,7 +1058,9 @@ export function listStoredSessions(options = {}) {
         return [];
     const files = readdirSync(dir).filter(f => f.endsWith('.json'));
     const sessionsById = new Map();
-    const invalidStorageIds = new Set();
+    const invalidStorageIds = options._invalidStorageIds instanceof Set
+        ? options._invalidStorageIds
+        : new Set();
     for (const f of files) {
         const session = _storedSessionFromFile(dir, f);
         if (session) {
@@ -820,71 +1070,91 @@ export function listStoredSessions(options = {}) {
         const storageId = f.slice(0, -5);
         if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
     }
-    if (options.includeLive === true) {
-        // createSession publishes to both of these maps before its 150ms
-        // debounce reaches disk. Merge them by their map/storage identity so
-        // an immediate desktop list has read-your-writes semantics.
-        for (const [id, pending] of _savePending) {
-            const session = (pending.queued || pending.payload)?.session;
-            if (!invalidStorageIds.has(id) && session?.id === id) {
-                sessionsById.set(id, _ensureLifecycleFields(session));
-            }
-        }
-        for (const [id, session] of _liveSessions) {
-            if (!invalidStorageIds.has(id) && session?.id === id) {
-                sessionsById.set(id, _ensureLifecycleFields(session));
-            }
-        }
+    const stored = [...sessionsById.values()];
+    return options.includeLive === true
+        ? _withUnpersistedSessions(stored, invalidStorageIds)
+        : stored.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function _withUnpersistedSessions(stored, invalidStorageIds = new Set()) {
+    const sessionsById = new Map(stored.map((session) => [session.id, session]));
+    const addIfUnpersisted = (id, session, opts) => {
+        // A valid on-disk record is authoritative for refresh/resume. In
+        // particular, a long-lived runtime object must never replace a
+        // tombstone or changed desktop authorization metadata. Only active
+        // local writes with no disk record get read-your-writes visibility.
+        if (sessionsById.has(id) || invalidStorageIds.has(id) || _isCancelledWrite(opts)) return;
+        if (session?.id === id) sessionsById.set(id, _ensureLifecycleFields(session));
+    };
+    for (const [id, pending] of _savePending) {
+        const payload = pending.queued || pending.payload;
+        addIfUnpersisted(id, payload?.session, payload?.opts);
+    }
+    for (const [, pending] of _saveWorkerPending) {
+        addIfUnpersisted(pending.id, pending.session, pending.opts);
+    }
+    for (const [id, pending] of _saveAsyncQueued) {
+        addIfUnpersisted(id, pending.session, pending.opts);
     }
     return [...sessionsById.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function rebuildSessionSummaryIndex() {
+    _ensureSummaryCacheDataDir();
     const rows = listStoredSessions().map(_sessionSummary).filter(Boolean);
-    return _writeSummaryIndex(rows);
+    return _setSummaryRowsCache(_writeSummaryIndex(rows));
 }
 
 export function listStoredSessionSummaries(options = {}) {
+    _ensureSummaryCacheDataDir();
     const rebuildIfMissing = options.rebuildIfMissing !== false;
+    // This is intentionally the only path that rescans every session JSON:
+    // callers use it as an on-demand authoritative refresh (including resume
+    // authorization), so it must not trust either the cache or sidecar.
+    if (options.refreshFromStorage === true) {
+        try {
+            const invalidStorageIds = new Set();
+            const stored = listStoredSessions({ _invalidStorageIds: invalidStorageIds });
+            const persistedRows = stored.map(_sessionSummary).filter(Boolean);
+            const rows = _withUnpersistedSessions(stored, invalidStorageIds).map(_sessionSummary).filter(Boolean);
+            try { _writeSummaryIndex(persistedRows); } catch { /* sidecar remains best-effort */ }
+            // A direct scan settles deletion state too; retain only active
+            // optimistic write overlays, never a stale local removal.
+            _summaryCacheRemovals.clear();
+            _setSummaryRowsCache(persistedRows);
+            return rows;
+        } catch {
+            // A refresh is an authorization boundary for desktop resume. If
+            // authoritative storage cannot be enumerated, stale cached/sidecar
+            // rows must not be treated as proof that a session is available.
+            return [];
+        }
+    }
+    if (_summaryRowsCache !== null) return _cachedSummaryRows().slice();
+
     let indexedRows = [];
     let p;
+    let hasIndex = false;
     try {
         p = summaryIndexPath();
-        if (existsSync(p)) {
+        hasIndex = existsSync(p);
+        if (hasIndex) {
             indexedRows = _normalizeSummaryIndex(JSON.parse(readFileSync(p, 'utf-8'))).rows;
         }
     } catch { /* unreadable/malformed sidecar falls through to rebuild */ }
 
-    // Desktop history is user-facing and must not miss a just-saved session
-    // merely because the best-effort summary sidecar lost/delayed an upsert.
-    // Explicit refresh callers scan the authoritative session JSON files. Keep
-    // the scan fail-closed per listStoredSessions (corrupt files are skipped),
-    // and still return valid scanned rows if only the sidecar rewrite fails.
-    if (options.refreshFromStorage === true) {
-        try {
-            const rows = listStoredSessions({ includeLive: true }).map(_sessionSummary).filter(Boolean);
-            try { _writeSummaryIndex(rows); } catch { /* sidecar remains best-effort */ }
-            return rows;
-        } catch {
-            // A refresh is an authorization boundary for desktop resume. If
-            // authoritative storage cannot be enumerated, stale sidecar rows
-            // must not be treated as proof that a session is available.
-            return [];
-        }
-    }
-
-    if (!p || !existsSync(p)) {
-        try { return rebuildIfMissing ? rebuildSessionSummaryIndex() : []; }
-        catch { return indexedRows; }
+    if (!p || !hasIndex) {
+        try { return rebuildIfMissing ? rebuildSessionSummaryIndex() : _setSummaryRowsCache([]); }
+        catch { return _setSummaryRowsCache(indexedRows); }
     }
     try {
-        if (indexedRows.length > 0) return indexedRows;
+        if (indexedRows.length > 0) return _setSummaryRowsCache(indexedRows);
         const dir = getStoreDir();
         const hasSessionFiles = existsSync(dir) && readdirSync(dir).some((f) => f.endsWith('.json'));
-        return hasSessionFiles && rebuildIfMissing ? rebuildSessionSummaryIndex() : indexedRows;
+        return hasSessionFiles && rebuildIfMissing ? rebuildSessionSummaryIndex() : _setSummaryRowsCache(indexedRows);
     } catch {
-        try { return rebuildIfMissing ? rebuildSessionSummaryIndex() : indexedRows; }
-        catch { return indexedRows; }
+        try { return rebuildIfMissing ? rebuildSessionSummaryIndex() : _setSummaryRowsCache(indexedRows); }
+        catch { return _setSummaryRowsCache(indexedRows); }
     }
 }
 
@@ -971,7 +1241,7 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             if (!row?.id) continue;
             const jsonPath = sessionPath(row.id);
             if (!existsSync(jsonPath)) {
-                _removeSessionSummary(row.id);
+                _queueSessionSummaryRemoval(row.id);
                 continue;
             }
             let jsonMtime = 0;
@@ -1036,7 +1306,7 @@ export function sweepStaleSessions(ttlMs, options = {}) {
                 // open: reflect the real closed state so the next sweep sees the
                 // correct closed=true/updatedAt and never re-closes it.
                 if (actual && !(row.closed === true || row.status === 'closed')) {
-                    try { _upsertSessionSummary(actual); } catch { /* best-effort */ }
+                    try { _queueSessionSummaryUpsert(actual); } catch { /* best-effort */ }
                 }
                 remaining++;
                 continue;
@@ -1179,7 +1449,7 @@ export function sweepStaleSessions(ttlMs, options = {}) {
     if (tombstoneDetails.length > 0 || openPrunedDetails.length > 0) {
         try {
             const deletedIds = new Set([...tombstoneDetails, ...openPrunedDetails].map((d) => d.id));
-            _pruneSummaryIndexIds(deletedIds);
+            _queueSummaryIndexPrune(deletedIds);
         } catch { /* summary index is best-effort */ }
     }
     return { cleaned, remaining, details, tombstonesCleaned, tombstoneDetails, tombstoneErrors, openPruned, openPrunedDetails };

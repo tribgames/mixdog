@@ -18,6 +18,7 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { makeModelCache } from './model-cache.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
+import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import {
     buildStableProviderPromptCacheKey,
@@ -895,12 +896,17 @@ export class OpenAIOAuthProvider {
                 useModel,
                 fetchFn: opts._fetchFn,
             });
+            if (originalErr?.__warmup?.usage) {
+                result.usage = _combineUsageWithWarmup(result.usage, originalErr.__warmup.usage, {
+                    separateMainContext: true,
+                });
+            }
             if (process.env.MIXDOG_DEBUG_AGENT) {
                 process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok transport=http-fallback\n`);
             }
             return recordLiveModel(result);
         };
-        const dispatchWs = (forceFresh = false) => sendWs({
+        const dispatchWs = (forceFresh = false, carriedWarmup = null) => sendWs({
             auth,
             body,
             sendOpts: opts,
@@ -922,18 +928,14 @@ export class OpenAIOAuthProvider {
             // the hot WS/cache path for temporary blips while still preventing
             // TUI-level hangs. Sticky HTTP fallback is only armed after this
             // bounded reconnect budget is exhausted.
-            // codex-parity prewarm (generate:false full frame on a fresh
-            // socket, wire-verified 2026-07-03). DEFAULT ON: R19(off) vs
-            // R20(on) A/B shows prewarm removes ALL early-session zero-cache
-            // misses (4 -> 0 at it<=3; zero-miss 3 -> 0) by writing the cache
-            // and waiting for completion before the first real turn, exactly
-            // like codex prewarm_websocket (client.rs:1673-1705). Cost is one
-            // small (~5k tok) generate:false request per fresh socket, far
-            // below the 5-12k uncached tokens each early miss burned.
-            // Mid-session partial drops are server-side and unaffected.
+            // Codex startup-prewarm parity: build from the stable request
+            // properties (instructions/tools/etc.) but never send the live
+            // transcript/user input. The completed generate:false response is
+            // retained by the WS transport and anchors the first real request.
             warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', true)
-                ? { ...body, generate: false }
+                ? { ...body, input: [], generate: false }
                 : null,
+            _carriedWarmup: carriedWarmup,
         });
         const mustSurfaceFallbackError = (fallbackErr) => externalSignal?.aborted
             || fallbackErr?.name === 'AbortError'
@@ -974,7 +976,7 @@ export class OpenAIOAuthProvider {
                 this._refreshFallbackUntil = 0;
                 auth = await this.ensureAuth({ forceRefresh: true, reason: String(status) });
                 try {
-                    const result = await dispatchWs(true);
+                    const result = await dispatchWs(true, err?.__warmup || null);
                     if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
                     return recordLiveModel(result);
                 } catch (retryErr) {

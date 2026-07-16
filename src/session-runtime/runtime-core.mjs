@@ -357,14 +357,22 @@ export async function dispatchSearchRuntimeTool(name, args, callerCtx = {}, {
   });
 }
 
+export function memoryToolArgsForCaller(args, callerCwd) {
+  const input = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
+  return typeof input.cwd === 'string' && input.cwd.trim()
+    ? input
+    : { ...input, cwd: callerCwd };
+}
+
 export async function createMixdogSessionRuntime({
   provider,
   model,
   cwd = process.cwd(),
   toolMode = 'full',
   remote = false,
-  desktopSession = null,
+  desktopSession: initialDesktopSession = null,
 } = {}) {
+  let desktopSession = initialDesktopSession;
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   let remoteEnabled = remote === true;
   // Transient marker: an AUTO start (config/delayed autoStart) has forked the
@@ -656,6 +664,8 @@ export async function createMixdogSessionRuntime({
     mcpClient,
     getConfig: () => config,
     getCurrentCwd: () => currentCwd,
+    getDesktopSession: () => desktopSession,
+    setDesktopSession: (v) => { desktopSession = v; },
     state: mcpState,
   });
   let preSessionToolSurface = null;
@@ -1146,7 +1156,7 @@ export async function createMixdogSessionRuntime({
       if (name === 'recall' || name === 'memory' || name === 'search_memories') {
         const memoryMod = await getMemoryModule();
         if (!memoryMod?.handleToolCall) throw new Error('memory runtime is not available');
-        return await memoryMod.handleToolCall(name, args || {});
+        return await memoryMod.handleToolCall(name, memoryToolArgsForCaller(args, callerCwd));
       }
       if (name === 'code_graph') {
         const codeGraphMod = await getCodeGraphModule();
@@ -2130,6 +2140,8 @@ export async function createMixdogSessionRuntime({
     getConfig: () => config,
     getMode: () => mode,
     getCurrentCwd: () => currentCwd,
+    getDesktopSession: () => desktopSession,
+    setDesktopSession: (v) => { desktopSession = v; },
     setCloseRequested: (v) => { closeRequested = v; },
     getMemoryModPromise: () => memoryModPromise,
     setMemoryModPromise: (v) => { memoryModPromise = v; },

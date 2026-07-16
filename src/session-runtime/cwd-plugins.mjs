@@ -96,7 +96,7 @@ export function createCwdPlugins({
     return next;
   }
 
-  function applyResolvedCwd(nextCwd, { markRefresh = true } = {}) {
+  function applyResolvedCwd(nextCwd, { markRefresh = true, waitForMcpReset = false } = {}) {
     const resolved = resolve(nextCwd);
     const stat = statSync(resolved);
     if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${resolved}`);
@@ -125,16 +125,16 @@ export function createCwdPlugins({
       const delay = getCodeGraphPrewarmDelayMs();
       scheduleCodeGraphPrewarm(changed ? 0 : delay, changed ? 'cwd-change' : 'cwd');
     }
-    // Project-local `.mcp.json` follows the cwd: when the effective project MCP
-    // set changes, reconnect in the background (never await — this stays sync,
-    // and the session is preserved). Guarded so a no-op cwd change does not
-    // churn connections.
+    // Project-local `.mcp.json` follows the cwd. Ordinary in-session cwd changes
+    // reconnect in the background, while desktop context replacement requests
+    // an awaitable reset so the next session/turn cannot observe the old registry.
+    let mcpReset = null;
     if (changed) {
       try {
         const nextKey = resolved + '\u0000' + JSON.stringify(readProjectMcpServers(resolved));
         if (nextKey !== getLastProjectMcpKey()) {
           setLastProjectMcpKey(nextKey);
-          void connectConfiguredMcp({ reset: true })
+          mcpReset = Promise.resolve(connectConfiguredMcp({ reset: true }))
             .then(() => invalidatePreSessionToolSurface())
             .catch(() => {});
         }
@@ -145,7 +145,9 @@ export function createCwdPlugins({
     if (changed) {
       try { void hooks.dispatch('CwdChanged', hookCommonPayload({ cwd: currentCwd })); } catch {}
     }
-    return currentCwd;
+    return waitForMcpReset
+      ? Promise.resolve(mcpReset).then(() => currentCwd)
+      : currentCwd;
   }
 
   async function refreshSessionForCwdIfNeeded(reason = 'cwd-change') {

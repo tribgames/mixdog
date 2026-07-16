@@ -22,6 +22,8 @@ import { initialCompactionConfig } from '../src/runtime/agent/orchestrator/sessi
 import { resolveSessionCompactionPolicy } from '../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs';
 import { sendWithRecovery } from '../src/runtime/agent/orchestrator/session/send-with-recovery.mjs';
 import { recallFastTrackCompactMessages } from '../src/runtime/agent/orchestrator/session/compact/engine.mjs';
+import { _combineUsageWithWarmup } from '../src/runtime/agent/orchestrator/providers/openai-ws-events.mjs';
+import { applyAskTerminalUsageTotals } from '../src/runtime/agent/orchestrator/session/manager/usage-metrics.mjs';
 
 function policyFor(session) {
     return resolveWorkerCompactPolicy(session, []);
@@ -624,6 +626,108 @@ test('thinking-only continuation without assistant replay excludes provider outp
         sessionRef: session,
         pressureTokens: pressure,
     }), false, 'unreplayed thinking output must not cause an early compact');
+});
+
+test('OpenAI OAuth WS warmup remains billed but does not double the main context footprint', async () => {
+    const main = {
+        inputTokens: 167_635,
+        outputTokens: 611,
+        cachedTokens: 160_000,
+        promptTokens: 167_635,
+        raw: {},
+    };
+    const usage = _combineUsageWithWarmup(main, main, { separateMainContext: true });
+    assert.equal(usage.inputTokens, 335_270, 'billing usage must retain warmup plus main input');
+    const { initProviders, getProvider } = await import('../src/runtime/agent/orchestrator/providers/registry.mjs');
+    const { createSession, askSession, getSession } = await import('../src/runtime/agent/orchestrator/session/manager.mjs');
+    await initProviders({ 'openai-oauth': { enabled: true } });
+    const provider = getProvider('openai-oauth');
+    const originalSend = provider.send;
+    const compactEvents = [];
+    provider.send = async () => ({ content: 'done', usage });
+    try {
+        const session = createSession({
+            provider: 'openai-oauth',
+            model: 'warmup-context-regression',
+            tools: [],
+            cwd: process.cwd(),
+            skipAgentRules: true,
+            skipSkills: true,
+            compaction: { auto: true },
+        });
+        session.contextWindow = 272_000;
+        session.rawContextWindow = 272_000;
+        await askSession(session.id, 'large OAuth WebSocket request', null, null, process.cwd(), null, {
+            onCompactEvent: event => compactEvents.push(event),
+        });
+
+        const persisted = getSession(session.id);
+        const policy = { ...policyFor(persisted), reserveTokens: 0 };
+        const messageTokens = estimateMessagesTokens(persisted.messages);
+        const pressure = resolveCompactionPressureTokens(messageTokens, policy, {
+            messages: persisted.messages,
+            sessionRef: persisted,
+        });
+        assert.equal(persisted.totalInputTokens, 335_270, 'incremental lifetime totals must retain warmup billing');
+        assert.equal(persisted.lastContextTokens, 167_635, 'incremental context snapshot must exclude warmup');
+        assert.equal(persisted.contextPressureBaselineTokens, 168_246, 'stored baseline must use main request usage');
+        assert.equal(pressure, 168_246, 'resolved pressure must use the stored baseline without transcript growth');
+        assert.equal(policy.triggerTokens, 258_400, 'fixture trigger must match the reported premature-compaction threshold');
+        assert.equal(shouldCompactForSession(messageTokens, policy, {
+            messages: persisted.messages,
+            sessionRef: persisted,
+            pressureTokens: pressure,
+        }), false, 'main-request pressure must not trigger compaction');
+        assert.equal(compactEvents.length, 0, 'warmup must not cause an auto-compaction');
+    } finally {
+        provider.send = originalSend;
+    }
+});
+
+test('warmup-only OpenAI OAuth WS usage stays billable but invalidates context usage', () => {
+    const warmup = { inputTokens: 167_635, outputTokens: 611, cachedTokens: 160_000, promptTokens: 167_635 };
+    const usage = _combineUsageWithWarmup(null, warmup, { separateMainContext: true });
+    const session = { provider: 'openai-oauth', contextPressureBaselineTokens: 99_000 };
+    assert.equal(usage.mainUsageAvailable, false);
+    assert.equal(recordProviderContextBaseline(session, [], usage), false);
+    assert.equal(session.contextPressureBaselineTokens, null, 'warmup-only usage must not remain a provider baseline');
+    applyAskTerminalUsageTotals(session, { usage, lastTurnUsage: usage });
+    assert.equal(session.totalInputTokens, 167_635, 'warmup-only usage remains billable');
+    assert.equal(session.lastContextTokens, null, 'warmup-only usage has no main-request context snapshot');
+});
+
+test('xAI warmup remains billable while main usage alone drives context pressure', () => {
+    const actual = { inputTokens: 20, outputTokens: 2, cachedTokens: 5, promptTokens: 20, raw: { provider: 'xai', cost_in_usd_ticks: 200 } };
+    const warmup = { inputTokens: 10, outputTokens: 1, cachedTokens: 3, promptTokens: 10, raw: { phase: 'warmup', cost_in_usd_ticks: 100 } };
+    const usage = _combineUsageWithWarmup(actual, warmup, { separateMainContext: true });
+    assert.deepEqual(usage, {
+        ...actual,
+        inputTokens: 30,
+        outputTokens: 3,
+        cachedTokens: 8,
+        promptTokens: 30,
+        warmupInputTokens: 10,
+        warmupCachedTokens: 3,
+        warmupOutputTokens: 1,
+        warmupPromptTokens: 10,
+        warmupCacheWriteTokens: 0,
+        raw: {
+            provider: 'xai',
+            cost_in_usd_ticks: 300,
+            warmup_usage: { phase: 'warmup', cost_in_usd_ticks: 100 },
+        },
+        mainInputTokens: 20,
+        mainOutputTokens: 2,
+        mainCachedTokens: 5,
+        mainPromptTokens: 20,
+        mainCacheWriteTokens: 0,
+        mainUsageAvailable: true,
+    });
+    const session = { provider: 'xai', contextPressureBaselineTokens: null };
+    assert.equal(recordProviderContextBaseline(session, [], usage), true);
+    applyAskTerminalUsageTotals(session, { usage, lastTurnUsage: usage });
+    assert.equal(session.totalInputTokens, 30, 'lifetime total includes xAI warmup');
+    assert.equal(session.lastContextTokens, 20, 'context snapshot excludes xAI warmup');
 });
 
 test('successful compact invalidates stale usage and cannot immediately compact again', () => {

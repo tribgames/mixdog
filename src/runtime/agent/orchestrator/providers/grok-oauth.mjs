@@ -840,7 +840,10 @@ export class GrokOAuthProvider {
                 process.stderr.write('[grok-oauth] 401, force-refreshing token...\n');
                 const fresh = await this.ensureAuth({ forceRefresh: true });
                 const retryInner = this._ensureInner(fresh.access_token, useModel);
-                return await retryInner._doSend(messages, useModel, grokTools, sendOpts);
+                const retryOpts = err?.__warmup?.usage
+                    ? { ...(sendOpts || {}), _carriedWarmup: err.__warmup }
+                    : sendOpts;
+                return await retryInner._doSend(messages, useModel, grokTools, retryOpts);
             }
             throw err;
         }

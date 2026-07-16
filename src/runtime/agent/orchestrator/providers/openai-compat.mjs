@@ -3,6 +3,7 @@ import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { withRetry } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
+import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 import {
     consumeCompatChatCompletionStream,
     consumeCompatResponsesStream,
@@ -66,6 +67,36 @@ function loadOpenAI() {
         _OpenAI = mod.default || mod.OpenAI || mod;
     }
     return _OpenAI;
+}
+
+function attachCompletedWarmup(err, warmup) {
+    if (!err || !warmup?.usage) return err;
+    try {
+        Object.defineProperty(err, '__warmup', {
+            value: warmup,
+            configurable: true,
+            enumerable: false,
+        });
+    } catch {}
+    return err;
+}
+
+function includeCompletedXaiWarmup(result, warmup) {
+    if (!result || !warmup?.usage) return result;
+    const usage = _combineUsageWithWarmup(result.usage, warmup.usage, {
+        separateMainContext: true,
+    });
+    const ticks = usage?.raw?.cost_in_usd_ticks;
+    const costUsd = typeof ticks === 'number' && ticks >= 0
+        ? Number((ticks * 1e-10).toFixed(8))
+        : undefined;
+    return {
+        ...result,
+        usage: usage ? {
+            ...usage,
+            ...(costUsd != null ? { costUsd } : {}),
+        } : usage,
+    };
 }
 export { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 const PRESETS = OPENAI_COMPAT_PRESETS;
@@ -257,7 +288,10 @@ export class OpenAICompatProvider {
                 }
                 process.stderr.write(`[provider] Auth error, re-reading provider authentication...\n`);
                 this.reloadApiKey();
-                return await this._doSend(messages, model, tools, sendOpts);
+                const retryOpts = this.name === 'xai' && err?.__warmup?.usage
+                    ? { ...(sendOpts || {}), _carriedWarmup: err.__warmup }
+                    : sendOpts;
+                return await this._doSend(messages, model, tools, retryOpts);
             }
             throw err;
         }
@@ -274,6 +308,15 @@ export class OpenAICompatProvider {
             this._preconnectFn(this.baseURL);
         }
         if (this.name === 'xai' && useXaiResponsesApi(opts, this.config)) {
+            const carriedWarmup = opts._carriedWarmup?.usage ? opts._carriedWarmup : null;
+            const sendHttpWithWarmup = async (warmup = carriedWarmup) => {
+                try {
+                    const result = await this._doSendXaiResponses(messages, useModel, tools, opts);
+                    return includeCompletedXaiWarmup(result, warmup);
+                } catch (err) {
+                    throw attachCompletedWarmup(err, warmup);
+                }
+            };
             // Shared Responses transport switch (MIXDOG_OAI_TRANSPORT), capability-
             // gated for xAI/Grok. Provider-local HTTP pins still win: Grok
             // proxy-only models set responsesTransport:'http' because the WS
@@ -315,12 +358,12 @@ export class OpenAICompatProvider {
                                 },
                             });
                         } catch {}
-                        return await this._doSendXaiResponses(messages, useModel, tools, opts);
+                        return await sendHttpWithWarmup(err?.__warmup || carriedWarmup);
                     }
                     throw err;
                 }
             }
-            return await this._doSendXaiResponses(messages, useModel, tools, opts);
+            return await sendHttpWithWarmup();
         }
         const signal = opts.signal || null;
         if (signal?.aborted) {
@@ -788,6 +831,7 @@ export class OpenAICompatProvider {
                 traceProvider: 'xai',
                 logSuppressedReasoningDeltas: false,
                 warmupBody,
+                _carriedWarmup: opts._carriedWarmup || null,
                 // Mirror openai-oauth fast fallback: when the HTTP fallback is
                 // enabled (outer catch → _shouldFallbackXaiWsToHttp), a first
                 // acquire/first-byte failure should skip remaining WS

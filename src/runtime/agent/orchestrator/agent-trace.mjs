@@ -155,6 +155,27 @@ function extractThinkingTokens(rawUsage) {
     return null;
 }
 
+function resolveTraceUsageInput({
+    provider,
+    inputTokens,
+    cachedTokens,
+    cacheWriteTokens,
+    inputTokensInclusive,
+}) {
+    const inclusive = typeof inputTokensInclusive === 'boolean'
+        ? inputTokensInclusive
+        : isInclusiveProvider(provider);
+    const input = inputTokens || 0;
+    const cacheRead = cachedTokens || 0;
+    const cacheWrite = cacheWriteTokens || 0;
+    return {
+        uncachedInputTokens: inclusive ? Math.max(input - cacheRead - cacheWrite, 0) : input,
+        promptTokens: inclusive
+            ? Math.max(input, cacheRead + cacheWrite)
+            : input + cacheRead + cacheWrite,
+    };
+}
+
 /** xAI Responses cache-chain diagnosis for usage_raw rows (measurement only). */
 function grokCacheChainTraceFields(providerState, requestPrevResponseId, continuationResetReason = null) {
     const lastReceived = typeof providerState?.xaiResponses?.previousResponseId === 'string'
@@ -190,17 +211,19 @@ function traceAgentUsage({
     requestPrevResponseId,
     chainContinuous,
     continuationResetReason,
+    inputTokensInclusive,
 }) {
-    const inclusive = isInclusiveProvider(provider);
-    const inTok = inputTokens || 0;
-    const cacheRead = cachedTokens || 0;
+    const accounting = resolveTraceUsageInput({
+        provider,
+        inputTokens,
+        cachedTokens,
+        cacheWriteTokens,
+        inputTokensInclusive,
+    });
     const cacheWrite = cacheWriteTokens || 0;
-    const uncachedInputTokens = inclusive ? Math.max(inTok - cacheRead - cacheWrite, 0) : inTok;
     const promptTotal = typeof promptTokens === 'number'
         ? promptTokens
-        : (inclusive
-            ? Math.max(inTok, cacheRead + cacheWrite)
-            : inTok + cacheRead + cacheWrite);
+        : accounting.promptTokens;
     const resolvedServiceTier = serviceTier || rawUsage?.service_tier || rawUsage?.serviceTier || null;
     const thinkingTokens = extractThinkingTokens(rawUsage);
     appendAgentTrace({
@@ -212,7 +235,7 @@ function traceAgentUsage({
         thinking_tokens: thinkingTokens,
         cached_tokens: cachedTokens,
         cache_write_tokens: cacheWrite,
-        uncached_input_tokens: uncachedInputTokens,
+        uncached_input_tokens: accounting.uncachedInputTokens,
         // Unified total-prompt field. Anthropic = input+cache_read+cache_write,
         // OpenAI/Gemini = input_tokens (cached is already a subset).
         prompt_tokens: promptTotal,
@@ -227,7 +250,7 @@ function traceAgentUsage({
         payload: {
             provider: provider || null,
             prompt_tokens: promptTotal,
-            uncached_input_tokens: uncachedInputTokens,
+            uncached_input_tokens: accounting.uncachedInputTokens,
             thinking_tokens: thinkingTokens,
             model_display: modelDisplay || null,
             response_id: responseId || null,
@@ -254,6 +277,7 @@ export {
     traceAgentToolFailure,
     traceAgentCompact,
     traceAgentUsage,
+    resolveTraceUsageInput,
     grokCacheChainTraceFields,
     traceAgentCompress,
     traceAgentBatch,
