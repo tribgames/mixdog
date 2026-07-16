@@ -55,6 +55,29 @@ function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
     }
 }
 
+export function normalizeDesktopSessionMetadata(value, cwd = null) {
+    if (!value || typeof value !== 'object') return null;
+    if (value.classification === 'task') {
+        return { classification: 'task', projectPath: null };
+    }
+    if (value.classification === 'project') {
+        const cleanPath = (path) => {
+            if (typeof path !== 'string') return null;
+            const trimmed = path.trim();
+            return trimmed && !trimmed.includes('\0') ? trimmed : null;
+        };
+        // Older bridge rows may omit projectPath and rely on the session cwd.
+        // Do not, however, stringify arbitrary persisted values into paths.
+        const projectPath = cleanPath(value.projectPath) || cleanPath(cwd);
+        if (!projectPath) return null;
+        return {
+            classification: 'project',
+            projectPath,
+        };
+    }
+    return null;
+}
+
 // --- agent spawn (createSession) ---
 // opts can pass either a `preset` object (from config.presets) or raw provider/model.
 // Preset shape: { name, provider, model, effort?, fast?, tools? }
@@ -341,6 +364,9 @@ export function createSession(opts) {
         scopeKey: opts.scopeKey || null,
         lane: opts.lane || 'agent',
         cwd: opts.cwd,
+        // Optional desktop-only origin metadata. CLI/TUI callers omit it, so
+        // their persisted shape and classification behavior remain unchanged.
+        desktopSession: normalizeDesktopSessionMetadata(opts.desktopSession, opts.cwd),
         workflow: workflowMeta,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -455,7 +481,7 @@ export function updateSessionRoute(id, route = {}) {
 }
 
 // --- resume (reload tools for a stored session) ---
-export async function resumeSession(sessionId, preset) {
+export async function resumeSession(sessionId, preset, options = {}) {
     const session = loadSession(sessionId);
     if (!session)
         return null;
@@ -463,6 +489,21 @@ export async function resumeSession(sessionId, preset) {
     // save below would also block the write, but failing fast here is cleaner
     // than silently dropping the tool-refresh side effects.
     if (session.closed === true) return null;
+    // Desktop callers pass their selected durable classification as a
+    // capability check. Refuse a stale/tampered cross-class resume before any
+    // tool refresh or save. CLI/TUI callers omit this option and retain the
+    // historical unrestricted resume behavior.
+    if (Object.prototype.hasOwnProperty.call(options, 'desktopSession')) {
+        const expectedDesktop = normalizeDesktopSessionMetadata(options.desktopSession, session.cwd);
+        const storedDesktop = normalizeDesktopSessionMetadata(session.desktopSession, session.cwd);
+        if (!expectedDesktop || !storedDesktop
+            || expectedDesktop.classification !== storedDesktop.classification) {
+            return null;
+        }
+        // Adopt the host-canonical project path selected from the authoritative
+        // summary. Task metadata always remains pathless.
+        session.desktopSession = expectedDesktop;
+    }
     if (!session.owner) session.owner = 'user';
     const oldTools = session.tools || [];
     const ownerIsAgent = isAgentOwner(session);

@@ -20,13 +20,15 @@ function makeEngine({ abortSettles = false, recoveryMs = 30 } = {}) {
   const notices = [];
   const requeued = [];
   const discardedCompletionKeys = [];
+  const abortReasons = [];
   let drainCount = 0;
   let state = { items: [], queued: [], busy: false, commandBusy: false, spinner: null, thinking: null, lastTurn: null };
   const bag = {
     runtime: {
       id: null,
       consumePendingSessionReset: () => null,
-      abort: () => {
+      abort: (reason) => {
+        abortReasons.push(reason);
         if (abortSettles) bag.set({ busy: false, spinner: null, thinking: null, lastTurn: null });
         return true;
       },
@@ -70,8 +72,22 @@ function makeEngine({ abortSettles = false, recoveryMs = 30 } = {}) {
     getDrainCount: () => drainCount,
     getRequeued: () => requeued,
     getDiscardedCompletionKeys: () => discardedCompletionKeys,
+    getAbortReasons: () => abortReasons,
   };
 }
+
+test('Esc uses Claude-compatible user-cancel and queued interrupt reasons', () => {
+  const normal = makeEngine({ abortSettles: true });
+  normal.bag.set({ busy: true });
+  normal.api.abort();
+  assert.deepEqual(normal.getAbortReasons(), ['user-cancel']);
+
+  const queued = makeEngine({ abortSettles: true });
+  queued.bag.set({ busy: true });
+  queued.bag.pending.push({ kind: 'prompt', text: 'queued redirect' });
+  queued.api.abort();
+  assert.deepEqual(queued.getAbortReasons(), ['interrupt']);
+});
 
 test('starved abort → bounded recovery hard-releases busy and re-kicks drain', async () => {
   const { api, bag, getNotices, getDrainCount } = makeEngine({ abortSettles: false, recoveryMs: 25 });

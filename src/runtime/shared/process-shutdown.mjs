@@ -1,5 +1,10 @@
 'use strict';
 
+import {
+  finishProcessLifecycle,
+  recordCatchableFatal,
+} from './process-lifecycle.mjs';
+
 const SIGNAL_EXIT_CODES = {
   SIGINT: 130,
   SIGTERM: 143,
@@ -27,7 +32,6 @@ export function waitWithTimeout(promise, timeoutMs, label = 'cleanup') {
       settled = true;
       reject(new Error(`${label} timed out after ${ms}ms`));
     }, ms);
-    if (typeof timer.unref === 'function') timer.unref();
     Promise.resolve(promise)
       .then((value) => {
         if (settled) return;
@@ -67,6 +71,7 @@ export function installProcessSignalCleanup({
   };
 
   const hardExit = (code) => {
+    finishProcessLifecycle('forced-cleanup', code);
     try { process.exit(code); } catch {}
   };
 
@@ -81,6 +86,9 @@ export function installProcessSignalCleanup({
     }
     running = true;
     removeHandlers();
+    let cleanupFailed = false;
+
+    if (error) recordCatchableFatal(code);
 
     if (shouldExit) {
       hardExitTimer = setTimeout(() => hardExit(code), Math.max(1000, Number(timeoutMs) + 1000));
@@ -93,21 +101,34 @@ export function installProcessSignalCleanup({
 
     try { globalThis.__mixdogShutdownProviderAdmission?.(reason); } catch {}
     try { globalThis.__mixdogDrainProviderConnections?.(reason); } catch {}
-    try { beforeCleanup?.(reason, { code, error }); } catch {}
+    try { beforeCleanup?.(reason, { code, error }); } catch (cleanupError) {
+      cleanupFailed = true;
+      if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
+    }
     try {
       if (typeof cleanup === 'function') {
         await waitWithTimeout(cleanup(reason, { code, error }), timeoutMs, `${name} shutdown`);
       }
     } catch (cleanupError) {
+      cleanupFailed = true;
       if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
     }
-    try { afterCleanup?.(reason, { code, error }); } catch {}
+    try { afterCleanup?.(reason, { code, error }); } catch (cleanupError) {
+      cleanupFailed = true;
+      if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
+    }
     if (hardExitTimer) {
       clearTimeout(hardExitTimer);
       hardExitTimer = null;
     }
     running = false;
-    if (shouldExit) hardExit(code);
+    if (shouldExit) {
+      finishProcessLifecycle(
+        cleanupFailed ? 'forced-cleanup' : error ? 'catchable-fatal-error' : 'clean-shutdown',
+        code,
+      );
+      try { process.exit(code); } catch {}
+    }
     return true;
   };
 

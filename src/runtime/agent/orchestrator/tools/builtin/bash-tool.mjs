@@ -17,6 +17,7 @@ import {
     endShellJobWait,
     clearShellJobNotifyCtx,
     shellJobPublicTaskResult,
+    attachShellJobResourceLease,
 } from './shell-jobs.mjs';
 import {
     analyzeShellCommandEffects,
@@ -45,6 +46,7 @@ import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { resolveOptionalCwd } from './cwd-utils.mjs';
 import { scrubLoaderVars, scrubProviderSecrets } from '../env-scrub.mjs';
 import { resolveSessionCwd, stateFilePath, wrapPowerShellWithCwdProbe, wrapBashWithCwdProbe } from '../shell-state.mjs';
+import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 
 // Post-exec drift detection. After a foreground shell command, compare the
 // live mtime+size of files mixdog has already read this session against their
@@ -263,7 +265,11 @@ export async function executeBashTool(args, workDir, options = {}) {
         const shouldCreate = args.create === true || !userProvidedSession;
         effectiveArgs = { ...effectiveArgs, create: shouldCreate };
         try {
-            return await executeBashSessionTool('bash_session', effectiveArgs, bashWorkDir, { abortSignal: combinedPersistAbort.signal, sessionId: options?.sessionId });
+            return await executeBashSessionTool('bash_session', effectiveArgs, bashWorkDir, {
+                abortSignal: combinedPersistAbort.signal,
+                sessionId: options?.sessionId,
+                resourceAdmission: options?.resourceAdmission || resourceAdmission,
+            });
         } finally {
             combinedPersistAbort.cleanup();
         }
@@ -406,24 +412,50 @@ export async function executeBashTool(args, workDir, options = {}) {
             wrappedCommand = command;
         }
         if (runInBackground) {
-            const job = startBackgroundShellJob({
-                command: wrappedCommand,
-                timeoutMs: timeout,
-                workDir: bashWorkDir,
-                mergeStderr,
-                spawnEnv,
-                shell,
-                shellArg,
-                shellArgs,
-                shellType,
-                // Per-terminal session stamp: the dispatching terminal's
-                // claude.exe pid (server-main threads callerSession.clientHostPid).
-                clientHostPid: options?.clientHostPid,
-            });
-            if (job && job.error) return formatShellToolFailure(job.error);
-            let task;
+            let asyncAbortSignal = null;
+            try { asyncAbortSignal = (await getAbortSignalForSession(options?.sessionId)) || null; }
+            catch { asyncAbortSignal = null; }
+            const combinedAsyncAbort = _combineAbortSignals(asyncAbortSignal, options?.abortSignal || null);
+            let asyncLease = null;
+            let job;
             try {
-                task = registerBackgroundTask({
+                asyncLease = await (options?.resourceAdmission || resourceAdmission).acquire('shell', {
+                    signal: combinedAsyncAbort.signal,
+                    label: String(command).replace(/\s+/g, ' ').slice(0, 120),
+                    dependency: 'detached',
+                });
+                if (combinedAsyncAbort.signal?.aborted) {
+                    throw combinedAsyncAbort.signal.reason || new Error('shell background task cancelled before spawn');
+                }
+                job = await startBackgroundShellJob({
+                    command: wrappedCommand,
+                    timeoutMs: timeout,
+                    workDir: bashWorkDir,
+                    mergeStderr,
+                    spawnEnv,
+                    shell,
+                    shellArg,
+                    shellArgs,
+                    shellType,
+                    // Per-terminal session stamp: the dispatching terminal's
+                    // claude.exe pid (server-main threads callerSession.clientHostPid).
+                    clientHostPid: options?.clientHostPid,
+                    ...(options?.shellJobRuntime || {}),
+                });
+                if (job && job.error) {
+                    if (job.rollbackPending && attachShellJobResourceLease(job.jobId, asyncLease, { allowUnpersisted: true })) {
+                        asyncLease = null;
+                    }
+                    return formatShellToolFailure(job.error);
+                }
+                if (combinedAsyncAbort.signal?.aborted) {
+                    try { killShellJob(job.jobId); } catch {}
+                    throw combinedAsyncAbort.signal.reason || new Error('shell background task cancelled before registration');
+                }
+                if (job && !job.error && attachShellJobResourceLease(job.jobId, asyncLease)) {
+                    asyncLease = null;
+                }
+                const task = registerBackgroundTask({
                     taskId: job.jobId,
                     surface: 'shell',
                     operation: 'shell',
@@ -446,26 +478,31 @@ export async function executeBashTool(args, workDir, options = {}) {
                     resultType: 'shell_task_result',
                     cancel: () => killShellJob(job.jobId),
                 });
-            } catch (err) {
-                try { killShellJob(job.jobId); } catch { /* best effort cleanup */ }
-                return formatShellToolFailure(normalizeErrorMessage(err instanceof Error ? err.message : String(err)));
+                if (combinedAsyncAbort.signal?.aborted) {
+                    try { killShellJob(job.jobId); } catch {}
+                    cancelBackgroundTask(job.jobId, 'cancelled before background registration completed');
+                    throw combinedAsyncAbort.signal.reason || new Error('shell background task cancelled during registration');
+                }
+                // Wire a one-shot completion push so the dispatching session learns
+                // the background task finished (no polling tool is auto-driven).
+                try {
+                    watchBackgroundShellJob(job.jobId, {
+                        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+                        callerSessionId: options?.callerSessionId || options?.sessionId,
+                        routingSessionId: options?.routingSessionId,
+                        clientHostPid: options?.clientHostPid,
+                    });
+                } catch { /* watcher arm is best-effort; never blocks the spawn */ }
+                return _prependDestructiveWarning(command, renderBackgroundTask(task));
+            } catch (error) {
+                if (job?.jobId && !job.error) {
+                    try { killShellJob(job.jobId); } catch {}
+                }
+                return formatShellToolFailure(normalizeErrorMessage(error instanceof Error ? error.message : String(error)));
+            } finally {
+                combinedAsyncAbort.cleanup();
+                try { await asyncLease?.release(); } catch {}
             }
-            // Wire a one-shot completion push so the dispatching session learns
-            // the background task finished (no polling tool is auto-driven). The
-            // notify ctx is threaded down from the MCP dispatch frame
-            // (server-main agentContext / _dispatchByModule) the same way the
-            // agent/explore-style tools receive notifyFn/routingSessionId/clientHostPid.
-            // Missing notifyFn (e.g. a non-MCP caller) degrades to a stderr
-            // diagnostic inside watchBackgroundShellJob — never fails the spawn.
-            try {
-                watchBackgroundShellJob(job.jobId, {
-                    notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
-                    callerSessionId: options?.callerSessionId || options?.sessionId,
-                    routingSessionId: options?.routingSessionId,
-                    clientHostPid: options?.clientHostPid,
-                });
-            } catch { /* watcher arm is best-effort; never blocks the spawn */ }
-            return _prependDestructiveWarning(command, renderBackgroundTask(task));
         }
 
         let bashAbortSignal = null;

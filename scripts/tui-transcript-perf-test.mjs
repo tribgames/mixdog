@@ -213,8 +213,7 @@ test('abort after stream progress settles the tail and leaves no orphan', async 
   assert.match(assistants[0].text, /partial line/);
 });
 
-// Codifies pre-existing parity: text had no item/currentAssistantId before its first completed line.
-test('abort before a newline has no tail id and preserves prior text-drop parity', async () => {
+test('abort before a newline settles the accumulated partial response', async () => {
   const harness = makeTurnHarness(async (_text, options) => {
     options.onTextDelta('partial without newline');
     await wait(30);
@@ -225,11 +224,10 @@ test('abort before a newline has no tail id and preserves prior text-drop parity
 
   assert.equal(await harness.runTurn('go'), 'cancelled');
   assert.equal(harness.getState().streamingTail, null);
-  assert.equal(
-    harness.getState().items.filter((item) => item.kind === 'assistant').length,
-    0,
-    'without a visible tail id, pre-newline text keeps the existing drop-on-abort behavior',
-  );
+  const assistants = harness.getState().items.filter((item) => item.kind === 'assistant');
+  assert.equal(assistants.length, 1);
+  assert.equal(assistants[0].streaming, false);
+  assert.equal(assistants[0].text, 'partial without newline');
 });
 
 // Codifies pre-existing parity: the old in-items completed-line snapshot survived starved recovery.

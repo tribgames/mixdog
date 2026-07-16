@@ -1,36 +1,16 @@
-// manager/message-sanitize.mjs
-// Message sanitization + compaction-failure persistence helpers extracted
-// verbatim from manager.mjs. sanitizeSessionMessagesForModel drops internal
-// runtime-notification turns and cancelled-assistant stubs while keeping image
-// content intact (reference-agent parity); the compact-failure helpers persist
-// a compacted outgoing transcript when an ask throws mid-turn.
-import { promptContentText, isInternalRuntimeNotificationText } from './prompt-utils.mjs';
+// Model-visible session filtering and compaction-failure persistence.
+import { isInternalRuntimeNotificationText } from './prompt-utils.mjs';
 import { saveSessionAsync } from '../store.mjs';
 import { _getRuntimeEntry } from './runtime-liveness.mjs';
 
-function isInternalCancelledAssistantMessage(message) {
-    if (!message || message.role !== 'assistant') return false;
-    if (message.cancelled === true) return true;
-    const text = promptContentText(message.content).trim();
-    return /^\[cancelled\]\s+This turn was interrupted before completion\./i.test(text)
-        || /Preserve the user request above as the active task context/i.test(text);
-}
-
-export function sanitizeSessionMessagesForModel(messages) {
-    // Drop internal runtime-notification turns and cancelled-assistant stubs so
-    // they never reach the model, but KEEP image content intact. Reference-agent
-    // parity: the live transcript and every model request retain attached
-    // images across turns; only the compaction-summary call strips them. The
-    // disk-stored session JSON replaces image bytes with a text placeholder at
-    // serialization time (see store.mjs), so this no longer touches images.
+export function filterModelVisibleSessionMessages(messages) {
+    // Internal runtime notifications and their synthetic responses never enter
+    // model history. Image content remains intact; the store replaces image
+    // bytes only in its disk serialization snapshot.
     if (!Array.isArray(messages) || messages.length === 0) return [];
     const out = [];
     let droppingInternalTurn = false;
     for (const message of messages) {
-        if (isInternalCancelledAssistantMessage(message)) {
-            droppingInternalTurn = false;
-            continue;
-        }
         if (message?.role === 'user' && isInternalRuntimeNotificationText(message.content)) {
             droppingInternalTurn = true;
             continue;
@@ -124,8 +104,8 @@ export async function persistCompactedOutgoingAfterAskFailure({
     if (!Array.isArray(turnOutgoing) || turnOutgoing.length === 0) return;
     const currentRuntime = _getRuntimeEntry(sessionId);
     if (currentRuntime?.closed || currentRuntime?.generation !== askGeneration) return;
-    const sanitized = sanitizeSessionMessagesForModel(turnOutgoing);
-    const priorSanitized = sanitizeSessionMessagesForModel(
+    const sanitized = filterModelVisibleSessionMessages(turnOutgoing);
+    const priorSanitized = filterModelVisibleSessionMessages(
         Array.isArray(activeSession.messages) ? activeSession.messages : [],
     );
     const messagesAdvanced = sessionMessagesAdvancedBeyondCompactedOutgoing(priorSanitized, sanitized);

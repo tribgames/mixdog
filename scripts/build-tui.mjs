@@ -31,6 +31,16 @@ const mixdogInkAliasPlugin = {
   },
 };
 
+const sharedRuntimeExternalPlugin = {
+  name: 'mixdog-shared-runtime-external',
+  setup(build) {
+    build.onResolve({ filter: /^\.\.\/runtime\/shared\/process-(shutdown|lifecycle)\.mjs$/ }, (args) => ({
+      path: `../../runtime/shared/${args.path.slice('../runtime/shared/'.length)}`,
+      external: true,
+    }));
+  },
+};
+
 await build({
   entryPoints: [join(SRC, 'index.jsx')],
   outfile: join(SRC, 'dist', 'index.mjs'),
@@ -41,6 +51,8 @@ await build({
   jsx: 'automatic',
   // Keep package imports external like the original CLI flow. Local shared
   // helpers are bundled so relative paths stay valid from src/tui/dist/.
+  // Process shutdown stays external so the CLI and checked-in TUI bundle use
+  // the same process-global lifecycle state.
   // Only `ink` is redirected to Mixdog's checked-in renderer instead of
   // node_modules/ink.
   packages: 'external',
@@ -63,7 +75,7 @@ await build({
     '../../runtime/channels/lib/voice-runtime-fetcher.mjs',
     '../../runtime/channels/lib/whisper-server.mjs',
   ],
-  plugins: [mixdogInkAliasPlugin],
+  plugins: [mixdogInkAliasPlugin, sharedRuntimeExternalPlugin],
   logLevel: 'info',
 });
 

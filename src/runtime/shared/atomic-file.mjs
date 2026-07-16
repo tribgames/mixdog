@@ -100,9 +100,8 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
         contErr.cause = err;
         throw contErr;
       }
-      // Stale-lock reclaim (shared with the async variant). Covers a dead
-      // owner pid, a same-pid-but-foreign-token corpse from a reused pid, and
-      // a pidless/empty corpse lock; a live foreign holder is never stolen.
+      // Reclaim only when owner death is positively established. Age, an
+      // unreadable owner, or a same-pid foreign token remain contended.
       try {
         if (_tryReclaimStaleLock(lockPath, staleMs)) continue;
       } catch {}
@@ -127,11 +126,9 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
       return fn();
     } finally {
       try { closeSync(fd); } catch {}
-      // Only unlink if we still own the lock. If our hold exceeded
-      // staleMs and another process already stole + replaced the
-      // file, unconditionally unlinking here would destroy the new
-      // owner's lock and break mutual exclusion for whoever is
-      // queued behind it.
+      // Only unlink if we still own the lock. If the path was externally
+      // replaced, unconditionally unlinking would destroy the new owner's
+      // lock and break mutual exclusion for whoever is queued behind it.
       try {
         if (_lockOwnedBySelf(lockPath)) unlinkSync(lockPath);
       } catch {}
@@ -147,33 +144,6 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
 // token is the owner pid (see the writeFileSync above). Best-effort
 // only: a parse failure or stat error is treated as "not ours" /
 // "owner unknown" so we err on the side of NOT stealing.
-function _readLockOwnerPid(lockPath) {
-  try {
-    const raw = readFileSync(lockPath, 'utf8');
-    const tok = String(raw).trim().split(/\s+/)[0];
-    const pid = Number.parseInt(tok, 10);
-    return Number.isFinite(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-function _pidIsDead(pid) {
-  // Unreadable / unparseable pid: be conservative — treat as alive so
-  // we wait instead of stealing.
-  if (pid === null) return false;
-  if (pid === process.pid) return false;
-  try {
-    process.kill(pid, 0);
-    return false; // signal delivered → process exists
-  } catch (err) {
-    // ESRCH = no such process → owner is gone, safe to steal.
-    // EPERM = process exists but we can't signal it → still alive,
-    // do NOT steal.
-    return err?.code === 'ESRCH';
-  }
-}
-
 // Full owner identity: pid plus per-instance token. token is null for an
 // old-format (`<pid> <ts>`) lock, in which case callers fall back to
 // pid-authoritative handling so a still-running old-format holder is
@@ -196,13 +166,8 @@ function _readLockOwner(lockPath) {
 //  - pid null (empty/unparseable): not live (unknown owner).
 //  - pid === our pid: treated as LIVE. A foreign/absent token on our own
 //    pid is ambiguous — it may be a recycled-pid corpse, but it may also
-//    be a live sibling worker_thread (which shares process.pid yet owns a
-//    separate _OWNER_TOKEN module instance). We cannot distinguish them
-//    from the token alone, so we never call a same-pid owner instantly
-//    dead; the reclaim path gates a same-pid foreign-token steal behind
-//    stale mtime (see _ownerIsSelfForeign / _tryReclaimStaleLock) so a
-//    live sibling is never yanked, while a real corpse still frees once
-//    mtime goes stale.
+//    be a live sibling worker_thread (which shares process.pid). Ambiguity
+//    is never reclaimed.
 //  - foreign pid: probed with kill(pid, 0); ESRCH ⇒ dead, else live.
 function _ownerIsLive(owner) {
   if (owner.pid === null) return false;
@@ -213,15 +178,6 @@ function _ownerIsLive(owner) {
   } catch (err) {
     return err?.code !== 'ESRCH';
   }
-}
-
-// Our own pid but a foreign (present, non-matching) token: either a
-// recycled-pid corpse or a live sibling worker_thread. Reclaimable only
-// once mtime is past staleMs (handled by the pidless-style stale gate).
-function _ownerIsSelfForeign(owner) {
-  return owner.pid === process.pid
-    && owner.token !== null
-    && owner.token !== _OWNER_TOKEN;
 }
 
 // Release-time guard: unlink only if the lock still carries OUR identity
@@ -238,23 +194,15 @@ function _lockOwnedBySelf(lockPath) {
 // they wait between attempts. Returns true iff lockPath was reclaimed.
 //
 // Reclaim decision table (owner = identity recorded in the lock file):
-//   owner pid DEAD (ESRCH / self-pid+foreign-token corpse) → reclaim
-//   owner pid NULL (empty/unparseable) AND mtime past staleMs → reclaim
+//   owner pid DEAD (ESRCH) → reclaim
+//   owner pid NULL/uncertain or same-pid foreign token → back off
 //   owner token MISMATCH on guarded re-read (new holder took over) → back off
-//   owner LIVE (foreign pid alive, or our own current token) → back off
+//   owner LIVE → back off regardless of age
 function _tryReclaimStaleLock(lockPath, staleMs) {
-  let st;
-  try { st = statSync(lockPath); } catch { return false; }
+  try { statSync(lockPath); } catch { return false; }
   const owner = _readLockOwner(lockPath);
-  const stale = Date.now() - st.mtimeMs > staleMs;
   const dead = owner.pid !== null && !_ownerIsLive(owner);
-  const pidless = owner.pid === null;
-  const selfForeign = _ownerIsSelfForeign(owner);
-  // A dead foreign owner reclaims immediately. A pidless corpse, or a
-  // same-pid foreign-token owner (which may still be a live sibling
-  // worker_thread), reclaims only once mtime is past staleMs; a live
-  // foreign holder is never stolen even after mtime goes stale.
-  if (!dead && !((pidless || selfForeign) && stale)) return false;
+  if (!dead) return false;
   const reclaim = _tryAcquireReclaimGuard(lockPath, staleMs);
   if (reclaim === null) return false;
   try {
@@ -266,11 +214,8 @@ function _tryReclaimStaleLock(lockPath, staleMs) {
     // the guard window has a different token and is not mistaken for the
     // corpse — so we never yank a freshly-acquired live lock.
     if (curOwner.pid !== owner.pid || curOwner.token !== owner.token) return false;
-    const curStale = Date.now() - cur.mtimeMs > staleMs;
     const curDead = curOwner.pid !== null && !_ownerIsLive(curOwner);
-    const curPidless = curOwner.pid === null;
-    const curSelfForeign = _ownerIsSelfForeign(curOwner);
-    if (curDead || ((curPidless || curSelfForeign) && curStale)) {
+    if (curDead) {
       try { unlinkSync(lockPath); return true; } catch { return false; }
     }
     return false;
@@ -279,89 +224,23 @@ function _tryReclaimStaleLock(lockPath, staleMs) {
   }
 }
 
-function _reclaimGuardIsUnreadableAndStale(guardPath, staleMs) {
-  if (_readLockOwnerPid(guardPath) !== null) return false;
-  try {
-    const st = statSync(guardPath);
-    return Date.now() - st.mtimeMs > staleMs;
-  } catch {
-    return false;
-  }
-}
-
-function _reclaimGuardMatchesToken(guardPath, token) {
-  try {
-    return readFileSync(guardPath, 'utf8') === token;
-  } catch {
-    return false;
-  }
-}
-
-function _readGuardContent(guardPath) {
-  try { return readFileSync(guardPath, 'utf8'); } catch { return null; }
-}
-
-function _parseStampPid(raw) {
-  if (raw === null) return null;
-  const tok = String(raw).trim().split(/\s+/)[0];
-  const pid = Number.parseInt(tok, 10);
-  return Number.isFinite(pid) && pid > 0 ? pid : null;
-}
-
-// Unlink the guard only if its FULL content (pid ts token) is still the
-// exact content the stale/dead decision was made against. A regenerated
-// guard — even one whose pid was recycled to the same value (same-pid
-// ABA) — carries a fresh ts+token and therefore never matches, so a
-// fresh guard is never removed by a stale decision.
-function _unlinkReclaimGuardIfContentMatches(guardPath, content) {
-  if (_readGuardContent(guardPath) !== content) return false;
-  try { unlinkSync(guardPath); return true; } catch { return false; }
-}
-
-function _unlinkUnreadableStaleReclaimGuard(guardPath, staleMs) {
-  if (!_reclaimGuardIsUnreadableAndStale(guardPath, staleMs)) return false;
-  try { unlinkSync(guardPath); return true; } catch { return false; }
-}
-
-function _tryClearStaleReclaimGuard(guardPath, staleMs) {
-  const guardContent = _readGuardContent(guardPath);
-  const guardPid = _parseStampPid(guardContent);
-  if (guardPid !== null) {
-    // Re-read the guard's full content immediately before unlinking so a
-    // regenerated guard (different owner OR same-pid ABA) is not removed
-    // by a stale decision.
-    // This is still not a serialized primitive: correctness comes from
-    // the lockPath owner-token reverify before unlinking lockPath, not
-    // from making guard cleanup itself authoritative.
-    // A guard whose pid was recycled onto a LIVE process would otherwise
-    // never clear, starving reclaim permanently; so also clear a guard
-    // past staleMs regardless of apparent pid-liveness. Safe because the
-    // guard is best-effort — the lockPath owner-token reverify still gates
-    // the actual lock unlink.
-    let guardStale = false;
-    try { guardStale = Date.now() - statSync(guardPath).mtimeMs > staleMs; } catch {}
-    if (_pidIsDead(guardPid) || guardStale) {
-      _unlinkReclaimGuardIfContentMatches(guardPath, guardContent);
-    }
-    return;
-  }
-  // A crash between openSync('wx') and the pid write can leave an empty
-  // guard. There is no pid to prove dead, so clear only once the guard
-  // file itself is stale; any contender that proceeds must still prove
-  // the lockPath token dead before unlinking the lock.
-  _unlinkUnreadableStaleReclaimGuard(guardPath, staleMs);
-}
-
 function _tryAcquireReclaimGuard(lockPath, staleMs) {
   const guardPath = `${lockPath}.reclaim`;
+  const token = `${process.pid} ${Date.now()} ${randomBytes(8).toString('hex')}\n`;
+  const stagedPath = `${guardPath}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
   try {
-    const fd = openSync(guardPath, 'wx', 0o600);
-    const token = `${process.pid} ${Date.now()} ${randomBytes(8).toString('hex')}\n`;
-    try { writeFileSync(fd, token, 'utf8'); } catch {}
-    return { fd, guardPath, token };
+    // Publish a fully formed guard with no empty-file window. linkSync is
+    // atomic and fails rather than replacing an existing pathname.
+    writeFileSync(stagedPath, token, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    linkSync(stagedPath, guardPath);
+    unlinkSync(stagedPath);
+    return { guardPath };
   } catch (err) {
+    try { unlinkSync(stagedPath); } catch {}
     if (LOCK_WAIT_CODES.has(err?.code)) {
-      _tryClearStaleReclaimGuard(guardPath, staleMs);
+      // There is no portable ownership-conditional unlink. Never revoke a
+      // published guard: age and contents are diagnostic only, and deleting
+      // after a pathname re-read admits an ABA that can steal a live guard.
       return null;
     }
     throw err;
@@ -369,10 +248,9 @@ function _tryAcquireReclaimGuard(lockPath, staleMs) {
 }
 
 function _releaseReclaimGuard(reclaim) {
-  try { closeSync(reclaim.fd); } catch {}
-  if (_reclaimGuardMatchesToken(reclaim.guardPath, reclaim.token)) {
-    try { unlinkSync(reclaim.guardPath); } catch {}
-  }
+  // Protocol participants cannot replace a published guard: contenders only
+  // wait, so the exact owner may remove its non-revocable pathname directly.
+  try { unlinkSync(reclaim.guardPath); } catch {}
 }
 
 // ── Async lock variant (non-blocking wait) ──────────────────────────

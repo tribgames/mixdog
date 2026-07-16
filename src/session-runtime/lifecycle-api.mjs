@@ -12,6 +12,20 @@ import {
 import { toolSpecForMode, deferredSurfaceModeForLead } from './effort.mjs';
 import { unregisterLiveSession } from '../runtime/shared/staged-update.mjs';
 
+export function resolveResumeCwd(session, currentCwd) {
+  const desktop = session?.desktopSession;
+  if (desktop?.classification === 'project') {
+    return clean(desktop.projectPath) || session?.cwd || currentCwd;
+  }
+  if (desktop?.classification === 'task') {
+    // Desktop task sessions deliberately stay in the app-managed unclassified
+    // workspace selected by the host, even if an old transcript recorded a
+    // transient cwd. CLI/TUI sessions have no metadata and retain old behavior.
+    return currentCwd;
+  }
+  return session?.cwd || currentCwd;
+}
+
 // Session lifecycle surface: teardown (close/abort), resume/new, and the
 // resumable-session listing. Extracted verbatim from the runtime API object;
 // stateless helpers are imported directly and the runtime injects live
@@ -30,7 +44,7 @@ export function createLifecycleApi(deps) {
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, standaloneTools,
     pushTranscriptRebind,
-    notificationListeners, remoteStateListeners,
+    notificationListeners, remoteStateListeners, desktopSession,
   } = deps;
   return {
     async close(reason = 'cli-exit', options = {}) {
@@ -174,8 +188,10 @@ export function createLifecycleApi(deps) {
       if (!session?.id) return false;
       return mgr.abortSessionTurn(session.id, reason);
     },
-    listSessions() {
-      return mgr.listSessions({}).map(s => {
+    listSessions(options = {}) {
+      return mgr.listSessions({
+        refreshFromStorage: options?.refreshFromStorage === true,
+      }).map(s => {
         const owner = clean(s.owner || 'user').toLowerCase();
         if (owner && !['cli', 'user', 'mixdog', 'legacy'].includes(owner)) return null;
         const sourceType = clean(s.sourceType || '').toLowerCase();
@@ -206,6 +222,7 @@ export function createLifecycleApi(deps) {
           provider: s.provider,
           messageCount,
           preview,
+          desktopSession: s.desktopSession || null,
         };
       }).filter(Boolean);
     },
@@ -230,7 +247,10 @@ export function createLifecycleApi(deps) {
       const previousId = prev?.id || null;
       const previousMessages = prev?.messages || null;
       const previousLive = prev?.liveTurnMessages || null;
-      const resumed = await mgr.resumeSession(id, toolSpecForMode(getMode()));
+      const resumeOptions = desktopSession && typeof desktopSession === 'object'
+        ? { desktopSession }
+        : undefined;
+      const resumed = await mgr.resumeSession(id, toolSpecForMode(getMode()), resumeOptions);
       if (!resumed) return null;
       if (previousId && previousId !== resumed.id) {
         statusRoutes?.clearGatewaySessionRoute?.(previousId);
@@ -239,7 +259,7 @@ export function createLifecycleApi(deps) {
         mgr.closeSession(previousId, 'cli-resume', { tombstone });
       }
       setSession(resumed);
-      applyResolvedCwd(resumed.cwd || getCurrentCwd(), { markRefresh: false });
+      applyResolvedCwd(resolveResumeCwd(resumed, getCurrentCwd()), { markRefresh: false });
       const route = getRoute();
       const resumeEffort = hasOwn(route, 'effort') ? route.effort : resumed.effort;
       setRoute(resolveRoute(getConfig(), { provider: resumed.provider, model: resumed.model, effort: resumeEffort }));

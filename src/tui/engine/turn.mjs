@@ -148,7 +148,7 @@ export function createRunTurn(bag) {
         const elapsed = Date.now() - startedAt;
         tuiDebug(`runTurn WATCHDOG TRIP turn=${turnIndex} elapsedMs=${elapsed} idleMs=${idleMs} lastProgress=${lastProgressLabel} — aborting stuck turn`);
         pushNotice(`Turn timed out after ${Math.round(idleMs / 1000)}s idle (last progress: ${lastProgressLabel}) — aborting stuck request. Input will be released shortly if abort does not unwind.`, 'warn', { transcript: true });
-        try { runtime.abort('cli-react-abort-watchdog'); } catch {}
+        try { runtime.abort('watchdog'); } catch {}
         // Belt-and-suspenders: if runtime.abort() did not reject runtime.ask()
         // (unwind starved), hard-release the turn after a short grace so the
         // React store is never left with busy=true and no drain in flight.
@@ -1188,8 +1188,9 @@ export function createRunTurn(bag) {
         flushStreamBatch(); // ensure any batched text lands before the error notice
         if (error?.name === 'SessionClosedError') {
           cancelled = true;
-          if (assistantText.trim() && currentAssistantId) {
-            settleStreamingTail(currentAssistantId, { text: currentAssistantText || assistantText });
+          if (assistantText.trim()) {
+            const id = currentAssistantId || ensureAssistant(assistantText);
+            settleStreamingTail(id, { text: currentAssistantText || assistantText });
           }
           // Finalize pending tool cards so they don't stay "Running..." forever
           // after cancellation. Without this, the spinner vanishes and TurnDone

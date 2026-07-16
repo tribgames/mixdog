@@ -363,6 +363,7 @@ export async function createMixdogSessionRuntime({
   cwd = process.cwd(),
   toolMode = 'full',
   remote = false,
+  desktopSession = null,
 } = {}) {
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   let remoteEnabled = remote === true;
@@ -1555,6 +1556,7 @@ export async function createMixdogSessionRuntime({
         clientHostPid: process.pid,
         disallowedTools: LEAD_DISALLOWED_TOOLS,
         cwd: currentCwd,
+        ...(desktopSession && typeof desktopSession === 'object' ? { desktopSession } : {}),
         coreMemoryContext,
         workflow,
         workflowContext,
@@ -2155,6 +2157,7 @@ export async function createMixdogSessionRuntime({
     resolveRoute,
     applyDeferredToolSurface,
     standaloneTools,
+    desktopSession,
   });
   const resourceApi = createResourceApi({
     getConfig: () => config,

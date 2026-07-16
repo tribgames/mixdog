@@ -1238,6 +1238,43 @@ test('anthropic API-key and OAuth lower plain signed thinkingBlocks before text 
     }
 });
 
+test('anthropic API-key and OAuth lower interrupted tool results with is_error', () => {
+    const history = [
+        { role: 'user', content: 'run a tool' },
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'toolu_interrupted_1', name: 'read', arguments: { path: 'x' } }],
+        },
+        {
+            role: 'tool',
+            content: 'Interrupted by user',
+            toolCallId: 'toolu_interrupted_1',
+            toolKind: 'error',
+        },
+        { role: 'user', content: '[Request interrupted by user]' },
+    ];
+    const apiKeyMessages = _toAnthropicMessagesForTest(history);
+    const oauthMessages = _buildRequestBodyForCacheSmoke(
+        history,
+        'claude-sonnet-4-6',
+        [],
+        {},
+    ).messages;
+
+    for (const lowered of [apiKeyMessages, oauthMessages]) {
+        const toolResult = lowered
+            .flatMap((message) => Array.isArray(message.content) ? message.content : [])
+            .find((block) => (
+                block?.type === 'tool_result'
+                && block.tool_use_id === 'toolu_interrupted_1'
+            ));
+        assert.ok(toolResult);
+        assert.equal(toolResult.is_error, true);
+        assert.equal(JSON.stringify(lowered).includes('[Request interrupted by user]'), true);
+    }
+});
+
 test('anthropic effort: legacy claude-3-7-sonnet gets NO adaptive thinking / effort beta', () => {
     const model = 'claude-3-7-sonnet-20250219';
     assert.equal(modelSupportsEffort(model), false);

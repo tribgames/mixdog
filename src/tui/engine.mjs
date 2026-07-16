@@ -228,6 +228,8 @@ export async function createEngineSession({
   model,
   toolMode = 'full',
   remote = false,
+  cwd,
+  desktopSession,
 } = {}) {
   const startedAt = performance.now();
   bootProfile('engine:create:start', { provider: providerName, model, toolMode, remote });
@@ -242,9 +244,16 @@ export async function createEngineSession({
   const importStartedAt = performance.now();
   const { createMixdogSessionRuntime } = await import(SESSION_RUNTIME_MODULE);
   bootProfile('session-runtime:imported', { ms: (performance.now() - importStartedAt).toFixed(1) });
-  const runtime = await createMixdogSessionRuntime({ provider: providerName, model, toolMode, remote });
+  const runtime = await createMixdogSessionRuntime({
+    provider: providerName,
+    model,
+    toolMode,
+    remote,
+    ...(cwd ? { cwd } : {}),
+    ...(desktopSession ? { desktopSession } : {}),
+  });
   bootProfile('engine:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
-  const cwd = runtime.cwd || process.cwd();
+  const runtimeCwd = runtime.cwd || process.cwd();
   const stateStartedAt = performance.now();
   const flags = {
     disposed: false,
@@ -308,14 +317,14 @@ export async function createEngineSession({
     activeToolSummary: null,
     // Seed from the persisted cwd-scoped store so up-arrow history is available
     // on a fresh start, before any bulk swap / first submit republishes it.
-    promptHistoryList: buildMergedPromptHistory([], loadPromptHistory(cwd)),
+    promptHistoryList: buildMergedPromptHistory([], loadPromptHistory(runtimeCwd)),
     ...baseRouteState(),
     displayContextWindow: 0,
     compactBoundaryTokens: 0,
     autoCompactTokenLimit: 0,
     ...initialAgentState,
     toolMode: runtime.toolMode,
-    cwd,
+    cwd: runtimeCwd,
     themeEpoch: 0,
   };
   bootProfile('engine:route-state-ready', { ms: (performance.now() - stateStartedAt).toFixed(1) });

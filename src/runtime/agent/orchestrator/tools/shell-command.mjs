@@ -33,11 +33,13 @@ import { randomUUID } from 'node:crypto';
 import * as nodeUtil from 'node:util';
 import { getPluginData } from '../config.mjs';
 import { startChildGuardian } from '../../../shared/child-guardian.mjs';
+import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 // Runtime-only import (used inside execShellCommand's auto-background
 // transition). shell-jobs.mjs imports stripAnsi from this module, so this is
 // a static cycle — safe because neither binding is touched at module-eval
 // time, only when the respective functions actually run.
 import { adoptForegroundShellJob, killShellJob } from './builtin/shell-jobs.mjs';
+import { trackProcessTreeQuiescence } from './builtin/shell-job-process.mjs';
 import {
   _maybeEncodePowerShellCommand,
   extractPowerShellCommandInner,
@@ -537,8 +539,16 @@ export function execShellCommand({
   clientHostPid,
   backgroundOnTimeout,
   promotedTimeoutMs = 0,
+  admission = resourceAdmission,
 }) {
   return new Promise(async (resolve) => {
+    let resultResolved = false;
+    const resolveResult = (result) => {
+      if (resultResolved) return false;
+      resultResolved = true;
+      resolve(result);
+      return true;
+    };
     const taskId = `shell_${randomUUID().slice(0, 8)}`;
     const taskOutput = new TaskOutput(taskId);
     let timedOut = false;
@@ -553,6 +563,49 @@ export function execShellCommand({
     let timer = null;
     let abortHandler = null;
     let partialOutput = false;
+    let resourceLease = null;
+    let resourceLeaseSettlement = null;
+    const releaseResourceLease = async () => {
+      if (!resourceLease) return null;
+      const lease = resourceLease;
+      resourceLease = null;
+      try {
+        await lease.release();
+        return null;
+      } catch (error) {
+        return error;
+      }
+    };
+    const releaseResourceLeaseWhenTreeQuiescent = (pid, { waitForRootExit = false } = {}) => {
+      if (resourceLeaseSettlement) return resourceLeaseSettlement;
+      if (!resourceLease) return { pending: false, promise: Promise.resolve() };
+      const lease = resourceLease;
+      resourceLease = null;
+      const cleanup = Promise.withResolvers();
+      const tracker = trackProcessTreeQuiescence(pid, () => {
+        try {
+          Promise.resolve(lease.release()).then(
+            () => cleanup.resolve({ error: null }),
+            (error) => cleanup.resolve({ error }),
+          );
+        } catch (error) {
+          cleanup.resolve({ error });
+        }
+      }, { waitForRootExit });
+      resourceLeaseSettlement = {
+        lease,
+        tracker,
+        get pending() { return tracker.pending; },
+        promise: cleanup.promise,
+      };
+      return resourceLeaseSettlement;
+    };
+    const detachAbortHandler = () => {
+      if (abortSignal && abortHandler) {
+        try { abortSignal.removeEventListener('abort', abortHandler); } catch {}
+        abortHandler = null;
+      }
+    };
     // MCP live-progress: throttled "running Ns, M lines" emits while the
     // foreground command runs. Inert (never armed) when onProgress is null.
     const _hasProgress = typeof onProgress === 'function';
@@ -568,6 +621,7 @@ export function execShellCommand({
     // the child's lifecycle is owned by the shell-jobs registry. Mutually
     // exclusive with `settled`: whichever transition wins first wins for good.
     let autoBackgrounded = false;
+    let autoBackgroundJobId = null;
     let autoBgTimer = null;
     // Treekill + force-settle deadline. treeKill alone leaves settle()
     // pending on 'close'/'exit'; on Windows a taskkill miss or a grandchild
@@ -597,9 +651,14 @@ export function execShellCommand({
 
     let child;
     try {
+      resourceLease = await admission.acquire('shell', {
+        signal: abortSignal || null,
+        label: String(command || '').slice(0, 120),
+      });
       const _policyErr = await _execPolicyBlockMessage(command);
       if (_policyErr) {
-        resolve(
+        await releaseResourceLease();
+        resolveResult(
           new ExecResult({
             stdout: '',
             stderr: _policyErr,
@@ -655,18 +714,28 @@ export function execShellCommand({
         childGroupPid: child.pid,
         label: 'shell-command',
       });
+      // Windows has no process-group handle. Begin observing while the owned
+      // root still exists so descendants can be proven before root exit.
+      releaseResourceLeaseWhenTreeQuiescent(child.pid, { waitForRootExit: true });
     } catch (err) {
-      resolve(
+      const cleanupError = await releaseResourceLease();
+      const spawnText = String((err && err.message) || err);
+      const cleanupText = cleanupError
+        ? `${spawnText}; resource cleanup failed: ${cleanupError?.message || cleanupError}`
+        : spawnText;
+      resolveResult(
         new ExecResult({
           stdout: '',
-          stderr: String((err && err.message) || err),
+          stderr: cleanupText,
           exitCode: 1,
           signal: null,
           timedOut: false,
           killed: false,
           taskId,
           failurePhase: 'tool',
-          failureReason: 'spawn failed',
+          failureReason: err?.code === 'ERESOURCEPRESSURE' || err?.code === 'ERESOURCEQUEUEFULL'
+            ? 'resource pressure'
+            : 'spawn failed',
         }),
       );
       return;
@@ -712,11 +781,7 @@ export function execShellCommand({
         clearTimeout(autoBgTimer);
         autoBgTimer = null;
       }
-      if (abortSignal && abortHandler) {
-        try {
-          abortSignal.removeEventListener('abort', abortHandler);
-        } catch {}
-      }
+      detachAbortHandler();
       // getStdout/getStderr can throw on a spilled-file read failure (EBADF
       // after unlink race, EACCES). Without this catch the rejection bubbles
       // up and leaves the outer settle promise unresolved, hanging the call.
@@ -741,7 +806,12 @@ export function execShellCommand({
       } else {
         taskOutput.closeFds();
       }
-      resolve(
+      const leaseSettlement = resourceLeaseSettlement
+        || releaseResourceLeaseWhenTreeQuiescent(child.pid);
+      leaseSettlement.tracker?.rootExited?.();
+      await leaseSettlement.tracker?.afterRootExitCheck?.();
+      if (!leaseSettlement.pending) await leaseSettlement.promise;
+      resolveResult(
         new ExecResult({
           stdout,
           stderr,
@@ -863,6 +933,8 @@ export function execShellCommand({
         }
         return;
       }
+      const promotedLease = resourceLeaseSettlement?.lease || resourceLease;
+      child.once('close', () => { resourceLeaseSettlement?.tracker?.rootExited?.(); });
       // Wire the lifecycle: on close, write the exit-code file FIRST then
       // touch donePath STRICTLY AFTER — the exact ordering refreshShellJob()
       // gates completion on (donePath visible ⇒ exit file fully flushed).
@@ -881,6 +953,7 @@ export function execShellCommand({
       try { stderr = await taskOutput.getStderr(); }
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
       const jobId = job ? job.jobId : null;
+      autoBackgroundJobId = jobId;
       // Re-check after the awaited capture reads: cancellation can race after
       // adoption commits. Never report that cancelled process as a successful
       // still-running background task.
@@ -889,7 +962,8 @@ export function execShellCommand({
         killCause = 'cancellation';
         try { killShellJob(jobId); } catch {}
         try { treeKill(child); } catch {}
-        resolve(new ExecResult({
+        await promotedLease?.detachDependency?.();
+        resolveResult(new ExecResult({
           stdout,
           stderr,
           exitCode: null,
@@ -908,11 +982,20 @@ export function execShellCommand({
         }));
         return;
       }
+      // Promotion changes a scoped dependency into detached lifetime work.
+      // Re-admit the continuing parent through the normal bounded queue before
+      // returning control; if the child exits first, its close release supplies
+      // the capacity that completes this restoration.
+      await promotedLease?.detachDependency?.();
+      // The adopted job now owns cancellation through task control. Retaining
+      // the foreground caller's signal listener would keep the completed tool
+      // frame alive and could later kill an unrelated, already-returned job.
+      detachAbortHandler();
       const secs = Math.max(0, Math.round((Date.now() - _startMs) / 1000));
       const _verb = reason === 'timeout'
         ? `moved to background at timeout after ${secs}s`
         : `auto-backgrounded after ${secs}s`;
-      resolve(
+      resolveResult(
         new ExecResult({
           stdout,
           stderr,
@@ -936,6 +1019,33 @@ export function execShellCommand({
         }),
       );
     };
+    const fireAutoBackground = (options) => {
+      void _autoBackground(options).catch((error) => {
+        if (resultResolved) return;
+        settled = true;
+        autoBackgrounded = true;
+        killed = true;
+        killCause = 'resource-cleanup-error';
+        detachAbortHandler();
+        try { if (autoBackgroundJobId) killShellJob(autoBackgroundJobId); } catch {}
+        try { treeKill(child); } catch {}
+        resolveResult(new ExecResult({
+          stdout: '',
+          stderr: `resource cleanup failed during background promotion: ${error?.message || error}`,
+          exitCode: 1,
+          signal: child?.signalCode || null,
+          timedOut: false,
+          killed: true,
+          killCause,
+          taskId,
+          partialOutput: true,
+          outputCaptureError: taskOutput.writeError,
+          failurePhase: 'tool',
+          failureReason: 'resource cleanup failed',
+          backgrounded: false,
+        }));
+      });
+    };
 
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
@@ -953,7 +1063,7 @@ export function execShellCommand({
           child.exitCode == null &&
           child.signalCode == null
         ) {
-          _autoBackground({ reason: 'timeout' });
+          fireAutoBackground({ reason: 'timeout' });
           return;
         }
         timedOut = true;
@@ -985,7 +1095,7 @@ export function execShellCommand({
       !_isBackground &&
       (timeoutMs <= 0 || autoBackgroundMs < timeoutMs)
     ) {
-      autoBgTimer = setTimeout(() => { _autoBackground(); }, autoBackgroundMs);
+      autoBgTimer = setTimeout(() => { fireAutoBackground(); }, autoBackgroundMs);
       if (autoBgTimer.unref) autoBgTimer.unref();
     }
 

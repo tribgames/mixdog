@@ -41,6 +41,7 @@ import {
     watchdogPartialHandoffFromError,
     AgentStallAbortError,
 } from './agent-progress-watchdog.mjs';
+import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 
 // Cap agent role synthesis to ~3000 tokens (~12 KB at the 4 B/tok
 // working average). Pool B explore/recall/search answers occasionally land
@@ -300,7 +301,27 @@ export function makeAgentDispatch(opts = {}) {
         if (typeof prompt !== 'string' || !prompt) {
             throw new Error(`[agent-dispatch] prompt required for agent "${agent}"`);
         }
+        const admission = opts.resourceAdmission || resourceAdmission;
+        const admissionAbortLink = composeAgentDispatchAbortSignal([
+            opts.parentSignal,
+            callParentSignal,
+        ]);
+        let lease;
+        try {
+            lease = await admission.acquire('agent', {
+                signal: admissionAbortLink.signal,
+                label: agent,
+            });
+        } catch (error) {
+            admissionAbortLink.dispose();
+            throw error;
+        }
+        try {
 
+        const runAdmitted = (task) => typeof admission.runWithLease === 'function'
+            ? admission.runWithLease(lease, task)
+            : task();
+        return await runAdmitted(async () => {
         const config = opts.config || loadConfig({ secrets: false });
         const routeOrName = resolveMaintenanceRoute({
             preset: presetArg,
@@ -534,6 +555,11 @@ export function makeAgentDispatch(opts = {}) {
             // leaves a stateless Pool C session stuck in 'running' when the
             // try/catch falls through in unexpected ways.
             try { await updateSessionStatus(session.id, terminalStatus); } catch { /* ignore */ }
+        }
+        });
+        } finally {
+            await lease.release();
+            admissionAbortLink.dispose();
         }
     };
 }

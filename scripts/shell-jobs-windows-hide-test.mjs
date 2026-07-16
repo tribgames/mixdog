@@ -114,7 +114,7 @@ test('Windows PowerShell shell jobs create no conhost or ConsoleWindowClass wind
     try {
         for (const shell of hosts) {
             const before = processConsoleSnapshot(probeHost);
-            const job = startBackgroundShellJob({
+            const job = await startBackgroundShellJob({
                 command: "Start-Sleep -Milliseconds 5000; Write-Output 'mixdog-window-probe-out'; [Console]::Error.WriteLine('mixdog-window-probe-err')",
                 timeoutMs: 10_000,
                 workDir,

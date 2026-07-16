@@ -15,6 +15,7 @@ import { presentErrorText, errorLine } from '../runtime/shared/err-text.mjs';
 import { updateJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { normalizeAgentPermission } from '../runtime/shared/markdown-frontmatter.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
+import { resourceAdmission } from '../runtime/shared/resource-admission.mjs';
 import { prepareAgentSession } from '../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import {
   abortAgentProgressWatchdog,
@@ -76,20 +77,6 @@ const STANDALONE_SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), 
 // cap and restore strictly-unbounded prep.
 const DEFAULT_SPAWN_PREP_TIMEOUT_MS = envTimeoutMs('MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS', 120_000);
 
-// Global spawn-start stagger: unlimited-N parallel fan-out otherwise fires all
-// first provider calls in the same instant, racing the server-side prompt-
-// cache write/propagation window. Default 0 (off): mirrors the explore fan-out
-// finding — the first spawn's prompt-cache write only lands after its iter1
-// completes (~seconds), so a sub-second stagger yields ~no cross-spawn cache
-// reads while charging every later spawn the full delay, i.e. pure fan-out
-// latency for negligible hit-rate gain. Kept as a knob for tuning: set
-// MIXDOG_SPAWN_STAGGER_MS>0 to re-enable. When >0 it chains (not a fixed lane
-// count) so it scales to any N: each new spawn's start is pushed to at least
-// STAGGER_MS after the previous spawn's start; sequential/non-overlapping
-// spawns pay zero added latency. Applied inside the deferred job body (see
-// startDeferredSpawnJob) so the agent tool call itself still returns task_id
-// immediately.
-const SPAWN_STAGGER_MS = envTimeoutMs('MIXDOG_SPAWN_STAGGER_MS', 0);
 const TAG_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_TAG_TOMBSTONES = 500;
 
@@ -156,20 +143,6 @@ export function resolveAgentSpawnPreset(config, args = {}) {
   if (!preset) throw new Error(`agent: preset "${presetName}" not found`);
   return { presetName, preset };
 }
-let lastSpawnStartAt = 0;
-async function waitForSpawnStagger() {
-  if (SPAWN_STAGGER_MS <= 0) return;
-  const now = Date.now();
-  const myStart = Math.max(now, lastSpawnStartAt + SPAWN_STAGGER_MS);
-  lastSpawnStartAt = myStart;
-  const delay = myStart - now;
-  if (delay <= 0) return;
-  await new Promise((resolve) => {
-    const t = setTimeout(resolve, delay);
-    t.unref?.();
-  });
-}
-
 export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultCwd, onSubagentEvent }) {
   // Optional bridge to the standard hook bus for SubagentStart / SubagentStop.
   // Best-effort: a hook error must never affect worker spawn/finish.
@@ -1042,6 +1015,7 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       ...(clientHostPid ? { clientHostPid } : {}),
     });
     let task;
+    const admissionController = new AbortController();
     task = startBackgroundTask({
       surface: 'agent',
       operation: type,
@@ -1052,18 +1026,27 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
       resultType: 'agent_task_result',
       renderResult: (result) => renderResult(result),
       cancel: () => {
+        try { admissionController.abort(new Error('agent task cancelled before resource admission')); } catch {}
         const currentMeta = task?.meta || jobMeta;
         if (currentMeta?.sessionId) {
           try { mgr.closeSession(currentMeta.sessionId, 'agent-task-cancel'); } catch {}
         }
       },
       run: async () => {
-        // Yield one macrotask before doing agent work. startBackgroundTask uses
-        // a Promise microtask, which otherwise begins CPU-heavy spawn prep
-        // before the TUI receives/render the "running" result.
-        await new Promise((resolve) => setImmediate(resolve));
-        if (task?.status === 'cancelled') return null;
-        return await run(task);
+        const lease = await resourceAdmission.acquire('agent', {
+          signal: admissionController.signal,
+          label: jobMeta?.tag || type,
+        });
+        try {
+          // Yield one macrotask before doing agent work. startBackgroundTask uses
+          // a Promise microtask, which otherwise begins CPU-heavy spawn prep
+          // before the TUI receives/render the "running" result.
+          await new Promise((resolve) => setImmediate(resolve));
+          if (task?.status === 'cancelled') return null;
+          return await resourceAdmission.runWithLease(lease, () => run(task));
+        } finally {
+          await lease.release();
+        }
       },
     });
     return task;
@@ -1071,10 +1054,6 @@ export function createStandaloneAgent({ cfgMod, reg, mgr, dataDir, cwd: defaultC
 
   function startDeferredSpawnJob(args, callerCwd, context, notifyContext, extras = {}) {
     return startJob('spawn', pendingSpawnMeta(args, extras), async (job) => {
-      // Stagger concurrent spawn starts before prep/model-call begins (see
-      // SPAWN_STAGGER_MS above). Runs inside the job body, so the tool call
-      // that queued this job already returned task_id before this awaits.
-      await waitForSpawnStagger();
       if (job?.status === 'cancelled') return null;
       // prepareSpawn (ensureProvider/prepareAgentSession) runs before runSpawn
       // installs its progress watchdog, so guard prep with an internal env-

@@ -580,7 +580,7 @@ export function createEngineApiA(bag) {
           (entry) => entry?.abortDiscardOnAbort !== true && entry?.mode !== 'pending-resume',
         )
         : [];
-      const aborted = runtime.abort('cli-react-abort');
+      const aborted = runtime.abort(hasPendingSteering ? 'interrupt' : 'user-cancel');
       if (restoreState) {
         if (aborted !== false && Array.isArray(restoreState.discardExecutionPendingResumeKeys)) {
           discardExecutionPendingResume?.(restoreState.discardExecutionPendingResumeKeys);

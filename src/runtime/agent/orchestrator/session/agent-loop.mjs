@@ -253,7 +253,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ? resp.providerMetadata
             : null;
         if (!content && !reasoningContent && !reasoningItems && !thinkingBlocks) return false;
-        messages.push({
+        const message = {
             role: 'assistant',
             content,
             // Anthropic adaptive-thinking signatures must be replayed verbatim
@@ -262,7 +262,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             ...(reasoningItems ? { reasoningItems } : {}),
             ...(reasoningContent ? { reasoningContent } : {}),
             ...(providerMetadata ? { providerMetadata } : {}),
-        });
+        };
+        messages.push(message);
+        try { opts.onAssistantMessageCommitted?.(message); } catch {}
         return true;
     };
     const maxLoopIterations = resolveSessionMaxLoopIterations(sessionRef);
@@ -521,8 +523,19 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // by the refusal-stub path. Leave it unset so nothing dispatches; opts
         // is reused across iterations but onToolCall is cleared to undefined
         // after send() below, so non-cap iterations are unaffected.
-        opts.onToolCall = _capFinalToolsDisabled ? undefined : eager.onToolCall;
+        opts.onToolCall = _capFinalToolsDisabled
+            ? undefined
+            : (call) => {
+                const result = eager.onToolCall(call);
+                try {
+                    opts.onAssistantToolCallObserved?.(call, {
+                        eagerStarted: !!call?.id && eager.pending.has(call.id),
+                    });
+                } catch {}
+                return result;
+            };
         const sendStartedAt = Date.now();
+        try { opts.onProviderSendStarted?.(); } catch {}
         const _sendResult = await runWithProviderRequestToolsScope(
             requestToolScope,
             () => sendWithRecovery({
@@ -786,6 +799,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 : {}),
         };
         messages.push(_assistantTurnMsg);
+        try { opts.onAssistantMessageCommitted?.(_assistantTurnMsg); } catch {}
         // Hard-cap final turn: tools are disabled but the model still emitted
         // tool calls. Do NOT execute them — push a refusal stub for each.
         if (_capFinalToolsDisabled) {
@@ -800,6 +814,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             if (sessionId) updateSessionStage(sessionId, 'connecting');
             continue;
         }
+        try { opts.onToolPhaseStarted?.(); } catch {}
         ({ dedupStubTotal: _dedupStubTotal, editCount: _editCount } = await processToolBatch({
             calls, messages, tools, cwd, sessionId, sessionRef, signal, opts,
             iterations, assistantTurnMsg: _assistantTurnMsg,

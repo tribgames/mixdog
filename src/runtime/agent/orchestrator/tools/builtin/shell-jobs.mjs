@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, watch as fsWatch, writeFileSync } from 'fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, unlinkSync, watch as fsWatch, writeFileSync } from 'fs';
 import { basename } from 'path';
 import { stripAnsi } from '../shell-command.mjs';
 import { scrubLoaderVars, scrubProviderSecrets } from '../env-scrub.mjs';
@@ -34,6 +34,7 @@ import {
 } from './shell-job-paths.mjs';
 import {
     isPidAlive,
+    trackProcessTreeQuiescence,
     killProcessTree,
     _unregisterLiveJobPid,
     _installShellJobsExitHook,
@@ -51,6 +52,88 @@ globalThis.__mixdogShellJobsRuntimeLoaded = true;
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const SPAWN_ERROR_GUARD = Symbol('mixdog.spawnErrorGuard');
+function awaitSpawnReady(child, label) {
+    return new Promise((resolve, reject) => {
+        if (!child || typeof child.once !== 'function') {
+            reject(new Error(`${label} spawn returned no child process`));
+            return;
+        }
+        let spawned = false;
+        let bufferedError = null;
+        const cleanup = () => child.removeListener('spawn', onSpawn);
+        const onError = (error) => {
+            if (spawned) {
+                bufferedError = bufferedError || error;
+                return;
+            }
+            cleanup();
+            child.removeListener('error', onError);
+            reject(error);
+        };
+        const onSpawn = () => {
+            cleanup();
+            spawned = true;
+            const pid = Number(child.pid);
+            if (!Number.isFinite(pid) || pid <= 0) {
+                child.removeListener('error', onError);
+                reject(new Error(`${label} spawn returned no pid`));
+                return;
+            }
+            child[SPAWN_ERROR_GUARD] = {
+                adopt(handler) {
+                    child.on('error', handler);
+                    child.removeListener('error', onError);
+                    if (bufferedError) handler(bufferedError);
+                    delete child[SPAWN_ERROR_GUARD];
+                },
+                discard() {
+                    child.removeListener('error', onError);
+                    delete child[SPAWN_ERROR_GUARD];
+                },
+            };
+            resolve(child);
+        };
+        child.once('error', onError);
+        child.once('spawn', onSpawn);
+    });
+}
+
+function adoptSpawnErrorHandler(child, handler) {
+    const guard = child?.[SPAWN_ERROR_GUARD];
+    if (guard) guard.adopt(handler);
+    else child?.on?.('error', handler);
+}
+
+async function rollbackSpawnedChild(child, { timeoutMs = 5000 } = {}) {
+    if (!child || child.exitCode != null || child.signalCode != null) {
+        return { confirmed: true, errors: [] };
+    }
+    const errors = [];
+    let timer = null;
+    let settled = false;
+    const outcome = await new Promise((resolve) => {
+        const finish = (confirmed) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            child.removeListener('exit', onExit);
+            child.removeListener('close', onExit);
+            child.removeListener('error', onError);
+            resolve({ confirmed, errors });
+        };
+        const onExit = () => finish(true);
+        const onError = (error) => { errors.push(error); };
+        child.on('error', onError);
+        child.once('exit', onExit);
+        child.once('close', onExit);
+        timer = setTimeout(() => finish(false), Math.max(1, Number(timeoutMs) || 5000));
+        try { killProcessTree(child.pid, 'SIGKILL'); } catch (error) { errors.push(error); }
+        try { child.kill?.('SIGKILL'); } catch (error) { errors.push(error); }
+    });
+    return outcome;
 }
 
 const JOB_STATUS_PREVIEW_MAX_BYTES = 4096;
@@ -300,6 +383,11 @@ export function killShellJob(jobId) {
     const detail = readShellJobDetail(jobId);
     if (!detail) return null;
     if (detail.status !== 'running') {
+        if (detail.terminationPending === true) {
+            killProcessTree(detail.pid, 'SIGKILL');
+            return { ...detail, killed: true, note: 'termination still awaiting confirmed process exit' };
+        }
+        releaseShellJobOwnershipWhenQuiescent(jobId, detail.pid);
         return { ...detail, killed: false, note: `task already ${detail.status}` };
     }
     killProcessTree(detail.pid, 'SIGTERM');
@@ -308,8 +396,14 @@ export function killShellJob(jobId) {
     detail.error = 'killed by user (KillShell)';
     detail.finishedAt = new Date().toISOString();
     trimShellJobSpill(detail);
+    detail.terminationPending = true;
     writeShellJobDetail(detail);
-    _unregisterLiveJobPid(detail.pid);
+    releaseShellJobOwnershipWhenQuiescent(jobId, detail.pid, {
+        onConfirmed: () => {
+            detail.terminationPending = false;
+            try { writeShellJobDetail(detail); } catch {}
+        },
+    });
     return { ...attachJobInsights(detail), killed: true };
 }
 
@@ -343,7 +437,7 @@ function refreshShellJob(jobId) {
         // producer can't leave a 100MB stdout/stderr log behind.
         trimShellJobSpill(detail);
         writeShellJobDetail(detail);
-        _unregisterLiveJobPid(detail.pid);
+        releaseShellJobOwnershipWhenQuiescent(jobId, detail.pid);
         return detail;
     }
     const timeoutMs = Number(detail.timeoutMs || 0);
@@ -355,8 +449,14 @@ function refreshShellJob(jobId) {
         detail.finishedAt = new Date().toISOString();
         detail.error = `timed out after ${timeoutMs} ms`;
         trimShellJobSpill(detail);
+        detail.terminationPending = true;
         writeShellJobDetail(detail);
-        _unregisterLiveJobPid(detail.pid);
+        releaseShellJobOwnershipWhenQuiescent(jobId, detail.pid, {
+            onConfirmed: () => {
+                detail.terminationPending = false;
+                try { writeShellJobDetail(detail); } catch {}
+            },
+        });
         return detail;
     }
     // Output size watchdog: cap the job's spilled stdout/stderr at the same
@@ -369,8 +469,14 @@ function refreshShellJob(jobId) {
         detail.finishedAt = new Date().toISOString();
         detail.error = `output exceeded ${SHELL_JOB_OUTPUT_DISK_CAP} byte cap`;
         trimShellJobSpill(detail);
+        detail.terminationPending = true;
         writeShellJobDetail(detail);
-        _unregisterLiveJobPid(detail.pid);
+        releaseShellJobOwnershipWhenQuiescent(jobId, detail.pid, {
+            onConfirmed: () => {
+                detail.terminationPending = false;
+                try { writeShellJobDetail(detail); } catch {}
+            },
+        });
         return detail;
     }
     if (detail.pid && !isPidAlive(detail.pid)) {
@@ -378,13 +484,13 @@ function refreshShellJob(jobId) {
         detail.finishedAt = new Date().toISOString();
         detail.error = 'process exited without completion marker';
         writeShellJobDetail(detail);
-        _unregisterLiveJobPid(detail.pid);
+        releaseShellJobOwnershipWhenQuiescent(jobId, detail.pid);
     }
     return detail;
 }
 
-export function startBackgroundShellJob({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs, shellType, clientHostPid }) {
-    return _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs, shellType, clientHostPid });
+export async function startBackgroundShellJob(options) {
+    return _startBackgroundShellJobImpl(options || {});
 }
 
 // In-process completion watcher. After a background shell task is spawned the
@@ -417,6 +523,86 @@ const backgroundShellJobWatchers = new Map();
 // cannot be armed because the direct notifyFn is unavailable, this poller still
 // reconciles the shell job into the shared background-task row.
 const shellTaskSafetyPollers = new Map();
+const shellJobResourceLeases = new Map();
+const unpersistedTerminalJobs = new Set();
+const shellJobQuiescenceTrackers = new Map();
+function releaseShellJobResourceLease(jobId) {
+    const lease = shellJobResourceLeases.get(jobId);
+    if (!lease) return false;
+    shellJobResourceLeases.delete(jobId);
+    try { Promise.resolve(lease.release()).catch(() => {}); } catch { /* admission cleanup must not mask job state */ }
+    return true;
+}
+export function attachShellJobResourceLease(jobId, lease, { allowUnpersisted = false } = {}) {
+    if (!jobId || !lease || typeof lease.release !== 'function') return false;
+    if (allowUnpersisted && unpersistedTerminalJobs.delete(jobId)) {
+        try { Promise.resolve(lease.release()).catch(() => {}); } catch {}
+        return false;
+    }
+    const detail = readShellJobDetail(jobId);
+    if ((!detail && !allowUnpersisted) || (detail && detail.status !== 'running')) {
+        try { Promise.resolve(lease.release()).catch(() => {}); } catch {}
+        return false;
+    }
+    releaseShellJobResourceLease(jobId);
+    shellJobResourceLeases.set(jobId, lease);
+    return true;
+}
+function releaseShellJobOwnershipWhenQuiescent(jobId, pid, {
+    onConfirmed = null,
+    allowLateLease = false,
+    deferUntilRootExit = false,
+} = {}) {
+    const numericPid = Number(pid);
+    if (!jobId || !Number.isFinite(numericPid) || numericPid <= 0) return false;
+    const existing = shellJobQuiescenceTrackers.get(jobId);
+    if (existing) {
+        if (onConfirmed) existing.callbacks.add(onConfirmed);
+        if (allowLateLease) existing.allowLateLease = true;
+        if (!deferUntilRootExit) existing.tracker?.rootExited?.();
+        return true;
+    }
+    const entry = {
+        callbacks: new Set(onConfirmed ? [onConfirmed] : []),
+        allowLateLease,
+        tracker: null,
+    };
+    shellJobQuiescenceTrackers.set(jobId, entry);
+    entry.tracker = trackProcessTreeQuiescence(numericPid, () => {
+        shellJobQuiescenceTrackers.delete(jobId);
+        _unregisterLiveJobPid(numericPid);
+        for (const callback of entry.callbacks) {
+            try { callback(); } catch {}
+        }
+        if (!releaseShellJobResourceLease(jobId) && entry.allowLateLease) {
+            unpersistedTerminalJobs.add(jobId);
+        }
+    }, { waitForRootExit: deferUntilRootExit });
+    return true;
+}
+function trackChildUntilConfirmedExit(child, jobId, onConfirmed = null) {
+    const pid = Number(child?.pid);
+    if (!Number.isFinite(pid) || pid <= 0) return false;
+    _installShellJobsExitHook();
+    _registerLiveJobPid(pid, jobId);
+    let settled = false;
+    const onError = () => {};
+    const finish = () => {
+        if (settled) return;
+        settled = true;
+        child.removeListener('exit', finish);
+        child.removeListener('close', finish);
+        child.removeListener('error', onError);
+        releaseShellJobOwnershipWhenQuiescent(jobId, pid, {
+            onConfirmed,
+            allowLateLease: true,
+        });
+    };
+    child.on('error', onError);
+    child.once('exit', finish);
+    child.once('close', finish);
+    return true;
+}
 // Persistent notify ctx per jobId, set at FIRST arm and surviving cancel — so a
 // re-arm after a task wait timeout can reconstruct the notify wiring without the
 // caller threading the ctx back in. Deleted only in the watcher's cleanup() on
@@ -524,8 +710,14 @@ function markShellJobCancelledByShutdown(jobId, reason = 'shutdown') {
     detail.finishedAt = new Date().toISOString();
     try { writeFileSync(detail.exitPath || shellJobExitPath(jobId), '137'); } catch { /* ignore */ }
     try { writeFileSync(detail.donePath || shellJobDonePath(jobId), ''); } catch { /* ignore */ }
+    detail.terminationPending = true;
     writeShellJobDetail(detail);
-    _unregisterLiveJobPid(detail.pid);
+    releaseShellJobOwnershipWhenQuiescent(jobId, detail.pid, {
+        onConfirmed: () => {
+            detail.terminationPending = false;
+            try { writeShellJobDetail(detail); } catch {}
+        },
+    });
     return true;
 }
 // Register a synchronous task waiter. Paired with endShellJobWait in a
@@ -555,12 +747,11 @@ export function shutdownShellJobs(reason = 'runtime-close', { sync = false } = {
         try { cancelBackgroundShellJobWatch(jobId); } catch { /* ignore */ }
     }
     for (const pid of livePids) _killLiveJobPid(pid, { sync });
-    _liveJobPids.clear();
-    _liveJobIdsByPid.clear();
     let marked = 0;
     for (const jobId of jobIds) {
         try { if (markShellJobCancelledByShutdown(jobId, reason)) marked += 1; } catch { /* ignore */ }
     }
+    unpersistedTerminalJobs.clear();
     backgroundShellJobWatchers.clear();
     for (const jobId of [...shellTaskSafetyPollers.keys()]) clearShellTaskSafetyNet(jobId);
     jobNotifyCtxByJobId.clear();
@@ -818,13 +1009,20 @@ function _armAdoptedJobCapPoll(jobId) {
     return tick;
 }
 
-function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs, shellType, clientHostPid }) {
+async function _startBackgroundShellJobImpl({
+    command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs,
+    shellType, clientHostPid, spawnFn = spawn, writeDetailFn = writeShellJobDetail,
+    rollbackTimeoutMs = 5000,
+}) {
     // Route ANY PowerShell shell to the PS wrapper, regardless of platform.
     // Gating on win32 sent shell:'powershell' on macOS/Linux down the POSIX
     // path below, which spawns `pwsh <wrapper>.sh` — pwsh then tries to run a
     // bash script. isPowerShellShell already matches pwsh/powershell by stem.
     if (isPowerShellShell(shell, shellType)) {
-        return startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid });
+        return startBackgroundPowerShellJob({
+            command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid,
+            spawnFn, writeDetailFn,
+        });
     }
 
     // POSIX-shell wrapper path. On Windows this runs for shell:'bash' (Git
@@ -903,19 +1101,19 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     // R11: scrub loader/execution vars even though bash-tool.mjs already
     // scrubs upstream — defense-in-depth at the spawn site catches future
     // callers that build their own spawnEnv.
-    const child = spawn(shell, [wrappedTempPath], {
-        cwd: workDir,
-        env: scrubLoaderVars(scrubProviderSecrets({ ...spawnEnv })),
-        stdio: 'ignore',
-        ...detachedSpawnOpts,
-    });
-    startChildGuardian({
-        childPid: child.pid,
-        childGroupPid: child.pid,
-        label: 'shell-job',
-    });
-    _installShellJobsExitHook();
-    _registerLiveJobPid(child.pid, jobId);
+    let child;
+    try {
+        child = spawnFn(shell, [wrappedTempPath], {
+            cwd: workDir,
+            env: scrubLoaderVars(scrubProviderSecrets({ ...spawnEnv })),
+            stdio: 'ignore',
+            ...detachedSpawnOpts,
+        });
+        await awaitSpawnReady(child, 'POSIX background task');
+    } catch (e) {
+        try { unlinkSync(wrappedTempPath); } catch {}
+        return { jobId, kind: 'bash', status: 'failed', error: `failed to spawn shell background task: ${e?.message || e}` };
+    }
     const detail = {
         jobId,
         kind: 'bash',
@@ -934,7 +1132,79 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
         ownerHostPid: resolveJobOwnerHostPid(clientHostPid),
         startedAt: new Date().toISOString(),
     };
-    writeShellJobDetail(detail);
+    let terminal = false;
+    let runtimeOwned = false;
+    const onRuntimeError = (error) => {
+        if (terminal) return;
+        terminal = true;
+        detail.status = 'failed';
+        detail.terminationPending = true;
+        detail.error = `shell background task process error: ${error?.message || error}`;
+        detail.finishedAt = new Date().toISOString();
+        try { writeDetailFn(detail); } catch {}
+        if (runtimeOwned) void (async () => {
+            const rollback = await rollbackSpawnedChild(child, { timeoutMs: rollbackTimeoutMs });
+            if (rollback.confirmed) {
+                releaseShellJobOwnershipWhenQuiescent(jobId, child.pid, {
+                    onConfirmed: () => {
+                        detail.terminationPending = false;
+                        try { writeDetailFn(detail); } catch {}
+                    },
+                });
+            } else {
+                detail.error += `; termination unconfirmed after ${rollbackTimeoutMs}ms (process remains tracked)`;
+                try { writeDetailFn(detail); } catch {}
+                trackChildUntilConfirmedExit(child, jobId, () => {
+                    detail.terminationPending = false;
+                    try { writeDetailFn(detail); } catch {}
+                });
+            }
+        })();
+    };
+    adoptSpawnErrorHandler(child, onRuntimeError);
+    if (terminal) {
+        const rollback = await rollbackSpawnedChild(child, { timeoutMs: rollbackTimeoutMs });
+        detail.terminationPending = !rollback.confirmed;
+        try { writeDetailFn(detail); } catch {}
+        try { unlinkSync(wrappedTempPath); } catch {}
+        return rollback.confirmed
+            ? detail
+            : {
+                ...detail,
+                rollbackPending: trackChildUntilConfirmedExit(child, jobId, () => {
+                    detail.terminationPending = false;
+                    try { writeDetailFn(detail); } catch {}
+                }),
+                error: `${detail.error}; termination unconfirmed after ${rollbackTimeoutMs}ms (process remains tracked)`,
+            };
+    }
+    try {
+        writeDetailFn(detail);
+    } catch (e) {
+        terminal = true;
+        const rollback = await rollbackSpawnedChild(child, { timeoutMs: rollbackTimeoutMs });
+        child.removeListener('error', onRuntimeError);
+        child[SPAWN_ERROR_GUARD]?.discard?.();
+        try { unlinkSync(wrappedTempPath); } catch {}
+        const failure = { jobId, kind: 'bash', status: 'failed', error: `failed to persist shell background task: ${e?.message || e}` };
+        if (!rollback.confirmed) {
+            failure.rollbackPending = trackChildUntilConfirmedExit(child, jobId);
+            failure.error += `; termination unconfirmed after ${rollbackTimeoutMs}ms (process remains tracked)`;
+        }
+        return failure;
+    }
+    startChildGuardian({
+        childPid: child.pid,
+        childGroupPid: child.pid,
+        label: 'shell-job',
+    });
+    _installShellJobsExitHook();
+    _registerLiveJobPid(child.pid, jobId);
+    runtimeOwned = true;
+    releaseShellJobOwnershipWhenQuiescent(jobId, child.pid, {
+        allowLateLease: true,
+        deferUntilRootExit: true,
+    });
     // Deadline cleanup poke only when a timeout is enforced; an unlimited
     // (timeoutMs<=0) job has no deadline — completion is observed via the
     // fs.watch/poll watcher and refreshShellJob on task queries.
@@ -945,7 +1215,10 @@ function _startBackgroundShellJobImpl({ command, timeoutMs, workDir, mergeStderr
     return detail;
 }
 
-function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid }) {
+async function startBackgroundPowerShellJob({
+    command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid,
+    spawnFn = spawn, writeDetailFn = writeShellJobDetail, rollbackTimeoutMs = 5000,
+}) {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const stdoutPath = shellJobStdoutPath(jobId);
     const rawStderrPath = shellJobStderrPath(jobId);
@@ -1059,27 +1332,23 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
     // process; runtime.close()/exit hooks reap it instead of daemonizing it.
     let child;
     try {
-        child = spawn(shell, wrapperArgs, {
+        child = spawnFn(shell, wrapperArgs, {
             cwd: workDir,
             env: scrubLoaderVars(scrubProviderSecrets({ ...spawnEnv })),
             detached: false,
             stdio: 'ignore',
             windowsHide: true,
         });
-        startChildGuardian({
-            childPid: child.pid,
-            childGroupPid: child.pid,
-            label: 'shell-job-powershell',
-        });
+        await awaitSpawnReady(child, 'PowerShell background task');
     } catch (e) {
+        try { unlinkSync(wrappedTempPath); } catch {}
+        try { unlinkSync(innerTempPath); } catch {}
         return { jobId, kind: 'bash', status: 'failed', error: `failed to spawn PowerShell background task: ${e?.message || e}` };
     }
     const childPid = child.pid;
     if (!Number.isFinite(childPid) || childPid <= 0) {
         return { jobId, kind: 'bash', status: 'failed', error: 'PowerShell background task spawn returned no pid' };
     }
-    _installShellJobsExitHook();
-    _registerLiveJobPid(childPid, jobId);
     const detail = {
         jobId,
         kind: 'bash',
@@ -1103,7 +1372,81 @@ function startBackgroundPowerShellJob({ command, timeoutMs, workDir, mergeStderr
         ownerHostPid: resolveJobOwnerHostPid(clientHostPid),
         startedAt: new Date().toISOString(),
     };
-    writeShellJobDetail(detail);
+    let terminal = false;
+    let runtimeOwned = false;
+    const onRuntimeError = (error) => {
+        if (terminal) return;
+        terminal = true;
+        detail.status = 'failed';
+        detail.terminationPending = true;
+        detail.error = `PowerShell background task process error: ${error?.message || error}`;
+        detail.finishedAt = new Date().toISOString();
+        try { writeDetailFn(detail); } catch {}
+        if (runtimeOwned) void (async () => {
+            const rollback = await rollbackSpawnedChild(child, { timeoutMs: rollbackTimeoutMs });
+            if (rollback.confirmed) {
+                releaseShellJobOwnershipWhenQuiescent(jobId, childPid, {
+                    onConfirmed: () => {
+                        detail.terminationPending = false;
+                        try { writeDetailFn(detail); } catch {}
+                    },
+                });
+            } else {
+                detail.error += `; termination unconfirmed after ${rollbackTimeoutMs}ms (process remains tracked)`;
+                try { writeDetailFn(detail); } catch {}
+                trackChildUntilConfirmedExit(child, jobId, () => {
+                    detail.terminationPending = false;
+                    try { writeDetailFn(detail); } catch {}
+                });
+            }
+        })();
+    };
+    adoptSpawnErrorHandler(child, onRuntimeError);
+    if (terminal) {
+        const rollback = await rollbackSpawnedChild(child, { timeoutMs: rollbackTimeoutMs });
+        detail.terminationPending = !rollback.confirmed;
+        try { writeDetailFn(detail); } catch {}
+        try { unlinkSync(wrappedTempPath); } catch {}
+        try { unlinkSync(innerTempPath); } catch {}
+        return rollback.confirmed
+            ? detail
+            : {
+                ...detail,
+                rollbackPending: trackChildUntilConfirmedExit(child, jobId, () => {
+                    detail.terminationPending = false;
+                    try { writeDetailFn(detail); } catch {}
+                }),
+                error: `${detail.error}; termination unconfirmed after ${rollbackTimeoutMs}ms (process remains tracked)`,
+            };
+    }
+    try {
+        writeDetailFn(detail);
+    } catch (e) {
+        terminal = true;
+        const rollback = await rollbackSpawnedChild(child, { timeoutMs: rollbackTimeoutMs });
+        child.removeListener('error', onRuntimeError);
+        child[SPAWN_ERROR_GUARD]?.discard?.();
+        try { unlinkSync(wrappedTempPath); } catch {}
+        try { unlinkSync(innerTempPath); } catch {}
+        const failure = { jobId, kind: 'bash', status: 'failed', error: `failed to persist PowerShell background task: ${e?.message || e}` };
+        if (!rollback.confirmed) {
+            failure.rollbackPending = trackChildUntilConfirmedExit(child, jobId);
+            failure.error += `; termination unconfirmed after ${rollbackTimeoutMs}ms (process remains tracked)`;
+        }
+        return failure;
+    }
+    startChildGuardian({
+        childPid,
+        childGroupPid: childPid,
+        label: 'shell-job-powershell',
+    });
+    _installShellJobsExitHook();
+    _registerLiveJobPid(childPid, jobId);
+    runtimeOwned = true;
+    releaseShellJobOwnershipWhenQuiescent(jobId, childPid, {
+        allowLateLease: true,
+        deferUntilRootExit: true,
+    });
     if (Number(timeoutMs) > 0) {
         const timer = setTimeout(() => { refreshShellJob(jobId); }, Math.min(TIMER_MAX_MS, timeoutMs + 25));
         if (typeof timer.unref === 'function') timer.unref();

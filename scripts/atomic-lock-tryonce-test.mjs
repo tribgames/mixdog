@@ -4,7 +4,14 @@
 // lock interop: neither can enter the critical section while the other holds.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -60,6 +67,58 @@ test('async holder blocks sync try-once, then sync acquires after release', asyn
     });
     const val = withFileLockSync(lockPath, () => 7, { timeoutMs: 0 });
     assert.equal(val, 7);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('published reclaim guards are non-revocable regardless of owner, contents, or age', () => {
+  for (const [name, content, aged] of [
+    ['live', `${process.pid + 1} 1 live\n`, false],
+    ['same-pid', `${process.pid} 1 sibling\n`, false],
+    ['empty', '', false],
+    ['malformed', 'not-a-guard', false],
+    ['aged-dead', '2147483647 1 corpse\n', true],
+  ]) {
+    const { dir, lockPath } = tmpLock();
+    try {
+      const guardPath = `${lockPath}.reclaim`;
+      writeFileSync(lockPath, '2147483647 1 dead-lock\n');
+      writeFileSync(guardPath, content);
+      if (aged) {
+        const old = new Date(Date.now() - 60000);
+        utimesSync(guardPath, old, old);
+      }
+      assert.throws(
+        () => withFileLockSync(lockPath, () => 'unreachable', { timeoutMs: 5, staleMs: 1 }),
+        (error) => error?.code === 'ELOCKTIMEOUT',
+        name,
+      );
+      assert.equal(readFileSync(guardPath, 'utf8'), content, name);
+      assert.equal(existsSync(lockPath), true, name);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('overlapping dead-guard contenders neither delete nor replace the guard', async () => {
+  const { dir, lockPath } = tmpLock();
+  try {
+    const guardPath = `${lockPath}.reclaim`;
+    const guard = '2147483647 1 dead-guard\n';
+    writeFileSync(lockPath, '2147483647 1 dead-lock\n');
+    writeFileSync(guardPath, guard);
+    const attempts = await Promise.allSettled([
+      withFileLock(lockPath, () => 'unreachable', { timeoutMs: 10, staleMs: 1 }),
+      withFileLock(lockPath, () => 'unreachable', { timeoutMs: 10, staleMs: 1 }),
+    ]);
+    assert.deepEqual(attempts.map(({ status, reason }) => [status, reason?.code]), [
+      ['rejected', 'ELOCKTIMEOUT'],
+      ['rejected', 'ELOCKTIMEOUT'],
+    ]);
+    assert.equal(readFileSync(guardPath, 'utf8'), guard);
+    assert.equal(existsSync(lockPath), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

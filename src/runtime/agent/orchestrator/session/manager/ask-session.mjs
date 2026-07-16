@@ -22,7 +22,6 @@ import {
     buildCurrentTimeBlock,
     buildSessionStartBlock,
     hasUserConversationMessage,
-    isInternalRuntimeNotificationText,
 } from './prompt-utils.mjs';
 import { _mergePendingMessageEntries, drainPendingMessages } from './pending-messages.mjs';
 import { persistIterationMetrics, applyAskTerminalUsageTotals } from './usage-metrics.mjs';
@@ -42,7 +41,11 @@ import {
 import { SessionClosedError } from './session-errors.mjs';
 import { acquireSessionLock } from './session-lock.mjs';
 import { _tryBridgeExplicitPrefetch } from './prefetch-bridge.mjs';
-import { sanitizeSessionMessagesForModel, persistCompactedOutgoingAfterAskFailure } from './message-sanitize.mjs';
+import {
+    filterModelVisibleSessionMessages,
+    persistCompactedOutgoingAfterAskFailure,
+} from './message-sanitize.mjs';
+import { createTurnInterruptionTracker } from './turn-interruption.mjs';
 import { _getAgentLoop } from './runtime-loaders.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
 import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
@@ -188,6 +191,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         let activeSession = preSession;
         let cancelledUserTurnContent = '';
         let _turnOutgoing = null;
+        const _turnInterruption = createTurnInterruptionTracker();
+        const _sessionStartMetaInjectedBeforeTurn = preSession.sessionStartMetaInjected === true;
         try {
             const session = activeSession;
             const provider = getProvider(session.provider);
@@ -244,7 +249,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (explicitPrefetchResult) {
                 _contextBlock += `# Prefetch\n${_capCtx(explicitPrefetchResult)}\n\n`;
             }
-            const historyMessages = sanitizeSessionMessagesForModel(session.messages);
+            const historyMessages = filterModelVisibleSessionMessages(session.messages);
             const beforeCount = historyMessages.length + 1;
             const promptTextForMetrics = promptContentText(prompt);
             // Soft warning only; real size management (compaction primary,
@@ -291,7 +296,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // below overwrites this provisional transcript with the fully mutated
             // outgoing history and appends the assistant result, so no duplicate
             // user turn is introduced.
-            session.messages = sanitizeSessionMessagesForModel(outgoing);
+            session.messages = filterModelVisibleSessionMessages(outgoing);
             session.liveTurnMessages = outgoing;
             saveSessionAsync(session, { expectedGeneration: askGeneration }).catch((err) => {
                 try { process.stderr.write(`[session] preflight user-turn save failed: ${err?.message || err}\n`); } catch {}
@@ -324,6 +329,27 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 });
             } catch { /* trace must never break the ask path */ }
             const agentLoop = await _getAgentLoop();
+            const _trackTextDelta = (chunk) => {
+                _turnInterruption.recordTextDelta(chunk);
+                if (typeof askOpts?.onTextDelta === 'function') askOpts.onTextDelta(chunk);
+            };
+            const _trackReasoningDelta = (chunk) => {
+                _turnInterruption.recordReasoningDelta(chunk);
+                if (typeof askOpts?.onReasoningDelta === 'function') askOpts.onReasoningDelta(chunk);
+            };
+            const _trackAssistantText = (text) => {
+                _turnInterruption.recordAssistantText(text);
+                if (typeof askOpts?.onAssistantText === 'function') askOpts.onAssistantText(text);
+            };
+            const _trackedOnToolCall = async (iteration, calls) => {
+                _turnInterruption.recordToolCalls(calls);
+                if (typeof onToolCall === 'function') return await onToolCall(iteration, calls);
+                return undefined;
+            };
+            const _trackToolResult = (message) => {
+                _turnInterruption.recordToolResult(message);
+                if (typeof askOpts?.onToolResult === 'function') askOpts.onToolResult(message);
+            };
             const priorToolApprovalHook = session.toolApprovalHook;
             if (typeof askOpts?.onToolApproval === 'function') {
                 session.toolApprovalHook = askOpts.onToolApproval;
@@ -331,13 +357,17 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             let result;
             try {
             result = await _api_call_with_interrupt(sessionId, (signal) =>
-                agentLoop(provider, outgoing, session.model, session.tools, onToolCall, effectiveCwd, {
+                agentLoop(provider, outgoing, session.model, session.tools, _trackedOnToolCall, effectiveCwd, {
                     effort: session.effort || null,
                     fast: session.fast === true,
                     sessionId,
-                    onTextDelta: typeof askOpts?.onTextDelta === 'function' ? askOpts.onTextDelta : undefined,
-                    onReasoningDelta: typeof askOpts?.onReasoningDelta === 'function' ? askOpts.onReasoningDelta : undefined,
-                    onAssistantText: typeof askOpts?.onAssistantText === 'function' ? askOpts.onAssistantText : undefined,
+                    onTextDelta: _trackTextDelta,
+                    onReasoningDelta: _trackReasoningDelta,
+                    onAssistantText: _trackAssistantText,
+                    onAssistantMessageCommitted: () => _turnInterruption.markAssistantMessageCommitted(),
+                    onAssistantToolCallObserved: (call, detail) => _turnInterruption.recordToolCalls([call], detail),
+                    onProviderSendStarted: () => _turnInterruption.markProviderSendStarted(),
+                    onToolPhaseStarted: () => _turnInterruption.markToolPhaseStarted(),
                     onUsageDelta: (d) => {
                         persistIterationMetrics(d).catch(() => {});
                         // provider_send usage arrives before agentLoop appends
@@ -357,7 +387,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         }
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
-                    onToolResult: typeof askOpts?.onToolResult === 'function' ? askOpts.onToolResult : undefined,
+                    onToolResult: _trackToolResult,
                     onToolApproval: typeof askOpts?.onToolApproval === 'function' ? askOpts.onToolApproval : undefined,
                     onCompactEvent: typeof askOpts?.onCompactEvent === 'function' ? askOpts.onCompactEvent : undefined,
                     // Claude Code parity: mid-chain queued prompt/notification
@@ -429,7 +459,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // Update and save. outgoing is mutated in place by agentLoop
             // (compaction + safety trim), so its length reflects post-loop state.
             const messagesDropped = Math.max(0, beforeCount - outgoing.length);
-            session.messages = sanitizeSessionMessagesForModel(outgoing);
+            session.messages = filterModelVisibleSessionMessages(outgoing);
             // Turn committed into session.messages; drop the live-turn alias so
             // contextStatus() reverts to the authoritative committed transcript.
             session.liveTurnMessages = null;
@@ -638,28 +668,26 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 const currentRuntime = _getRuntimeEntry(sessionId);
                 if (!currentRuntime?.closed) {
                     if (activeSession) {
-                        const originalMessages = Array.isArray(activeSession.messages) ? activeSession.messages : [];
-                        const cleanedMessages = sanitizeSessionMessagesForModel(originalMessages);
-                        const nextMessages = cleanedMessages.slice();
-                        // In-memory cancelled turn keeps its original content
-                        // (images intact for the next model send); the store
-                        // layer placeholders image bytes on disk serialization.
-                        const cancelledStoredContent = cancelledUserTurnContent;
-                        const shouldPreserveUserTurn = cancelledStoredContent && !isInternalRuntimeNotificationText(cancelledStoredContent);
-                        const lastMessage = nextMessages[nextMessages.length - 1];
-                        if (shouldPreserveUserTurn && !(lastMessage?.role === 'user' && promptContentText(lastMessage.content) === promptContentText(cancelledStoredContent))) {
-                            nextMessages.push({ role: 'user', content: cancelledStoredContent });
+                        const finalized = _turnInterruption.finalize({
+                            turnOutgoing: _turnOutgoing || activeSession.messages,
+                            currentUserContent: cancelledUserTurnContent,
+                            abortReason: err.reason,
+                        });
+                        activeSession.messages = finalized.messages;
+                        if (!finalized.responsePreserved) {
+                            activeSession.sessionStartMetaInjected = _sessionStartMetaInjectedBeforeTurn;
+                        } else {
+                            // The opaque provider continuation now points at a
+                            // request that ended mid-turn. Force full transcript
+                            // replay on the next send instead of reusing it.
+                            activeSession.providerState = undefined;
                         }
-                        const messagesChanged = nextMessages.length !== originalMessages.length
-                            || nextMessages.some((message, index) => message !== originalMessages[index]);
-                        if (messagesChanged) {
-                            activeSession.messages = nextMessages;
-                            activeSession.updatedAt = Date.now();
-                            activeSession.lastUsedAt = Date.now();
-                            try {
-                                await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
-                            } catch { /* cancellation cleanup is best-effort */ }
-                        }
+                        activeSession.updatedAt = Date.now();
+                        activeSession.lastUsedAt = Date.now();
+                        try {
+                            await saveSessionAsync(activeSession, { expectedGeneration: askGeneration });
+                        } catch { /* cancellation cleanup is best-effort */ }
+                        if (currentRuntime) currentRuntime.session = activeSession;
                     }
                     markSessionCancelled(sessionId);
                 }

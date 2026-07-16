@@ -81,6 +81,21 @@ function _positiveNumber(value, fallback = 0) {
     return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+function _desktopSessionSummary(value, cwd = null) {
+    if (!value || typeof value !== 'object') return null;
+    if (value.classification === 'task') {
+        return { classification: 'task', projectPath: null };
+    }
+    if (value.classification !== 'project') return null;
+    const cleanPath = (path) => {
+        if (typeof path !== 'string') return null;
+        const trimmed = path.trim();
+        return trimmed && !trimmed.includes('\0') ? trimmed : null;
+    };
+    const projectPath = cleanPath(value.projectPath) || cleanPath(cwd);
+    return projectPath ? { classification: 'project', projectPath } : null;
+}
+
 export function _sessionSummary(session) {
     if (!session?.id) return null;
     return {
@@ -98,6 +113,7 @@ export function _sessionSummary(session) {
         ownerSessionId: session.ownerSessionId || null,
         clientHostPid: _positiveNumber(session.clientHostPid, 0) || null,
         cwd: session.cwd || '',
+        desktopSession: _desktopSessionSummary(session.desktopSession, session.cwd),
         provider: session.provider || null,
         model: session.model || null,
         agentTag: session.agentTag || null,
@@ -128,6 +144,7 @@ function _normalizeSummaryRow(row) {
         ownerSessionId: row.ownerSessionId || null,
         clientHostPid: _positiveNumber(row.clientHostPid, 0) || null,
         cwd: row.cwd || '',
+        desktopSession: _desktopSessionSummary(row.desktopSession, row.cwd),
         provider: row.provider || null,
         model: row.model || null,
         agentTag: row.agentTag || null,

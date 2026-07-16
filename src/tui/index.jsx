@@ -15,6 +15,7 @@ import { App } from './App.jsx';
 import { createEngineSession } from './engine.mjs';
 import { scheduleRenderFrameAck } from './engine/render-timing.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
+import { finishProcessLifecycle } from '../runtime/shared/process-lifecycle.mjs';
 import { rgbSgr } from '../ui/ansi.mjs';
 import { emitTerminalBackground, loadThemeSettingFromConfig, theme } from './theme.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
@@ -522,7 +523,8 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   const disposeStoreOnce = async (reason = 'cli-react-exit') => {
     if (storeDisposed) return;
     storeDisposed = true;
-    await waitWithTimeout(store.dispose?.(reason), EXIT_WAIT_TIMEOUT_MS);
+    const completed = await waitWithTimeout(store.dispose?.(reason), EXIT_WAIT_TIMEOUT_MS);
+    if (!completed) throw new Error(`mixdog-tui dispose timed out after ${EXIT_WAIT_TIMEOUT_MS}ms`);
   };
   const signalCleanup = installProcessSignalCleanup({
     name: 'mixdog-tui',
@@ -627,6 +629,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
       await disposeStoreOnce('cli-react-exit');
     } catch (error) {
       tuiExitDebug('store:dispose:failed', { error: error?.message || String(error) });
+      finishProcessLifecycle('forced-cleanup', 0);
     }
     restoreTerminal();
     dumpActiveHandles('after-restore');

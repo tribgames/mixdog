@@ -6,6 +6,7 @@ import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-m
 import { toolResultText } from './tool-result-text.mjs';
 import { parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
+import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 
 export function createEngineApiB(bag) {
   const {
@@ -118,6 +119,16 @@ export function createEngineApiB(bag) {
       return next;
     },
     isRemoteEnabled: () => runtime.isRemoteEnabled?.() === true,
+    getVoiceStatus: () => getVoiceStatus(),
+    toggleVoice: async () => {
+      const result = await toggleVoice({ pushNotice, setProgressHint });
+      return {
+        ...(await getVoiceStatus()),
+        result: typeof result === 'boolean'
+          ? { ok: true, enabled: result }
+          : (result && typeof result === 'object' ? result : { ok: false }),
+      };
+    },
     // Theme is a TUI-local concern (no runtime round-trip). listThemes returns
     // picker metadata; getTheme reports the active id; setTheme applies the
     // palette in-place + persists ui.theme and bumps a themeEpoch so the React
@@ -362,8 +373,8 @@ export function createEngineApiB(bag) {
         set({ commandBusy: false });
       }
     },
-    listSessions: () => {
-      return runtime.listSessions();
+    listSessions: (options) => {
+      return runtime.listSessions(options);
     },
     newSession: async () => {
       if (getState().commandBusy) return false;

@@ -48,6 +48,7 @@ import { _captureTrackedMtimes, _trackedDriftNoteAfter, getDedupedDestructiveWar
 import { scrubLoaderVars, scrubProviderSecrets } from './env-scrub.mjs';
 import { checkExecPolicyMessage } from './bash-policy-scan.mjs';
 import { startChildGuardian } from '../../../shared/child-guardian.mjs';
+import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 
 globalThis.__mixdogBashSessionRuntimeLoaded = true;
 
@@ -344,7 +345,7 @@ function buildBashEnv() {
     return env;
 }
 
-function _spawnSession(id, initialCwd = process.cwd()) {
+function _spawnSession(id, initialCwd = process.cwd(), resourceLease = null) {
     _installParentExitHook();
     _evictOldestIfFull();
     const shell = resolveBash();
@@ -376,6 +377,12 @@ function _spawnSession(id, initialCwd = process.cwd()) {
         busy: false,
         dead: false,
         exitInfo: null,
+        resourceLease,
+    };
+    const releaseResourceLease = () => {
+        if (!entry.resourceLease) return;
+        try { entry.resourceLease.release(); } catch {}
+        entry.resourceLease = null;
     };
     // Hard-capped concat: past STREAM_BUF_BYTE_CAP we drop further
     // chunks and stamp a truncation marker once. Without this a runaway
@@ -402,18 +409,27 @@ function _spawnSession(id, initialCwd = process.cwd()) {
     proc.on('error', (err) => {
         entry.dead = true;
         entry.exitInfo = { error: err?.message || String(err) };
+        // An error event is not proof of process exit. Keep admission until
+        // exit/close confirms termination, and force the failed tree down.
+        _killProcessTree(proc);
     });
     proc.on('exit', (code, signal) => {
         entry.dead = true;
         entry.exitInfo = { code, signal };
         _sessions.delete(id);
+        releaseResourceLease();
+    });
+    proc.on('close', () => {
+        entry.dead = true;
+        _sessions.delete(id);
+        releaseResourceLease();
     });
     _sessions.set(id, entry);
     _startReaper();
     return entry;
 }
 
-function _getOrCreate(sessionId, initialCwd = process.cwd(), opts = {}) {
+async function _getOrCreate(sessionId, initialCwd = process.cwd(), opts = {}) {
     const explicit = typeof sessionId === 'string' && sessionId.length > 0;
     const id = explicit ? sessionId : `sess_${randomUUID()}`;
     let entry = _sessions.get(id);
@@ -425,7 +441,20 @@ function _getOrCreate(sessionId, initialCwd = process.cwd(), opts = {}) {
         if (explicit && opts.create !== true) {
             return { error: `Error: unknown session_id "${id}" (pass create:true to start a new persistent session)` };
         }
-        entry = _spawnSession(id, initialCwd);
+        const admission = opts.resourceAdmission || resourceAdmission;
+        const lease = await admission.acquire('shell', {
+            signal: opts.signal || null,
+            label: `persistent:${id}`,
+            dependency: 'detached',
+        });
+        try {
+            entry = _sessions.get(id);
+            if (!entry || entry.dead) entry = _spawnSession(id, initialCwd, lease);
+            else await lease.release();
+        } catch (error) {
+            await lease.release();
+            throw error;
+        }
     }
     return { id, entry };
 }
@@ -656,7 +685,16 @@ async function bash_session(args, cwd = process.cwd(), opts = {}) {
     const effectiveTimeout = hasExplicitTimeout
         ? Math.min(Math.max(timeoutMs, 1), wmicRewrite?.timeoutMs || TIMER_MAX_MS)
         : Math.min(Math.max(timeoutMs, 1), wmicRewrite?.timeoutMs || MAX_TIMEOUT_MS);
-    const resolved = _getOrCreate(requestedSessionId || args?.session_id, baseCwd, { create: args?.create === true });
+    let resolved;
+    try {
+        resolved = await _getOrCreate(requestedSessionId || args?.session_id, baseCwd, {
+            create: args?.create === true,
+            resourceAdmission: opts?.resourceAdmission || resourceAdmission,
+            signal: abortSignal,
+        });
+    } catch (error) {
+        return `Error: ${error?.message || String(error)}`;
+    }
     if (resolved.error) return resolved.error;
     const { id, entry } = resolved;
     if (entry.syncError) {

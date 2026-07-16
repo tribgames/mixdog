@@ -39,7 +39,9 @@ export function getSession(id) {
 }
 export function listSessions(opts = {}) {
     const includeClosed = opts.includeClosed === true;
-    const sessions = listStoredSessionSummaries();
+    const sessions = listStoredSessionSummaries({
+        refreshFromStorage: opts.refreshFromStorage === true,
+    });
     const hiddenIds = new Set([..._runtimeEntries()].filter(([, e]) => e.listHidden).map(([id]) => id));
     // Tombstoned sessions (closed===true) are excluded unless the caller opts in
     // (e.g. agent list includeClosed:true).

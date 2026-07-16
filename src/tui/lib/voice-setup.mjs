@@ -47,6 +47,22 @@ export function isVoiceEnabled() {
   }
 }
 
+/** Read the managed runtime state without installing or mutating anything. */
+export async function getVoiceStatus({ dataDir = resolvePluginData() } = {}) {
+  const fetcher = await loadVoiceRuntimeFetcher();
+  const runtime = fetcher.resolveVoiceRuntime(dataDir);
+  return {
+    enabled: isVoiceEnabled(),
+    busy: isVoiceInstallBusy(),
+    installed: runtime.installed === true,
+    components: {
+      whisper: Boolean(runtime.binary && runtime.serverCmd),
+      model: Boolean(runtime.model),
+      ffmpeg: Boolean(runtime.ffmpeg),
+    },
+  };
+}
+
 // Coalesce ensure*'s onProgress ({ phase, downloaded, total } | { phase:'extra', ... })
 // into a sticky, in-place input-hint-line progress bar (setProgressHint) so a
 // multi-hundred-MB model download doesn't spam the notice toast on every

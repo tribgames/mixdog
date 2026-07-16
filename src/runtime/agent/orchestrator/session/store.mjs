@@ -717,19 +717,28 @@ export function bumpSessionGeneration(id, reason = 'detach') {
 
 export function loadSession(id) {
     const path = sessionPath(id);
+    let stored = null;
+    if (existsSync(path)) {
+        try {
+            stored = JSON.parse(readFileSync(path, 'utf-8'));
+            // An existing file owns this identity. Its contents must validate
+            // before fresher in-memory state is allowed to shadow it.
+            if (stored?.id !== id) return null;
+        } catch {
+            return null;
+        }
+    }
     // Read-your-writes: if a save is pending (debouncing, scheduled, or queued
     // behind an in-flight write) return that payload instead of stale disk state.
     // The most-recently-queued slot is checked first (queued > payload).
     const pending = _savePending.get(id);
     if (pending) {
         const inMemory = (pending.queued || pending.payload)?.session;
-        if (inMemory) return _ensureLifecycleFields(inMemory);
+        if (inMemory?.id === id) return _ensureLifecycleFields(inMemory);
     }
     const live = _liveSessions.get(id);
-    if (live) return _ensureLifecycleFields(live);
-    if (!existsSync(path)) return null;
-    try { return _ensureLifecycleFields(JSON.parse(readFileSync(path, 'utf-8'))); }
-    catch { return null; }
+    if (live?.id === id) return _ensureLifecycleFields(live);
+    return stored ? _ensureLifecycleFields(stored) : null;
 }
 
 /**
@@ -782,20 +791,52 @@ const RUNNING_STALL_MS = 10 * 60 * 1000;
 const RESUMABLE_OPEN_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const RESUMABLE_OPEN_MAX_COUNT = 300;
 
-export function listStoredSessions() {
+function _storedSessionFromFile(dir, filename, ensureLifecycle = true) {
+    if (!filename.endsWith('.json')) return null;
+    const storageId = filename.slice(0, -5);
+    if (!storageId || !/^[A-Za-z0-9_-]+$/.test(storageId)) return null;
+    try {
+        const session = JSON.parse(readFileSync(join(dir, filename), 'utf-8'));
+        if (session?.id !== storageId) return null;
+        return ensureLifecycle ? _ensureLifecycleFields(session) : session;
+    } catch {
+        return null;
+    }
+}
+
+export function listStoredSessions(options = {}) {
     const dir = getStoreDir();
     if (!existsSync(dir))
         return [];
     const files = readdirSync(dir).filter(f => f.endsWith('.json'));
-    const sessions = [];
+    const sessionsById = new Map();
+    const invalidStorageIds = new Set();
     for (const f of files) {
-        try {
-            const session = _ensureLifecycleFields(JSON.parse(readFileSync(join(dir, f), 'utf-8')));
-            sessions.push(session);
+        const session = _storedSessionFromFile(dir, f);
+        if (session) {
+            sessionsById.set(session.id, session);
+            continue;
         }
-        catch { /* skip corrupt */ }
+        const storageId = f.slice(0, -5);
+        if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
     }
-    return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    if (options.includeLive === true) {
+        // createSession publishes to both of these maps before its 150ms
+        // debounce reaches disk. Merge them by their map/storage identity so
+        // an immediate desktop list has read-your-writes semantics.
+        for (const [id, pending] of _savePending) {
+            const session = (pending.queued || pending.payload)?.session;
+            if (!invalidStorageIds.has(id) && session?.id === id) {
+                sessionsById.set(id, _ensureLifecycleFields(session));
+            }
+        }
+        for (const [id, session] of _liveSessions) {
+            if (!invalidStorageIds.has(id) && session?.id === id) {
+                sessionsById.set(id, _ensureLifecycleFields(session));
+            }
+        }
+    }
+    return [...sessionsById.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function rebuildSessionSummaryIndex() {
@@ -805,18 +846,45 @@ export function rebuildSessionSummaryIndex() {
 
 export function listStoredSessionSummaries(options = {}) {
     const rebuildIfMissing = options.rebuildIfMissing !== false;
-    const p = summaryIndexPath();
-    if (!existsSync(p)) {
-        return rebuildIfMissing ? rebuildSessionSummaryIndex() : [];
+    let indexedRows = [];
+    let p;
+    try {
+        p = summaryIndexPath();
+        if (existsSync(p)) {
+            indexedRows = _normalizeSummaryIndex(JSON.parse(readFileSync(p, 'utf-8'))).rows;
+        }
+    } catch { /* unreadable/malformed sidecar falls through to rebuild */ }
+
+    // Desktop history is user-facing and must not miss a just-saved session
+    // merely because the best-effort summary sidecar lost/delayed an upsert.
+    // Explicit refresh callers scan the authoritative session JSON files. Keep
+    // the scan fail-closed per listStoredSessions (corrupt files are skipped),
+    // and still return valid scanned rows if only the sidecar rewrite fails.
+    if (options.refreshFromStorage === true) {
+        try {
+            const rows = listStoredSessions({ includeLive: true }).map(_sessionSummary).filter(Boolean);
+            try { _writeSummaryIndex(rows); } catch { /* sidecar remains best-effort */ }
+            return rows;
+        } catch {
+            // A refresh is an authorization boundary for desktop resume. If
+            // authoritative storage cannot be enumerated, stale sidecar rows
+            // must not be treated as proof that a session is available.
+            return [];
+        }
+    }
+
+    if (!p || !existsSync(p)) {
+        try { return rebuildIfMissing ? rebuildSessionSummaryIndex() : []; }
+        catch { return indexedRows; }
     }
     try {
-        const index = _normalizeSummaryIndex(JSON.parse(readFileSync(p, 'utf-8')));
-        if (index.rows.length > 0) return index.rows;
+        if (indexedRows.length > 0) return indexedRows;
         const dir = getStoreDir();
         const hasSessionFiles = existsSync(dir) && readdirSync(dir).some((f) => f.endsWith('.json'));
-        return hasSessionFiles && rebuildIfMissing ? rebuildSessionSummaryIndex() : index.rows;
+        return hasSessionFiles && rebuildIfMissing ? rebuildSessionSummaryIndex() : indexedRows;
     } catch {
-        return rebuildIfMissing ? rebuildSessionSummaryIndex() : [];
+        try { return rebuildIfMissing ? rebuildSessionSummaryIndex() : indexedRows; }
+        catch { return indexedRows; }
     }
 }
 
@@ -831,9 +899,8 @@ export function getStoredSessionsRaw() {
     const files = readdirSync(dir).filter(f => f.endsWith('.json'));
     const sessions = [];
     for (const f of files) {
-        try {
-            sessions.push(JSON.parse(readFileSync(join(dir, f), 'utf-8')));
-        } catch { /* skip corrupt */ }
+        const session = _storedSessionFromFile(dir, f, false);
+        if (session) sessions.push(session);
     }
     return sessions;
 }

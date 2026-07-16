@@ -2,12 +2,20 @@
 
 import { fileURLToPath } from 'node:url';
 import { classifyCliInvocation } from './headless-command.mjs';
+import {
+  beginProcessLifecycle,
+  finishProcessLifecycle,
+} from './runtime/shared/process-lifecycle.mjs';
+import { stagedChildExitCode } from './runtime/shared/staged-child-result.mjs';
 
 const argv = process.argv.slice(2);
 
 let swapped = false;
 const invocation = classifyCliInvocation(argv);
 const skipHostPrelude = invocation.kind === 'headless' || invocation.skipHostPrelude === true;
+if (!skipHostPrelude) {
+  beginProcessLifecycle({ safeCommandLine: argv.length === 0 });
+}
 if (!skipHostPrelude) {
   // Interactive/general sessions retain the staged-update and live-session
   // semantics. Headless role commands skip both because those helpers touch the
@@ -37,7 +45,9 @@ async function main() {
         env: { ...process.env, MIXDOG_SWAP_REEXEC: '1' },
         windowsHide: true,
       });
-      if (!r.error) return Number.isInteger(r.status) ? r.status : 0;
+      if (!r.error) {
+        return stagedChildExitCode(r);
+      }
     } catch { /* fall through to in-place run */ }
   }
   const { run } = await import('./app.mjs');
@@ -45,8 +55,11 @@ async function main() {
 }
 
 main().then((code) => {
-  process.exit(Number.isInteger(code) ? code : 0);
+  const exitCode = Number.isInteger(code) ? code : 0;
+  finishProcessLifecycle('clean-shutdown', exitCode);
+  process.exit(exitCode);
 }).catch((error) => {
   process.stderr.write(`${error?.stack || error?.message || String(error)}\n`);
+  finishProcessLifecycle('catchable-fatal-error', 1);
   process.exit(1);
 });

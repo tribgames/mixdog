@@ -445,6 +445,7 @@ function toAnthropicMessages(messages) {
                 content: references.length
                     ? references.map((tool_name) => ({ type: 'tool_reference', tool_name }))
                     : normalizeContentForAnthropic(m.content),
+                ...((m.toolKind === 'error' || m.isError === true) ? { is_error: true } : {}),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
                 last.content.push(block);
