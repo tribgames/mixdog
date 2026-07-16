@@ -24,6 +24,8 @@ function installDom() {
     window: dom.window,
     document: dom.window.document,
     HTMLElement: dom.window.HTMLElement,
+    HTMLInputElement: dom.window.HTMLInputElement,
+    HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
     Element: dom.window.Element,
     Node: dom.window.Node,
     Event: dom.window.Event,
@@ -35,10 +37,12 @@ function installDom() {
     FileReader: dom.window.FileReader,
     MutationObserver: dom.window.MutationObserver,
   });
-  Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTo", {
-    value() {},
-    configurable: true,
-  });
+  for (const method of ["scrollTo", "scrollIntoView"]) {
+    Object.defineProperty(dom.window.HTMLElement.prototype, method, {
+      value() {},
+      configurable: true,
+    });
+  }
   Object.defineProperties(dom.window.HTMLElement.prototype, {
     attachEvent: { value() {}, configurable: true },
     detachEvent: { value() {}, configurable: true },
@@ -66,14 +70,14 @@ async function openProjectSwitcher() {
     await Promise.resolve();
   });
   const dialog = document.querySelector('[role="dialog"][aria-labelledby="project-switcher-title"]');
-  assert.ok(dialog);
+  assert.equal(dialog != null, true, "project switcher dialog should be present");
   return dialog;
 }
 
 async function selectFirstProject() {
   const dialog = await openProjectSwitcher();
   const row = dialog.querySelector(".project-row");
-  assert.ok(row);
+  assert.equal(row != null, true, "first project row should be present");
   await act(async () => {
     row.click();
     await Promise.resolve();
@@ -111,15 +115,15 @@ test("approval portal traps and restores focus, isolates background, reports fai
 
   const dialog = document.querySelector('[role="dialog"]');
   const buttons = Array.from(dialog.querySelectorAll("button"));
-  assert.equal(dialog.parentElement?.parentElement, document.body);
+  assert.equal(dialog.parentElement?.parentElement === document.body, true, "approval portal should be attached to document.body");
   assert.equal(background.inert, true);
   assert.equal(background.getAttribute("aria-hidden"), "true");
-  assert.equal(document.activeElement, buttons[0]);
+  assert.equal(document.activeElement === buttons[0], true, "approval dialog should initially focus the first action");
 
   document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
-  assert.equal(document.activeElement, buttons[1]);
+  assert.equal(document.activeElement === buttons[1], true, "Tab should focus the second approval action");
   document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
-  assert.equal(document.activeElement, buttons[0]);
+  assert.equal(document.activeElement === buttons[0], true, "Shift+Tab should return focus to the first approval action");
 
   await act(async () => {
     buttons[1].click();
@@ -140,17 +144,17 @@ test("approval portal traps and restores focus, isolates background, reports fai
   await act(async () => root.render(null));
   assert.equal(background.inert, false);
   assert.equal(background.hasAttribute("aria-hidden"), false);
-  assert.equal(document.activeElement, before);
+  assert.equal(document.activeElement === before, true, "closing the approval should restore prior focus");
 });
 
 test("a retained streaming row announces completion without rereading the response", async () => {
   installDom();
   const streaming = { id: "response-1", kind: "assistant", text: "Working", streaming: true };
   await act(async () => root.render(React.createElement(TranscriptRow, { item: streaming })));
-  assert.equal(document.querySelector('[role="status"]'), null);
-  assert.ok(document.querySelector("article.message.assistant > .message-body > .markdown"));
-  assert.equal(document.querySelector(".avatar"), null);
-  assert.equal(document.querySelector(".message-label"), null);
+  assert.equal(document.querySelector('[role="status"]') === null, true, "selector [role=\"status\"] should be absent");
+  assert.equal(document.querySelector("article.message.assistant > .message-body > .markdown") != null, true, "selector article.message.assistant > .message-body > .markdown should be present");
+  assert.equal(document.querySelector(".avatar") === null, true, "selector .avatar should be absent");
+  assert.equal(document.querySelector(".message-label") === null, true, "selector .message-label should be absent");
   assert.equal(document.querySelector(".stream-cursor") != null, true);
 
   const settled = { ...streaming, text: "Finished response", streaming: false };
@@ -161,7 +165,8 @@ test("a retained streaming row announces completion without rereading the respon
   assert.equal(document.querySelector("article")?.getAttribute("aria-live"), "off");
 
   await act(async () => root.render(React.createElement(TranscriptRow, { item: settled })));
-  assert.equal(document.querySelector('[role="status"]'), null);
+  assert.equal(document.querySelectorAll('[role="status"]')
+    .length, 1);
 });
 
 test("user messages render as compact unlabeled bubbles", async () => {
@@ -171,8 +176,8 @@ test("user messages render as compact unlabeled bubbles", async () => {
   })));
   const message = document.querySelector("article.message.user");
   assert.equal(message?.textContent, "Compact prompt");
-  assert.ok(message?.querySelector(":scope > .message-body > p"));
-  assert.equal(message?.querySelector(".avatar, .message-label"), null);
+  assert.equal(message?.querySelector(":scope > .message-body > p") != null, true, "selector :scope > .message-body > p should be present");
+  assert.equal(message?.querySelector(".avatar, .message-label") === null, true, "selector .avatar, .message-label should be absent");
 });
 
 test("unknown transcript kinds stay hidden", async () => {
@@ -200,7 +205,7 @@ test("failed tools expose a failed status instead of a successful completion", a
   assert.equal(status?.textContent.trim(), "Failed");
   assert.equal(status?.getAttribute("role"), "status");
   assert.ok(status?.classList.contains("failed"));
-  assert.ok(status?.querySelector(".lucide-x"));
+  assert.equal(status?.querySelector(".lucide-x") != null, true, "selector .lucide-x should be present");
 });
 
 test("tool counters and hook-denial visibility mirror the TUI", async () => {
@@ -221,7 +226,7 @@ test("tool counters and hook-denial visibility mirror the TUI", async () => {
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "noise", kind: "tool", name: "read", isError: true, errorCount: 1, completedCount: 1 },
   })));
-  assert.equal(document.querySelector(".tool-card"), null);
+  assert.equal(document.querySelector(".tool-card") === null, true, "selector .tool-card should be absent");
 });
 
 test("fenced markdown exposes a language header and copy control", async () => {
@@ -230,7 +235,7 @@ test("fenced markdown exposes a language header and copy control", async () => {
     item: { id: "code", kind: "assistant", text: "```ts\nconst answer = 42;\n```" },
   })));
   assert.equal(document.querySelector(".markdown-code header span")?.textContent, "ts");
-  assert.ok(document.querySelector('[aria-label="Copy code"]'));
+  assert.equal(document.querySelector('[aria-label="Copy code"]') != null, true, "selector [aria-label=\"Copy code\"] should be present");
 });
 
 test("assistant completion metadata and copy action share a response footer without duplicate announcements", async () => {
@@ -246,7 +251,7 @@ test("assistant completion metadata and copy action share a response footer with
   assert.equal(footer?.getAttribute("aria-label"), "Response details");
   assert.equal(footer?.querySelector(".turn-status.complete")?.textContent?.trim(), "Solved for 4s");
   assert.equal(footer?.querySelector('[aria-label="Copy response"]') != null, true);
-  assert.equal(document.querySelector(".sr-only[role=status]"), null);
+  assert.equal(document.querySelector(".sr-only[role=status]") === null, true, "selector .sr-only[role=status] should be absent");
 });
 
 test("conversation attaches only successful turn completion to the final assistant response", async () => {
@@ -279,7 +284,7 @@ test("conversation attaches only successful turn completion to the final assista
   }));
   assert.equal(document.querySelectorAll(".turn-status.complete").length, 1);
   assert.equal(document.querySelector(".message.assistant .response-footer .turn-status")?.textContent?.trim(), "Solved for 2s");
-  assert.equal(document.querySelector(".thread > .turn-status.complete"), null);
+  assert.equal(document.querySelector(".thread > .turn-status.complete") === null, true, "selector .thread > .turn-status.complete should be absent");
 
   await act(async () => publish({
     ...empty,
@@ -289,7 +294,7 @@ test("conversation attaches only successful turn completion to the final assista
       { id: "turn-linked", kind: "turndone", status: "failed", label: "Completed" },
     ],
   }));
-  assert.equal(document.querySelector(".message.assistant .response-footer .turn-status"), null);
+  assert.equal(document.querySelector(".message.assistant .response-footer .turn-status") === null, true, "selector .message.assistant .response-footer .turn-status should be absent");
   assert.equal(document.querySelectorAll(".turn-status.failed").length, 1);
   assert.equal(document.querySelector(".turn-status.failed")?.textContent?.trim(), "Failed");
 });
@@ -365,28 +370,28 @@ test("launch selects New task and immediately shows the project-free composer", 
     await Promise.resolve();
   });
 
-  assert.ok(document.querySelector(".sidebar"));
-  assert.equal(document.querySelector(".empty-state"), null);
-  assert.ok(document.querySelector(".composer"));
+  assert.equal(document.querySelector(".sidebar") != null, true, "selector .sidebar should be present");
+  assert.equal(document.querySelector(".empty-state") === null, true, "selector .empty-state should be absent");
+  assert.equal(document.querySelector(".composer") != null, true, "selector .composer should be present");
   assert.equal(document.querySelector(".task-link").getAttribute("aria-current"), null);
   assert.equal(document.querySelector(".task-link").classList.contains("selected"), false);
-  assert.equal(document.querySelector(".context-chip"), null);
-  assert.ok(document.querySelector(".main-panel"));
-  assert.ok(document.querySelector(".topbar"));
-  assert.equal(document.querySelector(".topbar-project"), null);
-  assert.equal(document.querySelector(".brand"), null);
-  assert.equal(document.querySelector(".sidebar-close"), null);
-  assert.equal(document.querySelector(".sidebar-account"), null);
-  assert.equal(document.querySelector(".account-avatar"), null);
-  assert.equal(document.querySelector(".session-sidebar-heading"), null);
+  assert.equal(document.querySelector(".context-chip") === null, true, "selector .context-chip should be absent");
+  assert.equal(document.querySelector(".main-panel") != null, true, "selector .main-panel should be present");
+  assert.equal(document.querySelector(".topbar") != null, true, "selector .topbar should be present");
+  assert.equal(document.querySelector(".topbar-project") === null, true, "selector .topbar-project should be absent");
+  assert.equal(document.querySelector(".brand") === null, true, "selector .brand should be absent");
+  assert.equal(document.querySelector(".sidebar-close") === null, true, "selector .sidebar-close should be absent");
+  assert.equal(document.querySelector(".sidebar-account") === null, true, "selector .sidebar-account should be absent");
+  assert.equal(document.querySelector(".account-avatar") === null, true, "selector .account-avatar should be absent");
+  assert.equal(document.querySelector(".session-sidebar-heading") === null, true, "selector .session-sidebar-heading should be absent");
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Sessions/);
-  assert.equal(document.querySelector(".workspace-project-trigger"), null);
-  assert.equal(document.querySelector(".session-header-divider"), null);
+  assert.equal(document.querySelector(".workspace-project-trigger") === null, true, "selector .workspace-project-trigger should be absent");
+  assert.equal(document.querySelector(".session-header-divider") === null, true, "selector .session-header-divider should be absent");
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Mixdog|Local account/);
   assert.equal(document.querySelectorAll(".toolbar-sidebar").length, 1);
   assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Collapse session sidebar");
   assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon").dataset.state, "open");
-  assert.ok(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon-active"));
+  assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon-active") != null, true, "selector .toolbar-sidebar .sidebar-toggle-icon-active should be present");
   assert.doesNotMatch(document.body.textContent || "", /No project selected|\bReady\b/);
 
   await act(async () => document.querySelector(".sidebar-backdrop").click());
@@ -396,7 +401,7 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(sidebar.getAttribute("aria-hidden"), "true");
   assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Expand session sidebar");
   assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon").dataset.state, "closed");
-  assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon-active"), null);
+  assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon-active") === null, true, "selector .toolbar-sidebar .sidebar-toggle-icon-active should be absent");
   await act(async () => document.querySelector(".toolbar-sidebar").click());
   assert.equal(sidebar.classList.contains("open"), true);
   assert.equal(sidebar.hasAttribute("inert"), false);
@@ -407,7 +412,7 @@ test("launch selects New task and immediately shows the project-free composer", 
   toggle.focus();
   await act(async () => toggle.click());
   assert.equal(sidebar.classList.contains("open"), false);
-  assert.equal(document.activeElement, document.querySelector(".toolbar-sidebar"));
+  assert.equal(document.activeElement === document.querySelector(".toolbar-sidebar"), true, "sidebar toggle should retain focus after collapsing");
   await act(async () => document.querySelector(".toolbar-sidebar").click());
 
   const projectDialog = await openProjectSwitcher();
@@ -417,7 +422,7 @@ test("launch selects New task and immediately shows the project-free composer", 
     await Promise.resolve();
   });
   assert.deepEqual(calls, ["C:\\work\\sample"]);
-  assert.equal(document.querySelector(".workspace-project-trigger"), null);
+  assert.equal(document.querySelector(".workspace-project-trigger") === null, true, "selector .workspace-project-trigger should be absent");
   assert.match(document.querySelector(".session-header h1")?.textContent || "", /Sample/i);
   assert.equal(document.querySelector(".sidebar").classList.contains("open"), true);
 });
@@ -437,7 +442,7 @@ test("sidebar footer exposes the settings entry point used by the reviewed setti
   });
 
   const trigger = document.querySelector(".session-sidebar-footer [aria-label='Open settings']");
-  assert.ok(trigger);
+  assert.equal(trigger != null, true, "settings trigger should be present in the sidebar footer");
   assert.equal(trigger.closest(".session-sidebar") !== null, true);
   assert.equal(trigger.getAttribute("aria-label"), "Open settings");
   assert.equal(trigger.getAttribute("data-tooltip"), "Settings");
@@ -514,10 +519,10 @@ test("snapshot notifications render and dismiss through the OpenCode toast surfa
     await Promise.resolve();
   });
   const toast = document.querySelector('.oc-toast[data-tone="success"]');
-  assert.ok(toast);
+  assert.equal(toast != null, true, "success toast should be present");
   assert.match(toast.textContent, /Completed.*Settings saved/);
   await act(async () => toast.querySelector('[aria-label="Dismiss notification"]').click());
-  assert.equal(document.querySelector('.oc-toast'), null);
+  assert.equal(document.querySelector('.oc-toast') === null, true, "selector .oc-toast should be absent");
 });
 
 test("a failed project replacement synchronizes to the empty actual host without stale selection", async () => {
@@ -560,12 +565,12 @@ test("a failed project replacement synchronizes to the empty actual host without
   assert.equal(rows[1].hasAttribute("aria-current"), false);
   assert.equal(document.querySelector(".task-link").getAttribute("aria-current"), null);
   assert.doesNotMatch(document.body.textContent || "", /Stale transcript/);
-  assert.ok(document.querySelector(".composer"));
+  assert.equal(document.querySelector(".composer") != null, true, "selector .composer should be present");
   await act(async () => {
     Array.from(rows).find((row) => /old/i.test(row.textContent || ""))?.click();
     await Promise.resolve();
   });
-  assert.equal(document.querySelector(".workspace-project-trigger"), null);
+  assert.equal(document.querySelector(".workspace-project-trigger") === null, true, "selector .workspace-project-trigger should be absent");
   assert.match(document.querySelector(".session-header h1")?.textContent || "", /old/i);
   assert.match(document.body.textContent || "", /Stale transcript/);
 
@@ -577,11 +582,11 @@ test("a failed project replacement synchronizes to the empty actual host without
     await Promise.resolve();
   });
 
-  assert.equal(document.querySelector(".empty-state"), null);
-  assert.ok(document.querySelector(".composer"));
+  assert.equal(document.querySelector(".empty-state") === null, true, "selector .empty-state should be absent");
+  assert.equal(document.querySelector(".composer") != null, true, "selector .composer should be present");
   assert.doesNotMatch(document.body.textContent || "", /Stale transcript/);
   assert.equal(document.querySelector(".task-link").getAttribute("aria-current"), null);
-  assert.equal(document.querySelector(".context-chip"), null);
+  assert.equal(document.querySelector(".context-chip") === null, true, "selector .context-chip should be absent");
   const alert = document.querySelector('.inline-error[role="alert"]');
   assert.match(alert.textContent || "", /Project switch failed/);
   assert.equal(alert.getAttribute("aria-live"), "assertive");
@@ -637,7 +642,7 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
   });
 
   await selectFirstProject();
-  assert.ok(document.querySelector(".code-diff"));
+  assert.equal(document.querySelector(".code-diff") != null, true, "selector .code-diff should be present");
   assert.equal(document.querySelectorAll(".starter-grid button").length, 0);
   assert.match(document.querySelector(".diff-file header").textContent || "", /new\.txt/);
   const diffToggle = document.querySelector(".diff-toggle");
@@ -664,13 +669,13 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
   textarea.setSelectionRange(8, 8);
   assert.equal(textarea.style.height, "104px");
   assert.equal(textarea.style.overflowY, "hidden");
-  assert.equal(document.activeElement, textarea);
+  assert.equal(document.activeElement === textarea, true, "composer should retain focus after the initial resize");
   assert.equal(textarea.selectionStart, 8);
   textareaScrollHeight = 240;
   await act(async () => window.dispatchEvent(new window.Event("resize")));
   assert.equal(textarea.style.height, "180px");
   assert.equal(textarea.style.overflowY, "auto");
-  assert.equal(document.activeElement, textarea);
+  assert.equal(document.activeElement === textarea, true, "composer should retain focus after height capping");
   assert.equal(textarea.selectionStart, 8);
   await act(async () => {
     document.querySelector('button[aria-label="Send message"]').click();
@@ -683,7 +688,7 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
 
   await act(async () => publish({ ...initial, busy: true }));
   const stop = document.querySelector('button[aria-label="Stop generation"]');
-  assert.ok(stop);
+  assert.equal(stop != null, true, "stop-generation button should be present while busy");
   await act(async () => {
     stop.click();
     await Promise.resolve();
@@ -694,9 +699,9 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
     setTextareaValue.call(textarea, "Steer this turn");
     textarea.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  assert.equal(document.querySelector('button[aria-label="Stop generation"]'), null);
+  assert.equal(document.querySelector('button[aria-label="Stop generation"]') === null, true, "selector button[aria-label=\"Stop generation\"] should be absent");
   const steer = document.querySelector('button[aria-label="Queue or steer active turn"]');
-  assert.ok(steer);
+  assert.equal(steer != null, true, "queue-or-steer button should be present for a draft");
   await act(async () => {
     textarea.dispatchEvent(new window.KeyboardEvent("keydown", {
       key: "Enter", bubbles: true, isComposing: true,
@@ -786,7 +791,7 @@ test("a durable new task refreshes and selects exactly once after busy settles",
   assert.equal(refreshes, 2);
   assert.equal(document.querySelector(".standalone-group .session-row")?.getAttribute("aria-current"), "page");
   assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "Durable task title");
-  assert.equal(document.querySelector(".inline-error"), null);
+  assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
 });
 
 test("a rejected submit clears settlement tracking before later busy cycles", async () => {
@@ -880,8 +885,8 @@ test("a throwing submit clears settlement tracking before an unrelated busy cycl
   await act(async () => publish({ busy: true, items: [], queued: [] }));
   await act(async () => publish({ busy: false, items: [], queued: [] }));
   assert.equal(refreshes, 1);
-  assert.equal(document.querySelector(".standalone-group .session-row"), null);
-  assert.equal(document.querySelector(".topbar-title"), null);
+  assert.equal(document.querySelector(".standalone-group .session-row") === null, true, "selector .standalone-group .session-row should be absent");
+  assert.equal(document.querySelector(".topbar-title") === null, true, "selector .topbar-title should be absent");
   assert.equal(document.querySelector(".task-link")?.getAttribute("aria-current"), null);
 });
 
@@ -948,7 +953,7 @@ test("failed resume preserves a surviving known project session, then clears whe
   assert.equal(taskRows[0].hasAttribute("aria-current"), false);
   assert.equal(document.querySelector(".task-link").getAttribute("aria-current"), null);
   assert.doesNotMatch(document.body.textContent || "", /Active transcript/);
-  assert.equal(document.querySelector(".context-chip"), null);
+  assert.equal(document.querySelector(".context-chip") === null, true, "selector .context-chip should be absent");
   assert.match(document.querySelector('[role="alert"]').textContent || "", /Resume failed/);
 });
 
@@ -1011,10 +1016,10 @@ test("session sidebar and separate project switcher preserve navigation and proj
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Legacy/);
   let projectDialog = await openProjectSwitcher();
   assert.match(projectDialog.querySelector(".project-list")?.textContent || "", /One alias/);
-  assert.equal(document.querySelector(".sidebar .project-row, .sidebar .project-more, .sidebar .new-project"), null);
+  assert.equal(document.querySelector(".sidebar .project-row, .sidebar .project-more, .sidebar .new-project") === null, true, "selector .sidebar .project-row, .sidebar .project-more, .sidebar .new-project should be absent");
   const firstProject = Array.from(projectDialog.querySelectorAll(".project-row"))
     .find((row) => /One alias/.test(row.textContent || ""));
-  assert.ok(firstProject);
+  assert.equal(firstProject != null, true, "first project row should be present in the switcher");
   await act(async () => {
     firstProject.click();
     await Promise.resolve();
@@ -1034,28 +1039,28 @@ test("session sidebar and separate project switcher preserve navigation and proj
   const firstProjectCard = Array.from(projectDialog.querySelectorAll(".project-card"))
     .find((card) => /One alias/.test(card.textContent || ""));
   const more = firstProjectCard?.querySelector(".project-more");
-  assert.ok(more);
+  assert.equal(more != null, true, "project overflow button should be present");
   more.focus();
   await act(async () => {
     more.click();
     await Promise.resolve();
   });
   let menu = document.querySelector('[role="menu"]');
-  assert.equal(menu.closest(".project-card"), firstProjectCard);
+  assert.equal(menu.closest(".project-card") === firstProjectCard, true, "project menu should remain inside its project card");
   assert.deepEqual(
     Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
     ["New task here", "Open in Explorer", "Rename", "Pin", "Remove from list"],
   );
   const menuItems = menu.querySelectorAll('[role="menuitem"]');
-  assert.equal(document.activeElement, menuItems[0]);
+  assert.equal(document.activeElement === menuItems[0], true, "opening the project menu should focus its first item");
   menuItems[0].dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   assert.equal(document.activeElement?.textContent, "Open in Explorer");
   await act(async () => {
     menuItems[1].dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('[role="menu"]'), null);
-  assert.equal(document.activeElement, more);
+  assert.equal(document.querySelector('[role="menu"]') === null, true, "selector [role=\"menu\"] should be absent");
+  assert.equal(document.activeElement === more, true, "closing the project menu should restore overflow-button focus");
 
   await act(async () => more.click());
   menu = document.querySelector('[role="menu"]');
@@ -1064,8 +1069,8 @@ test("session sidebar and separate project switcher preserve navigation and proj
     destination.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
     destination.focus();
   });
-  assert.equal(document.querySelector('[role="menu"]'), null);
-  assert.equal(document.activeElement, destination);
+  assert.equal(document.querySelector('[role="menu"]') === null, true, "selector [role=\"menu\"] should be absent");
+  assert.equal(document.activeElement === destination, true, "outside pointer interaction should preserve destination focus");
 
   more.focus();
   await act(async () => more.click());
@@ -1075,7 +1080,7 @@ test("session sidebar and separate project switcher preserve navigation and proj
     await Promise.resolve();
   });
   assert.deepEqual(projectActions, [["pin", "C:\\work\\one", true]]);
-  assert.equal(document.activeElement, more);
+  assert.equal(document.activeElement === more, true, "pinning should restore overflow-button focus");
 
   await act(async () => more.click());
   menu = document.querySelector('[role="menu"]');
@@ -1087,7 +1092,7 @@ test("session sidebar and separate project switcher preserve navigation and proj
   assert.deepEqual(projectActions.at(-1), ["remove", "C:\\work\\one"]);
   assert.doesNotMatch(document.querySelector(".project-list").textContent, /One alias/);
   assert.match(document.querySelector(".project-list").textContent, /Two alias/);
-  assert.equal(document.activeElement, document.querySelector(".project-row"));
+  assert.equal(document.activeElement === document.querySelector(".project-row"), true, "removal should focus the remaining project row");
 });
 
 test("mobile sidebar closes at the inclusive 760px breakpoint after navigation", async () => {
@@ -1191,7 +1196,7 @@ test("settings and provider error toasts stay inline without changing successful
   assert.deepEqual(outcomes.map((row) => row.textContent?.trim()), ["First completed", "Done", "Completed"]);
 
   await act(async () => publish({ ...firstFailure, toasts: [] }));
-  assert.equal(document.querySelector(".composer-region .inline-error"), null);
+  assert.equal(document.querySelector(".composer-region .inline-error") === null, true, "selector .composer-region .inline-error should be absent");
   outcomes = Array.from(document.querySelectorAll(".turn-status"));
   assert.deepEqual(outcomes.map((row) => row.textContent?.trim()), ["First completed", "Done", "Completed"]);
 
@@ -1258,7 +1263,7 @@ test("an error toast does not fail a turn until the core publishes a failed comp
   }));
   const outcomes = Array.from(document.querySelectorAll(".turn-status"));
   assert.deepEqual(outcomes.map((row) => row.textContent?.trim()), ["Failed"]);
-  assert.equal(outcomes[0].querySelector(".lucide-check"), null);
+  assert.equal(outcomes[0].querySelector(".lucide-check") === null, true, "selector .lucide-check should be absent");
 });
 
 test("a cancelled core completion remains interrupted even when an unrelated error toast is visible", async () => {
@@ -1322,7 +1327,7 @@ test("successful completion markers leave a quiet persistent transcript row", as
 
   const completion = document.querySelector(".turn-status.complete");
   assert.equal(completion?.textContent?.trim(), "Completed");
-  assert.ok(completion?.querySelector(".lucide-check"));
+  assert.equal(completion?.querySelector(".lucide-check") != null, true, "selector .lucide-check should be present");
 });
 
 test("an empty task offers four Mixdog starters that populate and focus the composer", async () => {
@@ -1363,8 +1368,8 @@ test("an empty task offers four Mixdog starters that populate and focus the comp
   await act(async () => starters[1].click());
   assert.equal(textarea.value, "Explain how this codebase is structured.");
   assert.equal(textarea.style.height, "88px");
-  assert.equal(document.activeElement, textarea);
-  assert.equal(document.querySelector(".context-chip"), null);
+  assert.equal(document.activeElement === textarea, true, "starter selection should focus the composer");
+  assert.equal(document.querySelector(".context-chip") === null, true, "selector .context-chip should be absent");
   assert.doesNotMatch(document.querySelector(".composer")?.textContent || "", /Local context|No project/);
 });
 
@@ -1402,7 +1407,7 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
   const trigger = document.querySelector(".model-trigger");
   trigger.getBoundingClientRect = () => ({ left: 20, top: 700 });
   assert.match(trigger.textContent, /GPT-Real/);
-  assert.ok(trigger.querySelector('.provider-icon[data-provider-icon="openai"]'));
+  assert.equal(trigger.querySelector('.provider-icon[data-provider-icon="openai"]') != null, true, "selector .provider-icon[data-provider-icon=\"openai\"] should be present");
   assert.match(document.querySelector('[aria-label="Reasoning effort"]').textContent, /High/);
   assert.deepEqual(Array.from(document.querySelector(".route-controls").children).map((node) => node.className),
     ["model-trigger", "effort-control", "fast-control"]);
@@ -1419,7 +1424,7 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
   }
   assert.deepEqual(catalogOptions.slice(2, 4), [{ quick: true }, { force: true, quick: false }]);
   const dialog = document.querySelector('[role="dialog"][aria-label="Model selector"]');
-  assert.equal(dialog.parentElement, document.body);
+  assert.equal(dialog.parentElement === document.body, true, "model selector portal should be attached to document.body");
   assert.equal(dialog.style.left, "20px");
   assert.equal(dialog.style.bottom, `${window.innerHeight - 700 + 4}px`);
   assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Available providers");
@@ -1430,27 +1435,27 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
   assert.equal(providers[0].querySelector(".model-count").textContent, "1");
   assert.equal(providers[1].querySelector(".model-count").textContent, "2",
     "the TUI family limit keeps the newest Anthropic Sonnet alongside the latest Opus family");
-  assert.equal(dialog.querySelector(".model-option-row"), null,
+  assert.equal(dialog.querySelector(".model-option-row") === null, true,
     "models from unrelated providers must not be mixed into the provider step");
   assert.equal(dialog.querySelectorAll('[role="radio"]').length, 0);
   const input = dialog.querySelector('input[aria-label="Search providers"]');
-  assert.equal(document.activeElement, input);
+  assert.equal(document.activeElement === input, true, "opening the model selector should focus provider search");
   await act(async () => input.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement, providers[0]);
+  assert.equal(document.activeElement === providers[0], true, "ArrowDown should focus the first provider");
   await act(async () => providers[0].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement, providers[1]);
+  assert.equal(document.activeElement === providers[1], true, "ArrowDown should focus the next provider");
   await act(async () => providers[1].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "Home", bubbles: true }),
   ));
-  assert.equal(document.activeElement, providers[0]);
+  assert.equal(document.activeElement === providers[0], true, "Home should focus the first provider");
   await act(async () => providers[0].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "End", bubbles: true }),
   ));
-  assert.equal(document.activeElement, providers[1]);
+  assert.equal(document.activeElement === providers[1], true, "End should focus the last provider");
 
   await act(async () => {
     providers[1].click();
@@ -1465,11 +1470,11 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
   assert.equal(providerModels[1].querySelector("small").textContent, "1M Context · Fast Available");
   assert.doesNotMatch(dialog.textContent, /GPT-Real/);
   const modelSearch = dialog.querySelector('input[aria-label="Search models"]');
-  assert.equal(document.activeElement, modelSearch);
+  assert.equal(document.activeElement === modelSearch, true, "provider selection should focus model search");
   await act(async () => modelSearch.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement, providerModels[0]);
+  assert.equal(document.activeElement === providerModels[0], true, "ArrowDown should focus the first provider model");
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
   await act(async () => {
     setValue.call(modelSearch, "sonnet");
@@ -1481,13 +1486,13 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
   await act(async () => modelSearch.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement, dialog.querySelector(".model-option-row"));
+  assert.equal(document.activeElement === dialog.querySelector(".model-option-row"), true, "filtered model navigation should focus the visible model");
 
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  assert.ok(document.querySelector(".model-popover"), "Escape returns from models to providers first");
+  assert.equal(document.querySelector(".model-popover") != null, true, "Escape returns from models to providers first");
   assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Available providers");
   await act(async () => dialog.querySelectorAll(".model-provider-row")[1].click());
   await act(async () => dialog.querySelector('[aria-label="Back to providers"]').click());
@@ -1495,7 +1500,7 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
 
   dialog.querySelector(".model-list").scrollTop = 180;
   await act(async () => trigger.click());
-  assert.equal(document.querySelector(".model-popover"), null);
+  assert.equal(document.querySelector(".model-popover") === null, true, "selector .model-popover should be absent");
   await act(async () => trigger.click());
   assert.equal(document.querySelector(".model-list").scrollTop, 0,
     "reopening always starts at the top-level provider list top");
@@ -1563,7 +1568,7 @@ test("model selection applies the secure route result, hides unrelated effort, a
   assert.match(document.querySelector(".inline-error").textContent, /Route IPC failed/);
   assert.equal(document.querySelector(".model-trigger").disabled, false);
   await act(async () => document.querySelector(".model-trigger").click());
-  assert.ok(document.querySelector('[aria-label="Reasoning effort"]'));
+  assert.equal(document.querySelector('[aria-label="Reasoning effort"]') != null, true, "selector [aria-label=\"Reasoning effort\"] should be present");
   await act(async () => document.querySelectorAll(".model-provider-row")[1].click());
   await act(async () => {
     document.querySelector(".model-option-row").click();
@@ -1571,11 +1576,11 @@ test("model selection applies the secure route result, hides unrelated effort, a
     await Promise.resolve();
   });
   assert.match(document.querySelector(".model-trigger").textContent, /Claude Real/);
-  assert.ok(document.querySelector('.model-trigger .provider-icon[data-provider-icon="anthropic"]'));
-  assert.equal(document.activeElement, document.querySelector(".model-trigger"));
-  assert.equal(document.querySelector(".inline-error"), null);
+  assert.equal(document.querySelector('.model-trigger .provider-icon[data-provider-icon="anthropic"]') != null, true, "selector .model-trigger .provider-icon[data-provider-icon=\"anthropic\"] should be present");
+  assert.equal(document.activeElement === document.querySelector(".model-trigger"), true, "successful model selection should restore trigger focus");
+  assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
   await act(async () => document.querySelector(".model-trigger").click());
-  assert.equal(document.querySelector('[aria-label="Reasoning effort"]'), null);
+  assert.equal(document.querySelector('[aria-label="Reasoning effort"]') === null, true, "selector [aria-label=\"Reasoning effort\"] should be absent");
 });
 
 test("successful effort selection uses the dedicated capability and restores focus", async () => {
@@ -1611,10 +1616,10 @@ test("successful effort selection uses the dedicated capability and restores foc
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(document.querySelector(".model-popover"), null);
+  assert.equal(document.querySelector(".model-popover") === null, true, "selector .model-popover should be absent");
   assert.deepEqual(calls.filter((request) => request.capability !== "getTheme" && request.capability !== "getOnboardingStatus"),
     [{ capability: "setEffort", args: ["high"] }]);
-  assert.equal(document.activeElement, effort);
+  assert.equal(document.activeElement === effort, true, "effort selection should restore effort-control focus");
   assert.match(effort.textContent, /High/);
 });
 
@@ -1644,7 +1649,7 @@ test("Fast follows core capability, uses setFast, and disables with route contro
     await Promise.resolve();
   });
   const fast = document.querySelector('.fast-control');
-  assert.ok(fast);
+  assert.equal(fast != null, true, "Fast control should be present for a capable model");
   assert.equal(fast.getAttribute("aria-label"), "Enable Fast mode");
   assert.equal(fast.getAttribute("aria-pressed"), "false");
   await act(async () => {
@@ -1659,7 +1664,7 @@ test("Fast follows core capability, uses setFast, and disables with route contro
   assert.equal(fast.disabled, true);
   assert.equal(document.querySelector(".model-trigger").disabled, true);
   await act(async () => publish({ ...idle, fastCapable: false }));
-  assert.equal(document.querySelector('.fast-control'), null);
+  assert.equal(document.querySelector('.fast-control') === null, true, "selector .fast-control should be absent");
 });
 
 test("Fast recovers from a rejected backend toggle and can be retried", async () => {
@@ -1711,7 +1716,7 @@ test("Fast recovers from a rejected backend toggle and can be retried", async ()
   assert.deepEqual(calls, [true, true]);
   assert.equal(fast.disabled, false);
   assert.equal(fast.getAttribute("aria-pressed"), "true");
-  assert.equal(document.querySelector(".inline-error"), null);
+  assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
 });
 
 test("live engine activity and completion or compaction rows preserve runtime status", async () => {
@@ -1739,7 +1744,7 @@ test("live engine activity and completion or compaction rows preserve runtime st
     queued: [],
   }));
   assert.equal(document.querySelector(".live-activity-status")?.textContent, "Thinking");
-  assert.equal(document.querySelector(".thinking-disclosure"), null);
+  assert.equal(document.querySelector(".thinking-disclosure") === null, true, "selector .thinking-disclosure should be absent");
   await act(async () => publish({
     busy: true,
     thinking: null,
@@ -1772,7 +1777,7 @@ test("live engine activity and completion or compaction rows preserve runtime st
     ],
     queued: [],
   }));
-  assert.equal(document.querySelector(".live-activity"), null);
+  assert.equal(document.querySelector(".live-activity") === null, true, "selector .live-activity should be absent");
   const compactRows = document.querySelectorAll(".compaction-divider");
   assert.equal(compactRows.length, 2);
   assert.match(compactRows[0].textContent || "", /Compact complete.*12k → 4k/);
@@ -1837,8 +1842,8 @@ test("desktop session sidebar releases its 286px rail when collapsed and restore
   assert.equal(sidebarToggleStyle.top, "auto");
   assert.equal(sidebarToggleStyle.left, "auto");
   assert.equal(sidebarToggleStyle.width, "36px");
-  assert.equal(document.querySelector(".titlebar-home"), null);
-  assert.equal(document.querySelector(".topbar-settings"), null);
+  assert.equal(document.querySelector(".titlebar-home") === null, true, "selector .titlebar-home should be absent");
+  assert.equal(document.querySelector(".topbar-settings") === null, true, "selector .topbar-settings should be absent");
   assert.equal(settingsToggleStyle.height, "28px");
   assert.match(openCodeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*0 8px 8px;/s);
   assert.match(openCodeCss, /\.workspace-tab-divider\s*\{[^}]*width:\s*1\.5px;[^}]*height:\s*12px;/s);
@@ -1916,32 +1921,32 @@ test("model selector closes separately for busy and commandBusy while preserving
   const trigger = document.querySelector(".model-trigger");
   trigger.focus();
   await act(async () => trigger.click());
-  assert.notEqual(document.activeElement, trigger);
+  assert.equal(document.activeElement === trigger, false, "opening the model selector should move focus from its trigger");
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  assert.equal(document.querySelector(".model-popover"), null);
-  assert.equal(document.activeElement, trigger);
+  assert.equal(document.querySelector(".model-popover") === null, true, "Escape should close the model selector");
+  assert.equal(document.activeElement === trigger, true, "Escape should restore model-trigger focus");
   await act(async () => trigger.click());
   const textarea = document.querySelector("textarea");
   await act(async () => {
     textarea.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
     textarea.focus();
   });
-  assert.equal(document.querySelector(".model-popover"), null);
-  assert.equal(document.activeElement, textarea);
+  assert.equal(document.querySelector(".model-popover") === null, true, "outside pointer interaction should close the model selector");
+  assert.equal(document.activeElement === textarea, true, "outside pointer interaction should preserve composer focus");
   await act(async () => trigger.click());
-  assert.ok(document.querySelector(".model-popover"));
+  assert.equal(document.querySelector(".model-popover") != null, true, "selector .model-popover should be present");
   await act(async () => publish({ items: [], queued: [], busy: true, provider: "openai", model: "gpt-real" }));
-  assert.equal(document.querySelector(".model-popover"), null);
+  assert.equal(document.querySelector(".model-popover") === null, true, "busy state should close the model selector");
   assert.equal(trigger.disabled, true);
   await act(async () => publish({ items: [], queued: [], busy: false, provider: "openai", model: "gpt-real" }));
   assert.equal(trigger.disabled, false);
   await act(async () => trigger.click());
-  assert.ok(document.querySelector(".model-popover"));
+  assert.equal(document.querySelector(".model-popover") != null, true, "selector .model-popover should be present");
   await act(async () => publish({ items: [], queued: [], commandBusy: true, provider: "openai", model: "gpt-real" }));
-  assert.equal(document.querySelector(".model-popover"), null);
+  assert.equal(document.querySelector(".model-popover") === null, true, "command-busy state should close the model selector");
   assert.equal(trigger.disabled, true);
 });
 
@@ -1981,12 +1986,12 @@ test("desktop composer restores queued work, recalls engine history, and execute
     await Promise.resolve();
   });
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
-  assert.equal(document.querySelector('[aria-label="Prompt history"]'), null);
+  assert.equal(document.querySelector('[aria-label="Prompt history"]') === null, true, "selector [aria-label=\"Prompt history\"] should be absent");
   assert.deepEqual(
     Array.from(document.querySelectorAll('.composer-footer > .composer-tool')).map((button) => button.getAttribute('aria-label')),
     ['Attach files'],
   );
-  assert.ok(document.querySelector('.queue-restore'));
+  assert.equal(document.querySelector('.queue-restore') != null, true, "selector .queue-restore should be present");
   await act(async () => {
     textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
     await Promise.resolve();
@@ -2078,7 +2083,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(capabilities.some(([capability]) => capability === 'compact'), false);
   assert.equal(getTextarea().value, '/compact');
   assert.match(document.querySelector('.composer-error')?.textContent || '', /current command.*editor/i);
-  assert.equal(document.querySelector('.send-button.stop'), null);
+  assert.equal(document.querySelector('.send-button.stop') === null, true, "selector .send-button.stop should be absent");
   assert.equal(getTextarea().placeholder, 'Queue a message after the current command…');
   assert.doesNotMatch(document.querySelector('.send-button')?.getAttribute('aria-label') || '', /steer/i);
 
@@ -2111,7 +2116,7 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
 
   await press('Tab');
   assert.equal(getTextarea().value, '/compact ');
-  assert.equal(document.querySelector('.slash-palette'), null);
+  assert.equal(document.querySelector('.slash-palette') === null, true, "selector .slash-palette should be absent");
 
   await replaceDraft('/co');
   rejectCompact = true;
@@ -2124,8 +2129,8 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(capabilities.filter(([capability]) => capability === 'compact').length, 2);
 
   await act(async () => publish({ ...idle, busy: true }));
-  assert.ok(document.querySelector('.send-button.stop'));
-  assert.equal(document.querySelector('.queue-priority'), null);
+  assert.equal(document.querySelector('.send-button.stop') != null, true, "selector .send-button.stop should be present");
+  assert.equal(document.querySelector('.queue-priority') === null, true, "selector .queue-priority should be absent");
   assert.equal(getTextarea().placeholder, 'Steer the active turn or queue a follow-up…');
   await press('Escape');
   assert.equal(aborts, 1);
