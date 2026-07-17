@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import {
   ChevronDown,
   ChevronRight,
+  Download,
   Folder,
   FolderOpen,
   MessageSquare,
@@ -18,14 +19,15 @@ import {
   Plus,
   Search,
   Settings,
+  Trash2,
   X,
 } from "lucide-react";
 import type {
   DesktopProjectSummary,
   DesktopSessionSummary,
+  DesktopUpdaterState,
 } from "../shared/contract";
 import { sessionSummaryTitle } from "../shared/session-title.mjs";
-import { StatusPopover } from "./StatusPopover";
 
 export type NavigationSelection =
   | { kind: "new" }
@@ -47,27 +49,8 @@ interface DesktopTitlebarProps {
   onCloseTab(tab: WorkspaceTab): void;
   onReorderTab(sourceKey: string, targetKey: string): void;
   onNewTask(): void;
-}
-
-const PROJECT_AVATAR_VARIANTS = [
-  "orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple", "gray",
-] as const;
-
-function projectAvatarVariant(identity: string) {
-  let hash = 0;
-  for (const character of identity) hash = ((hash * 31) + character.codePointAt(0)!) >>> 0;
-  return PROJECT_AVATAR_VARIANTS[hash % PROJECT_AVATAR_VARIANTS.length];
-}
-
-function ProjectAvatar({ label, identity }: { label: string; identity: string }) {
-  const initial = Array.from(label.trim())[0]?.toLocaleUpperCase() || "?";
-  return (
-    <span className="project-avatar-v2" data-component="project-avatar-v2" aria-hidden="true">
-      <span data-slot="project-avatar-surface" data-variant={projectAvatarVariant(identity)}>
-        {initial}
-      </span>
-    </span>
-  );
+  updaterState?: DesktopUpdaterState;
+  onOpenUpdate?(): void;
 }
 
 function SidebarToggleIcon({ open }: { open: boolean }) {
@@ -104,10 +87,16 @@ export function DesktopTitlebar({
   onCloseTab,
   onReorderTab,
   onNewTask,
+  updaterState,
+  onOpenUpdate,
 }: DesktopTitlebarProps) {
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
   const draggedTabKey = useRef("");
   const [draggingKey, setDraggingKey] = useState("");
+  const windowsCaptionControls = typeof navigator !== "undefined" &&
+    /Windows/i.test(navigator.userAgent);
+  const updateVisible = updaterState?.status === "ready" || updaterState?.status === "installing";
+  const updateInstalling = updaterState?.status === "installing";
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
     if (node) tabNodes.current.set(key, node);
     else tabNodes.current.delete(key);
@@ -220,6 +209,18 @@ export function DesktopTitlebar({
         <Plus size={16} />
       </button>
       <div className="titlebar-spacer" />
+      {updateVisible && <div className="titlebar-update-shell">
+        <button type="button" className="titlebar-update" onClick={onOpenUpdate}
+          disabled={updateInstalling} aria-busy={updateInstalling}
+          aria-label={updateInstalling ? "Installing update" : `Install Mixdog ${updaterState.version}`}
+          data-tooltip={updateInstalling ? "Installing update…" : `Mixdog ${updaterState.version} ready`}>
+          <span className="titlebar-update-label">Update</span>
+          <span className="titlebar-update-icon">
+            {updateInstalling ? <span className="titlebar-update-loader" aria-hidden="true" /> : <Download size={14} />}
+          </span>
+        </button>
+      </div>}
+      {windowsCaptionControls && <div className="titlebar-caption-space" aria-hidden="true" />}
     </header>
   );
 }
@@ -295,6 +296,7 @@ interface SessionSidebarProps {
   onOpenSettings(): void;
   onResumeSession(sessionId: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
+  onDeleteSession(sessionId: string): Promise<void>;
 }
 
 export const SessionSidebar = React.memo(function SessionSidebar({
@@ -309,6 +311,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   onOpenSettings,
   onResumeSession,
   onRenameSession,
+  onDeleteSession,
 }: SessionSidebarProps) {
   const [query, setQuery] = useState("");
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
@@ -317,6 +320,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [editingSessionId, setEditingSessionId] = useState("");
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [sessionTitleInvalid, setSessionTitleInvalid] = useState(false);
+  const [menuSessionId, setMenuSessionId] = useState("");
+  const [confirmingSessionId, setConfirmingSessionId] = useState("");
+  const [deletingSessionId, setDeletingSessionId] = useState("");
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const rows = useMemo(() => sessions
     .filter((session) => {
@@ -326,54 +332,64 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         session.title,
         session.preview,
         session.cwd,
-        projectLabel(session.projectPath, projects),
+        session.projectPath,
       ].join(" ").toLocaleLowerCase();
       return haystack.includes(normalizedQuery);
     })
     .sort((left, right) =>
       right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)),
-  [normalizedQuery, projects, sessions]);
-
+  [normalizedQuery, sessions]);
   const { projectGroups, standaloneSessions } = useMemo(() => {
+    const uniqueProjects = new Map<string, DesktopProjectSummary>();
+    projects.forEach((project) => {
+      const identity = projectIdentity(project.path);
+      if (identity && !uniqueProjects.has(identity)) uniqueProjects.set(identity, project);
+    });
+    const labelCounts = new Map<string, number>();
+    uniqueProjects.forEach((project) => {
+      const label = projectLabel(project.path, projects).toLocaleLowerCase();
+      labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+    });
     const grouped = new Map<string, {
       key: string;
       label: string;
       path: string;
       sessions: DesktopSessionSummary[];
       order: number;
+      projectMatches: boolean;
     }>();
-    projects.forEach((project, order) => {
-      const identity = projectIdentity(project.path);
-      if (!identity) return;
+    [...uniqueProjects.entries()].forEach(([identity, project], order) => {
+      const baseLabel = projectLabel(project.path, projects);
+      const duplicate = (labelCounts.get(baseLabel.toLocaleLowerCase()) || 0) > 1;
+      const label = duplicate ? `${baseLabel} · ${project.path}` : baseLabel;
       grouped.set(identity, {
         key: `project:${identity}`,
-        label: projectLabel(project.path, projects),
+        label,
         path: project.path,
         sessions: [],
         order,
+        projectMatches: !normalizedQuery ||
+          `${baseLabel} ${project.path}`.toLocaleLowerCase().includes(normalizedQuery),
       });
     });
     const standalone: DesktopSessionSummary[] = [];
     for (const session of rows) {
-      const projectPath = session.classification === "project" ? session.projectPath : null;
-      const identity = projectIdentity(projectPath);
-      if (!projectPath || !identity || !grouped.has(identity)) {
+      // Only the explicit project registry can promote a cwd into Projects.
+      // Legacy/removed/temporary folders remain ordinary Tasks.
+      const candidatePath = session.projectPath || session.cwd;
+      const identity = projectIdentity(candidatePath);
+      const group = identity ? grouped.get(identity) : undefined;
+      if (!group) {
         standalone.push(session);
         continue;
       }
-      const entry = grouped.get(identity)!;
-      entry.sessions.push(session);
-      grouped.set(identity, entry);
+      group.sessions.push(session);
     }
     const ordered = [...grouped.values()]
-      .filter((entry) => !normalizedQuery || entry.sessions.length > 0)
+      .filter((group) => !normalizedQuery || group.projectMatches || group.sessions.length > 0)
       .sort((left, right) => left.order - right.order);
     return { projectGroups: ordered, standaloneSessions: standalone };
   }, [normalizedQuery, projects, rows]);
-
-  const onQueryChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    setQuery(event.currentTarget.value);
-  }, []);
   const clearQuery = useCallback(() => setQuery(""), []);
   const toggleProjects = useCallback(() => setProjectsCollapsed((value) => !value), []);
   const toggleTasks = useCallback(() => setTasksCollapsed((value) => !value), []);
@@ -384,6 +400,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     return next;
   }), []);
   const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
+    setMenuSessionId("");
+    setConfirmingSessionId("");
     setEditingSessionId(session.id);
     setSessionTitleDraft(sessionLabel(session));
     setSessionTitleInvalid(false);
@@ -404,6 +422,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     if (title === sessionLabel(session)) return;
     void onRenameSession(session.id, title);
   }, [closeSessionEditor, onRenameSession, sessionTitleDraft]);
+  useEffect(() => {
+    if (menuSessionId && !sessions.some((session) => session.id === menuSessionId)) {
+      setMenuSessionId("");
+    }
+    if (confirmingSessionId && !sessions.some((session) => session.id === confirmingSessionId)) {
+      setConfirmingSessionId("");
+    }
+  }, [confirmingSessionId, menuSessionId, sessions]);
 
   return (
     <aside
@@ -413,31 +439,24 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       inert={!open}
       aria-hidden={!open}
       aria-label="Session manager"
+      onPointerDownCapture={(event) => {
+        if (!menuSessionId || !(event.target instanceof Element)) return;
+        if (event.target.closest(".session-row-menu, .session-row-more")) return;
+        setMenuSessionId("");
+      }}
     >
       <label className="session-search">
         <Search size={14} aria-hidden="true" />
         <span className="sr-only">Search sessions</span>
-        <input
-          type="search"
-          value={query}
-          onChange={onQueryChange}
-          placeholder="Search sessions"
-          aria-label="Search sessions"
-        />
-        {query && (
-          <button type="button" onClick={clearQuery} aria-label="Clear session search"
-            data-tooltip="Clear search">
-            <X size={13} />
-          </button>
-        )}
+        <input type="search" value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder="Search sessions" aria-label="Search sessions" />
+        {query && <button type="button" onClick={clearQuery} aria-label="Clear session search"
+          data-tooltip="Clear search"><X size={13} /></button>}
       </label>
 
-      <button
-        type="button"
-        className="task-link"
-        onClick={onNewTask}
-      >
-        <Plus size={15} />
+      <button type="button" className="task-link" onClick={onNewTask}>
+        <span className="sidebar-nav-icon sidebar-nav-icon--new"><Plus size={13} /></span>
         <span>New task</span>
       </button>
 
@@ -459,42 +478,40 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             </button>
           </div>
           {!projectsCollapsed && <div className="sidebar-project-list">
-            {projectGroups.length === 0 && <p className="sidebar-section-empty">No projects yet</p>}
+            {projectGroups.length === 0 && <p className="sidebar-section-empty">
+              {normalizedQuery ? "No matching projects" : "No projects yet"}
+            </p>}
             {projectGroups.map(({ key, label, path, sessions: group }) => {
               const collapsed = !normalizedQuery && collapsedProjects.has(key);
-              const active = selection.kind === "project"
-                && projectIdentity(selection.path) === projectIdentity(path);
+              const activeProject = selection.kind === "project" &&
+                projectIdentity(selection.path) === projectIdentity(path);
               return <section className="session-group project-group" key={key} aria-label={label}>
                 <div className="project-group-heading">
-                  <button type="button" className={`project-group-toggle ${active ? "selected" : ""}`}
-                    aria-current={active ? "page" : undefined} aria-expanded={!collapsed}
-                    onClick={() => toggleProject(key)}>
-                    <ProjectAvatar label={label} identity={path} />
-                    <span>{label}</span>
+                  <button type="button" className={`project-group-toggle ${activeProject ? "selected" : ""}`}
+                    aria-current={activeProject ? "page" : undefined} aria-expanded={!collapsed}
+                    onClick={() => toggleProject(key)} data-tooltip={path}>
+                    <Folder className="project-row-icon" size={15} aria-hidden="true" />
+                    <span className="project-group-label">{label}</span>
                     <span className="project-group-chevron" aria-hidden="true">
                       {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                     </span>
                   </button>
                   <button type="button" className="project-task-add"
                     onClick={() => onStartProjectTask(path)} aria-label={`New task in ${label}`}
-                    data-tooltip="New task here">
-                    <Plus size={13} />
-                  </button>
+                    data-tooltip="New task here"><Plus size={13} /></button>
                 </div>
                 {!collapsed && <nav className="session-list" aria-label={`${label} sessions`}>
                   {group.length === 0 && <p className="project-sessions-empty">No tasks</p>}
-                  {group.map((session) => {
-                    const active = selection.kind === "session" && selection.id === session.id;
-                    return <SessionRow key={session.id} session={session} active={active}
-                      editing={editingSessionId === session.id}
-                      titleDraft={sessionTitleDraft}
-                      titleInvalid={sessionTitleInvalid}
-                      onTitleDraftChange={setSessionTitleDraft}
-                      onStartRename={openSessionEditor}
-                      onCancelRename={closeSessionEditor}
-                      onCommitRename={commitSessionEditor}
-                      onResumeSession={onResumeSession} />;
-                  })}
+                  {group.map((session) => <SessionSidebarRow key={session.id}
+                    session={session} active={selection.kind === "session" && selection.id === session.id}
+                    editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
+                    sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
+                    confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
+                    onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
+                    onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+                    onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
+                    onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
+                    onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession} />)}
                 </nav>}
               </section>;
             })}
@@ -508,35 +525,102 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               {tasksCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
             </button>
           </div>
-          {!tasksCollapsed && <nav className="session-list standalone-session-list" aria-label="Standalone tasks">
-            {standaloneSessions.length === 0 && (
-              <p className="sidebar-section-empty">
-                {normalizedQuery ? "No matching tasks" : "No tasks"}
-              </p>
-            )}
-            {standaloneSessions.map((session) => {
-                const active = selection.kind === "session" && selection.id === session.id;
-                return <SessionRow key={session.id} session={session} active={active}
-                  editing={editingSessionId === session.id}
-                  titleDraft={sessionTitleDraft}
-                  titleInvalid={sessionTitleInvalid}
-                  onTitleDraftChange={setSessionTitleDraft}
-                  onStartRename={openSessionEditor}
-                  onCancelRename={closeSessionEditor}
-                  onCommitRename={commitSessionEditor}
-                  onResumeSession={onResumeSession} />;
-            })}
+          {!tasksCollapsed && <nav className="session-list standalone-session-list" aria-label="Tasks">
+            {standaloneSessions.length === 0 && <p className="sidebar-section-empty">
+              {normalizedQuery ? "No matching tasks" : "No tasks"}
+            </p>}
+            {standaloneSessions.map((session) => <SessionSidebarRow key={session.id}
+              session={session} active={selection.kind === "session" && selection.id === session.id}
+              editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
+              sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
+              confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
+              onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
+              onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+              onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
+              onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
+              onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession} />)}
           </nav>}
         </section>
       </div>
       <footer className="session-sidebar-footer">
-        <StatusPopover />
         <button type="button" onClick={onOpenSettings} aria-label="Open settings" data-tooltip="Settings">
           <Settings size={15} /><span>Settings</span>
         </button>
       </footer>
     </aside>
   );
+});
+
+const SessionSidebarRow = React.memo(function SessionSidebarRow({
+  session,
+  active,
+  editingSessionId,
+  sessionTitleDraft,
+  sessionTitleInvalid,
+  menuSessionId,
+  confirmingSessionId,
+  deletingSessionId,
+  onTitleDraftChange,
+  onStartRename,
+  onCancelRename,
+  onCommitRename,
+  onResumeSession,
+  onCloseEditor,
+  onSetMenu,
+  onSetConfirming,
+  onSetDeleting,
+  onDeleteSession,
+}: {
+  session: DesktopSessionSummary;
+  active: boolean;
+  editingSessionId: string;
+  sessionTitleDraft: string;
+  sessionTitleInvalid: boolean;
+  menuSessionId: string;
+  confirmingSessionId: string;
+  deletingSessionId: string;
+  onTitleDraftChange(value: string): void;
+  onStartRename(session: DesktopSessionSummary): void;
+  onCancelRename(): void;
+  onCommitRename(session: DesktopSessionSummary, fromBlur?: boolean): void;
+  onResumeSession(sessionId: string): void;
+  onCloseEditor(): void;
+  onSetMenu: React.Dispatch<React.SetStateAction<string>>;
+  onSetConfirming: React.Dispatch<React.SetStateAction<string>>;
+  onSetDeleting: React.Dispatch<React.SetStateAction<string>>;
+  onDeleteSession(sessionId: string): Promise<void>;
+}) {
+  return <SessionRow session={session} active={active}
+    editing={editingSessionId === session.id}
+    titleDraft={sessionTitleDraft}
+    titleInvalid={sessionTitleInvalid}
+    onTitleDraftChange={onTitleDraftChange}
+    onStartRename={onStartRename}
+    onCancelRename={onCancelRename}
+    onCommitRename={onCommitRename}
+    onResumeSession={onResumeSession}
+    menuOpen={menuSessionId === session.id}
+    onToggleMenu={(target) => {
+      onCloseEditor();
+      onSetConfirming("");
+      onSetMenu((current) => current === target.id ? "" : target.id);
+    }}
+    onCloseMenu={() => onSetMenu("")}
+    confirmingDelete={confirmingSessionId === session.id}
+    deleting={deletingSessionId === session.id}
+    onStartDelete={(target) => {
+      onCloseEditor();
+      onSetMenu("");
+      onSetConfirming(target.id);
+    }}
+    onCancelDelete={() => onSetConfirming("")}
+    onConfirmDelete={(target) => {
+      onSetDeleting(target.id);
+      void onDeleteSession(target.id)
+        .then(() => onSetConfirming(""))
+        .catch(() => {})
+        .finally(() => onSetDeleting(""));
+    }} />;
 });
 
 const SessionRow = React.memo(function SessionRow({
@@ -550,6 +634,14 @@ const SessionRow = React.memo(function SessionRow({
   onCancelRename,
   onCommitRename,
   onResumeSession,
+  menuOpen,
+  onToggleMenu,
+  onCloseMenu,
+  confirmingDelete,
+  deleting,
+  onStartDelete,
+  onCancelDelete,
+  onConfirmDelete,
 }: {
   session: DesktopSessionSummary;
   active: boolean;
@@ -561,17 +653,32 @@ const SessionRow = React.memo(function SessionRow({
   onCancelRename(): void;
   onCommitRename(session: DesktopSessionSummary, fromBlur?: boolean): void;
   onResumeSession(sessionId: string): void;
+  menuOpen: boolean;
+  onToggleMenu(session: DesktopSessionSummary): void;
+  onCloseMenu(): void;
+  confirmingDelete: boolean;
+  deleting: boolean;
+  onStartDelete(session: DesktopSessionSummary): void;
+  onCancelDelete(): void;
+  onConfirmDelete(session: DesktopSessionSummary): void;
 }) {
   const resume = useCallback(() => onResumeSession(session.id), [onResumeSession, session.id]);
-  const clickSequenceStartedActive = useRef(false);
-  const activateFromClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (editing) return;
-    if (event.detail <= 1) clickSequenceStartedActive.current = active;
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (menuOpen) {
+      queueMicrotask(() => menuTrigger.current?.closest(".session-row")
+        ?.querySelector<HTMLButtonElement>(".session-row-menu [role='menuitem']")?.focus());
+    }
+  }, [menuOpen]);
+  const activateFromClick = useCallback(() => {
+    if (editing || menuOpen || confirmingDelete || deleting) return;
+    onCloseMenu();
     resume();
-  }, [active, editing, resume]);
+  }, [confirmingDelete, deleting, editing, menuOpen, onCloseMenu, resume]);
   return (
     <div
-      className={`session-row ${active ? "selected" : ""} ${editing ? "editing" : ""}`}
+      className={`session-row ${active ? "selected" : ""} ${editing ? "editing" : ""} ${confirmingDelete ? "confirming-delete" : ""}`}
+      data-session-id={session.id}
       aria-current={active ? "page" : undefined}
       onClick={activateFromClick}
       data-tooltip={sessionLabel(session)}
@@ -605,9 +712,9 @@ const SessionRow = React.memo(function SessionRow({
       ) : (
         <>
           <button type="button" className="session-row-main">
+            <MessageSquare className="session-row-icon" size={13} aria-hidden="true" />
             <span className="session-row-copy"
               onDoubleClick={(event) => {
-                if (!active || !clickSequenceStartedActive.current) return;
                 event.preventDefault();
                 event.stopPropagation();
                 onStartRename(session);
@@ -615,15 +722,72 @@ const SessionRow = React.memo(function SessionRow({
               <b>{sessionLabel(session)}</b>
             </span>
           </button>
-          <button type="button" className="session-row-rename"
-            aria-label={`Rename ${sessionLabel(session)}`} data-tooltip="Rename"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onStartRename(session);
-            }}>
-            <Pencil size={12} />
-          </button>
+          <div className="session-row-actions">
+            {confirmingDelete ? (
+              <>
+                <button type="button" className="session-row-action session-row-delete-cancel"
+                  aria-label={`Cancel deleting ${sessionLabel(session)}`} data-tooltip="Cancel"
+                  disabled={deleting}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onCancelDelete();
+                  }}>
+                  <X size={12} />
+                </button>
+                <button type="button" className="session-row-action session-row-delete-confirm"
+                  aria-label={`Confirm deleting ${sessionLabel(session)}`} data-tooltip="Delete"
+                  disabled={deleting}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onConfirmDelete(session);
+                  }}>
+                  <Trash2 size={12} />
+                </button>
+              </>
+            ) : (
+              <div className="session-row-menu-wrap">
+                <button type="button" className="session-row-action session-row-more"
+                  ref={menuTrigger}
+                  aria-label={`More actions for ${sessionLabel(session)}`}
+                  aria-expanded={menuOpen}
+                  aria-haspopup="menu"
+                  data-tooltip="More"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onToggleMenu(session);
+                  }}>
+                  <MoreHorizontal size={15} />
+                </button>
+                {menuOpen && <div className="session-row-menu" role="menu"
+                  data-session-menu-for={session.id}
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onCloseMenu();
+                      queueMicrotask(() => menuTrigger.current?.focus());
+                      return;
+                    }
+                    cycleMenuFocus(event);
+                  }}>
+                  <button type="button" role="menuitem" className="session-row-menu-rename"
+                    onClick={() => {
+                      onCloseMenu();
+                      onStartRename(session);
+                    }}><Pencil size={13} />Rename</button>
+                  <button type="button" role="menuitem" className="session-row-menu-delete danger"
+                    onClick={() => {
+                      onCloseMenu();
+                      onStartDelete(session);
+                    }}><Trash2 size={13} />Delete</button>
+                </div>}
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -633,14 +797,13 @@ const SessionRow = React.memo(function SessionRow({
 interface ProjectSwitcherProps {
   open: boolean;
   projects: DesktopProjectSummary[];
-  selection: NavigationSelection;
+  selectedProjectPath: string;
   onClose(): void;
   onChooseProject(): void;
   onStartProject(path: string): void;
   onStartProjectTask(path: string): void;
   onOpenExplorer(path: string): void;
   onRename(path: string, alias: string): void;
-  onSetPinned(path: string, pinned: boolean): void;
   onRemove(path: string): Promise<void>;
 }
 
@@ -651,14 +814,13 @@ function displayProject(path: string) {
 export function ProjectSwitcher({
   open,
   projects,
-  selection,
+  selectedProjectPath,
   onClose,
   onChooseProject,
   onStartProject,
   onStartProjectTask,
   onOpenExplorer,
   onRename,
-  onSetPinned,
   onRemove,
 }: ProjectSwitcherProps) {
   const panel = useRef<HTMLDivElement>(null);
@@ -667,6 +829,11 @@ export function ProjectSwitcher({
   const menuState = useRef<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMenu(null);
+    setRenaming(null);
+  }, [open]);
 
   useEffect(() => {
     menuState.current = menu;
@@ -716,9 +883,7 @@ export function ProjectSwitcher({
   }, [onClose, open]);
 
   if (!open) return null;
-  const ordered = [...projects].sort((left, right) =>
-    Number(right.pinned) - Number(left.pinned) ||
-    (left.alias || displayProject(left.path)).localeCompare(right.alias || displayProject(right.path)));
+  const ordered = [...projects];
 
   return createPortal(
     <div className="project-switcher-layer" onPointerDown={(event) => {
@@ -747,7 +912,7 @@ export function ProjectSwitcher({
             onClose();
             onChooseProject();
           }}>
-            <FolderOpen size={15} /> Open project
+            <FolderOpen size={15} /> Add project
           </button>
         </div>
         <div className="project-grid project-list" role="list">
@@ -755,11 +920,11 @@ export function ProjectSwitcher({
             <div className="project-empty">
               <Folder size={22} />
               <p>No projects yet</p>
-              <small>Open a folder to add it to MixDog.</small>
+              <small>Add a folder to make it available in Mixdog.</small>
             </div>
           )}
           {ordered.map((project) => {
-            const selected = selection.kind === "project" && selection.path === project.path;
+            const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
             const title = project.alias?.trim() || project.name?.trim() || displayProject(project.path);
             return (
               <div className={`project-card ${selected ? "selected" : ""}`} key={project.path} role="listitem">
@@ -778,7 +943,6 @@ export function ProjectSwitcher({
                       onStartProject(project.path);
                       onClose();
                     }} aria-current={selected ? "page" : undefined}>
-                      <ProjectAvatar label={title} identity={project.path} />
                       <span>
                         <b>{title}</b>
                         <small>{project.path}</small>
@@ -799,7 +963,7 @@ export function ProjectSwitcher({
                           setMenu(null);
                           onStartProjectTask(project.path);
                           onClose();
-                        }}>New task here</button>
+                        }}>New task</button>
                         <button role="menuitem" onClick={() => {
                           setMenu(null);
                           onOpenExplorer(project.path);
@@ -809,16 +973,11 @@ export function ProjectSwitcher({
                           setMenu(null);
                           setRenaming(project.path);
                         }}>Rename</button>
-                        <button role="menuitem" onClick={() => {
-                          setMenu(null);
-                          onSetPinned(project.path, !project.pinned);
-                          queueMicrotask(() => menuTrigger.current?.focus());
-                        }}>{project.pinned ? "Unpin" : "Pin"}</button>
                         <button role="menuitem" className="danger" onClick={() => {
                           setMenu(null);
                           void onRemove(project.path).finally(() => queueMicrotask(() => panel.current
                             ?.querySelector<HTMLButtonElement>(".project-row")?.focus()));
-                        }}>Remove from list</button>
+                        }}>Remove project</button>
                       </div>
                     )}
                   </>

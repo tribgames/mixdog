@@ -11,6 +11,7 @@ interface TooltipState {
   anchorTop: number;
   anchorBottom: number;
   preferredSide?: TooltipSide;
+  sheetBounds?: { left: number; top: number; right: number; bottom: number };
 }
 
 function tooltipParts(text: string) {
@@ -53,14 +54,20 @@ export function TooltipLayer() {
 
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
-    const bounds = node.getBoundingClientRect();
-    const width = Math.min(bounds.width, Math.max(0, viewportWidth - VIEWPORT_PADDING * 2));
-    const height = Math.min(bounds.height, Math.max(0, viewportHeight - VIEWPORT_PADDING * 2));
+    const bounds = tooltip.sheetBounds || {
+      left: 0,
+      top: 0,
+      right: viewportWidth,
+      bottom: viewportHeight,
+    };
+    const tooltipBounds = node.getBoundingClientRect();
+    const width = Math.min(tooltipBounds.width, Math.max(0, bounds.right - bounds.left - VIEWPORT_PADDING * 2));
+    const height = Math.min(tooltipBounds.height, Math.max(0, bounds.bottom - bounds.top - VIEWPORT_PADDING * 2));
     const room: Record<TooltipSide, number> = {
-      top: tooltip.anchorTop - TARGET_GAP - VIEWPORT_PADDING,
-      bottom: viewportHeight - tooltip.anchorBottom - TARGET_GAP - VIEWPORT_PADDING,
-      left: tooltip.anchorLeft - TARGET_GAP - VIEWPORT_PADDING,
-      right: viewportWidth - tooltip.anchorRight - TARGET_GAP - VIEWPORT_PADDING,
+      top: tooltip.anchorTop - bounds.top - TARGET_GAP - VIEWPORT_PADDING,
+      bottom: bounds.bottom - tooltip.anchorBottom - TARGET_GAP - VIEWPORT_PADDING,
+      left: tooltip.anchorLeft - bounds.left - TARGET_GAP - VIEWPORT_PADDING,
+      right: bounds.right - tooltip.anchorRight - TARGET_GAP - VIEWPORT_PADDING,
     };
     let side: TooltipSide = tooltip.preferredSide
       || (room.bottom >= height || room.bottom >= room.top ? 'bottom' : 'top');
@@ -73,15 +80,15 @@ export function TooltipLayer() {
     const left = clamp(horizontal
       ? (side === 'right' ? tooltip.anchorRight + TARGET_GAP : tooltip.anchorLeft - TARGET_GAP - width)
       : tooltip.anchorCenter - width / 2,
-      VIEWPORT_PADDING,
-      viewportWidth - VIEWPORT_PADDING - width,
+      bounds.left + VIEWPORT_PADDING,
+      bounds.right - VIEWPORT_PADDING - width,
     );
     const idealTop = horizontal ? (tooltip.anchorTop + tooltip.anchorBottom - height) / 2
       : side === 'bottom' ? tooltip.anchorBottom + TARGET_GAP : tooltip.anchorTop - TARGET_GAP - height;
     const top = clamp(
       idealTop,
-      VIEWPORT_PADDING,
-      viewportHeight - VIEWPORT_PADDING - height,
+      bounds.top + VIEWPORT_PADDING,
+      bounds.bottom - VIEWPORT_PADDING - height,
     );
     setPosition({ left, top, side });
   }, [tooltip]);
@@ -104,6 +111,8 @@ export function TooltipLayer() {
         if (!text) return;
         const parts = tooltipParts(text);
         const rect = target.getBoundingClientRect();
+        const sheet = target.closest<HTMLElement>('.workspace, .session-sidebar');
+        const sheetRect = sheet?.getBoundingClientRect();
         const requested = target.dataset.tooltipSide;
         setPosition(null);
         setTooltip({
@@ -114,6 +123,14 @@ export function TooltipLayer() {
           anchorRight: rect.right,
           anchorTop: rect.top,
           anchorBottom: rect.bottom,
+          sheetBounds: sheetRect && sheetRect.width > 0 && sheetRect.height > 0
+            ? {
+              left: sheetRect.left,
+              top: sheetRect.top,
+              right: sheetRect.right,
+              bottom: sheetRect.bottom,
+            }
+            : undefined,
           preferredSide: requested === 'top' || requested === 'bottom'
             || requested === 'left' || requested === 'right' ? requested : undefined,
         });
@@ -168,14 +185,17 @@ export function TooltipLayer() {
   }, []);
 
   if (!tooltip) return null;
+  const maxWidth = tooltip.sheetBounds
+    ? Math.min(280, Math.max(0, tooltip.sheetBounds.right - tooltip.sheetBounds.left - VIEWPORT_PADDING * 2))
+    : undefined;
   return createPortal(<div
     ref={content}
     className="oc-tooltip"
     role="tooltip"
     data-side={position?.side || tooltip.preferredSide || 'bottom'}
     style={position
-      ? { left: position.left, top: position.top }
-      : { left: 0, top: 0, visibility: 'hidden' }}
+      ? { left: position.left, top: position.top, maxWidth }
+      : { left: 0, top: 0, maxWidth, visibility: 'hidden' }}
     aria-label={tooltip.text}
   ><span className="oc-tooltip-label">{tooltip.label}</span>
     {tooltip.keys.length > 0 && <span className="oc-keybind" data-component="keybind">

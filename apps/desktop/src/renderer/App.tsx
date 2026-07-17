@@ -21,22 +21,19 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
-  Clock3,
   Code2,
   Command,
   Copy,
   FileDiff,
   FileText,
+  Folder,
   Layers3,
   LoaderCircle,
   Paperclip,
   Plus,
-  RotateCcw,
   Search,
   ShieldAlert,
-  SlidersHorizontal,
   Sparkles,
   Square,
   Terminal,
@@ -53,6 +50,7 @@ import type {
   DesktopProjectSummary,
   DesktopSessionSummary,
   DesktopSubmitOptions,
+  DesktopUpdaterState,
   EngineSnapshot,
 } from "../shared/contract";
 import {
@@ -62,7 +60,6 @@ import {
   focusTrapIndex,
   isApprovalDismissKey,
   isScrollIntentKey,
-  mergeModelCatalog,
   mergeTranscript,
   normalizeApplyPatch,
   parseUnifiedDiff,
@@ -78,18 +75,18 @@ import {
   type NavigationSelection,
   type WorkspaceTab,
 } from "./navigation";
-import { applyDesktopTheme } from "./desktop-theme";
+import {
+  applyDesktopTheme,
+  applyDesktopThemePreference,
+  clearDesktopThemePreference,
+  getDesktopThemePreference,
+} from "./desktop-theme";
 import { resolveContextUsage } from "./context-usage";
 import { OpenSelect } from "./OpenSelect";
-import {
-  modelDisplayName,
-  modelOptionDescription,
-  normalizeModelOptions,
-  ProviderIcon,
-  providerDisplayName,
-  providerDisplayRank,
-} from "./provider-display";
+import { ModelPicker } from "./ModelPicker";
+import { modelDisplayName } from "./provider-display";
 import { TooltipLayer } from "./TooltipLayer";
+import { acquireModalLayer } from "./modal-layer";
 import {
   SLASH_COMMANDS,
   type CommandSurface as CommandSurfaceName,
@@ -250,6 +247,25 @@ function formatElapsed(value: unknown): string {
   return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
 }
 
+function formatIdleDuration(value: unknown): string {
+  const milliseconds = Math.max(0, Number(value) || 0);
+  if (!milliseconds) return "provider default";
+  const minutes = Math.round(milliseconds / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+}
+
+const TURN_LOCKED_SLASH_COMMANDS = new Set([
+  "clear",
+  "compact",
+  "resume",
+  "outputstyle",
+  "effort",
+  "fast",
+]);
+
 async function copyTextToClipboard(value: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -318,14 +334,19 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
   const [sessions, setSessions] = useState<DesktopSessionSummary[]>([]);
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [selection, setSelection] = useState<NavigationSelection>({ kind: "new" });
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
     { key: "new", title: "New task", selection: { kind: "new" } },
   ]);
+  const [headerTitleEditingSessionId, setHeaderTitleEditingSessionId] = useState("");
+  const [headerTitleDraft, setHeaderTitleDraft] = useState("");
+  const [headerTitleInvalid, setHeaderTitleInvalid] = useState(false);
   const [newTaskActive, setNewTaskActive] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState("");
+  const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const newTaskReady = useRef(false);
   const sessionRefresh = useRef({
     submitInFlight: false,
@@ -335,6 +356,7 @@ export function App() {
   });
   const sessionRefreshVersion = useRef(0);
   const pendingSessionRenames = useRef(new Map<string, { title: string }>());
+  const pendingSessionDeletes = useRef(new Set<string>());
   const isBusy = Boolean(snapshot.busy || snapshot.commandBusy);
   const startupMeasured = useRef(false);
   useEffect(() => {
@@ -349,18 +371,61 @@ export function App() {
     const duration = performance.getEntriesByName("mixdog:startup:entry-to-first-commit").at(-1)?.duration;
     console.info(`[perf] desktop startup first commit: ${duration?.toFixed(1) ?? "?"}ms`);
   }, []);
+  useEffect(() => {
+    const host = window.mixdogDesktop;
+    let live = true;
+    void host?.getUpdaterState?.().then((next) => {
+      if (live) setUpdaterState(next);
+    }).catch(() => {});
+    const unsubscribe = host?.subscribeUpdaterState?.((next) => {
+      if (live) setUpdaterState(next);
+    });
+    return () => {
+      live = false;
+      unsubscribe?.();
+    };
+  }, []);
 
   useEffect(() => {
     let live = true;
-    const readTheme = window.mixdogDesktop?.invokeCapability;
-    if (!readTheme) {
-      applyDesktopTheme('basic');
-      return () => { live = false; };
+    const invokeCapability = window.mixdogDesktop?.invokeCapability;
+    const systemTheme = typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
+    const applyStoredPreference = () => {
+      const preference = getDesktopThemePreference();
+      if (!preference) return false;
+      const resolved = applyDesktopThemePreference(preference);
+      if (preference === 'system' && invokeCapability) {
+        void invokeCapability({
+          capability: 'setTheme',
+          args: [resolved, { persist: true }],
+        }).catch(() => {});
+      }
+      return true;
+    };
+    const handleSystemThemeChange = () => {
+      if (live && getDesktopThemePreference() === 'system') applyStoredPreference();
+    };
+    systemTheme?.addEventListener('change', handleSystemThemeChange);
+    if (!invokeCapability) {
+      if (!applyStoredPreference()) applyDesktopTheme('basic');
+      return () => {
+        live = false;
+        systemTheme?.removeEventListener('change', handleSystemThemeChange);
+      };
     }
-    void readTheme<string>({ capability: 'getTheme' })
-      .then((result) => { if (live) applyDesktopTheme(result.value); })
-      .catch(() => { if (live) applyDesktopTheme('basic'); });
-    return () => { live = false; };
+    void invokeCapability<string>({ capability: 'getTheme' })
+      .then((result) => {
+        if (live && !applyStoredPreference()) applyDesktopTheme(result.value);
+      })
+      .catch(() => {
+        if (live && !applyStoredPreference()) applyDesktopTheme('basic');
+      });
+    return () => {
+      live = false;
+      systemTheme?.removeEventListener('change', handleSystemThemeChange);
+    };
   }, []);
   useEffect(() => {
     const openOnboarding = () => {
@@ -437,15 +502,23 @@ export function App() {
       return undefined;
     }
   }, [setError]);
+  const openDesktopUpdate = useCallback(() => {
+    void invoke(async () => {
+      const next = await window.mixdogDesktop.showDesktopUpdate();
+      setUpdaterState(next);
+    });
+  }, [invoke]);
   const refreshSessions = useCallback(async () => {
     const host = window.mixdogDesktop;
     if (!host?.listSessions) return [];
     const version = ++sessionRefreshVersion.current;
     const next = await host.listSessions();
-    const rows = (Array.isArray(next) ? next : []).map((session) => {
-      const pending = pendingSessionRenames.current.get(session.id);
-      return pending ? { ...session, title: pending.title } : session;
-    });
+    const rows = (Array.isArray(next) ? next : [])
+      .filter((session) => !pendingSessionDeletes.current.has(session.id))
+      .map((session) => {
+        const pending = pendingSessionRenames.current.get(session.id);
+        return pending ? { ...session, title: pending.title } : session;
+      });
     if (version === sessionRefreshVersion.current) setSessions(rows);
     return rows;
   }, []);
@@ -603,16 +676,43 @@ export function App() {
       }
     });
   };
+  const activateNewProjectContext = async (project: Project) => {
+    const next = await window.mixdogDesktop.startProjectTask(project);
+    applySnapshot(next);
+    activateSelection({ kind: "new" }, "New task");
+    newTaskReady.current = true;
+    setNewTaskActive(true);
+    await refreshProjects();
+    refreshSessionsBestEffort();
+  };
+  const selectNewTaskProject = (project: Project) => {
+    closeSidebarForNavigation();
+    void invoke(async () => {
+      try {
+        await activateNewProjectContext(project);
+      } catch (reason) {
+        await synchronizeActualHost();
+        throw reason;
+      }
+    });
+  };
+  const chooseNewTaskProject = () => {
+    void invoke(async () => {
+      const selected = await window.mixdogDesktop.chooseProject();
+      if (!selected) return;
+      try {
+        await activateNewProjectContext(selected);
+      } catch (reason) {
+        await synchronizeActualHost();
+        throw reason;
+      }
+    });
+  };
   const openProjectInExplorer = (project: Project) =>
     invoke(() => window.mixdogDesktop.openProjectInExplorer(project));
   const renameProject = (project: Project, alias: string) =>
     invoke(async () => {
       await window.mixdogDesktop.renameProject(project, alias);
-      await refreshProjects();
-    });
-  const setProjectPinned = (project: Project, pinned: boolean) =>
-    invoke(async () => {
-      await window.mixdogDesktop.setProjectPinned(project, pinned);
       await refreshProjects();
     });
   const removeProject = (project: Project) =>
@@ -661,6 +761,42 @@ export function App() {
       }
     }
   }, [refreshSessions, sessions, setError, tabs]);
+  const deleteSession = useCallback(async (sessionId: string) => {
+    const previousSession = sessions.find((session) => session.id === sessionId);
+    if (!previousSession || pendingSessionDeletes.current.has(sessionId)) return;
+    const deletingCurrent = previousSession.currentSession
+      || (selection.kind === "session" && selection.id === sessionId)
+      || String(snapshot.sessionId || "") === sessionId;
+    pendingSessionDeletes.current.add(sessionId);
+    setError("");
+    let next: EngineSnapshot;
+    try {
+      next = await window.mixdogDesktop.deleteSession(sessionId);
+    } catch (reason) {
+      pendingSessionDeletes.current.delete(sessionId);
+      setError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
+    }
+    sessionRefreshVersion.current += 1;
+    pendingSessionRenames.current.delete(sessionId);
+    applySnapshot(next);
+    setSessions((current) => current.filter((session) => session.id !== sessionId));
+    setTabs((current) => current.filter((tab) =>
+      !(tab.selection.kind === "session" && tab.selection.id === sessionId)));
+    if (deletingCurrent) {
+      activateSelection({ kind: "new" }, "New task");
+      newTaskReady.current = true;
+      setNewTaskActive(true);
+      setSwitchingSessionId("");
+    }
+    try {
+      await refreshSessions();
+    } catch {
+      // The successful deletion remains authoritative if reconciliation is unavailable.
+    } finally {
+      pendingSessionDeletes.current.delete(sessionId);
+    }
+  }, [activateSelection, applySnapshot, refreshSessions, selection, sessions, setError, snapshot.sessionId]);
   const startTask = () => {
     closeSidebarForNavigation();
     void invoke(async () => {
@@ -670,6 +806,7 @@ export function App() {
         activateSelection({ kind: "new" }, "New task");
         newTaskReady.current = true;
         setNewTaskActive(true);
+        setComposerFocusRequest((value) => value + 1);
         refreshSessionsBestEffort();
       } catch (reason) {
         await synchronizeActualHost();
@@ -682,10 +819,16 @@ export function App() {
     closeSidebarForNavigation();
     const session = sessions.find((item) => item.id === sessionId);
     activateSelection({ kind: "session", id: sessionId }, sessionSummaryTitle(session));
-    setSessions((current) => current.map((item) => ({
-      ...item,
-      currentSession: item.id === sessionId,
-    })));
+    setSessions((current) => {
+      let changed = false;
+      const next = current.map((item) => {
+        const currentSession = item.id === sessionId;
+        if (item.currentSession === currentSession) return item;
+        changed = true;
+        return { ...item, currentSession };
+      });
+      return changed ? next : current;
+    });
     setNewTaskActive(false);
     setSwitchingSessionId(sessionId);
     const timingStart = `mixdog:session-switch:${sessionId}:start`;
@@ -780,6 +923,48 @@ export function App() {
     ? sessions.find((session) => session.id === selection.id)
     : undefined;
   const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
+  const visibleSessionTitle = currentSessionTitle ||
+    tabs.find((tab) => tab.key === navigationKey(selection))?.title || "New task";
+  const openHeaderTitleEditor = () => {
+    if (!selectedSession) return;
+    setHeaderTitleDraft(visibleSessionTitle);
+    setHeaderTitleInvalid(false);
+    setHeaderTitleEditingSessionId(selectedSession.id);
+  };
+  const closeHeaderTitleEditor = () => {
+    setHeaderTitleEditingSessionId("");
+    setHeaderTitleDraft("");
+    setHeaderTitleInvalid(false);
+  };
+  const commitHeaderTitleEditor = (fromBlur = false) => {
+    if (!selectedSession) return closeHeaderTitleEditor();
+    const title = headerTitleDraft.trim();
+    if (!title) {
+      setHeaderTitleInvalid(true);
+      if (fromBlur) closeHeaderTitleEditor();
+      return;
+    }
+    closeHeaderTitleEditor();
+    if (title !== visibleSessionTitle) void renameSession(selectedSession.id, title);
+  };
+  const snapshotProjectPath = String(asRecord(visibleSnapshot)?.currentProject ||
+    asRecord(visibleSnapshot)?.project || "");
+  const activeProjectPath = selection.kind === "session"
+    ? String(selectedSession?.projectPath || snapshotProjectPath)
+    : selection.kind === "project" ? selection.path : snapshotProjectPath;
+  const activeProjectSummary = projects.find((project) =>
+    project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() ===
+    activeProjectPath.replace(/[\\/]+/g, "/").toLocaleLowerCase());
+  // Only an explicitly registered project gets project chrome. Historical or
+  // temporary cwd values remain normal Tasks even when a legacy row carries a
+  // project-like path.
+  const activeProjectLabel = activeProjectSummary
+    ? activeProjectSummary.alias?.trim() || activeProjectSummary.name?.trim() ||
+      displayProject(activeProjectSummary.path).name || "Project"
+    : "";
+  const recentProjectPaths = Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects : [];
+  const selectedProjectPath = activeProjectPath ||
+    String(recentProjectPaths[0] || "");
   const activeTabKey = navigationKey(selection);
   const navigateTab = (tab: WorkspaceTab) => {
     if (tab.key === activeTabKey) return;
@@ -819,12 +1004,14 @@ export function App() {
         onCloseTab={closeTab}
         onReorderTab={reorderTab}
         onNewTask={startTask}
+        updaterState={updaterState}
+        onOpenUpdate={openDesktopUpdate}
       />
       <div className="desktop-body">
         <SessionSidebar
           open={sidebarOpen}
-          projects={projects}
           sessions={sessions}
+          projects={projects}
           selection={selection}
           onNewTask={startTask}
           onChooseProject={chooseProject}
@@ -833,54 +1020,82 @@ export function App() {
           onOpenSettings={() => openSettings()}
           onResumeSession={resumeSession}
           onRenameSession={renameSession}
+          onDeleteSession={deleteSession}
         />
         {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)}
           aria-label="Close session sidebar" />}
         <main className="main-panel">
           <div className={`workspace ${switchingSessionId ? "switching-session" : ""}`}>
             <header className="session-header" aria-label="Current task">
-              <div className="session-progress" aria-hidden="true">
-                {isBusy && <span />}
-              </div>
               <div className="session-header-content">
-                {isBusy && <LoaderCircle className="spin session-spinner" size={14} aria-hidden="true" />}
-                <h1 data-tooltip={currentSessionTitle || tabs.find((tab) => tab.key === activeTabKey)?.title || "New task"}>
-                  {currentSessionTitle || tabs.find((tab) => tab.key === activeTabKey)?.title || "New task"}
+                <h1 data-tooltip={visibleSessionTitle}>
+                  {selectedSession && headerTitleEditingSessionId === selectedSession.id ? <input
+                    className="session-header-title-input"
+                    value={headerTitleDraft}
+                    maxLength={160}
+                    autoFocus
+                    aria-label={`Rename ${visibleSessionTitle}`}
+                    aria-invalid={headerTitleInvalid || undefined}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onInput={(event) => setHeaderTitleDraft(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        commitHeaderTitleEditor();
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        closeHeaderTitleEditor();
+                      }
+                    }}
+                    onBlur={() => commitHeaderTitleEditor(true)}
+                  /> : selectedSession ? <button type="button" className="session-title-trigger"
+                    onClick={openHeaderTitleEditor} aria-label={`Rename ${visibleSessionTitle}`}>
+                    {visibleSessionTitle}
+                  </button> : visibleSessionTitle}
                 </h1>
-                <ContextUsageIndicator snapshot={visibleSnapshot}
-                  onOpen={() => setCommandSurface("context")} />
+                {selection.kind === "session" && activeProjectLabel &&
+                  <span className="session-project-badge">{activeProjectLabel}</span>}
+                <div className="session-header-status">
+                  <LiveWorkStatus snapshot={visibleSnapshot} />
+                  <ContextUsageIndicator snapshot={visibleSnapshot}
+                    onOpen={() => setCommandSurface("context")} />
+                </div>
               </div>
             </header>
             <Conversation snapshot={visibleSnapshot} routeSnapshot={snapshot} invoke={invoke} invokeResult={invokeResult}
               errors={errors} submit={submit} applySnapshot={applySnapshot}
               transitioning={Boolean(switchingSessionId)}
+              composerFocusRequest={composerFocusRequest}
               onNewTask={startTask}
               onStartProject={startProject}
               onResumeSession={resumeSession}
               onOpenProjects={() => setProjectPanelOpen(true)}
               onOpenSessions={() => setSidebarOpen(true)}
               onOpenSettings={openSettings}
+              projects={projects}
+              showProjectSelector={selection.kind === "new"}
+              activeProjectPath={activeProjectPath}
+              activeProjectLabel={activeProjectLabel}
+              onSelectProject={selectNewTaskProject}
+              onChooseProject={chooseNewTaskProject}
               onOpenCommandSurface={(surface) => {
                 setSettingsOpen(false);
                 setCommandSurface(surface);
               }} />
-            {switchingSessionId && <div className="session-switch-overlay" role="status" aria-live="polite">
-              <LoaderCircle className="spin" size={16} /><span>Opening session…</span>
-            </div>}
+            {switchingSessionId && <div className="session-switch-overlay" aria-hidden="true" />}
           </div>
         </main>
       </div>
       <ProjectSwitcher
         open={projectPanelOpen}
         projects={projects}
-        selection={selection}
+        selectedProjectPath={selectedProjectPath}
         onClose={closeProjectPanel}
         onChooseProject={chooseProject}
         onStartProject={startProject}
         onStartProjectTask={startProjectTask}
         onOpenExplorer={openProjectInExplorer}
         onRename={renameProject}
-        onSetPinned={setProjectPinned}
         onRemove={removeProject}
       />
       <Suspense fallback={null}>
@@ -910,6 +1125,12 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
   toasts: Toast[];
   onDismissBridgeError: () => void;
 }) {
+  const [placement, setPlacement] = useState({
+    right: 16,
+    top: 54,
+    width: 320,
+    maxHeight: 400,
+  });
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [dismissedErrorSignatures, setDismissedErrorSignatures] = useState<Set<string>>(() => new Set());
   const [retainedErrors, setRetainedErrors] = useState<Array<{
@@ -981,9 +1202,35 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
     }, 6500);
     return () => window.clearTimeout(timer);
   }, [expiringKeys]);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const workspace = document.querySelector('.workspace');
+      if (!(workspace instanceof HTMLElement)) return;
+      const sheet = workspace.getBoundingClientRect();
+      if (!sheet.width || !sheet.height) return;
+      const margin = 16;
+      const width = Math.min(320, Math.max(0, sheet.width - margin * 2));
+      const right = Math.max(margin, window.innerWidth - sheet.right + margin);
+      // User request: toasts anchor to the sheet's TOP-right and stack downward.
+      const top = Math.max(margin, sheet.top + margin);
+      const maxHeight = Math.max(0, sheet.bottom - top - margin);
+      setPlacement((current) => current.right === right && current.top === top
+        && current.width === width && current.maxHeight === maxHeight
+        ? current : { right, top, width, maxHeight });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    const workspace = document.querySelector('.workspace');
+    if (resizeObserver && workspace instanceof HTMLElement) resizeObserver.observe(workspace);
+    return () => {
+      window.removeEventListener('resize', measure);
+      resizeObserver?.disconnect();
+    };
+  }, []);
   if (!entries.length) return null;
   return createPortal(<section className="oc-toast-region" aria-label="Notifications" aria-live="polite"
-    data-count={entries.length}>
+    data-count={entries.length} style={placement}>
     {entries.map((entry) => {
       const title = entry.tone === 'error' ? 'Something went wrong'
         : entry.tone === 'success' ? 'Completed'
@@ -1031,12 +1278,19 @@ function Conversation({
   submit,
   applySnapshot,
   transitioning,
+  composerFocusRequest,
   onNewTask,
   onStartProject,
   onResumeSession,
   onOpenProjects,
   onOpenSessions,
   onOpenSettings,
+  projects,
+  showProjectSelector,
+  activeProjectPath,
+  activeProjectLabel,
+  onSelectProject,
+  onChooseProject,
   onOpenCommandSurface,
 }: {
   snapshot: Snapshot;
@@ -1047,12 +1301,19 @@ function Conversation({
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
   applySnapshot: (snapshot: EngineSnapshot | null) => void;
   transitioning: boolean;
+  composerFocusRequest: number;
   onNewTask: () => void;
   onStartProject: (path: string) => void;
   onResumeSession: (id: string) => void;
   onOpenProjects: () => void;
   onOpenSessions: () => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
+  projects: DesktopProjectSummary[];
+  showProjectSelector: boolean;
+  activeProjectPath: string;
+  activeProjectLabel: string;
+  onSelectProject: (path: string) => void;
+  onChooseProject: () => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -1062,7 +1323,6 @@ function Conversation({
   const scrollFrame = useRef<number | undefined>(undefined);
   const [starter, setStarter] = useState<{ id: number; text: string } | null>(null);
   const [following, setFollowing] = useState(true);
-  const [currentUserMessage, setCurrentUserMessage] = useState(0);
   const composerActions = useRef({
     submit, invokeResult, applySnapshot, onNewTask, onStartProject, onResumeSession,
     onOpenProjects, onOpenSessions, onOpenSettings, onOpenCommandSurface,
@@ -1076,13 +1336,6 @@ function Conversation({
     [snapshot.items, snapshot.streamingTail],
   );
   const failedTurns = useMemo(() => new Set(snapshot.failedTurnKeys || []), [snapshot.failedTurnKeys]);
-  const userMessages = useMemo(() => items.flatMap((item, itemIndex) => item.kind === "user"
-    ? [{ itemIndex, label: oneLine(item.text, 80) || "New message" }]
-    : []), [items]);
-  const userMessageOrdinal = useMemo(
-    () => new Map(userMessages.map((message, index) => [message.itemIndex, index])),
-    [userMessages],
-  );
   const turnMetadata = useMemo(() => {
     const current = mergeTranscript(snapshot.items, snapshot.streamingTail);
     const turnKeys = transcriptTurnKeys(current);
@@ -1128,27 +1381,6 @@ function Conversation({
     window.clearTimeout(scrollTimer.current);
     scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
   }, []);
-  const syncCurrentUserMessage = useCallback(() => {
-    const root = viewport.current;
-    if (!root || userMessages.length === 0) return;
-    const threshold = root.getBoundingClientRect().top + Math.min(140, root.clientHeight * .28);
-    let next = 0;
-    userMessages.forEach((message, index) => {
-      const anchor = document.getElementById(`user-message-${message.itemIndex}`);
-      if (anchor && anchor.getBoundingClientRect().top <= threshold) next = index;
-    });
-    setCurrentUserMessage(next);
-  }, [userMessages]);
-  const jumpToUserMessage = useCallback((index: number) => {
-    const next = Math.max(0, Math.min(userMessages.length - 1, index));
-    const target = userMessages[next];
-    if (!target) return;
-    followOutput.current = false;
-    setFollowing(false);
-    setCurrentUserMessage(next);
-    document.getElementById(`user-message-${target.itemIndex}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [userMessages]);
   const composerSubmit = useCallback(async (
     content: DesktopPromptContent,
     options?: DesktopSubmitOptions,
@@ -1197,8 +1429,7 @@ function Conversation({
     element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
     window.clearTimeout(scrollTimer.current);
     scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
-    setCurrentUserMessage(Math.max(0, userMessages.length - 1));
-  }, [routeSnapshot.sessionId, userMessages.length]);
+  }, [routeSnapshot.sessionId]);
   useEffect(() => {
     if (followOutput.current && scrollFrame.current === undefined) {
       const element = viewport.current;
@@ -1236,7 +1467,6 @@ function Conversation({
         );
         followOutput.current = nextFollowing;
         setFollowing(nextFollowing);
-        syncCurrentUserMessage();
       }} onWheel={() => { programmaticScroll.current = false; }}
         onPointerDown={() => { programmaticScroll.current = false; }}
         onTouchStart={() => { programmaticScroll.current = false; }}
@@ -1271,7 +1501,7 @@ function Conversation({
             }
             if (attachedCompletionIndexes.has(index)) return null;
             const row = <TranscriptRow item={item} completion={completionByAssistant.get(index)}
-              userMessageIndex={userMessageOrdinal.get(index) === undefined ? undefined : index}
+              attachedUser={item.kind === "user" && items[index - 1]?.kind === "user"}
               key={`${String(routeSnapshot.sessionId || "new-task")}:${String(item.id ?? `${item.kind}-${index}`)}`} />;
             const pendingFailure = failedTurns.has(turnKey) &&
               !lastCompletionByTurn.has(turnKey) &&
@@ -1292,23 +1522,24 @@ function Conversation({
           )}
         </div>
       </div>
-      <TranscriptRail messages={userMessages} current={currentUserMessage}
-        onPrevious={() => jumpToUserMessage(currentUserMessage - 1)}
-        onNext={() => jumpToUserMessage(currentUserMessage + 1)} />
       {!following && <button type="button" className="jump-to-latest" onClick={() => jumpToLatest()}
         aria-label="Jump to latest message">
         <ArrowDown size={14} />Jump to latest
       </button>}
       <div className="composer-region">
+        {showProjectSelector && <ProjectContextSelector projects={projects}
+          activePath={activeProjectPath} activeLabel={activeProjectLabel}
+          disabled={transitioning || Boolean(snapshot.busy)}
+          onClear={onNewTask} onSelect={onSelectProject} onChoose={onChooseProject} />}
         {Boolean(asRecord(snapshot.progressHint)?.text) && <div className="runtime-progress" role="status">
           {String(asRecord(snapshot.progressHint)?.text)}
         </div>}
         <InlineErrors messages={errors} />
-        <LiveWorkStatus snapshot={snapshot} />
         <Composer key={String(routeSnapshot.sessionId || 'new-task')}
           turnBusy={Boolean(snapshot.busy)}
           commandBusy={Boolean(routeSnapshot.commandBusy)}
           transitioning={transitioning}
+          focusRequest={composerFocusRequest}
           historyScope={String(routeSnapshot.sessionId || routeSnapshot.currentProject ||
             routeSnapshot.project || routeSnapshot.cwd || 'new-task')}
           projectScope={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
@@ -1336,6 +1567,46 @@ function Conversation({
       </div>
     </section>
   );
+}
+
+const PROJECT_CONTEXT_LOCAL = "__mixdog_local__";
+const PROJECT_CONTEXT_OPEN = "__mixdog_open__";
+
+function ProjectContextSelector({ projects, activePath, activeLabel, disabled, onClear, onSelect, onChoose }: {
+  projects: DesktopProjectSummary[];
+  activePath: string;
+  activeLabel: string;
+  disabled: boolean;
+  onClear(): void;
+  onSelect(path: string): void;
+  onChoose(): void;
+}) {
+  const normalized = activePath.replace(/[\\/]+/g, "/").toLocaleLowerCase();
+  const known = projects.some((project) =>
+    project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() === normalized);
+  const options = [
+    { value: PROJECT_CONTEXT_LOCAL, label: "No project" },
+    ...(!activePath || known ? [] : [{ value: activePath, label: activeLabel || displayProject(activePath).name || "Project" }]),
+    ...projects.map((project) => ({
+      value: project.path,
+      label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || "Project",
+    })),
+    { value: PROJECT_CONTEXT_OPEN, label: "Open folder…" },
+  ];
+  const value = activePath || PROJECT_CONTEXT_LOCAL;
+  return <div className="composer-context-bar">
+    <div className="composer-project-context">
+      <Folder size={13} aria-hidden="true" />
+      <OpenSelect className="project-context-select" ariaLabel="Project context"
+        value={value} displayValue={activeLabel || "Project"} disabled={disabled}
+        options={options} onChange={(next) => {
+          if (next === PROJECT_CONTEXT_OPEN) onChoose();
+          else if (next === PROJECT_CONTEXT_LOCAL) {
+            if (activePath) onClear();
+          } else if (next !== activePath) onSelect(next);
+        }} />
+    </div>
+  </div>;
 }
 
 const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
@@ -1429,9 +1700,6 @@ function contextMetrics(snapshot: Snapshot) {
   return {
     ...usage,
     estimated: exact === 0 && estimated > 0,
-    cost: Object.prototype.hasOwnProperty.call(stats, "costUsd") && Number.isFinite(Number(stats.costUsd))
-      ? Math.max(0, Number(stats.costUsd))
-      : null,
   };
 }
 
@@ -1472,40 +1740,12 @@ export function ContextUsageIndicator({ snapshot, onOpen }: { snapshot: Snapshot
         <circle className="context-usage-value" cx="10" cy="10" r="7"
           pathLength="100" strokeDasharray={`${context.percent} 100`} />
       </svg>
-      <small>{context.percent}</small>
     </button>
     <div className="session-context-popover" id={descriptionId} role="tooltip">
-      {context.cost !== null && <div><span>Cost</span><b>{new Intl.NumberFormat(undefined, {
-        style: "currency", currency: "USD", minimumFractionDigits: 2,
-      }).format(context.cost)}</b></div>}
       <div><span>Usage</span><b>{context.percent}%</b></div>
-      <div><span>Tokens</span><b>{context.used.toLocaleString()}</b></div>
+      <div><span>Tokens</span><b>{context.used.toLocaleString()} / {context.limit.toLocaleString()}</b></div>
     </div>
   </div>;
-}
-
-function TranscriptRail({ messages, current, onPrevious, onNext }: {
-  messages: Array<{ itemIndex: number; label: string }>;
-  current: number;
-  onPrevious: () => void;
-  onNext: () => void;
-}) {
-  if (messages.length < 2) return null;
-  const currentLabel = messages[current]?.label || "Current message";
-  return <aside className="transcript-rail" aria-label="Conversation navigation">
-    <div className="message-nav" data-component="message-nav" data-size="compact">
-      <button type="button" onClick={onPrevious} disabled={current <= 0}
-        aria-label="Previous user message" data-tooltip={current > 0 ? messages[current - 1]?.label : undefined}>
-        <ArrowUp size={13} />
-      </button>
-      <span aria-label={`User message ${current + 1} of ${messages.length}`}
-        title={currentLabel}>{current + 1}/{messages.length}</span>
-      <button type="button" onClick={onNext} disabled={current >= messages.length - 1}
-        aria-label="Next user message" data-tooltip={current < messages.length - 1 ? messages[current + 1]?.label : undefined}>
-        <ArrowDown size={13} />
-      </button>
-    </div>
-  </aside>;
 }
 
 function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
@@ -1522,6 +1762,7 @@ function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
   }, [activity, startedAt]);
   if (!activity && !snapshot.thinking) return null;
   const mode = String(activity?.mode || (snapshot.thinking ? "thinking" : "responding"));
+  if (mode === "resuming") return null;
   const canonicalVerb: Record<string, string> = {
     requesting: "Requesting",
     responding: "Responding",
@@ -1529,7 +1770,6 @@ function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
     "tool-use": "Using tools",
     "tool-input": "Using tools",
     compacting: "Compacting conversation",
-    resuming: "Resuming conversation",
     "auto-clear": "Auto-clearing conversation",
   };
   // Mirror Spinner's MODE_VERBS boundary: only those modes have a stable
@@ -1708,11 +1948,11 @@ function messageMetadata(item: TranscriptItem) {
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   completion,
-  userMessageIndex,
+  attachedUser = false,
 }: {
   item: TranscriptItem;
   completion?: TranscriptItem;
-  userMessageIndex?: number;
+  attachedUser?: boolean;
 }) {
   const previousStreaming = useRef(Boolean(item.streaming));
   const announceSettled = previousStreaming.current && !item.streaming;
@@ -1736,9 +1976,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   const metadata = messageMetadata(item);
   return (
     <>
-      <article className={`message ${user ? "user" : "assistant"} ${item.streaming ? "streaming" : "settled"}`}
-        id={user && userMessageIndex !== undefined ? `user-message-${userMessageIndex}` : undefined}
-        data-user-message-index={user && userMessageIndex !== undefined ? userMessageIndex : undefined}
+      <article className={`message ${user ? "user" : "assistant"} ${item.streaming ? "streaming" : "settled"} ${user && attachedUser ? "attached-user" : ""}`}
         aria-live={item.streaming || announceSettled ? "off" : undefined}>
         <div className="message-body">
           {user ? <p>{item.text}</p> : (
@@ -1772,7 +2010,7 @@ export const TranscriptRow = memo(function TranscriptRow({
 ) && (
   previous.completion === next.completion ||
   transcriptItemSignature(previous.completion) === transcriptItemSignature(next.completion)
-) && previous.userMessageIndex === next.userMessageIndex);
+  ) && previous.attachedUser === next.attachedUser);
 
 function ToolCard({ item }: { item: TranscriptItem }) {
   const [open, setOpen] = useState(Boolean(item.expanded));
@@ -1789,7 +2027,6 @@ function ToolCard({ item }: { item: TranscriptItem }) {
   const denied = isHookApprovalDenialToolItem(item);
   const failed = Boolean(item.isError || failedCount > 0 || callFailedCount > 0);
   const exited = !failed && exitFailedCount > 0;
-  const stateLabel = denied ? "Denied" : failed ? "Failed" : exited ? "Exit" : done ? "Done" : "Running";
   const surface = formatToolSurface(item.name, item.args);
   const category = classifyToolCategory(item.name, surface.args);
   const activeCategories = asRecord(item.categories) || {};
@@ -1799,22 +2036,24 @@ function ToolCard({ item }: { item: TranscriptItem }) {
     ? asRecord(item.args)?.categoryOrder as string[] : undefined;
   const aggregateTitle = item.aggregate
     ? formatAggregateHeader(categories, { pending: !done, order: aggregateOrder }) : "";
-  const title = aggregateTitle || (item.aggregate ? `${item.count || 1} tool operations` : surface.label);
-  const argumentSummary = item.aggregate ? "" : surface.summary;
-  const rawResult = item.result ?? item.rawResult;
-  const resultText = typeof rawResult === "string" ? rawResult.trim() : "";
-  const resultSummary = done && resultText
-    ? oneLine(item.aggregate
-      ? resultText
-      : summarizeToolResult(item.name, surface.args, resultText, failed))
-    : "";
-  const patch = findPatch(item);
   const parsedArgs = asRecord(surface.args);
-  const hasInput = !item.aggregate && (parsedArgs ? Object.keys(parsedArgs).length > 0 : Boolean(surface.args));
+  const shellCommand = category === "Shell"
+    ? String(parsedArgs?.command || parsedArgs?.cmd || parsedArgs?.script || "").trim()
+    : "";
+  const shellDescription = category === "Shell" ? String(parsedArgs?.description || "").trim() : "";
+  const title = aggregateTitle || (item.aggregate
+    ? `${item.count || 1} tool operations`
+    : category === "Shell" ? "Shell" : surface.label);
+  const argumentSummary = item.aggregate ? "" : category === "Shell" ? shellDescription : surface.summary;
+  const rawResult = item.result ?? item.rawResult;
+  const patch = findPatch(item);
+  const hasInput = !item.aggregate && category !== "Shell"
+    && (parsedArgs ? Object.keys(parsedArgs).length > 0 : Boolean(surface.args));
   const hasResult = typeof rawResult === "string" ? Boolean(rawResult.trim()) : rawResult != null;
-  const hasDetails = hasInput || patch != null || hasResult;
+  const hasDetails = hasInput || patch != null || hasResult || Boolean(shellCommand);
   const count = Math.max(1, Math.round(Number(item.count || 1)));
   const errorCard = (failed || denied) && hasResult;
+  const exceptionalState = denied ? "Denied" : failed ? "Failed" : exited ? "Exit" : "";
   return (
     <article className={`tool-card ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
@@ -1832,27 +2071,41 @@ function ToolCard({ item }: { item: TranscriptItem }) {
             data-component="tool-count-label">{count} calls</span>}
           {argumentSummary && <small>{argumentSummary}</small>}
         </span>
-        <span className={`tool-state ${done ? "done" : ""} ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""}`} role="status">
-          {failed || denied ? <X size={13} /> : done ? <Check size={13} /> : <LoaderCircle className="spin" size={13} />}
-          {stateLabel}
-        </span>
-        {hasDetails && (open ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+        {exceptionalState && <span className={`tool-state ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""}`} role="status">
+          <X size={13} />{exceptionalState}
+        </span>}
+        {!done && !exceptionalState && <span className="sr-only" role="status">Running</span>}
+        {hasDetails && <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>}
       </button>
-      {resultSummary && !open && <div className={errorCard ? "tool-error-summary" : "tool-result-summary"}>
-        {resultSummary}
-      </div>}
       {hasDetails && open && (
         <div className="tool-content" id={contentId}>
           {hasInput && <DetailBlock label="Input" value={surface.args} />}
           {patch ? <CodeDiff patch={patch} /> :
-            hasResult &&
-              <DetailBlock label={failed || denied ? "Error" : "Result"} value={rawResult}
-                copyLabel={failed || denied ? "Copy tool error"
-                  : category === "Shell" ? "Copy command output" : undefined} />}
+            category === "Shell"
+              ? <ToolOutput value={rawResult} command={shellCommand} copyLabel="Copy command output" />
+              : hasResult && <ToolOutput value={rawResult}
+                copyLabel={failed || denied ? "Copy tool error" : undefined} />}
         </div>
       )}
     </article>
   );
+}
+
+function ToolOutput({ value, command = "", copyLabel }: {
+  value: unknown;
+  command?: string;
+  copyLabel?: string;
+}) {
+  const output = boundedTextOf(value);
+  const text = command ? `$ ${command}${output.trim() ? `\n\n${output}` : ""}` : output;
+  if (!text.trim()) return null;
+  return <div className={`tool-output ${command ? "shell-output" : ""}`}>
+    {copyLabel && <CopyControl value={text} label={copyLabel}
+      className="tool-detail-copy tool-output-copy" />}
+    <div className="tool-output-scroll">
+      <pre><code>{text}</code></pre>
+    </div>
+  </div>;
 }
 
 function DetailBlock({ label, value, copyLabel }: { label: string; value: unknown; copyLabel?: string }) {
@@ -1975,6 +2228,7 @@ export function ApprovalCard({ approval, resolve }: {
   const [resolving, setResolving] = useState(false);
   const [approvalError, setApprovalError] = useState("");
   const dialog = useRef<HTMLElement>(null);
+  const approvalLayer = useRef<HTMLDivElement>(null);
   const resolvingRef = useRef(false);
   const resolveRef = useRef(resolve);
   resolveRef.current = resolve;
@@ -2001,17 +2255,14 @@ export function ApprovalCard({ approval, resolve }: {
   useEffect(() => {
     const background = document.querySelector<HTMLElement>(".app-shell");
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousAriaHidden = background?.getAttribute("aria-hidden");
-    const previousInert = background?.inert;
-    if (background) {
-      background.inert = true;
-      background.setAttribute("aria-hidden", "true");
-    }
+    const layer = acquireModalLayer(background ? [background] : []);
+    layer.attachSurface(approvalLayer.current);
     const focusable = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ) || []);
     (focusable()[0] || dialog.current)?.focus();
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!layer.isTop()) return;
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ||
         (target instanceof HTMLElement && target.isContentEditable)) return;
@@ -2042,16 +2293,12 @@ export function ApprovalCard({ approval, resolve }: {
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
-      if (background) {
-        background.inert = previousInert ?? false;
-        if (previousAriaHidden == null) background.removeAttribute("aria-hidden");
-        else background.setAttribute("aria-hidden", previousAriaHidden);
-      }
+      layer.release();
       previousFocus?.focus();
     };
   }, [decide]);
   return createPortal(
-    <div className="approval-layer">
+    <div ref={approvalLayer} className="approval-layer">
       <article ref={dialog} className="approval-card" role="dialog" aria-modal="true" tabIndex={-1}
       aria-labelledby="approval-title" aria-describedby="approval-description"
       >
@@ -2117,20 +2364,44 @@ function readPromptHistory(scope: string) {
   }
 }
 
-function QueueList({ queued, restoring, onRestore }: {
+function queuedFollowupPreview(entry: unknown) {
+  return queueText(entry).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "[Attachment]";
+}
+
+function QueueList({ queued, restoring, onEdit }: {
   queued?: unknown[];
   restoring: boolean;
-  onRestore: () => void;
+  onEdit: (id: string) => void;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const itemsId = useId();
   if (!Array.isArray(queued) || queued.length === 0) return null;
+  const label = `${queued.length} queued follow-up${queued.length === 1 ? "" : "s"}`;
+  const preview = queuedFollowupPreview(queued[0]);
   return (
-    <div className="queue-list" role="list" aria-label={`${queued.length} queued request${queued.length === 1 ? "" : "s"}`}>
-      {queued.map((entry, index) => <div role="listitem" key={String(asRecord(entry)?.id || index)}>
-        <Clock3 size={13} /><span>{queueText(entry)}</span><small>Queued</small></div>)}
-      <button type="button" className="queue-restore" disabled={restoring} onClick={onRestore}>
-        <RotateCcw size={13} />{restoring ? 'Restoring…' : 'Restore queue to editor'}
+    <section className="queue-list" data-collapsed={collapsed ? "true" : "false"}
+      aria-label={label}>
+      <button type="button" className="queue-summary" aria-expanded={!collapsed}
+        aria-controls={itemsId} onClick={() => setCollapsed((value) => !value)}>
+        <strong>{label}</strong>
+        {collapsed && <span className="queue-collapsed-preview">{preview}</span>}
+        <ChevronDown className="queue-chevron" size={15} aria-hidden="true" />
       </button>
-    </div>
+      {!collapsed && <div className="queue-items" id={itemsId} role="list">
+        {queued.map((entry, index) => {
+          const id = String(asRecord(entry)?.id || "");
+          const text = queuedFollowupPreview(entry);
+          return <div className="queue-item" role="listitem" key={id || index}>
+            <span className="queue-item-text" title={text}>{text}</span>
+            <small>Next boundary</small>
+            <button type="button" className="queue-edit" disabled={restoring || !id}
+              onClick={() => onEdit(id)} aria-label={`Edit queued follow-up: ${text}`}>
+              {restoring ? "Editing…" : "Edit"}
+            </button>
+          </div>;
+        })}
+      </div>}
+    </section>
   );
 }
 
@@ -2138,6 +2409,7 @@ const Composer = memo(function Composer({
   turnBusy,
   commandBusy,
   transitioning,
+  focusRequest,
   historyScope,
   projectScope,
   hasConversation,
@@ -2165,6 +2437,7 @@ const Composer = memo(function Composer({
   turnBusy: boolean;
   commandBusy: boolean;
   transitioning: boolean;
+  focusRequest: number;
   historyScope: string;
   projectScope: string;
   hasConversation: boolean;
@@ -2193,6 +2466,7 @@ const Composer = memo(function Composer({
   const [submitting, setSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
+  const [composerNotice, setComposerNotice] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedDraft, setSlashDismissedDraft] = useState('');
   const [composerFocused, setComposerFocused] = useState(false);
@@ -2238,15 +2512,10 @@ const Composer = memo(function Composer({
       return next;
     });
   }, [historyScope]);
-  const placeholderOptions = useMemo(() => [
-    COMPOSER_PLACEHOLDERS[0],
-    ...(hasConversation ? ['Ask Mixdog a follow-up…'] : []),
-    ...(hasProjectContext ? ['Ask Mixdog anything about the active project…'] : []),
-    ...COMPOSER_PLACEHOLDERS.slice(1),
-  ], [hasConversation, hasProjectContext]);
+  // User request: one stable placeholder — no rotating variants.
   const placeholder = turnBusy ? 'Steer the active turn or queue a follow-up…'
     : commandBusy ? 'Queue a message after the current command…'
-      : placeholderOptions[placeholderIndex % placeholderOptions.length];
+      : hasConversation ? 'Ask Mixdog a follow-up…' : COMPOSER_PLACEHOLDERS[0];
   // Match the TUI palette: it only owns a single, argument-free /token.
   // Once whitespace is entered the composer returns to normal editing and the
   // argument hint/submit path owns the draft.
@@ -2309,10 +2578,21 @@ const Composer = memo(function Composer({
   }, [starter]);
   useEffect(() => {
     if (wasTransitioning.current && !transitioning) {
-      window.setTimeout(() => textarea.current?.focus({ preventScroll: true }), 0);
+      window.setTimeout(() => {
+        if (document.activeElement?.classList.contains("session-header-title-input")) return;
+        textarea.current?.focus({ preventScroll: true });
+      }, 0);
     }
     wasTransitioning.current = transitioning;
   }, [transitioning]);
+  useEffect(() => {
+    if (focusRequest <= 0 || transitioning) return undefined;
+    const timer = window.setTimeout(() => {
+      if (document.activeElement?.classList.contains("session-header-title-input")) return;
+      textarea.current?.focus({ preventScroll: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [focusRequest, transitioning]);
 
   useEffect(() => setSlashIndex(0), [slashQuery]);
   useEffect(() => setMentionIndex(0), [mentionMatch?.query]);
@@ -2556,16 +2836,21 @@ const Composer = memo(function Composer({
     return nextText;
   }, [attachmentPolicyError]);
 
-  const restoreQueue = async () => {
-    if (restoring) return;
+  const restoreQueue = async (currentText = draft, queuedId = '') => {
+    if (restoring) return undefined;
     setRestoring(true);
-    const value = await invokeCapability<RecordValue>('restoreQueued', [draft]);
-    if (value) {
-      const restored = restoredAttachments(value, String(value.text || draft));
-      setDraft(mergeRestoredAttachments(restored.attachments, restored.text));
-      textarea.current?.focus();
+    try {
+      const args = queuedId ? [currentText, queuedId] : [currentText];
+      const value = await invokeCapability<RecordValue>('restoreQueued', args);
+      if (value) {
+        const restored = restoredAttachments(value, String(value.text || currentText));
+        setDraft(mergeRestoredAttachments(restored.attachments, restored.text));
+        textarea.current?.focus();
+      }
+      return value;
+    } finally {
+      setRestoring(false);
     }
-    setRestoring(false);
   };
 
   const executeSlash = async (raw: string): Promise<boolean> => {
@@ -2589,6 +2874,11 @@ const Composer = memo(function Composer({
     }
     const name = command.name;
     setAttachmentError('');
+    setComposerNotice('');
+    if (turnBusy && TURN_LOCKED_SLASH_COMMANDS.has(name)) {
+      setAttachmentError(`Wait for the current turn to finish before /${rawName}.`);
+      return false;
+    }
     if (rawName === 'new') onNewTask();
     else if (name === 'project') argument ? onStartProject(argument) : onOpenProjects();
     else if (name === 'resume') argument ? onResumeSession(argument) : onOpenSessions();
@@ -2617,7 +2907,13 @@ const Composer = memo(function Composer({
       applySnapshot(next);
     } else if (name === 'autoclear') {
       const value = argument.toLowerCase();
-      if (!value || value === 'status') onOpenSettings('autoclear');
+      if (!value) onOpenSettings('autoclear');
+      else if (value === 'status') {
+        const status = asRecord(await commandCapability('getAutoClear'));
+        if (invocationFailed) return false;
+        if (!status) setComposerNotice('Auto-clear unavailable.');
+        else setComposerNotice(`Auto-clear ${status.enabled ? 'on' : 'off'} · idle ${formatIdleDuration(status.idleMs)}`);
+      }
       else if (['on', 'enable', 'enabled'].includes(value)) await commandCapability('setAutoClear', [{ enabled: true }]);
       else if (['off', 'disable', 'disabled'].includes(value)) await commandCapability('setAutoClear', [{ enabled: false }]);
       else await commandCapability('setAutoClear', [{ duration: argument }]);
@@ -2628,13 +2924,27 @@ const Composer = memo(function Composer({
       if (argument) await commandCapability('setWorkflow', [argument]);
       else onOpenSettings('workflow');
     } else if (name === 'outputstyle') {
-      if (!argument || ['status', 'current', 'show'].includes(argument.toLowerCase())) onOpenSettings('output-style');
+      if (!argument) onOpenSettings('output-style');
+      else if (['status', 'current', 'show'].includes(argument.toLowerCase())) {
+        const status = asRecord(await commandCapability('getOutputStyle'));
+        if (invocationFailed) return false;
+        const current = asRecord(status?.current);
+        setComposerNotice(`Output style: ${String(current?.label || current?.id || status?.configured || 'Default')}`);
+      }
       else await commandCapability('setOutputStyle', [argument]);
     } else if (name === 'theme') {
-      if (!argument || ['status', 'current', 'show'].includes(argument.toLowerCase())) onOpenSettings('theme');
+      if (!argument) onOpenSettings('theme');
       else {
         const themes = await commandCapability<unknown[]>('listThemes') || [];
         const normalized = argument.toLowerCase();
+        if (['status', 'current', 'show'].includes(normalized)) {
+          const value = await commandCapability<unknown>('getTheme');
+          if (invocationFailed) return false;
+          const current = typeof value === 'string' ? value : String(asRecord(value)?.id || 'default');
+          const entry = themes.map(asRecord).find((theme) => String(theme?.id || '') === current);
+          setComposerNotice(`Theme: ${String(entry?.label || current || 'default')}`);
+          return true;
+        }
         const theme = themes.map(asRecord).find((entry) =>
           String(entry?.id || '').toLowerCase() === normalized || String(entry?.label || '').toLowerCase() === normalized);
         if (!theme) {
@@ -2643,6 +2953,7 @@ const Composer = memo(function Composer({
         }
         await commandCapability('setTheme', [theme.id, { persist: true }]);
         if (invocationFailed) return false;
+        clearDesktopThemePreference();
         applyDesktopTheme(theme.id);
       }
     }
@@ -2721,6 +3032,7 @@ const Composer = memo(function Composer({
     if (!text || submitting || transitioning) return;
     setSubmitting(true);
     try {
+      setComposerNotice('');
       if (text.startsWith('/')) {
         if (commandBusy) {
           setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
@@ -2877,9 +3189,20 @@ const Composer = memo(function Composer({
     if (composing && (event.key === 'Enter' || event.key === 'Escape' || event.key === 'Tab' ||
       event.key.startsWith('Arrow'))) return;
     if (event.key === 'Enter' && event.repeat) return;
-    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'u') {
+    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'u') {
       event.preventDefault();
-      if (!transitioning) fileInput.current?.click();
+      const element = event.currentTarget;
+      const selectionStart = element.selectionStart;
+      const selectionEnd = element.selectionEnd;
+      const lineStart = draft.lastIndexOf('\n', Math.max(0, selectionStart - 1)) + 1;
+      const removeStart = selectionStart === selectionEnd ? lineStart : selectionStart;
+      setDraft((current) => `${current.slice(0, removeStart)}${current.slice(selectionEnd)}`);
+      window.setTimeout(() => textarea.current?.setSelectionRange(removeStart, removeStart), 0);
+      return;
+    }
+    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'j') {
+      event.preventDefault();
+      insertNewline(event.currentTarget);
       return;
     }
     if (navigateMentionPalette(event)) return;
@@ -2894,7 +3217,8 @@ const Composer = memo(function Composer({
     if (event.key === 'Escape') {
       if (slashOpen) {
         event.preventDefault();
-        setSlashDismissedDraft(draft);
+        setDraft('');
+        setSlashDismissedDraft('');
         return;
       }
       const element = event.currentTarget;
@@ -2946,7 +3270,7 @@ const Composer = memo(function Composer({
       navigation.index = Math.min(history.length - 1, navigation.index + 1);
       const value = history[navigation.index] || '';
       setDraft(value);
-      window.setTimeout(() => textarea.current?.setSelectionRange(0, 0), 0);
+      window.setTimeout(() => textarea.current?.setSelectionRange(value.length, value.length), 0);
       return;
     }
     if (event.key === 'ArrowDown' && historyIntent && historyNavigation.current.index >= 0) {
@@ -2979,7 +3303,8 @@ const Composer = memo(function Composer({
   };
   return (
     <>
-      <QueueList queued={queued} restoring={restoring} onRestore={() => void restoreQueue()} />
+      <QueueList queued={queued} restoring={restoring}
+        onEdit={(id) => void restoreQueue(draft, id)} />
       <form className={`composer ${draggingFiles && !transitioning ? 'dragging-files' : ''}`} onSubmit={onSubmit}
         aria-busy={transitioning} onMouseDown={(event) => {
           const target = event.target as HTMLElement;
@@ -3064,8 +3389,11 @@ const Composer = memo(function Composer({
         </div>)}
       </div>}
       {(attachmentError) && <p className="composer-error" role="alert">{attachmentError}</p>}
+      {composerNotice && <p className="composer-notice" role="status">{composerNotice}</p>}
       <textarea ref={textarea} value={draft} onInput={(event) => {
         setDraft(event.currentTarget.value);
+        setAttachmentError('');
+        setComposerNotice('');
         setCaretOffset(event.currentTarget.selectionStart);
         setSlashDismissedDraft('');
         setMentionDismissed('');
@@ -3109,7 +3437,8 @@ const Composer = memo(function Composer({
         <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images or text files" data-tooltip-side="top"
           onClick={() => fileInput.current?.click()}><Paperclip size={15} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
-          disabled={turnBusy || commandBusy || transitioning}
+          modelDisabled={commandBusy || transitioning}
+          tuningDisabled={turnBusy || commandBusy || transitioning}
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} />
         {turnBusy && !draft.trim() ? (
@@ -3131,53 +3460,85 @@ const Composer = memo(function Composer({
   );
 });
 
-function ModelSelector({ provider, model, effort, fast, fastCapable, disabled, invokeResult, applySnapshot, onOpenSettings }: {
+// The terminal picker's normalizeModelOptions is the authority for WHICH
+// models surface (family grouping/limits, recency ordering). The desktop
+// modal only owns presentation. Shapes differ: desktop uses `model`, the
+// TUI uses `id`.
+// @ts-ignore -- shared TUI source has no declaration file.
+// eslint-disable-next-line import/no-relative-packages
+import { normalizeModelOptions as normalizeTuiModelOptions } from "../../../../src/tui/app/model-options.mjs";
+
+function providerSetupEntries(value: unknown): Array<RecordValue & { group: "api" | "oauth" | "local" }> {
+  const setup = asRecord(value);
+  return (["api", "oauth", "local"] as const).flatMap((group) => {
+    const rows = setup?.[group];
+    return Array.isArray(rows) ? rows.map(asRecord)
+      .filter((row): row is RecordValue => Boolean(row))
+      .map((row) => ({ ...row, group } as RecordValue & { group: typeof group })) : [];
+  });
+}
+
+function providerSetupState(value: unknown, provider: string) {
+  const entry = providerSetupEntries(value)
+    .find((row) => String(row.id || row.provider || "") === provider);
+  if (!entry) return { known: false, configured: false };
+  const configured = entry.group === "local"
+    ? entry.detected === true && entry.enabled === true
+    : entry.authenticated === true;
+  return {
+    known: true,
+    configured,
+  };
+}
+
+function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabled, tuningDisabled, invokeResult, applySnapshot, onOpenSettings }: {
   provider: string;
   model: string;
   effort: string;
   fast: boolean;
   fastCapable: boolean;
-  disabled: boolean;
+  modelDisabled: boolean;
+  tuningDisabled: boolean;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
   applySnapshot: (snapshot: EngineSnapshot | null) => void;
-  onOpenSettings: (section?: SettingsSection) => void;
+  onOpenSettings: (section?: SettingsSection | null) => void;
 }) {
   const [models, setModels] = useState<DesktopModelOption[]>([]);
+  const [providerSetup, setProviderSetup] = useState<unknown>(null);
+  const [catalogError, setCatalogError] = useState("");
+  const [providerSetupError, setProviderSetupError] = useState("");
   const [catalogLoaded, setCatalogLoaded] = useState(false);
   const [catalogStarted, setCatalogStarted] = useState(false);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
-  const [open, setOpen] = useState(false);
   const [routing, setRouting] = useState(false);
-  const [query, setQuery] = useState("");
-  const [stage, setStage] = useState<"providers" | "models">("providers");
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [activeRowKey, setActiveRowKey] = useState("");
   const automaticCatalogAttempted = useRef(false);
   const catalogInFlight = useRef<Promise<void> | null>(null);
   const catalogLoadedAt = useRef(0);
   const routingGuard = useRef(false);
   const restoreAfterRoute = useRef<HTMLElement | null>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
   const effortControl = useRef<HTMLDivElement>(null);
-  const fastButton = useRef<HTMLButtonElement>(null);
-  const popover = useRef<HTMLDivElement>(null);
-  const search = useRef<HTMLInputElement>(null);
-  const modelList = useRef<HTMLDivElement>(null);
-  const unavailable = disabled || routing;
-  const selected = models.find((option) =>
-    option.provider === provider && option.model === model);
-  const normalizedModels = useMemo(() => normalizeModelOptions(models), [models]);
-  const providerEntries = useMemo(() => {
-    const entries = new Map<string, DesktopModelOption[]>();
-    for (const option of normalizedModels) {
-      const options = entries.get(option.provider) || [];
-      options.push(option);
-      entries.set(option.provider, options);
+  const fastControl = useRef<HTMLDivElement>(null);
+  const modelUnavailable = modelDisabled || routing;
+  const tuningUnavailable = tuningDisabled || routing;
+  const catalogModels = useMemo(() => {
+    const unique = new Map<string, DesktopModelOption>();
+    for (const option of models) {
+      if (option?.provider && option?.model) unique.set(`${option.provider}:${option.model}`, option);
     }
-    return [...entries].sort(([left], [right]) =>
-      providerDisplayRank(left) - providerDisplayRank(right) ||
-      providerDisplayName(left).localeCompare(providerDisplayName(right)));
-  }, [normalizedModels]);
+    const normalized = normalizeTuiModelOptions(
+      [...unique.values()].map((option) => ({ ...option, id: option.model })),
+    ) as Array<DesktopModelOption & { id?: string }>;
+    return normalized.map((entry) => {
+      const { id: _id, ...option } = entry;
+      return option as DesktopModelOption;
+    });
+  }, [models]);
+  const selected = catalogModels.find((option) =>
+    option.provider === provider && option.model === model);
+  const selectableModels = useMemo(() => {
+    if (providerSetup == null || providerSetupError) return catalogModels;
+    return catalogModels.filter((option) => providerSetupState(providerSetup, option.provider).configured);
+  }, [catalogModels, providerSetup, providerSetupError]);
   const selectedEffort = selected?.effortOptions.find((option) => option.value === effort);
   const triggerModel = modelDisplayName(
     selected?.model || model,
@@ -3185,7 +3546,6 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, disabled, i
     selected?.display || "",
   ) ||
     (catalogStarted && !catalogLoaded ? "Loading models…" : "Select model");
-  const triggerProvider = selected?.provider || provider;
 
   const loadCatalog = useCallback(async (force = false) => {
     if (catalogInFlight.current) return catalogInFlight.current;
@@ -3196,21 +3556,45 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, disabled, i
       return;
     }
     const request = (async () => {
+      const failures: string[] = [];
       try {
         setCatalogRefreshing(true);
-        const quick = await invokeResult(() => listModels({ quick: true }));
-        if (Array.isArray(quick)) setModels((current) => mergeModelCatalog(current, quick));
+        setCatalogError("");
+        setProviderSetupError("");
+        try {
+          const setup = await window.mixdogDesktop.invokeCapability<unknown>({
+            capability: "getProviderSetup",
+            args: [{ refresh: true }],
+          });
+          setProviderSetup(setup.value);
+        } catch (reason) {
+          setProviderSetupError(reason instanceof Error ? reason.message : String(reason || "Provider status is unavailable."));
+        }
+        try {
+          const quick = await listModels({ quick: true });
+          if (Array.isArray(quick)) setModels(quick);
+        } catch (reason) {
+          failures.push(reason instanceof Error ? reason.message : String(reason || "Quick model catalog failed."));
+        }
         // EngineHost seeds its authoritative full request before servicing the
         // advisory quick read. Await quick here so the picker remains instant;
         // the host-side seed protects the catalog from the warmup race.
-        const full = await invokeResult(() => listModels(force
-          ? { force: true, quick: false }
-          : { quick: false }));
-        if (Array.isArray(full)) {
-          setModels((current) => mergeModelCatalog(current, full));
-          catalogLoadedAt.current = Date.now();
+        try {
+          const full = await listModels(force
+            ? { force: true, quick: false }
+            : { quick: false });
+          if (Array.isArray(full)) {
+            // The full catalog is authoritative. Replacing the advisory quick
+            // rows prevents retired or disconnected models from surviving a
+            // refresh forever; an open picker freezes its first rendered set.
+            setModels(full);
+            catalogLoadedAt.current = Date.now();
+          }
+        } catch (reason) {
+          failures.push(reason instanceof Error ? reason.message : String(reason || "Model catalog failed."));
         }
       } finally {
+        setCatalogError([...new Set(failures)].join(" "));
         setCatalogLoaded(true);
         setCatalogRefreshing(false);
       }
@@ -3226,77 +3610,6 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, disabled, i
     }
   }, [loadCatalog, model, provider]);
 
-  const close = useCallback((restoreFocus = false) => {
-    setOpen(false);
-    setQuery("");
-    setStage("providers");
-    setSelectedProvider("");
-    setActiveRowKey("");
-    if (restoreFocus) {
-      window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
-    }
-  }, []);
-
-  const backToProviders = useCallback(() => {
-    setStage("providers");
-    setSelectedProvider("");
-    setQuery("");
-    setActiveRowKey("");
-    window.setTimeout(() => search.current?.focus({ preventScroll: true }), 0);
-  }, []);
-
-  const showProviderModels = useCallback((provider: string) => {
-    setSelectedProvider(provider);
-    setStage("models");
-    setQuery("");
-    setActiveRowKey("");
-    window.setTimeout(() => search.current?.focus({ preventScroll: true }), 0);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const place = () => {
-      if (!trigger.current || !popover.current) return;
-      const anchor = trigger.current.getBoundingClientRect();
-      const width = popover.current.offsetWidth || 296;
-      const edge = 8;
-      popover.current.style.left = `${Math.min(
-        Math.max(edge, anchor.left),
-        Math.max(edge, window.innerWidth - width - edge),
-      )}px`;
-      popover.current.style.bottom = `${Math.max(edge, window.innerHeight - anchor.top + 4)}px`;
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!popover.current?.contains(target) && !trigger.current?.contains(target)) close();
-    };
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (stage === "models") backToProviders();
-      else close(true);
-    };
-    place();
-    search.current?.focus({ preventScroll: true });
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("resize", place);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("resize", place);
-    };
-  }, [backToProviders, close, open, stage]);
-
-  useLayoutEffect(() => {
-    if (!open || !modelList.current) return;
-    modelList.current.scrollTop = 0;
-  }, [open, stage, selectedProvider]);
-
-  useEffect(() => {
-    if (unavailable && open) close();
-  }, [close, open, unavailable]);
   useEffect(() => {
     if (routing || !restoreAfterRoute.current) return;
     const target = restoreAfterRoute.current;
@@ -3304,17 +3617,14 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, disabled, i
     target.focus({ preventScroll: true });
   }, [routing]);
 
-  const route = async (selection: DesktopModelSelection, restoreTarget: HTMLElement | null = trigger.current) => {
-    if (unavailable || routingGuard.current) return;
+  const route = async (selection: DesktopModelSelection, restoreTarget: HTMLElement | null = null) => {
+    if (modelUnavailable || routingGuard.current) return;
     routingGuard.current = true;
     restoreAfterRoute.current = restoreTarget;
     setRouting(true);
-    close();
     try {
       const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection));
-      if (next !== undefined) {
-        applySnapshot(next);
-      }
+      if (next !== undefined) applySnapshot(next);
     } finally {
       routingGuard.current = false;
       setRouting(false);
@@ -3335,19 +3645,18 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, disabled, i
           ? option.savedFast
           : option.fastPreferred
       : undefined;
-    void route({
+    return route({
       provider: option.provider,
       model: option.model,
       ...(nextEffort ? { effort: nextEffort } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
     });
   };
-  const toggleFast = async () => {
-    if (unavailable || routingGuard.current) return;
+  const changeFast = async (enabled: boolean) => {
+    if (tuningUnavailable || routingGuard.current) return;
     routingGuard.current = true;
-    restoreAfterRoute.current = fastButton.current;
+    restoreAfterRoute.current = fastControl.current?.querySelector('button') || null;
     setRouting(true);
-    const enabled = !fast;
     try {
       const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled));
       if (next !== undefined) applySnapshot(next);
@@ -3357,92 +3666,37 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, disabled, i
     }
   };
   const changeEffort = async (effort: string) => {
-    if (unavailable || routingGuard.current) return;
+    if (tuningUnavailable || routingGuard.current) return;
     routingGuard.current = true;
-    restoreAfterRoute.current = effortControl.current?.querySelector('button') || trigger.current;
+    restoreAfterRoute.current = effortControl.current?.querySelector('button') || null;
     setRouting(true);
-    const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
-      capability: 'setEffort',
-      args: [effort],
-    }));
-    if (result !== undefined) applySnapshot(result.snapshot);
-    routingGuard.current = false;
-    setRouting(false);
-  };
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleProviders = providerEntries.filter(([provider, options]) => !normalizedQuery ||
-    `${provider} ${providerDisplayName(provider)} ${options.map((option) =>
-      `${option.model} ${option.display} ${modelDisplayName(option.model, option.provider, option.display)}`).join(" ")}`
-      .toLocaleLowerCase().includes(normalizedQuery));
-  const providerModels = providerEntries.find(([provider]) => provider === selectedProvider)?.[1] || [];
-  const visibleModels = providerModels.filter((option) => !normalizedQuery ||
-    `${option.model} ${option.display} ${modelDisplayName(option.model, option.provider, option.display)} ${modelOptionDescription(option)}`
-      .toLocaleLowerCase().includes(normalizedQuery));
-  const providerKey = (provider: string) => `provider:${provider}`;
-  const modelKey = (option: DesktopModelOption) => `model:${option.provider}:${option.model}`;
-  useEffect(() => {
-    if (!open) return;
-    if (stage === "providers") {
-      const preferred = visibleProviders.find(([entryProvider]) => entryProvider === provider) || visibleProviders[0];
-      setActiveRowKey(preferred ? providerKey(preferred[0]) : "");
-      return;
+    try {
+      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
+        capability: 'setEffort',
+        args: [effort],
+      }));
+      if (result !== undefined) applySnapshot(result.snapshot);
+    } finally {
+      routingGuard.current = false;
+      setRouting(false);
     }
-    const preferred = visibleModels.find((option) =>
-      option.provider === provider && option.model === model) || visibleModels[0];
-    setActiveRowKey(preferred ? modelKey(preferred) : "");
-  }, [model, open, normalizedQuery, provider, providerEntries, selectedProvider, stage]);
-  const focusRow = (index: number) => {
-    const options = Array.from(popover.current?.querySelectorAll<HTMLButtonElement>(
-      '.model-list [role="option"]',
-    ) || []);
-    const target = options[Math.max(0, Math.min(index, options.length - 1))];
-    if (!target) return;
-    setActiveRowKey(target.dataset.rowKey || "");
-    target.focus({ preventScroll: true });
   };
-  const navigateRows = (event: React.KeyboardEvent, fromSearch = false) => {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const options = Array.from(popover.current?.querySelectorAll<HTMLButtonElement>(
-      '.model-list [role="option"]',
-    ) || []);
-    if (options.length === 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.key === "Home") return focusRow(0);
-    if (event.key === "End") return focusRow(options.length - 1);
-    if (fromSearch) {
-      const initialized = options.findIndex((option) => option.dataset.rowKey === activeRowKey);
-      return focusRow(initialized >= 0 ? initialized : event.key === "ArrowDown" ? 0 : options.length - 1);
-    }
-    const current = options.indexOf(document.activeElement as HTMLButtonElement);
-    focusRow(current + (event.key === "ArrowDown" ? 1 : -1));
-  };
-  const triggerDisabled = unavailable;
 
   return <div className="route-controls">
-    <button ref={trigger} type="button" className="model-trigger"
-      disabled={triggerDisabled} aria-haspopup="dialog" aria-expanded={open}
-      aria-controls="model-selector-popover"
-      data-tooltip={catalogLoaded && models.length === 0 ? "Connect a provider or refresh models" : "Choose model"}
-      data-tooltip-side="top"
-      onClick={() => {
+    <ModelPicker models={selectableModels} provider={provider} model={model}
+      triggerLabel={triggerModel} disabled={modelUnavailable}
+      popoverId="model-selector-popover"
+      catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
+      catalogError={catalogError} providerSetupError={providerSetupError}
+      tooltip={catalogLoaded && selectableModels.length === 0 ? "Add a provider to load models" : "Choose model"}
+      onOpen={() => {
         if (!catalogLoaded || Date.now() - catalogLoadedAt.current > 300_000) void loadCatalog(catalogLoaded);
-        if (open) close();
-        else {
-          setStage("providers");
-          setSelectedProvider("");
-          setQuery("");
-          setActiveRowKey("");
-          setOpen(true);
-        }
-      }}>
-      {triggerProvider && <ProviderIcon className="provider-icon" provider={triggerProvider} />}
-      <span>{triggerModel}</span>
-      <ChevronDown size={13} />
-    </button>
+      }}
+      onSelect={chooseModel}
+      onOpenProviders={() => onOpenSettings("providers")} />
     {selected && selected.effortOptions.length > 0 && (
       <div ref={effortControl} className="effort-control">
-        <OpenSelect ariaLabel="Reasoning effort" disabled={unavailable} value={selectedEffort?.value || ""}
+        <OpenSelect ariaLabel="Reasoning effort" disabled={tuningUnavailable} value={selectedEffort?.value || ""}
           onChange={(value) => void changeEffort(value)} options={[
             ...(!selectedEffort ? [{ value: '', label: 'Effort', disabled: true }] : []),
             ...selected.effortOptions,
@@ -3450,101 +3704,13 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, disabled, i
       </div>
     )}
     {fastCapable && (
-      <button ref={fastButton} type="button" className="fast-control"
-        disabled={unavailable} aria-label={`${fast ? 'Disable' : 'Enable'} Fast mode`}
-        aria-pressed={fast} aria-busy={routing || undefined}
-        data-tooltip={routing ? 'Updating Fast mode…' : `${fast ? 'Disable' : 'Enable'} Fast mode`}
-        data-tooltip-side="top"
-        onClick={() => void toggleFast()}>
-        Fast
-      </button>
-    )}
-    {open && createPortal(
-      <div ref={popover} id="model-selector-popover" className="model-popover"
-        role="dialog" aria-label="Model selector">
-        <div className="model-search">
-          {stage === "models" ? (
-            <button type="button" className="model-back" aria-label="Back to providers"
-              data-tooltip="Back to providers" data-tooltip-side="top" onClick={backToProviders}>
-              <ChevronLeft size={15} />
-            </button>
-          ) : <Search size={14} aria-hidden="true" />}
-          <span className="sr-only">{stage === "providers" ? "Search providers" : "Search models"}</span>
-          <input ref={search} type="search" value={query}
-            placeholder={stage === "providers" ? "Search providers…" : `Search ${providerDisplayName(selectedProvider)}…`}
-            aria-label={stage === "providers" ? "Search providers" : "Search models"}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-            onKeyDown={(event) => navigateRows(event, true)} />
-          {query && <button type="button" onClick={() => setQuery("")} aria-label="Clear picker search">
-            <X size={13} />
-          </button>}
-          <button type="button" aria-label="Connect provider" data-tooltip="Connect provider" data-tooltip-side="top"
-            onClick={() => { close(); onOpenSettings('providers'); }}><Plus size={14} /></button>
-          <button type="button" aria-label="Manage models" data-tooltip="Manage models" data-tooltip-side="top"
-            onClick={() => { close(); onOpenSettings('model'); }}><SlidersHorizontal size={14} /></button>
-        </div>
-        <div ref={modelList} className="model-list" role="listbox"
-          aria-label={stage === "providers" ? "Available providers" : `Models from ${providerDisplayName(selectedProvider)}`}>
-          {stage === "providers" ? (
-            <>
-              {visibleProviders.length === 0 && <p className="model-empty">
-                {catalogRefreshing ? "Loading providers…" : "No providers with matching models."}
-              </p>}
-              {visibleProviders.map(([entryProvider, options]) => {
-                const active = entryProvider === provider;
-                const key = providerKey(entryProvider);
-                const current = active
-                  ? options.find((option) => option.model === model)
-                  : undefined;
-                const preview = current || options[0];
-                return <button type="button" className="model-provider-row" role="option"
-                  aria-selected={active} key={key} data-row-key={key}
-                  tabIndex={activeRowKey === key ? 0 : -1}
-                  onKeyDown={(event) => navigateRows(event)}
-                  onClick={() => showProviderModels(entryProvider)}>
-                  <ProviderIcon className="provider-icon" provider={entryProvider} />
-                  <span className="model-row-copy">
-                    <strong>{providerDisplayName(entryProvider)}</strong>
-                    <small>{active && current ? "Current" : "Latest"} · {modelDisplayName(
-                      preview.model, preview.provider, preview.display,
-                    )}</small>
-                  </span>
-                  <span className="model-count">{options.length}</span>
-                  <ChevronRight size={14} aria-hidden="true" />
-                </button>;
-              })}
-            </>
-          ) : (
-            <>
-              <div className="model-list-heading" aria-hidden="true">
-                <ProviderIcon className="provider-icon" provider={selectedProvider} />
-                <span>{providerDisplayName(selectedProvider)}</span>
-                <small>{providerModels.length} {providerModels.length === 1 ? "model" : "models"}</small>
-              </div>
-              {visibleModels.length === 0 && <p className="model-empty">No matching models.</p>}
-              {visibleModels.map((option) => {
-                const active = option.provider === provider && option.model === model;
-                const key = modelKey(option);
-                return <button type="button" className="model-option-row" role="option"
-                  aria-selected={active} key={key} data-row-key={key}
-                  tabIndex={activeRowKey === key ? 0 : -1}
-                  onKeyDown={(event) => navigateRows(event)}
-                  onClick={() => chooseModel(option)}>
-                  <span className="model-row-copy">
-                    <strong>{modelDisplayName(option.model, option.provider, option.display)}</strong>
-                    <small>{modelOptionDescription(option)}</small>
-                  </span>
-                  {active && <Check size={15} aria-hidden="true" />}
-                </button>;
-              })}
-            </>
-          )}
-          {catalogRefreshing && (visibleProviders.length > 0 || visibleModels.length > 0) && (
-            <p className="model-loading" role="status">Updating model catalog…</p>
-          )}
-        </div>
-      </div>,
-      document.body,
+      <div ref={fastControl} className="fast-control" aria-busy={routing || undefined}>
+        <OpenSelect ariaLabel="Fast mode" disabled={tuningUnavailable} value={fast ? 'on' : 'off'}
+          onChange={(value) => void changeFast(value === 'on')} options={[
+            { value: 'on', label: 'Fast On' },
+            { value: 'off', label: 'Fast Off' },
+          ]} />
+      </div>
     )}
   </div>;
 }

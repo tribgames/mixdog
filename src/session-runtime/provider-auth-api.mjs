@@ -46,8 +46,11 @@ export function createProviderAuthApi({
     listProviders() {
       return renderProviderStatus(displayConfig());
     },
-    async getProviderSetup() {
-      return await cachedProviderSetup();
+    async getProviderSetup(options = {}) {
+      await awaitKeychainPrewarm();
+      const force = options?.force === true || options?.refresh === true;
+      if (force) reloadFullConfig();
+      return await cachedProviderSetup({ force });
     },
     async getUsageDashboard(options = {}) {
       return await getUsageDashboard(options);

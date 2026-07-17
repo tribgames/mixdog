@@ -19,7 +19,7 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import { DESKTOP_CAPABILITIES } from '../shared/contract';
-import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
+import { normalizeSessionTitle, promptTitle, stripSessionEnvelope } from '../shared/session-title.mjs';
 import { desktopSessionSummaries, desktopSnapshot } from './desktop-state';
 import { searchProjectDirectory } from './project-file-search';
 
@@ -33,6 +33,7 @@ interface MixdogEngine {
   setRoute(options: DesktopModelSelection & { applyToCurrentSession?: boolean }): Promise<boolean>;
   setFast(value: boolean): Promise<boolean | null>;
   listSessions(options?: { refreshFromStorage?: boolean }): Array<Record<string, unknown>>;
+  deleteSession(id: string): Promise<boolean>;
   switchContext?(options: {
     cwd: string;
     desktopSession: { classification: 'task' | 'project'; projectPath: string | null } | null;
@@ -81,8 +82,9 @@ interface MixdogProjectsModule {
 }
 
 interface DesktopSessionMetadataFile {
-  version: 1;
+  version: 2;
   titles: Record<string, string>;
+  names: Record<string, string>;
 }
 
 type DesktopSessionScope = { classification: 'task' | 'project'; projectPath: string | null };
@@ -290,7 +292,14 @@ function removeInternalToolDisplayMetadata(value: unknown): void {
 function sanitizeTranscriptItem(value: unknown): boolean {
   if (isInternalTranscriptItem(value)) return false;
   const item = recordValue(value);
-  if (normalizedMarker(item?.kind) === 'tool') removeInternalToolDisplayMetadata(item);
+  const kind = normalizedMarker(item?.kind);
+  const role = normalizedMarker(item?.role);
+  if ((kind === 'user' || role === 'user') && typeof item?.text === 'string') {
+    const visibleText = stripSessionEnvelope(item.text);
+    if (visibleText !== item.text) item.text = visibleText;
+    if (!visibleText.trim()) return false;
+  }
+  if (kind === 'tool') removeInternalToolDisplayMetadata(item);
   return true;
 }
 
@@ -424,12 +433,14 @@ export class EngineHost {
   private readonly appPath: string | undefined;
   private projectPreferences: DesktopProjectPreferences | null = null;
   private sessionTitles: Record<string, string> | null = null;
+  private sessionNames: Record<string, string> | null = null;
   private sessionTitleWrite: Promise<void> = Promise.resolve();
   private engineWorkspace: string | null = null;
   private engineDesktopSession: DesktopSessionScope | null = null;
   private pendingFastPreference: boolean | null = null;
   private publicationHoldDepth = 0;
   private publicationPending = false;
+  private publicationPendingSnapshot: EngineSnapshot | undefined;
   private publicationTimer: NodeJS.Timeout | null = null;
   private shellJobsTimer: NodeJS.Timeout | null = null;
   private shellJobsPollDelayMs = 0;
@@ -461,15 +472,23 @@ export class EngineHost {
   getSnapshot(): EngineSnapshot {
     const snapshot = desktopSnapshot(copySnapshot(this.engine), this.currentProject, this.recentProjects);
     const sessionId = String(snapshot?.sessionId || '');
-    const desktopSessionTitle = sessionId ? this.sessionTitles?.[sessionId] : '';
+    const desktopSessionTitle = sessionId
+      ? this.sessionNames?.[sessionId] || this.sessionTitles?.[sessionId]
+      : '';
     const decorated = {
       ...snapshot,
       ...(desktopSessionTitle ? { desktopSessionTitle } : {}),
       shellJobs: { ...this.shellJobs },
     };
-    return !sessionId && this.pendingFastPreference !== null
-      ? { ...decorated, fast: this.pendingFastPreference }
-      : decorated;
+    if (this.pendingFastPreference === null) return decorated;
+    // Engine session state can lag one event-loop turn behind an applied Fast
+    // preference. Keep overriding the snapshot until the engine reflects it,
+    // then drop the pending marker instead of hard-failing the mutation.
+    if (typeof snapshot?.fast === 'boolean' && snapshot.fast === this.pendingFastPreference) {
+      this.pendingFastPreference = null;
+      return decorated;
+    }
+    return { ...decorated, fast: this.pendingFastPreference };
   }
 
   async startProject(projectPath: string): Promise<EngineSnapshot> {
@@ -670,10 +689,60 @@ export class EngineHost {
       if (!this.sessionSummaries().some((session) => session.id === sessionId)) {
         throw new Error('Session is not available.');
       }
-      this.sessionTitles![sessionId] = normalized;
+      this.sessionNames![sessionId] = normalized;
       await this.queueSessionTitleWrite();
       if (String(this.engine?.getState()?.sessionId || '') === sessionId) this.publish();
     });
+  }
+
+  async deleteSession(sessionId: string): Promise<EngineSnapshot> {
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
+    let result: EngineSnapshot = null;
+    await this.exclusive(async () => {
+      await this.withPublicationsHeld(async () => {
+        await this.loadSessionTitles();
+        if (!this.engine) {
+          const workspace = await this.taskWorkspace();
+          await this.replaceEngine(workspace, {
+            classification: 'task',
+            projectPath: null,
+          }, 'desktop-session-delete');
+        }
+        const engine = this.requireEngine();
+        const state = engine.getState();
+        if (state.busy === true || state.commandBusy === true) {
+          throw new Error('Engine is busy.');
+        }
+        let rawSessions = engine.listSessions() || [];
+        let available = desktopSessionSummaries(
+          rawSessions,
+          String(state.sessionId || ''),
+          this.sessionTitles || {},
+          this.sessionNames || {},
+        ).some((session) => session.id === sessionId);
+        if (!available) {
+          rawSessions = engine.listSessions({ refreshFromStorage: true }) || [];
+          available = desktopSessionSummaries(
+            rawSessions,
+            String(state.sessionId || ''),
+            this.sessionTitles || {},
+            this.sessionNames || {},
+          ).some((session) => session.id === sessionId);
+        }
+        if (!available) throw new Error('Session is not available.');
+        if (await engine.deleteSession(sessionId) !== true) {
+          throw new Error('Session could not be deleted.');
+        }
+        const hadMetadata = Object.prototype.hasOwnProperty.call(this.sessionTitles, sessionId)
+          || Object.prototype.hasOwnProperty.call(this.sessionNames, sessionId);
+        delete this.sessionTitles![sessionId];
+        delete this.sessionNames![sessionId];
+        if (hadMetadata) await this.queueSessionTitleWrite();
+        result = this.getSnapshot();
+        this.publish();
+      });
+    });
+    return result;
   }
 
   async searchProjectFiles(
@@ -757,7 +826,10 @@ export class EngineHost {
     await this.exclusive(async () => {
       const engine = this.requireEngine();
       const state = engine.getState();
-      if (state.busy === true || state.commandBusy === true) {
+      // Match the TUI: a model change during an active turn is a preference for
+      // the next session and must not rewrite the in-flight session. Concurrent
+      // command mutations remain blocked.
+      if (state.commandBusy === true) {
         throw new Error('Engine is busy.');
       }
       const model = normalizedProviderModels(await engine.listProviderModels({ quick: false }))
@@ -771,7 +843,7 @@ export class EngineHost {
         throw new Error('Fast mode is unavailable for the selected provider/model.');
       }
       const latestState = engine.getState();
-      if (latestState.busy === true || latestState.commandBusy === true) {
+      if (latestState.commandBusy === true) {
         throw new Error('Engine is busy.');
       }
       // Preserve the engine's route contract: model changes are next-session
@@ -823,16 +895,14 @@ export class EngineHost {
       }
       const latest = engine.getState();
       const hasActiveSession = Boolean(latest.sessionId);
-      if (hasActiveSession && typeof latest.fast === 'boolean' && latest.fast !== applied) {
-        throw new Error('Fast mode preference was not reflected by the engine state.');
-      }
-      if (hasActiveSession && applied === true && latest.fastCapable === false) {
-        throw new Error('Fast mode capability is inconsistent with the applied preference.');
-      }
-      // The route API persists Fast even before a session exists, while the
-      // engine snapshot remains session-derived. Preserve that pristine
-      // preference for the renderer and explicitly apply it after newSession.
-      this.pendingFastPreference = hasActiveSession ? null : applied;
+      // The route API is authoritative: `applied === enabled` here. Session-
+      // derived state may lag one event-loop turn (or not exist yet), so a
+      // mismatch is reconciled via the pending override instead of throwing —
+      // the previous hard error surfaced as a user-facing toast on a state
+      // race even though the preference was applied successfully.
+      const reflected = hasActiveSession
+        && typeof latest.fast === 'boolean' && latest.fast === applied;
+      this.pendingFastPreference = reflected ? null : applied;
       result = this.getSnapshot();
       this.publish();
     });
@@ -890,10 +960,12 @@ export class EngineHost {
         // desktop-created rows still pass their durable marker and retain the
         // cross-class tamper guard.
         const targetDesktopSession = isDesktopManaged ? desktopSession : null;
-        const sameManagedContext = Boolean(targetDesktopSession && this.engine &&
-          this.engineWorkspace === workspace &&
-          this.engineDesktopSession?.classification === targetDesktopSession.classification &&
-          this.engineDesktopSession?.projectPath === targetDesktopSession.projectPath);
+        const sameManagedContext = Boolean(this.engine && this.engineWorkspace === workspace && (
+          targetDesktopSession === null
+            ? this.engineDesktopSession === null
+            : this.engineDesktopSession?.classification === targetDesktopSession.classification &&
+              this.engineDesktopSession?.projectPath === targetDesktopSession.projectPath
+        ));
         const nextEngine = sameManagedContext
           ? this.requireEngine()
           : await this.replaceEngine(workspace, targetDesktopSession, 'desktop-session-resume');
@@ -904,7 +976,9 @@ export class EngineHost {
         this.currentProject = selected.classification === 'project' ? workspace : null;
         this.rememberCurrentSessionTitle();
         result = this.getSnapshot();
-        this.publish();
+        // The result is already a detached, renderer-safe snapshot. Reuse it
+        // for the held publication instead of cloning a long transcript twice.
+        this.publish(result);
       });
     });
     return result;
@@ -1039,18 +1113,22 @@ export class EngineHost {
     this.pendingFastPreference = null;
   }
 
-  private publish(): void {
+  private publish(snapshot?: EngineSnapshot): void {
     this.cancelScheduledPublication();
     if (this.publicationHoldDepth > 0) {
       this.publicationPending = true;
+      this.publicationPendingSnapshot = snapshot;
       return;
     }
-    this.publishNow();
+    this.publishNow(snapshot);
   }
 
   private publishEngineEvent(): void {
     if (this.publicationHoldDepth > 0) {
       this.publicationPending = true;
+      // An engine event after a prepared snapshot means that prepared value
+      // may be stale. Fall back to a fresh snapshot when the hold is released.
+      this.publicationPendingSnapshot = undefined;
       return;
     }
     if (this.listeners.size === 0 || this.publicationTimer) return;
@@ -1058,6 +1136,7 @@ export class EngineHost {
       this.publicationTimer = null;
       if (this.publicationHoldDepth > 0) {
         this.publicationPending = true;
+        this.publicationPendingSnapshot = undefined;
         return;
       }
       this.publishNow();
@@ -1071,13 +1150,13 @@ export class EngineHost {
     this.publicationTimer = null;
   }
 
-  private publishNow(): void {
+  private publishNow(snapshot?: EngineSnapshot): void {
     // Once a window has released its subscription, engine events have nowhere
     // to go. Avoid cloning a potentially long transcript until another window
     // subscribes.
     if (this.listeners.size === 0) return;
-    const snapshot = this.getSnapshot();
-    for (const listener of this.listeners) listener(snapshot);
+    const published = snapshot === undefined ? this.getSnapshot() : snapshot;
+    for (const listener of this.listeners) listener(published);
   }
 
   private async withPublicationsHeld<T>(action: () => Promise<T>): Promise<T> {
@@ -1088,7 +1167,9 @@ export class EngineHost {
       this.publicationHoldDepth -= 1;
       if (this.publicationHoldDepth === 0 && this.publicationPending) {
         this.publicationPending = false;
-        this.publishNow();
+        const snapshot = this.publicationPendingSnapshot;
+        this.publicationPendingSnapshot = undefined;
+        this.publishNow(snapshot);
       }
     }
   }
@@ -1467,33 +1548,39 @@ export class EngineHost {
       rows,
       currentId,
       this.sessionTitles || {},
+      this.sessionNames || {},
     );
   }
 
   private async loadSessionTitles(): Promise<Record<string, string>> {
-    if (this.sessionTitles) return this.sessionTitles;
-    let parsed: Partial<DesktopSessionMetadataFile> = {};
+    if (this.sessionTitles && this.sessionNames) return this.sessionTitles;
+    let parsed: Record<string, unknown> = {};
     try {
       const value: unknown = JSON.parse(
         await readFile(join(this.userDataRoot(), 'desktop-session-metadata.json'), 'utf8'),
       );
       if (value !== null && typeof value === 'object' && !Array.isArray(value) &&
         (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)) {
-        parsed = value as Partial<DesktopSessionMetadataFile>;
+        parsed = value as Record<string, unknown>;
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) {
         throw new Error('Desktop session metadata could not be loaded.');
       }
     }
-    const source = parsed.titles && typeof parsed.titles === 'object' ? parsed.titles : {};
-    const titles = Object.create(null) as Record<string, string>;
-    for (const [id, value] of Object.entries(source)) {
-      if (!/^[A-Za-z0-9_-]+$/.test(id) || typeof value !== 'string') continue;
-      const title = normalizeSessionTitle(value, '');
-      if (title) titles[id] = title;
-    }
-    this.sessionTitles = titles;
+    const normalizedMap = (source: unknown): Record<string, string> => {
+      const result = Object.create(null) as Record<string, string>;
+      if (!source || typeof source !== 'object' || Array.isArray(source)) return result;
+      for (const [id, value] of Object.entries(source)) {
+        if (!/^[A-Za-z0-9_-]+$/.test(id) || typeof value !== 'string') continue;
+        const title = normalizeSessionTitle(value, '');
+        if (title) result[id] = title;
+      }
+      return result;
+    };
+    const legacy = parsed.version !== 2;
+    this.sessionTitles = legacy ? Object.create(null) as Record<string, string> : normalizedMap(parsed.titles);
+    this.sessionNames = normalizedMap(legacy ? parsed.titles : parsed.names);
     return this.sessionTitles;
   }
 
@@ -1503,11 +1590,16 @@ export class EngineHost {
       ? state.items.find((item) => item && typeof item === 'object' &&
         (item as Record<string, unknown>).kind === 'user') as Record<string, unknown> | undefined
       : undefined;
-    this.rememberSessionTitle(String(state?.sessionId || ''), normalizeSessionTitle(firstUser?.text, ''));
+    const firstUserText = String(firstUser?.text || '');
+    this.rememberSessionTitle(
+      String(state?.sessionId || ''),
+      normalizeSessionTitle(firstUserText, /\[Image\b/i.test(firstUserText) ? '[Image]' : ''),
+    );
   }
 
   private rememberSessionTitle(sessionId: string, title: string): void {
-    if (!this.sessionTitles || !/^[A-Za-z0-9_-]+$/.test(sessionId) || this.sessionTitles[sessionId]) return;
+    if (!this.sessionTitles || !/^[A-Za-z0-9_-]+$/.test(sessionId) ||
+      this.sessionNames?.[sessionId] || this.sessionTitles[sessionId]) return;
     const normalized = normalizeSessionTitle(title, '');
     if (!normalized) return;
     this.sessionTitles[sessionId] = normalized;
@@ -1516,16 +1608,19 @@ export class EngineHost {
 
   private queueSessionTitleWrite(): Promise<void> {
     const titles = Object.fromEntries(Object.entries(this.sessionTitles || {}));
+    const names = Object.fromEntries(Object.entries(this.sessionNames || {}));
     this.sessionTitleWrite = this.sessionTitleWrite.then(async () => {
       const root = this.userDataRoot();
       await mkdir(root, { recursive: true });
       const target = join(root, 'desktop-session-metadata.json');
       const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
       try {
-        await writeFile(temporary, `${JSON.stringify({
-          version: 1,
+        const metadata: DesktopSessionMetadataFile = {
+          version: 2,
           titles,
-        }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+          names,
+        };
+        await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
         await rename(temporary, target);
       } catch (error) {
         await unlink(temporary).catch(() => undefined);

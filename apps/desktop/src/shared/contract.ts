@@ -11,6 +11,7 @@ export const DESKTOP_IPC = {
   removeProject: 'mixdog:remove-project',
   listSessions: 'mixdog:list-sessions',
   renameSession: 'mixdog:rename-session',
+  deleteSession: 'mixdog:delete-session',
   resumeSession: 'mixdog:resume-session',
   searchProjectFiles: 'mixdog:search-project-files',
   getSnapshot: 'mixdog:get-snapshot',
@@ -30,7 +31,16 @@ export const DESKTOP_IPC = {
   dispose: 'mixdog:dispose',
   quit: 'mixdog:quit',
   state: 'mixdog:state',
+  getUpdaterState: 'mixdog:get-updater-state',
+  checkForDesktopUpdate: 'mixdog:check-for-desktop-update',
+  showDesktopUpdate: 'mixdog:show-desktop-update',
+  updaterState: 'mixdog:updater-state',
 } as const;
+
+export type DesktopUpdaterState =
+  | { status: 'disabled' | 'idle' | 'checking' | 'up-to-date' }
+  | { status: 'downloading' | 'ready' | 'installing'; version: string; percent?: number }
+  | { status: 'error'; message: string };
 
 export interface DesktopActivityState extends Readonly<Record<string, unknown>> {
   active?: boolean;
@@ -404,10 +414,15 @@ export interface DesktopApi {
   removeProject(projectPath: string): Promise<void>;
   listSessions(): Promise<DesktopSessionSummary[]>;
   renameSession(sessionId: string, title: string): Promise<void>;
+  deleteSession(sessionId: string): Promise<EngineSnapshot>;
   resumeSession(sessionId: string): Promise<EngineSnapshot>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   getSnapshot(): Promise<EngineSnapshot>;
   subscribeState(listener: (snapshot: EngineSnapshot) => void): () => void;
+  getUpdaterState(): Promise<DesktopUpdaterState>;
+  subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
+  checkForDesktopUpdate(): Promise<DesktopUpdaterState>;
+  showDesktopUpdate(): Promise<DesktopUpdaterState>;
   submit(prompt: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<boolean>;
   abort(): Promise<unknown>;
   resolveToolApproval(id: string, decision: ToolApprovalDecision): Promise<boolean>;

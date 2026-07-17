@@ -21,6 +21,7 @@ import {
   type DesktopPromptContent,
   type DesktopSubmitOptions,
   type DesktopSettingKey,
+  type DesktopUpdaterState,
   type ToolApprovalDecision,
 } from '../shared/contract';
 import type { EngineHost } from './engine-host';
@@ -43,10 +44,11 @@ const SUBMIT_OPTION_KEYS = new Set(['displayText', 'priority', 'pastedImages', '
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args']);
 const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast']);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
+const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
 
 const CAPABILITY_ARITY = {
-  restoreQueued: [0, 1], setEffort: [1, 1], setToolMode: [1, 1], getAutoClear: [0, 0],
+  restoreQueued: [0, 2], setEffort: [1, 1], setToolMode: [1, 1], getAutoClear: [0, 0],
   setAutoClear: [0, 1], getUpdateSettings: [0, 0], setAutoUpdate: [1, 1], checkForUpdate: [0, 1],
   runUpdateNow: [0, 0], getUpdateStatus: [0, 0], getProfile: [0, 0], setProfile: [0, 1],
   getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getMemorySettings: [0, 0],
@@ -65,7 +67,7 @@ const CAPABILITY_ARITY = {
   listWorkflows: [0, 0], getOutputStyle: [0, 0], listOutputStyles: [0, 0], setOutputStyle: [1, 1],
   setWorkflow: [1, 1], toggleRemote: [0, 0], claimRemote: [0, 0], isRemoteEnabled: [0, 0],
   listThemes: [0, 0], getTheme: [0, 0], setTheme: [1, 2], setAgentRoute: [2, 2],
-  setDefaultProvider: [1, 1], listProviders: [0, 0], getProviderSetup: [0, 0],
+  setDefaultProvider: [1, 1], listProviders: [0, 0], getProviderSetup: [0, 1],
   getUsageDashboard: [0, 1], getOnboardingStatus: [0, 0], skipOnboarding: [0, 0],
   completeOnboarding: [0, 1], loginOAuthProvider: [1, 1], beginOAuthProviderLogin: [1, 1],
   getOAuthProviderLoginStatus: [1, 1], completeOAuthProviderLogin: [2, 2], cancelOAuthProviderLogin: [1, 1],
@@ -266,6 +268,14 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
       throw new TypeError('OpenCode Go workspace id is invalid.');
     }
   }
+  if (capability === 'getProviderSetup' && args[0] !== undefined) {
+    const options = args[0] && typeof args[0] === 'object' && !Array.isArray(args[0])
+      ? args[0] as Record<string, unknown> : null;
+    if (!options || Object.entries(options).some(([key, option]) =>
+      !PROVIDER_SETUP_OPTION_KEYS.has(key) || typeof option !== 'boolean')) {
+      throw new TypeError('provider setup options are invalid.');
+    }
+  }
   return { capability, args };
 }
 
@@ -321,9 +331,15 @@ function requiredModelCatalogOptions(value: unknown): DesktopModelCatalogOptions
 interface DesktopIpcDependencies {
   app: Pick<App, 'quit'>;
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler'>;
-  dialog: Pick<Dialog, 'showOpenDialog'>;
+  dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>;
   shell: Pick<Shell, 'openPath' | 'openExternal'>;
   settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update' | 'readZoom' | 'updateZoom'>;
+  updater?: {
+    getState(): DesktopUpdaterState;
+    subscribe(listener: (state: DesktopUpdaterState) => void): () => void;
+    check(): Promise<DesktopUpdaterState>;
+    install(): Promise<void>;
+  };
 }
 
 function requiredExternalUrl(value: unknown): string {
@@ -355,7 +371,7 @@ export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
 export function registerDesktopIpc(
   window: BrowserWindow,
   host: EngineHost,
-  { app, ipcMain, dialog, shell, settingsStore }: DesktopIpcDependencies,
+  { app, ipcMain, dialog, shell, settingsStore, updater }: DesktopIpcDependencies,
 ): () => void {
   let quitPromise: Promise<void> | null = null;
   const assertSender = (event: IpcMainInvokeEvent): void => {
@@ -407,6 +423,8 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
   handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
     host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)));
+  handle(DESKTOP_IPC.deleteSession, (_event, sessionId) =>
+    host.deleteSession(requiredSessionId(sessionId)));
   handle(DESKTOP_IPC.resumeSession, (_event, sessionId) =>
     host.resumeSession(requiredSessionId(sessionId)));
   handle(DESKTOP_IPC.searchProjectFiles, (_event, projectIdOrWorkspaceId, query, limit) => {
@@ -420,6 +438,24 @@ export function registerDesktopIpc(
     );
   });
   handle(DESKTOP_IPC.getSnapshot, () => host.getSnapshot());
+  handle(DESKTOP_IPC.getUpdaterState, () => updater?.getState() ?? { status: 'disabled' });
+  handle(DESKTOP_IPC.checkForDesktopUpdate, () =>
+    updater?.check() ?? Promise.resolve({ status: 'disabled' } as const));
+  handle(DESKTOP_IPC.showDesktopUpdate, async () => {
+    const current = updater?.getState() ?? { status: 'disabled' } as const;
+    if (current.status !== 'ready' || !updater) return current;
+    const response = await dialog.showMessageBox(window, {
+      type: 'info',
+      title: 'Update Ready',
+      message: `Mixdog ${current.version} has been downloaded.`,
+      detail: 'Restart now to install the update?',
+      buttons: ['Restart', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response.response === 0) await updater.install();
+    return updater.getState();
+  });
   handle(DESKTOP_IPC.submit, (_event, prompt, options) =>
     host.submit(requiredPromptContent(prompt), requiredSubmitOptions(options)));
   handle(DESKTOP_IPC.abort, () => host.abort());
@@ -493,13 +529,20 @@ export function registerDesktopIpc(
       window.webContents.send(DESKTOP_IPC.state, snapshot);
     }
   });
-  const channels = Object.values(DESKTOP_IPC).filter((channel) => channel !== DESKTOP_IPC.state);
+  const unsubscribeUpdater = updater?.subscribe((next) => {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send(DESKTOP_IPC.updaterState, next);
+    }
+  }) ?? (() => {});
+  const eventChannels = new Set<string>([DESKTOP_IPC.state, DESKTOP_IPC.updaterState]);
+  const channels = Object.values(DESKTOP_IPC).filter((channel) => !eventChannels.has(channel));
   let removed = false;
 
   return () => {
     if (removed) return;
     removed = true;
     unsubscribeState();
+    unsubscribeUpdater();
     for (const channel of channels) ipcMain.removeHandler(channel);
   };
 }

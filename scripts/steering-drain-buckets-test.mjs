@@ -122,6 +122,21 @@ test('post-turn drain does not send queued slash command to model', async () => 
   assert.equal(bag.pending[0].content, '/clear');
 });
 
+test('restoreQueued can edit one visible steering entry without draining its siblings', () => {
+  const { flow, bag } = makeFlow();
+  const first = flow.makeQueueEntry('first follow-up', { mode: 'prompt' });
+  const second = flow.makeQueueEntry('second follow-up', { mode: 'prompt' });
+  bag.pending.push(first, second);
+  bag.getState().queued = [first, second];
+
+  const restored = flow.restoreQueued('current draft', second.id);
+
+  assert.equal(restored.count, 1);
+  assert.equal(restored.text, 'second follow-up\ncurrent draft');
+  assert.deepEqual(bag.pending.map((entry) => entry.id), [first.id]);
+  assert.deepEqual(bag.getState().queued.map((entry) => entry.id), [first.id]);
+});
+
 // Minimal store bag for createRunTurn: only the surface the streaming/steering
 // finalize path touches. runtime.ask is a caller-supplied mock that drives the
 // text-delta / steer-message callbacks.

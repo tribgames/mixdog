@@ -48,6 +48,42 @@ export function createLifecycleApi(deps) {
     pushTranscriptRebind,
     notificationListeners, remoteStateListeners, desktopSession,
   } = deps;
+  const listLeadSessions = (options = {}) => mgr.listSessions({
+    refreshFromStorage: options?.refreshFromStorage === true,
+  }).map(s => {
+    const owner = clean(s.owner || 'user').toLowerCase();
+    if (owner && !['cli', 'user', 'mixdog', 'legacy'].includes(owner)) return null;
+    const sourceType = clean(s.sourceType || '').toLowerCase();
+    const sourceName = clean(s.sourceName || '').toLowerCase();
+    const agent = clean(s.agent || '').toLowerCase();
+    const leadish = agent === 'lead'
+      || sourceType === 'lead'
+      || (sourceType === 'cli')
+      || (!sourceType && !sourceName && !isAgentOwner(owner));
+    if (!leadish) return null;
+    let preview = cleanSessionPreview(s.preview || '');
+    let messageCount = Math.max(0, Number(s.messageCount) || 0);
+    if (!preview && Array.isArray(s.messages)) {
+      const msgs = s.messages || [];
+      const userPreviews = msgs
+        .filter(m => m && m.role === 'user')
+        .map(m => cleanSessionPreview(sessionMessageText(m.content)))
+        .filter(text => !isSessionPreviewNoise(text));
+      preview = userPreviews[userPreviews.length - 1] || userPreviews[0] || '';
+      messageCount = msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant')).length;
+    }
+    if (!preview && messageCount === 0) return null;
+    return {
+      id: s.id,
+      updatedAt: s.updatedAt,
+      cwd: s.cwd || '',
+      model: s.model,
+      provider: s.provider,
+      messageCount,
+      preview,
+      desktopSession: s.desktopSession || null,
+    };
+  }).filter(Boolean);
   return {
     async close(reason = 'cli-exit', options = {}) {
       const detach = options?.detach === true || options?.wait === false || options?.waitForExit === false;
@@ -189,42 +225,37 @@ export function createLifecycleApi(deps) {
       return mgr.abortSessionTurn(session.id, reason);
     },
     listSessions(options = {}) {
-      return mgr.listSessions({
-        refreshFromStorage: options?.refreshFromStorage === true,
-      }).map(s => {
-        const owner = clean(s.owner || 'user').toLowerCase();
-        if (owner && !['cli', 'user', 'mixdog', 'legacy'].includes(owner)) return null;
-        const sourceType = clean(s.sourceType || '').toLowerCase();
-        const sourceName = clean(s.sourceName || '').toLowerCase();
-        const agent = clean(s.agent || '').toLowerCase();
-        const leadish = agent === 'lead'
-          || sourceType === 'lead'
-          || (sourceType === 'cli')
-          || (!sourceType && !sourceName && !isAgentOwner(owner));
-        if (!leadish) return null;
-        let preview = cleanSessionPreview(s.preview || '');
-        let messageCount = Math.max(0, Number(s.messageCount) || 0);
-        if (!preview && Array.isArray(s.messages)) {
-          const msgs = s.messages || [];
-          const userPreviews = msgs
-            .filter(m => m && m.role === 'user')
-            .map(m => cleanSessionPreview(sessionMessageText(m.content)))
-            .filter(text => !isSessionPreviewNoise(text));
-          preview = userPreviews[userPreviews.length - 1] || userPreviews[0] || '';
-          messageCount = msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant')).length;
-        }
-        if (!preview && messageCount === 0) return null;
-        return {
-          id: s.id,
-          updatedAt: s.updatedAt,
-          cwd: s.cwd || '',
-          model: s.model,
-          provider: s.provider,
-          messageCount,
-          preview,
-          desktopSession: s.desktopSession || null,
-        };
-      }).filter(Boolean);
+      return listLeadSessions(options);
+    },
+    async deleteSession(id) {
+      const sessionId = clean(id);
+      if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) return false;
+      const available = listLeadSessions({ refreshFromStorage: true })
+        .some(row => row.id === sessionId);
+      if (!available) return false;
+      const current = getSession();
+      if (current?.id !== sessionId) return mgr.deleteSession(sessionId) === true;
+
+      const cleanupReason = 'desktop-session-delete';
+      try {
+        cancelBackgroundTasksForLifecycle({
+          reason: cleanupReason,
+          notify: false,
+          callerSessionId: sessionId,
+        });
+      } catch {}
+      try { agentTool?.closeAll?.(cleanupReason); } catch {}
+      statusRoutes?.clearGatewaySessionRoute?.(sessionId);
+      // Active sessions retain a tombstone until the normal sweep. Unlinking
+      // immediately would let a late provider/save continuation resurrect the
+      // deleted conversation after the user has moved to its replacement.
+      if (mgr.closeSession(sessionId, cleanupReason, { tombstone: true }) !== true) return false;
+      setSession(null);
+      invalidateContextStatusCache();
+      invalidatePreSessionToolSurface();
+      await createCurrentSession();
+      pushTranscriptRebind?.();
+      return true;
     },
     async switchContext({ cwd, desktopSession: nextDesktopSession } = {}) {
       const session = getSession();
@@ -273,7 +304,12 @@ export function createLifecycleApi(deps) {
       const previousId = prev?.id || null;
       const previousMessages = prev?.messages || null;
       const previousLive = prev?.liveTurnMessages || null;
-      const activeDesktopSession = getDesktopSession?.() ?? desktopSession;
+      // A context switch can deliberately clear the desktop marker for legacy
+      // sessions. Fall back to the creation-time value only for callers that
+      // do not supply mutable context bindings.
+      const activeDesktopSession = typeof getDesktopSession === 'function'
+        ? getDesktopSession()
+        : desktopSession;
       const resumeOptions = activeDesktopSession && typeof activeDesktopSession === 'object'
         ? { desktopSession: activeDesktopSession }
         : undefined;

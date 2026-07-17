@@ -488,11 +488,12 @@ export function createSessionFlow(bag) {
     }
   }
 
-  function restoreQueued(currentText = '') {
+  function restoreQueued(currentText = '', selectedId = '') {
+    const targetId = String(selectedId || '').trim();
     const queued = [];
     for (let i = 0; i < pending.length;) {
       const entry = pending[i];
-      if (isQueuedEntryEditable(entry)) {
+      if (isQueuedEntryEditable(entry) && (!targetId || String(entry.id) === targetId)) {
         queued.push(entry);
         pending.splice(i, 1);
       } else {

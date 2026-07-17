@@ -59,6 +59,58 @@ function cssVariables(palette: ThemePalette): Record<string, string> {
   };
 }
 
+// Interaction/chrome tokens are owned by opencode-v2.css and must never be
+// remapped from TUI palettes: palette.suggestion (amber) and palette.claude
+// (brown) produced orange focus rings and off-brand accents in the desktop UI.
+const INTERACTION_TOKENS = ['--oc-focus', '--focus', '--oc-text-accent', '--accent'] as const;
+
+// The default dark theme is fully defined by opencode-v2.css. Other palettes,
+// including light, must inject their semantic surface tokens.
+function opencodeNative(resolved: string): boolean {
+  return resolved === DEFAULT_THEME_ID || resolved === 'dark';
+}
+
+export type DesktopThemePreference = 'system' | 'dark' | 'white';
+
+const DESKTOP_THEME_PREFERENCE_KEY = 'mixdog.desktop-theme-preference';
+
+function desktopThemeStorage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function getDesktopThemePreference(): DesktopThemePreference | null {
+  const value = desktopThemeStorage()?.getItem(DESKTOP_THEME_PREFERENCE_KEY);
+  return value === 'system' || value === 'dark' || value === 'white' ? value : null;
+}
+
+export function desktopThemePreferenceForTheme(value: unknown): DesktopThemePreference {
+  const requested = themeId(value);
+  const resolved = registry[requested] ? requested : aliases[requested];
+  return resolved === 'light' ? 'white' : 'dark';
+}
+
+export function applyDesktopThemePreference(preference: DesktopThemePreference): string {
+  const resolved = preference === 'white'
+    ? 'light'
+    : preference === 'system' && typeof window.matchMedia === 'function'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? DEFAULT_THEME_ID : 'light')
+      : DEFAULT_THEME_ID;
+  return applyDesktopTheme(resolved);
+}
+
+export function setDesktopThemePreference(preference: DesktopThemePreference): string {
+  desktopThemeStorage()?.setItem(DESKTOP_THEME_PREFERENCE_KEY, preference);
+  return applyDesktopThemePreference(preference);
+}
+
+export function clearDesktopThemePreference(): void {
+  desktopThemeStorage()?.removeItem(DESKTOP_THEME_PREFERENCE_KEY);
+}
+
 export function applyDesktopTheme(value: unknown): string {
   const requested = themeId(value);
   const resolved = registry[requested] ? requested : (registry[aliases[requested]] ? aliases[requested] : DEFAULT_THEME_ID);
@@ -67,8 +119,16 @@ export function applyDesktopTheme(value: unknown): string {
   root.style.colorScheme = resolved === 'light' ? 'light' : 'dark';
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
     ?.setAttribute('content', registry[resolved].palette.background);
-  for (const [name, color] of Object.entries(cssVariables(registry[resolved].palette))) {
-    root.style.setProperty(name, color);
+  const variables = cssVariables(registry[resolved].palette);
+  // Always clear previous inline overrides first so switching back to a
+  // css-native theme cannot leave stale palette values behind.
+  for (const name of Object.keys(variables)) root.style.removeProperty(name);
+  for (const name of INTERACTION_TOKENS) root.style.removeProperty(name);
+  if (!opencodeNative(resolved)) {
+    for (const [name, color] of Object.entries(variables)) {
+      if ((INTERACTION_TOKENS as readonly string[]).includes(name)) continue;
+      root.style.setProperty(name, color);
+    }
   }
   return resolved;
 }

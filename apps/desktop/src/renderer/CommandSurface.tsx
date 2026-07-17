@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { RefreshCw, Trash2, X } from 'lucide-react';
+import { Trash2, X } from 'lucide-react';
 import type { DesktopApi, DesktopCapability, DesktopModelOption } from '../shared/contract';
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
-import { resolveContextUsage } from './context-usage';
 import { OpenSelect } from './OpenSelect';
 import { modelOptionLabel } from './provider-display';
+import { acquireModalLayer } from './modal-layer';
 
 type Row = Record<string, unknown>;
 type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
@@ -52,6 +52,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
   onOpen(surface: CommandSurfaceName): void;
 }) {
   const dialog = useRef<HTMLElement>(null);
+  const surfaceLayer = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const loadSequence = useRef(0);
@@ -60,7 +61,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
-  const load = useCallback(async (refresh = false) => {
+  const load = useCallback(async () => {
     if (loadingSurface.current === surface) return;
     const request = ++loadSequence.current;
     loadingSurface.current = surface;
@@ -72,11 +73,11 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
         Promise.all(capabilities.map((capability) => {
           const args = capability === 'memoryControl'
             ? [{ action: 'core', op: 'list', project_id: '*' }, { silent: true }]
-            : capability === 'getUsageDashboard' && refresh ? [{ refresh: true }] : [];
+            : [];
           return api.invokeCapability({ capability, args }).then((result) => result.value);
         })),
         surface === 'agents'
-          ? api.listProviderModels?.({ quick: false, ...(refresh ? { force: true } : {}) }) ?? []
+          ? api.listProviderModels?.({ quick: false }) ?? []
           : Promise.resolve([]),
         surface === 'effort' || surface === 'context'
           ? api.getSnapshot?.() ?? null
@@ -102,24 +103,14 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
   useEffect(() => {
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const shell = document.querySelector<HTMLElement>('.app-shell');
-    const isolation = Array.from(shell?.children || [])
+    const isolatedElements = Array.from(shell?.children || [])
       .filter((element): element is HTMLElement =>
-        element instanceof HTMLElement && !element.matches('.oc-toast-region'))
-      .map((element) => ({
-        element,
-        inert: element.inert,
-        ariaHidden: element.getAttribute('aria-hidden'),
-      }));
-    for (const entry of isolation) {
-      entry.element.inert = true;
-      entry.element.setAttribute('aria-hidden', 'true');
-    }
+        element instanceof HTMLElement && !element.matches('.oc-toast-region'));
+    const layer = acquireModalLayer(isolatedElements);
+    layer.attachSurface(surfaceLayer.current);
     dialog.current?.focus();
     const keydown = (event: KeyboardEvent) => {
-      const laterModal = Array.from(document.querySelectorAll<HTMLElement>(
-        '[role="dialog"][aria-modal="true"]',
-      )).find((candidate) => candidate !== dialog.current && !dialog.current?.contains(candidate));
-      if (laterModal) return;
+      if (!layer.isTop()) return;
       if (event.key === 'Escape') {
         // OpenSelect menus are portaled to document.body and own the first Escape.
         if (document.querySelector('.oc-menu[role="listbox"]')) return;
@@ -149,11 +140,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
     document.addEventListener('keydown', keydown, true);
     return () => {
       document.removeEventListener('keydown', keydown, true);
-      for (const entry of isolation) {
-        entry.element.inert = entry.inert;
-        if (entry.ariaHidden == null) entry.element.removeAttribute('aria-hidden');
-        else entry.element.setAttribute('aria-hidden', entry.ariaHidden);
-      }
+      layer.release();
       prior?.focus();
     };
   }, []);
@@ -175,7 +162,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
     channels: 'Channels', context: 'Context', usage: 'Provider usage',
     doctor: 'Doctor', effort: 'Reasoning effort',
   })[surface];
-  return createPortal(<div className="mixdog-settings-layer" onMouseDown={(event) => {
+  return createPortal(<div ref={surfaceLayer} className="mixdog-settings-layer" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
     <section ref={dialog} className="mixdog-settings command-surface" role="dialog" aria-modal="true"
@@ -183,14 +170,16 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
       aria-busy={loading || Boolean(pending)}>
       <div className="mixdog-settings__panel">
         <header className="mixdog-settings__header"><h1 id="command-surface-title">{title}</h1>
-          <button className="mixdog-settings__close" onClick={onClose} aria-label={`Close ${title}`}><X size={16} /></button>
+          <div className="command-surface-header-actions">
+            <button className="mixdog-settings__close" onClick={onClose} aria-label={`Close ${title}`}><X size={16} /></button>
+          </div>
         </header>
         <div className="mixdog-settings__body">
-          <div className="settings-section-heading"><div><h2>/{surface}</h2>
-            <p id="command-surface-description">Manage {title.toLowerCase()} for the active Mixdog session.</p></div>
-            {surface !== 'doctor' && <button className="settings-refresh" disabled={loading || Boolean(pending)}
-              onClick={() => void load(true)}><RefreshCw size={14} /> Refresh</button>}
-          </div>
+          {surface === 'context'
+            ? <p id="command-surface-description" className="sr-only">Context details for the active Mixdog session.</p>
+            : <div className="settings-section-heading"><div><h2>/{surface}</h2>
+              <p id="command-surface-description">Manage {title.toLowerCase()} for the active Mixdog session.</p></div>
+            </div>}
           {loading ? <p className="settings-loading" role="status">Loading…</p>
             : <SurfaceBody surface={surface} data={data} pending={pending} run={run} onOpen={onOpen} />}
           {error && <p className="mixdog-settings__error" role="alert">{error}</p>}
@@ -308,153 +297,119 @@ function formattedNumber(value: unknown): string {
   return Math.round(finite(value)).toLocaleString();
 }
 
-function formattedTime(value: unknown): string {
-  const timestamp = typeof value === 'number' ? value : Date.parse(String(value || ''));
-  return Number.isFinite(timestamp) && timestamp > 0
-    ? new Date(timestamp).toLocaleString()
-    : '—';
+function compactTokens(value: unknown): string {
+  const number = finite(value);
+  if (number <= 0) return '0';
+  if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(number >= 10_000_000 ? 0 : 1)}m`;
+  if (number >= 10_000) return `${Math.round(number / 1_000)}k`;
+  if (number >= 1_000) return `${(number / 1_000).toFixed(1)}k`;
+  return `${Math.round(number)}`;
 }
 
-function itemTime(item: Row): number {
-  for (const value of [item.at, item.completedAt, item.startedAt, item.createdAt]) {
-    const timestamp = typeof value === 'number' ? value : Date.parse(String(value || ''));
-    if (Number.isFinite(timestamp) && timestamp > 0) return timestamp;
-  }
-  return 0;
+function contextPercent(value: unknown, total: unknown): number | null {
+  const denominator = finite(total);
+  if (!denominator) return null;
+  return Math.max(0, Math.min(100, (finite(value) / denominator) * 100));
 }
 
-function displayText(item: Row): string {
-  const value = [item.text, item.label, item.detail]
-    .find((candidate) => typeof candidate === 'string' && candidate.trim());
-  const text = String(value || item.kind || item.role || 'message').replace(/\s+/g, ' ').trim();
-  return text.length > 240 ? `${text.slice(0, 239).trimEnd()}…` : text;
+function contextPercentLabel(value: unknown, total: unknown): string {
+  const percent = contextPercent(value, total);
+  if (percent === null) return 'N/A';
+  return `${percent > 0 && percent < 1 ? percent.toFixed(1) : Math.floor(percent)}%`;
 }
 
-function messageProjection(item: Row) {
-  return {
-    role: String(item.role || item.kind || 'message'),
-    kind: String(item.kind || item.role || 'message'),
-    text: displayText(item),
-    ...(item.at == null ? {} : { at: item.at }),
-    ...(item.startedAt == null ? {} : { startedAt: item.startedAt }),
-    ...(item.completedAt == null ? {} : { completedAt: item.completedAt }),
-  };
+function tokenBuckets(source: Row, names: string[]): number {
+  return names.reduce((sum, name) => sum + finite(record(source[name]).tokens), 0);
 }
 
-function percentageBreakdown(segments: Array<{ key: string; label: string; tokens: number }>, total: number) {
-  if (!(total > 0)) return [];
-  const rows = segments.filter((segment) => segment.tokens > 0).map((segment, index) => {
-    const exact = total > 0 ? (segment.tokens / total) * 100 : 0;
-    return { ...segment, exact, percent: Math.floor(exact), index };
-  });
-  if (!rows.length) return [];
-  let remaining = Math.max(0, 100 - rows.reduce((sum, segment) => sum + segment.percent, 0));
-  const remainderOrder = [...rows].sort((a, b) =>
-    (b.exact - b.percent) - (a.exact - a.percent) || a.index - b.index);
-  for (let index = 0; index < remaining; index += 1) {
-    remainderOrder[index % remainderOrder.length].percent += 1;
-  }
-  return rows;
-}
-
-function ContextMessageRow({ message, index }: { message: Row; index: number }) {
-  const [open, setOpen] = useState(false);
-  const projection = messageProjection(message);
-  return <details>
-    <summary onClick={() => setOpen((value) => !value)}><span>{projection.kind} · {index + 1}</span>
-      <time>{formattedTime(itemTime(message))}</time></summary>
-    {open && <pre>{JSON.stringify(projection, null, 2)}</pre>}
-  </details>;
+function metric(parts: Array<string | null | undefined | false>): string {
+  return parts.filter(Boolean).join(' · ');
 }
 
 export function ContextBody({ status, snapshot }: { status: unknown; snapshot: unknown }) {
-  const [visibleMessageCount, setVisibleMessageCount] = useState(100);
   const context = record(status);
   const state = record(snapshot);
   const usage = record(context.usage);
   const messages = record(context.messages);
-  const roles = record(messages.roles);
-  const user = record(roles.user);
-  const assistant = record(roles.assistant);
-  const stats = record(state.stats);
-  const rawMessages = Array.isArray(state.items) ? (state.items as unknown[]).map(record) : [];
-  const visibleMessages = rawMessages.slice(-visibleMessageCount);
-  const input = finite(usage.totalInputTokens ?? stats.inputTokens);
-  const output = finite(usage.totalOutputTokens ?? stats.outputTokens);
-  const reasoning = finite(stats.reasoningTokens);
-  const totalTokens = input + output + reasoning;
+  const semantic = record(messages.semantic);
+  const request = record(context.request);
+  const schema = record(request.toolSchemaBreakdown);
+  const compaction = record(context.compaction);
   const used = finite(context.usedTokens ?? context.currentEstimatedTokens);
-  const contextUsage = resolveContextUsage({
-    usedTokens: used,
-    autoCompactTokenLimit: state.autoCompactTokenLimit,
-    displayContextWindow: state.displayContextWindow,
-    contextWindow: context.contextWindow ?? state.contextWindow,
-  });
-  const contextLimit = finite(context.contextWindow ?? state.displayContextWindow ?? state.contextWindow);
-  const userTokens = finite(user.tokens);
-  const assistantTokens = finite(assistant.tokens);
-  const breakdownTotal = Math.max(used, userTokens + assistantTokens);
-  const breakdown = percentageBreakdown([
-    { key: 'user', label: 'User', tokens: userTokens },
-    { key: 'assistant', label: 'Assistant', tokens: assistantTokens },
-    { key: 'other', label: 'Other', tokens: Math.max(0, breakdownTotal - userTokens - assistantTokens) },
-  ], breakdownTotal);
-  const timestamps = rawMessages.map(itemTime).filter((value) => value > 0);
-  const hasCost = Object.prototype.hasOwnProperty.call(stats, 'costUsd')
-    && Number.isFinite(Number(stats.costUsd));
-  const definitionRows = [
-    ['Session', String(state.desktopSessionTitle || context.sessionId || state.sessionId || '—')],
-    ['Messages', formattedNumber(messages.count ?? rawMessages.length)],
-    ['Provider', String(context.provider || state.provider || '—')],
-    ['Model', String(context.model || state.model || '—')],
-    ['Context limit', formattedNumber(contextLimit)],
-    ['Total tokens', formattedNumber(totalTokens)],
-    ['Usage', contextUsage ? `${contextUsage.percent}%` : '—'],
-    ['Input tokens', formattedNumber(input)],
-    ['Output tokens', formattedNumber(output)],
-    ...(Object.prototype.hasOwnProperty.call(stats, 'reasoningTokens')
-      ? [['Reasoning tokens', formattedNumber(reasoning)]] : []),
-    ['Cache tokens (read / write)', `${formattedNumber(usage.totalCachedReadTokens ?? stats.cachedTokens)} / ${formattedNumber(usage.totalCacheWriteTokens ?? stats.cacheWriteTokens)}`],
-    ['User messages', formattedNumber(user.count)],
-    ['Assistant messages', formattedNumber(assistant.count)],
-    ...(hasCost ? [['Total cost', new Intl.NumberFormat(undefined, {
-      style: 'currency', currency: 'USD', minimumFractionDigits: 2,
-    }).format(Number(stats.costUsd))]] : []),
-    ...(timestamps.length ? [
-      ['Session created', formattedTime(Math.min(...timestamps))],
-      ['Last activity', formattedTime(Math.max(...timestamps))],
-    ] : []),
-  ] as Array<[string, string]>;
+  const windowTokens = finite(context.contextWindow ?? state.contextWindow ?? context.rawContextWindow);
+  const rawWindowTokens = finite(context.rawContextWindow ?? state.rawContextWindow ?? windowTokens);
+  const freeTokens = windowTokens ? Math.max(0, windowTokens - used) : finite(context.freeTokens);
+  const usedPercent = contextPercent(used, windowTokens) || 0;
+  const cachedRead = finite(usage.lastCachedReadTokens);
+  const cacheWrite = finite(usage.lastCacheWriteTokens);
+  const rawInput = finite(usage.lastInputTokens);
+  const freshInput = finite(usage.lastUncachedInputTokens ?? Math.max(rawInput - cachedRead - cacheWrite, 0));
+  const cacheDenominator = finite(usage.lastContextTokens) || cachedRead + freshInput + cacheWrite;
+  const cacheHitRate = cacheDenominator > 0 ? `${Math.round((cachedRead / cacheDenominator) * 100)}%` : 'N/A';
+  const compactRunning = compaction.inProgress === true || compaction.lastStage === 'compacting';
+  const compactState = compactRunning ? 'Compacting conversation'
+    : compaction.lastStage === 'interrupted' ? 'Compact interrupted'
+      : compaction.lastStage === 'auto_clear_failed' ? 'Auto-clear skipped'
+        : compaction.lastStage === 'auto_clear' || compaction.lastClearAt ? 'Auto-clear complete'
+          : compaction.lastChanged ? 'Compact complete' : 'Compact checked';
+  const sourceLine = metric([
+    `effective ${compactTokens(windowTokens)}`,
+    rawWindowTokens && rawWindowTokens !== windowTokens ? `raw ${compactTokens(rawWindowTokens)}` : '',
+  ]);
+  const compactionLine = metric([
+    compaction.lastStage && compaction.lastStage !== 'pending' ? String(compaction.lastStage) : '',
+    compactState,
+    compaction.compactType || compaction.type ? `type ${String(compaction.compactType || compaction.type)}` : '',
+    compaction.triggerTokens ? `trigger ${compactTokens(compaction.triggerTokens)}` : '',
+    compaction.boundaryTokens ? `boundary ${compactTokens(compaction.boundaryTokens)}` : '',
+  ]);
+  const apiLine = metric([
+    `last ctx ${compactTokens(usage.lastContextTokens)}`,
+    `uncached/out ${compactTokens(freshInput)}/${compactTokens(usage.lastOutputTokens)}`,
+    rawInput && rawInput !== freshInput ? `raw in ${compactTokens(rawInput)}` : '',
+    cacheWrite ? `write ${compactTokens(cacheWrite)}` : '',
+    `cache ${cacheHitRate}`,
+  ]);
+  const categories = [
+    { key: 'messages', label: 'Messages', tokens: tokenBuckets(semantic, ['chat', 'assistant']) },
+    { key: 'tools', label: 'Tools', tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other']) },
+    { key: 'mcp', label: 'MCP', tokens: tokenBuckets(schema, ['mcp']) },
+    { key: 'skills', label: 'Skills', tokens: tokenBuckets(schema, ['skills']) },
+    { key: 'memory', label: 'Memory', tokens: tokenBuckets(semantic, ['memory']) + tokenBuckets(schema, ['memory']) },
+    { key: 'session', label: 'Session', tokens: tokenBuckets(semantic, ['workspace', 'environment', 'other']) },
+    { key: 'workflow', label: 'Workflow', tokens: tokenBuckets(semantic, ['workflow']) + tokenBuckets(schema, ['agents']) },
+    { key: 'system', label: 'System', tokens: tokenBuckets(semantic, ['system']) },
+    { key: 'tool-io', label: 'Tool I/O', tokens: tokenBuckets(semantic, ['toolResults']) },
+  ];
 
   return <div className="context-view">
-    <dl className="context-definition-list">
-      {definitionRows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
-    </dl>
-    {breakdown.length > 0 && <section className="context-breakdown" aria-labelledby="context-breakdown-title">
-      <h3 id="context-breakdown-title">Context breakdown</h3>
-      <div className="context-breakdown-bar" role="img"
-        aria-label={breakdown.map((segment) =>
-          `${segment.label} ${segment.percent}%`).join(', ')}>
-        {breakdown.map((segment) => <span key={segment.key} data-segment={segment.key}
-          style={{ width: `${segment.percent}%` }} />)}
+    <section className="context-usage-overview" aria-label="Context usage">
+      <div className="context-usage-heading">
+        <strong>{contextPercentLabel(used, windowTokens)} used</strong>
+        <span>{compactTokens(used)} / {compactTokens(windowTokens)} · {compactTokens(freeTokens)} free</span>
       </div>
-      <div className="context-breakdown-legend">
-        {breakdown.map((segment) => <span key={segment.key}><i data-segment={segment.key} />
-          {segment.label} <small>{segment.percent}%</small></span>)}
+      <div className="context-main-bar" role="img"
+        aria-label={`${contextPercentLabel(used, windowTokens)} context used`}>
+        <span style={{ width: `${usedPercent}%` }} />
       </div>
-    </section>}
-    <section className="context-raw-messages" aria-labelledby="context-raw-title">
-      <h3 id="context-raw-title">Raw messages</h3>
-      {rawMessages.length > visibleMessages.length && <p>
-        Showing latest {visibleMessages.length} of {rawMessages.length} messages.
-      </p>}
-      {visibleMessages.map((message, index) =>
-        <ContextMessageRow key={`${rawMessages.length - visibleMessages.length + index}`}
-          message={message} index={rawMessages.length - visibleMessages.length + index} />)}
-      {rawMessages.length > visibleMessages.length && <button type="button"
-        className="context-show-more"
-        onClick={() => setVisibleMessageCount((count) => count + 100)}>Show 100 older messages</button>}
-      {!rawMessages.length && <p>No raw messages available.</p>}
+    </section>
+    <section className="context-runtime-lines" aria-label="Context details">
+      {[['Source', sourceLine], ['Compaction', compactionLine], ['API/cache', apiLine]].map(([label, value]) =>
+        <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+    </section>
+    <section className="context-mix" aria-labelledby="context-mix-title">
+      <h3 id="context-mix-title">Context mix</h3>
+      <div className="context-mix-grid">
+        {categories.map((category) => {
+          const percent = contextPercent(category.tokens, windowTokens) || 0;
+          return <div className="context-mix-row" key={category.key}>
+            <span>{category.label}</span>
+            <small>{contextPercentLabel(category.tokens, windowTokens)}</small>
+            <i><b style={{ width: `${percent}%` }} /></i>
+            <strong>{compactTokens(category.tokens)}</strong>
+          </div>;
+        })}
+      </div>
     </section>
   </div>;
 }
@@ -579,7 +534,7 @@ function parseMemories(value: unknown): Array<{
       projectId,
       singleSentence: match[2] === (match[3] || ''),
     }] : [];
-  });
+  }).sort((left, right) => right.id - left.id);
 }
 function Group({ title, children }: React.PropsWithChildren<{ title: string }>) {
   return <section className="settings-group"><header><h3>{title}</h3></header><div className="settings-group-body">{children}</div></section>;

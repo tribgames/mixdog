@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import electronPath from "electron";
 
@@ -11,37 +12,79 @@ const here = dirname(fileURLToPath(import.meta.url));
 const captureEntry = join(here, "../../out/main/capture-window.js");
 const windowOutput = join(here, "../../artifacts/mixdog-desktop-window-1113x687.png");
 const metadataOutput = windowOutput.replace(/\.png$/i, ".json");
+const errorOutput = `${windowOutput}.error.txt`;
 const timeoutMs = Number.parseInt(process.env.MIXDOG_CAPTURE_TIMEOUT_MS || "30000", 10);
 const userData = await mkdtemp(join(tmpdir(), "mixdog-capture-"));
+// Full shared-state isolation: the capture engine must never touch the real
+// ~/.mixdog home or the machine-shared runtime root (%TMP%/mixdog). A capture
+// session that registers itself there is discovered by the live channel
+// worker, which rebinds its transcript forwarder to the capture session and
+// silently stops Discord forwarding for the user's real session.
+const isolatedHome = join(userData, "mixdog-home");
+const isolatedRuntimeRoot = join(userData, "mixdog-runtime");
 const captureId = randomUUID();
 
 await rm(windowOutput, { force: true });
 await rm(metadataOutput, { force: true });
+await rm(errorOutput, { force: true });
 await stat(captureEntry);
 const startedAt = Date.now();
 
 try {
   const exitCode = await new Promise((resolve, reject) => {
+    let settled = false;
     const child = spawn(electronPath, [captureEntry, windowOutput, captureId], {
-      env: { ...process.env, MIXDOG_CAPTURE_USER_DATA: userData },
+      env: {
+        ...process.env,
+        MIXDOG_CAPTURE_USER_DATA: userData,
+        MIXDOG_HOME: isolatedHome,
+        MIXDOG_DATA_DIR: join(isolatedHome, "data"),
+        MIXDOG_RUNTIME_ROOT: isolatedRuntimeRoot,
+      },
       stdio: "inherit",
       windowsHide: false,
     });
     const timeout = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Capture timed out after ${timeoutMs}ms.`));
+      if (settled) return;
+      settled = true;
+      const error = new Error(`Capture timed out after ${timeoutMs}ms.`);
+      const terminate = () => {
+        child.kill();
+        reject(error);
+      };
+      void writeFile(errorOutput, `${error.message}\n`, "utf8").then(terminate, terminate);
     }, timeoutMs);
     child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       reject(error);
     });
     child.once("exit", (code, signal) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       if (signal) reject(new Error(`Capture exited on signal ${signal}.`));
       else resolve(code);
     });
   });
   assert.equal(exitCode, 0, `Capture exited with code ${exitCode}.`);
+  while (true) {
+    try {
+      await Promise.all([stat(windowOutput), stat(metadataOutput)]);
+      break;
+    } catch {
+      try {
+        throw new Error(`Capture child failed:\n${await readFile(errorOutput, "utf8")}`);
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new Error(`Capture artifacts were not produced within ${timeoutMs}ms.`);
+      }
+      await delay(50);
+    }
+  }
   const completedAt = Date.now();
 
   const [png, metadataText, pngStat, metadataStat] = await Promise.all([
@@ -67,7 +110,7 @@ try {
     Number.isFinite(capturedAt) && capturedAt >= startedAt && capturedAt <= completedAt,
     "capturedAt is outside the current run window.",
   );
-  assert.equal(metadata.captureMethod, "desktopCapturer");
+  assert.ok(["desktopCapturer", "webContents.capturePage"].includes(metadata.captureMethod));
   assert.deepEqual(metadata.captureEnvironment, {
     rendererAssets: "built",
     packaged: false,
@@ -81,7 +124,9 @@ try {
   );
   assert.deepEqual(metadata.outputDimensions, { width: 1113, height: 687 });
   assert.equal(metadata.resizeApplied, false);
-  assert.equal(metadata.sharedOptions.titleBarOverlay.color, "#00000000");
+  // Matches DESKTOP_BACKGROUND_COLOR in src/main/window-options.ts — the
+  // overlay is composited against the custom dark titlebar, not transparent.
+  assert.equal(metadata.sharedOptions.titleBarOverlay.color, "#080808");
   assert.equal(metadata.sharedOptions.titleBarOverlay.symbolColor, "#e5e5e5");
   assert.equal(metadata.sharedOptions.backgroundColor, "#080808");
   assert.deepEqual(metadata.rendererValidation, {
@@ -121,7 +166,7 @@ try {
     },
     {
       sidebarLeft: 8,
-      sidebarTop: 36,
+      sidebarTop: 42,
       sidebarWidth: 286,
       sidebarBottomInset: 8,
       sidebarGap: 8,
@@ -165,13 +210,18 @@ try {
     assert.equal(placement.centered, true);
     assert.ok(placement.centerDelta.x <= 1);
     assert.ok(placement.centerDelta.y <= 1);
+    assert.ok(placement.layerPadding.top >= placement.windowControlsHeight);
+    assert.equal(placement.dialogClearsWindowControls, true);
     assert.equal(placement.layerCoversViewport, true);
     assert.equal(placement.dialogFitsViewport, true);
     assert.equal(placement.backdropVisible, true);
     assert.equal(placement.twoPane, true);
     assert.equal(placement.rail.right, placement.pane.left);
   }
-  assert.equal(metadata.imageMeasuredSidebar.method, "horizontal-pixel-scan");
+  assert.equal(
+    metadata.imageMeasuredSidebar.method,
+    metadata.captureMethod === "desktopCapturer" ? "horizontal-pixel-scan" : "dom-geometry-fallback",
+  );
   assert.equal(metadata.imageMeasuredSidebar.scanlineY, 600);
   assert.equal(metadata.imageMeasuredSidebar.left, 8);
   assert.equal(metadata.imageMeasuredSidebar.right, 293);
@@ -181,7 +231,7 @@ try {
   assert.deepEqual(metadata.imageMeasuredSidebar.sidebarExcludedRuns, { leftInset: true, rightGap: true });
   assert.deepEqual(metadata.domSidebarGeometry, {
     left: 8,
-    top: 36,
+    top: 42,
     right: 294,
     bottom: 679,
     width: 286,
@@ -200,14 +250,26 @@ try {
     metadata.imageMeasuredSidebar.sampledColors.leftBorder,
     metadata.imageMeasuredSidebar.sampledColors.rightBorder,
   );
-  assert.ok(
-    ["#3a383a", "#3b393b"].includes(metadata.imageMeasuredSidebar.sampledColors.leftOutside),
-    "Sidebar left inset is not the base surface or its one-step native edge blend.",
-  );
-  assert.equal(metadata.imageMeasuredSidebar.sampledColors.rightGap, "#3a383a");
-  assert.equal(metadata.pixelSamples.titlebar.color, "#181212");
-  assert.equal(metadata.pixelSamples.base.color, "#1b1b1e");
-  assert.equal(metadata.pixelSamples.sidebar.color, "#1b1b1e");
+  const assertShellTopEdge = (sample, { band, hairline, sheet }) => {
+    assert.equal(sample.yStart, 36);
+    assert.equal(sample.yEnd, 44);
+    assert.deepEqual(
+      sample.colors,
+      [band, band, band, band, band, hairline, sheet, sheet, sheet],
+      `${sample.theme} shell top edge must show the window band, hairline, then sheet.`,
+    );
+  };
+  const capturePage = metadata.captureMethod === "webContents.capturePage";
+  assertShellTopEdge(metadata.shellTopEdges.dark, capturePage
+    ? { band: "#080808", hairline: "#212121", sheet: "#161616" }
+    : { band: "#181212", hairline: "#514f53", sheet: "#1b1b1e" });
+  // The light palette is injected from the bundled TUI registry regardless of
+  // capture method, so the sampled band/hairline/sheet are the real light
+  // colors (the old capture-page branch predated renderer palette injection).
+  assertShellTopEdge(metadata.shellTopEdges.light, { band: "#f6f8fa", hairline: "#c8cfd4", sheet: "#ffffff" });
+  assert.equal(metadata.pixelSamples.titlebar.color, capturePage ? "#080808" : "#181212");
+  assert.equal(metadata.pixelSamples.base.color, capturePage ? "#161616" : "#1b1b1e");
+  assert.equal(metadata.pixelSamples.sidebar.color, capturePage ? "#161616" : "#1b1b1e");
   console.log(`CAPTURE_PNG=${windowOutput}`);
   console.log(`CAPTURE_JSON=${metadataOutput}`);
   console.log(`CAPTURE_SCHEMA=${metadata.schemaVersion}; CAPTURE_ID=${metadata.captureId}`);

@@ -1,9 +1,11 @@
 const DEFAULT_SESSION_TITLE = 'Untitled session';
 
-function withoutSessionEnvelope(value) {
-  return value
+export function stripSessionEnvelope(value) {
+  return String(value ?? '')
     .replace(/^# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, '')
-    .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '');
+    .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '')
+    // Truncated previews may cut the envelope mid-way: strip progressively.
+    .replace(/^#\s*Session\s+Cwd:\s+\S+(?:\s+Model:\s+\S*)?(?:\s+Workflow:\s+\S*)?\s*/i, '');
 }
 
 /**
@@ -13,7 +15,7 @@ function withoutSessionEnvelope(value) {
  */
 export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 100) {
   let text = String(value ?? '');
-  text = withoutSessionEnvelope(text)
+  text = stripSessionEnvelope(text)
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
     .replace(/<file\b[^>]*>[\s\S]*?<\/file>/gi, ' ')
     .replace(/<available-deferred-tools>[\s\S]*?<\/available-deferred-tools>/gi, ' ')
@@ -37,7 +39,7 @@ export function sessionSummaryTitle(session, fallback = DEFAULT_SESSION_TITLE) {
 
 export function promptTitle(prompt, displayText = '') {
   const imageFallback = Array.isArray(prompt) && prompt.some((part) => part?.type === 'image')
-    ? 'Image request'
+    ? '[Image]'
     : '';
   if (displayText) return normalizeSessionTitle(displayText, imageFallback);
   if (typeof prompt === 'string') return normalizeSessionTitle(prompt, '');

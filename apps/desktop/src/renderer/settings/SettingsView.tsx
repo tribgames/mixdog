@@ -1,11 +1,16 @@
 import {
-  ArrowLeft,
   Blocks,
+  Brain,
   Cable,
   Cpu,
+  PenLine,
+  Plug,
   Radio,
   Settings,
   SlidersHorizontal,
+  Sparkles,
+  Webhook,
+  Workflow,
   Wrench,
   X,
 } from 'lucide-react';
@@ -36,9 +41,15 @@ export interface SettingsViewProps {
 const CATEGORY_ICONS = {
   general: SlidersHorizontal,
   models: Cpu,
+  workflows: Workflow,
+  'output-style': PenLine,
   providers: Cable,
   channels: Radio,
-  capabilities: Blocks,
+  mcp: Plug,
+  plugins: Blocks,
+  hooks: Webhook,
+  skills: Sparkles,
+  memory: Brain,
   system: Wrench,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
@@ -68,7 +79,6 @@ export function SettingsView({
   onCompose,
   onClose,
 }: SettingsViewProps) {
-  const [section, setSection] = useState<SettingsSection | null>(initialSection);
   const [category, setCategory] = useState<SettingsCategory>(
     initialSection ? categoryForSettingsItem(initialSection) : 'general',
   );
@@ -78,7 +88,6 @@ export function SettingsView({
   const priorFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    setSection(initialSection);
     if (initialSection) setCategory(categoryForSettingsItem(initialSection));
   }, [initialSection]);
   useEffect(() => {
@@ -132,6 +141,7 @@ export function SettingsView({
     const handleKey = (event: KeyboardEvent) => {
       const dialog = dialogRef.current;
       const nestedDialog = dialog?.querySelector<HTMLElement>('[data-settings-nested-dialog]') || null;
+      if (document.querySelector('.model-picker-dialog[aria-modal="true"]')) return;
       if (event.key === 'Escape') {
         const openPortaledMenu = Array.from(
           dialog?.querySelectorAll<HTMLElement>('[role="combobox"][aria-expanded="true"][aria-controls]') || [],
@@ -189,7 +199,7 @@ export function SettingsView({
               return <button type="button" key={item.value}
                 className={category === item.value ? 'active' : ''}
                 aria-current={category === item.value ? 'page' : undefined}
-                onClick={() => { setCategory(item.value); setSection(null); }}>
+                onClick={() => setCategory(item.value)}>
                 <Icon aria-hidden="true" size={16} /><span>{item.label}</span>
               </button>;
             })}
@@ -198,23 +208,16 @@ export function SettingsView({
         <footer><strong>Mixdog</strong><span>{version ? `v${version}` : 'Desktop'}</span></footer>
       </aside>
       <div className="mixdog-settings__panel">
-        <header className={`mixdog-settings__header${section ? ' is-subpage' : ''}`}>
+        <header className="mixdog-settings__header">
           <div className="mixdog-settings__header-title">
-            {section && <button type="button" className="mixdog-settings__back" aria-label="Back to settings"
-              onClick={() => setSection(null)}><ArrowLeft aria-hidden="true" size={16} /></button>}
-            <h1 id="mixdog-settings-title">{section
-              ? SETTINGS_ITEMS.find((item) => item.value === section)?.label || 'Settings'
-              : SETTINGS_CATEGORIES.find((item) => item.value === category)?.label || 'Settings'}</h1>
+            <h1 id="mixdog-settings-title">{SETTINGS_CATEGORIES.find((item) => item.value === category)?.label || 'Settings'}</h1>
           </div>
           <button ref={closeRef} type="button" className="mixdog-settings__close" onClick={requestClose}
             aria-label="Close settings"><X aria-hidden="true" size={16} /></button>
         </header>
-        <div className={`mixdog-settings__body${section ? ' is-subpage' : ''}`}>
-          <CapabilitySettings api={api} category={category} section={section}
-            onOpen={(next) => {
-              setCategory(categoryForSettingsItem(next));
-              setSection(next);
-            }} onCompose={onCompose} />
+        <div className="mixdog-settings__body">
+          <CapabilitySettings api={api} category={category} onCompose={onCompose}
+            onOpenCategory={setCategory} />
         </div>
       </div>
     </section>

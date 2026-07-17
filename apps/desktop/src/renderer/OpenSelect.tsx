@@ -26,6 +26,7 @@ interface OpenSelectProps {
   disabled?: boolean;
   required?: boolean;
   className?: string;
+  displayValue?: string;
   onChange?: (value: string) => void;
 }
 
@@ -40,6 +41,7 @@ export function OpenSelect({
   disabled = false,
   required = false,
   className = '',
+  displayValue,
   onChange,
 }: OpenSelectProps) {
   const controlled = value !== undefined;
@@ -54,6 +56,7 @@ export function OpenSelect({
   const listboxId = useId();
   const typeahead = useRef({ value: '', timer: 0 });
   const pendingActive = useRef<number | null>(null);
+  const restoreFocusAfterDisabled = useRef(false);
   const enabledIndexes = useMemo(() => options.flatMap((option, index) =>
     option.disabled ? [] : [index]), [options]);
   const selected = options.find((option) => option.value === current);
@@ -68,26 +71,43 @@ export function OpenSelect({
     const viewportHeight = viewport?.height ?? window.innerHeight;
     const viewportLeft = viewport?.offsetLeft ?? 0;
     const viewportTop = viewport?.offsetTop ?? 0;
+    const sheet = trigger.current?.closest<HTMLElement>('.workspace, .session-sidebar');
+    const sheetBounds = sheet?.getBoundingClientRect();
+    const bounds = sheetBounds && sheetBounds.width > 0 && sheetBounds.height > 0
+      ? sheetBounds
+      : {
+        left: viewportLeft,
+        top: viewportTop,
+        right: viewportLeft + viewportWidth,
+        bottom: viewportTop + viewportHeight,
+      };
     const edge = 8;
     const width = Math.min(
       Math.max(160, Math.min(368, rect.width)),
-      Math.max(0, viewportWidth - edge * 2),
+      Math.max(0, bounds.right - bounds.left - edge * 2),
     );
     const estimatedHeight = Math.min(240, options.length * 30 + 8);
-    const spaceBelow = viewportTop + viewportHeight - rect.bottom - edge;
-    const spaceAbove = rect.top - viewportTop - edge;
+    const spaceBelow = bounds.bottom - rect.bottom - edge;
+    const spaceAbove = rect.top - bounds.top - edge;
     const openAbove = spaceBelow < Math.min(160, estimatedHeight) && spaceAbove > spaceBelow;
+    const availableHeight = Math.max(0, (openAbove ? spaceAbove : spaceBelow) - 4);
+    const viewportMaxHeight = Math.min(240, viewportHeight - edge * 2);
+    const maxHeight = Math.min(viewportMaxHeight, availableHeight);
     const idealLeft = settingsStyle ? rect.right - width : rect.left;
     const left = Math.max(
-      viewportLeft + edge,
-      Math.min(viewportLeft + viewportWidth - width - edge, idealLeft),
+      bounds.left + edge,
+      Math.min(bounds.right - width - edge, idealLeft),
     );
     setPosition({
       left,
       width,
       ...(openAbove
-        ? { bottom: Math.max(edge, window.innerHeight - rect.top + 4), transformOrigin: 'bottom center' }
-        : { top: Math.min(viewportTop + viewportHeight - edge, rect.bottom + 4), transformOrigin: 'top center' }),
+        ? {
+          bottom: Math.max(edge, viewportHeight - bounds.bottom + (bounds.bottom - rect.top + 4)),
+          maxHeight,
+          transformOrigin: 'bottom center',
+        }
+        : { top: Math.min(bounds.bottom - edge, rect.bottom + 4), maxHeight, transformOrigin: 'top center' }),
     });
   }, [options.length, settingsStyle]);
 
@@ -134,6 +154,25 @@ export function OpenSelect({
       window.visualViewport?.removeEventListener('scroll', reposition);
     };
   }, [open, updatePosition]);
+
+  useEffect(() => {
+    if (disabled) {
+      if (open) {
+        restoreFocusAfterDisabled.current = true;
+        setOpen(false);
+      }
+      return;
+    }
+    if (restoreFocusAfterDisabled.current) {
+      restoreFocusAfterDisabled.current = false;
+      queueMicrotask(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body || active === document.documentElement) {
+          trigger.current?.focus();
+        }
+      });
+    }
+  }, [disabled, open]);
 
   useEffect(() => () => window.clearTimeout(typeahead.current.timer), []);
 
@@ -219,7 +258,7 @@ export function OpenSelect({
       aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={listboxId}
       aria-activedescendant={open && activeOption ? `${listboxId}-option-${active}` : undefined}
       disabled={disabled} onClick={() => setOpen((currentOpen) => !currentOpen)} onKeyDown={onKeyDown}>
-      <span className="oc-select-value">{selected?.label || options[0]?.label || 'Select…'}</span>
+      <span className="oc-select-value">{displayValue || selected?.label || options[0]?.label || 'Select…'}</span>
       {settingsStyle
         ? <ChevronsUpDown size={14} aria-hidden="true" />
         : <ChevronDown size={16} aria-hidden="true" />}

@@ -507,10 +507,87 @@ test('desktop resume pins projects and unclassified tasks to their host-managed 
   assert.equal(resolveResumeCwd({ cwd: '/cli' }, '/current'), '/cli');
 });
 
+test('new desktop sessions immediately repoint remote transcript forwarding', async () => {
+  let current = null;
+  const events = [];
+  const runtime = createLifecycleApi({
+    getSession: () => current,
+    setSession: (value) => { current = value; },
+    mgr: { closeSession: () => true },
+    invalidateContextStatusCache: () => events.push('invalidate'),
+    createCurrentSession: async () => {
+      events.push('create');
+      current = { id: 'desktop_new', messages: [] };
+    },
+    pushTranscriptRebind: () => events.push('rebind'),
+  });
+
+  assert.equal(await runtime.newSession(), 'desktop_new');
+  assert.deepEqual(events, ['invalidate', 'create', 'rebind']);
+});
+
+test('session deletion hard-deletes inactive rows and safely replaces the active row', async () => {
+  let current = {
+    id: 'desktop_active',
+    owner: 'user',
+    sourceType: 'cli',
+    messages: [{ role: 'user', content: 'Active session' }],
+  };
+  const rows = [
+    current,
+    {
+      id: 'desktop_inactive',
+      owner: 'user',
+      sourceType: 'cli',
+      messages: [{ role: 'user', content: 'Inactive session' }],
+    },
+  ];
+  const events = [];
+  const runtime = createLifecycleApi({
+    getSession: () => current,
+    setSession: (value) => { current = value; },
+    mgr: {
+      listSessions: () => rows,
+      deleteSession: (id) => { events.push(['delete', id]); return true; },
+      closeSession: (...args) => { events.push(['close', ...args]); return true; },
+    },
+    cancelBackgroundTasks: (options) => events.push(['background', options]),
+    agentTool: { closeAll: (reason) => events.push(['agents', reason]) },
+    statusRoutes: { clearGatewaySessionRoute: (id) => events.push(['route', id]) },
+    invalidateContextStatusCache: () => events.push(['context']),
+    invalidatePreSessionToolSurface: () => events.push(['surface']),
+    createCurrentSession: async () => {
+      current = { id: 'desktop_replacement', messages: [] };
+      events.push(['create', current.id]);
+    },
+    pushTranscriptRebind: () => events.push(['rebind']),
+  });
+
+  assert.equal(await runtime.deleteSession('desktop_inactive'), true);
+  assert.deepEqual(events.shift(), ['delete', 'desktop_inactive']);
+  assert.equal(await runtime.deleteSession('desktop_active'), true);
+  assert.equal(current.id, 'desktop_replacement');
+  assert.deepEqual(events, [
+    ['background', {
+      reason: 'desktop-session-delete',
+      notify: false,
+      callerSessionId: 'desktop_active',
+    }],
+    ['agents', 'desktop-session-delete'],
+    ['route', 'desktop_active'],
+    ['close', 'desktop_active', 'desktop-session-delete', { tombstone: true }],
+    ['context'],
+    ['surface'],
+    ['create', 'desktop_replacement'],
+    ['rebind'],
+  ]);
+});
+
 test('runtime resume returns the persisted transcript and restores desktop task scope', async () => {
   let current = null;
   let cwd = '/app/workspace';
   let route = { provider: 'test', model: 'model' };
+  let transcriptRebinds = 0;
   const messages = [
     { role: 'user', content: 'Persisted question' },
     { role: 'assistant', content: 'Persisted answer' },
@@ -549,12 +626,14 @@ test('runtime resume returns the persisted transcript and restores desktop task 
     resolveRoute: (_config, value) => value,
     applyDeferredToolSurface: () => {},
     standaloneTools: [],
+    pushTranscriptRebind: () => { transcriptRebinds += 1; },
   });
 
   const resumed = await runtime.resume('desktop_task');
   assert.deepEqual(resumed.messages, messages);
   assert.equal(resumed.cwd, '/app/workspace');
   assert.equal(current.cwd, '/app/workspace');
+  assert.equal(transcriptRebinds, 1);
 });
 
 test('desktop context switches retain runtime resources while durably closing the old session', async () => {
@@ -614,6 +693,74 @@ test('desktop context switches retain runtime resources while durably closing th
   assert.equal(current, null);
   assert.equal(cwd, '/project');
   assert.deepEqual(desktopSession, { classification: 'project', projectPath: '/project' });
+});
+
+test('cleared desktop context resumes legacy rows without reviving the creation marker', async () => {
+  const taskDesktopSession = { classification: 'task', projectPath: null };
+  let current = null;
+  let cwd = '/task';
+  let desktopSession = taskDesktopSession;
+  const resumeOptions = [];
+  const stored = {
+    legacy: {
+      id: 'legacy',
+      provider: 'test',
+      model: 'model',
+      cwd: '/legacy',
+      desktopSession: null,
+      messages: [],
+    },
+    project: {
+      id: 'project',
+      provider: 'test',
+      model: 'model',
+      cwd: '/project',
+      desktopSession: { classification: 'project', projectPath: '/project' },
+      messages: [],
+    },
+  };
+  const runtime = createLifecycleApi({
+    getSession: () => current,
+    setSession: (value) => { current = value; },
+    getDesktopSession: () => desktopSession,
+    setDesktopSession: (value) => { desktopSession = value; },
+    getRoute: () => ({ provider: 'test', model: 'model' }),
+    setRoute: () => {},
+    getConfig: () => ({}),
+    getMode: () => 'full',
+    getCurrentCwd: () => cwd,
+    setSessionNeedsCwdRefresh: () => {},
+    desktopSession: taskDesktopSession,
+    mgr: {
+      closeSession: () => true,
+      resumeSession: async (id, _preset, options) => {
+        resumeOptions.push(options);
+        const session = stored[id];
+        const expected = options?.desktopSession;
+        if (expected && (!session.desktopSession
+          || expected.classification !== session.desktopSession.classification)) return null;
+        return session;
+      },
+    },
+    statusRoutes: {},
+    createCurrentSession: async () => {},
+    refreshRouteEffort: async () => {},
+    invalidateContextStatusCache: () => {},
+    invalidatePreSessionToolSurface: () => {},
+    applyResolvedCwd: async (value) => { cwd = value; },
+    resolveRoute: (_config, value) => value,
+    applyDeferredToolSurface: () => {},
+    standaloneTools: [],
+  });
+
+  await runtime.switchContext({ cwd: '/legacy', desktopSession: null });
+  assert.equal(desktopSession, null);
+  assert.equal((await runtime.resume('legacy')).id, 'legacy');
+  assert.equal(resumeOptions[0], undefined);
+
+  await runtime.switchContext({ cwd: '/task', desktopSession: taskDesktopSession });
+  assert.equal(await runtime.resume('project'), null);
+  assert.deepEqual(resumeOptions[1], { desktopSession: taskDesktopSession });
 });
 
 test('desktop cwd application awaits project MCP reset before becoming ready', async () => {

@@ -161,14 +161,19 @@ export function normalizeModelOptions(models: readonly DesktopModelOption[]): De
 export function modelContextWindow(model: DesktopModelOption): number {
   const value = Number(model.contextWindow);
   const explicit = Number.isFinite(value) && value > 0 ? value : 0;
+  // Provider metadata is authoritative when it is present.  The Claude
+  // fallback below only exists for older catalog entries that did not expose
+  // a context window at all; inflating an explicit 200k entry to 1M makes the
+  // desktop picker disagree with the TUI and with the provider response.
+  if (explicit > 0) return explicit;
   const provider = model.provider.toLowerCase();
   const id = model.model.toLowerCase();
   const version = parsedModelVersion(id);
   if (provider.includes("anthropic") && /^claude-[a-z]+-/.test(id)) {
-    if ((version[0] || 0) >= 5) return Math.max(explicit, 1_000_000);
-    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return Math.max(explicit, 1_000_000);
+    if ((version[0] || 0) >= 5) return 1_000_000;
+    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return 1_000_000;
   }
-  return explicit;
+  return 0;
 }
 
 export function formatContextWindow(tokens: number): string {

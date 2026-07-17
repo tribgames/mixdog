@@ -31,7 +31,10 @@ export const SETTINGS_ITEMS = [
 
 export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];
 
-export type SettingsCategory = 'general' | 'models' | 'providers' | 'channels' | 'capabilities' | 'system';
+export type SettingsCategory =
+  | 'general' | 'models' | 'workflows' | 'output-style'
+  | 'providers' | 'channels' | 'mcp' | 'plugins' | 'hooks' | 'skills' | 'memory'
+  | 'system';
 
 export interface SettingsCategoryItem {
   value: SettingsCategory;
@@ -45,13 +48,25 @@ export const SETTINGS_CATEGORIES = [
     value: 'general',
     label: 'General',
     group: 'Mixdog',
-    items: ['profile', 'autoclear', 'autocompact', 'compact-type', 'output-style', 'theme'],
+    items: ['profile', 'theme', 'autocompact', 'autoclear', 'compact-type'],
   },
   {
     value: 'models',
     label: 'Models',
     group: 'Mixdog',
-    items: ['model', 'search', 'workflow'],
+    items: ['model', 'search'],
+  },
+  {
+    value: 'workflows',
+    label: 'Workflows',
+    group: 'Mixdog',
+    items: ['workflow'],
+  },
+  {
+    value: 'output-style',
+    label: 'Output style',
+    group: 'Mixdog',
+    items: ['output-style'],
   },
   {
     value: 'providers',
@@ -66,10 +81,34 @@ export const SETTINGS_CATEGORIES = [
     items: ['channels', 'channel-backend', 'channel-setting'],
   },
   {
-    value: 'capabilities',
-    label: 'Capabilities',
+    value: 'mcp',
+    label: 'MCP',
     group: 'Integrations',
-    items: ['mcp', 'plugins', 'hooks', 'skills'],
+    items: ['mcp'],
+  },
+  {
+    value: 'plugins',
+    label: 'Plugins',
+    group: 'Integrations',
+    items: ['plugins'],
+  },
+  {
+    value: 'hooks',
+    label: 'Hooks',
+    group: 'Integrations',
+    items: ['hooks'],
+  },
+  {
+    value: 'skills',
+    label: 'Skills',
+    group: 'Integrations',
+    items: ['skills'],
+  },
+  {
+    value: 'memory',
+    label: 'Memory',
+    group: 'Integrations',
+    items: [],
   },
   {
     value: 'system',

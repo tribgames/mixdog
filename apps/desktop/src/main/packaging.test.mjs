@@ -44,7 +44,8 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.doesNotMatch(main, /desktopCapturer|captureProductionWindow|MIXDOG_DESKTOP_CAPTURE_PATH|app\.exit/);
   assert.match(main, /DESKTOP_WINDOW_OPTIONS/);
   assert.match(capture, /DESKTOP_WINDOW_OPTIONS/);
-  assert.match(capture, /desktopCapturer\.getSources/);
+  assert.match(capture, /webContents\.capturePage/);
+  assert.doesNotMatch(capture, /desktopCapturer\.getSources/);
   assert.doesNotMatch(capture, /disableHardwareAcceleration/);
   assert.match(capture, /schemaVersion\s*=\s*1/);
   assert.match(capture, /Capture ID is required/);
@@ -55,7 +56,7 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /class CaptureEngineHost extends EngineHost/);
   assert.match(capture, /override async listSessions\(\): Promise<DesktopSessionSummary\[]>/);
   assert.match(capture, /new CaptureEngineHost/);
-  assert.match(capture, /registerDesktopIpc\(window,\s*host,\s*\{\s*app,\s*ipcMain,\s*dialog,\s*shell\s*\}\)/);
+  assert.match(capture, /registerDesktopIpc\(window,\s*host,\s*\{[\s\S]*?app,[\s\S]*?ipcMain,[\s\S]*?dialog,[\s\S]*?shell,[\s\S]*?updater:/);
   assert.match(capture, /console-message/);
   assert.match(capture, /Capture renderer preload bridge is missing/);
   assert.match(capture, /\.inline-error,\s*\[role="alert"\]/);
@@ -96,7 +97,9 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /await host\.dispose\(\)/);
   assert.match(options, /Object\.freeze/);
   assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#080808'/);
-  assert.match(options, /color:\s*'#00000000'/);
+  assert.doesNotMatch(options, /color:\s*'#00000000'/);
+  assert.match(options, /color:\s*DESKTOP_BACKGROUND_COLOR/);
+  assert.match(options, /color:\s*light\s*\?\s*DESKTOP_LIGHT_BACKGROUND_COLOR\s*:\s*DESKTOP_BACKGROUND_COLOR/);
   assert.match(options, /backgroundColor:\s*DESKTOP_BACKGROUND_COLOR/);
   assert.match(options, /symbolColor:\s*'#e5e5e5'/);
   assert.match(options, /titleBarStyle:\s*'hidden'/);
@@ -118,7 +121,7 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(adapter, /packaged:\s*false/);
   assert.match(capture, /liveDesktop\.sidebarGap !== 8/);
   assert.match(capture, /liveDesktop\.rects\.sidebar\.left !== 8/);
-  assert.match(capture, /liveDesktop\.rects\.sidebar\.top !== 36/);
+  assert.match(capture, /liveDesktop\.rects\.sidebar\.top !== 42/);
   assert.match(capture, /liveDesktop\.rects\.sidebar\.width !== 286/);
   assert.match(capture, /liveDesktop\.viewport\.height - liveDesktop\.rects\.sidebar\.bottom !== 8/);
   assert.match(capture, /liveDesktop\.rects\.main\.left !== 302/);

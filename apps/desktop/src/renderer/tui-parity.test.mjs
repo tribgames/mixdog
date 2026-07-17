@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { SETTINGS_ITEMS } from './settings/settings-items.ts';
+import { SETTINGS_ITEMS, categoryForSettingsItem } from './settings/settings-items.ts';
 import { SLASH_COMMANDS as desktopSlashCommands } from './slash-commands.ts';
 import { SLASH_COMMANDS as tuiSlashCommands } from '../../../../src/tui/app/slash-commands.mjs';
 
@@ -135,11 +135,14 @@ test('every desktop slash command resolves to an implemented GUI target', async 
       assert.ok(settingsValues.has(command.settingsRow), `/${command.name} settings row must exist`);
       const item = SETTINGS_ITEMS.find((entry) => entry.value === command.settingsRow);
       if (item.kind === 'open') {
-        assert.match(
-          settingsSource,
-          new RegExp(`section === ['"]${command.settingsRow}['"]`),
-          `/${command.name} settings panel must render an implemented section`,
-        );
+        const category = categoryForSettingsItem(command.settingsRow);
+        if (category !== 'general') {
+          assert.match(
+            settingsSource,
+            new RegExp(`category === ['"]${category}['"]`),
+            `/${command.name} settings tab must render an implemented category pane`,
+          );
+        }
       }
     }
     if (command.surface) {

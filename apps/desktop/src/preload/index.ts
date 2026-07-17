@@ -5,6 +5,7 @@ import {
   DESKTOP_IPC,
   type DesktopApi,
   type EngineSnapshot,
+  type DesktopUpdaterState,
 } from '../shared/contract';
 
 const api: DesktopApi = {
@@ -23,6 +24,7 @@ const api: DesktopApi = {
   removeProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.removeProject, projectPath),
   listSessions: () => ipcRenderer.invoke(DESKTOP_IPC.listSessions),
   renameSession: (sessionId, title) => ipcRenderer.invoke(DESKTOP_IPC.renameSession, sessionId, title),
+  deleteSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.deleteSession, sessionId),
   resumeSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.resumeSession, sessionId),
   searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
     ipcRenderer.invoke(DESKTOP_IPC.searchProjectFiles, projectIdOrWorkspaceId, query, limit),
@@ -34,6 +36,16 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.state, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.state, receive);
   },
+  getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
+  subscribeUpdaterState: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {
+      listener(state);
+    };
+    ipcRenderer.on(DESKTOP_IPC.updaterState, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.updaterState, receive);
+  },
+  checkForDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.checkForDesktopUpdate),
+  showDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.showDesktopUpdate),
   submit: (prompt, options) => ipcRenderer.invoke(DESKTOP_IPC.submit, prompt, options),
   abort: () => ipcRenderer.invoke(DESKTOP_IPC.abort),
   resolveToolApproval: (id, decision) =>

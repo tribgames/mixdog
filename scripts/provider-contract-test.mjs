@@ -32,6 +32,8 @@ import {
     billableInputTokensForProvider,
     isInclusiveProvider,
 } from '../src/runtime/shared/llm/cost.mjs';
+import { createProviderAuthApi } from '../src/session-runtime/provider-auth-api.mjs';
+import { createProviderUsage } from '../src/session-runtime/provider-usage.mjs';
 
 function stream(events) {
     return {
@@ -40,6 +42,53 @@ function stream(events) {
         },
     };
 }
+
+test('provider setup refresh waits for keychain readiness and bypasses stale setup state', async () => {
+    const calls = [];
+    const api = createProviderAuthApi({
+        awaitKeychainPrewarm: async () => { calls.push('prewarm'); },
+        reloadFullConfig: () => { calls.push('reload'); },
+        cachedProviderSetup: async (options) => {
+            calls.push(['setup', options]);
+            return { generation: 2 };
+        },
+    });
+
+    assert.deepEqual(await api.getProviderSetup({ refresh: true }), { generation: 2 });
+    assert.deepEqual(calls, ['prewarm', 'reload', ['setup', { force: true }]]);
+});
+
+test('forced provider setup waits for an in-flight snapshot and then rebuilds it', async () => {
+    let releaseFirst;
+    let builds = 0;
+    const usage = createProviderUsage({
+        caches: {
+            providerSetupCache: {},
+            providerSetupQuickCache: {},
+            providerSetupPromise: null,
+        },
+        displayConfig: () => ({}),
+        providerSetup: async () => {
+            builds += 1;
+            if (builds === 1) await new Promise((resolve) => { releaseFirst = resolve; });
+            return { generation: builds };
+        },
+        getReg: () => new Map(),
+        getConfig: () => ({}),
+        getProviderSetupWarmupTimer: () => null,
+        scheduleProviderSetupWarmup() {},
+        isCloseRequested: () => false,
+    });
+
+    const initial = usage.cachedProviderSetup();
+    await Promise.resolve();
+    const refreshed = usage.cachedProviderSetup({ force: true });
+    releaseFirst();
+
+    assert.deepEqual(await initial, { generation: 1 });
+    assert.deepEqual(await refreshed, { generation: 2 });
+    assert.equal(builds, 2);
+});
 
 test('current vendor preset defaults and OpenCode Go protocol routes are pinned', () => {
     assert.equal(OPENAI_COMPAT_PRESETS.xai.defaultModel, 'grok-4.5');

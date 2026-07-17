@@ -1,7 +1,6 @@
-export type UpdaterState =
-  | { status: 'disabled' | 'idle' | 'checking' | 'up-to-date' }
-  | { status: 'downloading' | 'ready' | 'installing'; version: string }
-  | { status: 'error'; message: string };
+import type { DesktopUpdaterState } from '../shared/contract';
+
+export type UpdaterState = DesktopUpdaterState;
 
 export type UpdaterBackend = {
   checkForUpdates(): Promise<{ isUpdateAvailable?: boolean; updateInfo?: { version?: string } } | null | undefined>;
@@ -13,6 +12,7 @@ export function createUpdaterController(input: {
   enabled: boolean;
   currentVersion: string;
   backend: UpdaterBackend;
+  stop?: () => Promise<void>;
   log?: (message: string, data?: object) => void;
 }) {
   let state: UpdaterState = input.enabled ? { status: 'idle' } : { status: 'disabled' };
@@ -60,12 +60,18 @@ export function createUpdaterController(input: {
     },
     start: check,
     check,
-    install(): void {
+    async install(): Promise<void> {
       if (state.status !== 'ready') throw new Error('Update is not ready to install');
       const version = state.version;
       transition({ status: 'installing', version });
-      input.backend.quitAndInstall();
-      transition({ status: 'ready', version });
+      try {
+        await input.stop?.();
+        input.backend.quitAndInstall();
+        transition({ status: 'ready', version });
+      } catch (error) {
+        transition({ status: 'ready', version });
+        throw error;
+      }
     },
   };
 }

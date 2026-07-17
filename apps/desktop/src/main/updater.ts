@@ -4,6 +4,7 @@ import { app } from 'electron';
 import electronUpdater from 'electron-updater';
 
 import { createUpdaterController } from './updater-controller';
+import type { DesktopUpdaterState } from '../shared/contract';
 
 const { autoUpdater } = electronUpdater;
 
@@ -11,27 +12,55 @@ const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let controller: ReturnType<typeof createUpdaterController> | undefined;
 let checkInterval: NodeJS.Timeout | undefined;
+let state: DesktopUpdaterState = { status: 'disabled' };
+const listeners = new Set<(state: DesktopUpdaterState) => void>();
 
-export function startAutoUpdater(): void {
+function publish(next: DesktopUpdaterState): void {
+  state = next;
+  listeners.forEach((listener) => listener(state));
+}
+
+export const desktopUpdater = {
+  getState: (): DesktopUpdaterState => state,
+  subscribe(listener: (state: DesktopUpdaterState) => void): () => void {
+    listeners.add(listener);
+    listener(state);
+    return () => listeners.delete(listener);
+  },
+  check(): Promise<DesktopUpdaterState> {
+    return controller?.check() ?? Promise.resolve(state);
+  },
+  async install(): Promise<void> {
+    if (!controller) throw new Error('Desktop updates are unavailable in this build.');
+    await controller.install();
+  },
+};
+
+export function startAutoUpdater(stop: () => Promise<void> = async () => {}): void {
   if (controller || checkInterval) return;
   if (!app.isPackaged || process.env.ELECTRON_RENDERER_URL) {
     console.info('Auto-update is disabled outside packaged production builds.');
+    publish({ status: 'disabled' });
     return;
   }
 
   try {
+    autoUpdater.channel = 'latest';
+    autoUpdater.allowPrerelease = false;
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
     controller = createUpdaterController({
       enabled: true,
       currentVersion: app.getVersion(),
       backend: autoUpdater,
+      stop,
       log(message, data) {
         console.info(`Mixdog ${message}`, data ?? '');
       },
     });
     controller.subscribe((state) => {
       console.info('Mixdog updater status:', state);
+      publish(state);
     });
 
     void controller.start();
@@ -45,6 +74,6 @@ export function startAutoUpdater(): void {
   }
 }
 
-export function quitAndInstallUpdate(): void {
-  controller?.install();
+export async function quitAndInstallUpdate(): Promise<void> {
+  await desktopUpdater.install();
 }

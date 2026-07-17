@@ -231,7 +231,7 @@ test("shell polling backs off while idle and accelerates for engine or shell act
   assert.equal(shellJobsPollDelay({ busy: false }, 2), 1_000);
 });
 
-test("desktop session summaries include legacy lead sessions and hide invalid metadata or ids", () => {
+test("desktop session summaries prioritize manual names over generated titles and previews", () => {
   const summaries = desktopSessionSummaries([
     {
       id: "task_1",
@@ -252,13 +252,13 @@ test("desktop session summaries include legacy lead sessions and hide invalid me
     { id: "bad_scalar_meta", preview: "Bad", desktopSession: "project" },
     { id: "bad_project_path", preview: "Bad", desktopSession: { classification: "project", projectPath: {} } },
     { id: "../worker", preview: "invalid" },
-  ], "task_1");
+  ], "task_1", { task_1: "Generated task title" }, { task_1: "Custom task name" });
 
   assert.equal(summaries.length, 3);
   assert.deepEqual(summaries[0], {
     id: "task_1",
     preview: "Fresh task",
-    title: "Fresh task",
+    title: "Custom task name",
     updatedAt: 10,
     cwd: "C:\\app\\workspace",
     classification: "task",
@@ -393,6 +393,7 @@ test("host persists the first accepted prompt as a stable desktop session title"
     await host.startTask();
     assert.equal(host.submit("Build the durable desktop title"), true);
     assert.equal((await host.listSessions())[0].title, "Build the durable desktop title");
+    assert.equal(host.getSnapshot().desktopSessionTitle, "Build the durable desktop title");
 
     assert.equal(host.submit("A newer preview must not rename this session"), true);
     const listed = await host.listSessions();
@@ -405,8 +406,9 @@ test("host persists the first accepted prompt as a stable desktop session title"
       "utf8",
     ));
     assert.deepEqual(metadata, {
-      version: 1,
+      version: 2,
       titles: { [sessionId]: "Build the durable desktop title" },
+      names: {},
     });
   } finally {
     await host.dispose();
@@ -438,6 +440,15 @@ test("host persists user-renamed session titles and restores the override after 
     assert.equal((await host.listSessions())[0].title, "Durable custom title");
     await assert.rejects(host.renameSession("missing", "No session"), /not available/);
     await host.dispose();
+    const metadata = JSON.parse(await readFile(
+      join(root, "desktop-session-metadata.json"),
+      "utf8",
+    ));
+    assert.deepEqual(metadata, {
+      version: 2,
+      titles: {},
+      names: { [row.id]: "Durable custom title" },
+    });
 
     const restarted = createHost();
     try {
@@ -446,6 +457,103 @@ test("host persists user-renamed session titles and restores the override after 
     } finally {
       await restarted.dispose();
     }
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host deletes session metadata and returns the replacement snapshot for the active session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-delete-"));
+  const originalCwd = process.cwd();
+  const rows = [
+    {
+      id: "desktop_active_delete",
+      preview: "Active delete",
+      cwd: join(root, "workspace", "unclassified"),
+      desktopSession: { classification: "task", projectPath: null },
+    },
+    {
+      id: "desktop_inactive_delete",
+      preview: "Inactive delete",
+      cwd: join(root, "workspace", "unclassified"),
+      desktopSession: { classification: "task", projectPath: null },
+    },
+  ];
+  let state = { sessionId: rows[0].id, items: [{ kind: "user", text: "Active delete" }] };
+  const deleted = [];
+  await writeFile(join(root, "desktop-session-metadata.json"), JSON.stringify({
+    version: 2,
+    titles: { [rows[0].id]: "Active title", [rows[1].id]: "Inactive title" },
+    names: { [rows[0].id]: "Active name", [rows[1].id]: "Inactive name" },
+  }));
+  const engine = {
+    getState: () => state,
+    subscribe: () => () => {},
+    listSessions: () => rows,
+    deleteSession: async (id) => {
+      deleted.push(id);
+      const index = rows.findIndex((row) => row.id === id);
+      if (index < 0) return false;
+      rows.splice(index, 1);
+      if (state.sessionId === id) state = { sessionId: null, items: [], queued: [] };
+      return true;
+    },
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    await host.listSessions();
+    assert.equal((await host.deleteSession("desktop_inactive_delete")).sessionId, rows[0].id);
+    assert.equal((await host.deleteSession("desktop_active_delete")).sessionId, null);
+    assert.deepEqual(deleted, ["desktop_inactive_delete", "desktop_active_delete"]);
+    await host.dispose();
+    const metadata = JSON.parse(await readFile(
+      join(root, "desktop-session-metadata.json"),
+      "utf8",
+    ));
+    assert.deepEqual(metadata, { version: 2, titles: {}, names: {} });
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host migrates legacy title overrides into manual names without changing their display", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-title-migration-"));
+  const originalCwd = process.cwd();
+  const row = {
+    id: "desktop_legacy_title",
+    preview: "Newer preview",
+    cwd: join(root, "workspace", "unclassified"),
+    desktopSession: { classification: "task", projectPath: null },
+  };
+  await writeFile(join(root, "desktop-session-metadata.json"), JSON.stringify({
+    version: 1,
+    titles: { [row.id]: "Legacy preserved title" },
+  }));
+  const engine = {
+    getState: () => ({ sessionId: row.id, items: [] }),
+    subscribe: () => () => {},
+    listSessions: () => [row],
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    assert.equal((await host.listSessions())[0].title, "Legacy preserved title");
+    await host.renameSession(row.id, "Migrated custom name");
+    await host.dispose();
+    const metadata = JSON.parse(await readFile(
+      join(root, "desktop-session-metadata.json"),
+      "utf8",
+    ));
+    assert.deepEqual(metadata, {
+      version: 2,
+      titles: {},
+      names: { [row.id]: "Migrated custom name" },
+    });
   } finally {
     await host.dispose();
     process.chdir(originalCwd);
@@ -474,7 +582,11 @@ test("host recovers corrupt session title metadata and atomically replaces it", 
     assert.equal((await host.listSessions())[0].title, "Recovered preview");
     await host.renameSession(row.id, "Recovered custom title");
     const saved = JSON.parse(await readFile(join(root, "desktop-session-metadata.json"), "utf8"));
-    assert.deepEqual(saved.titles, { [row.id]: "Recovered custom title" });
+    assert.deepEqual(saved, {
+      version: 2,
+      titles: {},
+      names: { [row.id]: "Recovered custom title" },
+    });
   } finally {
     await host.dispose();
     process.chdir(originalCwd);
@@ -716,6 +828,64 @@ test("host resumes another desktop task session in the same managed context with
   }
 });
 
+test("host reuses one legacy workspace context and publishes the detached resume result", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-resume-legacy-context-"));
+  const originalCwd = process.cwd();
+  const taskWorkspace = join(root, "workspace", "unclassified");
+  const legacyWorkspace = join(root, "legacy-project");
+  await Promise.all([
+    mkdir(taskWorkspace, { recursive: true }),
+    mkdir(legacyWorkspace, { recursive: true }),
+  ]);
+  const rows = ["legacy_first", "legacy_second"].map((id, index) => ({
+    id,
+    preview: `Legacy ${index + 1}`,
+    updatedAt: 2 - index,
+    cwd: legacyWorkspace,
+  }));
+  let state = { sessionId: null, items: [], queued: [] };
+  const resumed = [];
+  let switched = 0;
+  let disposed = 0;
+  const engine = {
+    getState: () => state,
+    subscribe: () => () => {},
+    listSessions: () => rows,
+    switchContext: async () => {
+      switched += 1;
+      return true;
+    },
+    resume: async (id) => {
+      resumed.push(id);
+      state = { sessionId: id, items: [], queued: [] };
+      return true;
+    },
+    dispose: async () => { disposed += 1; },
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  const publications = [];
+  const unsubscribe = host.subscribe((snapshot) => publications.push(snapshot));
+  try {
+    await host.resumeSession("legacy_first");
+    publications.length = 0;
+    const snapshot = await host.resumeSession("legacy_second");
+
+    assert.deepEqual(resumed, ["legacy_first", "legacy_second"]);
+    assert.equal(switched, 1, "only the initial task-to-legacy context transition should reset context");
+    assert.equal(disposed, 0);
+    assert.equal(publications.length, 1);
+    assert.equal(publications[0], snapshot,
+      "the held state publication should reuse the detached snapshot returned by resume");
+    assert.equal(snapshot.sessionId, "legacy_second");
+  } finally {
+    unsubscribe();
+    await host.dispose();
+    assert.equal(disposed, 1);
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("desktop IPC session id validation rejects path-like input", () => {
   assert.equal(requiredSessionId(" session_123 "), "session_123");
   assert.equal(requiredSessionId("a".repeat(256)), "a".repeat(256));
@@ -736,10 +906,11 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     },
   };
   const mainFrame = {};
+  const sent = [];
   const webContents = {
     mainFrame,
     isDestroyed: () => false,
-    send: () => {},
+    send: (...args) => { sent.push(args); },
   };
   const window = {
     webContents,
@@ -749,11 +920,15 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   let quitCalls = 0;
   let disposeCalls = 0;
   let unsubscribed = false;
+  let updaterUnsubscribed = false;
+  let updaterInstalls = 0;
+  const updaterState = { status: "ready", version: "2.0.0" };
   const host = {
     startProject: async (path) => { calls.push(["startProject", path]); return null; },
     startTask: async () => { calls.push(["startTask"]); return null; },
     listSessions: async () => { calls.push(["listSessions"]); return []; },
     renameSession: async (id, title) => { calls.push(["renameSession", id, title]); },
+    deleteSession: async (id) => { calls.push(["deleteSession", id]); return null; },
     resumeSession: async (id) => { calls.push(["resumeSession", id]); return null; },
     searchProjectFiles: async (id, query, limit) => {
       calls.push(["searchProjectFiles", id, query, limit]);
@@ -795,10 +970,22 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   const remove = registerDesktopIpc(window, host, {
     app: { quit: () => { quitCalls += 1; } },
     ipcMain,
-    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+    dialog: {
+      showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+      showMessageBox: async () => ({ response: 0 }),
+    },
     shell: {
       openPath: async (path) => { calls.push(["openPath", path]); return ""; },
       openExternal: async (url) => { calls.push(["openExternal", url]); },
+    },
+    updater: {
+      getState: () => updaterState,
+      subscribe: (listener) => {
+        listener(updaterState);
+        return () => { updaterUnsubscribed = true; };
+      },
+      check: async () => updaterState,
+      install: async () => { updaterInstalls += 1; },
     },
   });
   const validEvent = { sender: webContents, senderFrame: mainFrame };
@@ -815,6 +1002,7 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   await invoke(DESKTOP_IPC.startTask, validEvent);
   await invoke(DESKTOP_IPC.listSessions, validEvent);
   await invoke(DESKTOP_IPC.renameSession, validEvent, " rename_1 ", " New name ");
+  await invoke(DESKTOP_IPC.deleteSession, validEvent, " delete_1 ");
   await invoke(DESKTOP_IPC.resumeSession, validEvent, " resume_1 ");
   await invoke(DESKTOP_IPC.searchProjectFiles, validEvent, " C:\\known ", "index", 12);
   await invoke(DESKTOP_IPC.listProviderModels, validEvent);
@@ -832,18 +1020,26 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   const reads = await invoke(DESKTOP_IPC.readCapabilities, validEvent, [
     { capability: "getProfile" },
     { capability: "getChannelSettings", args: [{ includeStatus: false }] },
+    { capability: "getProviderSetup", args: [{ refresh: true }] },
   ]);
-  assert.deepEqual(reads.map((result) => result.value), ["getProfile", "getChannelSettings"]);
+  assert.deepEqual(reads.map((result) => result.value), ["getProfile", "getChannelSettings", "getProviderSetup"]);
+  assert.deepEqual(await invoke(DESKTOP_IPC.getUpdaterState, validEvent), updaterState);
+  assert.deepEqual(await invoke(DESKTOP_IPC.checkForDesktopUpdate, validEvent), updaterState);
+  assert.deepEqual(await invoke(DESKTOP_IPC.showDesktopUpdate, validEvent), updaterState);
+  assert.equal(updaterInstalls, 1);
+  assert.ok(sent.some(([channel, value]) =>
+    channel === DESKTOP_IPC.updaterState && value.version === "2.0.0"));
   await Promise.all([
     invoke(DESKTOP_IPC.quit, validEvent),
     invoke(DESKTOP_IPC.quit, validEvent),
   ]);
   assert.equal(disposeCalls, 1);
   assert.equal(quitCalls, 1);
-  assert.deepEqual(calls.slice(0, 8), [
+  assert.deepEqual(calls.slice(0, 9), [
     ["startTask"],
     ["listSessions"],
     ["renameSession", "rename_1", "New name"],
+    ["deleteSession", "delete_1"],
     ["resumeSession", "resume_1"],
     ["searchProjectFiles", "C:\\known", "index", 12],
     ["listProviderModels"],
@@ -859,6 +1055,10 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
 
   assert.throws(
     () => invoke(DESKTOP_IPC.resumeSession, validEvent, "../resume"),
+    /invalid/,
+  );
+  assert.throws(
+    () => invoke(DESKTOP_IPC.deleteSession, validEvent, "../delete"),
     /invalid/,
   );
   assert.throws(
@@ -921,6 +1121,13 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     () => invoke(DESKTOP_IPC.listProviderModels, validEvent, { force: "yes" }),
     /catalog options are invalid/,
   );
+  await assert.rejects(
+    invoke(DESKTOP_IPC.invokeCapability, validEvent, {
+      capability: "getProviderSetup",
+      args: [{ refresh: "yes" }],
+    }),
+    /provider setup options are invalid/,
+  );
   await invoke(DESKTOP_IPC.renameProject, validEvent, " C:\\known ", "   ");
   assert.deepEqual(calls.at(-1), ["renameProject", "C:\\known", ""]);
   assert.throws(
@@ -939,9 +1146,11 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
 
   remove();
   assert.equal(unsubscribed, true);
+  assert.equal(updaterUnsubscribed, true);
   assert.equal(handlers.size, 0);
   assert.deepEqual(new Set(removed), new Set(
-    Object.values(DESKTOP_IPC).filter((channel) => channel !== DESKTOP_IPC.state),
+    Object.values(DESKTOP_IPC).filter((channel) =>
+      channel !== DESKTOP_IPC.state && channel !== DESKTOP_IPC.updaterState),
   ));
 });
 
@@ -1105,7 +1314,7 @@ test("a pristine route Fast choice supersedes an earlier Fast-only preference", 
   }
 });
 
-test("host lists normalized core models and applies routes only while idle", async () => {
+test("host lists normalized core models and applies next-session routes during an active turn", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-model-host-"));
   const originalCwd = process.cwd();
   let state = {
@@ -1261,17 +1470,16 @@ test("host lists normalized core models and applies routes only while idle", asy
     assert.equal(calls.filter(([name]) => name === "setRoute").length, 1);
 
     state = { ...state, busy: true };
-    await assert.rejects(
-      host.setModelRoute({ provider: "openai", model: "gpt-5.4" }),
-      /Engine is busy/,
-    );
+    const nextTurnRoute = await host.setModelRoute({ provider: "openai", model: "gpt-5.4" });
+    assert.equal(nextTurnRoute.busy, true);
+    assert.equal(calls.filter(([name]) => name === "setRoute").length, 2);
     state = { ...state, busy: false, commandBusy: true };
     await assert.rejects(
       host.setModelRoute({ provider: "openai", model: "gpt-5.4" }),
       /Engine is busy/,
     );
     await assert.rejects(host.setFast(false), /Engine is busy/);
-    assert.equal(calls.filter(([name]) => name === "setRoute").length, 1);
+    assert.equal(calls.filter(([name]) => name === "setRoute").length, 2);
   } finally {
     await host.dispose();
     process.chdir(originalCwd);
@@ -1335,7 +1543,7 @@ test("full desktop model catalog recovers after an advisory quick warmup", async
   }
 });
 
-test("host rejects a route when the engine becomes busy while the catalog is loading", async () => {
+test("host rejects a route when an engine command starts while the catalog is loading", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-model-race-"));
   const originalCwd = process.cwd();
   let state = { busy: false, commandBusy: false };
@@ -1378,7 +1586,7 @@ test("host rejects a route when the engine becomes busy while the catalog is loa
     deferCatalog = true;
     const route = host.setModelRoute({ provider: "openai", model: "gpt-5", effort: "high" });
     await catalogStartedPromise;
-    state = { ...state, busy: true };
+    state = { ...state, commandBusy: true };
     releaseCatalog(catalog);
     await assert.rejects(route, /Engine is busy/);
     assert.equal(setRouteCalls, 0);
@@ -1468,6 +1676,16 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
   await mkdir(project);
   const persistedTranscript = [
     { kind: "user", id: "u1", text: "Persisted prompt" },
+    {
+      kind: "user",
+      id: "session-envelope",
+      text: "# Session\nCwd: C:\\Project\\mixdog\nModel: GPT-5.6-Sol · XHIGH · FAST\nWorkflow: Solo\n\nVisible prompt after envelope",
+    },
+    {
+      kind: "user",
+      id: "session-envelope-only",
+      text: "# Session\nCwd: C:\\Project\\mixdog\nModel: GPT-5.6-Sol · XHIGH · FAST\nWorkflow: Solo",
+    },
     { kind: "assistant", id: "a1", text: "Visible answer" },
     { kind: "notice", id: "n1", text: "Visible notice" },
     { kind: "failure", id: "f1", detail: "Visible failure" },
@@ -1601,6 +1819,7 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
     assert.equal(resumeResponse.sessionId, desktopId);
     assert.deepEqual(resumeResponse.items, [
       { kind: "user", id: "u1", text: "Persisted prompt" },
+      { kind: "user", id: "session-envelope", text: "Visible prompt after envelope" },
       { kind: "assistant", id: "a1", text: "Visible answer" },
       { kind: "notice", id: "n1", text: "Visible notice" },
       { kind: "failure", id: "f1", detail: "Visible failure" },

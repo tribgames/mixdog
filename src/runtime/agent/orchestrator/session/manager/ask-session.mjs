@@ -72,6 +72,57 @@ export function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.no
     };
 }
 
+export function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt = 0) {
+    if (!Array.isArray(messages) || !completion || typeof completion !== 'object') return false;
+    const elapsedMs = Math.max(0, Number(completion.elapsedMs || 0));
+    const status = typeof completion.status === 'string' && completion.status
+        ? completion.status
+        : 'done';
+    const verb = typeof completion.verb === 'string' && completion.verb
+        ? completion.verb
+        : 'Thought';
+    let turnStart = -1;
+    const expectedAt = Number(turnStartedAt || 0);
+    if (expectedAt > 0) {
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+            const message = messages[index];
+            if (message?.role !== 'user') continue;
+            if (Number(message?.meta?.transcript?.at || 0) !== expectedAt) continue;
+            turnStart = index;
+            break;
+        }
+    }
+    for (let index = messages.length - 1; index > turnStart; index -= 1) {
+        const message = messages[index];
+        if (message?.role !== 'assistant') continue;
+        const content = message.content;
+        const hasVisibleText = typeof content === 'string'
+            ? Boolean(content.trim())
+            : Array.isArray(content) && content.some((part) => {
+                if (typeof part === 'string') return Boolean(part.trim());
+                if (!part || typeof part !== 'object') return false;
+                return Boolean(String(part.text || part.content || '').trim());
+            });
+        if (!hasVisibleText) continue;
+        const meta = message.meta && typeof message.meta === 'object' ? message.meta : {};
+        const transcript = meta.transcript && typeof meta.transcript === 'object'
+            ? meta.transcript
+            : {};
+        messages[index] = {
+            ...message,
+            meta: {
+                ...meta,
+                transcript: {
+                    ...transcript,
+                    completion: { status, verb, elapsedMs },
+                },
+            },
+        };
+        return true;
+    }
+    return false;
+}
+
 /**
  * Wrap an async call so that if the session's controller aborts mid-flight,
  * the wrapper settles with a SessionClosedError even if the underlying promise
@@ -703,6 +754,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // replay; duplicate memory/spool copies share the same id.
             recordPendingMessageDelivery(session, _turnPendingEntries);
             _pwstTurnDrained = drainPendingMessages(sessionId);
+            if (_pwstTurnDrained.length === 0) {
+                const turnStartedAt = Number(_rawTranscriptMeta?.at || _askStartedAt);
+                attachAssistantTranscriptCompletion(session.messages, {
+                    status: 'done',
+                    verb: _rawTranscriptMeta?.completionVerb,
+                    elapsedMs: Date.now() - turnStartedAt,
+                }, turnStartedAt);
+            }
             let terminalRelayed = false;
             if (_pwstTurnDrained.length === 0 && typeof askOpts?.onTerminalResult === 'function') {
                 terminalRelayed = true;

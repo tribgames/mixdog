@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { format } from 'node:util';
 import { App } from './App.jsx';
+import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
 import { createEngineSession } from './engine.mjs';
 import { scheduleRenderFrameAck } from './engine/render-timing.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
@@ -451,6 +452,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   const restoreTerminal = () => {
     if (restored) return;
     restored = true;
+    cancelPendingMouseTrackingRestores();
     restorePrimedInput();
     try {
       process.stdout.write(

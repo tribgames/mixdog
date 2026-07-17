@@ -48,7 +48,10 @@ export function createProviderUsage({
       }
       return setup;
     }
-    if (caches.providerSetupPromise) return await caches.providerSetupPromise;
+    if (caches.providerSetupPromise) {
+      const pendingSetup = await caches.providerSetupPromise;
+      if (!force) return pendingSetup;
+    }
     caches.providerSetupPromise = providerSetup(displayConfig(), { detectLocal: true })
       .then((setup) => {
         caches.providerSetupCache = { setup, at: Date.now() };

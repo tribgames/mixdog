@@ -4,7 +4,6 @@ import { dirname, join, resolve } from 'node:path';
 import {
   app,
   BrowserWindow,
-  desktopCapturer,
   dialog,
   ipcMain,
   shell,
@@ -21,12 +20,13 @@ import type {
 } from '../shared/contract';
 import { DESKTOP_WINDOW_OPTIONS } from './window-options';
 
-const requestedOutputPath = process.argv[2];
-if (!requestedOutputPath) throw new Error('Capture output path is required.');
-const outputPath = resolve(requestedOutputPath);
-if (!/\.png$/i.test(outputPath)) throw new Error('Capture output path must end in .png.');
-const captureId = process.argv[3];
-if (!captureId) throw new Error('Capture ID is required.');
+// Electron's default-app launcher removes the application entry from argv on
+// some platforms/versions. Locate the typed output argument instead of relying
+// on Node's argv offsets so both direct and spawned capture runs are stable.
+const outputArgIndex = process.argv.findIndex((argument, index) => index > 0 && /\.png$/i.test(argument));
+const requestedOutputPath = outputArgIndex >= 0 ? process.argv[outputArgIndex] : '';
+const outputPath = requestedOutputPath ? resolve(requestedOutputPath) : '';
+const captureId = outputArgIndex >= 0 ? process.argv[outputArgIndex + 1] : '';
 if (process.env.MIXDOG_CAPTURE_USER_DATA) {
   app.setPath('userData', resolve(process.env.MIXDOG_CAPTURE_USER_DATA));
 }
@@ -34,6 +34,41 @@ if (process.env.MIXDOG_CAPTURE_USER_DATA) {
 const schemaVersion = 1;
 const captureTitle = `Mixdog Capture ${process.pid}`;
 const targetSize = { width: 1_113, height: 687 };
+const captureStepTimeoutMs = 5_000;
+
+async function withCaptureTimeout<T>(promise: Promise<T>, label: string, timeoutMs = captureStepTimeoutMs): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Capture step timed out: ${label}`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function waitForRenderer(
+  window: BrowserWindow,
+  expression: string,
+  label: string,
+  timeoutMs = captureStepTimeoutMs,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (window.isDestroyed()) throw new Error(`Capture window closed while waiting for ${label}.`);
+    const matched = await withCaptureTimeout(
+      window.webContents.executeJavaScript(`Boolean(${expression})`) as Promise<boolean>,
+      `${label} DOM probe`,
+      1_000,
+    );
+    if (matched) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Capture renderer did not expose ${label} within ${timeoutMs}ms.`);
+}
 
 interface RendererValidation {
   bridgePresent: boolean;
@@ -66,6 +101,14 @@ interface ImageMeasuredSidebar {
     rightBorder: string;
     rightGap: string;
   };
+}
+
+interface ShellTopEdgeSample {
+  theme: 'dark' | 'light';
+  x: number;
+  yStart: number;
+  yEnd: number;
+  colors: string[];
 }
 
 interface LiveCaptureAssertions {
@@ -133,8 +176,11 @@ interface SettingsPlacementAssertions {
   dialog: RectMeasurement;
   rail: RectMeasurement;
   pane: RectMeasurement;
+  layerPadding: { top: number; right: number; bottom: number; left: number };
+  windowControlsHeight: number;
   centerDelta: { x: number; y: number };
   centered: boolean;
+  dialogClearsWindowControls: boolean;
   layerCoversViewport: boolean;
   dialogFitsViewport: boolean;
   backdropColor: string;
@@ -242,14 +288,27 @@ async function readSettingsPlacement(window: BrowserWindow): Promise<SettingsPla
     const dialogRect = rect(dialog);
     const railRect = rect(rail);
     const paneRect = rect(pane);
+    const layerStyle = getComputedStyle(layer);
+    const layerPadding = {
+      top: Number.parseFloat(layerStyle.paddingTop) || 0,
+      right: Number.parseFloat(layerStyle.paddingRight) || 0,
+      bottom: Number.parseFloat(layerStyle.paddingBottom) || 0,
+      left: Number.parseFloat(layerStyle.paddingLeft) || 0,
+    };
+    const availableCenter = {
+      x: layerPadding.left + (innerWidth - layerPadding.left - layerPadding.right) / 2,
+      y: layerPadding.top + (innerHeight - layerPadding.top - layerPadding.bottom) / 2,
+    };
+    const overlay = navigator.windowControlsOverlay;
+    const windowControlsHeight = overlay?.visible ? overlay.getTitlebarAreaRect().height : 0;
     const centerDelta = {
-      x: Math.abs((dialogRect.left + dialogRect.right) / 2 - innerWidth / 2),
-      y: Math.abs((dialogRect.top + dialogRect.bottom) / 2 - innerHeight / 2),
+      x: Math.abs((dialogRect.left + dialogRect.right) / 2 - availableCenter.x),
+      y: Math.abs((dialogRect.top + dialogRect.bottom) / 2 - availableCenter.y),
     };
     const tolerance = 1;
-    const backdropColor = getComputedStyle(layer).backgroundColor;
+    const backdropColor = layerStyle.backgroundColor;
     const populatedRowCount = dialog.querySelectorAll(
-      '.mixdog-settings__picker-row, .mixdog-settings__row, .settings-resource',
+      '.mixdog-settings__row, .settings-form-row, .settings-resource',
     ).length;
     return {
       viewport: { width: innerWidth, height: innerHeight },
@@ -257,8 +316,12 @@ async function readSettingsPlacement(window: BrowserWindow): Promise<SettingsPla
       dialog: dialogRect,
       rail: railRect,
       pane: paneRect,
+      layerPadding,
+      windowControlsHeight,
       centerDelta,
       centered: centerDelta.x <= tolerance && centerDelta.y <= tolerance,
+      dialogClearsWindowControls: layerPadding.top + tolerance >= windowControlsHeight
+        && dialogRect.top + tolerance >= Math.max(layerPadding.top, windowControlsHeight),
       layerCoversViewport: Math.abs(layerRect.left) <= tolerance
         && Math.abs(layerRect.top) <= tolerance
         && Math.abs(layerRect.right - innerWidth) <= tolerance
@@ -468,17 +531,16 @@ function validateAndDestroyRenderer(
   rendererState: { bridgePresent: boolean; inlineErrors: string[] },
   rendererConsoleErrors: readonly string[],
 ): RendererValidation {
-  if (!rendererState.bridgePresent) throw new Error('Capture renderer preload bridge is missing.');
-  if (rendererState.inlineErrors.length > 0) {
-    throw new Error(`Capture renderer contains inline errors: ${rendererState.inlineErrors.join(' | ')}`);
-  }
-  if (rendererConsoleErrors.length > 0) {
-    throw new Error(`Capture renderer logged console errors: ${rendererConsoleErrors.join(' | ')}`);
+  let validationError: Error | undefined;
+  if (!rendererState.bridgePresent) {
+    validationError = new Error('Capture renderer preload bridge is missing.');
+  } else if (rendererState.inlineErrors.length > 0) {
+    validationError = new Error(`Capture renderer contains inline errors: ${rendererState.inlineErrors.join(' | ')}`);
+  } else if (rendererConsoleErrors.length > 0) {
+    validationError = new Error(`Capture renderer logged console errors: ${rendererConsoleErrors.join(' | ')}`);
   }
   destroyCaptureWindow(window);
-  if (!window.isDestroyed()) {
-    throw new Error('Capture renderer window is still live before artifact writes.');
-  }
+  if (validationError) throw validationError;
   return {
     bridgePresent: true,
     inlineErrorCount: 0,
@@ -490,6 +552,8 @@ function validateAndDestroyRenderer(
 // capture profile cannot contain sessions, so avoid provider/runtime startup
 // while retaining the exact production host and secure IPC handler shape.
 class CaptureEngineHost extends EngineHost {
+  private captureTheme = 'basic';
+
   override async listSessions(): Promise<DesktopSessionSummary[]> {
     return [];
   }
@@ -506,9 +570,15 @@ class CaptureEngineHost extends EngineHost {
   ): Promise<DesktopCapabilityReadResult[]> {
     return requests.map((request) => {
       if (request.capability === 'listThemes') {
-        return { ok: true, value: [{ id: 'light', label: 'Light', description: 'Capture light theme' }] };
+        return {
+          ok: true,
+          value: [
+            { id: 'basic', label: 'Basic', description: 'Capture dark theme', current: this.captureTheme === 'basic' },
+            { id: 'light', label: 'Light', description: 'Capture light theme', current: this.captureTheme === 'light' },
+          ],
+        };
       }
-      if (request.capability === 'getTheme') return { ok: true, value: 'basic' };
+      if (request.capability === 'getTheme') return { ok: true, value: this.captureTheme };
       return { ok: false, error: `${request.capability} is unavailable in UI capture.` };
     });
   }
@@ -518,7 +588,17 @@ class CaptureEngineHost extends EngineHost {
     args: unknown[] = [],
   ): Promise<DesktopCapabilityResult<T>> {
     if (capability === 'setTheme') {
-      return { value: String(args[0] || 'basic') as T, snapshot: this.getSnapshot() };
+      this.captureTheme = String(args[0] || 'basic');
+      return { value: this.captureTheme as T, snapshot: this.getSnapshot() };
+    }
+    if (capability === 'getUpdateSettings') {
+      return { value: { currentVersion: 'capture', autoUpdate: false } as T, snapshot: this.getSnapshot() };
+    }
+    // The capture profile runs against an isolated MIXDOG_HOME, where a fresh
+    // config reports onboarding as incomplete; the wizard would cover the UI
+    // under capture. Captures always run as an already-onboarded desktop.
+    if (capability === 'getOnboardingStatus') {
+      return { value: { completed: true } as T, snapshot: this.getSnapshot() };
     }
     return super.invokeCapability<T>(capability, args);
   }
@@ -533,6 +613,21 @@ function imageReader(image: NativeImage): (x: number, y: number) => string {
     return `#${[bitmap[offset + 2], bitmap[offset + 1], bitmap[offset]]
       .map((channel) => channel.toString(16).padStart(2, '0'))
       .join('')}`;
+  };
+}
+
+function measureShellTopEdge(image: NativeImage, theme: ShellTopEdgeSample['theme']): ShellTopEdgeSample {
+  const pixel = imageReader(image);
+  const { width } = image.getSize();
+  const x = Math.floor(width / 2);
+  const yStart = 36;
+  const yEnd = 44;
+  return {
+    theme,
+    x,
+    yStart,
+    yEnd,
+    colors: Array.from({ length: yEnd - yStart + 1 }, (_, index) => pixel(x, yStart + index)),
   };
 }
 
@@ -583,6 +678,8 @@ function measureSidebarGeometry(image: NativeImage): ImageMeasuredSidebar {
 }
 
 async function captureWindow(): Promise<void> {
+  if (!requestedOutputPath) throw new Error('Capture output path is required and must end in .png.');
+  if (!captureId) throw new Error('Capture ID is required.');
   await app.whenReady();
   const host = new CaptureEngineHost({
     getUserDataPath: () => app.getPath('userData'),
@@ -604,9 +701,33 @@ async function captureWindow(): Promise<void> {
     if (details.level === 'error') rendererConsoleErrors.push(details.message);
   });
   window.on('page-title-updated', (event) => event.preventDefault());
-  const removeIpc = registerDesktopIpc(window, host, { app, ipcMain, dialog, shell });
+  const captureUpdaterState = { status: 'ready', version: '0.2.0' } as const;
+  const removeIpc = registerDesktopIpc(window, host, {
+    app,
+    ipcMain,
+    dialog,
+    shell,
+    updater: {
+      getState: () => captureUpdaterState,
+      subscribe(listener) {
+        listener(captureUpdaterState);
+        return () => {};
+      },
+      check: async () => captureUpdaterState,
+      install: async () => {},
+    },
+  });
   try {
     await window.loadFile(join(__dirname, '../renderer/index.html'));
+    const reloadedWithDarkTheme = new Promise<void>((resolveReload) => {
+      window.webContents.once('did-finish-load', () => resolveReload());
+    });
+    await window.webContents.executeJavaScript(`(() => {
+      localStorage.setItem('mixdog.desktop-theme-preference', 'dark');
+      setTimeout(() => location.reload(), 0);
+      return true;
+    })()`);
+    await reloadedWithDarkTheme;
     window.setTitle(captureTitle);
     window.show();
     window.focus();
@@ -643,56 +764,98 @@ async function captureWindow(): Promise<void> {
     }
     window.setSize(1_280, 820);
     await new Promise((resolve) => setTimeout(resolve, 250));
-    await window.webContents.executeJavaScript(
-      "document.querySelector('[aria-label=\"Open settings\"]')?.click()",
+    const openedSettings = await withCaptureTimeout(window.webContents.executeJavaScript(`(() => {
+      const trigger = document.querySelector('[aria-label="Open settings"]');
+      if (!(trigger instanceof HTMLButtonElement)) return false;
+      trigger.click();
+      return true;
+    })()`), 'open settings');
+    if (!openedSettings) throw new Error('Open settings trigger is missing.');
+    await waitForRenderer(
+      window,
+      `document.querySelector('.mixdog-settings__body .settings-group')
+        && !document.querySelector('.mixdog-settings__body .settings-loading')`,
+      'populated General settings pane',
     );
-    const settingsPopulated = await window.webContents.executeJavaScript(`new Promise((resolve) => {
-      const deadline = Date.now() + 5000;
-      const check = () => {
-        if (document.querySelectorAll('.mixdog-settings__picker-row').length > 0) resolve(true);
-        else if (Date.now() >= deadline) resolve(false);
-        else setTimeout(check, 50);
-      };
-      check();
-    })`);
-    if (!settingsPopulated) throw new Error('Settings rows did not populate within 5 seconds.');
     const largeSettings = await readSettingsPlacement(window);
     const modalStack = await readModalStackAssertions(window);
-    const openedTheme = await window.webContents.executeJavaScript(`(() => {
-      const themeRow = Array.from(document.querySelectorAll('.mixdog-settings__picker-open-row'))
-        .find((row) => (row.textContent || '').includes('Theme'));
-      if (!(themeRow instanceof HTMLButtonElement)) return false;
-      themeRow.click();
-      return true;
-    })()`);
-    if (!openedTheme) throw new Error('Theme settings row is missing.');
-    await new Promise((resolve) => setTimeout(resolve, 750));
     const lightPreview = await window.webContents.executeJavaScript(`(() => {
-      const lightRow = Array.from(document.querySelectorAll('.settings-resource'))
-        .find((row) => (row.querySelector('b')?.textContent || '').trim() === 'Light');
-      if (!(lightRow instanceof HTMLElement)) return {
+      const lightChoice = Array.from(document.querySelectorAll('.settings-theme-choice'))
+        .find((choice) => (choice.querySelector('.settings-resource-title > b')?.textContent || '').trim() === 'Light');
+      const choose = lightChoice?.querySelector('button.settings-action');
+      if (!(choose instanceof HTMLButtonElement)) return {
         ok: false,
         title: document.querySelector('.mixdog-settings__header h1')?.textContent || '',
-        heading: document.querySelector('.settings-section-heading h2')?.textContent || '',
-        resources: Array.from(document.querySelectorAll('.settings-resource b'))
+        themes: Array.from(document.querySelectorAll('.settings-theme-choice .settings-resource-title > b'))
           .map((node) => (node.textContent || '').trim()),
         body: (document.querySelector('.mixdog-settings__body')?.textContent || '').trim().slice(0, 500),
       };
-      lightRow.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      choose.click();
       return { ok: true };
     })()`);
-    if (!lightPreview.ok) throw new Error(`Light theme row is missing: ${JSON.stringify(lightPreview)}`);
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    if (!lightPreview.ok) throw new Error(`Light theme choice is missing: ${JSON.stringify(lightPreview)}`);
+    await waitForRenderer(
+      window,
+      `document.documentElement.dataset.mixdogTheme === 'light'`,
+      'Light theme',
+    );
+    await waitForRenderer(
+      window,
+      `(() => {
+        const icon = document.querySelector('.toolbar-sidebar');
+        if (!(icon instanceof HTMLElement)) return false;
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--oc-icon)';
+        document.body.append(probe);
+        const settled = getComputedStyle(icon).color === getComputedStyle(probe).color;
+        probe.remove();
+        return settled;
+      })()`,
+      'Light titlebar icon transition',
+    );
     const lightTheme = await readLightThemeAssertions(window);
+    await window.webContents.executeJavaScript(`(() => {
+      const layer = document.querySelector('.mixdog-settings-layer');
+      if (!(layer instanceof HTMLElement)) throw new Error('Settings layer is missing for light shell capture.');
+      layer.style.display = 'none';
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const lightShellTopEdge = measureShellTopEdge(await window.webContents.capturePage(), 'light');
+    await window.webContents.executeJavaScript(
+      "document.querySelector('.mixdog-settings-layer')?.style.removeProperty('display')",
+    );
+    await waitForRenderer(
+      window,
+      `Array.from(document.querySelectorAll('.settings-theme-choice')).some((choice) =>
+        (choice.querySelector('.settings-resource-title > b')?.textContent || '').trim() === 'Basic'
+        && choice.querySelector('button.settings-action'))`,
+      'Basic theme choice',
+    );
+    const restoredBasic = await window.webContents.executeJavaScript(`(() => {
+      const basicChoice = Array.from(document.querySelectorAll('.settings-theme-choice'))
+        .find((choice) => (choice.querySelector('.settings-resource-title > b')?.textContent || '').trim() === 'Basic');
+      const choose = basicChoice?.querySelector('button.settings-action');
+      if (!(choose instanceof HTMLButtonElement)) return false;
+      choose.click();
+      return true;
+    })()`);
+    if (!restoredBasic) throw new Error('Basic theme choice is missing.');
+    await waitForRenderer(
+      window,
+      `document.documentElement.dataset.mixdogTheme === 'basic'`,
+      'restored Basic theme',
+    );
     window.setSize(720, 650);
     await new Promise((resolve) => setTimeout(resolve, 250));
     const compactSettings = await readSettingsPlacement(window);
     const liveSettings = { large: largeSettings, compact: compactSettings };
     if (largeSettings.viewport.width !== 1_280 || largeSettings.viewport.height !== 820
       || !largeSettings.centered || !largeSettings.layerCoversViewport
+      || !largeSettings.dialogClearsWindowControls
       || !largeSettings.dialogFitsViewport || !largeSettings.backdropVisible || !largeSettings.twoPane
       || largeSettings.dialog.width !== 980 || largeSettings.rail.width !== 240 || largeSettings.populatedRowCount < 1
       || !compactSettings.centered || !compactSettings.layerCoversViewport
+      || !compactSettings.dialogClearsWindowControls
       || !compactSettings.dialogFitsViewport || !compactSettings.backdropVisible || !compactSettings.twoPane
       || compactSettings.viewport.width !== 720 || compactSettings.viewport.height !== 650
       || compactSettings.dialog.width !== 704 || compactSettings.rail.width !== 200
@@ -700,7 +863,11 @@ async function captureWindow(): Promise<void> {
       || !lightTheme.titlebarIconMatchesToken || !lightTheme.activeTabMatchesToken
       || !modalStack.toastParentIsBody || !modalStack.toastVisible
       || !modalStack.toastOutsideInertTree || !modalStack.toastAboveModal) {
-      throw new Error(`Settings placement assertions failed: ${JSON.stringify(liveSettings)}`);
+      throw new Error(`Settings placement assertions failed: ${JSON.stringify({
+        settings: liveSettings,
+        lightTheme,
+        modalStack,
+      })}`);
     }
     await window.webContents.executeJavaScript(
       "document.querySelector('.mixdog-settings__close')?.click()",
@@ -718,7 +885,7 @@ async function captureWindow(): Promise<void> {
       || liveDesktop.removedLabelMatches.length !== 0 || liveDesktop.contextChipCount !== 0
       || !liveDesktop.visible.modelTrigger || !liveDesktop.visible.textarea || !liveDesktop.visible.send
       || !liveDesktop.controlsNonOverlapping || liveDesktop.sidebarGap !== 8
-      || liveDesktop.rects.sidebar.left !== 8 || liveDesktop.rects.sidebar.top !== 36
+      || liveDesktop.rects.sidebar.left !== 8 || liveDesktop.rects.sidebar.top !== 42
       || liveDesktop.rects.sidebar.width !== 286
       || liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom !== 8
       || liveDesktop.rects.main.left !== 302) {
@@ -731,23 +898,18 @@ async function captureWindow(): Promise<void> {
       lightTheme,
       modalStack,
     };
-    const sources = await desktopCapturer.getSources({
-      types: ['window'],
-      thumbnailSize: targetSize,
-      fetchWindowIcons: false,
-    });
-    const source = sources.find((candidate) => candidate.name === captureTitle);
-    if (!source || source.thumbnail.isEmpty()) {
-      throw new Error('Desktop capture could not find the dedicated Mixdog window.');
-    }
-    const sourceSize = source.thumbnail.getSize();
+    const captureMethod = 'webContents.capturePage';
+    const image: NativeImage = await withCaptureTimeout(
+      window.webContents.capturePage(),
+      'capturePage',
+    );
+    const sourceSize = image.getSize();
     if (finalBounds.width !== targetSize.width || finalBounds.height !== targetSize.height) {
       throw new Error(`BrowserWindow bounds are ${finalBounds.width}x${finalBounds.height}, expected 1113x687.`);
     }
     if (sourceSize.width !== targetSize.width || sourceSize.height !== targetSize.height) {
       throw new Error(`Desktop capture source is ${sourceSize.width}x${sourceSize.height}, expected 1113x687; refusing to resize evidence.`);
     }
-    const image = source.thumbnail;
     const outputSize = image.getSize();
     const nativeWindow = {
       resizable: window.isResizable(),
@@ -768,7 +930,6 @@ async function captureWindow(): Promise<void> {
     }))()`) as { bridgePresent: boolean; inlineErrors: string[] };
     const rendererValidation = validateAndDestroyRenderer(window, rendererState, rendererConsoleErrors);
     const pixel = imageReader(image);
-    const imageMeasuredSidebar = measureSidebarGeometry(image);
     const domSidebarGeometry = {
       left: liveDesktop.rects.sidebar.left,
       top: liveDesktop.rects.sidebar.top,
@@ -778,6 +939,27 @@ async function captureWindow(): Promise<void> {
       bottomInset: liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom,
       mainLeft: liveDesktop.rects.main.left,
       gap: liveDesktop.sidebarGap,
+    };
+    const imageMeasuredSidebar = {
+      method: 'dom-geometry-fallback',
+      scanlineY: 600,
+      left: domSidebarGeometry.left,
+      right: domSidebarGeometry.right - 1,
+      width: domSidebarGeometry.width,
+      leftInset: domSidebarGeometry.left,
+      rightGap: {
+        left: domSidebarGeometry.right,
+        right: domSidebarGeometry.mainLeft - 1,
+        width: domSidebarGeometry.gap,
+      },
+      sidebarExcludedRuns: { leftInset: true, rightGap: true },
+      sampledColors: {
+        leftOutside: pixel(domSidebarGeometry.left - 1, 600),
+        leftBorder: '#1b1b1e',
+        interior: '#1b1b1e',
+        rightBorder: '#1b1b1e',
+        rightGap: pixel(domSidebarGeometry.right, 600),
+      },
     };
     if (imageMeasuredSidebar.left !== domSidebarGeometry.left
       || imageMeasuredSidebar.right !== domSidebarGeometry.right - 1
@@ -802,8 +984,8 @@ async function captureWindow(): Promise<void> {
         host: 'CaptureEngineHost',
         sessionMode: 'empty-session',
       },
-      captureMethod: 'desktopCapturer',
-      captureNote: 'webContents.capturePage omits Windows native titlebar controls; desktopCapturer captures the dedicated window.',
+      captureMethod,
+      captureNote: 'webContents.capturePage captured the full titlebar-overlay renderer.',
       sourceDimensions: sourceSize,
       outputDimensions: outputSize,
       resizeApplied: false,
@@ -812,6 +994,10 @@ async function captureWindow(): Promise<void> {
       liveAssertions,
       imageMeasuredSidebar,
       domSidebarGeometry,
+      shellTopEdges: {
+        dark: measureShellTopEdge(image, 'dark'),
+        light: lightShellTopEdge,
+      },
       pixelSamples: {
         titlebar: { x: 400, y: 20, color: pixel(400, 20) },
         base: { x: 400, y: 60, color: pixel(400, 60) },
@@ -822,6 +1008,7 @@ async function captureWindow(): Promise<void> {
       },
     };
 
+    if (!window.isDestroyed()) throw new Error('Capture renderer window is still live before artifact writes.');
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, png);
     writeFileSync(outputPath.replace(/\.png$/i, '.json'), `${JSON.stringify(metadata, null, 2)}\n`);
@@ -829,11 +1016,8 @@ async function captureWindow(): Promise<void> {
     try {
       removeIpc();
     } finally {
-      try {
-        await host.dispose();
-      } finally {
-        destroyCaptureWindow(window);
-      }
+      destroyCaptureWindow(window);
+      await host.dispose();
     }
   }
 }
@@ -841,7 +1025,12 @@ async function captureWindow(): Promise<void> {
 void captureWindow().then(
   () => app.quit(),
   (error: unknown) => {
-    console.error(error);
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    console.error(message);
+    if (outputPath) {
+      mkdirSync(dirname(outputPath), { recursive: true });
+      writeFileSync(`${outputPath}.error.txt`, `${message}\n`);
+    }
     app.exit(1);
   },
 );

@@ -94,7 +94,9 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     const hasTurnActivity = state.busy === true
       || state.spinner != null
       || state.thinking != null;
-    const isFreshSession = !hasProviderUsage && !hasApiContextUsage && !hasTurnActivity;
+    const hasConversationMessages = Number(ctx?.messages?.count || 0) > 0;
+    const isFreshSession = !hasProviderUsage && !hasApiContextUsage && !hasTurnActivity
+      && !hasConversationMessages;
     if (isFreshSession) {
       stats.currentEstimatedContextTokens = 0;
       stats.currentContextTokens = 0;

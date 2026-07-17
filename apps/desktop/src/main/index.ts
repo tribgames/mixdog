@@ -7,7 +7,7 @@ import { EngineHost } from './engine-host';
 import { registerDesktopIpc } from './ipc';
 import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
-import { startAutoUpdater } from './updater';
+import { desktopUpdater, startAutoUpdater } from './updater';
 import { DESKTOP_WINDOW_OPTIONS } from './window-options';
 import { DESKTOP_IPC } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
@@ -37,6 +37,15 @@ let quitAfterDispose = false;
 let disposalPromise: Promise<void> | null = null;
 let windowState: ReturnType<typeof persistWindowState> | null = null;
 let windowStateFlush: Promise<void> = Promise.resolve();
+
+function disposeDesktopResources(): Promise<void> {
+  disposalPromise ??= Promise.all([host.dispose(), windowStateFlush, windowState?.flush()])
+    .then(() => undefined)
+    .catch((error: unknown) => {
+      console.error('Failed to dispose Mixdog engine during quit:', error);
+    });
+  return disposalPromise;
+}
 
 async function setPersistentZoom(factor: number): Promise<void> {
   const window = mainWindow;
@@ -92,7 +101,14 @@ async function createWindow(): Promise<void> {
   if (savedState?.maximized) window.maximize();
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
-  removeIpc = registerDesktopIpc(window, host, { app, ipcMain, dialog, shell, settingsStore });
+  removeIpc = registerDesktopIpc(window, host, {
+    app,
+    ipcMain,
+    dialog,
+    shell,
+    settingsStore,
+    updater: desktopUpdater,
+  });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => {
@@ -103,7 +119,10 @@ async function createWindow(): Promise<void> {
   });
   window.once('ready-to-show', () => {
     window.show();
-    startAutoUpdater();
+    startAutoUpdater(async () => {
+      await disposeDesktopResources();
+      quitAfterDispose = true;
+    });
   });
   window.on('closed', () => {
     const state = windowState;
@@ -173,12 +192,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   removeIpc?.();
   removeIpc = null;
-  disposalPromise ??= Promise.all([host.dispose(), windowStateFlush, windowState?.flush()])
-    .then(() => undefined)
-    .catch((error: unknown) => {
-      console.error('Failed to dispose Mixdog engine during quit:', error);
-    })
-    .finally(() => {
+  void disposeDesktopResources().finally(() => {
       quitAfterDispose = true;
       app.quit();
     });

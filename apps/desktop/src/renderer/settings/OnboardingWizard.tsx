@@ -10,7 +10,7 @@ import type {
   DesktopModelOption,
   DesktopModelSelection,
 } from '../../shared/contract';
-import { applyDesktopTheme } from '../desktop-theme';
+import { applyDesktopTheme, clearDesktopThemePreference } from '../desktop-theme';
 import { OpenSelect } from '../OpenSelect';
 import { modelOptionLabel, providerDisplayName } from '../provider-display';
 import { OAuthControl } from './CapabilitySettings';
@@ -316,7 +316,7 @@ export function OnboardingWizard({ api, onDone }: {
         {loading ? <p className="onboarding-loading" role="status"><span aria-hidden="true" />Loading your Mixdog configuration…</p> : <>
           {step === 0 && <ProviderStep setup={providerSetup} pending={pending} run={run}
             onSaveApiKey={(event, provider) => void saveApiKey(event, provider)}
-            onRefresh={() => void load(true)} />}
+            onReload={() => void load(true)} />}
           {step === 1 && <ModelStep models={models} searchModels={searchOptions} agents={agents}
             mainRoute={mainRoute} searchRoute={searchRoute} agentRoutes={agentRoutes}
             onMain={(route) => { setMainRouteTouched(true); setMainRoute(route); }}
@@ -326,6 +326,7 @@ export function OnboardingWizard({ api, onDone }: {
             rows={themes} selected={theme} onSelect={(entry) => {
               const id = String(entry.id || '');
               setTheme(id);
+              clearDesktopThemePreference();
               applyDesktopTheme(id);
               void run('setTheme', [id, { persist: true }], 'onboarding-theme');
             }} />}
@@ -377,19 +378,18 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: {
   </div>;
 }
 
-function ProviderStep({ setup, pending, run, onSaveApiKey, onRefresh }: {
+function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
   setup: RecordValue;
   pending: string;
   run<T = unknown>(capability: DesktopCapability, args?: unknown[], key?: string, refresh?: boolean): Promise<T | undefined>;
   onSaveApiKey(event: FormEvent<HTMLFormElement>, provider: string): void;
-  onRefresh(): void;
+  onReload(): void;
 }) {
   const apiProviders = rows(setup.api);
   const oauthProviders = rows(setup.oauth);
   const localProviders = rows(setup.local);
   return <div className="onboarding-step"><div className="onboarding-step-heading"><div><h2>Connect providers</h2>
-    <p>Use the same API-key, OAuth, and local-provider backend as Mixdog TUI.</p></div>
-    <button type="button" disabled={Boolean(pending)} onClick={onRefresh}>Refresh</button></div>
+    <p>Use the same API-key, OAuth, and local-provider backend as Mixdog TUI.</p></div></div>
     <div className="onboarding-provider-list">
       {apiProviders.map((provider) => <form key={String(provider.id)} onSubmit={(event) => onSaveApiKey(event, String(provider.id))}>
         <div><b>{providerTitle(provider)}</b><small>{provider.authenticated ? 'Connected' : String(provider.detail || provider.status || 'API key required')}</small></div>
@@ -397,35 +397,35 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onRefresh }: {
         <button disabled={Boolean(pending)}>{provider.authenticated ? 'Replace' : 'Connect'}</button>
         {String(provider.id) === 'opencode-go' && <button type="button" disabled={Boolean(pending)} onClick={() => {
           void run('loginOpenCodeGoUsage', [], 'opencode-go-usage').then((result) => {
-            if (result !== undefined) onRefresh();
+            if (result !== undefined) onReload();
           });
         }}>Usage sign-in</button>}
         {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&
           <button type="button" disabled={Boolean(pending)} onClick={() => {
           void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
-            if (result !== undefined) onRefresh();
+            if (result !== undefined) onReload();
           });
         }}>Forget</button>}
       </form>)}
       {oauthProviders.map((provider) => <div className="onboarding-provider-row" key={String(provider.id)}><div><b>{providerTitle(provider)}</b>
         <small>{String(provider.detail || provider.status || '')}</small></div><span>{provider.authenticated ? 'Connected' : 'OAuth'}</span>
-        <OAuthControl provider={{ ...provider, label: providerTitle(provider) }} disabled={Boolean(pending)} run={run} onComplete={onRefresh} />
+        <OAuthControl provider={{ ...provider, label: providerTitle(provider) }} disabled={Boolean(pending)} run={run} onComplete={onReload} />
         {Boolean(provider.authenticated) && <button type="button" disabled={Boolean(pending)} onClick={() => {
           void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
-            if (result !== undefined) onRefresh();
+            if (result !== undefined) onReload();
           });
         }}>Forget</button>}</div>)}
       {localProviders.map((provider) => <form key={String(provider.id)} onSubmit={(event) => {
         event.preventDefault();
         const baseURL = new FormData(event.currentTarget).get('baseURL');
         void run('setLocalProvider', [provider.id, { enabled: true, baseURL }], `local-${provider.id}`)
-          .then((result) => { if (result !== undefined) onRefresh(); });
+          .then((result) => { if (result !== undefined) onReload(); });
       }}><div><b>{providerTitle(provider)}</b><small>{String(provider.status || 'Local OpenAI-compatible endpoint')}</small></div>
         <input name="baseURL" type="url" defaultValue={String(provider.baseURL || provider.defaultURL || '')} required />
         <button disabled={Boolean(pending)}>{provider.enabled ? 'Update' : 'Enable'}</button>
         {Boolean(provider.enabled) && <button type="button" disabled={Boolean(pending)} onClick={() => {
           void run('setLocalProvider', [provider.id, { enabled: false, baseURL: provider.baseURL }], `local-disable-${provider.id}`)
-            .then((result) => { if (result !== undefined) onRefresh(); });
+            .then((result) => { if (result !== undefined) onReload(); });
         }}>Disable</button>}</form>)}
     </div>
   </div>;

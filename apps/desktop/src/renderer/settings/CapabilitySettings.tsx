@@ -1,16 +1,6 @@
 import React, { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
-  Bot,
-  Box,
-  Brain,
-  ChevronRight,
-  Check,
-  Cloud,
-  Plug,
-  Search,
   Trash2,
-  Wrench,
   X,
 } from 'lucide-react';
 
@@ -23,23 +13,25 @@ import type {
   DesktopModelSelection,
   EngineSnapshot,
 } from '../../shared/contract';
-import type { SettingsSection } from './SettingsView';
-import { SETTINGS_CATEGORIES, SETTINGS_ITEMS, type SettingsCategory } from './settings-items';
-import { applyDesktopTheme } from '../desktop-theme';
+import type { SettingsCategory } from './settings-items';
+import {
+  applyDesktopTheme,
+  clearDesktopThemePreference,
+} from '../desktop-theme';
 import { OpenSelect } from '../OpenSelect';
+import { filterConfiguredModels, ModelPicker } from '../ModelPicker';
 import { modelDisplayName, modelOptionLabel, normalizeModelOptions, providerDisplayName } from '../provider-display';
 
 type RecordValue = Record<string, unknown>;
 type CapabilityApi = Partial<Pick<DesktopApi,
   'invokeCapability' | 'readCapabilities' | 'listProviderModels' | 'setModelRoute' | 'setFast' | 'getSnapshot'
-  | 'subscribeState' | 'getZoomFactor' | 'setZoomFactor' | 'onZoomFactorChanged'>>;
+  | 'subscribeState'>>;
 
 interface CapabilitySettingsProps {
   api: CapabilityApi;
   category: SettingsCategory;
-  section: SettingsSection | null;
-  onOpen(section: SettingsSection): void;
   onCompose?: (text: string) => void;
+  onOpenCategory?: (category: SettingsCategory) => void;
 }
 
 interface PanelContext {
@@ -52,6 +44,7 @@ interface PanelContext {
   confirm(options: SettingsConfirmation): void;
   notice(message: string, tone?: 'info' | 'warn'): void;
   compose?: (text: string) => void;
+  openCategory?: (category: SettingsCategory) => void;
 }
 
 interface SettingsConfirmation {
@@ -66,9 +59,10 @@ const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, unknown[
   ['profile', 'getProfile'], ['autoClear', 'getAutoClear'], ['compaction', 'getCompactionSettings'],
   ['memory', 'getMemorySettings'], ['channels', 'getChannelSettings', [{ includeStatus: false }]],
   ['remote', 'isRemoteEnabled'], ['channelWorker', 'getChannelWorkerStatus'], ['channelSetup', 'getChannelSetup'],
+  ['voice', 'getVoiceStatus'],
   ['workflows', 'listWorkflows'], ['outputStyles', 'listOutputStyles'], ['themes', 'listThemes'], ['theme', 'getTheme'],
   ['searchRoute', 'getSearchRoute'], ['searchModels', 'listSearchModels', [{ quick: false }]],
-  ['providerSetup', 'getProviderSetup'], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
+  ['providerSetup', 'getProviderSetup', [{ refresh: true }]], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
   ['hooks', 'hooksStatus'], ['skills', 'skillsStatus'], ['disabledSkills', 'getDisabledSkills'],
   ['agents', 'listAgents'],
   ['update', 'getUpdateSettings'], ['updateStatus', 'getUpdateStatus'],
@@ -132,9 +126,10 @@ function durationTextInput(value: unknown): string {
   return `${milliseconds}ms`;
 }
 
-export function CapabilitySettings({ api, category, section, onOpen, onCompose }: CapabilitySettingsProps) {
+export function CapabilitySettings({ api, category, onCompose, onOpenCategory }: CapabilitySettingsProps) {
   const [data, setData] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(true);
+  const [loadedCategory, setLoadedCategory] = useState<SettingsCategory | null>(null);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn' } | null>(null);
@@ -147,6 +142,7 @@ export function CapabilitySettings({ api, category, section, onOpen, onCompose }
   const load = useCallback(async (force = false) => {
     const sequence = ++loadSequence.current;
     if (!api.invokeCapability && !api.readCapabilities) {
+      setLoadedCategory(category);
       setLoading(false);
       return;
     }
@@ -184,23 +180,24 @@ export function CapabilitySettings({ api, category, section, onOpen, onCompose }
         }
       }));
     };
-    const modelSection = category === 'models' || section === 'model' || section === 'search';
+    const modelCatalogSection = category === 'models' || category === 'workflows';
     await Promise.all([
       loadReads(),
-      modelSection ? (async () => {
+      modelCatalogSection ? (async () => {
         try { next.models = await api.listProviderModels?.({ quick: false, ...(force ? { force: true } : {}) }) || []; } catch (reason) {
           next.models = [];
           loadError = reason instanceof Error ? reason.message : String(reason);
         }
       })() : Promise.resolve(),
-      modelSection ? api.getSnapshot?.().then((snapshot) => { next.snapshot = snapshot || null; })
+      category === 'models' ? api.getSnapshot?.().then((snapshot) => { next.snapshot = snapshot || null; })
         .catch(() => { next.snapshot = null; }) : Promise.resolve(),
     ]);
     if (sequence !== loadSequence.current) return;
     setData(next);
     setError(loadError);
+    setLoadedCategory(category);
     setLoading(false);
-  }, [api, category, section]);
+  }, [api, category]);
 
   useEffect(() => {
     void load();
@@ -235,14 +232,14 @@ export function CapabilitySettings({ api, category, section, onOpen, onCompose }
   }, [api, pending]);
 
   useEffect(() => {
-    if (section !== 'update') {
+    if (category !== 'system') {
       updateChecked.current = false;
       return;
     }
     if (loading || updateChecked.current) return;
     updateChecked.current = true;
     void run('checkForUpdate', [{}]);
-  }, [loading, run, section]);
+  }, [category, loading, run]);
 
   const route = useCallback(async (model: DesktopModelOption) => {
     if (!api.setModelRoute || pending) return;
@@ -290,13 +287,13 @@ export function CapabilitySettings({ api, category, section, onOpen, onCompose }
   }, []);
 
   const context = useMemo<PanelContext>(() => ({
-    data, snapshot: liveSnapshot, pending, run, route, setFast, confirm, notice: pushNotice, compose: onCompose,
-  }), [confirm, data, liveSnapshot, onCompose, pending, pushNotice, route, run, setFast]);
+    data, snapshot: liveSnapshot, pending, run, route, setFast, confirm, notice: pushNotice,
+    compose: onCompose, openCategory: onOpenCategory,
+  }), [confirm, data, liveSnapshot, onCompose, onOpenCategory, pending, pushNotice, route, run, setFast]);
 
   return <>
-    {loading ? <p className="settings-loading" role="status">Loading settings…</p>
-      : section ? renderSection(section, context) : <CategoryPanel api={api} category={category}
-        context={context} onOpen={onOpen} />}
+    {loading || loadedCategory !== category ? <p className="settings-loading" role="status">Loading settings…</p>
+      : <CategoryPanel category={category} context={context} />}
     {error && <p className="mixdog-settings__error" role="alert">{error}</p>}
     {notice && <p className={`settings-notice settings-notice--${notice.tone}`}
       role={notice.tone === 'warn' ? 'alert' : 'status'}>{notice.message}</p>}
@@ -304,50 +301,55 @@ export function CapabilitySettings({ api, category, section, onOpen, onCompose }
   </>;
 }
 
-function renderSection(section: SettingsSection, context: PanelContext): ReactNode {
-  if (section === 'profile') return <ProfilePanel {...context} />;
-  if (section === 'autoclear') return <AutoClearPanel {...context} />;
-  if (section === 'channel-setting') return <ChannelSettingPanel {...context} />;
-  if (section === 'output-style') return <OutputStylePanel {...context} />;
-  if (section === 'theme') return <ThemePanel {...context} />;
-  if (section === 'workflow') return <WorkflowPanel {...context} />;
-  if (section === 'model') return <MainModelPanel {...context} />;
-  if (section === 'search') return <SearchPanel {...context} />;
-  if (section === 'providers') return <ProvidersPanel {...context} />;
-  if (section === 'mcp') return <McpPanel {...context} />;
-  if (section === 'skills') return <SkillsPanel {...context} />;
-  if (section === 'plugins') return <PluginsPanel {...context} />;
-  if (section === 'hooks') return <HooksPanel {...context} />;
-  if (section === 'update') return <UpdatePanel {...context} />;
-  return null;
-}
-
-function Group({ title, description, children }: { title?: string; description?: string; children: ReactNode }) {
-  return <section className="settings-group">{(title || description) &&
-    <header>{title && <h3>{title}</h3>}{description && <p>{description}</p>}</header>}
+function Group({ title, description, children }: {
+  title?: string; description?: string; children: ReactNode;
+}) {
+  return <section className="settings-group">
+    {(title || description) &&
+    <header>{title && <h3>{title}</h3>}
+      {description && <p>{description}</p>}</header>}
     <div className="settings-group-body">{children}</div></section>;
 }
 
-function ToggleRow({ title, description, checked, disabled, onChange }: {
-  title: string; description: string; checked: boolean; disabled?: boolean; onChange(value: boolean): void;
+function ToggleRow({ title, description: _description, checked, disabled, onChange }: {
+  title: string; description?: string; checked: boolean; disabled?: boolean; onChange(value: boolean): void;
 }) {
   return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
-    <span className="mixdog-settings__row-title">{title}</span><span className="mixdog-settings__description">{description}</span>
-  </div><label className="mixdog-settings__switch"><input type="checkbox" aria-label={title} checked={checked}
-    disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} /><span aria-hidden="true" /></label></div>;
+    <span className="mixdog-settings__row-title">{title}</span>
+  </div><div className="settings-row-control"><label className="mixdog-settings__switch"><input type="checkbox" aria-label={title} checked={checked}
+    disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} /><span aria-hidden="true" /></label></div></div>;
 }
 
-function SelectRow({ title, description, value, disabled, options, onChange }: {
-  title: string; description: string; value: string; disabled?: boolean;
-  options: Array<{ value: string; label: string }>; onChange(value: string): void;
+function SelectRow({ title, description: _description, value, disabled, options, onChange }: {
+  title: string; description?: string; value: string; disabled?: boolean;
+  options: ReadonlyArray<{ value: string; label: string }>; onChange(value: string): void;
 }) {
   const normalized = options.some((entry) => entry.value === value)
     ? options
     : [{ value, label: value || 'Select…' }, ...options];
   return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
-    <span className="mixdog-settings__row-title">{title}</span><span className="mixdog-settings__description">{description}</span>
-  </div><OpenSelect className="settings-select" ariaLabel={title} value={value} disabled={disabled}
-    options={normalized} onChange={onChange} /></div>;
+    <span className="mixdog-settings__row-title">{title}</span>
+  </div><div className="settings-row-control"><OpenSelect className="settings-select" ariaLabel={title} value={value} disabled={disabled}
+    options={normalized} onChange={onChange} /></div></div>;
+}
+
+function QuietSelectRow({ title, value, disabled, options, kind, onChange }: {
+  title: string;
+  value: string;
+  disabled?: boolean;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  kind: 'effort' | 'fast';
+  onChange(value: string): void;
+}) {
+  const normalized = options.some((entry) => entry.value === value)
+    ? options
+    : [{ value, label: value || 'Select…' }, ...options];
+  return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
+    <span className="mixdog-settings__row-title">{title}</span>
+  </div><div className="settings-row-control"><div className={`${kind}-control`}>
+    <OpenSelect ariaLabel={title} value={value} disabled={disabled}
+      options={normalized} onChange={onChange} />
+  </div></div></div>;
 }
 
 function routeOption(value: RecordValue): DesktopModelOption {
@@ -389,14 +391,16 @@ function routeOptionLabel(model: DesktopModelOption): string {
     : modelOptionLabel(model);
 }
 
-function RouteEditor({ title, description, route, models, disabled, compact = false, onChange }: {
+function RouteEditor({ title, description: _description, route, models, disabled, compact = false,
+  onChange, onOpenProviders }: {
   title: string;
   description?: string;
   route: RecordValue;
   models: DesktopModelOption[];
   disabled?: boolean;
   compact?: boolean;
-  onChange(selection: DesktopModelSelection): void;
+  onChange(selection: DesktopModelSelection): unknown;
+  onOpenProviders?: () => void;
 }) {
   const currentKey = `${route.provider || ''}:${route.model || ''}`;
   const selected = models.find((entry) => `${entry.provider}:${entry.model}` === currentKey);
@@ -416,37 +420,94 @@ function RouteEditor({ title, description, route, models, disabled, compact = fa
       ...(model.fastCapable ? { fast: nextFast === true } : {}),
     };
   };
-  return <div className={`settings-route-editor ${compact ? 'compact' : ''}`}>
-    {!compact && <div><b>{title}</b>{description && <small>{description}</small>}</div>}
-    <div className="settings-route-controls">
-      <OpenSelect className="settings-select" ariaLabel={title} value={currentKey} disabled={disabled}
-        options={[
-          ...(!selected ? [{ value: currentKey, label: route.model
-            ? `${modelDisplayName(String(route.model), String(route.provider || ''))} · ${providerDisplayName(String(route.provider || ''))}` : 'Select model…' }] : []),
-          ...models.map((model) => ({ value: `${model.provider}:${model.model}`, label: routeOptionLabel(model) })),
-        ]}
-        onChange={(value) => {
-          const model = models.find((entry) => `${entry.provider}:${entry.model}` === value);
-          if (model) onChange(selectionFor(model));
-        }} />
-      {selected && selected.effortOptions.length > 0 && <OpenSelect className="settings-select settings-select--effort"
-        ariaLabel={`${title} effort`} value={effort} disabled={disabled} options={selected.effortOptions}
+  const modelSelect = <ModelPicker models={models}
+    provider={String(route.provider || '')} model={String(route.model || '')}
+    triggerLabel={selected
+      ? modelDisplayName(selected.model, selected.provider, selected.display)
+      : route.model ? modelDisplayName(String(route.model), String(route.provider || '')) : 'Select model…'}
+    ariaLabel={title} triggerClassName="model-trigger settings-model-trigger"
+    disabled={disabled} onSelect={(model) => onChange(selectionFor(model))}
+    onOpenProviders={onOpenProviders} />;
+  if (!compact) {
+    return <>
+      <div className="mixdog-settings__row settings-route-row">
+        <div className="mixdog-settings__copy">
+          <span className="mixdog-settings__row-title">Model</span>
+        </div>
+        <div className="settings-row-control">{modelSelect}</div>
+      </div>
+      {selected && selected.effortOptions.length > 0 && <QuietSelectRow title="Effort" kind="effort"
+        value={effort || selected.effortOptions[0]?.value || 'auto'} disabled={disabled}
+        options={selected.effortOptions}
         onChange={(value) => onChange(selectionFor(selected, { effort: value }))} />}
-      {selected?.fastCapable && <label className="settings-route-fast"><input type="checkbox" checked={fast}
-        disabled={disabled} onChange={(event) => onChange(selectionFor(selected, { fast: event.currentTarget.checked }))} /> Fast</label>}
+      {selected?.fastCapable && <QuietSelectRow title="Fast mode" kind="fast"
+        value={fast ? 'on' : 'off'} disabled={disabled}
+        options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
+        onChange={(value) => onChange(selectionFor(selected, { fast: value === 'on' }))} />}
+    </>;
+  }
+  return <div className="settings-route-editor compact">
+    <div className="settings-route-controls">
+      {modelSelect}
+      {selected && selected.effortOptions.length > 0 && <div className="effort-control">
+        <OpenSelect ariaLabel={`${title} effort`} value={effort} disabled={disabled}
+          options={selected.effortOptions}
+          onChange={(value) => onChange(selectionFor(selected, { effort: value }))} />
+      </div>}
+      {selected?.fastCapable && <div className="fast-control">
+        <OpenSelect ariaLabel={`${title} fast mode`} value={fast ? 'on' : 'off'} disabled={disabled}
+          options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
+          onChange={(value) => onChange(selectionFor(selected, { fast: value === 'on' }))} />
+      </div>}
     </div>
   </div>;
 }
 
-function FormRow({ title, description, children, resetOnSubmit = false, onSubmit }: {
-  title: string; description?: string; children: ReactNode; resetOnSubmit?: boolean; onSubmit(data: FormData): void;
+function FormRow({ title, description: _description, status, children, resetOnSubmit = false, onSubmit }: {
+  title: string; description?: string; status?: string; children: ReactNode; resetOnSubmit?: boolean; onSubmit(data: FormData): void;
 }) {
+  const state = status ? settingsStatus(status) : null;
   return <form className="settings-form-row" onSubmit={(event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
     onSubmit(new FormData(form));
     if (resetOnSubmit) form.reset();
-  }}><div><b>{title}</b>{description && <small>{description}</small>}</div><div className="settings-form-controls">{children}</div></form>;
+  }}><div className="settings-resource-title"><b>{title}</b>
+      {state && <span className={`settings-status settings-status--${state.tone}`}><i aria-hidden="true" />{state.label}</span>}
+    </div><div className="settings-form-controls">{children}</div></form>;
+}
+
+function AutoSaveRow({ title, value, name, placeholder, required = false, disabled, actions, onSave }: {
+  title: string;
+  value: string;
+  name: string;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+  actions?: ReactNode;
+  onSave(value: string): void;
+}) {
+  const commit = (input: HTMLInputElement) => {
+    if (input.value === value) return;
+    if (required && !input.reportValidity()) return;
+    onSave(input.value);
+  };
+  return <div className="settings-form-row"><div><b>{title}</b></div><div className="settings-form-controls">
+    <input key={value} name={name} aria-label={title} defaultValue={value} placeholder={placeholder}
+      required={required} disabled={disabled}
+      onBlur={(event) => commit(event.currentTarget)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          event.currentTarget.value = value;
+          event.currentTarget.blur();
+        }
+      }} />
+    {actions}
+  </div></div>;
 }
 
 function ActionButton({ children, danger, disabled, onClick }: {
@@ -478,11 +539,35 @@ function SettingsConfirmDialog({ options, onClose }: { options: SettingsConfirma
   </div>;
 }
 
-function ResourceRow({ title, description, meta, actions }: {
-  title: string; description?: string; meta?: string; actions?: ReactNode;
+type SettingsStatusTone = 'positive' | 'warning' | 'danger' | 'neutral';
+
+function settingsStatus(value: string): { label: string; tone: SettingsStatusTone } {
+  const text = value.replace(/[_-]+/g, ' ').trim();
+  const label = text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : 'Unknown';
+  const normalized = label.toLowerCase();
+  if (/(failed|error|invalid|missing|rejected)/.test(normalized)) return { label, tone: 'danger' };
+  if (/(pending|installing|checking|starting|connecting|updating|running update)/.test(normalized)) {
+    return { label, tone: 'warning' };
+  }
+  if (/(not connected|disabled|off|stopped|unknown|idle)/.test(normalized)) return { label, tone: 'neutral' };
+  if (/(connected|enabled|ready|detected|complete|installed|running|active|on|saved|^set$)/.test(normalized)) {
+    return { label, tone: 'positive' };
+  }
+  return { label, tone: 'neutral' };
+}
+
+function ResourceRow({ title, description: _description, meta, status, selected = false, actions, className = '' }: {
+  title: string; description?: string; meta?: string; status?: string; selected?: boolean; actions?: ReactNode; className?: string;
 }) {
-  return <div className="settings-resource"><div><b>{title}</b>{description && <p>{description}</p>}</div>
-    {meta && <span className="settings-meta">{meta}</span>}{actions && <div className="settings-resource-actions">{actions}</div>}</div>;
+  const state = status ? settingsStatus(status) : selected ? settingsStatus('Active') : null;
+  return <div className={`settings-resource ${className}`.trim()} aria-current={selected ? 'true' : undefined}><div>
+    <div className="settings-resource-title"><b>{title}</b>
+      {state && <span className={`settings-status settings-status--${state.tone}`}><i aria-hidden="true" />{state.label}</span>}
+    </div>
+    {meta && <small className="settings-resource-meta">{meta}</small>}
+  </div>
+    <div className="settings-resource-control">
+      {actions && <div className="settings-resource-actions">{actions}</div>}</div></div>;
 }
 
 function MetricGrid({ items }: { items: Array<{ label: string; value: unknown; tone?: string }> }) {
@@ -534,352 +619,102 @@ function UsageDashboard({ value }: { value: unknown }) {
     {providers.length ? <div>{providers.map((provider, index) => <ResourceRow
       key={String(provider.id || provider.provider || index)} title={providerLabel(provider, `Provider ${index + 1}`)}
       description={String(provider.detail || provider.sourceLabel || '')}
-      meta={String(provider.primary || provider.status || 'unknown')} />)}</div> : <Empty text="No provider usage rows." />}
+      meta={provider.primary ? String(provider.primary) : undefined}
+      status={String(provider.status || 'unknown')} />)}</div> : <Empty text="No provider usage rows." />}
   </div>;
 }
 
-function SettingsList({ category, context, onOpen }: {
+function CategoryPanel({ category, context }: {
   category: SettingsCategory;
   context: PanelContext;
-  onOpen(section: SettingsSection): void;
 }) {
-  const { data, snapshot, pending, run, notice } = context;
-  const profile = record(data.profile);
-  const autoClear = record(data.autoClear);
-  const compaction = record(data.compaction);
-  const channels = record(data.channels);
-  const worker = record(data.channelWorker);
-  const setup = record(data.channelSetup);
-  const output = record(data.outputStyles);
-  const currentStyle = record(output.current);
-  const workflows = rows(data.workflows);
-  const currentWorkflow = workflows.find((entry) => entry.active);
-  const themes = rows(data.themes);
-  const currentTheme = themes.find((entry) => entry.id === data.theme);
-  const mcp = record(data.mcp);
-  const plugins = record(data.plugins);
-  const hooks = record(data.hooks);
-  const skills = record(data.skills);
-  const update = record(data.update);
-  const language = rows(profile.languages).find((entry) => entry.id === profile.language);
-  const busy = Boolean(pending);
-  const metaFor = (value: string): string => {
-    if (value === 'profile') return profile.title
-      ? `${profile.title} · ${label(language, 'System')}` : label(language, 'System');
-    if (value === 'autoclear') return autoClear.enabled !== false ? `On (${formatDuration(autoClear.idleMs)})` : 'Off';
-    if (value === 'autocompact') return compaction.auto !== false ? 'On' : 'Off';
-    if (value === 'compact-type') return 'Fast-track (fixed)';
-    if (value === 'channels') return channels.enabled !== false ? 'On' : 'Off';
-    if (value === 'remote-runtime') return data.remote === true ? 'On' : 'Off';
-    if (value === 'channel-backend') return setup.backend === 'telegram' ? 'Telegram' : 'Discord';
-    if (value === 'output-style') return String(currentStyle.label || currentStyle.id || output.configured || 'Default');
-    if (value === 'theme') return label(currentTheme, String(data.theme || 'Default'));
-    if (value === 'workflow') return label(currentWorkflow, 'Default');
-    if (value === 'model') return snapshot && record(snapshot).model
-      ? modelDisplayName(String(record(snapshot).model), String(record(snapshot).provider || '')) : 'Default';
-    if (value === 'search') {
-      const route = record(data.searchRoute);
-      return route.model ? modelDisplayName(String(route.model), String(route.provider || '')) : 'Default';
-    }
-    if (value === 'update') {
-      const current = String(update.currentVersion || 'unknown');
-      return update.updateAvailable && update.latestVersion ? `${current} → ${update.latestVersion}`
-        : update.currentVersion ? `${current} (latest)` : 'unknown';
-    }
-    return '';
-  };
-  const descriptionFor = (value: string, fallback: string): string => {
-    if (value === 'autoclear') return autoClear.enabled !== false
-      ? `Clear idle sessions after ${formatDuration(autoClear.idleMs)}${autoClear.custom ? '' : ` (${autoClear.provider || 'default'} default)`}. Enter for options.`
-      : 'Idle auto-clear disabled. Enter for options.';
-    if (value === 'compact-type') return record(data.memory).enabled === false
-      ? 'Injects raw transcript lines (memory off: no LLM chunking).'
-      : 'Uses Memory recall to rebuild context faster on large histories.';
-    if (value === 'channels') return channels.enabled === false ? 'Channel tools disabled.' : 'Discord, schedules, and webhooks.';
-    if (value === 'remote-runtime') return worker.running ? `runtime running · pid ${worker.pid}` : 'runtime stopped';
-    if (value === 'mcp') return `${mcp.connectedCount || 0}/${mcp.configuredCount || 0} connected${mcp.failedCount ? ` · ${mcp.failedCount} failed` : ''}`;
-    if (value === 'plugins') return `${plugins.count || rows(plugins, 'plugins').length} detected`;
-    if (value === 'hooks') return `${hooks.ruleCount || 0} before-tool rules`;
-    if (value === 'skills') return `${skills.count || rows(skills, 'skills').length} available`;
-    return fallback;
-  };
-  const categoryItems = SETTINGS_CATEGORIES.find((entry) => entry.value === category)?.items || [];
-  return <section className="mixdog-settings__picker-list" aria-label={`${category} settings`}>
-    {SETTINGS_ITEMS.filter((item) => (categoryItems as readonly string[]).includes(item.value)).map((item) => {
-      const description = descriptionFor(item.value, item.description);
-      const copy = <span className="mixdog-settings__picker-copy">
-        <span className="mixdog-settings__row-title">{item.label}</span>
-        <span className="mixdog-settings__description">{description}</span>
-      </span>;
-      if (item.kind === 'toggle') {
-        const checked = item.value === 'autoclear' ? autoClear.enabled !== false
-          : item.value === 'autocompact' ? compaction.auto !== false
-            : item.value === 'channels' ? channels.enabled !== false : data.remote === true;
-        const toggle = async (enabled: boolean) => {
-          if (item.value === 'autoclear') {
-            const next = await run<RecordValue>('setAutoClear', [{ enabled }]);
-            notice(next ? (next.enabled !== false ? `Auto-clear on · idle ${formatDuration(next.idleMs)}` : 'Auto-clear off')
-              : 'autoclear unavailable', next ? 'info' : 'warn');
-          } else if (item.value === 'autocompact') {
-            const next = await run<RecordValue>('setCompactionSettings', [{ auto: enabled }]);
-            notice(next
-              ? `Compaction ${next.auto !== false ? 'auto on' : 'auto off'} · ${next.compactType === 'recall-fasttrack' ? 'Fast-track' : 'Default'}`
-              : 'compaction setting is busy', next ? 'info' : 'warn');
-          } else if (item.value === 'channels') {
-            const next = await run<RecordValue>('setChannelsEnabled', [enabled]);
-            notice(next ? `Channels ${next.enabled !== false ? 'on' : 'off'}` : 'channel setting is busy', next ? 'info' : 'warn');
-          } else {
-            const next = await run<boolean>('toggleRemote');
-            notice(next === true ? 'Remote mode ON' : 'Remote mode OFF');
-          }
-        };
-        return <div className="mixdog-settings__picker-row" key={item.value}>
-          {item.value === 'autoclear'
-            ? <button type="button" className="mixdog-settings__picker-open" onClick={() => onOpen(item.value)}>{copy}</button>
-            : copy}
-          <span className="mixdog-settings__picker-meta">{metaFor(item.value)}</span>
-          <label className="mixdog-settings__switch"><input type="checkbox" aria-label={item.label} checked={checked}
-            disabled={busy} onChange={(event) => toggle(event.currentTarget.checked)} /><span aria-hidden="true" /></label>
-          {item.value === 'autoclear' && <button type="button" className="mixdog-settings__chevron"
-            aria-label="Open Auto-clear options" onClick={() => onOpen(item.value)}><ChevronRight size={16} /></button>}
-        </div>;
-      }
-      if (item.kind === 'cycle') return <div className="mixdog-settings__picker-row" key={item.value}>
-        {copy}<OpenSelect className="settings-select settings-select--cycle" ariaLabel={item.label}
-          value={String(setup.backend || 'discord')} disabled={busy}
-          options={[{ value: 'discord', label: 'Discord' }, { value: 'telegram', label: 'Telegram' }]}
-          onChange={(value) => {
-            void run('setBackend', [value]).then((result) => {
-              if (result === undefined) return;
-              const channelLabel = value === 'telegram' ? 'Telegram' : 'Discord';
-              notice(data.remote === true || worker.running
-                ? `Channel set to ${channelLabel}. Restart remote to apply.`
-                : `Channel set to ${channelLabel}.`);
-            });
-          }} />
-      </div>;
-      if (item.kind === 'static') return <div className="mixdog-settings__picker-row" key={item.value}>
-        {copy}<span className="mixdog-settings__picker-meta">{metaFor(item.value)}</span>
-      </div>;
-      return <button type="button" className="mixdog-settings__picker-row mixdog-settings__picker-open-row"
-        key={item.value} onClick={() => onOpen(item.value)}>{copy}
-        {metaFor(item.value) && <span className="mixdog-settings__picker-meta">{metaFor(item.value)}</span>}
-        <ChevronRight aria-hidden="true" size={16} /></button>;
-    })}
-  </section>;
+  if (category === 'output-style') return <OutputStylePanel {...context} />;
+  if (category === 'models') return <ModelsPanel {...context} />;
+  if (category === 'workflows') return <AgentsPanel {...context} />;
+  if (category === 'providers') return <ProvidersPanel {...context} />;
+  if (category === 'channels') return <><ChannelsPanel {...context} /><AutomationPanel {...context} /></>;
+  if (category === 'mcp') return <McpPanel {...context} />;
+  if (category === 'plugins') return <PluginsPanel {...context} />;
+  if (category === 'hooks') return <HooksPanel {...context} />;
+  if (category === 'skills') return <SkillsPanel {...context} />;
+  if (category === 'memory') return <MemoryPanel {...context} />;
+  if (category === 'system') return <SystemPanel {...context} />;
+  return <GeneralPanel {...context} />;
 }
 
-function CategoryPanel({ api, category, context, onOpen }: {
-  api: CapabilityApi;
-  category: SettingsCategory;
-  context: PanelContext;
-  onOpen(section: SettingsSection): void;
-}) {
-  const [zoom, setZoom] = useState(1);
-  useEffect(() => {
-    let live = true;
-    void api.getZoomFactor?.().then((value) => { if (live) setZoom(value); }).catch(() => {});
-    const unsubscribe = api.onZoomFactorChanged?.((value) => { if (live) setZoom(value); });
-    return () => { live = false; unsubscribe?.(); };
-  }, [api]);
-  const { data, pending, run } = context;
-  const busy = Boolean(pending);
-  const agents = rows(data.agents);
-  const models = normalizeModelOptions(Array.isArray(data.models) ? data.models as DesktopModelOption[] : []);
-  return <>
-    <SettingsList category={category} context={context} onOpen={onOpen} />
-    {category === 'general' && <Group title="Display">
-      <SelectRow title="Zoom" description="Scale the Mixdog desktop interface." value={String(zoom)}
-        options={[0.75, 0.9, 1, 1.1, 1.25, 1.5].map((value) => ({
-          value: String(value),
-          label: `${Math.round(value * 100)}%`,
-        }))}
-        onChange={(value) => {
-          const factor = Number(value);
-          setZoom(factor);
-          void api.setZoomFactor?.(factor).then(setZoom).catch(() => {});
-        }} />
-    </Group>}
-    {category === 'models' && <Group title="Agent routes" description="Per-agent model, effort, and fast-mode routing.">
-      {agents.length ? agents.map((agent) => <ResourceRow key={String(agent.id)} title={label(agent)}
-        description={String(agent.description || record(agent.definition).description || '')}
-        actions={<RouteEditor compact title={`${label(agent)} route`} route={record(agent.route)}
-          models={models} disabled={busy}
-          onChange={(selection) => void run('setAgentRoute', [agent.id, selection], `agent-${agent.id}`)} />} />)
-        : <Empty text="No configurable agent routes found." />}
-    </Group>}
-    {category === 'channels' && <AutomationPanel {...context} />}
-    {category === 'capabilities' && <Group title="Memory">
-      <ToggleRow title="Memory" description="Enable recap and curated core memories across sessions."
-        checked={record(data.memory).enabled !== false} disabled={busy}
-        onChange={(enabled) => void run('setMemoryEnabled', [enabled])} />
-    </Group>}
-    {category === 'system' && <Group title="Doctor">
-      <ResourceRow title="Diagnostics" description="Check the runtime, providers, integrations, and local installation."
-        actions={<ActionButton disabled={busy} onClick={() => void run('runDoctor')}>Run doctor</ActionButton>} />
-    </Group>}
-  </>;
-}
-
-function ProfilePanel({ data, pending, run }: PanelContext) {
-  const profile = record(data.profile);
-  const languages = rows(profile.languages);
-  return <Group>
-    <FormRow title="Title" description="Preferred form of address. Enter to edit."
-      onSubmit={(form) => void run('setProfile', [{ title: form.get('title') }])}>
-      <input name="title" defaultValue={String(profile.title || '')} placeholder="Your name or role" />
-      <button disabled={Boolean(pending)}>Save</button>
-    </FormRow>
-    <SelectRow title="Language" description="Response language." value={String(profile.language || 'system')}
-      disabled={Boolean(pending)} options={languages.map((entry) => ({ value: String(entry.id), label: label(entry) }))}
-      onChange={(language) => void run('setProfile', [{ language }])} />
-  </Group>;
-}
-
-function AutoClearPanel({ data, pending, run }: PanelContext) {
-  const current = record(data.autoClear);
-  const busy = Boolean(pending);
-  return <>
-    <Group>
-      <ToggleRow title="Auto-clear" description={current.enabled !== false
-        ? `Clear idle sessions after ${formatDuration(current.idleMs)}.`
-        : 'Idle auto-clear disabled.'} checked={current.enabled !== false} disabled={busy}
-        onChange={(enabled) => void run('setAutoClear', [{ enabled }])} />
-    </Group>
-    <Group title="Advanced" description="Provider default idle windows.">
-      {rows(current.providerDefaults).map((entry) => <FormRow key={String(entry.provider)}
-        title={String(entry.provider)} description={`Default idle window for ${entry.provider}.`}
-        onSubmit={(form) => void run('setAutoClear', [{ provider: entry.provider, duration: form.get('duration') }])}>
-        <input name="duration" defaultValue={durationTextInput(entry.idleMs)} required />
-        <button disabled={busy}>Save</button>
-        {Boolean(entry.custom) ? <ActionButton disabled={busy} onClick={() => void run('setAutoClear', [
-          { provider: entry.provider, resetProvider: true },
-        ])}>Reset</ActionButton> : null}
-      </FormRow>)}
-    </Group>
-  </>;
-}
-
-function ChannelSettingPanel({ data, pending, run }: PanelContext) {
-  const setup = record(data.channelSetup);
-  const channel = record(setup.channel);
-  const busy = Boolean(pending);
-  return <>{(['discord', 'telegram'] as const).map((backend) => {
-    const telegram = backend === 'telegram';
-    const status = record(setup[backend]);
-    const target = telegram
-      ? channel.telegramChatId || (setup.backend === backend ? channel.channelId : '')
-      : channel.discordChannelId || (setup.backend === backend ? channel.channelId : '');
-    return <Group key={backend} title={telegram ? 'Telegram' : 'Discord'}
-      description={`${setup.backend === backend ? 'Selected · ' : ''}${status.authenticated && target ? 'Ready' : 'Needs setup'}`}>
-      <SecretForm title="Bot token" status={status} disabled={busy}
-        onSave={(secret) => void run(telegram ? 'saveTelegramToken' : 'saveDiscordToken', [secret])} />
-      <FormRow title={telegram ? 'Main chat' : 'Main channel'}
-        description={target ? `${telegram ? 'Chat' : 'Channel'} ID ${target}` : `Not set · Enter ${telegram ? 'Telegram chat' : 'Discord channel'} ID`}
-        onSubmit={(form) => void run('setChannel', [{ backend, channelId: form.get('channelId') }])}>
-        <input name="channelId" defaultValue={String(target || '')} required />
-        <button disabled={busy}>Save</button>
-      </FormRow>
-    </Group>;
-  })}</>;
-}
-
-function ChoicePanel({ title, values, active, pending, onChoose }: {
-  title: string; values: RecordValue[]; active: string; pending: string; onChoose(id: string): void;
+function ChoicePanel({ title, values, active, pending, emptyText, onChoose }: {
+  title: string; values: RecordValue[]; active: string; pending: string; emptyText?: string; onChoose(id: string): void;
 }) {
   return <Group title={title}>{values.length ? values.map((entry) => {
     const id = String(entry.id);
     return <ResourceRow key={id} title={label(entry)} description={String(entry.description || entry.source || '')}
-      meta={id === active || entry.active ? 'Active' : undefined}
+      selected={id === active || entry.active === true}
       actions={id !== active && !entry.active && <ActionButton disabled={Boolean(pending)} onClick={() => onChoose(id)}>Choose</ActionButton>} />;
-  }) : <Empty text={`No ${title.toLowerCase()} available.`} />}</Group>;
+  }) : <ListEmpty text={emptyText || `No ${title.toLowerCase()} available.`} />}</Group>;
 }
 
 function OutputStylePanel({ data, pending, run }: PanelContext) {
   const output = record(data.outputStyles);
   return <ChoicePanel title="" values={rows(output, 'styles')}
     active={String(record(output.current).id || output.configured || 'default')} pending={pending}
-    onChoose={(id) => void run('setOutputStyle', [id])} />;
-}
-
-function ThemePanel({ data, pending, run, notice }: PanelContext) {
-  const original = useRef(String(data.theme || 'basic'));
-  const committed = useRef(false);
-  const preview = (id: string) => {
-    if (pending) return;
-    void run('setTheme', [id, { persist: false }], 'theme-preview', false)
-      .then((result) => { if (result !== undefined) applyDesktopTheme(result || id); });
-  };
-  useEffect(() => () => {
-    if (committed.current || !original.current) return;
-    applyDesktopTheme(original.current);
-    void run('setTheme', [original.current, { persist: false }], 'theme-restore', false);
-  }, []);
-  const themes = rows(data.themes);
-  const active = String(data.theme || '');
-  return <Group>{themes.length ? themes.map((entry) => {
-    const id = String(entry.id);
-    return <div key={id} onMouseEnter={() => preview(id)} onFocus={() => preview(id)}>
-      <ResourceRow title={label(entry)} description={String(entry.description || 'color theme')}
-        meta={id === active ? 'Active' : undefined} actions={<ActionButton disabled={Boolean(pending)} onClick={() => {
-          committed.current = true;
-          void run('setTheme', [id, { persist: true }]).then((result) => {
-            if (result !== undefined) {
-              applyDesktopTheme(result || id);
-              notice(`Theme set to ${label(result || entry)}`);
-            }
-          });
-        }}>Choose</ActionButton>} />
-    </div>;
-  }) : <Empty text="No themes available." />}</Group>;
-}
-
-function WorkflowPanel({ data, pending, run }: PanelContext) {
-  return <ChoicePanel title="" values={rows(data.workflows)}
-    active={String(rows(data.workflows).find((entry) => entry.active)?.id || '')} pending={pending}
-    onChoose={(id) => void run('setWorkflow', [id])} />;
-}
-
-function MainModelPanel(context: PanelContext) {
-  const { data, snapshot, pending, run, route, setFast } = context;
-  const models = normalizeModelOptions(Array.isArray(data.models) ? data.models as DesktopModelOption[] : []);
-  const active = record(snapshot);
-  const current = `${active.provider || ''}:${active.model || ''}`;
-  const selected = models.find((entry) => `${entry.provider}:${entry.model}` === current);
-  return <Group>
-    <SelectRow title="Model" description="Main chat model." value={current} disabled={Boolean(pending)}
-      options={models.map((entry) => ({ value: `${entry.provider}:${entry.model}`, label: modelOptionLabel(entry) }))}
-      onChange={(value) => { const next = models.find((entry) => `${entry.provider}:${entry.model}` === value); if (next) void route(next); }} />
-    {selected?.effortOptions.length ? <SelectRow title="Reasoning effort" description="Effort level for the selected route."
-      value={String(active.effort || preferredEffort(selected))} disabled={Boolean(pending)} options={selected.effortOptions}
-      onChange={(value) => void run('setEffort', [value])} /> : null}
-    {selected?.fastCapable && <ToggleRow title="Fast mode" description="Use the provider's priority service tier when available."
-      checked={active.fast === true} disabled={Boolean(pending)} onChange={(enabled) => void setFast(enabled)} />}
-  </Group>;
-}
-
-function SearchPanel({ data, pending, run }: PanelContext) {
-  const models = normalizeModelOptions(rows(data.searchModels).map(routeOption));
-  return <Group><RouteEditor title="Search model" description="Native search model."
-    route={record(data.searchRoute)} models={models} disabled={Boolean(pending)}
-    onChange={(selection) => void run('setSearchRoute', [selection])} /></Group>;
+    emptyText="No output styles available." onChoose={(id) => void run('setOutputStyle', [id])} />;
 }
 
 function UpdatePanel({ data, pending, run }: PanelContext) {
   const update = record(data.update);
   const status = record(data.updateStatus);
   const busy = Boolean(pending);
-  return <Group>
+  return <Group title="Update">
     <ResourceRow title="Current version" description={status.phase === 'installed'
       ? `v${status.version || update.latestVersion} installed — restart mixdog to apply.`
       : 'Installed mixdog version.'} meta={String(update.currentVersion || 'unknown')} />
-    <ResourceRow title="Latest version" description="Enter to re-check now." meta={String(update.latestVersion || 'unknown')}
+    <ResourceRow title="Latest version" meta={String(update.latestVersion || 'unknown')}
       actions={<ActionButton disabled={busy} onClick={() => void run('checkForUpdate', [{ force: true }])}>Check now</ActionButton>} />
-    <ToggleRow title="Auto-update" description="Enter to toggle automatic updates." checked={update.autoUpdate === true}
+    <ToggleRow title="Auto-update" checked={update.autoUpdate === true}
       disabled={busy} onChange={(enabled) => void run('setAutoUpdate', [enabled])} />
-    <div className="settings-button-row"><ActionButton disabled={busy} onClick={() => void run('runUpdateNow')}>
+    <ResourceRow title="Install update" actions={<ActionButton disabled={busy} onClick={() => void run('runUpdateNow')}>
       {status.phase === 'installed' ? `v${status.version || update.latestVersion} installed — restart to apply`
-        : update.updateAvailable ? `Update to v${update.latestVersion || 'latest'}` : 'Update now'}</ActionButton></div>
+        : update.updateAvailable ? `Update to v${update.latestVersion || 'latest'}` : 'Update now'}</ActionButton>} />
+  </Group>;
+}
+
+function ThemeChoices({ data, pending, run }: Pick<PanelContext, 'data' | 'pending' | 'run'>) {
+  const themes = rows(data.themes);
+  const current = String(data.theme || themes.find((entry) => entry.current)?.id || themes[0]?.id || 'basic');
+  const committed = useRef(current);
+  useEffect(() => {
+    committed.current = current;
+  }, [current]);
+  useEffect(() => () => { applyDesktopTheme(committed.current); }, []);
+  const restore = () => applyDesktopTheme(committed.current);
+  const choose = async (id: string) => {
+    committed.current = id;
+    clearDesktopThemePreference();
+    applyDesktopTheme(id);
+    const result = await run('setTheme', [id, { persist: true }], `theme-${id}`);
+    if (result !== undefined) return;
+    committed.current = current;
+    applyDesktopTheme(current);
+  };
+  return <Group title="Theme">
+    {themes.length ? <div className="settings-theme-list" onMouseLeave={restore}>
+      {themes.map((entry) => {
+        const id = String(entry.id || '');
+        if (!id) return null;
+        return <div key={id} className="settings-theme-choice"
+          onMouseEnter={() => applyDesktopTheme(id)}
+          onFocusCapture={() => applyDesktopTheme(id)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) restore();
+          }}>
+          <ResourceRow title={label(entry, id)} meta={String(entry.description || 'Color theme')}
+            selected={id === current}
+            actions={id !== current && <ActionButton disabled={Boolean(pending)} onClick={() => void choose(id)}>
+              Choose
+            </ActionButton>} />
+        </div>;
+      })}
+    </div> : <ListEmpty text="No themes available." />}
   </Group>;
 }
 
@@ -887,116 +722,103 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
   const profile = record(data.profile);
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
-  const channels = record(data.channels);
-  const workflows = rows(data.workflows);
-  const output = record(data.outputStyles);
-  const styles = rows(output, 'styles');
-  const themes = rows(data.themes);
   const providerDefaults = rows(autoClear.providerDefaults);
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const busy = Boolean(pending);
   return <>
-    <Group title="Profile"><FormRow title="Identity and response language" description="Injected into new responses through the core profile configuration."
-      onSubmit={(form) => void run('setProfile', [{ title: form.get('title'), language: form.get('language') }])}>
-      <input name="title" defaultValue={String(profile.title || '')} placeholder="Your name or role" />
-      <OpenSelect name="language" ariaLabel="Response language" defaultValue={String(profile.language || 'system')}
-        options={languageOptions} /><button disabled={busy}>Save</button></FormRow></Group>
+    <Group title="Profile">
+      <AutoSaveRow title="Title" name="title" value={String(profile.title || '')}
+        placeholder="Your name or role" disabled={busy}
+        onSave={(title) => void run('setProfile', [{ title }])} />
+      <SelectRow title="Language" value={String(profile.language || 'system')} disabled={busy}
+        options={languageOptions} onChange={(language) => void run('setProfile', [{ language }])} />
+    </Group>
+    <ThemeChoices data={data} pending={pending} run={run} />
     <Group title="Session lifecycle">
-      <ToggleRow title="Auto-clear" description={`Clear idle sessions after ${Math.round(Number(autoClear.idleMs || 0) / 60000) || 'the provider default'} minutes.`}
-        checked={autoClear.enabled !== false} disabled={busy} onChange={(enabled) => void run('setAutoClear', [{ enabled }])} />
-      {providerDefaults.map((entry) => <FormRow key={String(entry.provider)}
-        title={`${providerDisplayName(String(entry.provider || 'default'))} idle window`}
-    description={entry.custom ? `Custom · built-in ${durationTextInput(entry.builtInMs)}` : 'Using the built-in provider default.'}
-        onSubmit={(form) => void run('setAutoClear', [{ provider: entry.provider, duration: form.get('duration') }], `autoclear-${entry.provider}`)}>
-        <input name="duration" defaultValue={durationTextInput(entry.idleMs)} placeholder={durationTextInput(entry.builtInMs)} required />
-        <button disabled={busy}>Save</button>
-        {Boolean(entry.custom) && <ActionButton disabled={busy} onClick={() => void run('setAutoClear', [
-          { provider: entry.provider, resetProvider: true },
-        ], `autoclear-reset-${entry.provider}`)}>Reset</ActionButton>}
-      </FormRow>)}
       <ToggleRow title="Auto-compact" description="Compact automatically as the active context reaches its limit."
         checked={compaction.auto !== false} disabled={busy} onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])} />
-      <ResourceRow title="Compaction strategy"
-        description="Main sessions use memory recall to rebuild large histories efficiently."
-        meta="Recall fast-track · fixed" />
-      <ToggleRow title="Channels module" description="Enable Discord, Telegram, webhook, and scheduled channel services."
-        checked={channels.enabled !== false} disabled={busy} onChange={(enabled) => void run('setChannelsEnabled', [enabled])} />
-      <ToggleRow title="Remote runtime" description="Claim the configured channel bridge for this desktop session."
-        checked={data.remote === true} disabled={busy} onChange={() => void run('toggleRemote')} />
-    </Group>
-    <Group title="Response behavior">
-      <SelectRow title="Workflow" description="Select the active workflow pack." value={String(workflows.find((entry) => entry.active)?.id || '')}
-        disabled={busy} options={workflows.map((entry) => ({ value: String(entry.id), label: label(entry) }))}
-        onChange={(value) => void run('setWorkflow', [value])} />
-      <SelectRow title="Output style" description="Controls the system output-style prompt." value={String(record(output.current).id || output.configured || 'default')}
-        disabled={busy} options={styles.map((entry) => ({ value: String(entry.id), label: label(entry) }))}
-        onChange={(value) => void run('setOutputStyle', [value])} />
-      <SelectRow title="Theme" description="Persist the palette used by Mixdog surfaces." value={String(data.theme || '')}
-        disabled={busy} options={themes.map((entry) => ({ value: String(entry.id), label: label(entry) }))}
-        onChange={(value) => void run('setTheme', [value, { persist: true }]).then((result) => {
-          if (result) applyDesktopTheme(result);
-        })} />
+      <ToggleRow title="Auto-clear" description={`Clear idle sessions after ${formatDuration(autoClear.idleMs) || 'the provider default'}.`}
+        checked={autoClear.enabled !== false} disabled={busy} onChange={(enabled) => void run('setAutoClear', [{ enabled }])} />
+      {providerDefaults.map((entry) => <AutoSaveRow key={String(entry.provider)}
+        title={`${providerDisplayName(String(entry.provider || 'default'))} idle window`}
+        name="duration" value={durationTextInput(entry.idleMs)} placeholder={durationTextInput(entry.builtInMs)}
+        required disabled={busy}
+        onSave={(duration) => void run('setAutoClear', [{ provider: entry.provider, duration }], `autoclear-${entry.provider}`)}
+        actions={Boolean(entry.custom) && <ActionButton disabled={busy} onClick={() => void run('setAutoClear', [
+          { provider: entry.provider, resetProvider: true },
+        ], `autoclear-reset-${entry.provider}`)}>Reset</ActionButton>} />)}
     </Group>
   </>;
 }
 
-function ModelsPanel({ data, snapshot: liveSnapshot, pending, run, route, setFast }: PanelContext) {
-  const models = normalizeModelOptions(Array.isArray(data.models) ? data.models as DesktopModelOption[] : []);
+function ModelsPanel({ data, snapshot: liveSnapshot, pending, run, route, setFast, openCategory }: PanelContext) {
+  const models = filterConfiguredModels(
+    normalizeModelOptions(Array.isArray(data.models) ? data.models as DesktopModelOption[] : []),
+    data.providerSetup,
+  );
   const snapshot = Object.keys(record(liveSnapshot)).length
     ? record(liveSnapshot)
     : record(data.snapshot as EngineSnapshot);
   const currentKey = `${snapshot.provider || ''}:${snapshot.model || ''}`;
   const selected = models.find((model) => `${model.provider}:${model.model}` === currentKey);
-  const mainModelOptions = models.map((model) => ({
-    value: `${model.provider}:${model.model}`,
-    label: modelOptionLabel(model),
-  }));
-  if (!selected && snapshot.provider && snapshot.model) {
-    mainModelOptions.unshift({
-      value: currentKey,
-      label: `${modelDisplayName(String(snapshot.model), String(snapshot.provider))} · ${providerDisplayName(String(snapshot.provider))}`,
-    });
-  }
   const searchRoute = record(data.searchRoute);
-  const searchModels = normalizeModelOptions(rows(data.searchModels).map(routeOption));
+  const searchModels = filterConfiguredModels(
+    normalizeModelOptions(rows(data.searchModels).map(routeOption)),
+    data.providerSetup,
+  );
   const busy = Boolean(pending);
   return <>
     <Group title="Main route">
-      <SelectRow title="Main model" description="Switch the model used for subsequent turns in this session." value={currentKey}
-        disabled={busy} options={mainModelOptions}
-        onChange={(value) => { const model = models.find((entry) => `${entry.provider}:${entry.model}` === value); if (model) void route(model); }} />
-      <SelectRow title="Reasoning effort" description="Effort level for the selected route." value={String(snapshot.effort || 'auto')}
+      <div className="mixdog-settings__row settings-route-row">
+        <div className="mixdog-settings__copy"><span className="mixdog-settings__row-title">Model</span></div>
+        <div className="settings-row-control"><ModelPicker models={models}
+          provider={String(snapshot.provider || '')} model={String(snapshot.model || '')}
+          triggerLabel={selected
+            ? modelDisplayName(selected.model, selected.provider, selected.display)
+            : snapshot.model ? modelDisplayName(String(snapshot.model), String(snapshot.provider || '')) : 'Select model…'}
+          ariaLabel="Model" triggerClassName="model-trigger settings-model-trigger"
+          disabled={busy} onSelect={(model) => route(model)}
+          onOpenProviders={() => openCategory?.('providers')} /></div>
+      </div>
+      <QuietSelectRow title="Effort" kind="effort" value={String(snapshot.effort || 'auto')}
         disabled={busy} options={(selected?.effortOptions || [{ value: 'auto', label: 'Auto' }]).map((entry) => ({ value: entry.value, label: entry.label }))}
         onChange={(value) => void run('setEffort', [value])} />
-      <ToggleRow title="Fast mode" description="Use the provider's priority service tier when available."
-        checked={snapshot.fast === true} disabled={busy || snapshot.fastCapable !== true}
-        onChange={(enabled) => void setFast(enabled)} />
+      <QuietSelectRow title="Fast mode" kind="fast"
+        value={snapshot.fast === true ? 'on' : 'off'} disabled={busy || snapshot.fastCapable !== true}
+        options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
+        onChange={(value) => void setFast(value === 'on')} />
     </Group>
     <Group title="Search route">
-      <RouteEditor title="Web-search model" description="Dedicated model used for search synthesis."
+      <RouteEditor title="Web-search model"
         route={searchRoute} models={searchModels} disabled={busy}
-        onChange={(selection) => void run('setSearchRoute', [selection])} />
+        onChange={(selection) => run('setSearchRoute', [selection])}
+        onOpenProviders={() => openCategory?.('providers')} />
     </Group>
   </>;
 }
 
-function AgentsPanel({ data, pending, run }: PanelContext) {
+function AgentsPanel({ data, pending, run, openCategory }: PanelContext) {
   const agents = rows(data.agents);
   const workflows = rows(data.workflows);
-  const models = normalizeModelOptions(Array.isArray(data.models) ? data.models as DesktopModelOption[] : []);
+  const models = filterConfiguredModels(
+    normalizeModelOptions(Array.isArray(data.models) ? data.models as DesktopModelOption[] : []),
+    data.providerSetup,
+  );
   const busy = Boolean(pending);
   return <>
     <Group title="Workflow packs">{workflows.length ? workflows.map((workflow) => <ResourceRow key={String(workflow.id)}
-      title={label(workflow)} description={String(workflow.description || '')} meta={workflow.active ? 'Active' : String(workflow.source || '')}
+      title={label(workflow)} description={String(workflow.description || '')} selected={workflow.active === true}
       actions={!workflow.active && <ActionButton disabled={busy} onClick={() => void run('setWorkflow', [workflow.id])}>Activate</ActionButton>} />)
-      : <Empty text="No workflows found." />}</Group>
-    <Group title="Agent routes">{agents.map((agent) => {
+      : <ListEmpty text="No workflows found." />}</Group>
+    <Group title="Agent routes">{agents.length ? agents.map((agent) => {
       const route = record(agent.route);
-      return <ResourceRow key={String(agent.id)} title={label(agent)} description={String(agent.description || record(agent.definition).description || '')}
-        meta={String(agent.workflowSlot || 'fixed slot')} actions={<RouteEditor compact title={`${label(agent)} route`}
+      return <ResourceRow key={String(agent.id)} className="settings-agent-route" title={label(agent)}
+        description={String(agent.description || record(agent.definition).description || '')}
+        actions={<RouteEditor compact title={`${label(agent)} route`}
           route={route} models={models} disabled={busy}
-          onChange={(selection) => void run('setAgentRoute', [agent.id, selection], `agent-${agent.id}`)} />} />;
-    })}</Group>
+          onChange={(selection) => run('setAgentRoute', [agent.id, selection], `agent-${agent.id}`)}
+          onOpenProviders={() => openCategory?.('providers')} />} />;
+    }) : <ListEmpty text="No agent routes found." />}</Group>
   </>;
 }
 
@@ -1007,44 +829,51 @@ function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
   const localProviders = rows(setup.local);
   const busy = Boolean(pending);
   return <>
-    <Group title="API-key providers">{apiProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
-      description={String(provider.detail || provider.envName || '')} meta={provider.authenticated ? 'Connected' : String(provider.status || 'Not connected')}
-      actions={<>{String(provider.id) === 'opencode-go' && <ActionButton disabled={busy}
-        onClick={() => void run('loginOpenCodeGoUsage')}>Usage sign-in</ActionButton>}
-        {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&
-          <ActionButton danger disabled={busy} onClick={() => {
-        confirm({ title: 'Forget provider authentication?', description: `Remove the saved authentication for ${providerLabel(provider)}.`,
-          confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
-      }}>Forget</ActionButton>}</>} />)}
-      <FormRow title="Save API key" description="Secrets are sent directly to the main process and are never echoed back." resetOnSubmit
-        onSubmit={(form) => void run('saveProviderApiKey', [form.get('provider'), form.get('secret')])}>
-        <OpenSelect name="provider" ariaLabel="API provider" defaultValue={String(apiProviders[0]?.id || '')}
-          options={apiProviders.map((provider) => ({ value: String(provider.id), label: providerLabel(provider) }))} />
-        <input name="secret" type="password" autoComplete="off" placeholder="API key" required />
-        <button disabled={busy}>Save</button></FormRow>
-    </Group>
     <Group title="OAuth providers">{oauthProviders.length ? oauthProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
-      description={String(provider.detail || '')} meta={provider.authenticated ? 'Connected' : String(provider.status || 'Not connected')}
+      description={String(provider.detail || '')}
+      status={provider.authenticated ? 'Connected' : String(provider.status || 'Not connected')}
       actions={<><OAuthControl provider={provider} disabled={busy} run={run} />
         {provider.authenticated && <ActionButton danger disabled={busy} onClick={() => {
           confirm({ title: 'Forget provider authentication?', description: `Remove the saved authentication for ${providerLabel(provider)}.`,
             confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
-        }}>Forget</ActionButton>}</>} />) : <Empty text="No OAuth providers available." />}</Group>
-    <Group title="Local providers">{localProviders.map((provider) => <React.Fragment key={String(provider.id)}>
+        }}>Forget</ActionButton>}</>} />) : <ListEmpty text="No OAuth providers available." />}</Group>
+    <Group title="API-key providers">{apiProviders.length ? apiProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
+      description={String(provider.detail || provider.envName || '')}
+      status={provider.authenticated ? 'Connected' : String(provider.status || 'Not connected')}
+      actions={<>{String(provider.id) === 'opencode-go' && <ActionButton disabled={busy}
+        onClick={() => void run('loginOpenCodeGoUsage')}>Usage sign-in</ActionButton>}
+        {!provider.authenticated && <form className="settings-provider-secret" onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const secret = new FormData(form).get('secret');
+          form.reset();
+          void run('saveProviderApiKey', [provider.id, secret], `provider-key-${String(provider.id)}`);
+        }}>
+          <input name="secret" type="password" autoComplete="off" placeholder="API key"
+            aria-label={`${providerLabel(provider)} API key`} required />
+          <button disabled={busy}>Save</button>
+        </form>}
+        {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&
+          <ActionButton danger disabled={busy} onClick={() => {
+        confirm({ title: 'Forget provider authentication?', description: `Remove the saved authentication for ${providerLabel(provider)}.`,
+          confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
+      }}>Forget</ActionButton>}</>} />) : <ListEmpty text="No API-key providers available." />}</Group>
+    <Group title="Local providers">{localProviders.length ? localProviders.map((provider) => <React.Fragment key={String(provider.id)}>
       <ResourceRow title={providerLabel(provider)} description={String(provider.baseURL || provider.detail || '')}
-        meta={String(provider.status || (provider.detected ? 'Detected' : 'Off'))}
+        status={String(provider.status || (provider.detected ? 'Detected' : 'Off'))}
         actions={<ActionButton disabled={busy} onClick={() => void run('setLocalProvider', [provider.id, {
           enabled: provider.enabled !== true, baseURL: provider.baseURL,
         }])}>{provider.enabled ? 'Disable' : 'Enable'}</ActionButton>} />
-      <FormRow title={`${providerLabel(provider)} endpoint`} description="Update the OpenAI-compatible base URL and enable this provider."
+      <FormRow title={`${providerLabel(provider)} endpoint`} description="Update the OpenAI-compatible base URL."
         onSubmit={(form) => void run('setLocalProvider', [provider.id, {
-          enabled: true, baseURL: form.get('baseURL'),
+          enabled: provider.enabled === true, baseURL: form.get('baseURL'),
         }], `local-${provider.id}`)}>
         <input name="baseURL" type="url" defaultValue={String(provider.baseURL || provider.defaultURL || '')}
+          aria-label={`${providerLabel(provider)} endpoint`}
           placeholder={String(provider.defaultURL || 'http://127.0.0.1:11434/v1')} required />
-        <button disabled={busy}>Save & enable</button>
+        <button disabled={busy}>Save</button>
       </FormRow>
-    </React.Fragment>)}</Group>
+    </React.Fragment>) : <ListEmpty text="No local providers available." />}</Group>
   </>;
 }
 
@@ -1080,7 +909,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
       aria-label={`${providerLabel(provider)} OAuth login`}>
       <header><div><b>{providerLabel(provider)} OAuth</b><small>Complete the browser login or paste the returned code.</small></div>
         <button type="button" aria-label="Close OAuth login" autoFocus onClick={close}>×</button></header>
-      <ResourceRow title="Status" description={String(flow.error || '')} meta={String(flow.state || 'pending')} />
+      <ResourceRow title="Status" description={String(flow.error || '')} status={String(flow.state || 'pending')} />
       {Boolean(flow.manualUrl || flow.url) && <label className="settings-oauth-url">Manual login URL
         <textarea readOnly value={String(flow.manualUrl || flow.url)} /></label>}
       {Boolean(flow.manualCodeSupported) && flow.state !== 'complete' && <form className="settings-oauth-code" onSubmit={(event) => {
@@ -1108,12 +937,15 @@ function McpPanel({ data, pending, run }: PanelContext) {
   const servers = rows(status, 'servers');
   const busy = Boolean(pending);
   return <>
-    <Group title="Servers" description={`${status.connectedCount || 0} connected · ${status.failedCount || 0} failed`}>
+    <Group title="Servers"
+      description={`${status.connectedCount || 0} connected · ${status.failedCount || 0} failed`}>
       {servers.length ? servers.map((server) => <ResourceRow key={String(server.name)} title={String(server.name)}
         description={`${server.transport || 'transport unknown'}${server.error ? ` · ${server.error}` : ''}`}
-        meta={`${server.status || 'unknown'} · ${server.toolCount || 0} tools`}
+        meta={`${server.toolCount || 0} tools`}
+        status={String(server.status || 'unknown')}
         actions={<ActionButton disabled={busy} onClick={() => void run('setMcpServerEnabled', [server.name, server.enabled === false])}>
-          {server.enabled === false ? 'Enable' : 'Disable'}</ActionButton>} />) : <Empty text="No MCP servers configured." />}
+          {server.enabled === false ? 'Enable' : 'Disable'}
+        </ActionButton>} />) : <ListEmpty text="No MCP servers configured." />}
     </Group>
   </>;
 }
@@ -1129,10 +961,11 @@ function SkillsPanel({ data, pending, run }: PanelContext) {
     void run('setDisabledSkills', [[...next]]);
   };
   return <>
-    <Group title="Available skills">{skills.length ? skills.map((skill) => <ResourceRow key={String(skill.name)} title={String(skill.name)}
-      description={String(skill.description || skill.filePath || '')} meta={`${skill.source || 'skill'} · ${disabled.has(String(skill.name)) ? 'Disabled' : 'Enabled'}`}
+    <Group>{skills.length ? skills.map((skill) => <ResourceRow key={String(skill.name)} title={String(skill.name)}
+      description={String(skill.description || skill.filePath || '')} meta={String(skill.source || 'skill')}
+      status={disabled.has(String(skill.name)) ? 'Disabled' : 'Enabled'}
       actions={<ActionButton disabled={busy} onClick={() => toggle(String(skill.name))}>{disabled.has(String(skill.name)) ? 'Enable' : 'Disable'}</ActionButton>} />)
-        : <Empty text="No skills found." />}
+        : <ListEmpty text="No skills found." />}
     </Group>
   </>;
 }
@@ -1142,12 +975,12 @@ function PluginsPanel({ data, pending, run, confirm }: PanelContext) {
   const plugins = rows(status, 'plugins');
   const busy = Boolean(pending);
   return <>
-    <Group title="Installed plugins">{plugins.length ? plugins.map((plugin) => <ResourceRow key={String(plugin.id || plugin.name)} title={label(plugin)}
+    <Group title="Installed">{plugins.length ? plugins.map((plugin) => <ResourceRow key={String(plugin.id || plugin.name)} title={label(plugin)}
       description={String(plugin.description || plugin.root || '')} meta={`${plugin.version || 'unversioned'} · ${plugin.skillCount || 0} skills`}
       actions={<><ActionButton disabled={busy} onClick={() => void run('updatePlugin', [plugin])}>
-        {plugin.sourceType === 'local' ? 'Refresh metadata' : 'Update plugin'}</ActionButton>
+        {plugin.sourceType === 'local' ? 'Update metadata' : 'Update plugin'}</ActionButton>
         {plugin.mcpScript && <ActionButton disabled={busy}
-          onClick={() => void run('enablePluginMcp', [plugin])}>{plugin.mcpEnabled ? 'Refresh MCP' : 'Enable MCP'}</ActionButton>}
+          onClick={() => void run('enablePluginMcp', [plugin])}>{plugin.mcpEnabled ? 'Reconfigure MCP' : 'Enable MCP'}</ActionButton>}
         {Boolean(plugin.root) && <ActionButton disabled={busy} onClick={() => {
           void navigator.clipboard?.writeText(String(plugin.root));
         }}>Copy root</ActionButton>}
@@ -1157,12 +990,14 @@ function PluginsPanel({ data, pending, run, confirm }: PanelContext) {
         <ActionButton danger disabled={busy} onClick={() => {
           confirm({ title: 'Remove plugin?', description: `${label(plugin)} will be removed from Mixdog.`,
             confirmLabel: 'Remove', danger: true, onConfirm: () => void run('removePlugin', [plugin]) });
-        }}><Trash2 size={13} /></ActionButton></>} />) : <Empty text="No plugins installed." />}
+        }}><Trash2 size={13} /></ActionButton></>} />) : <ListEmpty text="No plugins installed." />}
     </Group>
-    <Group title="Install plugin"><FormRow title="Plugin source" description="Local path, Git URL, or supported registry source."
+    <Group title="Install plugin" description="Local path, Git URL, or supported registry source.">
+      <FormRow title="Plugin source"
       onSubmit={(form) => void run('addPlugin', [form.get('source')])}>
       <input name="source" placeholder="https://github.com/org/plugin or C:\path" required /><button disabled={busy}>Install</button>
-    </FormRow></Group>
+      </FormRow>
+    </Group>
   </>;
 }
 
@@ -1171,11 +1006,13 @@ function HooksPanel({ data, pending, run }: PanelContext) {
   const rules = rows(status, 'rules');
   const busy = Boolean(pending);
   return <>
-    <Group title="Policy rules" description={`${status.ruleCount || rules.length} rules · ${status.configMode || 'standalone'}`}>
+    <Group title="Rules"
+      description={`${status.ruleCount || rules.length} rules · ${status.configMode || 'standalone'}`}>
       {rules.length ? rules.map((rule, index) => <ResourceRow key={String(rule.index ?? index)} title={`${rule.tool || '*'} → ${rule.action || 'ask'}`}
-        description={String(rule.match || rule.reason || '')} meta={rule.enabled === false ? 'Disabled' : 'Enabled'}
+        description={String(rule.match || rule.reason || '')} status={rule.enabled === false ? 'Disabled' : 'Enabled'}
         actions={<ActionButton disabled={busy} onClick={() => void run('setHookRuleEnabled', [Number(rule.index ?? index), rule.enabled === false])}>
-          {rule.enabled === false ? 'Enable' : 'Disable'}</ActionButton>} />) : <Empty text="No hook rules configured." />}
+          {rule.enabled === false ? 'Enable' : 'Disable'}
+        </ActionButton>} />) : <ListEmpty text="No hook rules configured." />}
     </Group>
   </>;
 }
@@ -1184,11 +1021,12 @@ function MemoryPanel({ data, pending, run, confirm }: PanelContext) {
   const memory = record(data.memory);
   const busy = Boolean(pending);
   return <>
-    <Group title="Memory settings"><ToggleRow title="Memory" description="Enable memory recap and curated core memories."
+    <Group><ToggleRow title="Memory enabled" description="Enable memory recap and curated core memories."
       checked={memory.enabled !== false} disabled={busy} onChange={(enabled) => void run('setMemoryEnabled', [enabled])} /></Group>
-    <Group title="Core memories" description="User-curated memories shared across Mixdog sessions.">
+    <section className="settings-group core-memory-section">
+      <header><h3>Core memories</h3><p>User-curated memories shared across Mixdog sessions.</p></header>
       <CoreMemoryManager pending={pending} run={run} confirm={confirm} />
-    </Group>
+    </section>
   </>;
 }
 
@@ -1221,7 +1059,7 @@ function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
       singleSentence: element === rawSummary,
     });
   }
-  return entries;
+  return entries.sort((left, right) => right.id - left.id);
 }
 
 function memoryResultError(value: unknown): string {
@@ -1266,16 +1104,20 @@ function CoreMemoryManager({ pending, run, confirm }: {
     return result !== undefined;
   };
   return <div className="core-memory-manager">
-    <form className="core-memory-add" onSubmit={(event) => {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const sentence = String(new FormData(form).get('sentence') || '').trim();
-      if (!sentence) return;
-      void mutate({ action: 'core', op: 'add', project_id: 'common', element: sentence, summary: sentence })
-        .then((ok) => { if (ok) form.reset(); });
-    }}><input name="sentence" placeholder="Add a memory Mixdog should retain" maxLength={2000} required />
-      <button disabled={Boolean(pending)}>Add memory</button></form>
-    {loading ? <p className="settings-loading">Loading core memories…</p> : entries.length ? <div className="core-memory-list">
+    <section className="core-memory-add-card">
+      <header><b>Add memory</b><small>Save a durable fact or preference for future sessions.</small></header>
+      <form className="core-memory-add" onSubmit={(event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const sentence = String(new FormData(form).get('sentence') || '').trim();
+        if (!sentence) return;
+        void mutate({ action: 'core', op: 'add', project_id: 'common', element: sentence, summary: sentence })
+          .then((ok) => { if (ok) form.reset(); });
+      }}><input name="sentence" aria-label="Memory to add" placeholder="What should Mixdog remember?" maxLength={2000} required />
+        <button disabled={Boolean(pending)}>Add memory</button></form>
+    </section>
+    {loading ? <div className="core-memory-list core-memory-list--empty"><p className="settings-loading">Loading core memories…</p></div>
+      : entries.length ? <div className="core-memory-list">
       {entries.map((entry) => editing === entry.id ? <form className="core-memory-edit" key={entry.id} onSubmit={(event) => {
         event.preventDefault();
         const summary = String(new FormData(event.currentTarget).get('summary') || '').trim();
@@ -1283,22 +1125,25 @@ function CoreMemoryManager({ pending, run, confirm }: {
         const payload: RecordValue = { action: 'core', op: 'edit', id: entry.id, project_id: entry.projectId, summary };
         if (entry.singleSentence) payload.element = summary;
         void mutate(payload).then((ok) => { if (ok) setEditing(null); });
-      }}><input name="summary" defaultValue={entry.summary} maxLength={2000} required autoFocus />
-        <button disabled={Boolean(pending)}>Save</button><button type="button" onClick={() => setEditing(null)}>Cancel</button></form>
-        : <div className="core-memory-row" key={entry.id}><span>#{entry.id}</span><div><b>{entry.summary}</b>
-          <small>{entry.projectId || 'Common'}</small></div><button disabled={Boolean(pending)} onClick={() => setEditing(entry.id)}>Edit</button>
+      }}><input name="summary" aria-label="Memory text" defaultValue={entry.summary} maxLength={2000} required autoFocus />
+        <span className="core-memory-scope">{entry.projectId || 'Common'}</span>
+        <div className="core-memory-actions"><button disabled={Boolean(pending)}>Save</button>
+          <button type="button" onClick={() => setEditing(null)}>Cancel</button></div></form>
+        : <div className="core-memory-row" key={entry.id}><div className="core-memory-copy"><b>{entry.summary}</b></div>
+          <span className="core-memory-scope">{entry.projectId || 'Common'}</span>
+          <div className="core-memory-actions"><button disabled={Boolean(pending)} onClick={() => setEditing(entry.id)}>Edit</button>
           <button className="danger" disabled={Boolean(pending)} onClick={() => {
             confirm({ title: 'Delete memory?', description: `Memory #${entry.id} will be removed permanently.`,
               confirmLabel: 'Delete', danger: true,
               onConfirm: () => void mutate({ action: 'core', op: 'delete', id: entry.id, project_id: entry.projectId }) });
-          }}>Delete</button></div>)}
-    </div> : <Empty text="No core memories yet." />}
+          }}>Delete</button></div></div>)}
+    </div> : <div className="core-memory-list core-memory-list--empty"><Empty text="No core memories yet." /></div>}
     {error && <p className="settings-field-error">{error}</p>}
-    <ActionButton disabled={Boolean(pending)} onClick={() => void refresh()}>Refresh memories</ActionButton>
   </div>;
 }
 
-function ChannelsPanel({ data, snapshot, pending, run }: PanelContext) {
+function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
+  const channels = record(data.channels);
   const setup = record(data.channelSetup);
   const worker = record(data.channelWorker);
   const channel = record(setup.channel);
@@ -1316,58 +1161,81 @@ function ChannelsPanel({ data, snapshot, pending, run }: PanelContext) {
     setBackendChoice(persistedBackend);
   }, [persistedBackend]);
   return <>
-    <Group title="Runtime">
-      <ToggleRow title="Remote session" description={worker.running ? `Worker running · PID ${worker.pid || '?'}` : 'Worker stopped'}
-        checked={data.remote === true} disabled={busy} onChange={() => void run('toggleRemote')} />
-      <SelectRow title="Backend" description="Primary outbound channel backend." value={backend} disabled={busy}
+    <Group title="Channel service">
+      <ToggleRow title="Channels enabled" description={channels.enabled === false
+        ? 'Discord, Telegram, schedules, and webhooks are disabled.'
+        : 'Discord, Telegram, schedules, and webhooks are enabled.'}
+        checked={channels.enabled !== false} disabled={busy}
+        onChange={(enabled) => void run('setChannelsEnabled', [enabled])} />
+      <SelectRow title="Channel" description="Primary outbound channel backend." value={backend} disabled={busy}
         options={[{ value: 'discord', label: 'Discord' }, { value: 'telegram', label: 'Telegram' }]}
         onChange={(value) => {
           optimisticBackend.current = value;
           setBackendChoice(value);
           void run('setBackend', [value], 'channel-backend', false).then((result) => {
-            if (result !== undefined) return;
-            optimisticBackend.current = null;
-            setBackendChoice(persistedBackend);
+            if (result === undefined) {
+              optimisticBackend.current = null;
+              setBackendChoice(persistedBackend);
+              return;
+            }
+            const channelLabel = value === 'telegram' ? 'Telegram' : 'Discord';
+            notice(data.remote === true || worker.running
+              ? `Channel set to ${channelLabel}. Restart remote to apply.`
+              : `Channel set to ${channelLabel}.`);
           });
         }} />
-      <ActionButton disabled={busy} onClick={() => void run('claimRemote')}>Claim remote bridge</ActionButton>
       <ResourceRow title="Voice transcription"
         description={progress.text ? String(progress.text) : voice.installed
           ? 'Managed Whisper and ffmpeg runtime is ready for incoming channel voice messages.'
           : `Runtime components · Whisper ${voiceComponents.whisper ? 'ready' : 'missing'} · model ${voiceComponents.model ? 'ready' : 'missing'} · ffmpeg ${voiceComponents.ffmpeg ? 'ready' : 'missing'}`}
-        meta={voice.enabled ? 'On' : progress.text || voice.busy ? 'Installing…' : 'Off'}
+        status={voice.enabled ? 'On' : progress.text || voice.busy ? 'Installing…' : 'Off'}
         actions={<ActionButton disabled={busy || voice.busy === true}
           onClick={() => void run('toggleVoice', [], 'voice-toggle')}>
           {voice.enabled ? 'Disable voice' : voice.installed ? 'Enable voice' : 'Install & enable'}
         </ActionButton>} />
     </Group>
-    <Group title="Authentication">
+    <Group title="Discord">
       <SecretForm title="Discord bot token" status={record(setup.discord)} disabled={busy}
         onSave={(secret) => void run('saveDiscordToken', [secret])} />
+      <AutoSaveRow title="Main channel" name="discordChannelId"
+        value={String(channel.discordChannelId || (setup.backend !== 'telegram' ? channel.channelId || '' : ''))}
+        placeholder="Discord channel ID" required disabled={busy}
+        onSave={(channelId) => void run('setChannel', [{ backend: 'discord', channelId }])} />
+    </Group>
+    <Group title="Telegram">
       <SecretForm title="Telegram bot token" status={record(setup.telegram)} disabled={busy}
         onSave={(secret) => void run('saveTelegramToken', [secret])} />
-      <SecretForm title="Webhook / ngrok auth token" status={record(setup.webhook)} disabled={busy}
-        onSave={(secret) => void run('saveWebhookAuthtoken', [secret])} />
-    </Group>
-    <Group title="Channel targets">
-      <FormRow title="Discord channel" description="Channel ID retained independently when switching backends."
-        onSubmit={(form) => void run('setChannel', [{ backend: 'discord', channelId: form.get('channelId') }])}>
-        <input name="channelId" defaultValue={String(channel.discordChannelId || (setup.backend !== 'telegram' ? channel.channelId || '' : ''))}
-          placeholder="Discord channel ID" required /><button disabled={busy}>Save</button>
-      </FormRow>
-      <FormRow title="Telegram chat" description="Chat ID retained independently when switching backends."
-        onSubmit={(form) => void run('setChannel', [{ backend: 'telegram', channelId: form.get('channelId') }])}>
-        <input name="channelId" defaultValue={String(channel.telegramChatId || (setup.backend === 'telegram' ? channel.channelId || '' : ''))}
-          placeholder="Telegram chat ID" required /><button disabled={busy}>Save</button>
-      </FormRow>
+      <AutoSaveRow title="Main chat" name="telegramChatId"
+        value={String(channel.telegramChatId || (setup.backend === 'telegram' ? channel.channelId || '' : ''))}
+        placeholder="Telegram chat ID" required disabled={busy}
+        onSave={(channelId) => void run('setChannel', [{ backend: 'telegram', channelId }])} />
     </Group>
     <Group title="Webhook ingress">
-      <FormRow title="ngrok domain" description="Reserved domain used by the configured webhook endpoint."
-        onSubmit={(form) => void run('setWebhookConfig', [{ ngrokDomain: form.get('ngrokDomain') }])}>
-        <input name="ngrokDomain" defaultValue={String(webhook.ngrokDomain || webhook.domain || '')}
-          placeholder="my-app.ngrok-free.app" required />
-        <button disabled={busy}>Save</button>
-      </FormRow>
+      <SecretForm title="ngrok auth token" status={record(setup.webhook)} disabled={busy}
+        onSave={(secret) => void run('saveWebhookAuthtoken', [secret])} />
+      <AutoSaveRow title="ngrok domain" name="ngrokDomain"
+        value={String(webhook.ngrokDomain || webhook.domain || '')}
+        placeholder="my-app.ngrok-free.app" required disabled={busy}
+        onSave={(ngrokDomain) => void run('setWebhookConfig', [{ ngrokDomain }])} />
+    </Group>
+  </>;
+}
+
+function SystemPanel(context: PanelContext) {
+  const { data, pending, run } = context;
+  const worker = record(data.channelWorker);
+  const busy = Boolean(pending);
+  return <>
+    <Group>
+      <ToggleRow title="Remote runtime" description={worker.running
+        ? `Channel runtime running · PID ${worker.pid || '?'}`
+        : 'Channel runtime stopped.'}
+        checked={data.remote === true} disabled={busy} onChange={() => void run('toggleRemote')} />
+    </Group>
+    <UpdatePanel {...context} />
+    <Group title="Doctor">
+      <ResourceRow title="Diagnostics" description="Check the runtime, providers, integrations, and local installation."
+        actions={<ActionButton disabled={busy} onClick={() => void run('runDoctor')}>Run doctor</ActionButton>} />
     </Group>
   </>;
 }
@@ -1375,9 +1243,14 @@ function ChannelsPanel({ data, snapshot, pending, run }: PanelContext) {
 function SecretForm({ title, status, disabled, onSave }: {
   title: string; status: RecordValue; disabled: boolean; onSave(secret: string): void;
 }) {
-  return <FormRow title={title} description={String(status.problem || status.status || 'Not configured')} resetOnSubmit
+  const saved = status.stored === true || status.authenticated === true || String(status.status || '').toLowerCase() === 'set';
+  const visibleStatus = status.problem ? String(status.status || 'Invalid') : saved ? 'Saved' : undefined;
+  return <FormRow title={title} status={visibleStatus}
+    description={String(status.problem || status.status || 'Not configured')} resetOnSubmit
     onSubmit={(form) => onSave(String(form.get('secret') || ''))}>
-    <input name="secret" type="password" autoComplete="off" placeholder="Secret" required /><button disabled={disabled}>Save</button>
+    <input name="secret" type="password" autoComplete="off" aria-label={title}
+      placeholder={saved ? '••••••••  Saved' : 'Secret'} required disabled={disabled} />
+    <button disabled={disabled}>{saved ? 'Replace' : 'Save'}</button>
   </FormRow>;
 }
 
@@ -1390,15 +1263,15 @@ function AutomationPanel({ data, pending, run }: PanelContext) {
   return <>
     <Group title="Schedules">{schedules.length ? schedules.map((schedule) => <ResourceRow key={String(schedule.name)} title={String(schedule.name)}
       description={`${schedule.time || '(no cron)'} · ${schedule.route || ''}${schedule.model ? ` · ${schedule.model}` : ''}${remoteEnabled ? '' : ' · channel off'}`}
-      meta={schedule.enabled === false ? 'Disabled' : 'Enabled'}
+      status={schedule.enabled === false ? 'Disabled' : 'Enabled'}
       actions={<ActionButton disabled={busy || !remoteEnabled} onClick={() => void run('setScheduleEnabled', [schedule.name, schedule.enabled === false])}>
-        {schedule.enabled === false ? 'Enable' : 'Disable'}</ActionButton>} />) : <Empty text="No schedules configured." />}
+        {schedule.enabled === false ? 'Enable' : 'Disable'}</ActionButton>} />) : <ListEmpty text="No schedules configured." />}
     </Group>
     <Group title="Webhook endpoints">{webhooks.length ? webhooks.map((webhook) => <ResourceRow key={String(webhook.name)} title={String(webhook.name)}
       description={`${webhook.parser || 'github'} · ${webhook.route || ''} · secret:${webhook.secretSet ? 'set' : 'missing'}${remoteEnabled ? '' : ' · channel off'}`}
-      meta={webhook.enabled === false ? 'Disabled' : 'Enabled'}
+      status={webhook.enabled === false ? 'Disabled' : 'Enabled'}
       actions={<ActionButton disabled={busy || !remoteEnabled} onClick={() => void run('setWebhookEnabled', [webhook.name, webhook.enabled === false])}>
-        {webhook.enabled === false ? 'Enable' : 'Disable'}</ActionButton>} />) : <Empty text="No webhook endpoints configured." />}
+        {webhook.enabled === false ? 'Enable' : 'Disable'}</ActionButton>} />) : <ListEmpty text="No webhook endpoints configured." />}
     </Group>
   </>;
 }
@@ -1416,7 +1289,8 @@ function DiagnosticsPanel({ data, pending, run, confirm }: PanelContext) {
           confirm({ title: 'Install available update?', description: 'Mixdog may need to restart after the update is installed.',
             confirmLabel: 'Install update', onConfirm: () => void run('runUpdateNow') });
         }}>Install update</ActionButton>}</div>
-      {Boolean(status.phase) && <ResourceRow title="Update process" description={String(status.message || status.detail || '')} meta={String(status.phase)} />}
+      {Boolean(status.phase) && <ResourceRow title="Update process" description={String(status.message || status.detail || '')}
+        status={String(status.phase)} />}
     </Group>
     <Group title="Doctor"><ActionButton disabled={busy} onClick={() => void run('runDoctor')}>Run full diagnostics</ActionButton></Group>
     <Group title="Context status"><ContextStatusView value={data.context} /></Group>
@@ -1426,4 +1300,8 @@ function DiagnosticsPanel({ data, pending, run, confirm }: PanelContext) {
 
 function Empty({ text }: { text: string }) {
   return <p className="settings-empty">{text}</p>;
+}
+
+function ListEmpty({ text }: { text: string }) {
+  return <p className="settings-empty settings-empty-list">{text}</p>;
 }

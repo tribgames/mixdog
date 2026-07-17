@@ -139,7 +139,7 @@ export function focusTrapIndex(currentIndex, count, backwards = false) {
 }
 
 export function draftAfterSubmission(currentDraft, submittedText, accepted) {
-  return accepted === true && currentDraft.trim() === submittedText ? '' : currentDraft;
+  return accepted === true && currentDraft === submittedText ? '' : currentDraft;
 }
 
 export async function attemptApproval(resolve, approved) {

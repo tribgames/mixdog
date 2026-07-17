@@ -19,7 +19,12 @@ function setup({ currentVersion = '1.0.0', enabled = true } = {}) {
   };
   return {
     calls,
-    controller: createUpdaterController({ enabled, currentVersion, backend }),
+    controller: createUpdaterController({
+      enabled,
+      currentVersion,
+      backend,
+      stop: async () => { calls.push('stop'); },
+    }),
   };
 }
 
@@ -39,10 +44,29 @@ test('updater coalesces concurrent checks and installs only a downloaded update'
   const updater = setup();
 
   await Promise.all([updater.controller.check(), updater.controller.check(), updater.controller.check()]);
-  updater.controller.install();
+  await updater.controller.install();
 
-  assert.deepEqual(updater.calls, ['check', 'download', 'install']);
+  assert.deepEqual(updater.calls, ['check', 'download', 'stop', 'install']);
   assert.deepEqual(updater.controller.getState(), { status: 'ready', version: '2.0.0' });
+});
+
+test('updater returns to ready when application shutdown cannot complete', async () => {
+  const calls = [];
+  const controller = createUpdaterController({
+    enabled: true,
+    currentVersion: '1.0.0',
+    backend: {
+      checkForUpdates: async () => ({ isUpdateAvailable: true, updateInfo: { version: '2.0.0' } }),
+      downloadUpdate: async () => {},
+      quitAndInstall: () => { calls.push('install'); },
+    },
+    stop: async () => { throw new Error('shutdown failed'); },
+  });
+
+  await controller.start();
+  await assert.rejects(controller.install(), /shutdown failed/);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(controller.getState(), { status: 'ready', version: '2.0.0' });
 });
 
 test('disabled and unreachable update feeds are safe no-ops', async () => {

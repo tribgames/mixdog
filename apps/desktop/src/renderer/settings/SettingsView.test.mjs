@@ -8,6 +8,8 @@ import { createRoot } from 'react-dom/client';
 register(new URL('./test-css-loader.mjs', import.meta.url));
 const { SettingsView } = await import('./SettingsView.tsx');
 const { OnboardingWizard } = await import('./OnboardingWizard.tsx');
+const { CommandSurface } = await import('../CommandSurface.tsx');
+const { StatusPopover } = await import('../StatusPopover.tsx');
 const { SETTINGS_ITEMS } = await import('./settings-items.ts');
 const { SETTINGS_CATEGORIES } = await import('./settings-items.ts');
 
@@ -27,6 +29,8 @@ function mount() {
     KeyboardEvent: dom.window.KeyboardEvent,
     FormData: dom.window.FormData,
   });
+  dom.window.HTMLElement.prototype.attachEvent ??= () => {};
+  dom.window.HTMLElement.prototype.detachEvent ??= () => {};
   root = createRoot(document.getElementById('root'));
 }
 
@@ -105,11 +109,12 @@ function capabilityApi(overrides = {}) {
     calls,
     api: {
       invokeCapability: async ({ capability, args = [] }) => {
-        if (/^(set|toggle|check|run|save)/.test(capability)) calls.push([capability, args]);
+        if (/^(set|toggle|check|run|save|add|remove|delete)/.test(capability)) calls.push([capability, args]);
         return { value: values[capability] ?? { ok: true }, snapshot: { items: [], queued: [] } };
       },
-      listProviderModels: async () => [],
-      getSnapshot: async () => ({ items: [], queued: [] }),
+      listProviderModels: async () => values.__providerModels || [],
+      setModelRoute: async (selection) => { calls.push(['setModelRoute', [selection]]); },
+      getSnapshot: async () => values.__snapshot || ({ items: [], queued: [] }),
     },
   };
 }
@@ -135,43 +140,113 @@ test('SETTINGS_ITEMS is the exact TUI row registry and order', () => {
   }
 });
 
-test('settings renders the six-category settings-v2 rail and card-grouped General rows', async () => {
+test('settings renders the flat settings-v2 rail and inline General groups', async () => {
   mount();
-  const { api } = capabilityApi();
+  const { api, calls } = capabilityApi();
   await renderSettings({ api });
-  assert.deepEqual(
-    Array.from(document.querySelectorAll('.mixdog-settings__picker-row .mixdog-settings__row-title'), (node) => node.textContent),
-    SETTINGS_ITEMS.filter((item) => SETTINGS_CATEGORIES[0].items.includes(item.value)).map((item) => item.label),
-  );
   assert.deepEqual(
     Array.from(document.querySelectorAll('.mixdog-settings__rail button'), (node) => node.textContent),
     SETTINGS_CATEGORIES.map((item) => item.label),
   );
+  assert.deepEqual(SETTINGS_CATEGORIES.slice(0, 4).map((item) => item.label),
+    ['General', 'Models', 'Workflows', 'Output style']);
   assert.equal(document.querySelectorAll('.mixdog-settings__rail button.active').length, 1);
-  assert.ok(document.querySelector('.mixdog-settings__picker-list'));
-  assert.doesNotMatch(document.body.textContent, /Agents|Memory settings|Schedules & Webhooks|Diagnostics|Voice transcription/);
-  assert.match(document.body.textContent, /Fast-track \(fixed\)/);
-});
-
-test('settings command opens General and category navigation swaps the right pane rows', async () => {
-  mount();
-  const { api } = capabilityApi();
-  await renderSettings({ api, initialSection: null });
-  assert.equal(document.querySelectorAll('.mixdog-settings__picker-row').length, SETTINGS_CATEGORIES[0].items.length);
-  assert.equal(document.querySelector('button[aria-label="Back to settings"]'), null);
+  assert.equal(document.querySelector('.mixdog-settings__picker-list') === null, true,
+    'selector .mixdog-settings__picker-list should be absent');
+  assert.equal(document.querySelector('button[aria-label="Back to settings"]') === null, true,
+    'selector button[aria-label="Back to settings"] should be absent');
+  assert.ok(document.querySelector('input[name="title"]'));
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.settings-theme-choice .settings-resource-title > b'), (node) => node.textContent),
+    ['Basic'],
+  );
+  assert.ok(document.querySelector('input[aria-label="Auto-clear"]'));
+  assert.ok(document.querySelector('input[aria-label="Auto-compact"]'));
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.mixdog-settings__row-title'), (node) => node.textContent)
+      .filter((title) => title === 'Auto-compact' || title === 'Auto-clear'),
+    ['Auto-compact', 'Auto-clear'],
+  );
+  assert.doesNotMatch(document.body.textContent, /Compaction strategy|Recall fast-track/);
+  assert.doesNotMatch(document.body.textContent, /Zoom/);
+  const title = document.querySelector('input[name="title"]');
+  assert.equal(title.closest('.settings-form-row').querySelector('button') === null, true,
+    'the general title row should not render an action button');
   await act(async () => {
-    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
-      .find((button) => button.textContent === 'Capabilities').click();
+    title.value = 'Builder';
+    title.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }));
+    await Promise.resolve();
     await Promise.resolve();
   });
-  assert.deepEqual(
-    Array.from(document.querySelectorAll('.mixdog-settings__picker-row .mixdog-settings__row-title'), (node) => node.textContent),
-    ['MCP servers', 'Plugins', 'Hooks', 'Skills'],
-  );
-  assert.match(document.body.textContent, /Memory/);
+  assert.ok(calls.some(([name, args]) => name === 'setProfile' && args[0]?.title === 'Builder'));
 });
 
-test('category panes expose Mixdog-specific zoom, routes, automation, memory, and doctor controls', async () => {
+test('rail tabs swap the pane for every depth surface without subpages', async () => {
+  mount();
+  const { api, calls } = capabilityApi({
+    listOutputStyles: {
+      configured: 'default',
+      current: { id: 'default', label: 'Default' },
+      styles: [{ id: 'default', label: 'Default' }, { id: 'minimal', label: 'Minimal' }],
+    },
+  });
+  await renderSettings({ api, initialSection: null });
+  const open = async (label) => {
+    await act(async () => {
+      Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+        .find((button) => button.textContent === label).click();
+      await Promise.resolve();
+    });
+  };
+  for (const [label, expected] of [
+    ['Output style', /Minimal/],
+    ['MCP', /No MCP servers configured/],
+    ['Plugins', /Install plugin/],
+    ['Hooks', /No hook rules configured/],
+    ['Skills', /No skills found/],
+    ['Memory', /Core memories/],
+    ['System', /Run doctor/],
+  ]) {
+    await open(label);
+    assert.equal(document.querySelector('.mixdog-settings__header h1')?.textContent, label);
+    assert.match(document.body.textContent, expected);
+    assert.equal(document.querySelector('button[aria-label="Back to settings"]') === null, true,
+      'selector button[aria-label="Back to settings"] should be absent');
+  }
+});
+
+test('settings rows omit descriptions across primary panels', async () => {
+  mount();
+  const { api } = capabilityApi({
+    getProviderSetup: {
+      api: [{ id: 'openai', name: 'OpenAI', detail: 'API-key provider' }],
+      oauth: [],
+      local: [],
+    },
+    mcpStatus: {
+      connectedCount: 1,
+      configuredCount: 1,
+      servers: [{ name: 'docs', transport: 'stdio', status: 'connected', enabled: true }],
+    },
+  });
+  await renderSettings({ api });
+  const assertNoRowDescriptions = () => {
+    assert.equal(document.querySelectorAll(
+      '.mixdog-settings__description, .settings-form-row small, .settings-resource p',
+    ).length, 0);
+  };
+  assertNoRowDescriptions();
+  for (const category of ['Models', 'Workflows', 'Providers', 'Channels', 'MCP', 'Hooks']) {
+    await act(async () => {
+      Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+        .find((button) => button.textContent === category).click();
+      await Promise.resolve();
+    });
+    assertNoRowDescriptions();
+  }
+});
+
+test('category panes expose TUI routes, automation, memory, voice, and doctor controls without desktop-only zoom', async () => {
   mount();
   const { api } = capabilityApi({
     listAgents: [{ id: 'lead', name: 'Lead', route: { provider: 'default', model: 'default' } }],
@@ -181,15 +256,19 @@ test('category panes expose Mixdog-specific zoom, routes, automation, memory, an
       schedules: [{ name: 'daily', time: '0 9 * * *', enabled: true }],
       webhooks: [{ name: 'github', parser: 'github', enabled: true, secretSet: true }],
     },
+    getVoiceStatus: {
+      installed: true,
+      enabled: true,
+      components: { whisper: true, model: true, ffmpeg: true },
+    },
   });
-  api.getZoomFactor = async () => 1;
-  api.setZoomFactor = async (value) => value;
   await renderSettings({ api });
-  assert.match(document.body.textContent, /Zoom/);
+  assert.doesNotMatch(document.body.textContent, /Zoom/);
   for (const [category, expected] of [
-    ['Models', /Agent routes/],
-    ['Channels', /Schedules.*daily.*Webhook endpoints.*github/s],
-    ['Capabilities', /Memory/],
+    ['Models', /Main route.*Search route/s],
+    ['Workflows', /Workflow packs.*Agent routes/s],
+    ['Channels', /Voice transcription.*Disable voice.*Schedules.*daily.*Webhook endpoints.*github/s],
+    ['Memory', /Core memories/],
     ['System', /Run doctor/],
   ]) {
     await act(async () => {
@@ -198,6 +277,322 @@ test('category panes expose Mixdog-specific zoom, routes, automation, memory, an
       await Promise.resolve();
     });
     assert.match(document.body.textContent, expected);
+  }
+});
+
+test('flattened panes commit provider, TUI-safe MCP and hook toggles, and model-route mutations', async () => {
+  mount();
+  const { api, calls } = capabilityApi({
+    getProviderSetup: {
+      api: [{ id: 'anthropic', name: 'Anthropic', authenticated: false }],
+      oauth: [{ id: 'openai', name: 'OpenAI OAuth', authenticated: true, enabled: true }],
+      local: [],
+    },
+    mcpStatus: {
+      connectedCount: 1,
+      configuredCount: 1,
+      servers: [{ name: 'existing-mcp', transport: 'stdio', status: 'connected', enabled: true }],
+    },
+    hooksStatus: {
+      ruleCount: 1,
+      rules: [{ index: 0, tool: 'shell', action: 'ask', enabled: true }],
+    },
+    __providerModels: [
+      { provider: 'openai', model: 'gpt-current', display: 'Current', effortOptions: [], fastCapable: false, fastPreferred: false },
+      { provider: 'openai', model: 'gpt-next', display: 'Next', effortOptions: [], fastCapable: false, fastPreferred: false },
+    ],
+    __snapshot: { provider: 'openai', model: 'gpt-current', effort: 'auto', fast: false },
+  });
+  await renderSettings({ api });
+
+  const openCategory = async (label) => {
+    await act(async () => {
+      Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+        .find((button) => button.textContent === label).click();
+      await Promise.resolve();
+    });
+  };
+  const submit = async (form) => {
+    await act(async () => {
+      form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+  await openCategory('Providers');
+  const providerForm = document.querySelector('input[name="secret"]').closest('form');
+  providerForm.querySelector('input[name="secret"]').value = 'sk-test';
+  await submit(providerForm);
+  assert.ok(calls.some(([name, args]) => name === 'saveProviderApiKey'
+    && args[0] === 'anthropic' && args[1] === 'sk-test'));
+
+  await openCategory('MCP');
+  assert.equal(document.querySelector('input[name="commandOrUrl"]') === null, true,
+    'selector input[name="commandOrUrl"] should be absent');
+  const mcpRow = Array.from(document.querySelectorAll('.settings-resource'))
+    .find((row) => row.textContent.includes('existing-mcp'));
+  assert.equal(mcpRow.querySelector('button.danger') === null, true,
+    'the MCP row should not render a danger button');
+  await act(async () => {
+    mcpRow.querySelector('button').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setMcpServerEnabled'
+    && args[0] === 'existing-mcp' && args[1] === false));
+
+  await openCategory('Hooks');
+  assert.equal(document.querySelector('input[name="tool"]') === null, true,
+    'selector input[name="tool"] should be absent');
+  const hookRow = Array.from(document.querySelectorAll('.settings-resource'))
+    .find((row) => row.textContent.includes('shell → ask'));
+  assert.equal(hookRow.querySelector('button.danger') === null, true,
+    'the hook row should not render a danger button');
+  await act(async () => {
+    hookRow.querySelector('button').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setHookRuleEnabled'
+    && args[0] === 0 && args[1] === false));
+
+  await openCategory('Models');
+  const modelRow = document.querySelector('button[aria-label="Model"]').closest('.mixdog-settings__row');
+  const effortRow = document.querySelector('button[aria-label="Effort"]').closest('.mixdog-settings__row');
+  assert.notEqual(modelRow, effortRow);
+  assert.equal(modelRow.querySelector('.mixdog-settings__row-title').textContent, 'Model');
+  assert.equal(effortRow.querySelector('.mixdog-settings__row-title').textContent, 'Effort');
+  await act(async () => document.querySelector('button[aria-label="Model"]').click());
+  assert.ok(document.querySelector('.model-picker-dialog'));
+  assert.ok(document.querySelector('input[aria-label="Search providers"]'));
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.includes('OpenAI')).click();
+    await Promise.resolve();
+  });
+  assert.ok(document.querySelector('input[aria-label="Search models"]'));
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.includes('Next')).click();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setModelRoute'
+    && args[0]?.provider === 'openai' && args[0]?.model === 'gpt-next'));
+});
+
+test('Models keeps search controls separate while Workflows owns agent routes', async () => {
+  mount();
+  const { api, calls } = capabilityApi({
+    getProviderSetup: {
+      api: [],
+      oauth: [{ id: 'openai', name: 'OpenAI OAuth', authenticated: true, enabled: true }],
+      local: [],
+    },
+    getSearchRoute: { provider: 'openai', model: 'gpt-search', effort: 'high', fast: true },
+    listSearchModels: [{
+      provider: 'openai',
+      model: 'gpt-search',
+      display: 'Search',
+      effortOptions: [{ value: 'high', label: 'High' }],
+      fastCapable: true,
+      fastPreferred: true,
+    }],
+    listAgents: [{
+      id: 'worker',
+      name: 'Worker',
+      workflowSlot: 'worker',
+      route: { provider: 'openai', model: 'gpt-worker', effort: 'high', fast: true },
+    }],
+    __providerModels: [{
+      provider: 'openai',
+      model: 'gpt-worker',
+      display: 'Worker',
+      effortOptions: [{ value: 'high', label: 'High' }],
+      fastCapable: true,
+      fastPreferred: true,
+    }],
+  });
+  await renderSettings({ api });
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Models').click();
+    await Promise.resolve();
+  });
+  const searchGroup = Array.from(document.querySelectorAll('.settings-group'))
+    .find((group) => group.querySelector('h3')?.textContent === 'Search route');
+  const searchModel = searchGroup.querySelector('button[aria-label="Web-search model"]');
+  const searchEffort = searchGroup.querySelector('button[aria-label="Effort"]');
+  const searchFast = searchGroup.querySelector('button[aria-label="Fast mode"]');
+  assert.ok(searchModel);
+  assert.ok(searchEffort);
+  assert.ok(searchFast);
+  assert.notEqual(searchModel.closest('.mixdog-settings__row'), searchEffort.closest('.mixdog-settings__row'));
+  assert.ok(searchModel.closest('.settings-route-row'));
+  assert.ok(searchEffort.closest('.effort-control'));
+  assert.ok(searchFast.closest('.fast-control'));
+  assert.match(searchFast.textContent, /Fast On/);
+  assert.equal(searchGroup.querySelector('input[type="checkbox"]') === null, true,
+    'the search group should not render a checkbox');
+  await act(async () => {
+    searchFast.click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.trim() === 'Fast Off').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setSearchRoute' && args[0]?.fast === false));
+  assert.doesNotMatch(document.body.textContent, /Workflow packs|Agent routes/);
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Workflows').click();
+    await Promise.resolve();
+  });
+  const workerRow = Array.from(document.querySelectorAll('.settings-resource'))
+    .find((row) => row.textContent.includes('Worker'));
+  assert.ok(workerRow.classList.contains('settings-agent-route'));
+  assert.equal(workerRow.querySelectorAll('.settings-route-controls > *').length, 3);
+  const workerFast = workerRow.querySelector('button[aria-label="Worker route fast mode"]');
+  assert.match(workerFast.textContent, /Fast On/);
+  assert.equal(workerRow.querySelector('input[type="checkbox"]') === null, true,
+    'the worker row should not render a checkbox');
+  await act(async () => {
+    workerFast.click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.trim() === 'Fast Off').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setAgentRoute'
+    && args[0] === 'worker' && args[1]?.fast === false));
+  assert.equal(workerRow.querySelector('.settings-meta') === null, true,
+    'the worker row should not render settings metadata');
+  assert.doesNotMatch(workerRow.textContent, /explorer|fixed slot/i);
+});
+
+test('selected output styles and workflows use Active status badges without internal metadata labels', async () => {
+  mount();
+  const { api } = capabilityApi({
+    listOutputStyles: {
+      configured: 'simple',
+      current: { id: 'simple', label: 'Simple' },
+      styles: [{ id: 'default', label: 'Default' }, { id: 'simple', label: 'Simple' }],
+    },
+    listWorkflows: [{ id: 'solo', name: 'Solo', active: true, source: 'internal-workflow' }],
+    listAgents: [{
+      id: 'explore',
+      name: 'Explore',
+      workflowSlot: 'explorer',
+      route: { provider: 'default', model: 'default' },
+    }],
+  });
+  await renderSettings({ api });
+  const open = async (label) => {
+    await act(async () => {
+      Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+        .find((button) => button.textContent === label).click();
+      await Promise.resolve();
+    });
+  };
+  await open('Output style');
+  const simple = Array.from(document.querySelectorAll('.settings-resource'))
+    .find((row) => row.textContent.includes('Simple'));
+  assert.equal(simple.querySelector('.settings-status')?.textContent, 'Active');
+  assert.ok(simple.querySelector('.settings-status--positive'));
+  assert.equal(simple.querySelector('.settings-selected-check') === null, true,
+    'the simple option should not render a selected check');
+  await open('Workflows');
+  const solo = Array.from(document.querySelectorAll('.settings-resource'))
+    .find((row) => row.textContent.includes('Solo'));
+  assert.equal(solo.querySelector('.settings-status')?.textContent, 'Active');
+  assert.ok(solo.querySelector('.settings-status--positive'));
+  assert.doesNotMatch(document.body.textContent, /internal-workflow|explorer|fixed slot/i);
+});
+
+test('status badges stay with row titles while metadata and actions remain separate', async () => {
+  mount();
+  const { api, calls } = capabilityApi({
+    getProviderSetup: {
+      api: [
+        { id: 'openai', name: 'OpenAI', authenticated: true, stored: true },
+        { id: 'anthropic', name: 'Anthropic', authenticated: false, status: 'not connected' },
+      ],
+      oauth: [{ id: 'openai-oauth', name: 'OpenAI OAuth', authenticated: true, enabled: true }],
+      local: [
+        { id: 'ollama', name: 'Ollama', status: 'enabled', detected: true, enabled: true, baseURL: 'http://localhost:11434/v1' },
+        { id: 'lmstudio', name: 'LM Studio', status: 'off', detected: true, enabled: false, baseURL: 'http://localhost:1234/v1' },
+      ],
+    },
+    mcpStatus: {
+      connectedCount: 1,
+      configuredCount: 1,
+      failedCount: 0,
+      servers: [{ name: 'docs', status: 'connected', toolCount: 3, enabled: true }],
+    },
+    getChannelSetup: {
+      backend: 'discord',
+      discord: { stored: true, status: 'set' },
+      telegram: { stored: true, status: 'set' },
+      webhook: { stored: true, status: 'set' },
+      channel: { discordChannelId: '111', telegramChatId: '222' },
+    },
+  });
+  await renderSettings({ api });
+  const open = async (label) => {
+    await act(async () => {
+      Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+        .find((button) => button.textContent === label).click();
+      await Promise.resolve();
+    });
+  };
+  await open('Providers');
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.settings-group > header h3'), (node) => node.textContent),
+    ['OAuth providers', 'API-key providers', 'Local providers'],
+  );
+  assert.doesNotMatch(document.body.textContent, /Save API key/);
+  const providerRows = Array.from(document.querySelectorAll('.settings-resource'));
+  const connected = providerRows.find((row) => row.textContent.includes('OpenAI'));
+  const disconnected = providerRows.find((row) => row.textContent.includes('Anthropic'));
+  assert.equal(connected.querySelector('.settings-status')?.textContent, 'Connected');
+  assert.ok(connected.querySelector('.settings-status--positive'));
+  assert.equal(disconnected.querySelector('.settings-status')?.textContent, 'Not connected');
+  assert.ok(disconnected.querySelector('.settings-status--neutral'));
+  assert.equal(connected.querySelector('.settings-resource-control .settings-status') === null, true,
+    'the connected resource control should not duplicate its status');
+  assert.ok(disconnected.querySelector('input[aria-label="Anthropic API key"]'));
+  const localForms = Array.from(document.querySelectorAll('.settings-form-row'))
+    .filter((row) => /endpoint/.test(row.textContent));
+  assert.deepEqual(localForms.map((row) => row.querySelector('button')?.textContent), ['Save', 'Save']);
+  const lmStudioEndpoint = document.querySelector('input[aria-label="LM Studio endpoint"]');
+  lmStudioEndpoint.value = 'http://localhost:5678/v1';
+  await act(async () => {
+    lmStudioEndpoint.closest('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setLocalProvider'
+    && args[0] === 'lmstudio' && args[1]?.enabled === false
+    && args[1]?.baseURL === 'http://localhost:5678/v1'));
+  await open('MCP');
+  const server = Array.from(document.querySelectorAll('.settings-resource'))
+    .find((row) => row.textContent.includes('docs'));
+  assert.equal(server.querySelector('.settings-status')?.textContent, 'Connected');
+  assert.equal(server.querySelector('.settings-resource-meta')?.textContent, '3 tools');
+  assert.equal(server.querySelector('.settings-resource-control .settings-status') === null, true,
+    'the server resource control should not duplicate its status');
+  await open('Channels');
+  for (const title of ['Discord bot token', 'Telegram bot token', 'ngrok auth token']) {
+    const form = document.querySelector(`input[aria-label="${title}"]`).closest('.settings-form-row');
+    assert.ok(form.firstElementChild.classList.contains('settings-resource-title'));
+    assert.equal(form.firstElementChild.querySelector('.settings-status')?.textContent, 'Saved');
+    assert.equal(form.querySelector('.settings-form-controls .settings-status') === null, true,
+      `${title} controls should not contain the Saved status`);
   }
 });
 
@@ -224,16 +619,13 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
   assert.deepEqual(calls[1], ['setBackend', ['telegram']]);
 });
 
-test('Auto-clear duration and inline notices match TUI formatting and channel restart guidance', async () => {
+test('channel backend change surfaces restart guidance while the remote worker runs', async () => {
   mount();
   const { api } = capabilityApi({
-    getAutoClear: { enabled: true, idleMs: 5_400_000, provider: 'default', providerDefaults: [] },
     isRemoteEnabled: true,
     getChannelWorkerStatus: { running: true, pid: 42 },
   });
   await renderSettings({ api });
-  assert.match(document.body.textContent, /On \(1h 30m 0s\)/);
-  assert.match(document.body.textContent, /Clear idle sessions after 1h 30m 0s/);
   await act(async () => {
     Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
       .find((button) => button.textContent === 'Channels').click();
@@ -247,9 +639,9 @@ test('Auto-clear duration and inline notices match TUI formatting and channel re
   assert.match(document.querySelector('[role="status"]')?.textContent || '', /Channel set to Telegram\. Restart remote to apply\./);
 });
 
-test('Auto-clear opens advanced options while its switch remains inline', async () => {
+test('General keeps the Auto-clear switch and provider idle windows inline', async () => {
   mount();
-  const { api } = capabilityApi({
+  const { api, calls } = capabilityApi({
     getAutoClear: {
       enabled: true,
       idleMs: 3_600_000,
@@ -257,58 +649,106 @@ test('Auto-clear opens advanced options while its switch remains inline', async 
     },
   });
   await renderSettings({ api });
+  assert.equal(document.querySelector('button[aria-label="Open Auto-clear options"]') === null, true,
+    'selector button[aria-label="Open Auto-clear options"] should be absent');
+  assert.match(document.body.textContent, /idle window/);
+  assert.ok(document.querySelector('input[aria-label="Auto-clear"]'));
+  assert.ok(Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Reset'));
+  const duration = document.querySelector('input[name="duration"]');
+  assert.equal(duration.value, '10m');
+  assert.equal(Array.from(duration.closest('.settings-form-row').querySelectorAll('button'))
+    .some((button) => button.textContent === 'Save'), false);
   await act(async () => {
-    document.querySelector('button[aria-label="Open Auto-clear options"]').click();
+    duration.value = '45m';
+    duration.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }));
+    await Promise.resolve();
     await Promise.resolve();
   });
-  assert.match(document.body.textContent, /Provider default idle windows/);
-  assert.ok(document.querySelector('input[aria-label="Auto-clear"]'));
-  assert.ok(document.querySelector('input[name="duration"]'));
-  assert.ok(document.querySelector('button[aria-label="Back to settings"]'));
+  assert.ok(calls.some(([name, args]) => name === 'setAutoClear'
+    && args[0]?.provider === 'openai' && args[0]?.duration === '45m'));
 });
 
-test('channel Setting mirrors Discord and Telegram token/target pickers without voice or webhook controls', async () => {
-  mount();
-  const { api } = capabilityApi();
-  await renderSettings({ api, initialSection: 'channel-setting' });
-  assert.equal(document.querySelector('.mixdog-settings__rail button.active')?.textContent, 'Channels');
-  assert.match(document.body.textContent, /Discord/);
-  assert.match(document.body.textContent, /Telegram/);
-  assert.match(document.body.textContent, /Bot token/);
-  assert.match(document.body.textContent, /Main channel/);
-  assert.match(document.body.textContent, /Main chat/);
-  assert.doesNotMatch(document.body.textContent, /Voice|Webhook|ngrok|Schedules/);
-});
-
-test('theme previews without persistence and restores the opening theme on Back', async () => {
+test('channel-setting deep link opens the Channels tab with token and target forms', async () => {
   mount();
   const { api, calls } = capabilityApi({
-    listThemes: [{ id: 'basic', label: 'Basic' }, { id: 'light', label: 'Light' }],
+    getChannelSetup: {
+      backend: 'discord',
+      discord: { authenticated: true, stored: true, status: 'Set' },
+      telegram: { authenticated: true, stored: true, status: 'Set' },
+      channel: { discordChannelId: '111', telegramChatId: '222' },
+    },
+  });
+  await renderSettings({ api, initialSection: 'channel-setting' });
+  assert.equal(document.querySelector('.mixdog-settings__rail button.active')?.textContent, 'Channels');
+  assert.equal(document.querySelector('button[aria-label="Back to settings"]') === null, true,
+    'selector button[aria-label="Back to settings"] should be absent');
+  assert.match(document.body.textContent, /Discord bot token/);
+  assert.match(document.body.textContent, /Telegram bot token/);
+  assert.match(document.body.textContent, /Main channel/);
+  assert.match(document.body.textContent, /Main chat/);
+  assert.match(document.body.textContent, /ngrok domain/);
+  for (const title of ['Discord bot token', 'Telegram bot token']) {
+    const input = document.querySelector(`input[aria-label="${title}"]`);
+    const row = input.closest('.settings-form-row');
+    assert.match(input.placeholder, /Saved/);
+    assert.equal(row.querySelector('.settings-status')?.textContent, 'Saved');
+    assert.ok(row.querySelector('.settings-status--positive'));
+    assert.equal(row.querySelector('button')?.textContent, 'Replace');
+  }
+  const channel = document.querySelector('input[aria-label="Main channel"]');
+  assert.equal(channel.closest('.settings-form-row').querySelector('button') === null, true,
+    'the channel row should not render an action button');
+  await act(async () => {
+    channel.value = '222';
+    channel.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setChannel'
+    && args[0]?.backend === 'discord' && args[0]?.channelId === '222'));
+});
+
+test('General exposes the full TUI theme registry with live preview, restore, and persistence', async () => {
+  mount();
+  const { api, calls } = capabilityApi({
+    listThemes: [
+      { id: 'basic', label: 'Basic', description: 'Default dark theme' },
+      { id: 'nord', label: 'Nord', description: 'Arctic palette' },
+      { id: 'light', label: 'Light', description: 'Light theme' },
+    ],
     getTheme: 'basic',
   });
   await renderSettings({ api, initialSection: 'theme' });
   assert.equal(document.querySelector('.mixdog-settings__rail button.active')?.textContent, 'General');
-  assert.ok(document.querySelector('.mixdog-settings__header.is-subpage'));
-  assert.ok(document.querySelector('.mixdog-settings__body.is-subpage'));
-  assert.equal(document.querySelector('.settings-section-heading'), null);
+  assert.equal(Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+    .some((button) => button.textContent === 'Theme'), false);
+  assert.equal(document.querySelector('button[aria-label="Back to settings"]') === null, true,
+    'selector button[aria-label="Back to settings"] should be absent');
   assert.deepEqual(
-    Array.from(document.querySelectorAll('.mixdog-settings__header h1, .mixdog-settings__body h2, .mixdog-settings__body h3'))
-      .filter((node) => node.textContent.trim() === 'Theme')
-      .map((node) => node.tagName),
-    ['H1'],
+    Array.from(document.querySelectorAll('.settings-theme-choice .settings-resource-title > b'), (node) => node.textContent),
+    ['Basic', 'Nord', 'Light'],
   );
-  const light = Array.from(document.querySelectorAll('.settings-resource'))
-    .find((entry) => entry.textContent.includes('Light'));
+  assert.equal(document.querySelector('.settings-theme-choice .settings-status')?.textContent, 'Active');
+  const nord = Array.from(document.querySelectorAll('.settings-theme-choice'))
+    .find((entry) => entry.textContent.includes('Nord'));
   await act(async () => {
-    light.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
+    nord.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
     await Promise.resolve();
   });
-  assert.ok(calls.some(([capability, args]) => capability === 'setTheme' && args[0] === 'light' && args[1]?.persist === false));
+  assert.equal(document.documentElement.dataset.mixdogTheme, 'nord');
   await act(async () => {
-    document.querySelector('button[aria-label="Back to settings"]').click();
+    nord.dispatchEvent(new window.MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
     await Promise.resolve();
   });
-  assert.ok(calls.some(([capability, args]) => capability === 'setTheme' && args[0] === 'basic' && args[1]?.persist === false));
+  assert.equal(document.documentElement.dataset.mixdogTheme, 'basic');
+  await act(async () => {
+    nord.querySelector('button').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([capability, args]) => capability === 'setTheme'
+    && args[0] === 'nord' && args[1]?.persist === true));
+  assert.equal(document.documentElement.dataset.mixdogTheme, 'nord');
 });
 
 test('update auto-checks on open and Update now runs without confirmation', async () => {
@@ -322,17 +762,19 @@ test('update auto-checks on open and Update now runs without confirmation', asyn
   const update = Array.from(document.querySelectorAll('button')).find((button) => button.textContent.includes('Update to'));
   await act(async () => { update.click(); await Promise.resolve(); });
   assert.ok(calls.some(([capability]) => capability === 'runUpdateNow'));
-  assert.equal(document.querySelector('[role="alertdialog"]'), null);
+  assert.equal(document.querySelector('[role="alertdialog"]') === null, true,
+    'selector [role="alertdialog"] should be absent');
 });
 
 test('plugins expose MCP enable only for script-backed MCP', async () => {
   mount();
   const { api } = capabilityApi({
     pluginsStatus: {
-      count: 2,
+      count: 3,
       plugins: [
         { id: 'inline', name: 'Inline', mcpInline: true },
         { id: 'script', name: 'Script', mcpScript: 'scripts/run-mcp.mjs' },
+        { id: 'local', name: 'Local', sourceType: 'local', mcpScript: 'scripts/local-mcp.mjs', mcpEnabled: true },
       ],
     },
   });
@@ -340,6 +782,128 @@ test('plugins expose MCP enable only for script-backed MCP', async () => {
   const pluginRows = Array.from(document.querySelectorAll('.settings-resource'));
   assert.doesNotMatch(pluginRows.find((row) => row.textContent.includes('Inline')).textContent, /Enable MCP/);
   assert.match(pluginRows.find((row) => row.textContent.includes('Script')).textContent, /Enable MCP/);
+  assert.match(pluginRows.find((row) => row.textContent.includes('Local')).textContent, /Update metadata/);
+  assert.match(pluginRows.find((row) => row.textContent.includes('Local')).textContent, /Reconfigure MCP/);
+  assert.doesNotMatch(document.body.textContent, /Refresh metadata|Refresh MCP/);
+});
+
+test('empty resource collections use full list rows across settings categories', async () => {
+  mount();
+  const { api } = capabilityApi({ listAgents: [], listWorkflows: [] });
+  await renderSettings({ api });
+  const expected = new Map([
+    ['Workflows', ['No workflows found.', 'No agent routes found.']],
+    ['Providers', ['No OAuth providers available.', 'No API-key providers available.', 'No local providers available.']],
+    ['Channels', ['No schedules configured.', 'No webhook endpoints configured.']],
+    ['MCP', ['No MCP servers configured.']],
+    ['Plugins', ['No plugins installed.']],
+    ['Hooks', ['No hook rules configured.']],
+    ['Skills', ['No skills found.']],
+  ]);
+  for (const [category, messages] of expected) {
+    await act(async () => {
+      Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+        .find((button) => button.textContent === category).click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    assert.deepEqual(
+      Array.from(document.querySelectorAll('.settings-empty-list'), (node) => node.textContent),
+      messages,
+    );
+  }
+});
+
+test('Memory separates input from rows, hides ids, sorts newest first, and reloads after changes', async () => {
+  mount();
+  const { api } = capabilityApi();
+  const invokeCapability = api.invokeCapability;
+  let listCalls = 0;
+  api.invokeCapability = async (request) => {
+    if (request.capability !== 'memoryControl') return invokeCapability(request);
+    if (request.args?.[0]?.op !== 'list') return { value: 'Saved' };
+    listCalls += 1;
+    return { value: listCalls === 1
+      ? 'COMMON:\nid=2 Older element — Older memory\nproject-alpha:\nid=7 Newest element — Newest memory\nid=4 Middle element — Middle memory'
+      : 'COMMON:\nid=9 Added element — Added memory\nid=2 Older element — Older memory' };
+  };
+  await renderSettings({ api });
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Memory').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  assert.ok(document.querySelector('.core-memory-add-card .core-memory-add'));
+  assert.equal(document.querySelector('.core-memory-id') === null, true,
+    'selector .core-memory-id should be absent');
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.core-memory-copy b'), (node) => node.textContent),
+    ['Newest memory', 'Middle memory', 'Older memory'],
+  );
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.core-memory-scope'), (node) => node.textContent),
+    ['project-alpha', 'project-alpha', 'Common'],
+  );
+  assert.equal(Array.from(document.querySelectorAll('button')).some((button) => button.textContent === 'Refresh memories'), false);
+
+  const addForm = document.querySelector('.core-memory-add');
+  const input = addForm.querySelector('input');
+  input.value = 'Added memory';
+  await act(async () => {
+    addForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(listCalls, 2);
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.core-memory-copy b'), (node) => node.textContent),
+    ['Added memory', 'Older memory'],
+  );
+});
+
+test('entry-loaded command and runtime status surfaces omit manual Refresh controls', async () => {
+  mount();
+  const commandCalls = [];
+  const api = {
+    invokeCapability: async ({ capability }) => {
+      commandCalls.push(capability);
+      return { value: {} };
+    },
+    getSnapshot: async () => ({ items: [], queued: [] }),
+  };
+  await act(async () => {
+    root.render(React.createElement(CommandSurface, {
+      surface: 'context',
+      api,
+      onClose() {},
+      onOpen() {},
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(commandCalls.includes('contextStatus'));
+  assert.equal(Array.from(document.querySelectorAll('button')).some((button) => button.textContent.trim() === 'Refresh'), false);
+
+  await act(async () => root.render(null));
+  const statusCalls = [];
+  window.mixdogDesktop = {
+    invokeCapability: async ({ capability }) => {
+      statusCalls.push(capability);
+      return { value: { running: true, pid: 42 } };
+    },
+    getSnapshot: async () => ({ items: [], queued: [] }),
+  };
+  await act(async () => root.render(React.createElement(StatusPopover)));
+  await act(async () => {
+    document.querySelector('button[aria-label="Runtime status"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(statusCalls.includes('getChannelWorkerStatus'));
+  assert.equal(Array.from(document.querySelectorAll('button')).some((button) => button.textContent.trim() === 'Refresh'), false);
 });
 
 test('modal closes on Escape and restores the exact prior focus', async () => {
@@ -356,17 +920,16 @@ test('modal closes on Escape and restores the exact prior focus', async () => {
     await Promise.resolve();
   });
   assert.equal(closes, 1);
-  assert.equal(document.activeElement, before);
+  assert.equal(document.activeElement === before, true,
+    'closing settings should restore prior focus');
 });
 
 test('Settings lets a portaled select consume Escape without closing the dialog', async () => {
   mount();
   const { api } = capabilityApi();
-  api.getZoomFactor = async () => 1;
-  api.setZoomFactor = async (value) => value;
   let closes = 0;
   await renderSettings({ api, onClose: () => { closes += 1; } });
-  const select = document.querySelector('button[role="combobox"][aria-label="Zoom"]');
+  const select = document.querySelector('button[role="combobox"][aria-label="Language"]');
   await act(async () => {
     select.click();
     await Promise.resolve();
@@ -377,10 +940,12 @@ test('Settings lets a portaled select consume Escape without closing the dialog'
     document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('.oc-menu[role="listbox"]'), null);
+  assert.equal(document.querySelector('.oc-menu[role="listbox"]') === null, true,
+    'selector .oc-menu[role="listbox"] should be absent');
   assert.ok(document.querySelector('.mixdog-settings[role="dialog"]'));
   assert.equal(closes, 0);
-  assert.equal(document.activeElement, select);
+  assert.equal(document.activeElement === select, true,
+    'closing the select should restore trigger focus');
 });
 
 test('onboarding skip requires confirmation, cancels safely, and only skips after explicit approval', async () => {
@@ -398,20 +963,24 @@ test('onboarding skip requires confirmation, cancels safely, and only skips afte
     await Promise.resolve();
     await Promise.resolve();
   });
+  assert.equal(Array.from(document.querySelectorAll('button')).some((button) => button.textContent.trim() === 'Refresh'), false);
 
   const trigger = document.querySelector('.onboarding-dialog > footer > button.secondary');
   await act(async () => trigger.click());
   let confirmation = document.querySelector('[role="alertdialog"][aria-labelledby="onboarding-skip-title"]');
   assert.ok(confirmation);
   assert.equal(calls.includes('skipOnboarding'), false);
-  assert.equal(document.activeElement, confirmation.querySelector('footer button'));
+  assert.equal(document.activeElement === confirmation.querySelector('footer button'), true,
+    'the confirmation should focus its footer action');
 
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('[role="alertdialog"]'), null);
-  assert.equal(document.activeElement, trigger);
+  assert.equal(document.querySelector('[role="alertdialog"]') === null, true,
+    'selector [role="alertdialog"] should be absent');
+  assert.equal(document.activeElement === trigger, true,
+    'closing the confirmation should restore trigger focus');
   assert.equal(calls.includes('skipOnboarding'), false);
 
   await act(async () => trigger.click());
@@ -445,7 +1014,10 @@ test('onboarding lets a portaled model menu consume Escape without opening skip 
     document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('.oc-menu[role="listbox"]'), null);
-  assert.equal(document.querySelector('[role="alertdialog"]'), null);
-  assert.equal(document.activeElement, select);
+  assert.equal(document.querySelector('.oc-menu[role="listbox"]') === null, true,
+    'selector .oc-menu[role="listbox"] should be absent');
+  assert.equal(document.querySelector('[role="alertdialog"]') === null, true,
+    'selector [role="alertdialog"] should be absent');
+  assert.equal(document.activeElement === select, true,
+    'closing the confirmation should restore select focus');
 });

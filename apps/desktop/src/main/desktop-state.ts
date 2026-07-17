@@ -32,6 +32,7 @@ export function desktopSessionSummaries(
   rows: Array<Record<string, unknown>>,
   currentId: string,
   titles: Readonly<Record<string, string>> = {},
+  names: Readonly<Record<string, string>> = {},
 ): DesktopSessionSummary[] {
   return rows.flatMap((row): DesktopSessionSummary[] => {
     const rawMeta = row.desktopSession;
@@ -56,7 +57,7 @@ export function desktopSessionSummaries(
     return [{
       id,
       preview,
-      title: normalizeSessionTitle(titles[id] || preview),
+      title: normalizeSessionTitle(names[id] || titles[id] || preview),
       updatedAt: Number(row.updatedAt) || 0,
       cwd,
       classification,

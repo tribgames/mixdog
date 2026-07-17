@@ -40,6 +40,93 @@ const MOUSE_SHIFT_MASK = 4;
 // the shift-extend behavior (with XTSHIFTESCAPE opted in from index.jsx).
 const IS_WINDOWS_TERMINAL = Boolean(process.env.WT_SESSION);
 
+// Console-stream writes can fail asynchronously (notably transient EAGAIN on
+// Windows): try/catch only sees a synchronous throw. Keep this tiny helper
+// exported so the mode-restore failure path can be exercised without mounting
+// the full Ink app.
+export function writeMouseTrackingRestore(stdout, onError) {
+  try {
+    stdout.write(MOUSE_TRACKING_ON + ALT_SCROLL_OFF, (error) => {
+      if (error) onError(error);
+    });
+    return true;
+  } catch (error) {
+    onError(error);
+    return false;
+  }
+}
+
+const activeMouseTrackingRestoreSchedulers = new Set();
+
+// Called by index.jsx before restoring the host terminal. Disabling (rather
+// than merely clearing the current timer) also makes already-queued callbacks
+// and any late buffered ctrl+wheel event harmless while React is still mounted.
+export function cancelPendingMouseTrackingRestores() {
+  for (const scheduler of [...activeMouseTrackingRestoreSchedulers]) {
+    scheduler.disable();
+  }
+}
+
+export function createMouseTrackingRestoreScheduler(stdout, {
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+} = {}) {
+  let timer = null;
+  let generation = 0;
+  let disabled = false;
+
+  const cancel = () => {
+    generation += 1;
+    if (timer) clearTimeoutFn(timer);
+    timer = null;
+  };
+  const disable = () => {
+    disabled = true;
+    cancel();
+    activeMouseTrackingRestoreSchedulers.delete(scheduler);
+  };
+  const scheduler = {
+    attach() {
+      if (!disabled) activeMouseTrackingRestoreSchedulers.add(scheduler);
+    },
+    detach() {
+      activeMouseTrackingRestoreSchedulers.delete(scheduler);
+      cancel();
+    },
+    disable,
+    passthrough() {
+      // This check shares the scheduler's terminal-restored latch. Keeping the
+      // OFF write here (rather than in the hook) prevents a late buffered wheel
+      // event from changing terminal modes after index.jsx has restored them.
+      if (disabled || !stdout?.write) return false;
+      try {
+        stdout.write(MOUSE_TRACKING_OFF + ALT_SCROLL_OFF);
+      } catch {
+        return false;
+      }
+      return scheduler.schedule();
+    },
+    schedule() {
+      if (disabled) return false;
+      cancel();
+      const scheduledGeneration = generation;
+      const restore = (attempt) => {
+        if (disabled || scheduledGeneration !== generation) return;
+        timer = null;
+        writeMouseTrackingRestore(stdout, () => {
+          if (disabled || scheduledGeneration !== generation || attempt >= 5) return;
+          timer = setTimeoutFn(() => restore(attempt + 1), 200);
+          timer?.unref?.();
+        });
+      };
+      timer = setTimeoutFn(() => restore(0), 700);
+      timer?.unref?.();
+      return true;
+    },
+  };
+  return scheduler;
+}
+
 export function useMouseInput({
   inkInput,
   isRawModeSupported,
@@ -67,43 +154,26 @@ export function useMouseInput({
   setMeasuredRowsVersion,
   clearStitchBuffer,
 }) {
-  const zoomTimerRef = useRef(null);
+  const zoomRestoreSchedulerRef = useRef(null);
+  if (!zoomRestoreSchedulerRef.current) {
+    zoomRestoreSchedulerRef.current = createMouseTrackingRestoreScheduler(stdout);
+  }
   // Edge auto-scroll timer state (see the effect below). Owned at hook scope so
   // it survives re-subscribes; the drag itself lives on the App-owned dragRef.
   const edgeAutoscrollRef = useRef({ dir: 0, timer: null, noMove: 0 });
 
   const passthroughCtrlWheelZoom = useCallback(() => {
-    if (!stdout?.write) return;
-    try {
-      stdout.write(MOUSE_TRACKING_OFF + ALT_SCROLL_OFF);
-    } catch {
-      return;
-    }
-    // Re-enable with RETRIES: a single swallowed write failure (EAGAIN
-    // backpressure is real on Windows console streams) used to leave mouse
-    // tracking off for the rest of the session — wheel scroll dead, and with
-    // alternate scroll enabled the wheel then typed into prompt history.
-    const restore = (attempt) => {
-      zoomTimerRef.current = null;
-      try {
-        stdout.write(MOUSE_TRACKING_ON + ALT_SCROLL_OFF);
-      } catch {
-        // The terminal may be closing — but it may also be transient
-        // backpressure; retry a few times before giving up.
-        if (attempt < 5) {
-          zoomTimerRef.current = setTimeout(() => restore(attempt + 1), 200);
-          zoomTimerRef.current.unref?.();
-        }
-      }
-    };
-    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
-    zoomTimerRef.current = setTimeout(() => restore(0), 700);
-    zoomTimerRef.current.unref?.();
-  }, [stdout, zoomTimerRef]);
+    // Re-enable with retries. Console stream failures are normally reported to
+    // the write callback, not thrown by write(), so try/catch alone silently
+    // treated an EAGAIN restore as success and left tracking off indefinitely.
+    zoomRestoreSchedulerRef.current.passthrough();
+  }, []);
 
-  useEffect(() => () => {
-    if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
-  }, [zoomTimerRef]);
+  useEffect(() => {
+    const scheduler = zoomRestoreSchedulerRef.current;
+    scheduler.attach();
+    return () => scheduler.detach();
+  }, []);
 
   // Optional mouse handling. When index.jsx enables SGR mouse tracking
   // (?1000h button + ?1002h drag-motion + ?1006h SGR coords).

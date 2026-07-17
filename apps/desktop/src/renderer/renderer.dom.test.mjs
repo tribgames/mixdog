@@ -10,6 +10,9 @@ register(new URL("./settings/test-css-loader.mjs", import.meta.url));
 const { App, ApprovalCard, ContextUsageIndicator, LiveWorkStatus, TranscriptRow } = await import("./App.tsx");
 const { ContextBody } = await import("./CommandSurface.tsx");
 const { DesktopTitlebar } = await import("./navigation.tsx");
+const { OpenSelect } = await import("./OpenSelect.tsx");
+const { TooltipLayer } = await import("./TooltipLayer.tsx");
+const { acquireModalLayer } = await import("./modal-layer.ts");
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -85,11 +88,43 @@ async function selectFirstProject() {
   });
 }
 
+async function chooseSessionAction(row, action) {
+  await act(async () => {
+    row.querySelector(".session-row-more").click();
+    await Promise.resolve();
+  });
+  const menu = document.querySelector(`[data-session-menu-for="${row.dataset.sessionId}"]`);
+  assert.ok(menu, "session action menu should be present");
+  await act(async () => {
+    menu.querySelector(`.session-row-menu-${action}`).click();
+    await Promise.resolve();
+  });
+}
+
 afterEach(async () => {
   if (root) await act(async () => root?.unmount());
   root = undefined;
   dom?.window.close();
   dom = undefined;
+});
+
+test("toast region anchors to the sheet top-right", async () => {
+  installDom();
+  const first = { items: [], queued: [], sessionId: "first", toasts: [{ id: "toast", text: "Saved" }] };
+  window.mixdogDesktop = {
+    getSnapshot: async () => first,
+    listSessions: async () => [],
+    subscribeState: () => () => {},
+  };
+
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+  });
+  const region = document.querySelector(".oc-toast-region");
+  assert.ok(region, "toast region renders");
+  assert.equal(region.style.top !== "", true, "toast region is top-anchored");
+  assert.equal(region.style.bottom, "", "toast region has no bottom anchor");
 });
 
 test("live-work strip renders ordered snapshot segments and filters terminal agents", async () => {
@@ -139,7 +174,8 @@ test("live-work strip hides when snapshot work is terminal or empty", async () =
       shellJobs: { count: 0, elapsedLabel: "" },
     },
   })));
-  assert.equal(document.querySelector(".live-work-status"), null);
+  assert.equal(document.querySelector(".live-work-status") === null, true,
+    "selector .live-work-status should be absent");
 });
 
 test("context view renders engine stats and omits unavailable optional fields", async () => {
@@ -149,19 +185,47 @@ test("context view renders engine stats and omits unavailable optional fields", 
     provider: "anthropic",
     model: "claude-opus",
     contextWindow: 200_000,
+    rawContextWindow: 250_000,
     usedTokens: 15_920,
+    compaction: {
+      lastStage: "completed",
+      lastChanged: true,
+      compactType: "semantic",
+      triggerTokens: 180_000,
+      boundaryTokens: 200_000,
+    },
     messages: {
       count: 3,
       roles: {
         user: { count: 2, tokens: 2_500 },
         assistant: { count: 1, tokens: 5_000 },
       },
+      semantic: {
+        chat: { tokens: 2_500 },
+        assistant: { tokens: 5_000 },
+        memory: { tokens: 300 },
+        workspace: { tokens: 200 },
+        workflow: { tokens: 100 },
+        system: { tokens: 1_200 },
+        toolResults: { tokens: 400 },
+      },
+    },
+    request: {
+      toolSchemaBreakdown: {
+        code: { tokens: 1_600 },
+        mcp: { tokens: 700 },
+        skills: { tokens: 300 },
+        memory: { tokens: 100 },
+        agents: { tokens: 250 },
+      },
     },
     usage: {
-      totalInputTokens: 9_000,
-      totalOutputTokens: 1_000,
-      totalCachedReadTokens: 4_000,
-      totalCacheWriteTokens: 500,
+      lastInputTokens: 9_000,
+      lastUncachedInputTokens: 4_000,
+      lastOutputTokens: 1_000,
+      lastCachedReadTokens: 4_000,
+      lastCacheWriteTokens: 1_000,
+      lastContextTokens: 12_000,
     },
   };
   const snapshot = {
@@ -179,49 +243,31 @@ test("context view renders engine stats and omits unavailable optional fields", 
   };
   await act(async () => root.render(React.createElement(ContextBody, { status, snapshot })));
   const text = document.querySelector(".context-view")?.textContent || "";
-  assert.match(text, /Context fixture/);
-  assert.match(text, /Context limit200,000/);
-  assert.match(text, /Reasoning tokens250/);
-  assert.match(text, /Total cost(?:US)?\$0\.13/);
-  assert.match(text, /Usage79%/);
-  const percentages = Array.from(document.querySelectorAll(".context-breakdown-legend small"))
-    .map((element) => Number.parseInt(element.textContent, 10));
-  assert.equal(percentages.reduce((sum, value) => sum + value, 0), 100);
-  assert.equal(document.querySelectorAll(".context-raw-messages details").length, 2);
-  assert.equal(document.querySelector(".context-raw-messages pre"), null);
-  await act(async () => {
-    document.querySelector(".context-raw-messages details summary").click();
-    await Promise.resolve();
-  });
-  const projection = document.querySelector(".context-raw-messages pre")?.textContent || "";
-  assert.match(projection, /"text": "Question"/);
-  assert.doesNotMatch(projection, /hidden argument|hidden result|metadata|rawResult|args/);
-
-  await act(async () => root.render(React.createElement(ContextBody, {
-    status,
-    snapshot: { items: snapshot.items, stats: {} },
-  })));
-  const withoutOptional = document.querySelector(".context-view")?.textContent || "";
-  assert.doesNotMatch(withoutOptional, /Reasoning tokens|Total cost/);
-  assert.match(withoutOptional, /Input tokens9,000/);
+  assert.doesNotMatch(text, /Context fixture|sess_/);
+  assert.match(text, /7% used16k \/ 200k · 184k free/);
+  assert.match(text, /Sourceeffective 200k · raw 250k/);
+  assert.match(text, /Compactioncompleted · Compact complete · type semantic · trigger 180k · boundary 200k/);
+  assert.match(text, /API\/cachelast ctx 12k · uncached\/out 4\.0k\/1\.0k · raw in 9\.0k · write 1\.0k · cache 33%/);
+  assert.match(text, /Context mixMessages.*Tools.*MCP.*Skills.*Memory.*Session.*Workflow.*System.*Tool I\/O/);
+  assert.equal(document.querySelectorAll(".context-mix-row").length, 9);
+  assert.doesNotMatch(text, /Cost|\$|Question|hidden argument|hidden result|metadata|rawResult|args/);
 });
 
-test("context raw-message list pages in bounded batches", async () => {
+test("context view never projects raw transcript records", async () => {
   installDom();
-  const items = Array.from({ length: 205 }, (_, index) => ({
-    id: `message-${index}`, kind: "user", text: `Message ${index}`,
-  }));
   await act(async () => root.render(React.createElement(ContextBody, {
-    status: { usedTokens: 1, contextWindow: 100, messages: { roles: {} } },
-    snapshot: { items, stats: {} },
+    status: { usedTokens: 1, contextWindow: 100, messages: {}, usage: {} },
+    snapshot: {
+      items: [{ id: "secret", kind: "user", text: "private transcript", args: { token: "secret" } }],
+      stats: {},
+    },
   })));
-  assert.equal(document.querySelectorAll(".context-raw-messages details").length, 100);
-  assert.match(document.querySelector(".context-raw-messages")?.textContent || "", /latest 100 of 205/);
-  await act(async () => document.querySelector(".context-show-more").click());
-  assert.equal(document.querySelectorAll(".context-raw-messages details").length, 200);
+  assert.doesNotMatch(document.querySelector(".context-view")?.textContent || "", /private transcript|secret/);
+  assert.equal(document.querySelector(".context-raw-messages") === null, true,
+    "selector .context-raw-messages should be absent");
 });
 
-test("context view hides the breakdown for a zero-token session", async () => {
+test("context view keeps the TUI sections for a zero-token session", async () => {
   installDom();
   await act(async () => root.render(React.createElement(ContextBody, {
     status: {
@@ -239,8 +285,9 @@ test("context view hides the breakdown for a zero-token session", async () => {
     snapshot: { items: [], stats: {} },
   })));
   assert.equal(document.querySelector(".context-view") != null, true);
-  assert.equal(document.querySelector(".context-breakdown"), null);
-  assert.match(document.querySelector(".context-view")?.textContent || "", /Usage—/);
+  assert.equal(document.querySelector(".context-main-bar span")?.style.width, "0%");
+  assert.equal(document.querySelectorAll(".context-mix-row").length, 9);
+  assert.match(document.querySelector(".context-view")?.textContent || "", /0% used/);
 });
 
 test("header context usage floors percent and dismisses focus popover without reopening", async () => {
@@ -249,7 +296,7 @@ test("header context usage floors percent and dismisses focus popover without re
   await act(async () => root.render(React.createElement(ContextUsageIndicator, {
     snapshot: {
       sessionId: "usage",
-      stats: { currentContextTokens: 796 },
+      stats: { currentContextTokens: 796, costUsd: 12.5 },
       autoCompactTokenLimit: 1_000,
       displayContextWindow: 2_000,
     },
@@ -257,7 +304,11 @@ test("header context usage floors percent and dismisses focus popover without re
   })));
   const indicator = document.querySelector(".session-context-indicator");
   const trigger = indicator.querySelector("button");
-  assert.equal(trigger.querySelector("small")?.textContent, "79");
+  assert.equal(trigger.querySelector("small") === null, true,
+    "the compact context trigger should not render secondary text");
+  const popoverText = indicator.querySelector('[role="tooltip"]')?.textContent || "";
+  assert.match(popoverText, /Usage79%Tokens796 \/ 1,000/);
+  assert.doesNotMatch(popoverText, /Cost|\$/);
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
     trigger.focus();
@@ -275,6 +326,56 @@ test("header context usage floors percent and dismisses focus popover without re
   await act(async () => trigger.click());
   assert.equal(opens, 1);
   assert.equal(indicator.dataset.open, "false");
+});
+
+test("consecutive user messages mark only the follow-up as attached", async () => {
+  installDom();
+  await act(async () => root.render(React.createElement("div", { className: "thread" },
+    React.createElement(TranscriptRow, { item: { id: "user-1", kind: "user", text: "First" } }),
+    React.createElement(TranscriptRow, {
+      item: { id: "user-2", kind: "user", text: "Second" },
+      attachedUser: true,
+    }),
+    React.createElement(TranscriptRow, { item: { id: "assistant-1", kind: "assistant", text: "Reply" } }),
+  )));
+  const messages = document.querySelectorAll(".message");
+  assert.equal(messages.length, 3);
+  assert.equal(messages[0].classList.contains("attached-user"), false);
+  assert.equal(messages[1].classList.contains("attached-user"), true);
+  assert.equal(messages[2].classList.contains("attached-user"), false);
+});
+
+test("workspace overlays clamp upward menus and tooltip widths to the sheet", async () => {
+  installDom();
+  Object.defineProperty(window, "innerHeight", { value: 820, configurable: true });
+  const sheetRect = { left: 302, top: 42, right: 572, bottom: 220, width: 270, height: 178 };
+  await act(async () => root.render(React.createElement("div", { className: "workspace" },
+    React.createElement(OpenSelect, {
+      ariaLabel: "Sheet bounded select",
+      options: Array.from({ length: 20 }, (_, index) => ({ value: String(index), label: `Option ${index}` })),
+    }),
+    React.createElement("button", { "data-tooltip": "A deliberately long sheet tooltip" }, "Tooltip"),
+    React.createElement(TooltipLayer),
+  )));
+  const workspace = document.querySelector(".workspace");
+  const select = document.querySelector('[aria-label="Sheet bounded select"]');
+  const tooltipTarget = document.querySelector("[data-tooltip]");
+  Object.defineProperty(workspace, "getBoundingClientRect", { value: () => sheetRect });
+  Object.defineProperty(select, "getBoundingClientRect", {
+    value: () => ({ left: 500, top: 190, right: 560, bottom: 218, width: 60, height: 28 }),
+  });
+  Object.defineProperty(tooltipTarget, "getBoundingClientRect", {
+    value: () => ({ left: 500, top: 100, right: 560, bottom: 128, width: 60, height: 28 }),
+  });
+  await act(async () => select.click());
+  const menu = document.querySelector('[role="listbox"]');
+  assert.equal(menu.style.bottom, "634px", "upward menu should include the viewport inset below the sheet");
+  assert.equal(menu.style.maxHeight, "136px", "upward menu should fit above its trigger within the sheet");
+  await act(async () => {
+    tooltipTarget.focus();
+    await new Promise((resolve) => window.setTimeout(resolve, 160));
+  });
+  assert.equal(document.querySelector('[role="tooltip"]')?.style.maxWidth, "254px");
 });
 
 test("approval portal traps and restores focus, isolates background, reports failure, and denies on Escape", async () => {
@@ -384,7 +485,10 @@ test("message metadata uses engine per-item fields and localized short timestamp
   const footer = document.querySelector(".message.user .message-meta-line");
   assert.equal(footer?.querySelector(".message-meta")?.textContent, `Build\u00A0·\u00A0MiMo V2.5 Free\u00A0·\u00A0${expected}`);
   assert.equal(footer?.querySelector('[aria-label="Copy message"]') != null, true);
-  assert.equal(document.querySelector(".message.user > .message-actions"), null);
+  assert.equal(footer?.parentElement === document.querySelector("article.message.user"), true,
+    "the message footer should stay inside the user message");
+  assert.equal(document.querySelector(".message.user > .message-actions") === null, true,
+    "selector .message.user > .message-actions should be absent");
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "response-meta", kind: "assistant", text: "Done", at },
@@ -399,13 +503,15 @@ test("legacy messages omit unavailable metadata without losing actions", async (
     item: { id: "legacy-user", kind: "user", text: "Old prompt" },
   })));
   const userFooter = document.querySelector(".message.user .message-meta-line");
-  assert.equal(userFooter?.querySelector(".message-meta"), null);
+  assert.equal(userFooter?.querySelector(".message-meta") === null, true,
+    "selector .message-meta should be absent from the user footer");
   assert.equal(userFooter?.querySelector('[aria-label="Copy message"]') != null, true);
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "legacy-assistant", kind: "assistant", text: "Old response" },
   })));
-  assert.equal(document.querySelector(".response-footer .message-time"), null);
+  assert.equal(document.querySelector(".response-footer .message-time") === null, true,
+    "selector .response-footer .message-time should be absent");
   assert.equal(document.querySelector(".response-footer [aria-label='Copy response']") != null, true);
 });
 
@@ -516,6 +622,13 @@ test("conversation attaches only successful turn completion to the final assista
     document.querySelector(".task-link").click();
     await Promise.resolve();
   });
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(
+    document.activeElement === document.querySelector('textarea[aria-label="Message Mixdog"]'),
+    true,
+  );
 
   const response = { id: "assistant-linked", kind: "assistant", text: "Linked answer" };
   await act(async () => publish({
@@ -559,11 +672,19 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
 
   const shell = document.querySelector(".tool-card");
   assert.equal(shell?.dataset.category, "Shell");
-  assert.equal(shell?.querySelector(".tool-title b")?.textContent, "Run");
-  assert.equal(shell?.querySelector(".tool-title small")?.textContent, "npm test");
-  assert.equal(shell?.querySelector(".tool-result-summary")?.textContent, "Exit code: 0");
+  assert.equal(shell?.querySelector(".tool-title b")?.textContent, "Shell");
+  assert.equal(shell?.querySelector(".tool-title small") === null, true,
+    "selector .tool-title small should be absent");
+  assert.equal(shell?.querySelector(".tool-state") === null, true,
+    "selector .tool-state should be absent");
+  assert.equal(shell?.querySelector(".tool-title")?.nextElementSibling?.classList.contains("tool-chevron"), true);
+  assert.equal(shell?.querySelector(".tool-result-summary") === null, true,
+    "selector .tool-result-summary should be absent");
   await act(async () => shell?.querySelector(".tool-header")?.click());
   assert.equal(shell?.querySelector('[aria-label="Copy command output"]') != null, true);
+  assert.equal(shell?.querySelector(".shell-output")?.textContent, "$ npm test\n\nExit code: 0\nAll tests passed");
+  assert.equal(shell?.querySelector(".detail-block") === null, true,
+    "selector .detail-block should be absent");
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
     key: "shared-aggregate",
@@ -584,9 +705,14 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   })));
   const aggregate = document.querySelector(".tool-card");
   assert.equal(aggregate?.querySelector(".tool-title b")?.textContent, "Read 1 file, Searched 2 patterns");
-  assert.equal(aggregate?.querySelector(".tool-result-summary")?.textContent, "512 lines, 6 matches");
+  assert.equal(aggregate?.querySelector(".tool-state") === null, true,
+    "selector .tool-state should be absent from aggregate tools");
+  assert.equal(aggregate?.querySelector(".tool-result-summary") === null, true,
+    "selector .tool-result-summary should be absent from aggregate tools");
   await act(async () => aggregate?.querySelector(".tool-header")?.click());
-  assert.equal(aggregate?.querySelector('.detail-block-heading span')?.textContent, "Result");
+  assert.equal(aggregate?.querySelector(".tool-output")?.textContent, "512 lines, 6 matches");
+  assert.equal(aggregate?.querySelector(".detail-block-heading") === null, true,
+    "selector .detail-block-heading should be absent from aggregate tools");
   assert.equal(aggregate?.textContent?.includes("Input"), false);
 });
 
@@ -628,6 +754,8 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".sidebar-account") === null, true, "selector .sidebar-account should be absent");
   assert.equal(document.querySelector(".account-avatar") === null, true, "selector .account-avatar should be absent");
   assert.equal(document.querySelector(".session-sidebar-heading") === null, true, "selector .session-sidebar-heading should be absent");
+  assert.equal(document.querySelectorAll('[aria-label="Search sessions"]').length, 1,
+    "the sidebar should expose one session search input");
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Sessions/);
   assert.equal(document.querySelector(".workspace-project-trigger") === null, true, "selector .workspace-project-trigger should be absent");
   assert.equal(document.querySelector(".session-header-divider") === null, true, "selector .session-header-divider should be absent");
@@ -671,6 +799,103 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".sidebar").classList.contains("open"), true);
 });
 
+test("new tasks choose a registered project or open a folder from the composer context control", async () => {
+  installDom();
+  const starts = [];
+  const projectPath = "C:\\work\\sample";
+  const openedPath = "C:\\work\\opened";
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [{ path: projectPath, alias: "Sample", pinned: false }],
+    listSessions: async () => [],
+    chooseProject: async () => openedPath,
+    startProjectTask: async (path) => {
+      starts.push(path);
+      return { sessionId: `draft-${starts.length}`, currentProject: path, items: [], queued: [] };
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  let selector = document.querySelector('button[aria-label="Project context"]');
+  assert.match(selector.textContent, /Project/);
+  await act(async () => {
+    selector.click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.trim() === "Sample").click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.deepEqual(starts, [projectPath]);
+  selector = document.querySelector('button[aria-label="Project context"]');
+  assert.match(selector.textContent, /Sample/);
+  assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "New task");
+  assert.equal(document.querySelector(".session-project-badge") === null, true,
+    "selector .session-project-badge should be absent");
+
+  await act(async () => {
+    selector.click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll('[role="option"]'))
+      .find((option) => option.textContent.trim() === "Open folder…").click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.deepEqual(starts, [projectPath, openedPath]);
+  assert.match(document.querySelector('button[aria-label="Project context"]').textContent, /Project/i);
+  assert.doesNotMatch(document.querySelector('button[aria-label="Project context"]').textContent, /opened/i,
+    "an unregistered cwd must not be presented as a project");
+});
+
+test("project sessions show their project beside the session title", async () => {
+  installDom();
+  const projectPath = "C:\\work\\sample";
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [{ path: projectPath, alias: "Sample", pinned: false }],
+    listSessions: async () => [{
+      id: "project-session",
+      preview: "Project session",
+      title: "Project session",
+      updatedAt: 1,
+      cwd: projectPath,
+      classification: "project",
+      projectPath,
+      currentSession: false,
+    }],
+    resumeSession: async () => ({
+      sessionId: "project-session",
+      currentProject: projectPath,
+      items: [],
+      queued: [],
+    }),
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector('[data-session-id="project-session"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "Project session");
+  assert.equal(document.querySelector(".session-project-badge")?.textContent.trim(), "Sample");
+  assert.equal(document.querySelector('button[aria-label="Project context"]') === null, true,
+    "selector button[aria-label=\"Project context\"] should be absent");
+});
+
 test("sidebar footer exposes the settings entry point used by the reviewed settings dialog", async () => {
   installDom();
   window.mixdogDesktop = {
@@ -691,6 +916,53 @@ test("sidebar footer exposes the settings entry point used by the reviewed setti
   assert.equal(trigger.getAttribute("aria-label"), "Open settings");
   assert.equal(trigger.getAttribute("data-tooltip"), "Settings");
   assert.equal(trigger.getAttribute("title"), null);
+});
+
+test("sidebar separates registered Projects from Tasks and keeps each list newest-first", async () => {
+  installDom();
+  const resumes = [];
+  const sessions = Array.from({ length: 6 }, (_, index) => ({
+    id: `recent-${index + 1}`,
+    preview: `Recent ${index + 1}`,
+    title: `Recent ${index + 1}`,
+    updatedAt: index + 1,
+    cwd: "C:\\work",
+    classification: index % 2 ? "project" : "task",
+    projectPath: index % 2 ? "C:\\work" : null,
+    currentSession: false,
+  }));
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => sessions,
+    resumeSession: async (id) => {
+      resumes.push(id);
+      return { items: [], queued: [], sessionId: id };
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  assert.equal(document.querySelector(".session-sidebar > .task-link")?.textContent.trim(), "New task");
+  assert.deepEqual(Array.from(document.querySelectorAll(".sidebar-section-toggle > span"),
+    (node) => node.textContent.trim()), ["Projects", "Tasks"]);
+  assert.equal(document.querySelector('[aria-label="Add project"]') != null, true);
+  assert.equal(document.querySelector('[aria-label="Manage projects"]') != null, true);
+  const tasks = document.querySelector(".standalone-session-list");
+  const shortcuts = Array.from(tasks.querySelectorAll(".session-row"));
+  assert.deepEqual(shortcuts.map((row) => row.textContent.trim()),
+    ["Recent 6", "Recent 5", "Recent 4", "Recent 3", "Recent 2", "Recent 1"]);
+  assert.equal(tasks.querySelectorAll(".session-row-icon").length, 6);
+  assert.match(document.querySelector(".sidebar-projects")?.textContent || "", /No projects yet/);
+  await act(async () => {
+    tasks.querySelector('[data-session-id="recent-4"]').click();
+    await Promise.resolve();
+  });
+  assert.deepEqual(resumes, ["recent-4"]);
 });
 
 test("sidebar session titles rename inline with commit, cancel, validation, and rollback", async () => {
@@ -740,8 +1012,8 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
     await Promise.resolve();
   });
 
-  let title = document.querySelector(".standalone-group .session-row-copy");
-  assert.equal(document.querySelector(".session-row-rename")?.getAttribute("aria-label"), "Rename Original title");
+  let title = document.querySelector(".standalone-session-list .session-row-copy");
+  assert.equal(document.querySelector(".session-row-more")?.getAttribute("aria-label"), "More actions for Original title");
   await act(async () => {
     title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
     await Promise.resolve();
@@ -750,7 +1022,10 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
 
   await act(async () => {
     title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
-    title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 2 }));
+  });
+  assert.equal(document.querySelector(".session-title-input") === null, true,
+    "selector .session-title-input should be absent");
+  await act(async () => {
     title.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true, detail: 2 }));
   });
   assert.equal(document.querySelector(".session-title-input")?.getAttribute("aria-label"), "Rename Original title");
@@ -758,23 +1033,31 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
     new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
   ));
 
-  const inactiveTitle = document.querySelectorAll(".standalone-group .session-row-copy")[1];
+  const inactiveTitle = document.querySelectorAll(".standalone-session-list .session-row-copy")[1];
   await act(async () => {
     inactiveTitle.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
     await new Promise((resolve) => window.setTimeout(resolve, 400));
   });
   await act(async () => {
-    inactiveTitle.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 2 }));
-    inactiveTitle.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true, detail: 2 }));
+    inactiveTitle.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
     await Promise.resolve();
   });
   assert.deepEqual(resumes, ["rename-task", "inactive-task"]);
-  assert.equal(document.querySelector(".session-title-input"), null);
   assert.equal(document.querySelectorAll(".session-row")[1].getAttribute("aria-current"), "page");
+  assert.equal(document.querySelector(".session-title-input") === null, true,
+    "selector .session-title-input should be absent");
+  await act(async () => {
+    document.querySelectorAll(".standalone-session-list .session-row-copy")[1]
+      .dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true, detail: 2 }));
+  });
+  assert.equal(document.querySelector(".session-title-input")?.getAttribute("aria-label"), "Rename Inactive title");
+  await act(async () => document.querySelector(".session-title-input").dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  ));
 
   Object.defineProperty(window, "innerWidth", { value: 720, writable: true, configurable: true });
   const resumesBeforeHoverRename = [...resumes];
-  await act(async () => document.querySelectorAll(".session-row-rename")[0].click());
+  await chooseSessionAction(document.querySelectorAll(".session-row")[0], "rename");
   assert.deepEqual(resumes, resumesBeforeHoverRename);
   assert.equal(document.querySelector(".session-title-input")?.getAttribute("aria-label"), "Rename Original title");
   assert.equal(document.querySelector(".sidebar").classList.contains("open"), true);
@@ -783,8 +1066,8 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
   ));
   Object.defineProperty(window, "innerWidth", { value: 1024, writable: true, configurable: true });
 
-  title = document.querySelector(".standalone-group .session-row-copy");
-  await act(async () => document.querySelectorAll(".session-row-rename")[0].click());
+  title = document.querySelector(".standalone-session-list .session-row-copy");
+  await chooseSessionAction(document.querySelectorAll(".session-row")[0], "rename");
   let input = document.querySelector(".session-title-input");
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
   await act(async () => {
@@ -799,7 +1082,7 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
   assert.deepEqual(renames, [["rename-task", "Renamed task"]]);
   assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Renamed task");
 
-  await act(async () => document.querySelector(".session-row-rename").click());
+  await chooseSessionAction(document.querySelector(".session-row"), "rename");
   input = document.querySelector(".session-title-input");
   await act(async () => {
     setValue.call(input, "   ");
@@ -817,7 +1100,7 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
   assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Renamed task");
 
   rejectRename = true;
-  await act(async () => document.querySelector(".session-row-rename").click());
+  await chooseSessionAction(document.querySelector(".session-row"), "rename");
   input = document.querySelector(".session-title-input");
   await act(async () => {
     setValue.call(input, "Rejected title");
@@ -832,6 +1115,113 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
   assert.deepEqual(renames.at(-1), ["rename-task", "Rejected title"]);
   assert.equal(document.querySelector(".session-row-copy")?.textContent.trim(), "Renamed task");
   assert.match(document.querySelector('.inline-error[role="alert"]')?.textContent || "", /Rename failed/);
+});
+
+test("current session title renames from the workspace header", async () => {
+  installDom();
+  const renames = [];
+  let finishResume;
+  const resumed = new Promise((resolve) => {
+    finishResume = () => resolve({ items: [], queued: [], sessionId: session.id });
+  });
+  const session = {
+    id: "header-rename", preview: "Header title", title: "Header title", updatedAt: 1,
+    cwd: "C:\\work", classification: "task", projectPath: null, currentSession: true,
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [], sessionId: session.id }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [session],
+    resumeSession: async () => resumed,
+    renameSession: async (id, title) => { renames.push([id, title]); },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(`[data-session-id="${session.id}"]`).click();
+    await Promise.resolve();
+  });
+  await act(async () => document.querySelector(".session-title-trigger").click());
+  const input = document.querySelector(".session-header-title-input");
+  assert.ok(input, document.querySelector(".session-header")?.outerHTML || "session header missing");
+  await act(async () => {
+    finishResume();
+    await resumed;
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector(".session-header-title-input") === input, true,
+    "session switch completion should preserve the active title editor");
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+  await act(async () => {
+    setValue.call(input, "Renamed from header");
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.deepEqual(renames, [["header-rename", "Renamed from header"]]);
+  assert.equal(document.querySelector(".session-title-trigger")?.textContent.trim(), "Renamed from header");
+});
+
+test("sidebar session deletion requires confirmation and replaces the active session with New task", async () => {
+  installDom();
+  let sessions = [{
+    id: "delete-task",
+    preview: "Delete task",
+    title: "Delete task",
+    updatedAt: 1,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+    currentSession: false,
+  }];
+  const deletes = [];
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => sessions,
+    resumeSession: async (id) => ({
+      items: [{ id: "message", kind: "user", text: "Delete task" }],
+      queued: [],
+      sessionId: id,
+    }),
+    deleteSession: async (id) => {
+      deletes.push(id);
+      sessions = sessions.filter((session) => session.id !== id);
+      return { items: [], queued: [], sessionId: null };
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  await act(async () => {
+    document.querySelector('[data-session-id="delete-task"]').click();
+    await Promise.resolve();
+  });
+  await chooseSessionAction(document.querySelector('[data-session-id="delete-task"]'), "delete");
+  assert.equal(document.querySelector(".session-row")?.classList.contains("confirming-delete"), true);
+  await act(async () => document.querySelector('[aria-label="Cancel deleting Delete task"]').click());
+  assert.deepEqual(deletes, []);
+
+  await chooseSessionAction(document.querySelector('[data-session-id="delete-task"]'), "delete");
+  await act(async () => {
+    document.querySelector('[aria-label="Confirm deleting Delete task"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.deepEqual(deletes, ["delete-task"]);
+  assert.equal(document.querySelector('[data-session-id="delete-task"]') === null, true,
+    "the deleted task should be absent");
+  assert.match(document.querySelector(".session-header h1")?.textContent || "", /New task/);
 });
 
 test("a pending session rename survives an overlapping stale session refresh", async () => {
@@ -880,7 +1270,7 @@ test("a pending session rename survives an overlapping stale session refresh", a
     document.querySelector(".task-link").click();
     await Promise.resolve();
   });
-  await act(async () => document.querySelector(".standalone-group .session-row-rename").click());
+  await chooseSessionAction(document.querySelector(".standalone-session-list .session-row"), "rename");
   const input = document.querySelector(".session-title-input");
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
   await act(async () => {
@@ -1061,7 +1451,7 @@ test("a failed project replacement synchronizes to the empty actual host without
 
   let dialog = await openProjectSwitcher();
   let rows = dialog.querySelectorAll(".project-row");
-  assert.equal(rows[0].hasAttribute("aria-current"), false);
+  assert.equal(rows[0].getAttribute("aria-current"), "page");
   assert.equal(rows[1].hasAttribute("aria-current"), false);
   assert.equal(document.querySelector(".task-link").getAttribute("aria-current"), null);
   assert.doesNotMatch(document.body.textContent || "", /Stale transcript/);
@@ -1091,6 +1481,10 @@ test("a failed project replacement synchronizes to the empty actual host without
   assert.match(alert.textContent || "", /Project switch failed/);
   assert.equal(alert.getAttribute("aria-live"), "assertive");
   assert.equal(document.querySelector(".sidebar").classList.contains("open"), true);
+  dialog = await openProjectSwitcher();
+  rows = dialog.querySelectorAll(".project-row");
+  assert.equal(rows[0].hasAttribute("aria-current"), false);
+  assert.equal(rows[1].hasAttribute("aria-current"), false);
 });
 
 test("submit, stop, and tool diff controls remain wired through the app", async () => {
@@ -1289,7 +1683,7 @@ test("a durable new task refreshes and selects exactly once after busy settles",
     await Promise.resolve();
   });
   assert.equal(refreshes, 2);
-  assert.equal(document.querySelector(".standalone-group .session-row")?.getAttribute("aria-current"), "page");
+  assert.equal(document.querySelector(".standalone-session-list .session-row")?.getAttribute("aria-current"), "page");
   assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "Durable task title");
   assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
 });
@@ -1385,7 +1779,8 @@ test("a throwing submit clears settlement tracking before an unrelated busy cycl
   await act(async () => publish({ busy: true, items: [], queued: [] }));
   await act(async () => publish({ busy: false, items: [], queued: [] }));
   assert.equal(refreshes, 1);
-  assert.equal(document.querySelector(".standalone-group .session-row") === null, true, "selector .standalone-group .session-row should be absent");
+  assert.equal(document.querySelector(".session-sidebar-scroll .session-row") === null, true,
+    "no session row should exist before persistence");
   assert.equal(document.querySelector(".topbar-title") === null, true, "selector .topbar-title should be absent");
   assert.equal(document.querySelector(".task-link")?.getAttribute("aria-current"), null);
 });
@@ -1426,31 +1821,32 @@ test("failed resume preserves a surviving known project session, then clears whe
     await Promise.resolve();
     await Promise.resolve();
   });
-  const projectRows = document.querySelectorAll(".project-group .session-row");
-  const taskRows = document.querySelectorAll(".standalone-group .session-row");
+  const activeRow = document.querySelector('[data-session-id="active"]');
+  const survivingRow = document.querySelector('[data-session-id="survives"]');
+  const failedRow = document.querySelector('[data-session-id="failed"]');
   await act(async () => {
-    projectRows[0].click();
+    activeRow.click();
     await Promise.resolve();
   });
-  assert.equal(projectRows[0].getAttribute("aria-current"), "page");
+  assert.equal(activeRow.getAttribute("aria-current"), "page");
   assert.match(document.body.textContent || "", /Active transcript/);
   await act(async () => {
-    projectRows[1].click();
+    survivingRow.click();
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(projectRows[0].getAttribute("aria-current"), "page");
-  assert.equal(projectRows[1].hasAttribute("aria-current"), false);
+  assert.equal(activeRow.getAttribute("aria-current"), "page");
+  assert.equal(survivingRow.hasAttribute("aria-current"), false);
   assert.match(document.body.textContent || "", /Active transcript/);
   assert.match(document.querySelector('[role="alert"]').textContent || "", /before replacement/);
 
   await act(async () => {
-    taskRows[0].click();
+    failedRow.click();
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(projectRows[0].hasAttribute("aria-current"), false);
-  assert.equal(taskRows[0].hasAttribute("aria-current"), false);
+  assert.equal(activeRow.hasAttribute("aria-current"), false);
+  assert.equal(failedRow.hasAttribute("aria-current"), false);
   assert.equal(document.querySelector(".task-link").getAttribute("aria-current"), null);
   assert.doesNotMatch(document.body.textContent || "", /Active transcript/);
   assert.equal(document.querySelector(".context-chip") === null, true, "selector .context-chip should be absent");
@@ -1486,7 +1882,6 @@ test("session sidebar and separate project switcher preserve navigation and proj
     ],
     startProject: async (path) => ({ currentProject: path, items: [], queued: [] }),
     resumeSession: async (id) => { resumed.push(id); return { items: [], queued: [] }; },
-    setProjectPinned: async (path, pinned) => { projectActions.push(["pin", path, pinned]); },
     removeProject: async (path) => {
       projectActions.push(["remove", path]);
       visibleProjects = visibleProjects.filter((candidate) => candidate.path !== path);
@@ -1497,57 +1892,45 @@ test("session sidebar and separate project switcher preserve navigation and proj
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.deepEqual(
-    Array.from(document.querySelectorAll('.standalone-group .session-row .session-row-copy b'))
-      .map((row) => row.textContent.trim()),
-    ["Unregistered folder task", "Untitled session", "Older task"],
-  );
-  assert.deepEqual(
-    Array.from(document.querySelectorAll(".project-group .session-row .session-row-copy b"))
-      .map((row) => row.textContent.trim()),
-    ["Newest project work", "Project work"],
-  );
-  assert.deepEqual(
-    Array.from(document.querySelectorAll(".project-group-toggle span"))
-      .filter((row) => row.parentElement?.classList.contains("project-group-toggle")
-        && !row.classList.contains("project-avatar-v2")
-        && !row.classList.contains("project-group-chevron"))
-      .map((row) => row.textContent.trim()),
-    ["One alias", "Two alias"],
-  );
-  assert.equal(document.querySelector(".sidebar .project-group-toggle .lucide-folder"), null);
-  assert.equal(document.querySelectorAll('.sidebar [data-component="project-avatar-v2"]').length, 2);
-  assert.match(
-    document.querySelector('.sidebar [data-slot="project-avatar-surface"]')?.dataset.variant || "",
-    /^(orange|yellow|cyan|green|red|pink|blue|purple|gray)$/,
-  );
-  const tasksToggle = document.querySelector('.standalone-group .sidebar-section-toggle');
-  await act(async () => tasksToggle.click());
-  assert.equal(tasksToggle.getAttribute("aria-expanded"), "false");
-  assert.equal(document.querySelector(".standalone-session-list"), null);
-  await act(async () => tasksToggle.click());
-  assert.equal(tasksToggle.getAttribute("aria-expanded"), "true");
-  assert.doesNotMatch(document.querySelector(".sidebar-projects")?.textContent || "", /Unregistered folder task/);
+  assert.deepEqual(Array.from(document.querySelectorAll('.project-group'))
+    .map((group) => ({
+      label: group.querySelector('.project-group-label')?.textContent.trim(),
+      sessions: Array.from(group.querySelectorAll('.session-row-copy b'),
+        (row) => row.textContent.trim()),
+    })), [
+    { label: "One alias", sessions: ["Newest project work", "Project work"] },
+    { label: "Two alias", sessions: [] },
+  ]);
+  assert.deepEqual(Array.from(document.querySelectorAll('.standalone-session-list .session-row-copy b'),
+    (row) => row.textContent.trim()),
+  ["Unregistered folder task", "Untitled session", "Older task"]);
+  assert.equal(document.querySelectorAll(".session-sidebar-scroll .session-row-icon").length, 5);
+  assert.equal(document.querySelector(".sidebar [aria-label='Manage projects']") != null, true);
+  assert.equal(document.querySelector(".sidebar [aria-label='Add project']") != null, true);
+  assert.equal(document.querySelectorAll('.sidebar .project-row-icon').length, 2);
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Legacy/);
   let projectDialog = await openProjectSwitcher();
   assert.match(projectDialog.querySelector(".project-list")?.textContent || "", /One alias/);
-  assert.equal(document.querySelector(".sidebar .project-row, .sidebar .project-more, .sidebar .new-project") === null, true, "selector .sidebar .project-row, .sidebar .project-more, .sidebar .new-project should be absent");
+  assert.equal(projectDialog.querySelectorAll('[data-component="project-avatar-v2"]').length, 0);
+  assert.equal(projectDialog.querySelectorAll(".project-row-icon").length, 0);
+  assert.equal(projectDialog.querySelector(".projects-add")?.textContent.trim(), "Add project");
+  assert.equal(document.querySelector(".sidebar .project-row, .sidebar .project-more, .sidebar .new-project") === null, true, "project management controls should remain in the switcher");
   const firstProject = Array.from(projectDialog.querySelectorAll(".project-row"))
     .find((row) => /One alias/.test(row.textContent || ""));
   assert.equal(firstProject != null, true, "first project row should be present in the switcher");
+  assert.equal(firstProject.getAttribute("aria-current"), "page", "the last used project should be selected by default");
   await act(async () => {
     firstProject.click();
     await Promise.resolve();
   });
   assert.equal(document.querySelector(".sidebar").closest(".app-shell").classList.contains("sidebar-collapsed"), false);
-  assert.equal(document.querySelector(".project-group-toggle")?.getAttribute("aria-current"), "page");
-  assert.equal(document.querySelector(".project-group-toggle")?.classList.contains("selected"), true);
+  assert.match(document.querySelector(".session-header h1")?.textContent || "", /One alias/);
   await act(async () => {
-    document.querySelector(".project-group .session-row").click();
+    document.querySelector('[data-session-id="project_new"]').click();
     await Promise.resolve();
   });
   assert.deepEqual(resumed, ["project_new"]);
-  assert.equal(document.querySelector(".project-group .session-row").getAttribute("aria-current"), "page");
+  assert.equal(document.querySelector('[data-session-id="project_new"]').getAttribute("aria-current"), "page");
   assert.equal(document.querySelector(".sidebar").closest(".app-shell").classList.contains("sidebar-collapsed"), false);
 
   projectDialog = await openProjectSwitcher();
@@ -1564,7 +1947,7 @@ test("session sidebar and separate project switcher preserve navigation and proj
   assert.equal(menu.closest(".project-card") === firstProjectCard, true, "project menu should remain inside its project card");
   assert.deepEqual(
     Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
-    ["New task here", "Open in Explorer", "Rename", "Pin", "Remove from list"],
+    ["New task", "Open in Explorer", "Rename", "Remove project"],
   );
   const menuItems = menu.querySelectorAll('[role="menuitem"]');
   assert.equal(document.activeElement === menuItems[0], true, "opening the project menu should focus its first item");
@@ -1587,20 +1970,23 @@ test("session sidebar and separate project switcher preserve navigation and proj
   assert.equal(document.querySelector('[role="menu"]') === null, true, "selector [role=\"menu\"] should be absent");
   assert.equal(document.activeElement === destination, true, "outside pointer interaction should preserve destination focus");
 
-  more.focus();
   await act(async () => more.click());
+  assert.equal(document.querySelector('[role="menu"]') != null, true,
+    "selector [role=\"menu\"] should be present");
+  await act(async () => {
+    projectDialog.querySelector('button[aria-label="Close projects"]').click();
+    await Promise.resolve();
+  });
+  projectDialog = await openProjectSwitcher();
+  assert.equal(document.querySelector('[role="menu"]') === null, true,
+    "closing and reopening Projects must clear its menu");
+  const reopenedCard = Array.from(projectDialog.querySelectorAll(".project-card"))
+    .find((card) => /One alias/.test(card.textContent || ""));
+  const reopenedMore = reopenedCard.querySelector(".project-more");
+  await act(async () => reopenedMore.click());
   menu = document.querySelector('[role="menu"]');
   await act(async () => {
     menu.querySelectorAll('[role="menuitem"]')[3].click();
-    await Promise.resolve();
-  });
-  assert.deepEqual(projectActions, [["pin", "C:\\work\\one", true]]);
-  assert.equal(document.activeElement === more, true, "pinning should restore overflow-button focus");
-
-  await act(async () => more.click());
-  menu = document.querySelector('[role="menu"]');
-  await act(async () => {
-    menu.querySelectorAll('[role="menuitem"]')[4].click();
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -1608,6 +1994,30 @@ test("session sidebar and separate project switcher preserve navigation and proj
   assert.doesNotMatch(document.querySelector(".project-list").textContent, /One alias/);
   assert.match(document.querySelector(".project-list").textContent, /Two alias/);
   assert.equal(document.activeElement === document.querySelector(".project-row"), true, "removal should focus the remaining project row");
+});
+
+test("sidebar disambiguates duplicate registered project names with their paths", async () => {
+  installDom();
+  const projects = [
+    { path: "C:\\work\\project", name: "project", alias: "", pinned: false },
+    { path: "D:\\other\\project", name: "project", alias: "", pinned: false },
+  ];
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => projects,
+    listSessions: async () => [],
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const labels = Array.from(document.querySelectorAll(".project-group-label"),
+    (node) => node.textContent.trim());
+  assert.deepEqual(labels, ["project · C:\\work\\project", "project · D:\\other\\project"]);
+  assert.equal(new Set(labels).size, 2);
 });
 
 test("mobile sidebar closes at the inclusive 760px breakpoint after navigation", async () => {
@@ -1638,7 +2048,7 @@ test("mobile sidebar closes at the inclusive 760px breakpoint after navigation",
   await act(async () => document.querySelector(".toolbar-sidebar").click());
   assert.equal(document.querySelector(".sidebar").getAttribute("aria-hidden"), "false");
   await act(async () => {
-    document.querySelector(".project-group .session-row").click();
+    document.querySelector('[data-session-id="mobile"]').click();
     await Promise.resolve();
   });
   assert.equal(document.querySelector(".sidebar").closest(".app-shell").classList.contains("sidebar-collapsed"), true);
@@ -1888,7 +2298,35 @@ test("an empty task offers four Mixdog starters that populate and focus the comp
   assert.doesNotMatch(document.querySelector(".composer")?.textContent || "", /Local context|No project/);
 });
 
-test("model selector uses a ranked provider step and a provider-scoped recency model step", async () => {
+test("modal layers retain isolation until the final owner releases and have one keyboard owner", () => {
+  installDom();
+  const shell = document.querySelector(".app-shell");
+  const picker = acquireModalLayer([shell]);
+  const approval = acquireModalLayer([shell]);
+  const pickerSurface = document.createElement("div");
+  const approvalSurface = document.createElement("div");
+  picker.attachSurface(pickerSurface);
+  approval.attachSurface(approvalSurface);
+  assert.equal(picker.isTop(), false);
+  assert.equal(approval.isTop(), true);
+  assert.ok(Number(approvalSurface.style.zIndex) > Number(pickerSurface.style.zIndex),
+    "visual stacking must match keyboard ownership");
+  picker.release();
+  assert.equal(shell.inert, true);
+  assert.equal(shell.getAttribute("aria-hidden"), "true");
+  approval.release();
+  assert.equal(shell.inert, false);
+  assert.equal(shell.hasAttribute("aria-hidden"), false);
+
+  shell.setAttribute("aria-hidden", "before");
+  const command = acquireModalLayer([shell]);
+  shell.setAttribute("aria-hidden", "external-owner");
+  command.release();
+  assert.equal(shell.getAttribute("aria-hidden"), "external-owner",
+    "cleanup must not overwrite isolation changed by another owner");
+});
+
+test("model selector drills from providers into a stable provider model list", async () => {
   installDom();
   const catalogOptions = [];
   window.mixdogDesktop = {
@@ -1898,9 +2336,19 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
     }),
     subscribeState: () => () => {},
     listSessions: async () => [],
+    invokeCapability: async ({ capability }) => ({
+      value: capability === "getProviderSetup" ? {
+        api: [
+          { id: "openai", authenticated: true, enabled: true },
+          { id: "anthropic", authenticated: false, enabled: true },
+          { id: "deepseek", authenticated: true, enabled: true },
+        ],
+        oauth: [], local: [{ id: "ollama", detected: true, enabled: false }],
+      } : capability === "getTheme" ? "basic" : {},
+    }),
     listProviderModels: async (options) => {
       catalogOptions.push(options);
-      return [
+      const catalog = [
       { provider: "anthropic", model: "claude-sonnet-4-5", display: "Claude Sonnet 4.5",
         releaseDate: "2025-09-29", contextWindow: 200_000, fastCapable: true, effortOptions: [] },
       { provider: "anthropic", model: "claude-opus-4-7", display: "Claude Opus 4.7",
@@ -1908,9 +2356,15 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
       { provider: "openai", model: "gpt-real", display: "GPT Real", releaseDate: "2026-03-01", effortOptions: [
         { value: "low", label: "Low" }, { value: "high", label: "High" },
       ] },
+      { provider: "deepseek", model: "deepseek-v4-flash", display: "DeepSeek V4 Flash",
+        releaseDate: "2026-04-01", effortOptions: [] },
       { provider: "anthropic", model: "claude-sonnet-4-6", display: "Claude Sonnet 4.6",
         releaseDate: "2026-02-17", contextWindow: 1_000_000, fastCapable: true, effortOptions: [] },
       ];
+      return options?.force ? [...catalog, {
+        provider: "openai", model: "gpt-next", display: "GPT Next",
+        releaseDate: "2026-06-01", contextWindow: 400_000, fastCapable: true, effortOptions: [],
+      }] : catalog;
     },
   };
   await act(async () => {
@@ -1922,7 +2376,8 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
   const trigger = document.querySelector(".model-trigger");
   trigger.getBoundingClientRect = () => ({ left: 20, top: 700 });
   assert.match(trigger.textContent, /GPT-Real/);
-  assert.equal(trigger.querySelector('.provider-icon[data-provider-icon="openai"]') != null, true, "selector .provider-icon[data-provider-icon=\"openai\"] should be present");
+  assert.equal(trigger.querySelector(".provider-icon") === null, true,
+    "composer model trigger should not show a provider mark");
   assert.match(document.querySelector('[aria-label="Reasoning effort"]').textContent, /High/);
   assert.deepEqual(Array.from(document.querySelector(".route-controls").children).map((node) => node.className),
     ["model-trigger", "effort-control", "fast-control"]);
@@ -1938,88 +2393,143 @@ test("model selector uses a ranked provider step and a provider-scoped recency m
     Date.now = realNow;
   }
   assert.deepEqual(catalogOptions.slice(2, 4), [{ quick: true }, { force: true, quick: false }]);
-  const dialog = document.querySelector('[role="dialog"][aria-label="Model selector"]');
-  assert.equal(dialog.parentElement === document.body, true, "model selector portal should be attached to document.body");
-  assert.equal(dialog.style.left, "20px");
-  assert.equal(dialog.style.bottom, `${window.innerHeight - 700 + 4}px`);
+  const dialog = document.querySelector(".model-picker-dialog");
+  assert.equal(dialog.closest(".model-picker-layer").parentElement === document.body, true,
+    "model selector portal should be attached to document.body");
+  assert.equal(dialog.getAttribute("aria-modal"), "true");
+  assert.equal(dialog.dataset.stage, "providers");
   assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Available providers");
-  const providers = dialog.querySelectorAll(".model-provider-row");
-  assert.deepEqual(Array.from(providers).map((node) => node.querySelector("strong").textContent),
-    ["OpenAI API", "Anthropic API"]);
-  assert.match(providers[0].querySelector("small").textContent, /^Current · GPT-Real$/);
-  assert.equal(providers[0].querySelector(".model-count").textContent, "1");
-  assert.equal(providers[1].querySelector(".model-count").textContent, "2",
-    "the TUI family limit keeps the newest Anthropic Sonnet alongside the latest Opus family");
-  assert.equal(dialog.querySelector(".model-option-row") === null, true,
-    "models from unrelated providers must not be mixed into the provider step");
+  const providerOptions = dialog.querySelectorAll(".model-provider-row");
+  assert.deepEqual(Array.from(providerOptions).map((node) => node.querySelector("strong").textContent),
+    ["OpenAI API", "DeepSeek API"]);
+  assert.equal(dialog.querySelectorAll(".model-option-row").length, 0,
+    "models must not be mixed across providers on the first screen");
+  assert.doesNotMatch(dialog.textContent, /Anthropic|Ollama|Needs setup/,
+    "disconnected providers must stay out of the model picker");
+  assert.ok(dialog.querySelector('button[aria-label="Add provider"]'));
+  assert.equal(providerOptions[0].getAttribute("aria-selected"), "true");
+  assert.match(providerOptions[0].textContent, /Current · GPT-Real/);
+  assert.equal(dialog.querySelector('[data-component="list"]') != null, true);
+  assert.equal(dialog.querySelector('[data-slot="list-search-wrapper"]') != null, true);
   assert.equal(dialog.querySelectorAll('[role="radio"]').length, 0);
-  const input = dialog.querySelector('input[aria-label="Search providers"]');
-  assert.equal(document.activeElement === input, true, "opening the model selector should focus provider search");
-  await act(async () => input.dispatchEvent(
+  const providerInput = dialog.querySelector('input[aria-label="Search providers"]');
+  assert.equal(document.activeElement === providerInput, true, "opening the model selector should focus provider search");
+  await act(async () => providerInput.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement === providers[0], true, "ArrowDown should focus the first provider");
-  await act(async () => providers[0].dispatchEvent(
+  assert.equal(document.activeElement === providerOptions[0], true, "ArrowDown should focus the current provider");
+  await act(async () => providerOptions[0].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement === providers[1], true, "ArrowDown should focus the next provider");
-  await act(async () => providers[1].dispatchEvent(
+  assert.equal(document.activeElement === providerOptions[1], true, "ArrowDown should focus the next provider");
+  await act(async () => providerOptions[1].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "Home", bubbles: true }),
   ));
-  assert.equal(document.activeElement === providers[0], true, "Home should focus the first provider");
-  await act(async () => providers[0].dispatchEvent(
+  assert.equal(document.activeElement === providerOptions[0], true, "Home should focus the first provider");
+  await act(async () => providerOptions[0].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "End", bubbles: true }),
   ));
-  assert.equal(document.activeElement === providers[1], true, "End should focus the last provider");
-
-  await act(async () => {
-    providers[1].click();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-  });
-  assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Models from Anthropic API");
-  assert.equal(dialog.querySelector('[aria-label="Back to providers"]') !== null, true);
-  const providerModels = dialog.querySelectorAll(".model-option-row");
-  assert.deepEqual(Array.from(providerModels).map((node) => node.querySelector("strong").textContent),
-    ["Claude Opus 4.7", "Claude Sonnet 4.6"]);
-  assert.equal(providerModels[0].querySelector("small").textContent, "1M Context");
-  assert.equal(providerModels[1].querySelector("small").textContent, "1M Context · Fast Available");
-  assert.doesNotMatch(dialog.textContent, /GPT-Real/);
-  const modelSearch = dialog.querySelector('input[aria-label="Search models"]');
-  assert.equal(document.activeElement === modelSearch, true, "provider selection should focus model search");
-  await act(async () => modelSearch.dispatchEvent(
-    new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-  ));
-  assert.equal(document.activeElement === providerModels[0], true, "ArrowDown should focus the first provider model");
+  assert.equal(document.activeElement === providerOptions[1], true, "End should focus the last provider");
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
   await act(async () => {
-    setValue.call(modelSearch, "sonnet");
-    modelSearch.dispatchEvent(new window.Event("input", { bubbles: true }));
+    setValue.call(providerInput, "deepseek");
+    providerInput.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  assert.deepEqual(Array.from(dialog.querySelectorAll(".model-option-row strong")).map((node) => node.textContent),
-    ["Claude Sonnet 4.6"]);
-  modelSearch.focus();
-  await act(async () => modelSearch.dispatchEvent(
+  assert.deepEqual(Array.from(dialog.querySelectorAll(".model-provider-row strong")).map((node) => node.textContent),
+    ["DeepSeek API"]);
+  providerInput.focus();
+  await act(async () => providerInput.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement === dialog.querySelector(".model-option-row"), true, "filtered model navigation should focus the visible model");
+  assert.equal(document.activeElement === dialog.querySelector(".model-provider-row"), true,
+    "filtered provider navigation should focus the visible provider");
+
+  await act(async () => dialog.querySelector('button[aria-label="Clear picker search"]').click());
+  await act(async () => dialog.querySelectorAll(".model-provider-row")[0].click());
+  assert.equal(dialog.dataset.stage, "models");
+  assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Models from OpenAI API");
+  const modelInput = dialog.querySelector('input[aria-label="Search models"]');
+  assert.equal(document.activeElement === modelInput, true,
+    "provider selection should focus model search");
+  const modelOptions = dialog.querySelectorAll(".model-option-row");
+  assert.deepEqual(Array.from(modelOptions).map((node) => node.querySelector("strong").textContent), ["GPT-Real"]);
+  assert.doesNotMatch(dialog.textContent, /GPT-Next/,
+    "a full catalog refresh must not reorder or expand the provider currently being inspected");
+  assert.equal(modelOptions[0].getAttribute("aria-selected"), "true");
+  assert.equal(modelOptions[0].querySelector('[data-slot="list-item-selected-icon"]') != null, true);
+  assert.equal(modelOptions[0].querySelector(".model-row-copy > small").textContent, "-",
+    "model rows should expose the same Context/Fast description as the TUI");
 
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  assert.equal(document.querySelector(".model-popover") != null, true, "Escape returns from models to providers first");
-  assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Available providers");
-  await act(async () => dialog.querySelectorAll(".model-provider-row")[1].click());
-  await act(async () => dialog.querySelector('[aria-label="Back to providers"]').click());
-  assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Available providers");
-
-  dialog.querySelector(".model-list").scrollTop = 180;
-  await act(async () => trigger.click());
-  assert.equal(document.querySelector(".model-popover") === null, true, "selector .model-popover should be absent");
+  assert.equal(document.querySelector(".model-picker-dialog") != null, true,
+    "Escape from a provider model list should return to providers");
+  assert.equal(dialog.dataset.stage, "providers");
+  assert.equal(document.activeElement === dialog.querySelector('input[aria-label="Search providers"]'), true,
+    "returning to providers should focus provider search");
+  assert.equal(document.querySelector(".model-list").scrollTop, 0,
+    "returning to providers resets the shared list scroll");
+  await act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(document.querySelector(".model-picker-dialog") === null, true,
+    "Escape from providers closes the dialog");
+  assert.equal(document.activeElement === trigger, true,
+    "Escape from providers should restore trigger focus");
   await act(async () => trigger.click());
   assert.equal(document.querySelector(".model-list").scrollTop, 0,
-    "reopening always starts at the top-level provider list top");
+    "reopening always starts at the provider list top");
   assert.match(document.querySelector('[aria-label="Reasoning effort"]').textContent, /High/);
+  await act(async () => {
+    Array.from(document.querySelectorAll(".model-provider-row"))
+      .find((option) => option.textContent.includes("OpenAI API")).click();
+  });
+  assert.deepEqual(
+    Array.from(document.querySelectorAll(".model-option-row strong")).map((node) => node.textContent),
+    ["GPT-Next", "GPT-Real"],
+    "the refreshed catalog should be adopted on the next open",
+  );
+  await act(async () => document.querySelector('button[aria-label="Back to providers"]').click());
+  await act(async () => {
+    document.querySelector('button[aria-label="Add provider"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  });
+  assert.equal(document.querySelector(".model-picker-dialog") === null, true,
+    "selector .model-picker-dialog should be absent");
+  assert.equal(document.querySelector(".mixdog-settings") != null, true,
+    "provider setup should deep-link to Settings > Providers");
+});
+
+test("model selector keeps catalog failures visible inline", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [], provider: "openai", model: "gpt-real" }),
+    subscribeState: () => () => {},
+    listSessions: async () => [],
+    invokeCapability: async ({ capability }) => ({
+      value: capability === "getProviderSetup" ? {
+        api: [{ id: "openai", authenticated: false, enabled: true }],
+        oauth: [],
+        local: [{ id: "ollama", detected: true, enabled: false }],
+      } : {},
+    }),
+    listProviderModels: async () => { throw new Error("Authentication required"); },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => document.querySelector(".model-trigger").click());
+  assert.match(document.querySelector(".model-notice--error")?.textContent || "", /Authentication required/);
+  assert.equal(document.querySelectorAll(".model-group").length, 0);
+  assert.match(document.querySelector(".model-empty")?.textContent || "", /No connected provider models/);
+  assert.ok(document.querySelector('button[aria-label="Add provider"]'));
 });
 
 test("model control styles keep the reference compact geometry and bounded list", async () => {
@@ -2027,19 +2537,44 @@ test("model control styles keep the reference compact geometry and bounded list"
     readFile(new URL("./styles.css", import.meta.url), "utf8"),
     readFile(new URL("./opencode-v2.css", import.meta.url), "utf8"),
   ]);
-  assert.match(css, /\.model-popover\s*\{[^}]*width:\s*min\(296px,[^}]*max-height:\s*min\(360px,/s);
+  assert.match(css, /\.model-picker-layer\s*\{[^}]*place-items:\s*center;/s);
+  assert.match(css, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(100vh - 16px\), 512px\);/s);
   assert.match(css, /\.model-search\s*\{[^}]*height:\s*32px;/s);
-  assert.match(css, /\.model-group button\s*\{[^}]*height:\s*30px;/s);
+  assert.match(css, /\.model-group button\s*\{[^}]*width:\s*100%;[^}]*display:\s*flex;/s);
   assert.match(css, /\.model-list\s*\{[^}]*overflow-y:\s*auto;/s);
   for (const selector of [".model-trigger", ".effort-control select", ".fast-control"]) {
     assert.match(css, new RegExp(`\\${selector}\\s*\\{[^}]*height:\\s*28px;`, "s"));
   }
-  assert.match(openCodeCss, /\.fast-control\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*40px;/s,
-    "the full visible Fast label must remain inside its click target");
-  assert.match(openCodeCss, /\.model-popover\s*\{[^}]*width:\s*min\(340px,[^}]*max-height:\s*min\(420px,/s,
-    "the two-step selector needs enough room for provider and model metadata");
-  assert.match(openCodeCss, /\.model-provider-row,[\s\S]*?\.model-option-row\s*\{[^}]*min-height:\s*48px;/s);
-  assert.match(openCodeCss, /\.model-row-copy small\s*\{[^}]*color:\s*var\(--oc-text-faint\);[^}]*font-size:\s*11px;/s);
+  assert.match(openCodeCss, /\.fast-control \.oc-select-trigger\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*40px;/s,
+    "the Fast dropdown trigger must keep its compact click target");
+  assert.match(openCodeCss,
+    /\.fast-control \.oc-select-trigger:hover:not\(:disabled\),\s*\.fast-control \.oc-select-trigger\[aria-expanded="true"\]:not\(:disabled\)\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*background:\s*var\(--oc-hover\);/s,
+    "the Fast dropdown trigger must expose hover and open-state feedback");
+  assert.doesNotMatch(openCodeCss, /\.fast-control\[aria-pressed="true"\]\s*\{[^}]*(?:background|box-shadow):/s,
+    "Fast state must remain a quiet text control until hover or active interaction");
+  assert.match(openCodeCss,
+    /\.effort-control \.oc-select-trigger\s*\{[^}]*height:\s*28px;[^}]*padding:\s*0 5px 0 8px;[^}]*line-height:\s*20px;/s,
+    "the effort trigger needs a full text line box inside its fixed control height");
+  assert.match(openCodeCss, /\.effort-control \.oc-select-value\s*\{[^}]*line-height:\s*20px;/s);
+  assert.match(openCodeCss, /\.model-picker-layer\s*\{[^}]*background:[^}]*backdrop-filter:\s*blur\(2px\);/s);
+  assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*background:\s*transparent;/s);
+  assert.match(openCodeCss, /\.model-picker-header\s*\{[^}]*padding:\s*16px 12px 16px 20px;/s);
+  assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*margin-left:\s*auto;/s);
+  assert.match(openCodeCss, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(100vh - 16px\), 512px\);/s,
+    "the centered dialog should use the reference dialog container geometry");
+  assert.match(openCodeCss, /\.model-picker-dialog\s*\{[^}]*border-radius:\s*10px;/s,
+    "the model dialog should use the reference --radius-xl value");
+  assert.match(openCodeCss,
+    /\.model-provider-row,\s*\.model-option-row\s*\{[^}]*min-height:\s*48px;[^}]*padding:\s*6px 8px;/s,
+    "provider and model rows should leave room for stable secondary metadata");
+  assert.match(openCodeCss, /\.model-row-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s);
+  assert.match(openCodeCss, /\.model-row-copy > small:not\(\.model-tag\)\s*\{[^}]*color:\s*var\(--oc-text-faint\);[^}]*font-size:\s*11px;/s);
+  assert.match(openCodeCss, /\.model-back,\s*\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
+  assert.match(openCodeCss, /\.model-list-heading\s*\{[^}]*min-height:\s*32px;[^}]*display:\s*flex;/s);
+  assert.match(openCodeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/s);
+  assert.match(openCodeCss, /\.model-tag\s*\{[^}]*height:\s*18px;[^}]*padding:\s*0 6px;[^}]*border:\s*\.5px solid[^}]*border-radius:\s*2px;[^}]*font-size:\s*13px;[^}]*font-weight:\s*500;/s);
+  assert.match(openCodeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
+  assert.match(openCodeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
   assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 8px;/s,
     "the composer should sit close to the workspace bottom edge");
   assert.match(openCodeCss, /\.composer\s*\{[^}]*background:\s*var\(--oc-bg-layer-1\);[^}]*0 0 0 \.5px var\(--oc-border-strong\);/s,
@@ -2073,9 +2608,13 @@ test("model selection applies the secure route result, hides unrelated effort, a
     await Promise.resolve();
   });
   await act(async () => document.querySelector(".model-trigger").click());
-  await act(async () => document.querySelectorAll(".model-provider-row")[1].click());
   await act(async () => {
-    document.querySelector(".model-option-row").click();
+    Array.from(document.querySelectorAll(".model-provider-row"))
+      .find((option) => option.textContent.includes("Anthropic API")).click();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll(".model-option-row"))
+      .find((option) => option.textContent.includes("Claude Real")).click();
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -2083,15 +2622,22 @@ test("model selection applies the secure route result, hides unrelated effort, a
   assert.match(document.querySelector(".inline-error").textContent, /Route IPC failed/);
   assert.equal(document.querySelector(".model-trigger").disabled, false);
   await act(async () => document.querySelector(".model-trigger").click());
+  assert.equal(document.querySelector(".model-group--recent") === null, true,
+    "a failed route must not be persisted as a recent selection");
   assert.equal(document.querySelector('[aria-label="Reasoning effort"]') != null, true, "selector [aria-label=\"Reasoning effort\"] should be present");
-  await act(async () => document.querySelectorAll(".model-provider-row")[1].click());
   await act(async () => {
-    document.querySelector(".model-option-row").click();
+    Array.from(document.querySelectorAll(".model-provider-row"))
+      .find((option) => option.textContent.includes("Anthropic API")).click();
+  });
+  await act(async () => {
+    Array.from(document.querySelectorAll(".model-option-row"))
+      .find((option) => option.textContent.includes("Claude Real")).click();
     await Promise.resolve();
     await Promise.resolve();
   });
   assert.match(document.querySelector(".model-trigger").textContent, /Claude Real/);
-  assert.equal(document.querySelector('.model-trigger .provider-icon[data-provider-icon="anthropic"]') != null, true, "selector .model-trigger .provider-icon[data-provider-icon=\"anthropic\"] should be present");
+  assert.equal(document.querySelector(".model-trigger .provider-icon") === null, true,
+    "routed models should remain text-only in the composer");
   assert.equal(document.activeElement === document.querySelector(".model-trigger"), true, "successful model selection should restore trigger focus");
   assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
   await act(async () => document.querySelector(".model-trigger").click());
@@ -2131,14 +2677,15 @@ test("successful effort selection uses the dedicated capability and restores foc
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(document.querySelector(".model-popover") === null, true, "selector .model-popover should be absent");
-  assert.deepEqual(calls.filter((request) => request.capability !== "getTheme" && request.capability !== "getOnboardingStatus"),
+  assert.equal(document.querySelector(".model-picker-dialog") === null, true, "selector .model-picker-dialog should be absent");
+  assert.deepEqual(calls.filter((request) => request.capability !== "getTheme" &&
+    request.capability !== "getOnboardingStatus" && request.capability !== "getProviderSetup"),
     [{ capability: "setEffort", args: ["high"] }]);
   assert.equal(document.activeElement === effort, true, "effort selection should restore effort-control focus");
   assert.match(effort.textContent, /High/);
 });
 
-test("Fast follows core capability, uses setFast, and disables with route controls while busy", async () => {
+test("Fast follows core capability and disables tuning while a turn is busy", async () => {
   installDom();
   let publish;
   const calls = [];
@@ -2168,26 +2715,65 @@ test("Fast follows core capability, uses setFast, and disables with route contro
     document.querySelector(".titlebar-new").click();
     await Promise.resolve();
   });
-  const fast = document.querySelector('.fast-control');
+  const fast = document.querySelector('[aria-label="Fast mode"]');
   assert.equal(fast != null, true, "Fast control should be present for a capable model");
-  assert.equal(fast.getAttribute("aria-label"), "Enable Fast mode");
-  assert.equal(fast.getAttribute("aria-pressed"), "false");
+  assert.equal(fast.getAttribute("aria-expanded"), "false");
+  assert.match(fast.textContent, /Fast Off/);
   await act(async () => {
     fast.click();
+    await Promise.resolve();
+  });
+  assert.equal(fast.getAttribute("aria-expanded"), "true");
+  const fastOptions = Array.from(document.querySelectorAll('.oc-menu [role="option"]'));
+  assert.deepEqual(fastOptions.map((option) => option.textContent.trim()), ["Fast On", "Fast Off"]);
+  assert.equal(fastOptions[0].getAttribute("aria-selected"), "false");
+  assert.equal(fastOptions[1].getAttribute("aria-selected"), "true");
+  await act(async () => {
+    fastOptions[0].click();
     await Promise.resolve();
     await Promise.resolve();
   });
   assert.deepEqual(calls, [true]);
-  assert.equal(fast.getAttribute("aria-pressed"), "true");
-  assert.equal(fast.getAttribute("aria-label"), "Disable Fast mode");
+  assert.equal(fast.getAttribute("aria-expanded"), "false");
+  assert.match(fast.textContent, /Fast On/);
+  await act(async () => {
+    fast.click();
+    await Promise.resolve();
+  });
+  assert.equal(fast.getAttribute("aria-expanded"), "true");
   await act(async () => publish({ ...idle, busy: true }));
   assert.equal(fast.disabled, true);
-  assert.equal(document.querySelector(".model-trigger").disabled, true);
+  assert.equal(fast.getAttribute("aria-expanded"), "false");
+  assert.equal(document.querySelector('.oc-menu[aria-label="Fast mode"]') === null, true,
+    "a newly disabled Fast control must close its portaled menu");
+  assert.equal(document.querySelector(".model-trigger").disabled, false,
+    "model selection remains available as the next-session route while a turn is busy");
+  await act(async () => {
+    publish({ ...idle, fast: true });
+    await Promise.resolve();
+  });
+  assert.equal(document.activeElement === fast, true,
+    "Fast focus should return after busy controls re-enable");
+  await act(async () => {
+    fast.click();
+    await Promise.resolve();
+    publish({ ...idle, busy: true, fast: true });
+  });
+  const elsewhere = document.createElement("button");
+  document.body.append(elsewhere);
+  elsewhere.focus();
+  await act(async () => {
+    publish({ ...idle, fast: true });
+    await Promise.resolve();
+  });
+  assert.equal(document.activeElement === elsewhere, true,
+    "re-enabling Fast must not steal focus the user moved elsewhere while busy");
+  elsewhere.remove();
   await act(async () => publish({ ...idle, fastCapable: false }));
   assert.equal(document.querySelector('.fast-control') === null, true, "selector .fast-control should be absent");
 });
 
-test("Fast recovers from a rejected backend toggle and can be retried", async () => {
+test("Fast recovers from a rejected dropdown selection and can be retried", async () => {
   installDom();
   const calls = [];
   const idle = {
@@ -2217,25 +2803,35 @@ test("Fast recovers from a rejected backend toggle and can be retried", async ()
     await Promise.resolve();
   });
 
-  const fast = document.querySelector('.fast-control');
+  const fast = document.querySelector('[aria-label="Fast mode"]');
   await act(async () => {
     fast.click();
+    await Promise.resolve();
+  });
+  const selectOn = () => Array.from(document.querySelectorAll('.oc-menu [role="option"]'))
+    .find((option) => option.textContent.trim() === "Fast On");
+  await act(async () => {
+    selectOn().click();
     await Promise.resolve();
     await Promise.resolve();
   });
   assert.deepEqual(calls, [true]);
   assert.equal(fast.disabled, false);
-  assert.equal(fast.getAttribute("aria-pressed"), "false");
+  assert.match(fast.textContent, /Fast Off/);
   assert.match(document.querySelector(".inline-error")?.textContent || "", /Fast preference was not applied/);
 
   await act(async () => {
     fast.click();
     await Promise.resolve();
+  });
+  await act(async () => {
+    selectOn().click();
+    await Promise.resolve();
     await Promise.resolve();
   });
   assert.deepEqual(calls, [true, true]);
   assert.equal(fast.disabled, false);
-  assert.equal(fast.getAttribute("aria-pressed"), "true");
+  assert.match(fast.textContent, /Fast On/);
   assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
 });
 
@@ -2264,6 +2860,10 @@ test("live engine activity and completion or compaction rows preserve runtime st
     queued: [],
   }));
   assert.equal(document.querySelector(".live-activity-status")?.textContent, "Thinking");
+  assert.equal(document.querySelector(".session-progress") === null, true,
+    "busy sessions should not add an animated header border");
+  assert.equal(document.querySelector(".session-spinner") === null, true,
+    "busy sessions should not add a rotating header icon");
   assert.equal(document.querySelector(".thinking-disclosure") === null, true, "selector .thinking-disclosure should be absent");
   await act(async () => publish({
     busy: true,
@@ -2309,14 +2909,33 @@ test("live engine activity and completion or compaction rows preserve runtime st
 });
 
 test("desktop session sidebar releases its 286px rail when collapsed and restores it on expand", async () => {
-  installDom();
-  const style = document.createElement("style");
   const [baseCss, openCodeCss] = await Promise.all([
     readFile(new URL("./styles.css", import.meta.url), "utf8"),
     readFile(new URL("./opencode-v2.css", import.meta.url), "utf8"),
   ]);
-  style.textContent = `${baseCss}\n${openCodeCss}`;
-  document.head.append(style);
+  assert.match(baseCss,
+    /\.sidebar-collapsed \.sidebar\s*\{[^}]*width:\s*0;[^}]*flex-basis:\s*0;[^}]*padding-inline:\s*0;/s);
+  assert.match(openCodeCss,
+    /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*286px;[^}]*flex:\s*0 0 286px;[^}]*padding:\s*8px;/s);
+  assert.match(openCodeCss,
+    /\.sidebar-collapsed \.sidebar\.session-sidebar\s*\{[^}]*width:\s*0;[^}]*flex:\s*0 0 0px;[^}]*flex-basis:\s*0px;/s);
+  assert.match(openCodeCss, /\.titlebar-leading\s*\{[^}]*height:\s*28px;[^}]*gap:\s*6px;/s);
+  assert.match(openCodeCss, /\.topbar\s*\{[^}]*padding:\s*8px 12px 0 16px;/s);
+  assert.match(openCodeCss, /\.workspace-tabs\s*\{[^}]*height:\s*28px;[^}]*padding:\s*0;/s);
+  assert.match(openCodeCss, /\.workspace-tab\s*\{[^}]*min-width:\s*96px;/s);
+  assert.match(openCodeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*6px 8px 8px;/s);
+  assert.match(openCodeCss, /\.sidebar-collapsed \.desktop-body\s*\{[^}]*gap:\s*0;/s);
+  assert.match(openCodeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
+  assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px;/s);
+  assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*14px;[^}]*line-height:\s*20px;/s);
+  assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 12px 16px;/s);
+  assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 8px;/s);
+  assert.match(openCodeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
+  assert.match(openCodeCss, /\.session-sidebar-footer button\s*\{[^}]*height:\s*28px;/s);
+  assert.match(openCodeCss, /\.workspace-tab-divider\s*\{[^}]*width:\s*1\.5px;[^}]*height:\s*12px;/s);
+  assert.match(openCodeCss, /\.workspace-tabs-fade-left\s*\{[^}]*animation-timeline:\s*--workspace-tabs-scroll;/s);
+
+  installDom();
   window.mixdogDesktop = {
     getSnapshot: async () => ({ items: [], queued: [] }),
     subscribeState: () => () => {},
@@ -2326,59 +2945,26 @@ test("desktop session sidebar releases its 286px rail when collapsed and restore
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  const sidebarStyle = window.getComputedStyle(document.querySelector(".sidebar"));
-  assert.equal(sidebarStyle.boxSizing, "border-box");
-  assert.equal(sidebarStyle.width, "286px");
-  assert.equal(sidebarStyle.flexBasis, "286px");
-  assert.equal(sidebarStyle.padding, "8px");
-  const leadingStyle = window.getComputedStyle(document.querySelector(".titlebar-leading"));
-  const topbarStyle = window.getComputedStyle(document.querySelector(".topbar"));
-  const tabsStyle = window.getComputedStyle(document.querySelector(".workspace-tabs"));
-  const tabStyle = window.getComputedStyle(document.querySelector(".workspace-tab"));
-  const desktopBodyStyle = window.getComputedStyle(document.querySelector(".desktop-body"));
-  const composerRegionStyle = window.getComputedStyle(document.querySelector(".composer-region"));
-  const sessionSearchInputStyle = window.getComputedStyle(document.querySelector(".session-search input"));
-  const sessionHeaderStyle = window.getComputedStyle(document.querySelector(".session-header"));
-  const sessionHeaderContentStyle = window.getComputedStyle(document.querySelector(".session-header-content"));
-  const sessionTitleStyle = window.getComputedStyle(document.querySelector(".session-header h1"));
-  const sidebarToggleStyle = window.getComputedStyle(document.querySelector(".toolbar-sidebar"));
-  const settingsToggleStyle = window.getComputedStyle(document.querySelector(".session-sidebar-footer button"));
-  assert.equal(leadingStyle.height, "28px");
-  assert.equal(leadingStyle.gap, "6px");
-  assert.equal(topbarStyle.paddingLeft, "16px");
-  assert.equal(topbarStyle.paddingRight, "12px");
-  assert.equal(tabsStyle.height, "28px");
-  assert.equal(tabsStyle.paddingTop, "0px");
-  assert.equal(tabStyle.minWidth, "96px");
-  assert.equal(desktopBodyStyle.gap, "8px");
-  assert.equal(composerRegionStyle.paddingLeft, "12px");
-  assert.equal(composerRegionStyle.paddingRight, "12px");
-  assert.equal(sessionSearchInputStyle.outlineStyle, "");
-  assert.equal(sessionHeaderStyle.borderBottomWidth, "0px");
-  assert.equal(sessionHeaderContentStyle.paddingTop, "12px");
-  assert.equal(sessionHeaderContentStyle.paddingBottom, "12px");
-  assert.equal(sessionTitleStyle.fontSize, "14px");
-  assert.equal(sessionTitleStyle.lineHeight, "20px");
-  assert.equal(sidebarToggleStyle.top, "auto");
-  assert.equal(sidebarToggleStyle.left, "auto");
-  assert.equal(sidebarToggleStyle.width, "36px");
+  const sidebar = document.querySelector(".sidebar");
+  const shell = sidebar?.closest(".app-shell");
+  const toggle = document.querySelector(".toolbar-sidebar");
+  assert.equal(sidebar != null, true, "selector .sidebar should be present");
+  assert.equal(shell != null, true, "the sidebar should belong to the app shell");
+  assert.equal(toggle != null, true, "selector .toolbar-sidebar should be present");
+  assert.equal(document.querySelector(".session-search") != null, true,
+    "selector .session-search should be present");
+  assert.equal(shell?.classList.contains("sidebar-collapsed"), false);
+  assert.equal(toggle?.getAttribute("aria-label"), "Collapse session sidebar");
   assert.equal(document.querySelector(".titlebar-home") === null, true, "selector .titlebar-home should be absent");
   assert.equal(document.querySelector(".topbar-settings") === null, true, "selector .topbar-settings should be absent");
-  assert.equal(settingsToggleStyle.height, "28px");
-  assert.match(openCodeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*0 8px 8px;/s);
-  assert.match(openCodeCss, /\.workspace-tab-divider\s*\{[^}]*width:\s*1\.5px;[^}]*height:\s*12px;/s);
-  assert.match(openCodeCss, /\.workspace-tabs-fade-left\s*\{[^}]*animation-timeline:\s*--workspace-tabs-scroll;/s);
-  await act(async () => document.querySelector(".toolbar-sidebar").click());
-  const collapsedStyle = window.getComputedStyle(document.querySelector(".sidebar"));
-  const collapsedBodyStyle = window.getComputedStyle(document.querySelector(".desktop-body"));
-  assert.equal(collapsedStyle.width, "0px");
-  assert.equal(collapsedStyle.flexBasis, "0px");
-  assert.equal(collapsedBodyStyle.gap, "0");
-  assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Expand session sidebar");
-  await act(async () => document.querySelector(".toolbar-sidebar").click());
-  const restoredStyle = window.getComputedStyle(document.querySelector(".sidebar"));
-  assert.equal(restoredStyle.width, "286px");
-  assert.equal(restoredStyle.flexBasis, "286px");
+  await act(async () => toggle?.click());
+  assert.equal(shell?.classList.contains("sidebar-collapsed"), true);
+  assert.equal(sidebar?.getAttribute("aria-hidden"), "true");
+  assert.equal(toggle?.getAttribute("aria-label"), "Expand session sidebar");
+  await act(async () => toggle?.click());
+  assert.equal(shell?.classList.contains("sidebar-collapsed"), false);
+  assert.equal(sidebar?.getAttribute("aria-hidden"), "false");
+  assert.equal(toggle?.getAttribute("aria-label"), "Collapse session sidebar");
 });
 
 test("workspace tabs reveal the active tab and handle scoped tab commands", async () => {
@@ -2387,6 +2973,7 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   const closed = [];
   const reordered = [];
   let newTasks = 0;
+  let updateOpens = 0;
   const scrolled = [];
   Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
     value() { scrolled.push(this); },
@@ -2405,6 +2992,8 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
     onCloseTab(tab) { closed.push(tab.key); },
     onReorderTab(sourceKey, targetKey) { reordered.push([sourceKey, targetKey]); },
     onNewTask() { newTasks += 1; },
+    updaterState: { status: "ready", version: "2.0.0" },
+    onOpenUpdate() { updateOpens += 1; },
   };
   await act(async () => root.render(React.createElement(DesktopTitlebar, props)));
   await act(async () => root.render(React.createElement(DesktopTitlebar, { ...props, activeKey: "two" })));
@@ -2448,9 +3037,13 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   assert.deepEqual(selected, ["one", "two", "one"]);
   assert.deepEqual(reordered, [["one", "two"]]);
   assert.equal(document.querySelector(".workspace-tabs-shell")?.nextElementSibling?.classList.contains("titlebar-new"), true);
+  const update = document.querySelector(".titlebar-update");
+  assert.equal(update?.getAttribute("aria-label"), "Install Mixdog 2.0.0");
+  await act(async () => update.click());
+  assert.equal(updateOpens, 1);
 });
 
-test("model selector closes separately for busy and commandBusy while preserving dismissal focus behavior", async () => {
+test("model selector remains available for a next-session route during turn busy and closes for commandBusy", async () => {
   installDom();
   let publish;
   window.mixdogDesktop = {
@@ -2479,7 +3072,7 @@ test("model selector closes separately for busy and commandBusy while preserving
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  assert.equal(document.querySelector(".model-popover") === null, true, "Escape should close the model selector");
+  assert.equal(document.querySelector(".model-picker-dialog") === null, true, "Escape should close the model selector");
   assert.equal(document.activeElement === trigger, true, "Escape should restore model-trigger focus");
   await act(async () => trigger.click());
   const textarea = document.querySelector("textarea");
@@ -2487,19 +3080,23 @@ test("model selector closes separately for busy and commandBusy while preserving
     textarea.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
     textarea.focus();
   });
-  assert.equal(document.querySelector(".model-popover") === null, true, "outside pointer interaction should close the model selector");
+  assert.equal(document.querySelector(".model-picker-dialog") === null, true, "outside pointer interaction should close the model selector");
   assert.equal(document.activeElement === textarea, true, "outside pointer interaction should preserve composer focus");
   await act(async () => trigger.click());
-  assert.equal(document.querySelector(".model-popover") != null, true, "selector .model-popover should be present");
+  assert.equal(document.querySelector(".model-picker-dialog") != null, true, "selector .model-picker-dialog should be present");
   await act(async () => publish({ items: [], queued: [], busy: true, provider: "openai", model: "gpt-real" }));
-  assert.equal(document.querySelector(".model-popover") === null, true, "busy state should close the model selector");
-  assert.equal(trigger.disabled, true);
+  assert.equal(document.querySelector(".model-picker-dialog") != null, true, "turn busy keeps next-session model routing available");
+  assert.equal(trigger.disabled, false);
   await act(async () => publish({ items: [], queued: [], busy: false, provider: "openai", model: "gpt-real" }));
   assert.equal(trigger.disabled, false);
+  await act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await Promise.resolve();
+  });
   await act(async () => trigger.click());
-  assert.equal(document.querySelector(".model-popover") != null, true, "selector .model-popover should be present");
+  assert.equal(document.querySelector(".model-picker-dialog") != null, true, "selector .model-picker-dialog should be present");
   await act(async () => publish({ items: [], queued: [], commandBusy: true, provider: "openai", model: "gpt-real" }));
-  assert.equal(document.querySelector(".model-popover") === null, true, "command-busy state should close the model selector");
+  assert.equal(document.querySelector(".model-picker-dialog") === null, true, "command-busy state should close the model selector");
   assert.equal(trigger.disabled, true);
 });
 
@@ -2544,12 +3141,28 @@ test("desktop composer restores queued work, recalls engine history, and execute
     Array.from(document.querySelectorAll('.composer-footer > .composer-tool')).map((button) => button.getAttribute('aria-label')),
     ['Attach files'],
   );
-  assert.equal(document.querySelector('.queue-restore') != null, true, "selector .queue-restore should be present");
+  const queueSummary = document.querySelector('.queue-summary');
+  assert.equal(queueSummary?.textContent?.includes('1 queued follow-up'), true);
+  assert.equal(queueSummary?.getAttribute('aria-expanded'), 'true');
+  assert.equal(document.querySelector('.queue-item-text')?.textContent, 'Queued request');
+  assert.equal(document.querySelector('.queue-item small')?.textContent, 'Next boundary');
   await act(async () => {
-    textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    queueSummary.click();
+  });
+  assert.equal(queueSummary.getAttribute('aria-expanded'), 'false');
+  assert.equal(document.querySelector('.queue-list [role="listitem"]') === null, true,
+    "selector .queue-list [role=\"listitem\"] should be absent");
+  await act(async () => {
+    queueSummary.click();
+  });
+  await act(async () => {
+    document.querySelector('.queue-edit').click();
+    await Promise.resolve();
     await Promise.resolve();
   });
   assert.equal(textarea.value, 'Restored request');
+  assert.ok(capabilities.some(([capability, args]) =>
+    capability === 'restoreQueued' && args[0] === '' && args[1] === 'queued-1'));
 
   await act(async () => {
     textarea.value = '';
@@ -2599,7 +3212,19 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
     invokeCapability: async ({ capability, args = [] }) => {
       capabilities.push([capability, args]);
       if (capability === 'compact' && rejectCompact) throw new Error('compact failed');
-      return { value: capability === 'getTheme' ? 'basic' : true, snapshot: idle };
+      if (capability === 'restoreQueued') {
+        return {
+          value: { text: 'Restored steering', pastedImages: null, pastedTexts: null },
+          snapshot: { ...idle, busy: true, queued: [] },
+        };
+      }
+      if (capability === 'getTheme') return { value: 'basic', snapshot: idle };
+      if (capability === 'listThemes') return { value: [{ id: 'basic', label: 'Basic' }], snapshot: idle };
+      if (capability === 'getOutputStyle') {
+        return { value: { current: { id: 'default', label: 'Default' }, configured: 'default' }, snapshot: idle };
+      }
+      if (capability === 'getAutoClear') return { value: { enabled: true, idleMs: 3_600_000 }, snapshot: idle };
+      return { value: true, snapshot: idle };
     },
   };
   await act(async () => {
@@ -2667,6 +3292,19 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(getTextarea().value, '/co');
   assert.equal(capabilities.some(([capability]) => capability === 'compact'), false);
 
+  await press('Escape');
+  assert.equal(getTextarea().value, '', 'Escape closes the slash palette and clears its draft like the TUI');
+
+  await replaceDraft('alpha\nbeta');
+  getTextarea().setSelectionRange(getTextarea().value.length, getTextarea().value.length);
+  await press('u', { ctrlKey: true });
+  assert.equal(getTextarea().value, 'alpha\n');
+  await press('j', { ctrlKey: true });
+  assert.equal(getTextarea().value, 'alpha\n\n');
+
+  await press('Tab');
+  assert.equal(getTextarea().value, 'alpha\n\n');
+  await replaceDraft('/co');
   await press('Tab');
   assert.equal(getTextarea().value, '/compact ');
   assert.equal(document.querySelector('.slash-palette') === null, true, "selector .slash-palette should be absent");
@@ -2681,11 +3319,45 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   assert.equal(getTextarea().value, '');
   assert.equal(capabilities.filter(([capability]) => capability === 'compact').length, 2);
 
-  await act(async () => publish({ ...idle, busy: true }));
+  await replaceDraft('/theme status');
+  await press('Enter');
+  assert.match(document.querySelector('.composer-notice')?.textContent || '', /Theme: Basic/);
+  await replaceDraft('/OutputStyle status');
+  await press('Enter');
+  assert.match(document.querySelector('.composer-notice')?.textContent || '', /Output style: Default/);
+  await replaceDraft('/autoclear status');
+  await press('Enter');
+  assert.match(document.querySelector('.composer-notice')?.textContent || '', /Auto-clear on · idle 1h/);
+
+  await act(async () => publish({
+    ...idle,
+    busy: true,
+    queued: [{ id: 'steer-1', displayText: 'Queued steering' }],
+  }));
   assert.equal(document.querySelector('.send-button.stop') != null, true, "selector .send-button.stop should be present");
   assert.equal(document.querySelector('.queue-priority') === null, true, "selector .queue-priority should be absent");
   assert.equal(getTextarea().placeholder, 'Steer the active turn or queue a follow-up…');
+  assert.equal(document.querySelector('.queue-item-text')?.textContent, 'Queued steering');
+  assert.equal(document.querySelector('.queue-item small')?.textContent, 'Next boundary');
+  await replaceDraft('/compact');
+  await press('Enter');
+  assert.equal(capabilities.filter(([capability]) => capability === 'compact').length, 2);
+  assert.equal(getTextarea().value, '/compact');
+  assert.match(document.querySelector('.composer-error')?.textContent || '', /current turn.*\/compact/i);
+  await replaceDraft('');
   await press('Escape');
+  assert.equal(aborts, 1);
+  assert.equal(getTextarea().value, '');
+  assert.equal(capabilities.filter(([capability]) => capability === 'restoreQueued').length, 0);
+  await act(async () => publish({
+    ...idle,
+    busy: false,
+    queued: [{ id: 'steer-1', displayText: 'Queued steering' }],
+  }));
+  await press('ArrowUp');
+  assert.equal(getTextarea().value, 'Restored steering');
+  await press('Escape');
+  assert.equal(getTextarea().value, '');
   assert.equal(aborts, 1);
 });
 
@@ -2848,8 +3520,9 @@ test("desktop composer searches, cancels stale @ file mentions, selects by keybo
     document.querySelector('.model-trigger').click();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  assert.equal(document.querySelector('.model-popover') != null, true, "model picker should open");
-  assert.equal(document.querySelector('.mention-palette'), null, "model picker should exclusively own the popover layer");
+  assert.equal(document.querySelector('.model-picker-dialog') != null, true, "model picker should open");
+  assert.equal(document.querySelector('.mention-palette') === null, true,
+    "model picker should exclusively own the popover layer");
   await act(async () => {
     document.querySelector('.model-trigger').click();
     textarea.focus();
@@ -2866,15 +3539,18 @@ test("desktop composer searches, cancels stale @ file mentions, selects by keybo
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
   assert.equal(textarea.value, 'Review @test/renderer.dom.test.mjs ');
-  assert.equal(document.querySelector('.mention-palette'), null);
-  assert.equal(document.activeElement, textarea);
+  assert.equal(document.querySelector('.mention-palette') === null, true,
+    "selector .mention-palette should be absent");
+  assert.equal(document.activeElement === textarea, true,
+    "closing mentions should restore composer focus");
 
   await replaceDraft(`${textarea.value}@cancel`);
   await waitForSearch();
   await act(async () => textarea.dispatchEvent(
     new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
   ));
-  assert.equal(document.querySelector('.mention-palette'), null);
+  assert.equal(document.querySelector('.mention-palette') === null, true,
+    "selector .mention-palette should be absent");
   assert.match(textarea.value, /@cancel$/);
 
   await replaceDraft('Review @test/renderer.dom.test.mjs ');
@@ -2885,6 +3561,7 @@ test("desktop composer searches, cancels stale @ file mentions, selects by keybo
   assert.equal(submissions.length, 1);
   assert.equal(submissions[0][0], 'Review @test/renderer.dom.test.mjs ');
   assert.equal(submissions[0][1].displayText, 'Review @test/renderer.dom.test.mjs ');
+  assert.equal(textarea.value, '');
 });
 
 test("desktop slash aliases preserve core command semantics and forced catalog refresh", async () => {

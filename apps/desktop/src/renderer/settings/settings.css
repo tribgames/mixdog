@@ -6,7 +6,7 @@
   .mixdog-settings__panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
   .mixdog-settings__header { display: flex; align-items: center; justify-content: space-between; }
   .mixdog-settings__header-title { min-width: 0; display: flex; align-items: center; }
-  .mixdog-settings__back, .mixdog-settings__chevron, .mixdog-settings__close {
+  .mixdog-settings__close {
     display: grid;
     place-items: center;
     padding: 0;
@@ -15,21 +15,27 @@
   }
   .mixdog-settings__header h1, .mixdog-settings__section h2 { margin: 0; }
   .mixdog-settings__body { display: flex; flex-direction: column; overflow-y: auto; }
-  .mixdog-settings__picker-list, .mixdog-settings__list, .settings-group-body { overflow: hidden; }
-  .mixdog-settings__picker-row, .mixdog-settings__row, .settings-route-editor,
+  .mixdog-settings__list, .settings-group-body { overflow: hidden; }
+  .mixdog-settings__row, .settings-route-editor,
   .settings-form-row, .settings-resource {
     width: 100%;
     display: flex;
     align-items: center;
   }
-  .mixdog-settings__picker-copy, .mixdog-settings__copy,
+  .mixdog-settings__copy,
   .settings-route-editor > div:first-child, .settings-form-row > div:first-child {
     min-width: 0;
     flex: 1;
     display: grid;
   }
-  .mixdog-settings__picker-open { min-width: 0; flex: 1; display: flex; padding: 0; border: 0; background: transparent; text-align: left; }
-  .mixdog-settings__picker-meta, .settings-meta { flex: 0 0 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .settings-resource-title,
+  .settings-form-row > div.settings-resource-title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .settings-resource-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mixdog-settings__section, .settings-group { display: flex; flex-direction: column; }
   .settings-section-heading { display: flex; align-items: flex-start; }
   .settings-section-heading > div { min-width: 0; flex: 1; }
@@ -41,7 +47,8 @@
   .mixdog-settings__switch span::after { display: block; content: ""; }
   .settings-notice, .mixdog-settings__error, .settings-empty, .settings-loading { margin: 0; }
   .settings-route-controls, .settings-form-controls, .settings-resource-actions,
-  .settings-button-row, .core-memory-add, .core-memory-edit,
+  .settings-provider-secret,
+  .settings-button-row,
   .settings-oauth-code, .settings-oauth-dialog > footer {
     min-width: 0;
     display: flex;
@@ -51,12 +58,15 @@
   .settings-route-controls, .settings-form-controls { justify-content: flex-end; }
   .settings-route-editor:not(.compact) .settings-route-controls { min-width: 0; flex: 1.4; }
   .settings-route-editor.compact .settings-route-controls { justify-content: flex-start; }
-  .settings-route-fast, .settings-check { display: inline-flex; align-items: center; white-space: nowrap; }
+  .settings-check { display: inline-flex; align-items: center; white-space: nowrap; }
   .settings-form-controls { flex: 1.2; }
   .settings-form-controls input, .settings-form-controls select { min-width: 100px; flex: 1; }
   .settings-resource > div:first-child { min-width: 0; flex: 1; }
   .settings-resource p { margin: 0; overflow-wrap: anywhere; }
   .settings-resource-actions { flex: 0 0 auto; }
+  .settings-provider-secret { gap: 8px; }
+  .settings-provider-secret input { min-width: 0; width: 150px; }
+  .settings-resource-control { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
   .settings-domain-form { display: grid; }
   .settings-domain-form > header { display: flex; align-items: flex-start; }
   .settings-domain-form > header > div { display: grid; }
@@ -67,16 +77,16 @@
   .settings-domain-grid select, .settings-domain-grid textarea { width: 100%; min-width: 0; }
   .settings-domain-form > footer { display: flex; justify-content: flex-end; }
   .settings-status-stack, .settings-sublist, .settings-alert-list,
-  .core-memory-manager, .core-memory-list { display: grid; }
+  .core-memory-manager, .core-memory-add-card, .core-memory-add-card > header,
+  .core-memory-add, .core-memory-list, .core-memory-row, .core-memory-edit { display: grid; }
   .settings-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .settings-metric-grid > div { min-width: 0; display: grid; }
   .settings-context-meter { position: relative; overflow: hidden; }
   .settings-context-meter > span { position: absolute; inset: 0 auto 0 0; }
   .settings-context-meter > small { position: relative; z-index: 1; height: 100%; display: grid; place-items: center; }
   .settings-alert-list p { margin: 0; }
-  .core-memory-add input, .core-memory-edit input { min-width: 0; flex: 1; }
-  .core-memory-row { display: flex; align-items: center; }
-  .core-memory-row > div { min-width: 0; flex: 1; display: grid; }
+  .core-memory-add input, .core-memory-edit input { min-width: 0; }
+  .core-memory-copy { min-width: 0; display: grid; }
   .settings-action-result { overflow: hidden; }
   .settings-action-result pre { margin: 0; overflow: auto; white-space: pre-wrap; }
   .settings-oauth-layer, .settings-confirm-layer {
@@ -117,7 +127,7 @@
     .settings-domain-grid { grid-template-columns: 1fr; }
     .settings-domain-grid > label.wide { grid-column: auto; }
     .settings-resource { align-items: flex-start; flex-wrap: wrap; }
-    .settings-resource-actions { width: 100%; }
+    .settings-resource-control { width: 100%; justify-content: flex-start; }
   }
   @media (max-width: 640px) {
     .onboarding-choice-grid { grid-template-columns: 1fr; }
@@ -127,10 +137,10 @@
   }
 }
 
-/* Settings v2 ownership block: two-pane dialog shell and category rail only. */
+/* Settings v2 ownership block: two-pane dialog shell, category rail, and flat pane flow. */
 .mixdog-settings-v2 {
   width: min(980px, calc(100vw - 32px));
-  height: min(650px, calc(100vh - 32px));
+  height: min(650px, calc(100vh - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
   grid-template-columns: 240px minmax(0, 1fr);
 }
 .mixdog-settings__rail {
@@ -202,58 +212,83 @@
   flex-basis: 64px;
   padding-inline: 32px 20px;
 }
-.mixdog-settings-v2 .mixdog-settings__header.is-subpage {
-  height: 48px;
-  min-height: 48px;
-  flex-basis: 48px;
-  padding: 0 12px 0 16px;
+.mixdog-settings-v2 .mixdog-settings__body {
+  gap: 28px;
+  padding: 28px 40px 40px;
+  overflow-x: hidden;
 }
-.mixdog-settings-v2 .mixdog-settings__header.is-subpage .mixdog-settings__header-title {
-  height: 100%;
-  gap: 8px;
+.mixdog-settings-v2 .settings-group {
+  min-width: 0;
+  min-height: min-content;
+  flex: 0 0 auto;
+  margin: 0;
+  overflow: visible;
 }
-.mixdog-settings-v2 .mixdog-settings__header.is-subpage .mixdog-settings__back {
-  width: 28px;
-  height: 28px;
-  flex-basis: 28px;
-  border-radius: 6px;
+.mixdog-settings-v2 .settings-group + .settings-group { margin-top: 0; }
+.mixdog-settings-v2 .settings-group-body {
+  min-width: 0;
+  overflow: visible;
 }
-.mixdog-settings-v2 .mixdog-settings__header.is-subpage .mixdog-settings__close {
-  align-self: center;
+.settings-row-control > .settings-model-trigger {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  justify-content: flex-end;
+  gap: 6px;
+  text-align: right;
 }
-.mixdog-settings-v2 .mixdog-settings__body { padding: 28px 40px 40px; }
-.mixdog-settings-v2 .mixdog-settings__body.is-subpage { padding-top: 24px; }
-.mixdog-settings-v2 .mixdog-settings__picker-list {
-  padding: 0 20px;
-  border-radius: 8px;
+.settings-model-trigger > span {
+  min-width: 0;
   overflow: hidden;
-  background: var(--oc-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
 }
-.mixdog-settings-v2 .mixdog-settings__picker-row {
-  min-height: 72px;
-  padding: 16px 0;
-  gap: 16px;
-  border-bottom: .5px solid var(--oc-border);
+.mixdog-settings-v2 .settings-resource.settings-agent-route { align-items: start; }
+.mixdog-settings-v2 .settings-agent-route > div:first-child { padding-top: 8px; }
+.settings-agent-route .settings-resource-control,
+.settings-agent-route .settings-route-editor.compact,
+.settings-agent-route .settings-route-controls { width: 100%; }
+.settings-agent-route .settings-route-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: end;
 }
-.mixdog-settings-v2 .mixdog-settings__picker-row:last-child { border-bottom: 0; }
-.mixdog-settings-v2 .mixdog-settings__picker-open-row {
-  color: inherit;
-  background: transparent;
-  text-align: left;
+.settings-agent-route .settings-route-controls > *,
+.settings-agent-route .effort-control,
+.settings-agent-route .fast-control,
+.settings-agent-route .oc-select-root,
+.settings-agent-route .oc-select-trigger {
+  min-width: 0;
+  max-width: 100%;
 }
-.mixdog-settings-v2 .mixdog-settings__picker-open-row:hover { color: inherit; }
+.settings-agent-route .settings-model-trigger {
+  justify-content: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+.settings-agent-route .settings-model-trigger > span { text-align: right; }
+.settings-empty-list {
+  box-sizing: border-box;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+}
 
 @media (max-width: 760px) {
-  .mixdog-settings-layer { padding: 8px; }
+  .mixdog-settings-layer {
+    --settings-layer-safe-top: max(8px, calc(env(titlebar-area-height, 0px) + 8px));
+    --settings-layer-safe-bottom: 8px;
+    padding: var(--settings-layer-safe-top) 8px var(--settings-layer-safe-bottom);
+  }
   .mixdog-settings-v2 {
     width: calc(100vw - 16px);
-    height: calc(100vh - 16px);
+    height: calc(100vh - var(--settings-layer-safe-top, 8px) - var(--settings-layer-safe-bottom, 8px));
     grid-template-columns: 200px minmax(0, 1fr);
   }
   .mixdog-settings__rail { padding: 20px 10px 12px; }
-  .mixdog-settings-v2 .mixdog-settings__header:not(.is-subpage) { padding-inline: 20px 12px; }
+  .mixdog-settings-v2 .mixdog-settings__header { padding-inline: 20px 12px; }
   .mixdog-settings-v2 .mixdog-settings__body { padding: 24px 20px 32px; }
-  .mixdog-settings-v2 .mixdog-settings__picker-list { padding-inline: 16px; }
-  .mixdog-settings-v2 .mixdog-settings__picker-row { align-items: flex-start; flex-wrap: wrap; }
 }

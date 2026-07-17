@@ -22,7 +22,27 @@ import {
   normalizeSessionTitle,
   promptTitle,
   sessionSummaryTitle,
+  stripSessionEnvelope,
 } from '../shared/session-title.mjs';
+import { filterConfiguredModels } from './ModelPicker.tsx';
+import { formatContextWindow, modelContextWindow } from './provider-display.tsx';
+
+test('explicit provider context metadata wins over model-family fallbacks', () => {
+  const explicitClaude = {
+    provider: 'anthropic-oauth',
+    model: 'claude-sonnet-5',
+    display: 'Claude Sonnet 5',
+    contextWindow: 200_000,
+  };
+  const legacyClaude = {
+    provider: 'anthropic-oauth',
+    model: 'claude-sonnet-5',
+    display: 'Claude Sonnet 5',
+  };
+
+  assert.equal(formatContextWindow(modelContextWindow(explicitClaude)), '200k Context');
+  assert.equal(formatContextWindow(modelContextWindow(legacyClaude)), '1M Context');
+});
 
 test('renderer uses the preload bridge name', async () => {
   const [preload, renderer] = await Promise.all([
@@ -34,27 +54,124 @@ test('renderer uses the preload bridge name', async () => {
   assert.match(renderer, new RegExp(`window\\.${bridgeName}\\b`));
 });
 
+test('settings dialog reserves the native window-controls safe area', async () => {
+  const [styles, settings] = await Promise.all([
+    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./settings/settings.css', import.meta.url), 'utf8'),
+  ]);
+  assert.match(styles,
+    /--settings-layer-safe-top:\s*max\(16px,\s*calc\(env\(titlebar-area-height,\s*0px\) \+ 8px\)\);/);
+  assert.match(styles,
+    /\.mixdog-settings-layer\s*\{[^}]*padding:\s*var\(--settings-layer-safe-top\) 16px var\(--settings-layer-safe-bottom\);/s);
+  assert.match(settings,
+    /\.mixdog-settings-v2\s*\{[^}]*height:\s*min\(650px,\s*calc\(100vh - var\(--settings-layer-safe-top, 16px\) - var\(--settings-layer-safe-bottom, 16px\)\)\);/s);
+  assert.match(settings,
+    /@media \(max-width:\s*760px\)[\s\S]*--settings-layer-safe-top:\s*max\(8px,\s*calc\(env\(titlebar-area-height,\s*0px\) \+ 8px\)\);/);
+  assert.match(settings,
+    /\.settings-resource-title,\s*\.settings-form-row > div\.settings-resource-title\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;[^}]*flex-wrap:\s*wrap;/s,
+    'form status badges must remain inline with their titles');
+});
+
 test('OpenCode desktop shell keeps project sessions and management inside the sidebar rail', async () => {
   const [styles, navigation] = await Promise.all([
     readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
     readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(styles, /\.topbar\s*\{[^}]*height:\s*36px;[^}]*padding:\s*0 12px 0 16px;/s);
-  assert.match(styles, /\.workspace-tab\s*\{[^}]*height:\s*28px;[^}]*min-width:\s*220px;/s);
-  assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*286px;[^}]*flex:\s*0 0 286px;[^}]*border-radius:\s*8px;/s);
-  assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*8px;/s);
+  assert.match(styles, /\.topbar\s*\{[^}]*height:\s*36px;[^}]*align-items:\s*flex-start;[^}]*padding:\s*8px 12px 0 16px;/s);
+  assert.match(styles, /\.workspace-tab\s*\{[^}]*flex:\s*0 1 auto;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*240px;/s);
+  assert.doesNotMatch(styles, /\.workspace-tab\s*\{[^}]*flex-basis:\s*240px;/s);
+  assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*6px 8px 8px;[^}]*background:\s*var\(--oc-window-band\);/s);
+  assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*286px;[^}]*flex:\s*0 0 286px;[^}]*border-radius:\s*10px;/s);
+  assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*28px;[^}]*min-height:\s*28px;/s);
+  assert.match(styles, /\.session-list\s*\{\s*gap:\s*1px;/s);
+  assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*10px;/s);
   assert.match(styles, /\.project-switcher\s*\{[^}]*width:\s*min\(640px,/s);
   assert.match(styles, /\.thread\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   assert.match(styles, /\.composer-region\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
+  assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*440 14px\/20px/s);
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*width:\s*min\(286px,\s*calc\(100vw - 32px\)\)/);
   assert.match(navigation, /aria-label="Session manager"/);
   assert.match(navigation, /session\.classification !== "task" && session\.classification !== "project"/);
   assert.match(navigation, /className="project-grid project-list"/);
   assert.match(navigation, /aria-label="Manage projects"/);
   assert.match(navigation, /className="sidebar-projects"/);
-  assert.match(styles, /\.sidebar-section-action,\s*\n\.project-task-add\s*\{\s*opacity:\s*0;\s*pointer-events:\s*none;/s);
-  assert.match(styles, /\.sidebar-section-heading:hover \.sidebar-section-action,[^}]*opacity:\s*1;\s*pointer-events:\s*auto;/s);
+  assert.match(navigation, /className="session-group standalone-group"/);
+  assert.match(navigation, /<MessageSquare className="session-row-icon"/);
+  assert.match(navigation, /className={`project-group-toggle/);
+  assert.match(styles, /\.session-search\s*\{/);
+  assert.match(navigation, /placeholder="Search sessions" aria-label="Search sessions"/);
   assert.doesNotMatch(navigation, /LayoutGrid|titlebar-home|topbar-settings/);
+});
+
+test('copy hover changes only icon color while keyboard focus keeps its frame', async () => {
+  const styles = await readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.message-actions:hover\s*\{[^}]*color:\s*var\(--oc-icon\);[^}]*background:\s*transparent;[^}]*outline:\s*0;/s);
+  assert.match(styles, /\.message-actions:focus-visible\s*\{[^}]*background:\s*transparent;[^}]*outline:\s*2px solid var\(--oc-focus\);/s);
+  assert.match(styles, /\.markdown-code-copy:hover\s*\{[^}]*color:\s*var\(--oc-icon\);[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.markdown-code-copy:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--oc-focus\);/s);
+  assert.match(styles, /\.message\.assistant\.settled,\s*\.tool-card\.settled\s*\{[^}]*content-visibility:\s*auto;/s);
+  assert.doesNotMatch(styles, /\.message\.settled,\s*\.tool-card\.settled/);
+  assert.doesNotMatch(styles, /\.message\.assistant\.streaming \.markdown > :nth-last-child/,
+    'streamed response prose must remain readable; shimmer belongs to compact status text only');
+  assert.match(styles,
+    /\.tool-header:hover:not\(:disabled\) \.tool-icon,[\s\S]*\.tool-header:focus-visible \.tool-chevron\s*\{[^}]*color:\s*var\(--oc-icon\);/s,
+    'tool disclosures should expose quiet icon and chevron feedback on hover and keyboard focus');
+  assert.match(styles,
+    /\.composer-attachments > div:hover,\s*\.composer-attachments > div:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--oc-border-strong\);/s,
+    'composer attachments should expose the same hover/focus boundary as the reference UI');
+});
+
+test('session title actions, message hover rows, and tool disclosures keep OpenCode rhythm', async () => {
+  const [styles, navigation, app] = await Promise.all([
+    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+  ]);
+  assert.match(styles, /\.session-row-menu-wrap\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
+  assert.match(styles, /\.session-row-copy b\s*\{[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
+  assert.match(styles, /\.message\.user\.attached-user\s*\{\s*margin-top:\s*-12px;/);
+  assert.match(styles, /\.thread\s*\{[^}]*padding:\s*20px 12px 16px;[^}]*gap:\s*16px;/s);
+  assert.match(styles, /\.message\.user \+ \.message\.assistant\s*\{\s*margin-top:\s*-16px;/);
+  assert.match(styles, /\.message\.user \.message-meta-line\s*\{[^}]*position:\s*static;[^}]*width:\s*100%;/s);
+  assert.match(styles, /\.tool-title\s*\{[^}]*flex:\s*0 1 auto;/s);
+  assert.match(styles, /\.tool-card\[data-open="true"\] \.tool-chevron svg\s*\{[^}]*rotate\(90deg\)/s);
+  assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--oc-border-muted\);[^}]*border-radius:\s*6px;/s);
+  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*min\(100%, 800px\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px;/s);
+  assert.match(styles, /\.session-header-content h1\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*min\(52ch,\s*100%\);[^}]*flex:\s*0 1 auto;/s);
+  assert.match(styles, /\.session-title-trigger\s*\{[^}]*width:\s*100%;[^}]*padding:\s*0;/s);
+  assert.match(styles, /\.session-header-title-input\s*\{[^}]*field-sizing:\s*content;[^}]*width:\s*auto;[^}]*max-width:\s*100%;[^}]*padding:\s*0;/s);
+  assert.match(styles, /\.session-project-badge\s*\{[^}]*flex:\s*0 1 auto;/s);
+  assert.match(styles, /\.mixdog-settings__close\s*\{[^}]*flex:\s*0 0 24px;[^}]*place-items:\s*center;/s);
+  assert.match(styles, /\.command-surface-header-actions\s*\{[^}]*flex:\s*0 0 auto;/s);
+  assert.match(styles, /\.session-context-indicator > button\s*\{[^}]*place-items:\s*center end;/s);
+  assert.match(styles, /\.session-header-status\s*\{[^}]*margin-left:\s*auto;/s);
+  assert.match(styles, /\.live-work-status\s*\{[^}]*margin-left:\s*0;/s);
+  assert.doesNotMatch(styles, /\.send-button\.stop/);
+  assert.match(app, /className="session-header-status"[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>\s*<ContextUsageIndicator/);
+  assert.equal((app.match(/<LiveWorkStatus\b/g) || []).length, 1);
+  assert.match(navigation, /aria-label=\{`More actions for \$\{sessionLabel\(session\)\}`\}/);
+  assert.match(navigation, /className="session-row-menu-rename"/);
+  assert.match(navigation, /className="session-row-menu-delete danger"/);
+});
+
+test('conversation uses native scrolling and silent session transitions', async () => {
+  const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message/);
+  assert.doesNotMatch(renderer, /Opening session|Resuming conversation/);
+  assert.match(renderer, /if \(mode === "resuming"\) return null;/);
+  assert.match(renderer, /<div className="session-switch-overlay" aria-hidden="true" \/>/);
+});
+
+test('authenticated keychain providers are immediately selectable without a second enabled flag', () => {
+  const models = [
+    { provider: 'openai', model: 'gpt', display: 'GPT', effortOptions: [] },
+    { provider: 'ollama', model: 'local', display: 'Local', effortOptions: [] },
+  ];
+  const filtered = filterConfiguredModels(models, {
+    api: [{ id: 'openai', authenticated: true, enabled: false }],
+    local: [{ id: 'ollama', detected: true, enabled: false }],
+  });
+  assert.deepEqual(filtered.map((model) => model.provider), ['openai']);
 });
 
 test('desktop UI keeps every public TUI command and core capability represented', async () => {
@@ -103,12 +220,12 @@ test('desktop UI keeps every public TUI command and core capability represented'
     'reconnectMcp',
     'addMcpServer',
     'removeMcpServer',
+    'addHookRule',
+    'deleteHookRule',
     'skillContent',
     'addSkill',
     'reloadSkills',
     'reloadPlugins',
-    'addHookRule',
-    'deleteHookRule',
     'recall',
     'saveOpenCodeGoUsageAuth',
     'saveOpenAIUsageSessionKey',
@@ -139,7 +256,7 @@ test('dedicated command surfaces preserve TUI actions without exposing automatio
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(surfaces, /listProviderModels\?\.\(\{ quick: false,/);
+  assert.match(surfaces, /listProviderModels\?\.\(\{ quick: false \}\)/);
   assert.match(surfaces, /run\('setAgentRoute', \[agent\.id, selectionFor\(model\)\]\)/);
   assert.match(surfaces, /ariaLabel=\{`\$\{String\(agent\.label \|\| agent\.id\)\} effort`\}/);
   assert.match(surfaces, /selectionFor\(selected, \{ fast: event\.currentTarget\.checked \}\)/);
@@ -152,6 +269,10 @@ test('dedicated command surfaces preserve TUI actions without exposing automatio
 });
 
 test('desktop session titles strip runtime envelopes and prompt payload markup', () => {
+  assert.equal(
+    stripSessionEnvelope(`# Session\nCwd: C:\\Project\\mixdog\nModel: GPT-5.6-Sol · XHIGH · FAST\nWorkflow: Solo\n\nVisible prompt`),
+    'Visible prompt',
+  );
   assert.equal(
     normalizeSessionTitle(`# Session\nCwd: C:\\Project\\mixdog\nModel: GPT-5.6-Sol · XHIGH · FAST\nWorkflow: Default\n\nPolish the desktop sidebar`),
     'Polish the desktop sidebar',
@@ -183,7 +304,7 @@ test('session title helpers prefer a stable title and extract user-facing prompt
     'First line second line',
   );
   assert.equal(promptTitle('raw prompt', 'Visible prompt'), 'Visible prompt');
-  assert.equal(promptTitle([{ type: 'image', data: 'ignored' }], '[Image #1: screenshot.png]'), 'Image request');
+  assert.equal(promptTitle([{ type: 'image', data: 'ignored' }], '[Image #1: screenshot.png]'), '[Image]');
   assert.equal(
     normalizeSessionTitle('A deliberately long title that should be clipped on a clean word boundary', 'Untitled', 32),
     'A deliberately long title that…',
@@ -327,7 +448,8 @@ test('draft clears only after an accepted submission of the unchanged text', () 
   assert.equal(draftAfterSubmission('keep me', 'keep me', false), 'keep me');
   assert.equal(draftAfterSubmission('keep me', 'keep me', undefined), 'keep me');
   assert.equal(draftAfterSubmission('new typing', 'old text', true), 'new typing');
-  assert.equal(draftAfterSubmission(' send me ', 'send me', true), '');
+  assert.equal(draftAfterSubmission(' send me ', ' send me ', true), '');
+  assert.equal(draftAfterSubmission(' send me ', 'send me', true), ' send me ');
 });
 
 test('complete multi-line, multi-hunk, multi-file diffs are retained', () => {

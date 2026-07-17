@@ -11,12 +11,45 @@ import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 export function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
   if (!value || typeof value !== 'object') return {};
+  const completionValue = value.completion && typeof value.completion === 'object'
+    ? value.completion
+    : null;
+  const completionStatus = typeof completionValue?.status === 'string'
+    ? completionValue.status
+    : '';
+  const completionElapsedMs = Number(completionValue?.elapsedMs);
+  const completion = completionValue && completionStatus && Number.isFinite(completionElapsedMs)
+    ? {
+        status: completionStatus,
+        elapsedMs: Math.max(0, completionElapsedMs),
+        ...(typeof completionValue.verb === 'string' && completionValue.verb
+          ? { verb: completionValue.verb }
+          : {}),
+      }
+    : null;
   return {
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...(typeof value.model === 'string' && value.model ? { model: value.model } : {}),
     ...(typeof value.provider === 'string' && value.provider ? { provider: value.provider } : {}),
     ...(typeof value.agent === 'string' && value.agent ? { agent: value.agent } : {}),
+    ...(completion ? { completion } : {}),
   };
+}
+
+export function restoredAssistantTranscriptItems(message, nextId) {
+  const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)).trim();
+  if (!text) return [];
+  const { completion, ...metadata } = restoredTranscriptMetadata(message);
+  const items = [{ kind: 'assistant', id: nextId(), text, ...metadata }];
+  if (completion) {
+    items.push({
+      kind: 'turndone',
+      id: nextId(),
+      ...completion,
+      ...(metadata.at ? { at: metadata.at } : {}),
+    });
+  }
+  return items;
 }
 
 export function createEngineApiB(bag) {
@@ -388,6 +421,46 @@ export function createEngineApiB(bag) {
     listSessions: (options) => {
       return runtime.listSessions(options);
     },
+    deleteSession: async (id) => {
+      if (getState().commandBusy) return false;
+      const deletingCurrent = String(runtime.session?.id || getState().sessionId || '') === String(id || '');
+      set({ commandBusy: true });
+      clearToastTimers();
+      resetAllStreamingMarkdownStablePrefixes();
+      const rollbackSnapshot = deletingCurrent ? snapshotTuiBeforeSessionReset() : null;
+      if (deletingCurrent) resetTuiForPendingSessionReset();
+      try {
+        if (await runtime.deleteSession(id) !== true) {
+          if (rollbackSnapshot) restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+          return false;
+        }
+        if (deletingCurrent) {
+          clearUiActivityBeforeContextSync();
+          flags.pendingSessionReset = false;
+          resetStatsAndSyncContext();
+          set({
+            items: replaceItems([]),
+            toasts: [],
+            queued: [],
+            thinking: null,
+            spinner: null,
+            lastTurn: null,
+            sessionId: null,
+            cwd: runtime.cwd,
+            ...routeState(),
+            stats: { ...getState().stats },
+          });
+          commitTuiSessionReset(rollbackSnapshot);
+        }
+        return true;
+      } catch (error) {
+        if (rollbackSnapshot) restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+        throw error;
+      } finally {
+        flags.pendingSessionReset = false;
+        set({ commandBusy: false });
+      }
+    },
     switchContext: async (options) => {
       if (getState().commandBusy) return false;
       set({ commandBusy: true });
@@ -497,8 +570,7 @@ export function createEngineApiB(bag) {
               }
             }
           } else if (m.role === 'assistant') {
-            const text = (typeof m.content === 'string' ? m.content : toolResultText(m.content)).trim();
-            if (text) items.push({ kind: 'assistant', id: nextId(), text, ...restoredTranscriptMetadata(m) });
+            items.push(...restoredAssistantTranscriptItems(m, nextId));
           }
         }
         set({

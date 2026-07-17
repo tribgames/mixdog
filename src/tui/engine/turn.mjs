@@ -35,9 +35,11 @@ export function createRunTurn(bag) {
     async function runTurn(userText, options = {}) {
     const turnIndex = getState().stats.turns || 0;
     const startedAt = Date.now();
-    const turnTranscriptMeta = flags.pendingTranscriptMeta
+    const completionVerb = pickDoneVerb(turnIndex);
+    const baseTranscriptMeta = flags.pendingTranscriptMeta
       || transcriptRouteMetadata?.(startedAt)
       || { at: startedAt };
+    const turnTranscriptMeta = { ...baseTranscriptMeta, completionVerb };
     flags.pendingTranscriptMeta = null;
     const { at: _userItemAt, ...turnRouteMeta } = turnTranscriptMeta;
     // Per-turn epoch. Force-release (watchdog grace) bumps the shared counter so
@@ -1336,7 +1338,7 @@ export function createRunTurn(bag) {
         // in scrollback. (Previously TurnDone rendered only in the
         // bottom-fixed live-status slot and vanished on the next turn.)
         if (!reclaimed && !isNoOpTurn) {
-          closingItems.push({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: pickDoneVerb(turnIndex), at: Date.now(), ...turnRouteMeta });
+          closingItems.push({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: completionVerb, at: Date.now(), ...turnRouteMeta });
         }
         // Deferred cards + turndone + status all land in ONE set() (one commit).
         appendItemsBatch(closingItems, {

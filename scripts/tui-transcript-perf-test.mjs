@@ -13,8 +13,15 @@ import {
 import { createSessionFlow } from '../src/tui/engine/session-flow.mjs';
 import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
 import { createRunTurn } from '../src/tui/engine/turn.mjs';
-import { restoredTranscriptMetadata } from '../src/tui/engine/session-api-ext.mjs';
-import { persistedAssistantTranscriptMetadata } from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
+import { createContextState } from '../src/tui/engine/context-state.mjs';
+import {
+  restoredAssistantTranscriptItems,
+  restoredTranscriptMetadata,
+} from '../src/tui/engine/session-api-ext.mjs';
+import {
+  attachAssistantTranscriptCompletion,
+  persistedAssistantTranscriptMetadata,
+} from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
 import { attachAssistantTranscriptMetadata } from '../src/runtime/agent/orchestrator/session/agent-loop.mjs';
 import {
   buildTranscriptRowIndexIncremental,
@@ -234,6 +241,68 @@ test('no-delta final assistant persists the timestamp later used by the live ite
   const assistant = harness.getState().items.find((item) => item.kind === 'assistant');
   assert.equal(assistant?.text, 'final without deltas');
   assert.equal(restoredTranscriptMetadata(persistedAssistantMessage).at, assistant?.at);
+});
+
+test('assistant completion metadata survives session resume projection', () => {
+  const turnStartedAt = Date.parse('2026-07-18T01:00:00Z');
+  const messages = [
+    { role: 'user', content: 'Question', meta: { transcript: { at: turnStartedAt } } },
+    {
+      role: 'assistant',
+      content: 'Answer',
+      meta: { transcript: { at: turnStartedAt + 1_000, model: 'model-a' } },
+    },
+  ];
+  assert.equal(attachAssistantTranscriptCompletion(messages, {
+    status: 'done',
+    verb: 'Mapped',
+    elapsedMs: 2_000,
+  }, turnStartedAt), true);
+  let sequence = 0;
+  const restored = restoredAssistantTranscriptItems(messages[1], () => `restored-${++sequence}`);
+  assert.equal(restored.length, 2);
+  assert.deepEqual(restored[0], {
+    kind: 'assistant',
+    id: 'restored-1',
+    text: 'Answer',
+    at: turnStartedAt + 1_000,
+    model: 'model-a',
+  });
+  assert.deepEqual(restored[1], {
+    kind: 'turndone',
+    id: 'restored-2',
+    status: 'done',
+    verb: 'Mapped',
+    elapsedMs: 2_000,
+    at: turnStartedAt + 1_000,
+  });
+});
+
+test('restored transcripts publish estimated context before a new provider turn', () => {
+  let state = {
+    stats: { inputTokens: 0, latestInputTokens: 0, latestPromptTokens: 0 },
+    busy: false,
+    spinner: null,
+    thinking: null,
+  };
+  const context = createContextState({
+    runtime: {
+      contextStatus: () => ({
+        contextWindow: 20_000,
+        currentEstimatedTokens: 1_250,
+        usedTokens: 1_250,
+        usedSource: 'estimated',
+        messages: { count: 2 },
+      }),
+    },
+    getState: () => state,
+    updateState: (patch) => { state = { ...state, ...patch }; },
+    getPendingSessionReset: () => false,
+  });
+  context.syncContextStats({ allowEstimated: true });
+  assert.equal(state.stats.currentContextTokens, 0);
+  assert.equal(state.stats.currentEstimatedContextTokens, 1_250);
+  assert.equal(state.stats.currentContextSource, 'estimated');
 });
 
 test('multi-tool preamble and final assistant preserve distinct live timestamps on restore', async () => {

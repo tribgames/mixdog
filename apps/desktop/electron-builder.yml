@@ -50,7 +50,6 @@ mac:
   gatekeeperAssess: false
 publish:
   provider: github
-  # TODO: Replace before publishing releases; repository infrastructure is not provisioned yet.
-  owner: REPLACE_WITH_GITHUB_OWNER
-  repo: REPLACE_WITH_GITHUB_REPOSITORY
+  owner: tribgames
+  repo: mixdog
   channel: latest

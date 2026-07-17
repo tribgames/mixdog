@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Activity, RefreshCw, X } from 'lucide-react';
+import { Activity, X } from 'lucide-react';
 
 type RuntimeHealth = {
   running?: boolean;
@@ -87,9 +87,6 @@ export function StatusPopover() {
         <div><span>Process ID</span><b>{runtime?.pid || '—'}</b></div>
         {error && <p role="alert">{error}</p>}
       </div>
-      <footer><button type="button" disabled={loading} onClick={() => void load()}>
-        <RefreshCw className={loading ? 'spin' : ''} size={13} /> Refresh
-      </button></footer>
     </div>, document.body)}
   </>;
 }

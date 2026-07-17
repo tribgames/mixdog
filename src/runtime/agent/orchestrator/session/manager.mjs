@@ -119,5 +119,6 @@ export {
     updateSessionStatus,
     flushSessionMetrics,
 } from './manager/session-crud.mjs';
+export { deleteSession } from './store.mjs';
 export { closeSession, abortSessionTurn } from './manager/session-close.mjs';
 export { sweepTombstones, startIdleCleanup, stopIdleCleanup } from './manager/idle-cleanup.mjs';
