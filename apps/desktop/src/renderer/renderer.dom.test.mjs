@@ -70,7 +70,7 @@ function installDom() {
 
 async function openProjectSwitcher() {
   await act(async () => {
-    document.querySelector('[aria-label="Manage projects"]')?.click();
+    document.querySelector('[aria-label="Open projects"]')?.click();
     await Promise.resolve();
   });
   const dialog = document.querySelector('[role="dialog"][aria-labelledby="project-switcher-title"]');
@@ -754,8 +754,8 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".sidebar-account") === null, true, "selector .sidebar-account should be absent");
   assert.equal(document.querySelector(".account-avatar") === null, true, "selector .account-avatar should be absent");
   assert.equal(document.querySelector(".session-sidebar-heading") === null, true, "selector .session-sidebar-heading should be absent");
-  assert.equal(document.querySelectorAll('[aria-label="Search sessions"]').length, 1,
-    "the sidebar should expose one session search input");
+  assert.equal(document.querySelector('[aria-label="Search sessions"]'), null,
+    "the sidebar should not expose session search");
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Sessions/);
   assert.equal(document.querySelector(".workspace-project-trigger") === null, true, "selector .workspace-project-trigger should be absent");
   assert.equal(document.querySelector(".session-header-divider") === null, true, "selector .session-header-divider should be absent");
@@ -918,7 +918,7 @@ test("sidebar footer exposes the settings entry point used by the reviewed setti
   assert.equal(trigger.getAttribute("title"), null);
 });
 
-test("sidebar separates registered Projects from Tasks and keeps each list newest-first", async () => {
+test("sidebar keeps Project below New task and lists every session newest-first", async () => {
   installDom();
   const resumes = [];
   const sessions = Array.from({ length: 6 }, (_, index) => ({
@@ -947,19 +947,18 @@ test("sidebar separates registered Projects from Tasks and keeps each list newes
     await Promise.resolve();
   });
 
-  assert.equal(document.querySelector(".session-sidebar > .task-link")?.textContent.trim(), "New task");
-  assert.deepEqual(Array.from(document.querySelectorAll(".sidebar-section-toggle > span"),
-    (node) => node.textContent.trim()), ["Projects", "Tasks"]);
-  assert.equal(document.querySelector('[aria-label="Add project"]') != null, true);
-  assert.equal(document.querySelector('[aria-label="Manage projects"]') != null, true);
-  const tasks = document.querySelector(".standalone-session-list");
-  const shortcuts = Array.from(tasks.querySelectorAll(".session-row"));
+  assert.deepEqual(Array.from(document.querySelectorAll(".sidebar-primary-nav > button"),
+    (node) => node.textContent.trim()), ["New task", "Project"]);
+  assert.equal(document.querySelector('[aria-label="Open projects"]')?.textContent.trim(), "Project");
+  assert.equal(document.querySelector(".sidebar-recent-heading")?.textContent.trim(), "Recent");
+  assert.equal(document.querySelector(".sidebar-section-toggle"), null);
+  const recent = document.querySelector(".recent-session-list");
+  const shortcuts = Array.from(recent.querySelectorAll(".session-row"));
   assert.deepEqual(shortcuts.map((row) => row.textContent.trim()),
     ["Recent 6", "Recent 5", "Recent 4", "Recent 3", "Recent 2", "Recent 1"]);
-  assert.equal(tasks.querySelectorAll(".session-row-icon").length, 6);
-  assert.match(document.querySelector(".sidebar-projects")?.textContent || "", /No projects yet/);
+  assert.equal(recent.querySelectorAll(".session-row-icon").length, 6);
   await act(async () => {
-    tasks.querySelector('[data-session-id="recent-4"]').click();
+    recent.querySelector('[data-session-id="recent-4"]').click();
     await Promise.resolve();
   });
   assert.deepEqual(resumes, ["recent-4"]);
@@ -1012,7 +1011,7 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
     await Promise.resolve();
   });
 
-  let title = document.querySelector(".standalone-session-list .session-row-copy");
+  let title = document.querySelector(".recent-session-list .session-row-copy");
   assert.equal(document.querySelector(".session-row-more")?.getAttribute("aria-label"), "More actions for Original title");
   await act(async () => {
     title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
@@ -1033,7 +1032,7 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
     new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
   ));
 
-  const inactiveTitle = document.querySelectorAll(".standalone-session-list .session-row-copy")[1];
+  const inactiveTitle = document.querySelectorAll(".recent-session-list .session-row-copy")[1];
   await act(async () => {
     inactiveTitle.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
     await new Promise((resolve) => window.setTimeout(resolve, 400));
@@ -1047,7 +1046,7 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
   assert.equal(document.querySelector(".session-title-input") === null, true,
     "selector .session-title-input should be absent");
   await act(async () => {
-    document.querySelectorAll(".standalone-session-list .session-row-copy")[1]
+    document.querySelectorAll(".recent-session-list .session-row-copy")[1]
       .dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true, detail: 2 }));
   });
   assert.equal(document.querySelector(".session-title-input")?.getAttribute("aria-label"), "Rename Inactive title");
@@ -1066,7 +1065,7 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
   ));
   Object.defineProperty(window, "innerWidth", { value: 1024, writable: true, configurable: true });
 
-  title = document.querySelector(".standalone-session-list .session-row-copy");
+  title = document.querySelector(".recent-session-list .session-row-copy");
   await chooseSessionAction(document.querySelectorAll(".session-row")[0], "rename");
   let input = document.querySelector(".session-title-input");
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
@@ -1270,7 +1269,7 @@ test("a pending session rename survives an overlapping stale session refresh", a
     document.querySelector(".task-link").click();
     await Promise.resolve();
   });
-  await chooseSessionAction(document.querySelector(".standalone-session-list .session-row"), "rename");
+  await chooseSessionAction(document.querySelector(".recent-session-list .session-row"), "rename");
   const input = document.querySelector(".session-title-input");
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
   await act(async () => {
@@ -1683,7 +1682,7 @@ test("a durable new task refreshes and selects exactly once after busy settles",
     await Promise.resolve();
   });
   assert.equal(refreshes, 2);
-  assert.equal(document.querySelector(".standalone-session-list .session-row")?.getAttribute("aria-current"), "page");
+  assert.equal(document.querySelector(".recent-session-list .session-row")?.getAttribute("aria-current"), "page");
   assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "Durable task title");
   assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
 });
@@ -1853,7 +1852,7 @@ test("failed resume preserves a surviving known project session, then clears whe
   assert.match(document.querySelector('[role="alert"]').textContent || "", /Resume failed/);
 });
 
-test("session sidebar and separate project switcher preserve navigation and project actions", async () => {
+test("flat recent sessions and separate project switcher preserve navigation and project actions", async () => {
   installDom();
   const resumed = [];
   const projectActions = [];
@@ -1892,22 +1891,12 @@ test("session sidebar and separate project switcher preserve navigation and proj
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.deepEqual(Array.from(document.querySelectorAll('.project-group'))
-    .map((group) => ({
-      label: group.querySelector('.project-group-label')?.textContent.trim(),
-      sessions: Array.from(group.querySelectorAll('.session-row-copy b'),
-        (row) => row.textContent.trim()),
-    })), [
-    { label: "One alias", sessions: ["Newest project work", "Project work"] },
-    { label: "Two alias", sessions: [] },
-  ]);
-  assert.deepEqual(Array.from(document.querySelectorAll('.standalone-session-list .session-row-copy b'),
+  assert.deepEqual(Array.from(document.querySelectorAll('.recent-session-list .session-row-copy b'),
     (row) => row.textContent.trim()),
-  ["Unregistered folder task", "Untitled session", "Older task"]);
+  ["Unregistered folder task", "Newest project work", "Untitled session", "Project work", "Older task"]);
   assert.equal(document.querySelectorAll(".session-sidebar-scroll .session-row-icon").length, 5);
-  assert.equal(document.querySelector(".sidebar [aria-label='Manage projects']") != null, true);
-  assert.equal(document.querySelector(".sidebar [aria-label='Add project']") != null, true);
-  assert.equal(document.querySelectorAll('.sidebar .project-row-icon').length, 2);
+  assert.equal(document.querySelector(".sidebar [aria-label='Open projects']")?.textContent.trim(), "Project");
+  assert.equal(document.querySelector(".sidebar .project-group"), null);
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Legacy/);
   let projectDialog = await openProjectSwitcher();
   assert.match(projectDialog.querySelector(".project-list")?.textContent || "", /One alias/);
@@ -1994,30 +1983,6 @@ test("session sidebar and separate project switcher preserve navigation and proj
   assert.doesNotMatch(document.querySelector(".project-list").textContent, /One alias/);
   assert.match(document.querySelector(".project-list").textContent, /Two alias/);
   assert.equal(document.activeElement === document.querySelector(".project-row"), true, "removal should focus the remaining project row");
-});
-
-test("sidebar disambiguates duplicate registered project names with their paths", async () => {
-  installDom();
-  const projects = [
-    { path: "C:\\work\\project", name: "project", alias: "", pinned: false },
-    { path: "D:\\other\\project", name: "project", alias: "", pinned: false },
-  ];
-  window.mixdogDesktop = {
-    getSnapshot: async () => ({ items: [], queued: [] }),
-    subscribeState: () => () => {},
-    listProjects: async () => projects,
-    listSessions: async () => [],
-  };
-  await act(async () => {
-    root.render(React.createElement(App));
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-
-  const labels = Array.from(document.querySelectorAll(".project-group-label"),
-    (node) => node.textContent.trim());
-  assert.deepEqual(labels, ["project · C:\\work\\project", "project · D:\\other\\project"]);
-  assert.equal(new Set(labels).size, 2);
 });
 
 test("mobile sidebar closes at the inclusive 760px breakpoint after navigation", async () => {
@@ -2326,7 +2291,7 @@ test("modal layers retain isolation until the final owner releases and have one 
     "cleanup must not overwrite isolation changed by another owner");
 });
 
-test("model selector drills from providers into a stable provider model list", async () => {
+test("model selector shows Recent and provider-grouped models in one stable list", async () => {
   installDom();
   const catalogOptions = [];
   window.mixdogDesktop = {
@@ -2397,102 +2362,78 @@ test("model selector drills from providers into a stable provider model list", a
   assert.equal(dialog.closest(".model-picker-layer").parentElement === document.body, true,
     "model selector portal should be attached to document.body");
   assert.equal(dialog.getAttribute("aria-modal"), "true");
-  assert.equal(dialog.dataset.stage, "providers");
-  assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Available providers");
-  const providerOptions = dialog.querySelectorAll(".model-provider-row");
-  assert.deepEqual(Array.from(providerOptions).map((node) => node.querySelector("strong").textContent),
+  assert.equal(dialog.hasAttribute("data-stage"), false);
+  assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Available models");
+  assert.deepEqual(Array.from(dialog.querySelectorAll(".model-group--provider > h3"), (node) => node.textContent),
     ["OpenAI API", "DeepSeek API"]);
-  assert.equal(dialog.querySelectorAll(".model-option-row").length, 0,
-    "models must not be mixed across providers on the first screen");
+  assert.deepEqual(Array.from(dialog.querySelectorAll(".model-option-row strong"), (node) => node.textContent),
+    ["GPT-Real", "DeepSeek V4 Flash"]);
   assert.doesNotMatch(dialog.textContent, /Anthropic|Ollama|Needs setup/,
     "disconnected providers must stay out of the model picker");
   assert.ok(dialog.querySelector('button[aria-label="Add provider"]'));
-  assert.equal(providerOptions[0].getAttribute("aria-selected"), "true");
-  assert.match(providerOptions[0].textContent, /Current · GPT-Real/);
+  assert.equal(dialog.querySelectorAll(".model-provider-row, .provider-icon, .model-provider-chevron").length, 0);
+  assert.equal(dialog.querySelector(".model-option-row").getAttribute("aria-selected"), "true");
+  assert.equal(dialog.querySelectorAll('[data-slot="list-item-selected-icon"]').length, 1,
+    "only the current model should carry a check");
   assert.equal(dialog.querySelector('[data-component="list"]') != null, true);
   assert.equal(dialog.querySelector('[data-slot="list-search-wrapper"]') != null, true);
   assert.equal(dialog.querySelectorAll('[role="radio"]').length, 0);
-  const providerInput = dialog.querySelector('input[aria-label="Search providers"]');
-  assert.equal(document.activeElement === providerInput, true, "opening the model selector should focus provider search");
-  await act(async () => providerInput.dispatchEvent(
+  const modelInput = dialog.querySelector('input[aria-label="Search models"]');
+  const modelOptions = dialog.querySelectorAll(".model-option-row");
+  assert.equal(document.activeElement === modelInput, true, "opening the model selector should focus model search");
+  await act(async () => modelInput.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement === providerOptions[0], true, "ArrowDown should focus the current provider");
-  await act(async () => providerOptions[0].dispatchEvent(
+  assert.equal(document.activeElement === modelOptions[0], true, "ArrowDown should focus the current model");
+  await act(async () => modelOptions[0].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement === providerOptions[1], true, "ArrowDown should focus the next provider");
-  await act(async () => providerOptions[1].dispatchEvent(
+  assert.equal(document.activeElement === modelOptions[1], true, "ArrowDown should focus the next model");
+  await act(async () => modelOptions[1].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "Home", bubbles: true }),
   ));
-  assert.equal(document.activeElement === providerOptions[0], true, "Home should focus the first provider");
-  await act(async () => providerOptions[0].dispatchEvent(
+  assert.equal(document.activeElement === modelOptions[0], true, "Home should focus the first model");
+  await act(async () => modelOptions[0].dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "End", bubbles: true }),
   ));
-  assert.equal(document.activeElement === providerOptions[1], true, "End should focus the last provider");
+  assert.equal(document.activeElement === modelOptions[1], true, "End should focus the last model");
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
   await act(async () => {
-    setValue.call(providerInput, "deepseek");
-    providerInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+    setValue.call(modelInput, "deepseek");
+    modelInput.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  assert.deepEqual(Array.from(dialog.querySelectorAll(".model-provider-row strong")).map((node) => node.textContent),
-    ["DeepSeek API"]);
-  providerInput.focus();
-  await act(async () => providerInput.dispatchEvent(
+  assert.deepEqual(Array.from(dialog.querySelectorAll(".model-option-row strong")).map((node) => node.textContent),
+    ["DeepSeek V4 Flash"]);
+  modelInput.focus();
+  await act(async () => modelInput.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
   ));
-  assert.equal(document.activeElement === dialog.querySelector(".model-provider-row"), true,
-    "filtered provider navigation should focus the visible provider");
+  assert.equal(document.activeElement === dialog.querySelector(".model-option-row"), true,
+    "filtered navigation should focus the visible model");
 
   await act(async () => dialog.querySelector('button[aria-label="Clear picker search"]').click());
-  await act(async () => dialog.querySelectorAll(".model-provider-row")[0].click());
-  assert.equal(dialog.dataset.stage, "models");
-  assert.equal(dialog.querySelector(".model-list").getAttribute("aria-label"), "Models from OpenAI API");
-  const modelInput = dialog.querySelector('input[aria-label="Search models"]');
-  assert.equal(document.activeElement === modelInput, true,
-    "provider selection should focus model search");
-  const modelOptions = dialog.querySelectorAll(".model-option-row");
-  assert.deepEqual(Array.from(modelOptions).map((node) => node.querySelector("strong").textContent), ["GPT-Real"]);
   assert.doesNotMatch(dialog.textContent, /GPT-Next/,
-    "a full catalog refresh must not reorder or expand the provider currently being inspected");
-  assert.equal(modelOptions[0].getAttribute("aria-selected"), "true");
-  assert.equal(modelOptions[0].querySelector('[data-slot="list-item-selected-icon"]') != null, true);
-  assert.equal(modelOptions[0].querySelector(".model-row-copy > small").textContent, "-",
+    "a full catalog refresh must not reorder or expand the open list");
+  assert.equal(dialog.querySelector(".model-option-row .model-row-copy > small").textContent, "-",
     "model rows should expose the same Context/Fast description as the TUI");
 
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
-  assert.equal(document.querySelector(".model-picker-dialog") != null, true,
-    "Escape from a provider model list should return to providers");
-  assert.equal(dialog.dataset.stage, "providers");
-  assert.equal(document.activeElement === dialog.querySelector('input[aria-label="Search providers"]'), true,
-    "returning to providers should focus provider search");
-  assert.equal(document.querySelector(".model-list").scrollTop, 0,
-    "returning to providers resets the shared list scroll");
-  await act(async () => {
-    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-  });
   assert.equal(document.querySelector(".model-picker-dialog") === null, true,
-    "Escape from providers closes the dialog");
+    "Escape closes the model dialog");
   assert.equal(document.activeElement === trigger, true,
-    "Escape from providers should restore trigger focus");
+    "Escape should restore trigger focus");
   await act(async () => trigger.click());
   assert.equal(document.querySelector(".model-list").scrollTop, 0,
-    "reopening always starts at the provider list top");
+    "reopening always starts at the model list top");
   assert.match(document.querySelector('[aria-label="Reasoning effort"]').textContent, /High/);
-  await act(async () => {
-    Array.from(document.querySelectorAll(".model-provider-row"))
-      .find((option) => option.textContent.includes("OpenAI API")).click();
-  });
   assert.deepEqual(
     Array.from(document.querySelectorAll(".model-option-row strong")).map((node) => node.textContent),
-    ["GPT-Next", "GPT-Real"],
+    ["GPT-Next", "GPT-Real", "DeepSeek V4 Flash"],
     "the refreshed catalog should be adopted on the next open",
   );
-  await act(async () => document.querySelector('button[aria-label="Back to providers"]').click());
   await act(async () => {
     document.querySelector('button[aria-label="Add provider"]').click();
     await Promise.resolve();
@@ -2545,13 +2486,12 @@ test("model control styles keep the reference compact geometry and bounded list"
   for (const selector of [".model-trigger", ".effort-control select", ".fast-control"]) {
     assert.match(css, new RegExp(`\\${selector}\\s*\\{[^}]*height:\\s*28px;`, "s"));
   }
-  assert.match(openCodeCss, /\.fast-control \.oc-select-trigger\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*40px;/s,
-    "the Fast dropdown trigger must keep its compact click target");
+  assert.match(openCodeCss, /\.route-controls > \.fast-control\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*40px;/s,
+    "the Fast toggle must keep its compact click target");
   assert.match(openCodeCss,
-    /\.fast-control \.oc-select-trigger:hover:not\(:disabled\),\s*\.fast-control \.oc-select-trigger\[aria-expanded="true"\]:not\(:disabled\)\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*background:\s*var\(--oc-hover\);/s,
-    "the Fast dropdown trigger must expose hover and open-state feedback");
-  assert.doesNotMatch(openCodeCss, /\.fast-control\[aria-pressed="true"\]\s*\{[^}]*(?:background|box-shadow):/s,
-    "Fast state must remain a quiet text control until hover or active interaction");
+    /\.route-controls > \.fast-control:hover:not\(:disabled\),[\s\S]*?\{[^}]*color:\s*var\(--oc-text\);[^}]*background:\s*var\(--oc-hover\);/s,
+    "the Fast toggle must expose hover feedback");
+  assert.match(openCodeCss, /\.route-controls > \.fast-control\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--oc-text\);/s);
   assert.match(openCodeCss,
     /\.effort-control \.oc-select-trigger\s*\{[^}]*height:\s*28px;[^}]*padding:\s*0 5px 0 8px;[^}]*line-height:\s*20px;/s,
     "the effort trigger needs a full text line box inside its fixed control height");
@@ -2565,12 +2505,12 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(openCodeCss, /\.model-picker-dialog\s*\{[^}]*border-radius:\s*10px;/s,
     "the model dialog should use the reference --radius-xl value");
   assert.match(openCodeCss,
-    /\.model-provider-row,\s*\.model-option-row\s*\{[^}]*min-height:\s*48px;[^}]*padding:\s*6px 8px;/s,
-    "provider and model rows should leave room for stable secondary metadata");
+    /\.model-option-row\s*\{[^}]*min-height:\s*48px;[^}]*padding:\s*6px 8px;/s,
+    "model rows should leave room for stable secondary metadata");
   assert.match(openCodeCss, /\.model-row-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s);
   assert.match(openCodeCss, /\.model-row-copy > small:not\(\.model-tag\)\s*\{[^}]*color:\s*var\(--oc-text-faint\);[^}]*font-size:\s*11px;/s);
-  assert.match(openCodeCss, /\.model-back,\s*\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
-  assert.match(openCodeCss, /\.model-list-heading\s*\{[^}]*min-height:\s*32px;[^}]*display:\s*flex;/s);
+  assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
+  assert.doesNotMatch(openCodeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
   assert.match(openCodeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/s);
   assert.match(openCodeCss, /\.model-tag\s*\{[^}]*height:\s*18px;[^}]*padding:\s*0 6px;[^}]*border:\s*\.5px solid[^}]*border-radius:\s*2px;[^}]*font-size:\s*13px;[^}]*font-weight:\s*500;/s);
   assert.match(openCodeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
@@ -2609,10 +2549,6 @@ test("model selection applies the secure route result, hides unrelated effort, a
   });
   await act(async () => document.querySelector(".model-trigger").click());
   await act(async () => {
-    Array.from(document.querySelectorAll(".model-provider-row"))
-      .find((option) => option.textContent.includes("Anthropic API")).click();
-  });
-  await act(async () => {
     Array.from(document.querySelectorAll(".model-option-row"))
       .find((option) => option.textContent.includes("Claude Real")).click();
     await Promise.resolve();
@@ -2626,10 +2562,6 @@ test("model selection applies the secure route result, hides unrelated effort, a
     "a failed route must not be persisted as a recent selection");
   assert.equal(document.querySelector('[aria-label="Reasoning effort"]') != null, true, "selector [aria-label=\"Reasoning effort\"] should be present");
   await act(async () => {
-    Array.from(document.querySelectorAll(".model-provider-row"))
-      .find((option) => option.textContent.includes("Anthropic API")).click();
-  });
-  await act(async () => {
     Array.from(document.querySelectorAll(".model-option-row"))
       .find((option) => option.textContent.includes("Claude Real")).click();
     await Promise.resolve();
@@ -2641,6 +2573,7 @@ test("model selection applies the secure route result, hides unrelated effort, a
   assert.equal(document.activeElement === document.querySelector(".model-trigger"), true, "successful model selection should restore trigger focus");
   assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
   await act(async () => document.querySelector(".model-trigger").click());
+  assert.match(document.querySelector(".model-group--recent")?.textContent || "", /Claude Real/);
   assert.equal(document.querySelector('[aria-label="Reasoning effort"]') === null, true, "selector [aria-label=\"Reasoning effort\"] should be absent");
 });
 
@@ -2717,35 +2650,17 @@ test("Fast follows core capability and disables tuning while a turn is busy", as
   });
   const fast = document.querySelector('[aria-label="Fast mode"]');
   assert.equal(fast != null, true, "Fast control should be present for a capable model");
-  assert.equal(fast.getAttribute("aria-expanded"), "false");
-  assert.match(fast.textContent, /Fast Off/);
+  assert.equal(fast.getAttribute("aria-pressed"), "false");
+  assert.equal(fast.textContent.trim(), "Fast");
   await act(async () => {
     fast.click();
-    await Promise.resolve();
-  });
-  assert.equal(fast.getAttribute("aria-expanded"), "true");
-  const fastOptions = Array.from(document.querySelectorAll('.oc-menu [role="option"]'));
-  assert.deepEqual(fastOptions.map((option) => option.textContent.trim()), ["Fast On", "Fast Off"]);
-  assert.equal(fastOptions[0].getAttribute("aria-selected"), "false");
-  assert.equal(fastOptions[1].getAttribute("aria-selected"), "true");
-  await act(async () => {
-    fastOptions[0].click();
     await Promise.resolve();
     await Promise.resolve();
   });
   assert.deepEqual(calls, [true]);
-  assert.equal(fast.getAttribute("aria-expanded"), "false");
-  assert.match(fast.textContent, /Fast On/);
-  await act(async () => {
-    fast.click();
-    await Promise.resolve();
-  });
-  assert.equal(fast.getAttribute("aria-expanded"), "true");
+  assert.equal(fast.getAttribute("aria-pressed"), "true");
   await act(async () => publish({ ...idle, busy: true }));
   assert.equal(fast.disabled, true);
-  assert.equal(fast.getAttribute("aria-expanded"), "false");
-  assert.equal(document.querySelector('.oc-menu[aria-label="Fast mode"]') === null, true,
-    "a newly disabled Fast control must close its portaled menu");
   assert.equal(document.querySelector(".model-trigger").disabled, false,
     "model selection remains available as the next-session route while a turn is busy");
   await act(async () => {
@@ -2773,7 +2688,7 @@ test("Fast follows core capability and disables tuning while a turn is busy", as
   assert.equal(document.querySelector('.fast-control') === null, true, "selector .fast-control should be absent");
 });
 
-test("Fast recovers from a rejected dropdown selection and can be retried", async () => {
+test("Fast recovers from a rejected toggle and can be retried", async () => {
   installDom();
   const calls = [];
   const idle = {
@@ -2807,31 +2722,21 @@ test("Fast recovers from a rejected dropdown selection and can be retried", asyn
   await act(async () => {
     fast.click();
     await Promise.resolve();
-  });
-  const selectOn = () => Array.from(document.querySelectorAll('.oc-menu [role="option"]'))
-    .find((option) => option.textContent.trim() === "Fast On");
-  await act(async () => {
-    selectOn().click();
-    await Promise.resolve();
     await Promise.resolve();
   });
   assert.deepEqual(calls, [true]);
   assert.equal(fast.disabled, false);
-  assert.match(fast.textContent, /Fast Off/);
+  assert.equal(fast.getAttribute("aria-pressed"), "false");
   assert.match(document.querySelector(".inline-error")?.textContent || "", /Fast preference was not applied/);
 
   await act(async () => {
     fast.click();
     await Promise.resolve();
-  });
-  await act(async () => {
-    selectOn().click();
-    await Promise.resolve();
     await Promise.resolve();
   });
   assert.deepEqual(calls, [true, true]);
   assert.equal(fast.disabled, false);
-  assert.match(fast.textContent, /Fast On/);
+  assert.equal(fast.getAttribute("aria-pressed"), "true");
   assert.equal(document.querySelector(".inline-error") === null, true, "selector .inline-error should be absent");
 });
 
@@ -2951,8 +2856,8 @@ test("desktop session sidebar releases its 286px rail when collapsed and restore
   assert.equal(sidebar != null, true, "selector .sidebar should be present");
   assert.equal(shell != null, true, "the sidebar should belong to the app shell");
   assert.equal(toggle != null, true, "selector .toolbar-sidebar should be present");
-  assert.equal(document.querySelector(".session-search") != null, true,
-    "selector .session-search should be present");
+  assert.equal(document.querySelector(".session-search"), null,
+    "selector .session-search should be absent");
   assert.equal(shell?.classList.contains("sidebar-collapsed"), false);
   assert.equal(toggle?.getAttribute("aria-label"), "Collapse session sidebar");
   assert.equal(document.querySelector(".titlebar-home") === null, true, "selector .titlebar-home should be absent");

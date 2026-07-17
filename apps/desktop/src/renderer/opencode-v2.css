@@ -378,43 +378,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   pointer-events: none;
   box-shadow: none;
 }
-.session-search {
-  height: 28px;
-  flex: 0 0 28px;
-  margin: 0 0 6px;
-  padding: 0 8px;
-  gap: 7px;
-  border: 0;
-  border-radius: 6px;
-  color: var(--oc-icon-muted);
-  background: var(--oc-bg-base);
-  box-shadow: 0 0 0 .5px var(--oc-border-strong);
-}
-.session-search:hover { box-shadow: 0 0 0 .5px var(--oc-text-faint); }
-.session-search:focus-within {
-  outline: 0;
-  box-shadow: 0 0 0 1px var(--oc-border-strong);
-}
-.session-search input {
-  height: 100%;
-  padding: 0;
-  color: var(--oc-text);
-  font-size: 13px;
-  font-weight: 440;
-  line-height: 20px;
-}
-.session-search input:focus,
-.session-search input:focus-visible { outline: 0; box-shadow: none; }
-.session-search input::placeholder { color: var(--oc-text-faint); }
-.session-search button {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  border-radius: 4px;
-  color: var(--oc-icon-muted);
-}
-.session-search button:hover,
-.session-search button:focus-visible { color: var(--oc-icon); background: var(--oc-hover); }
 .session-sidebar .task-link,
 .session-sidebar .projects-link,
 .session-sidebar .session-row {
@@ -1295,7 +1258,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .composer textarea::placeholder { color: var(--oc-text-faint); }
 .composer-footer { height: 44px; gap: 0; padding: 0 8px; }
-.composer-tool, .send-button, .fast-control .oc-select-trigger, .effort-control select {
+.composer-tool, .send-button, .route-controls > .fast-control, .fast-control .oc-select-trigger, .effort-control select {
   width: 28px;
   height: 28px;
   border: 0;
@@ -1304,7 +1267,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: transparent;
   box-shadow: none;
 }
-.composer-tool:hover, .composer-tool:focus-visible, .fast-control .oc-select-trigger:hover,
+.composer-tool:hover, .composer-tool:focus-visible, .route-controls > .fast-control:hover, .fast-control .oc-select-trigger:hover,
 .effort-control select:hover { color: var(--oc-text); background: var(--oc-hover); }
 .send-button {
   color: var(--oc-grey-100);
@@ -1315,7 +1278,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .send-button:focus-visible { outline: 0; box-shadow: var(--oc-button-contrast), 0 0 0 1px var(--oc-border-strong); }
 .send-button:disabled { opacity: .5; cursor: default; }
 .route-controls { gap: 0; }
-.model-trigger, .effort-control select, .fast-control .oc-select-trigger {
+.model-trigger, .effort-control select, .route-controls > .fast-control, .fast-control .oc-select-trigger {
   height: 28px;
   padding: 0 8px;
   border-radius: 6px;
@@ -1337,13 +1300,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   width: auto;
   min-width: 40px;
 }
+.route-controls > .fast-control {
+  width: auto;
+  min-width: 40px;
+}
+.route-controls > .fast-control[aria-pressed="true"] { color: var(--oc-text); }
+.route-controls > .fast-control:hover:not(:disabled),
 .fast-control .oc-select-trigger:hover:not(:disabled),
 .fast-control .oc-select-trigger[aria-expanded="true"]:not(:disabled) {
   color: var(--oc-text);
   background: var(--oc-hover);
 }
+.route-controls > .fast-control[aria-busy="true"],
 .fast-control[aria-busy="true"] .oc-select-trigger { color: var(--oc-text-muted); cursor: progress; }
-.model-trigger:hover, .model-trigger:focus-visible, .fast-control .oc-select-trigger:hover,
+.model-trigger:hover, .model-trigger:focus-visible, .route-controls > .fast-control:hover, .fast-control .oc-select-trigger:hover,
 .effort-control select:hover { color: var(--oc-text); background: var(--oc-hover); }
 .model-trigger:focus-visible { outline: 0; }
 .provider-icon { width: 16px; height: 16px; flex: 0 0 16px; color: currentColor; }
@@ -1426,7 +1396,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   line-height: 24px;
   letter-spacing: -.1px;
 }
-.model-back,
 .model-provider-add {
   width: 28px;
   height: 28px;
@@ -1439,10 +1408,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: transparent;
   cursor: pointer;
 }
-.model-back { margin-right: 8px; }
 .model-provider-add { margin-left: auto; }
-.model-back:hover,
-.model-back:focus-visible,
 .model-provider-add:hover,
 .model-provider-add:focus-visible {
   color: var(--oc-icon);
@@ -1501,7 +1467,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   align-items: flex-start;
   align-self: stretch;
 }
-.model-provider-row,
 .model-option-row {
   box-sizing: border-box;
   width: 100%;
@@ -1521,9 +1486,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   text-align: left;
   scroll-margin-top: 28px;
 }
-.model-provider-row:hover,
-.model-provider-row:focus-visible,
-.model-provider-row[data-active="true"],
 .model-option-row:hover,
 .model-option-row:focus-visible,
 .model-option-row[data-active="true"] {
@@ -1566,27 +1528,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.model-provider-row .provider-icon {
-  width: 18px;
-  height: 18px;
-  flex-basis: 18px;
-  color: var(--oc-icon-muted);
-}
-.model-provider-row[aria-selected="true"] .provider-icon { color: var(--oc-icon); }
-.model-provider-chevron { flex: 0 0 auto; color: var(--oc-icon-muted); }
-.model-list-heading {
-  min-height: 32px;
-  padding: 4px 8px;
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 8px;
-  color: var(--oc-text-muted);
-  font-size: 12px;
-  line-height: 20px;
-}
-.model-list-heading span { color: var(--oc-text); font-weight: 500; }
-.model-list-heading small { margin-left: auto; color: var(--oc-text-faint); font-size: 11px; }
 .model-tag {
   flex: 0 0 auto;
   height: 18px;
@@ -3555,6 +3496,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .composer-tool,
 .model-trigger,
+.route-controls > .fast-control,
 .fast-control .oc-select-trigger,
 .effort-control .oc-select-trigger,
 .send-button {
@@ -3562,6 +3504,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .composer-tool:focus-visible,
 .model-trigger:focus-visible,
+.route-controls > .fast-control:focus-visible,
 .fast-control .oc-select-trigger:focus-visible,
 .effort-control .oc-select-trigger:focus-visible,
 .send-button:focus-visible {
@@ -3570,6 +3513,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .composer-tool:active,
 .model-trigger:active:not(:disabled),
+.route-controls > .fast-control:active:not(:disabled),
 .fast-control .oc-select-trigger:active:not(:disabled),
 .effort-control .oc-select-trigger:active:not(:disabled) { background: var(--oc-pressed); }
 .route-controls {

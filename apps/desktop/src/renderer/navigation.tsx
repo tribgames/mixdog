@@ -8,8 +8,6 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  ChevronDown,
-  ChevronRight,
   Download,
   Folder,
   FolderOpen,
@@ -17,7 +15,6 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Search,
   Settings,
   Trash2,
   X,
@@ -272,27 +269,12 @@ function projectIdentity(path: string | null | undefined) {
   return String(path || "").replace(/[\\/]+/g, "/").replace(/\/$/, "").toLocaleLowerCase();
 }
 
-function projectLabel(
-  path: string | null,
-  projects: DesktopProjectSummary[],
-) {
-  if (!path) return "Standalone";
-  const identity = projectIdentity(path);
-  const project = projects.find((item) => projectIdentity(item.path) === identity);
-  if (project?.alias?.trim()) return project.alias.trim();
-  if (project?.name?.trim()) return project.name.trim();
-  return path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1) || path;
-}
-
 interface SessionSidebarProps {
   open: boolean;
   sessions: DesktopSessionSummary[];
-  projects: DesktopProjectSummary[];
   selection: NavigationSelection;
   onNewTask(): void;
-  onChooseProject(): void;
   onOpenProjects(): void;
-  onStartProjectTask(projectPath: string): void;
   onOpenSettings(): void;
   onResumeSession(sessionId: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
@@ -302,103 +284,25 @@ interface SessionSidebarProps {
 export const SessionSidebar = React.memo(function SessionSidebar({
   open,
   sessions,
-  projects,
   selection,
   onNewTask,
-  onChooseProject,
   onOpenProjects,
-  onStartProjectTask,
   onOpenSettings,
   onResumeSession,
   onRenameSession,
   onDeleteSession,
 }: SessionSidebarProps) {
-  const [query, setQuery] = useState("");
-  const [projectsCollapsed, setProjectsCollapsed] = useState(false);
-  const [tasksCollapsed, setTasksCollapsed] = useState(false);
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
   const [editingSessionId, setEditingSessionId] = useState("");
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const [sessionTitleInvalid, setSessionTitleInvalid] = useState(false);
   const [menuSessionId, setMenuSessionId] = useState("");
   const [confirmingSessionId, setConfirmingSessionId] = useState("");
   const [deletingSessionId, setDeletingSessionId] = useState("");
-  const normalizedQuery = query.trim().toLocaleLowerCase();
   const rows = useMemo(() => sessions
-    .filter((session) => {
-      if (session.classification !== "task" && session.classification !== "project") return false;
-      if (!normalizedQuery) return true;
-      const haystack = [
-        session.title,
-        session.preview,
-        session.cwd,
-        session.projectPath,
-      ].join(" ").toLocaleLowerCase();
-      return haystack.includes(normalizedQuery);
-    })
+    .filter((session) => session.classification === "task" || session.classification === "project")
     .sort((left, right) =>
       right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)),
-  [normalizedQuery, sessions]);
-  const { projectGroups, standaloneSessions } = useMemo(() => {
-    const uniqueProjects = new Map<string, DesktopProjectSummary>();
-    projects.forEach((project) => {
-      const identity = projectIdentity(project.path);
-      if (identity && !uniqueProjects.has(identity)) uniqueProjects.set(identity, project);
-    });
-    const labelCounts = new Map<string, number>();
-    uniqueProjects.forEach((project) => {
-      const label = projectLabel(project.path, projects).toLocaleLowerCase();
-      labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
-    });
-    const grouped = new Map<string, {
-      key: string;
-      label: string;
-      path: string;
-      sessions: DesktopSessionSummary[];
-      order: number;
-      projectMatches: boolean;
-    }>();
-    [...uniqueProjects.entries()].forEach(([identity, project], order) => {
-      const baseLabel = projectLabel(project.path, projects);
-      const duplicate = (labelCounts.get(baseLabel.toLocaleLowerCase()) || 0) > 1;
-      const label = duplicate ? `${baseLabel} · ${project.path}` : baseLabel;
-      grouped.set(identity, {
-        key: `project:${identity}`,
-        label,
-        path: project.path,
-        sessions: [],
-        order,
-        projectMatches: !normalizedQuery ||
-          `${baseLabel} ${project.path}`.toLocaleLowerCase().includes(normalizedQuery),
-      });
-    });
-    const standalone: DesktopSessionSummary[] = [];
-    for (const session of rows) {
-      // Only the explicit project registry can promote a cwd into Projects.
-      // Legacy/removed/temporary folders remain ordinary Tasks.
-      const candidatePath = session.projectPath || session.cwd;
-      const identity = projectIdentity(candidatePath);
-      const group = identity ? grouped.get(identity) : undefined;
-      if (!group) {
-        standalone.push(session);
-        continue;
-      }
-      group.sessions.push(session);
-    }
-    const ordered = [...grouped.values()]
-      .filter((group) => !normalizedQuery || group.projectMatches || group.sessions.length > 0)
-      .sort((left, right) => left.order - right.order);
-    return { projectGroups: ordered, standaloneSessions: standalone };
-  }, [normalizedQuery, projects, rows]);
-  const clearQuery = useCallback(() => setQuery(""), []);
-  const toggleProjects = useCallback(() => setProjectsCollapsed((value) => !value), []);
-  const toggleTasks = useCallback(() => setTasksCollapsed((value) => !value), []);
-  const toggleProject = useCallback((key: string) => setCollapsedProjects((current) => {
-    const next = new Set(current);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    return next;
-  }), []);
+  [sessions]);
   const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
     setMenuSessionId("");
     setConfirmingSessionId("");
@@ -445,91 +349,26 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         setMenuSessionId("");
       }}
     >
-      <label className="session-search">
-        <Search size={14} aria-hidden="true" />
-        <span className="sr-only">Search sessions</span>
-        <input type="search" value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)}
-          placeholder="Search sessions" aria-label="Search sessions" />
-        {query && <button type="button" onClick={clearQuery} aria-label="Clear session search"
-          data-tooltip="Clear search"><X size={13} /></button>}
-      </label>
-
-      <button type="button" className="task-link" onClick={onNewTask}>
-        <span className="sidebar-nav-icon sidebar-nav-icon--new"><Plus size={13} /></span>
-        <span>New task</span>
-      </button>
+      <nav className="sidebar-primary-nav" aria-label="Workspace">
+        <button type="button" className="task-link" onClick={onNewTask}>
+          <span className="sidebar-nav-icon sidebar-nav-icon--new"><Plus size={13} /></span>
+          <span>New task</span>
+        </button>
+        <button type="button" className="projects-link" onClick={onOpenProjects}
+          aria-label="Open projects">
+          <span className="sidebar-nav-icon"><Folder size={14} /></span>
+          <span>Project</span>
+        </button>
+      </nav>
 
       <div className="session-sidebar-scroll">
-        <section className="sidebar-projects" aria-label="Projects">
-          <div className="sidebar-section-heading">
-            <button type="button" className="sidebar-section-toggle"
-              aria-expanded={!projectsCollapsed} onClick={toggleProjects}>
-              <span>Projects</span>
-              {projectsCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-            </button>
-            <button type="button" className="sidebar-section-action" onClick={onOpenProjects}
-              aria-label="Manage projects" data-tooltip="Manage projects">
-              <MoreHorizontal size={14} />
-            </button>
-            <button type="button" className="sidebar-section-action" onClick={onChooseProject}
-              aria-label="Add project" data-tooltip="Add project">
-              <Plus size={14} />
-            </button>
-          </div>
-          {!projectsCollapsed && <div className="sidebar-project-list">
-            {projectGroups.length === 0 && <p className="sidebar-section-empty">
-              {normalizedQuery ? "No matching projects" : "No projects yet"}
+        <section className="sidebar-recent" aria-label="Recent sessions">
+          <div className="sidebar-recent-heading">Recent</div>
+          <nav className="session-list recent-session-list" aria-label="Recent sessions">
+            {rows.length === 0 && <p className="sidebar-section-empty">
+              No sessions
             </p>}
-            {projectGroups.map(({ key, label, path, sessions: group }) => {
-              const collapsed = !normalizedQuery && collapsedProjects.has(key);
-              const activeProject = selection.kind === "project" &&
-                projectIdentity(selection.path) === projectIdentity(path);
-              return <section className="session-group project-group" key={key} aria-label={label}>
-                <div className="project-group-heading">
-                  <button type="button" className={`project-group-toggle ${activeProject ? "selected" : ""}`}
-                    aria-current={activeProject ? "page" : undefined} aria-expanded={!collapsed}
-                    onClick={() => toggleProject(key)} data-tooltip={path}>
-                    <Folder className="project-row-icon" size={15} aria-hidden="true" />
-                    <span className="project-group-label">{label}</span>
-                    <span className="project-group-chevron" aria-hidden="true">
-                      {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                    </span>
-                  </button>
-                  <button type="button" className="project-task-add"
-                    onClick={() => onStartProjectTask(path)} aria-label={`New task in ${label}`}
-                    data-tooltip="New task here"><Plus size={13} /></button>
-                </div>
-                {!collapsed && <nav className="session-list" aria-label={`${label} sessions`}>
-                  {group.length === 0 && <p className="project-sessions-empty">No tasks</p>}
-                  {group.map((session) => <SessionSidebarRow key={session.id}
-                    session={session} active={selection.kind === "session" && selection.id === session.id}
-                    editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
-                    sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
-                    confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
-                    onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
-                    onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
-                    onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
-                    onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
-                    onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession} />)}
-                </nav>}
-              </section>;
-            })}
-          </div>}
-        </section>
-        <section className="session-group standalone-group" aria-label="Tasks">
-          <div className="sidebar-section-heading">
-            <button type="button" className="sidebar-section-toggle"
-              aria-expanded={!tasksCollapsed} onClick={toggleTasks}>
-              <span>Tasks</span>
-              {tasksCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-            </button>
-          </div>
-          {!tasksCollapsed && <nav className="session-list standalone-session-list" aria-label="Tasks">
-            {standaloneSessions.length === 0 && <p className="sidebar-section-empty">
-              {normalizedQuery ? "No matching tasks" : "No tasks"}
-            </p>}
-            {standaloneSessions.map((session) => <SessionSidebarRow key={session.id}
+            {rows.map((session) => <SessionSidebarRow key={session.id}
               session={session} active={selection.kind === "session" && selection.id === session.id}
               editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
               sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
@@ -539,7 +378,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
               onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
               onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession} />)}
-          </nav>}
+          </nav>
         </section>
       </div>
       <footer className="session-sidebar-footer">

@@ -1011,12 +1011,9 @@ export function App() {
         <SessionSidebar
           open={sidebarOpen}
           sessions={sessions}
-          projects={projects}
           selection={selection}
           onNewTask={startTask}
-          onChooseProject={chooseProject}
           onOpenProjects={() => setProjectPanelOpen(true)}
-          onStartProjectTask={startProjectTask}
           onOpenSettings={() => openSettings()}
           onResumeSession={resumeSession}
           onRenameSession={renameSession}
@@ -3516,8 +3513,11 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
   const catalogLoadedAt = useRef(0);
   const routingGuard = useRef(false);
   const restoreAfterRoute = useRef<HTMLElement | null>(null);
+  const restoreFastAfterDisabled = useRef(false);
+  const fastWasDisabled = useRef(false);
+  const fastFocusMovedWhileDisabled = useRef(false);
   const effortControl = useRef<HTMLDivElement>(null);
-  const fastControl = useRef<HTMLDivElement>(null);
+  const fastControl = useRef<HTMLButtonElement>(null);
   const modelUnavailable = modelDisabled || routing;
   const tuningUnavailable = tuningDisabled || routing;
   const catalogModels = useMemo(() => {
@@ -3617,18 +3617,42 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
     target.focus({ preventScroll: true });
   }, [routing]);
 
+  useEffect(() => {
+    if (tuningDisabled) {
+      fastWasDisabled.current = true;
+      fastFocusMovedWhileDisabled.current = false;
+      const trackFocus = (event: FocusEvent) => {
+        if (event.target !== fastControl.current) fastFocusMovedWhileDisabled.current = true;
+      };
+      document.addEventListener('focusin', trackFocus, true);
+      return () => document.removeEventListener('focusin', trackFocus, true);
+    }
+    if (!fastWasDisabled.current) return;
+    fastWasDisabled.current = false;
+    if (!restoreFastAfterDisabled.current) return;
+    if (!fastFocusMovedWhileDisabled.current) {
+      fastControl.current?.focus({ preventScroll: true });
+    }
+    restoreFastAfterDisabled.current = false;
+  }, [tuningDisabled]);
+
   const route = async (selection: DesktopModelSelection, restoreTarget: HTMLElement | null = null) => {
-    if (modelUnavailable || routingGuard.current) return;
+    if (modelUnavailable || routingGuard.current) return false;
     routingGuard.current = true;
     restoreAfterRoute.current = restoreTarget;
     setRouting(true);
+    let applied = false;
     try {
       const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection));
-      if (next !== undefined) applySnapshot(next);
+      if (next !== undefined) {
+        applySnapshot(next);
+        applied = true;
+      }
     } finally {
       routingGuard.current = false;
       setRouting(false);
     }
+    return applied;
   };
   const chooseModel = (option: DesktopModelOption) => {
     const values = option.effortOptions.map((entry) => entry.value);
@@ -3655,7 +3679,8 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
   const changeFast = async (enabled: boolean) => {
     if (tuningUnavailable || routingGuard.current) return;
     routingGuard.current = true;
-    restoreAfterRoute.current = fastControl.current?.querySelector('button') || null;
+    restoreFastAfterDisabled.current = true;
+    restoreAfterRoute.current = fastControl.current;
     setRouting(true);
     try {
       const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled));
@@ -3704,13 +3729,10 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
       </div>
     )}
     {fastCapable && (
-      <div ref={fastControl} className="fast-control" aria-busy={routing || undefined}>
-        <OpenSelect ariaLabel="Fast mode" disabled={tuningUnavailable} value={fast ? 'on' : 'off'}
-          onChange={(value) => void changeFast(value === 'on')} options={[
-            { value: 'on', label: 'Fast On' },
-            { value: 'off', label: 'Fast Off' },
-          ]} />
-      </div>
+      <button ref={fastControl} type="button" className="fast-control" aria-label="Fast mode"
+        aria-pressed={fast} aria-busy={routing || undefined} disabled={tuningUnavailable}
+        onFocus={() => { restoreFastAfterDisabled.current = true; }}
+        onClick={() => void changeFast(!fast)}>Fast</button>
     )}
   </div>;
 }

@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopModelOption } from '../shared/contract';
@@ -15,14 +15,14 @@ import { focusTrapIndex } from './renderer-logic.mjs';
 import {
   modelDisplayName,
   modelOptionDescription,
-  ProviderIcon,
   providerDisplayName,
   providerDisplayRank,
 } from './provider-display';
 import { acquireModalLayer } from './modal-layer';
 
 type RecordValue = Record<string, unknown>;
-type PickerStage = 'providers' | 'models';
+const RECENT_MODELS_KEY = 'mixdog.desktop-recent-models';
+const RECENT_MODELS_LIMIT = 5;
 
 function record(value: unknown): RecordValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
@@ -54,12 +54,26 @@ export function filterConfiguredModels(
   });
 }
 
-function modelKey(option: DesktopModelOption): string {
-  return `model:${option.provider}:${option.model}`;
+function modelKey(option: DesktopModelOption, scope = ''): string {
+  return `${scope}model:${option.provider}:${option.model}`;
 }
 
-function providerKey(provider: string): string {
-  return `provider:${provider}`;
+function readRecentModelKeys(): string[] {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(RECENT_MODELS_KEY) || '[]');
+    return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string')
+      .slice(0, RECENT_MODELS_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentModelKeys(keys: string[]): void {
+  try {
+    window.localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify(keys));
+  } catch {
+    // Model selection must still work when storage is unavailable.
+  }
 }
 
 interface ModelPickerProps {
@@ -102,16 +116,13 @@ export function ModelPicker({
   const generatedId = useId().replace(/:/g, '');
   const dialogId = popoverId || `model-selector-${generatedId}`;
   const [open, setOpen] = useState(false);
-  const [stage, setStage] = useState<PickerStage>('providers');
-  const [selectedProvider, setSelectedProvider] = useState('');
   const [query, setQuery] = useState('');
   const [activeRowKey, setActiveRowKey] = useState('');
+  const [recentModelKeys, setRecentModelKeys] = useState<string[]>(readRecentModelKeys);
   // Match the TUI freshness boundary: once a non-empty catalog is rendered,
   // do not reorder it under the pointer. A background refresh is adopted on
   // the next open instead.
   const [openModels, setOpenModels] = useState<DesktopModelOption[]>([]);
-  const stageRef = useRef<PickerStage>('providers');
-  stageRef.current = stage;
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLElement>(null);
   const pickerLayer = useRef<HTMLDivElement>(null);
@@ -120,30 +131,12 @@ export function ModelPicker({
 
   const close = useCallback((restoreFocus = false) => {
     setOpen(false);
-    setStage('providers');
-    setSelectedProvider('');
     setQuery('');
     setActiveRowKey('');
     setOpenModels([]);
     if (restoreFocus) {
       window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
     }
-  }, []);
-
-  const backToProviders = useCallback(() => {
-    setStage('providers');
-    setSelectedProvider('');
-    setQuery('');
-    setActiveRowKey('');
-    window.setTimeout(() => search.current?.focus({ preventScroll: true }), 0);
-  }, []);
-
-  const showProviderModels = useCallback((nextProvider: string) => {
-    setSelectedProvider(nextProvider);
-    setStage('models');
-    setQuery('');
-    setActiveRowKey('');
-    window.setTimeout(() => search.current?.focus({ preventScroll: true }), 0);
   }, []);
 
   useEffect(() => {
@@ -169,8 +162,7 @@ export function ModelPicker({
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
-        if (stageRef.current === 'models') backToProviders();
-        else close(true);
+        close(true);
         return;
       }
       if (event.key !== 'Tab') return;
@@ -194,12 +186,12 @@ export function ModelPicker({
       document.removeEventListener('keydown', onKeyDown, true);
       layer.release();
     };
-  }, [backToProviders, close, open]);
+  }, [close, open]);
 
   useLayoutEffect(() => {
     if (!open || !modelList.current) return;
     modelList.current.scrollTop = 0;
-  }, [open, query, selectedProvider, stage]);
+  }, [open, query]);
 
   useEffect(() => {
     if (disabled && open) close();
@@ -218,30 +210,34 @@ export function ModelPicker({
       left.localeCompare(right));
   }, [openModels]);
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleProviders = providerEntries.filter(([entryProvider, options]) => !normalizedQuery ||
-    `${entryProvider} ${providerDisplayName(entryProvider)} ${options.map((option) =>
-      `${option.model} ${option.display} ${modelDisplayName(option.model, option.provider, option.display)}`).join(' ')}`
-      .toLocaleLowerCase().includes(normalizedQuery));
-  const providerModels = providerEntries.find(([entryProvider]) =>
-    entryProvider === selectedProvider)?.[1] || [];
-  const visibleModels = providerModels.filter((option) => !normalizedQuery ||
+  const matchesQuery = (option: DesktopModelOption) => !normalizedQuery ||
     `${option.model} ${option.display} ${modelDisplayName(option.model, option.provider, option.display)} ${modelOptionDescription(option)}`
-      .toLocaleLowerCase().includes(normalizedQuery));
-  const renderedKeys = stage === 'providers'
-    ? visibleProviders.map(([entryProvider]) => providerKey(entryProvider))
-    : visibleModels.map(modelKey);
+      .toLocaleLowerCase().includes(normalizedQuery);
+  const visibleProviderEntries = providerEntries
+    .map(([entryProvider, options]) => [entryProvider, options.filter(matchesQuery)] as const)
+    .filter(([, options]) => options.length > 0);
+  const recentModels = recentModelKeys.flatMap((key) => {
+    const option = openModels.find((entry) => modelKey(entry) === key);
+    return option && matchesQuery(option) ? [option] : [];
+  });
+  const renderedKeys = [
+    ...recentModels.map((option) => modelKey(option, 'recent:')),
+    ...visibleProviderEntries.flatMap(([, options]) => options.map((option) => modelKey(option))),
+  ];
 
   useEffect(() => {
     if (!open) return;
-    if (stage === 'providers') {
-      const preferred = visibleProviders.find(([entryProvider]) => entryProvider === provider) || visibleProviders[0];
-      setActiveRowKey(preferred ? providerKey(preferred[0]) : '');
+    const recent = recentModels.find((option) =>
+      option.provider === provider && option.model === model);
+    if (recent) {
+      setActiveRowKey(modelKey(recent, 'recent:'));
       return;
     }
+    const visibleModels = visibleProviderEntries.flatMap(([, options]) => options);
     const preferred = visibleModels.find((option) =>
       option.provider === provider && option.model === model) || visibleModels[0];
     setActiveRowKey(preferred ? modelKey(preferred) : '');
-  }, [model, normalizedQuery, open, openModels, provider, selectedProvider, stage]);
+  }, [model, normalizedQuery, open, openModels, provider, recentModelKeys]);
 
   const focusRow = (index: number) => {
     const options = Array.from(dialog.current?.querySelectorAll<HTMLButtonElement>(
@@ -284,10 +280,39 @@ export function ModelPicker({
   const choose = async (option: DesktopModelOption) => {
     close();
     try {
-      await onSelect(option);
+      const selected = await onSelect(option);
+      if (selected !== false) {
+        setRecentModelKeys((current) => {
+          const key = modelKey(option);
+          const next = [key, ...current.filter((entry) => entry !== key)].slice(0, RECENT_MODELS_LIMIT);
+          writeRecentModelKeys(next);
+          return next;
+        });
+      }
     } finally {
       window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
     }
+  };
+  const renderModelOption = (option: DesktopModelOption, scope = '') => {
+    const active = option.provider === provider && option.model === model;
+    const key = modelKey(option, scope);
+    return <button type="button" className="model-option-row" role="option"
+      aria-selected={active} key={key} data-row-key={key}
+      data-active={activeRowKey === key} tabIndex={activeRowKey === key ? 0 : -1}
+      onKeyDown={(event) => navigateRows(event)}
+      onMouseMove={() => setActiveRowKey(key)}
+      onClick={() => void choose(option)}>
+      <span className="model-row-copy">
+        <span className="model-row-title">
+          <strong>{modelDisplayName(option.model, option.provider, option.display)}</strong>
+          {option.latest && <small className="model-tag">Latest</small>}
+        </span>
+        <small>{modelOptionDescription(option)}</small>
+      </span>
+      {active && <span className="list-item-selected-icon" data-slot="list-item-selected-icon">
+        <Check size={16} aria-hidden="true" />
+      </span>}
+    </button>;
   };
 
   return <>
@@ -298,8 +323,6 @@ export function ModelPicker({
         if (open) close();
         else {
           onOpen?.();
-          setStage('providers');
-          setSelectedProvider('');
           setQuery('');
           setActiveRowKey('');
           setOpenModels(models);
@@ -314,17 +337,10 @@ export function ModelPicker({
         if (event.target === event.currentTarget) close();
       }}>
         <section ref={dialog} id={dialogId} className="model-picker-dialog"
-          data-component="dialog" data-stage={stage} role="dialog" aria-modal="true"
+          data-component="dialog" role="dialog" aria-modal="true"
           aria-labelledby={`${dialogId}-title`} tabIndex={-1}>
           <header className="model-picker-header" data-slot="dialog-header">
-            {stage === 'models' && <button type="button" className="model-back"
-              aria-label="Back to providers" data-tooltip="Back to providers"
-              onClick={backToProviders}>
-              <ChevronLeft size={16} aria-hidden="true" />
-            </button>}
-            <h2 id={`${dialogId}-title`} data-slot="dialog-title">
-              {stage === 'providers' ? 'Select model' : providerDisplayName(selectedProvider)}
-            </h2>
+            <h2 id={`${dialogId}-title`} data-slot="dialog-title">Select model</h2>
             {onOpenProviders && <button type="button" className="model-provider-add" aria-label="Add provider"
               data-tooltip="Add provider" onClick={() => {
                 close();
@@ -340,10 +356,8 @@ export function ModelPicker({
                   <div className="model-search-container" data-slot="list-search-container">
                     <Search size={16} aria-hidden="true" />
                     <input ref={search} type="text" value={query} data-slot="list-search-input"
-                      placeholder={stage === 'providers'
-                        ? 'Search providers…'
-                        : `Search ${providerDisplayName(selectedProvider)} models…`}
-                      aria-label={stage === 'providers' ? 'Search providers' : 'Search models'}
+                      placeholder="Search models…"
+                      aria-label="Search models"
                       autoComplete="off" spellCheck={false}
                       onInput={(event) => setQuery(event.currentTarget.value)}
                       onKeyDown={(event) => navigateRows(event, true)} />
@@ -355,77 +369,31 @@ export function ModelPicker({
                 </div>
               </div>
               <div ref={modelList} className="model-list" data-slot="list-scroll" role="listbox"
-                aria-label={stage === 'providers'
-                  ? 'Available providers'
-                  : `Models from ${providerDisplayName(selectedProvider)}`}>
+                aria-label="Available models">
                 {catalogError && <p className="model-notice model-notice--error" role="alert">
                   Model catalog unavailable: {catalogError}
                 </p>}
                 {providerSetupError && <p className="model-notice" role="status">
                   Provider status unavailable: {providerSetupError}
                 </p>}
-                {stage === 'providers' ? <>
-                  {visibleProviders.length === 0 && <p className="model-empty">
-                    {catalogRefreshing || !catalogLoaded
-                      ? 'Loading providers…'
-                      : normalizedQuery ? 'No matching providers.' : 'No connected provider models.'}
-                  </p>}
-                  <div className="model-items model-provider-items" data-slot="list-items">
-                    {visibleProviders.map(([entryProvider, options]) => {
-                      const active = entryProvider === provider;
-                      const key = providerKey(entryProvider);
-                      const current = active
-                        ? options.find((option) => option.model === model)
-                        : undefined;
-                      return <button type="button" className="model-provider-row" role="option"
-                        aria-selected={active} key={key} data-row-key={key}
-                        data-active={activeRowKey === key} tabIndex={activeRowKey === key ? 0 : -1}
-                        onKeyDown={(event) => navigateRows(event)}
-                        onMouseMove={() => setActiveRowKey(key)}
-                        onClick={() => showProviderModels(entryProvider)}>
-                        <ProviderIcon className="provider-icon" provider={entryProvider} />
-                        <span className="model-row-copy">
-                          <strong>{providerDisplayName(entryProvider)}</strong>
-                          <small>{current
-                            ? `Current · ${modelDisplayName(current.model, current.provider, current.display)}`
-                            : `${options.length} ${options.length === 1 ? 'model' : 'models'}`}</small>
-                        </span>
-                        {current && <Check size={15} aria-hidden="true" />}
-                        <ChevronRight className="model-provider-chevron" size={15} aria-hidden="true" />
-                      </button>;
-                    })}
-                  </div>
-                </> : <>
-                  <div className="model-list-heading" aria-hidden="true">
-                    <ProviderIcon className="provider-icon" provider={selectedProvider} />
-                    <span>{providerDisplayName(selectedProvider)}</span>
-                    <small>{providerModels.length} {providerModels.length === 1 ? 'model' : 'models'}</small>
-                  </div>
-                  {visibleModels.length === 0 && <p className="model-empty">No matching models.</p>}
+                {renderedKeys.length === 0 && <p className="model-empty">
+                  {catalogRefreshing || !catalogLoaded
+                    ? 'Loading models…'
+                    : normalizedQuery ? 'No matching models.' : 'No connected provider models.'}
+                </p>}
+                {recentModels.length > 0 && <section className="model-group model-group--recent">
+                  <h3>Recent</h3>
                   <div className="model-items" data-slot="list-items">
-                    {visibleModels.map((option) => {
-                      const active = option.provider === provider && option.model === model;
-                      const key = modelKey(option);
-                      return <button type="button" className="model-option-row" role="option"
-                        aria-selected={active} key={key} data-row-key={key}
-                        data-active={activeRowKey === key} tabIndex={activeRowKey === key ? 0 : -1}
-                        onKeyDown={(event) => navigateRows(event)}
-                        onMouseMove={() => setActiveRowKey(key)}
-                        onClick={() => void choose(option)}>
-                        <span className="model-row-copy">
-                          <span className="model-row-title">
-                            <strong>{modelDisplayName(option.model, option.provider, option.display)}</strong>
-                            {option.latest && <small className="model-tag">Latest</small>}
-                          </span>
-                          <small>{modelOptionDescription(option)}</small>
-                        </span>
-                        {active && <span className="list-item-selected-icon" data-slot="list-item-selected-icon">
-                          <Check size={16} aria-hidden="true" />
-                        </span>}
-                      </button>;
-                    })}
+                    {recentModels.map((option) => renderModelOption(option, 'recent:'))}
                   </div>
-                </>}
+                </section>}
+                {visibleProviderEntries.map(([entryProvider, options]) =>
+                  <section className="model-group model-group--provider" key={entryProvider}>
+                    <h3>{providerDisplayName(entryProvider)}</h3>
+                    <div className="model-items" data-slot="list-items">
+                      {options.map((option) => renderModelOption(option))}
+                    </div>
+                  </section>)}
                 {catalogRefreshing && renderedKeys.length > 0 &&
                   <p className="model-loading" role="status">Updating model catalog…</p>}
               </div>

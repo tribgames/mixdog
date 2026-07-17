@@ -15,8 +15,10 @@ import type {
 } from '../../shared/contract';
 import type { SettingsCategory } from './settings-items';
 import {
-  applyDesktopTheme,
-  clearDesktopThemePreference,
+  desktopThemePreferenceForTheme,
+  getDesktopThemePreference,
+  setDesktopThemePreference,
+  type DesktopThemePreference,
 } from '../desktop-theme';
 import { OpenSelect } from '../OpenSelect';
 import { filterConfiguredModels, ModelPicker } from '../ModelPicker';
@@ -60,7 +62,7 @@ const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, unknown[
   ['memory', 'getMemorySettings'], ['channels', 'getChannelSettings', [{ includeStatus: false }]],
   ['remote', 'isRemoteEnabled'], ['channelWorker', 'getChannelWorkerStatus'], ['channelSetup', 'getChannelSetup'],
   ['voice', 'getVoiceStatus'],
-  ['workflows', 'listWorkflows'], ['outputStyles', 'listOutputStyles'], ['themes', 'listThemes'], ['theme', 'getTheme'],
+  ['workflows', 'listWorkflows'], ['outputStyles', 'listOutputStyles'], ['theme', 'getTheme'],
   ['searchRoute', 'getSearchRoute'], ['searchModels', 'listSearchModels', [{ quick: false }]],
   ['providerSetup', 'getProviderSetup', [{ refresh: true }]], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
   ['hooks', 'hooksStatus'], ['skills', 'skillsStatus'], ['disabledSkills', 'getDisabledSkills'],
@@ -679,42 +681,30 @@ function UpdatePanel({ data, pending, run }: PanelContext) {
 }
 
 function ThemeChoices({ data, pending, run }: Pick<PanelContext, 'data' | 'pending' | 'run'>) {
-  const themes = rows(data.themes);
-  const current = String(data.theme || themes.find((entry) => entry.current)?.id || themes[0]?.id || 'basic');
-  const committed = useRef(current);
+  const backendTheme = String(data.theme || 'basic');
+  const [preference, setPreference] = useState<DesktopThemePreference>(() =>
+    getDesktopThemePreference() || desktopThemePreferenceForTheme(backendTheme));
   useEffect(() => {
-    committed.current = current;
-  }, [current]);
-  useEffect(() => () => { applyDesktopTheme(committed.current); }, []);
-  const restore = () => applyDesktopTheme(committed.current);
-  const choose = async (id: string) => {
-    committed.current = id;
-    clearDesktopThemePreference();
-    applyDesktopTheme(id);
-    const result = await run('setTheme', [id, { persist: true }], `theme-${id}`);
+    setPreference(getDesktopThemePreference() || desktopThemePreferenceForTheme(backendTheme));
+  }, [backendTheme]);
+  const choose = async (next: string) => {
+    const selected = next as DesktopThemePreference;
+    const previous = preference;
+    setPreference(selected);
+    const resolved = setDesktopThemePreference(selected);
+    const result = await run('setTheme', [resolved, { persist: true }], `theme-${selected}`);
     if (result !== undefined) return;
-    committed.current = current;
-    applyDesktopTheme(current);
+    setPreference(previous);
+    setDesktopThemePreference(previous);
   };
   return <Group title="Theme">
-    {themes.length ? <div className="settings-theme-list" onMouseLeave={restore}>
-      {themes.map((entry) => {
-        const id = String(entry.id || '');
-        if (!id) return null;
-        return <div key={id} className="settings-theme-choice"
-          onMouseEnter={() => applyDesktopTheme(id)}
-          onFocusCapture={() => applyDesktopTheme(id)}
-          onBlurCapture={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) restore();
-          }}>
-          <ResourceRow title={label(entry, id)} meta={String(entry.description || 'Color theme')}
-            selected={id === current}
-            actions={id !== current && <ActionButton disabled={Boolean(pending)} onClick={() => void choose(id)}>
-              Choose
-            </ActionButton>} />
-        </div>;
-      })}
-    </div> : <ListEmpty text="No themes available." />}
+    <SelectRow title="Theme" value={preference} disabled={Boolean(pending)}
+      options={[
+        { value: 'system', label: 'System' },
+        { value: 'white', label: 'White' },
+        { value: 'dark', label: 'Dark' },
+      ]}
+      onChange={(next) => void choose(next)} />
   </Group>;
 }
 

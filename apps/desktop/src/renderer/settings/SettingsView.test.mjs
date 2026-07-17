@@ -156,10 +156,8 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
   assert.equal(document.querySelector('button[aria-label="Back to settings"]') === null, true,
     'selector button[aria-label="Back to settings"] should be absent');
   assert.ok(document.querySelector('input[name="title"]'));
-  assert.deepEqual(
-    Array.from(document.querySelectorAll('.settings-theme-choice .settings-resource-title > b'), (node) => node.textContent),
-    ['Basic'],
-  );
+  assert.match(document.querySelector('[aria-label="Theme"]')?.textContent || '', /Dark/);
+  assert.equal(document.querySelector('.settings-theme-choice'), null);
   assert.ok(document.querySelector('input[aria-label="Auto-clear"]'));
   assert.ok(document.querySelector('input[aria-label="Auto-compact"]'));
   assert.deepEqual(
@@ -364,12 +362,6 @@ test('flattened panes commit provider, TUI-safe MCP and hook toggles, and model-
   assert.equal(effortRow.querySelector('.mixdog-settings__row-title').textContent, 'Effort');
   await act(async () => document.querySelector('button[aria-label="Model"]').click());
   assert.ok(document.querySelector('.model-picker-dialog'));
-  assert.ok(document.querySelector('input[aria-label="Search providers"]'));
-  await act(async () => {
-    Array.from(document.querySelectorAll('[role="option"]'))
-      .find((option) => option.textContent.includes('OpenAI')).click();
-    await Promise.resolve();
-  });
   assert.ok(document.querySelector('input[aria-label="Search models"]'));
   await act(async () => {
     Array.from(document.querySelectorAll('[role="option"]'))
@@ -708,14 +700,9 @@ test('channel-setting deep link opens the Channels tab with token and target for
     && args[0]?.backend === 'discord' && args[0]?.channelId === '222'));
 });
 
-test('General exposes the full TUI theme registry with live preview, restore, and persistence', async () => {
+test('General exposes only System, White, and Dark with persistent desktop preference', async () => {
   mount();
   const { api, calls } = capabilityApi({
-    listThemes: [
-      { id: 'basic', label: 'Basic', description: 'Default dark theme' },
-      { id: 'nord', label: 'Nord', description: 'Arctic palette' },
-      { id: 'light', label: 'Light', description: 'Light theme' },
-    ],
     getTheme: 'basic',
   });
   await renderSettings({ api, initialSection: 'theme' });
@@ -724,31 +711,25 @@ test('General exposes the full TUI theme registry with live preview, restore, an
     .some((button) => button.textContent === 'Theme'), false);
   assert.equal(document.querySelector('button[aria-label="Back to settings"]') === null, true,
     'selector button[aria-label="Back to settings"] should be absent');
-  assert.deepEqual(
-    Array.from(document.querySelectorAll('.settings-theme-choice .settings-resource-title > b'), (node) => node.textContent),
-    ['Basic', 'Nord', 'Light'],
-  );
-  assert.equal(document.querySelector('.settings-theme-choice .settings-status')?.textContent, 'Active');
-  const nord = Array.from(document.querySelectorAll('.settings-theme-choice'))
-    .find((entry) => entry.textContent.includes('Nord'));
+  const theme = document.querySelector('[aria-label="Theme"]');
+  assert.match(theme?.textContent || '', /Dark/);
   await act(async () => {
-    nord.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true }));
+    theme.click();
     await Promise.resolve();
   });
-  assert.equal(document.documentElement.dataset.mixdogTheme, 'nord');
+  assert.deepEqual(Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'),
+    (node) => node.textContent.trim()), ['System', 'White', 'Dark']);
+  const white = Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'))
+    .find((entry) => entry.textContent.includes('White'));
   await act(async () => {
-    nord.dispatchEvent(new window.MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
-    await Promise.resolve();
-  });
-  assert.equal(document.documentElement.dataset.mixdogTheme, 'basic');
-  await act(async () => {
-    nord.querySelector('button').click();
+    white.click();
     await Promise.resolve();
     await Promise.resolve();
   });
   assert.ok(calls.some(([capability, args]) => capability === 'setTheme'
-    && args[0] === 'nord' && args[1]?.persist === true));
-  assert.equal(document.documentElement.dataset.mixdogTheme, 'nord');
+    && args[0] === 'light' && args[1]?.persist === true));
+  assert.equal(document.documentElement.dataset.mixdogTheme, 'light');
+  assert.equal(window.localStorage.getItem('mixdog.desktop-theme-preference'), 'white');
 });
 
 test('update auto-checks on open and Update now runs without confirmation', async () => {

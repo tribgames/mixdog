@@ -72,7 +72,7 @@ test('settings dialog reserves the native window-controls safe area', async () =
     'form status badges must remain inline with their titles');
 });
 
-test('OpenCode desktop shell keeps project sessions and management inside the sidebar rail', async () => {
+test('OpenCode desktop shell keeps Project and flat recent sessions inside the sidebar rail', async () => {
   const [styles, navigation] = await Promise.all([
     readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
     readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
@@ -91,15 +91,17 @@ test('OpenCode desktop shell keeps project sessions and management inside the si
   assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*440 14px\/20px/s);
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*width:\s*min\(286px,\s*calc\(100vw - 32px\)\)/);
   assert.match(navigation, /aria-label="Session manager"/);
-  assert.match(navigation, /session\.classification !== "task" && session\.classification !== "project"/);
+  assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);
   assert.match(navigation, /className="project-grid project-list"/);
-  assert.match(navigation, /aria-label="Manage projects"/);
-  assert.match(navigation, /className="sidebar-projects"/);
-  assert.match(navigation, /className="session-group standalone-group"/);
+  assert.match(navigation, /aria-label="Open projects"/);
+  assert.match(navigation, /className="sidebar-primary-nav"/);
+  assert.match(navigation, /<span>Project<\/span>/);
+  assert.match(navigation, /className="sidebar-recent-heading">Recent/);
+  assert.match(navigation, /className="session-list recent-session-list"/);
+  assert.doesNotMatch(navigation, /className="sidebar-projects"|project-group-toggle|standalone-group/);
   assert.match(navigation, /<MessageSquare className="session-row-icon"/);
-  assert.match(navigation, /className={`project-group-toggle/);
-  assert.match(styles, /\.session-search\s*\{/);
-  assert.match(navigation, /placeholder="Search sessions" aria-label="Search sessions"/);
+  assert.doesNotMatch(styles, /\.session-search\s*\{/);
+  assert.doesNotMatch(navigation, /Search sessions|session-search/);
   assert.doesNotMatch(navigation, /LayoutGrid|titlebar-home|topbar-settings/);
 });
 
