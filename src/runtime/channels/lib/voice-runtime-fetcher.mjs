@@ -635,15 +635,29 @@ function resolveManagedWhisperModelForId(manifest, dataDir, modelId) {
   if (!entry?.filename) return null
   const modelDir = join(dataDir, 'voice', 'models')
   const p = join(modelDir, entry.filename)
-  if (existsSync(p)) return p
-  // Older installs may still hold a legacy filename (e.g. the F16
-  // ggml-large-v3-turbo.bin before the Q8 default). Keep them working until
-  // the next install swaps the file.
-  for (const legacy of Array.isArray(entry.legacyFilenames) ? entry.legacyFilenames : []) {
-    const lp = join(modelDir, legacy)
-    if (existsSync(lp)) return lp
+  return existsSync(p) ? p : null
+}
+
+// Clean-install policy: the models dir holds ONLY filenames declared by the
+// current manifest (standard/korean). Anything else — the pre-Q8 F16 weight,
+// interrupted renames, hand-copied experiments — is deleted so a model swap
+// never leaves a 1.6GB orphan behind and resolution never silently falls back
+// to a stale weight.
+function gcUnknownModelFiles(manifest, modelDir) {
+  const keep = new Set()
+  for (const entry of [manifest?.model, ...Object.values(manifest?.models || {})]) {
+    if (entry?.filename) keep.add(entry.filename)
   }
-  return null
+  if (keep.size === 0) return
+  let names = []
+  try { names = readdirSync(modelDir) } catch { return }
+  for (const name of names) {
+    if (!name.endsWith('.bin') || keep.has(name)) continue
+    try {
+      rmSync(join(modelDir, name), { force: true })
+      process.stderr.write(`[voice-runtime] removed stale model file ${name}\n`)
+    } catch {}
+  }
 }
 
 // Single managed ffmpeg binary used by transcribe (ogg→wav). Layout mirrors
@@ -796,7 +810,10 @@ export async function ensureWhisperModel(dataDir, onProgress = null, modelId = '
   return _withInstallLock(modelDir, 'install', async () => {
     if (existsSync(modelPath)) {
       const actual = await sha256File(modelPath)
-      if (actual === model.sha256) return { modelPath, modelId: model.id, size: model.size }
+      if (actual === model.sha256) {
+        gcUnknownModelFiles(manifest, modelDir)
+        return { modelPath, modelId: model.id, size: model.size }
+      }
       try { rmSync(modelPath, { force: true }) } catch {}
     }
     gcStagingPartials(modelDir)
@@ -809,6 +826,7 @@ export async function ensureWhisperModel(dataDir, onProgress = null, modelId = '
       })
       await verifySha256(stagingPath, model.sha256)
       renameWithRetrySync(stagingPath, modelPath)
+      gcUnknownModelFiles(manifest, modelDir)
       process.stderr.write(`[voice-runtime] model ${model.id} ready at ${modelPath}\n`)
       return { modelPath, modelId: model.id, size: model.size }
     } catch (err) {

@@ -14,8 +14,7 @@
       "filename": "ggml-large-v3-turbo-q8_0.bin",
       "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
       "sha256": "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
-      "size": 874188075,
-      "legacyFilenames": ["ggml-large-v3-turbo.bin"]
+      "size": 874188075
     },
     "korean": {
       "id": "large-v3-turbo-korean-q8_0",
