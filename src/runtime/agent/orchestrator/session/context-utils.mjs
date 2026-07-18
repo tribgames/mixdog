@@ -39,16 +39,24 @@ export {
 // sum and the chars/4 ASCII lower bound, then apply a small safety multiplier.
 // Weights deliberately lean high (overcount) for CJK/Hangul/emoji.
 //
-// MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER (default 1.1, clamped 1.0..2.0) lets
-// operators dial extra headroom without code changes.
+// MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER (default 1.0, clamped 1.0..2.0) lets
+// operators dial extra headroom without code changes. Claude Code applies no
+// multiplier to its rough estimates (chars/4, JSON chars/2); the actual-usage
+// baseline — not the estimate — is the primary pressure source, so parity
+// keeps the estimate-only fallback from compacting materially early.
 function readSafetyMultiplier() {
     const raw = Number(process.env.MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
     if (Number.isFinite(raw)) return Math.min(2.0, Math.max(1.0, raw));
-    return 1.1;
+    return 1.0;
 }
 const TOKEN_ESTIMATE_SAFETY_MULTIPLIER = readSafetyMultiplier();
-export const IMAGE_VISUAL_TOKEN_ALLOWANCE = 4_096;
-const IMAGE_TILE_TOKEN_ALLOWANCE = 512;
+// Claude Code parity (services/tokenEstimation.ts): images/documents count a
+// flat 2000 tokens when dimensions are unknown — the conservative constant CC
+// shares with microCompact's IMAGE_MAX_TOKEN_SIZE. Known dimensions may only
+// RAISE the allowance via Anthropic's real vision formula (w*h/750), capped at
+// the 2000x2000 resize ceiling (5333 tokens).
+export const IMAGE_VISUAL_TOKEN_ALLOWANCE = 2_000;
+const IMAGE_MAX_TOKEN_ALLOWANCE = 5_333;
 
 // Per-code-point token-cost weight. Tuned to overcount, not match exactly.
 function codePointTokenWeight(cp) {
@@ -101,7 +109,9 @@ export function estimateTokens(text) {
     // for those runs without penalizing ordinary spaced prose.
     let denseAsciiFloor = 0;
     for (const match of s.matchAll(/[\x21-\x7e]{16,}/g)) {
-        denseAsciiFloor += match[0].length * 0.75;
+        // Claude Code prices dense JSON/JSONL at chars/2 (bytesPerTokenForFileType);
+        // 0.5/char keeps that parity for long unmerged printable runs.
+        denseAsciiFloor += match[0].length * 0.5;
     }
     const encodedWords = s.match(/\b(?=[A-Za-z0-9]{8,}\b)(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]+\b/g) || [];
     if (encodedWords.length >= 3) {
@@ -111,7 +121,7 @@ export function estimateTokens(text) {
         const encodedChars = encodedWords.reduce((sum, word) => sum + word.length, 0);
         denseAsciiFloor = Math.max(
             denseAsciiFloor,
-            (encodedChars * 0.75) + ((s.length - encodedChars) * 0.25),
+            (encodedChars * 0.5) + ((s.length - encodedChars) * 0.25),
         );
     }
     const lines = s.split(/\r?\n/).filter(line => line.trim());
@@ -122,7 +132,8 @@ export function estimateTokens(text) {
         && (jsonLikeLines >= Math.ceil(lines.length / 2) || structural / nonWhitespace >= 0.12)) {
         // JSONL, compact tables and generated line protocols can consist
         // entirely of short runs while still tokenizing like minified data.
-        denseAsciiFloor = Math.max(denseAsciiFloor, (nonWhitespace * 0.7) + ((s.length - nonWhitespace) * 0.25));
+        // chars/2 on the dense payload chars (Claude Code JSON parity).
+        denseAsciiFloor = Math.max(denseAsciiFloor, (nonWhitespace * 0.5) + ((s.length - nonWhitespace) * 0.25));
     }
     const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
     return Math.ceil(Math.max(weighted, asciiFloor, denseAsciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
@@ -181,15 +192,18 @@ export function messageEstimateText(m) {
 }
 function imageDescriptorAllowance(descriptor) {
     if (descriptor.width && descriptor.height) {
-        const tiles = Math.ceil(descriptor.width / 512) * Math.ceil(descriptor.height / 512);
-        // Caller-supplied dimensions/detail are not uniformly preserved by all
-        // provider normalizers, so they may raise the allowance for a known
-        // multi-tile image but can never lower the conservative unknown-image
-        // fallback. This avoids trusting metadata the provider never sees.
-        return Math.max(IMAGE_VISUAL_TOKEN_ALLOWANCE, IMAGE_TILE_TOKEN_ALLOWANCE * (tiles + 1));
+        // Anthropic vision cost: tokens = (width * height) / 750, with images
+        // resized down to at most 2000x2000 (5333 tokens) — Claude Code uses
+        // the same formula/cap. Caller-supplied dimensions may RAISE the
+        // allowance above the unknown-image floor but never lower it (the
+        // provider normalizer may not preserve caller metadata).
+        const formula = Math.ceil((descriptor.width * descriptor.height) / 750);
+        return Math.min(
+            IMAGE_MAX_TOKEN_ALLOWANCE,
+            Math.max(IMAGE_VISUAL_TOKEN_ALLOWANCE, formula),
+        );
     }
-    // Unknown-size auto/high images may be tiled by the provider. A single
-    // 1k allowance is optimistic for common screenshots and documents.
+    // Unknown-size images: flat conservative allowance (Claude Code parity).
     return IMAGE_VISUAL_TOKEN_ALLOWANCE;
 }
 function messageImageDescriptors(m) {

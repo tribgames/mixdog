@@ -287,14 +287,18 @@ test('dense ASCII, encoded, and minified payloads do not retain the prose chars/
         '%7B%22path%22%3A%22very%2Flong%2Fencoded%2Fvalue%22%7D'.repeat(40),
         JSON.stringify({ rows: Array.from({ length: 100 }, (_, i) => ({ id: i, value: `item_${i}_abcdef` })) }),
     ]) {
-        assert.ok(estimateTokens(text) >= Math.ceil(text.length * 0.7),
+        // Claude Code parity: dense JSON/encoded payloads price at chars/2
+        // (bytesPerTokenForFileType), i.e. 2x the prose chars/4 estimate.
+        assert.ok(estimateTokens(text) >= Math.ceil(text.length * 0.5),
             `dense ASCII estimate must be conservative (${estimateTokens(text)}/${text.length})`);
+        assert.ok(estimateTokens(text) > Math.ceil(text.length / 4),
+            `dense ASCII estimate must exceed the prose chars/4 rate (${estimateTokens(text)}/${text.length})`);
     }
     const shortJsonl = Array.from({ length: 200 }, (_, i) => `{"i":${i}}`).join('\n');
-    assert.ok(estimateTokens(shortJsonl) >= shortJsonl.replace(/\s/g, '').length * 0.7,
+    assert.ok(estimateTokens(shortJsonl) >= shortJsonl.replace(/\s/g, '').length * 0.5,
         'short JSONL records must receive the structured multiline floor');
     const spacedShortIdentifiers = 'A1b2C3d4E5 F6G7H8I9J0 '.repeat(100);
-    assert.ok(estimateTokens(spacedShortIdentifiers) >= spacedShortIdentifiers.length * 0.7,
+    assert.ok(estimateTokens(spacedShortIdentifiers) >= spacedShortIdentifiers.length * 0.45,
         'space-separated encoded identifiers below the long-run threshold must receive the dense floor');
 });
 
