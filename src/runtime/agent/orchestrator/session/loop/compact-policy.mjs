@@ -241,6 +241,13 @@ export function invalidateProviderContextBaseline(sessionRef) {
     sessionRef.lastContextTokensStaleAfterCompact = true;
 }
 
+// A baseline is refreshed on every provider_send/turn-end. When the transcript
+// has grown but no fresh recording landed for this long, recording is failing
+// (zero/absent usage keeps the OLD baseline because record() only returns
+// false) — distrust it and fall back to the estimate. An idle session whose
+// transcript did NOT grow keeps its baseline regardless of age.
+const BASELINE_MAX_STALE_GROWTH_MS = 30 * 60 * 1000;
+
 function providerBaselinePressureTokens(messages, sessionRef, policy) {
     if (!Array.isArray(messages) || !sessionRef
         || sessionRef.lastContextTokensStaleAfterCompact === true) return null;
@@ -255,6 +262,8 @@ function providerBaselinePressureTokens(messages, sessionRef, policy) {
         || sessionRef.contextPressureBaselineModel !== (sessionRef.model || null)
         || sessionRef.contextPressureBaselineToolSignature !== policy?.toolSchemaSignature
         || sessionRef.contextPressureBaselinePrefixSignature !== contextMessagesSignature(messages, count)) return null;
+    if (messages.length > count && baselineAt > 0
+        && (Date.now() - baselineAt) > BASELINE_MAX_STALE_GROWTH_MS) return null;
     if (sessionRef.contextPressureBaselineBoundary === 'request') {
         const assistantOffset = messages.slice(count).findIndex(message => message?.role === 'assistant');
         if (assistantOffset >= 0) {
@@ -278,8 +287,20 @@ function providerBaselinePressureTokens(messages, sessionRef, policy) {
 }
 
 export function resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
-    return providerBaselinePressureTokens(messages, sessionRef, policy)
-        ?? compactPressureTokens(messageTokensEst, policy);
+    const baseline = providerBaselinePressureTokens(messages, sessionRef, policy);
+    const estimate = compactPressureTokens(messageTokensEst, policy);
+    if (baseline == null) return estimate;
+    // Sanity band: the baseline exists to correct OVER-counting estimates
+    // (dense-data floors can inflate the estimate up to ~2x real usage), so a
+    // lower baseline is normally preferred. But a corrupt/stale baseline below
+    // HALF the estimate is no longer plausible as an overcount correction —
+    // a live session showed ~70% on the gauge while the provider was billing
+    // 111% of a 1M window. Beyond that band, trust the transcript estimate for
+    // both the gauge and the compaction decision. Erring toward the estimate
+    // may compact somewhat early; erring toward a rotten baseline blows past
+    // the context window at full token cost.
+    if (Number.isFinite(estimate) && estimate > 0 && baseline * 2 < estimate) return estimate;
+    return baseline;
 }
 
 /** Telemetry pressure when a reactive overflow retry forces the next compact. */
