@@ -1152,13 +1152,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--oc-icon-muted);
   background: transparent;
   box-shadow: none;
-  opacity: .58;
-  pointer-events: auto;
+  /* OpenCode text-part copy: hidden at rest, revealed on hover/focus. */
+  opacity: 0;
+  pointer-events: none;
 }
 .message.assistant:hover .response-footer .message-actions,
 .message.assistant:focus-within .response-footer .message-actions,
 .message.assistant .response-footer .message-actions:hover,
-.message.assistant .response-footer .message-actions:focus-visible { opacity: 1; }
+.message.assistant .response-footer .message-actions:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
 .message.user {
   max-width: min(82%, 64ch);
   display: flex;
