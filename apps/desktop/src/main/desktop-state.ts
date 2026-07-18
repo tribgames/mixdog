@@ -56,6 +56,11 @@ export function desktopSessionSummaries(
     const id = String(row.id || '');
     const manualTitle = normalizeSessionTitle(names[id] || '', '');
     const storedTitle = generatedSessionTitle(titles[id] || '', '');
+    // A session with no conversation preview, no manual name, and no stored
+    // title is an abandoned blank ("Untitled") — opened once and never used.
+    // Hide it from the sidebar instead of stacking empty rows; the active
+    // session stays visible because a fresh task legitimately starts blank.
+    if (!preview && !manualTitle && !storedTitle && id !== currentId) return [];
     return [{
       id,
       preview,

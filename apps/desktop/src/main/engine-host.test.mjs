@@ -272,6 +272,36 @@ test("desktop session summaries prioritize manual names over generated titles an
   assert.equal(summaries[2].projectPath, "C:\\cli");
 });
 
+test("desktop session summaries hide abandoned blank sessions but keep the active blank", () => {
+  const summaries = desktopSessionSummaries([
+    {
+      id: "blank_active",
+      preview: "",
+      updatedAt: 30,
+      cwd: "C:\\app\\workspace\\unclassified",
+      desktopSession: { classification: "task", projectPath: null },
+    },
+    {
+      id: "blank_abandoned",
+      preview: "  ",
+      updatedAt: 20,
+      cwd: "C:\\app\\workspace\\unclassified",
+      desktopSession: { classification: "task", projectPath: null },
+    },
+    {
+      id: "blank_named",
+      preview: "",
+      updatedAt: 10,
+      cwd: "C:\\app\\workspace\\unclassified",
+      desktopSession: { classification: "task", projectPath: null },
+    },
+  ], "blank_active", {}, { blank_named: "Kept by name" });
+
+  assert.deepEqual(summaries.map((row) => row.id), ["blank_active", "blank_named"]);
+  assert.equal(summaries[0].currentSession, true);
+  assert.equal(summaries[1].title, "Kept by name");
+});
+
 test("host uses cached session summaries for routine listing", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-session-refresh-"));
   const originalCwd = process.cwd();
