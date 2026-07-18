@@ -350,6 +350,18 @@ function projectIdentity(path: string | null | undefined) {
 
 const LEGACY_DEFAULT_SIDEBAR_WIDTH = 286;
 const DEFAULT_SIDEBAR_WIDTH = 260;
+// OpenCode project-avatar palette: deterministic per-project colour chips.
+const AVATAR_VARIANTS = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple"] as const;
+function avatarVariantFor(seed: string): string {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) hash = ((hash * 31) + seed.charCodeAt(index)) | 0;
+  return AVATAR_VARIANTS[Math.abs(hash) % AVATAR_VARIANTS.length];
+}
+function avatarInitials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  const initials = words.length >= 2 ? `${words[0][0]}${words[1][0]}` : label.trim().slice(0, 2);
+  return initials.toUpperCase();
+}
 const MIN_SIDEBAR_WIDTH = 232;
 const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_WIDTH_KEY = "mixdog:session-sidebar-width";
@@ -928,6 +940,10 @@ export function ProjectSwitcher({
                       onStartProject(project.path);
                       onClose();
                     }} aria-current={selected ? "page" : undefined}>
+                      <span className="project-avatar" aria-hidden="true"
+                        data-avatar={avatarVariantFor(projectIdentity(project.path))}>
+                        {avatarInitials(title)}
+                      </span>
                       <span>
                         <span className="project-title-line">
                           <b>{title}</b>

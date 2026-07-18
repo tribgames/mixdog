@@ -27,6 +27,17 @@
   --oc-alpha-light-40: #ffffff66;
   --oc-avatar-gloss: #ffffff29;
   --oc-avatar-shadow: #00000066;
+  /* OpenCode v2 project-avatar palette (dark set: muted fill, vivid border). */
+  --oc-avatar-fg: #ffffff;
+  --oc-avatar-bg-orange: #723d22; --oc-avatar-border-orange: #ff8648;
+  --oc-avatar-bg-yellow: #68552b; --oc-avatar-border-yellow: #e7af36;
+  --oc-avatar-bg-cyan: #005a6e; --oc-avatar-border-cyan: #0096b8;
+  --oc-avatar-bg-green: #196130; --oc-avatar-border-green: #49c970;
+  --oc-avatar-bg-red: #7a1f23; --oc-avatar-border-red: #d92e3c;
+  --oc-avatar-bg-pink: #8c2d61; --oc-avatar-border-pink: #e4429e;
+  --oc-avatar-bg-blue: #263fa9; --oc-avatar-border-blue: #7698fd;
+  --oc-avatar-bg-purple: #361f83; --oc-avatar-border-purple: #7152f4;
+  --oc-avatar-bg-gray: #5c5c5c; --oc-avatar-border-gray: #aeaeae;
   --oc-alpha-dark-24: #0000003d;
   --oc-alpha-dark-30: #0000004d;
   --oc-alpha-dark-40: #00000066;
@@ -166,6 +177,17 @@
     inset 0 2px 2px rgba(0, 0, 0, .102), inset 0 1px 1px rgba(0, 0, 0, .102),
     inset 0 0 0 .5px rgba(0, 0, 0, .20);
   --oc-switch-thumb-shadow: 0 .5px .5px rgba(0, 0, 0, .40);
+  /* OpenCode v2 project-avatar palette (light set: vivid fill, darker border). */
+  --oc-avatar-fg: #ffffff;
+  --oc-avatar-bg-orange: #ee7330; --oc-avatar-border-orange: #d16427;
+  --oc-avatar-bg-yellow: #e7af36; --oc-avatar-border-yellow: #cb9f34;
+  --oc-avatar-bg-cyan: #0096b8; --oc-avatar-border-cyan: #007d9b;
+  --oc-avatar-bg-green: #2eaf5a; --oc-avatar-border-green: #198b43;
+  --oc-avatar-bg-red: #d92e3c; --oc-avatar-border-red: #b82d35;
+  --oc-avatar-bg-pink: #e4429e; --oc-avatar-border-pink: #c83d8b;
+  --oc-avatar-bg-blue: #3250df; --oc-avatar-border-blue: #2c47c8;
+  --oc-avatar-bg-purple: #623be2; --oc-avatar-border-purple: #5230c2;
+  --oc-avatar-bg-gray: #5c5c5c; --oc-avatar-border-gray: #3a3a3a;
   --oc-danger-bg: #fceceb;
   --oc-danger: #b82d35;
   --oc-warning-bg: #fefaec;
@@ -2084,12 +2106,32 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: 28px;
   height: 28px;
   flex-basis: 28px;
+  display: grid;
+  place-items: center;
   border-radius: 5px;
-  color: var(--oc-text);
-  background: var(--oc-bg-layer-2);
-  font-size: 12px;
+  /* OpenCode project-avatar-v2: fixed palette chip with a top gloss, inset
+     border, and etched white initials. Falls back to the gray variant. */
+  color: var(--oc-avatar-fg);
+  background:
+    linear-gradient(180deg, var(--oc-alpha-light-16), transparent),
+    var(--project-avatar-bg, var(--oc-avatar-bg-gray));
+  box-shadow: inset 0 0 0 .5px var(--project-avatar-border, var(--oc-avatar-border-gray));
+  font-size: 11px;
   font-weight: 530;
+  letter-spacing: .05px;
+  line-height: 1;
+  text-shadow: 0 0 4px rgba(0, 0, 0, .125);
+  text-transform: uppercase;
+  user-select: none;
 }
+.project-avatar[data-avatar="orange"] { --project-avatar-bg: var(--oc-avatar-bg-orange); --project-avatar-border: var(--oc-avatar-border-orange); }
+.project-avatar[data-avatar="yellow"] { --project-avatar-bg: var(--oc-avatar-bg-yellow); --project-avatar-border: var(--oc-avatar-border-yellow); }
+.project-avatar[data-avatar="cyan"] { --project-avatar-bg: var(--oc-avatar-bg-cyan); --project-avatar-border: var(--oc-avatar-border-cyan); }
+.project-avatar[data-avatar="green"] { --project-avatar-bg: var(--oc-avatar-bg-green); --project-avatar-border: var(--oc-avatar-border-green); }
+.project-avatar[data-avatar="red"] { --project-avatar-bg: var(--oc-avatar-bg-red); --project-avatar-border: var(--oc-avatar-border-red); }
+.project-avatar[data-avatar="pink"] { --project-avatar-bg: var(--oc-avatar-bg-pink); --project-avatar-border: var(--oc-avatar-border-pink); }
+.project-avatar[data-avatar="blue"] { --project-avatar-bg: var(--oc-avatar-bg-blue); --project-avatar-border: var(--oc-avatar-border-blue); }
+.project-avatar[data-avatar="purple"] { --project-avatar-bg: var(--oc-avatar-bg-purple); --project-avatar-border: var(--oc-avatar-border-purple); }
 .project-card .project-row b { color: var(--oc-text); font-size: 13px; font-weight: 530; }
 .project-card .project-row small { color: var(--oc-text-faint); font-size: 11px; }
 .project-title-line { min-width: 0; display: flex; align-items: center; gap: 5px; }
@@ -3506,6 +3548,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   word-break: break-word;
 }
 .markdown p { overflow-wrap: anywhere; }
+/* Plain-text stand-in while the lazy markdown chunk streams in. */
+.markdown-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
 .markdown :not(pre) > code {
   padding: 1px 4px;
   border-radius: 4px;

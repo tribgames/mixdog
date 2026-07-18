@@ -14,8 +14,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+// react-markdown and the remark/unified ecosystem are heavy; they load as a
+// separate lazy chunk (MarkdownBody) so the first paint never pays for them.
 import {
   ArrowDown,
   ArrowUp,
@@ -1988,6 +1988,8 @@ function CopyControl({ value, label, className, tooltipSide = "top" }: {
   </button>;
 }
 
+const MarkdownBody = lazy(() => import("./MarkdownBody"));
+
 const MarkdownResponse = React.memo(function MarkdownResponse({ text, streaming }: {
   text: string;
   streaming: boolean;
@@ -2012,32 +2014,10 @@ const MarkdownResponse = React.memo(function MarkdownResponse({ text, streaming 
     return undefined;
   }, [text, streaming]);
   useEffect(() => () => window.clearTimeout(parseTimer.current), []);
-  return <div className={`markdown ${streaming ? "streaming" : ""}`}><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-    a({ href, children }) {
-      const external = /^https?:\/\//i.test(href || "");
-      return <a href={href} onClick={external ? (event) => {
-        event.preventDefault();
-        void window.mixdogDesktop.openExternal(href || "").catch(() => undefined);
-      } : undefined}>{children}</a>;
-    },
-    table({ children }) {
-      return <div className="markdown-table" role="region" aria-label="Scrollable table" tabIndex={0}>
-        <table>{children}</table>
-      </div>;
-    },
-    pre({ children }) {
-      const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
-      if (!React.isValidElement(child)) return <pre>{children}</pre>;
-      const props = child.props as { className?: string; children?: ReactNode };
-      const language = props.className?.match(/language-([^\s]+)/)?.[1] || "";
-      const code = String(props.children ?? "").replace(/\n$/, "");
-      return <div className="markdown-code">
-        <header><span>{language || "code"}</span>
-          <CopyControl value={code} label="Copy code" className="markdown-code-copy" /></header>
-        <pre><code className={props.className}>{code}</code></pre>
-      </div>;
-    },
-  }}>{renderedText}</ReactMarkdown>
+  return <div className={`markdown ${streaming ? "streaming" : ""}`}>
+    <Suspense fallback={<div className="markdown-plain">{renderedText}</div>}>
+      <MarkdownBody text={renderedText} copyControl={CopyControl} />
+    </Suspense>
     {streaming && <span className="stream-cursor" aria-hidden="true" />}
   </div>;
 });

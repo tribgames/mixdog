@@ -21,16 +21,16 @@ rendering chunks...
 [2mout/main/[22m[36mindex.js                [39m[1m[2m21.74 kB[22m[1m[22m
 [2mout/main/[22m[36mcapture-window.js       [39m[1m[2m35.38 kB[22m[1m[22m
 [2mout/main/[22m[36mchunks/ipc-BtHqAenT.js  [39m[1m[2m91.80 kB[22m[1m[22m
-[32m✓ built in 254ms[39m
+[32m✓ built in 248ms[39m
 [36mvite v7.3.6 [32mbuilding ssr environment for production...[36m[39m
 transforming...
 [32m✓[39m 2 modules transformed.
 rendering chunks...
 [2mout/preload/[22m[36mindex.js  [39m[1m[2m5.61 kB[22m[1m[22m
-[32m✓ built in 13ms[39m
+[32m✓ built in 12ms[39m
 [36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
 transforming...
-[32m✓[39m 2097 modules transformed.
+[32m✓[39m 2098 modules transformed.
 rendering chunks...
 [2m../../out/renderer/[22m[32mindex.html                                                   [39m[1m[2m    0.50 kB[22m[1m[22m
 [2m../../out/renderer/[22m[32massets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2  [39m[1m[2m    7.50 kB[22m[1m[22m
@@ -47,11 +47,12 @@ rendering chunks...
 [2m../../out/renderer/[22m[32massets/inter-latin-ext-wght-normal-DO1Apj_S.woff2            [39m[1m[2m   85.07 kB[22m[1m[22m
 [2m../../out/renderer/[22m[35massets/SettingsView-C_Hnw2eV.css                             [39m[1m[2m   15.19 kB[22m[1m[22m
 [2m../../out/renderer/[22m[35massets/DiffView-CB6xYr94.css                                 [39m[1m[2m   26.54 kB[22m[1m[22m
-[2m../../out/renderer/[22m[35massets/index-ARky9bKU.css                                    [39m[1m[2m  143.78 kB[22m[1m[22m
-[2m../../out/renderer/[22m[36massets/SettingsView-BlaBsAlF.js                              [39m[1m[2m   15.43 kB[22m[1m[22m
-[2m../../out/renderer/[22m[36massets/OnboardingWizard-Bjs_6_B-.js                          [39m[1m[2m   29.67 kB[22m[1m[22m
-[2m../../out/renderer/[22m[36massets/CommandSurface-DNAfG457.js                            [39m[1m[2m   35.25 kB[22m[1m[22m
-[2m../../out/renderer/[22m[36massets/CapabilitySettings-C8TG_Jgi.js                        [39m[1m[2m   77.93 kB[22m[1m[22m
-[2m../../out/renderer/[22m[36massets/index-nEYW2WJN.js                                     [39m[1m[33m1,351.74 kB[39m[22m
-[2m../../out/renderer/[22m[36massets/DiffView.lazy-XLW2JpT_.js                             [39m[1m[33m1,750.45 kB[39m[22m
-[32m✓ built in 2.69s[39m
+[2m../../out/renderer/[22m[35massets/index-CsgMNFb1.css                                    [39m[1m[2m  147.03 kB[22m[1m[22m
+[2m../../out/renderer/[22m[36massets/SettingsView-OP7yefCq.js                              [39m[1m[2m   15.43 kB[22m[1m[22m
+[2m../../out/renderer/[22m[36massets/OnboardingWizard-CkRfBzYs.js                          [39m[1m[2m   29.67 kB[22m[1m[22m
+[2m../../out/renderer/[22m[36massets/CommandSurface-DuvVHG__.js                            [39m[1m[2m   35.25 kB[22m[1m[22m
+[2m../../out/renderer/[22m[36massets/CapabilitySettings-DrJePu76.js                        [39m[1m[2m   77.93 kB[22m[1m[22m
+[2m../../out/renderer/[22m[36massets/MarkdownBody-ZEBY8XaW.js                              [39m[1m[2m  374.64 kB[22m[1m[22m
+[2m../../out/renderer/[22m[36massets/index-CuH8-4rn.js                                     [39m[1m[33m  977.25 kB[39m[22m
+[2m../../out/renderer/[22m[36massets/DiffView.lazy-C9pbt-df.js                             [39m[1m[33m1,750.45 kB[39m[22m
+[32m✓ built in 2.56s[39m
