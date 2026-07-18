@@ -123,7 +123,7 @@
   font-size: 13px;
   font-weight: 400;
   line-height: 20px;
-  letter-spacing: -.04px;
+  letter-spacing: 0;
   font-synthesis: none;
   --titlebar-height: 40px;
   --base: var(--oc-bg-deep);
@@ -248,14 +248,14 @@
 
 body, button, input, textarea, select { font-family: inherit; }
 html, body { background: var(--oc-window-band); }
-body { color: var(--oc-text); font-size: 13px; font-weight: 400; line-height: 20px; letter-spacing: -.04px; }
+body { color: var(--oc-text); font-size: 13px; font-weight: 400; line-height: 20px; letter-spacing: 0; }
 button, input, textarea, select { color: inherit; }
 /* OpenCode v2 keeps the native caret (text-colored); only invalid fields recolor it. */
 input, textarea { caret-color: var(--oc-text); }
 input::placeholder, textarea::placeholder { color: var(--oc-text-faint); opacity: 1; }
 /* OpenCode v2 defines no custom ::selection; native color-scheme selection applies. */
 code, pre, kbd { font-family: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace; }
-button { font-weight: 500; letter-spacing: -.04px; }
+button { font-weight: 500; letter-spacing: 0; }
 /* OpenCode's icon set draws at ~1.5px optical weight; lucide's default 2px
    stroke reads heavier at the same sizes. Thin every lucide glyph slightly. */
 svg.lucide { stroke-width: 1.75px; }
@@ -817,7 +817,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 13px;
   font-weight: 500;
   line-height: 20px;
-  letter-spacing: -.04px;
+  letter-spacing: 0;
 }
 .project-group-toggle {
   padding-left: 8px;
@@ -835,7 +835,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 13px;
   font-weight: 500;
   line-height: 20px;
-  letter-spacing: -.04px;
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1023,6 +1023,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .transcript-virtual-row--empty { padding-bottom: 0; }
 .thread-welcome { width: min(100%, 800px); padding: 0 24px 120px; }
+/* OpenCode v2 new-session treatment: a large faded wordmark above the
+   composer instead of a logo + headline. */
+.welcome-wordmark {
+  display: block;
+  margin: 0 auto;
+  color: var(--oc-text);
+  opacity: .06;
+  font-size: clamp(64px, 13vw, 148px);
+  font-weight: 700;
+  letter-spacing: -.05em;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
 .welcome-mark {
   width: 40px;
   height: 40px;
@@ -1682,7 +1696,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 15px;
   font-weight: 500;
   line-height: 20px;
-  letter-spacing: -.04px;
+  letter-spacing: 0;
 }
 .model-provider-add {
   width: 28px;
@@ -2731,7 +2745,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: -.04px;
+  letter-spacing: 0;
 }
 .mixdog-settings__copy, .settings-form-row > div:first-child { gap: 8px; }
 .mixdog-settings__description, .settings-form-row small, .settings-route-editor > div:first-child small,

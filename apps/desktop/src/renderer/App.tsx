@@ -1645,8 +1645,8 @@ function Conversation({
           {items.length === 0 && !snapshot.busy && !snapshot.commandBusy && !snapshot.thinking
             && !snapshot.spinner && !snapshot.commandStatus && !snapshot.toolApproval && (
             <div className="thread-welcome">
-              <span className="welcome-mark">M</span>
-              <h1>What can Mixdog help you build?</h1>
+              <span className="welcome-wordmark" aria-hidden="true">mixdog</span>
+              <h1 className="sr-only">What can Mixdog help you build?</h1>
               <p>Describe what you would like Mixdog to help with.</p>
               <div className="starter-grid" aria-label="Starter actions">
                 {STARTERS.map((action) => (
@@ -1683,13 +1683,13 @@ function Conversation({
         <ArrowDown size={14} />Jump to latest
       </button>}
       <div className="composer-region">
+        {Boolean(asRecord(snapshot.progressHint)?.text) && <div className="runtime-progress" role="status">
+          {String(asRecord(snapshot.progressHint)?.text)}
+        </div>}
         {showProjectSelector && <ProjectContextSelector projects={projects}
           activePath={activeProjectPath} activeLabel={activeProjectLabel}
           disabled={transitioning || Boolean(snapshot.busy)}
           onClear={onNewTask} onSelect={onSelectProject} onChoose={onChooseProject} />}
-        {Boolean(asRecord(snapshot.progressHint)?.text) && <div className="runtime-progress" role="status">
-          {String(asRecord(snapshot.progressHint)?.text)}
-        </div>}
         <InlineErrors messages={errors} />
         <Composer
           turnBusy={Boolean(snapshot.busy)}
@@ -2505,7 +2505,7 @@ const MAX_SUBMIT_TEXT_LENGTH = 950_000;
 const MAX_PERSISTED_PROMPT_HISTORY = 100;
 const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
 const COMPOSER_PLACEHOLDERS = [
-  'Ask Mixdog anything…',
+  'Ask anything, / for commands, @ for context…',
   'Ask Mixdog to explain this project…',
   'Ask Mixdog to plan your next change…',
   'Ask Mixdog to find and fix a bug…',
