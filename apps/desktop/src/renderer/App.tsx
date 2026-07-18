@@ -18,30 +18,21 @@ import React, {
 // separate lazy chunk (MarkdownBody) so the first paint never pays for them.
 import {
   ArrowDown,
-  ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
   Code2,
   Command,
-  Copy,
   FileDiff,
-  FileText,
-  Folder,
   Layers3,
   LoaderCircle,
-  Paperclip,
   Plus,
-  RotateCcw,
-  Search,
   ShieldAlert,
   Sparkles,
-  Square,
-  Terminal,
   Trash2,
   X,
 } from "lucide-react";
-import { Image as ImageChipIcon } from "lucide-react";
+import { OcIcon } from "./OcIcon";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type {
@@ -1592,7 +1583,7 @@ function Conversation({
     const retryDisabled = Boolean(snapshot.busy) || transitioning;
     const retryButton = <button type="button" className="turn-retry" disabled={retryDisabled}
       onClick={retryTurn} aria-label="Retry failed turn">
-      <RotateCcw size={12} aria-hidden="true" />Retry
+    <OcIcon name="reset" size={12} />Retry
     </button>;
     if (failedTurns.has(turnKey) && completion) {
       if (index !== lastCompletionByTurn.get(turnKey)) return null;
@@ -1753,7 +1744,7 @@ function ProjectContextSelector({ projects, activePath, activeLabel, disabled, o
   const value = activePath || PROJECT_CONTEXT_LOCAL;
   return <div className="composer-context-bar">
     <div className="composer-project-context">
-      <Folder size={13} aria-hidden="true" />
+      <OcIcon name="folder" size={13} />
       <OpenSelect className="project-context-select" ariaLabel="Project context"
         value={value} displayValue={activeLabel || "Project"} disabled={disabled}
         options={options} onChange={(next) => {
@@ -2024,7 +2015,7 @@ function CopyControl({ value, label, className, tooltipSide = "top" }: {
   return <button type="button" className={className} onClick={() => void copy()}
     aria-label={copied ? "Copied" : label} data-copied={copied || undefined}
     data-tooltip={copied ? "Copied" : "Copy"} data-tooltip-side={tooltipSide}>
-    {copied ? <Check size={13} /> : <Copy size={13} />}
+    {copied ? <OcIcon name="check" size={13} /> : <OcIcon name="copy" size={13} />}
   </button>;
 }
 
@@ -2134,7 +2125,7 @@ export const TranscriptRow = memo(function TranscriptRow({
                   {preview
                     ? <img src={preview} alt={image.name || 'Attached image'} />
                     : <span className="message-image-fallback">
-                      <ImageChipIcon size={14} aria-hidden />
+                <OcIcon name="photo" size={14} />
                       <span>{image.name || 'Image'}</span>
                     </span>}
                 </span>;
@@ -2323,9 +2314,9 @@ function shouldSuppressFullyFailedToolItem(item: TranscriptItem) {
 
 function toolIcon(category: unknown) {
   if (category === "Patch") return <Code2 size={16} />;
-  if (category === "Read") return <FileText size={16} />;
-  if (category === "Search" || category === "Web Research") return <Search size={16} />;
-  if (category === "Shell") return <Terminal size={16} />;
+  if (category === "Read") return <OcIcon name="open-file" size={16} />;
+  if (category === "Search" || category === "Web Research") return <OcIcon name="magnifying-glass" size={16} />;
+  if (category === "Shell") return <OcIcon name="terminal" size={16} />;
   return <Layers3 size={16} />;
 }
 
@@ -3522,7 +3513,7 @@ const Composer = memo(function Composer({
           void attachFiles(itemFiles.length ? itemFiles : event.dataTransfer.files);
         }}>
       {draggingFiles && !transitioning && <div className="composer-drop-overlay" role="status">
-        <Paperclip size={16} /><span>Drop images or text files</span>
+        <OcIcon name="photo" size={16} /><span>Drop images or text files</span>
       </div>}
       {slashOpen && (
         <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label="Slash commands">
@@ -3542,7 +3533,7 @@ const Composer = memo(function Composer({
       {mentionOpen && (
         <div ref={mentionPalette} id="composer-mention-palette"
           className="slash-palette mention-palette" role="listbox" aria-label="Project files">
-          <header><FileText size={13} /><span>Files</span></header>
+          <header><OcIcon name="open-file" size={13} /><span>Files</span></header>
           {mentionResults.length ? mentionResults.map((path, index) => {
             const separator = path.lastIndexOf('/');
             const directory = separator >= 0 ? path.slice(0, separator + 1) : '';
@@ -3553,7 +3544,7 @@ const Composer = memo(function Composer({
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setMentionIndex(index)}
                 onClick={() => selectMention(path)}>
-                <FileText size={14} />
+                <OcIcon name="open-file" size={14} />
                 <span className="mention-path"><span>{directory}</span><strong>{filename}</strong></span>
               </button>
             );
@@ -3564,7 +3555,7 @@ const Composer = memo(function Composer({
         {attachments.map((attachment) => <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
           {attachment.kind === 'image'
             ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
-            : <span><FileText size={15} /></span>}
+            : <span><OcIcon name="open-file" size={15} /></span>}
           <span data-tooltip={attachment.name}>{attachment.name}</span>
           <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => {
             setAttachments((current) => {
@@ -3573,7 +3564,7 @@ const Composer = memo(function Composer({
               return next;
             });
             setDraft((current) => current.replace(attachment.token, '').replace(/ {2,}/g, ' '));
-          }}><X size={13} /></button>
+          }}><OcIcon name="close-small" size={13} /></button>
         </div>)}
       </div>}
       {(attachmentError) && <p className="composer-error" role="alert">{attachmentError}</p>}
@@ -3623,7 +3614,7 @@ const Composer = memo(function Composer({
           accept="image/png,image/jpeg,image/gif,image/webp,text/*,.md,.json,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.ts,.tsx,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.c,.h,.hpp,.sh,.ps1,.sql,.css,.scss,.html,.vue,.svelte"
           onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
         <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images or text files" data-tooltip-side="top"
-          onClick={() => fileInput.current?.click()}><Paperclip size={15} /></button>
+        onClick={() => fileInput.current?.click()}><OcIcon name="plus" size={16} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
           modelDisabled={commandBusy || transitioning}
           tuningDisabled={turnBusy || commandBusy || transitioning}
@@ -3635,14 +3626,14 @@ const Composer = memo(function Composer({
         {turnBusy && !draft.trim() ? (
           <button type="button" className="send-button stop" onClick={() => void stop()}
             aria-label="Stop generation" data-tooltip="Stop" data-tooltip-side="top">
-            <Square size={11} fill="currentColor" />
+            <OcIcon name="stop" size={14} />
           </button>
         ) : (
           <button className="send-button" disabled={!draft.trim() || submitting || transitioning}
             aria-label={turnBusy ? "Queue or steer active turn" : commandBusy ? "Queue after current command" : "Send message"}
             data-tooltip={turnBusy ? "Queue or steer · Enter" : commandBusy ? "Queue after command · Enter" : "Send · Enter"}
             data-tooltip-side="top">
-            <ArrowUp size={16} />
+            <OcIcon name="arrow-up" size={16} />
           </button>
         )}
       </div>

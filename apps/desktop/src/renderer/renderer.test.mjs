@@ -176,7 +176,7 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   assert.match(navigation, /className="sidebar-recent-heading"/);
   assert.match(navigation, /className="session-list recent-session-list"/);
   assert.doesNotMatch(navigation, /className="sidebar-projects"|project-group-toggle|standalone-group/);
-  assert.match(navigation, /<MessageSquare className="session-row-icon"/);
+  assert.match(navigation, /<OcIcon className="session-row-icon" name="speech-bubble"/);
   assert.doesNotMatch(styles, /\.session-search\b/);
   assert.doesNotMatch(navigation, /Search sessions|sessionQuery/);
   assert.doesNotMatch(navigation, /project-avatar-v2|ProjectAvatar/);

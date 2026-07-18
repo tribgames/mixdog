@@ -119,7 +119,7 @@
 
   color: var(--oc-text);
   background: var(--oc-bg-deep);
-  font-family: "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font-family: "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
   font-size: 13px;
   font-weight: 400;
   line-height: 20px;
@@ -259,6 +259,9 @@ button { font-weight: 500; letter-spacing: 0; }
 /* OpenCode's icon set draws at ~1.5px optical weight; lucide's default 2px
    stroke reads heavier at the same sizes. Thin every lucide glyph slightly. */
 svg.lucide { stroke-width: 1.75px; }
+/* Ported OpenCode v2 glyphs keep their intrinsic strokes and never shrink in
+   flex rows. */
+svg.oc-icon { flex: 0 0 auto; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible {
   outline: 2px solid var(--oc-focus);
   outline-offset: 2px;

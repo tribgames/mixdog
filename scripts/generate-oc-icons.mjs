@@ -1,0 +1,11 @@
+import { readFileSync, writeFileSync } from "node:fs";
+const src = readFileSync("C:/Project/refs/opencode/packages/ui/src/components/icon.tsx", "utf8");
+const re = /^\s*"?([a-z0-9-]+)"?:\s*`([^`]+)`,?\s*$/gm;
+const entries = [];
+let m;
+while ((m = re.exec(src))) entries.push([m[1], m[2].replace(/\s+/g, " ").trim()]);
+if (entries.length < 80) throw new Error(`only ${entries.length} icons parsed`);
+const body = entries.map(([name, svg]) => `  ${JSON.stringify(name)}: ${JSON.stringify(svg)},`).join("\n");
+const out = `// GENERATED from refs/opencode packages/ui/src/components/icon.tsx (MIT).\n// Regenerate with scripts/generate-oc-icons.mjs — do not hand-edit path data.\n// All glyphs draw on a 20x20 viewBox with currentColor strokes/fills.\nexport const OC_ICON_MARKUP: Record<string, string> = {\n${body}\n};\n`;
+writeFileSync("apps/desktop/src/renderer/oc-icon-markup.ts", out);
+console.log("icons:", entries.length);
