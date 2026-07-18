@@ -159,13 +159,13 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   assert.match(styles, /\.workspace-tab\s*\{[^}]*width:\s*224px;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
   assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*8px;[^}]*background:\s*var\(--oc-window-band\);/s);
   assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*border-radius:\s*10px;/s);
-  assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*28px;[^}]*min-height:\s*28px;/s);
+  assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*32px;[^}]*min-height:\s*32px;/s);
   assert.match(styles, /\.session-list\s*\{\s*gap:\s*1px;/s);
   assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*10px;/s);
   assert.match(styles, /\.project-switcher\s*\{[^}]*width:\s*min\(640px,/s);
   assert.match(styles, /\.thread\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   assert.match(styles, /\.composer-region\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
-  assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*440 14px\/20px/s);
+  assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*400 14px\/20px/s);
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*width:\s*min\(var\(--session-sidebar-width,\s*260px\),\s*calc\(100vw - 32px\)\)/);
   assert.match(navigation, /aria-label="Session manager"/);
   assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);

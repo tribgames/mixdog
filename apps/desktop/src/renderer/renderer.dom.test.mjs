@@ -2913,7 +2913,7 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(openCodeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--oc-text-faint\);[^}]*font-size:\s*11px;/s);
   assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
   assert.doesNotMatch(openCodeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
-  assert.match(openCodeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*440;/s);
+  assert.match(openCodeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/s);
   assert.doesNotMatch(openCodeCss, /\.model-tag\s*\{/);
   assert.match(openCodeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
   assert.match(openCodeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
@@ -3285,7 +3285,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(openCodeCss, /\.sidebar-collapsed \.desktop-body\s*\{[^}]*gap:\s*0;/s);
   assert.match(openCodeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
   assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px;/s);
-  assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*13px;[^}]*line-height:\s*20px;/s);
+  assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*14px;[^}]*line-height:\s*21px;/s);
   assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 12px 16px;/s);
   assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 8px;/s);
   assert.match(openCodeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
