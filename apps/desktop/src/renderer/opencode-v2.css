@@ -1234,7 +1234,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-title b, .tool-title small { font-size: 13px; font-weight: 440; line-height: 16px; }
 .tool-title b { flex: 0 0 auto; }
 .tool-title small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-title small { color: var(--oc-text-faint); }
+/* OpenCode basic-tool-v2 subtitles read as muted, not faint. */
+.tool-title small { color: var(--oc-text-muted); }
 .tool-state { flex: 0 0 auto; gap: 3px; color: var(--oc-text-faint); font-size: 11px; font-weight: 530; line-height: 12px; }
 .tool-chevron {
   width: 20px;
@@ -1356,12 +1357,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   max-width: 100%;
   max-height: 280px;
   margin: 8px 0 0;
-  padding: 10px 12px;
+  padding: 4px 0 0;
   overflow: auto;
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--oc-text-muted);
-  background: var(--oc-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+  /* OpenCode reasoning-part: quiet muted prose, no boxed plate. */
+  background: transparent;
+  box-shadow: none;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 13px;
@@ -1404,18 +1406,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: center;
   gap: 12px;
   padding: 10px 0;
-  color: var(--oc-text-faint);
-  font-size: 13px;
+  /* OpenCode compaction-part label: 12px regular, muted. */
+  color: var(--oc-text-muted);
+  font-size: 12px;
   font-weight: 440;
-  line-height: 20px;
+  line-height: 18px;
 }
 .compaction-divider::before,
 .compaction-divider::after {
   content: "";
   min-width: 12px;
-  height: .5px;
+  height: 1px;
   flex: 1;
-  background: var(--oc-border);
+  background: var(--oc-border-muted);
 }
 .compaction-divider > span,
 .compaction-divider > small { white-space: nowrap; }
@@ -1425,7 +1428,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--oc-text-faint);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 440;
 }
 .approval-layer { background: var(--oc-scrim); backdrop-filter: blur(3px); }
