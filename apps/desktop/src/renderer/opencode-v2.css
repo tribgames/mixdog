@@ -2456,6 +2456,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Composer selects use the same custom popover instead of the platform menu. */
 .effort-control { height: 28px; display: flex; align-items: center; }
 .effort-control .oc-select-root { min-width: 82px; }
+/* Workflow picker shares the effort-control skin but bounds long pack names. */
+.workflow-control .oc-select-root { min-width: 0; }
+.workflow-control .oc-select-value {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .effort-control .oc-select-trigger {
   height: 28px;
   padding: 0 5px 0 8px;

@@ -3014,7 +3014,8 @@ test("successful effort selection uses the dedicated capability and restores foc
   });
   assert.equal(document.querySelector(".model-picker-dialog") === null, true, "selector .model-picker-dialog should be absent");
   assert.deepEqual(calls.filter((request) => request.capability !== "getTheme" &&
-    request.capability !== "getOnboardingStatus" && request.capability !== "getProviderSetup"),
+    request.capability !== "getOnboardingStatus" && request.capability !== "getProviderSetup" &&
+    request.capability !== "listWorkflows"),
     [{ capability: "setEffort", args: ["high"] }]);
   assert.equal(document.activeElement === effort, true, "effort selection should restore effort-control focus");
   assert.match(effort.textContent, /High/);

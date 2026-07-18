@@ -1707,6 +1707,7 @@ function Conversation({
           effort={String(routeSnapshot.effort || "")}
           fast={Boolean(routeSnapshot.fast)}
           fastCapable={Boolean(routeSnapshot.fastCapable)}
+          workflow={(routeSnapshot.workflow as RecordValue | null) ?? null}
           starter={starter}
           queued={snapshot.queued}
           submit={composerSubmit}
@@ -2581,6 +2582,7 @@ const Composer = memo(function Composer({
   effort,
   fast,
   fastCapable,
+  workflow,
   starter,
   queued,
   submit,
@@ -2609,6 +2611,7 @@ const Composer = memo(function Composer({
   effort: string;
   fast: boolean;
   fastCapable: boolean;
+  workflow?: RecordValue | null;
   starter: { id: number; text: string } | null;
   queued?: unknown[];
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
@@ -3622,6 +3625,7 @@ const Composer = memo(function Composer({
         <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images or text files" data-tooltip-side="top"
           onClick={() => fileInput.current?.click()}><Paperclip size={15} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
+          workflow={workflow}
           modelDisabled={commandBusy || transitioning}
           tuningDisabled={turnBusy || commandBusy || transitioning}
           invokeResult={invokeResult} applySnapshot={applySnapshot}
@@ -3676,12 +3680,17 @@ function providerSetupState(value: unknown, provider: string) {
   };
 }
 
-function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabled, tuningDisabled, invokeResult, applySnapshot, onOpenSettings }: {
+// Workflow packs change rarely; share one fetched option list across composer
+// remounts (session/tab switches) with a short TTL.
+let workflowOptionsCache: { at: number; options: Array<{ value: string; label: string }> } | null = null;
+
+function ModelSelector({ provider, model, effort, fast, fastCapable, workflow, modelDisabled, tuningDisabled, invokeResult, applySnapshot, onOpenSettings }: {
   provider: string;
   model: string;
   effort: string;
   fast: boolean;
   fastCapable: boolean;
+  workflow?: RecordValue | null;
   modelDisabled: boolean;
   tuningDisabled: boolean;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
@@ -3690,6 +3699,9 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
 }) {
   const [cachedCatalog] = useState(readCachedModelCatalog);
   const [models, setModels] = useState<DesktopModelOption[]>(cachedCatalog.models);
+  const [workflowOptions, setWorkflowOptions] = useState<Array<{ value: string; label: string }>>(
+    workflowOptionsCache?.options || [],
+  );
   const [providerSetup, setProviderSetup] = useState<unknown>(null);
   const [catalogError, setCatalogError] = useState("");
   const [providerSetupError, setProviderSetupError] = useState("");
@@ -3707,6 +3719,7 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
   const fastFocusMovedWhileDisabled = useRef(false);
   const effortControl = useRef<HTMLDivElement>(null);
   const fastControl = useRef<HTMLButtonElement>(null);
+  const workflowControl = useRef<HTMLDivElement>(null);
   const modelUnavailable = modelDisabled || routing;
   const tuningUnavailable = tuningDisabled || routing;
   const displayedFast = optimisticFast ?? fast;
@@ -3834,6 +3847,46 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
     restoreFastAfterDisabled.current = false;
   }, [tuningDisabled]);
 
+  useEffect(() => {
+    if (workflowOptionsCache && Date.now() - workflowOptionsCache.at < 300_000) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await window.mixdogDesktop.invokeCapability<RecordValue[]>({
+          capability: 'listWorkflows',
+          args: [],
+        });
+        const rows = Array.isArray(result?.value) ? result.value : [];
+        const options = rows
+          .map((row) => ({
+            value: String(row?.id || ''),
+            label: String(row?.name || row?.label || row?.id || ''),
+          }))
+          .filter((option) => option.value);
+        if (!cancelled && options.length) {
+          workflowOptionsCache = { at: Date.now(), options };
+          setWorkflowOptions(options);
+        }
+      } catch { /* the workflow picker is optional chrome; the settings panel remains the fallback */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const changeWorkflow = async (id: string) => {
+    if (tuningUnavailable || routingGuard.current || !id || id === String(workflow?.id || '')) return;
+    routingGuard.current = true;
+    restoreAfterRoute.current = workflowControl.current?.querySelector('button') || null;
+    setRouting(true);
+    try {
+      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
+        capability: 'setWorkflow',
+        args: [id],
+      }));
+      if (result !== undefined) applySnapshot(result.snapshot);
+    } finally {
+      routingGuard.current = false;
+      setRouting(false);
+    }
+  };
   const route = async (selection: DesktopModelSelection, restoreTarget: HTMLElement | null = null) => {
     if (modelUnavailable || routingGuard.current) return false;
     routingGuard.current = true;
@@ -3933,6 +3986,18 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
         aria-pressed={displayedFast} aria-busy={routing || undefined} disabled={tuningUnavailable}
         onFocus={() => { restoreFastAfterDisabled.current = true; }}
         onClick={() => void changeFast(!displayedFast)}>{displayedFast ? "Fast On" : "Fast Off"}</button>
+    )}
+    {workflowOptions.length > 0 && (
+      <div ref={workflowControl} className="effort-control workflow-control">
+        <OpenSelect ariaLabel="Workflow" disabled={tuningUnavailable}
+          value={String(workflow?.id || '')}
+          displayValue={String(workflow?.name || workflow?.id || 'Workflow')}
+          onChange={(value) => void changeWorkflow(value)}
+          options={[
+            ...(!workflow?.id ? [{ value: '', label: 'Workflow', disabled: true }] : []),
+            ...workflowOptions,
+          ]} />
+      </div>
     )}
   </div>;
 }
