@@ -2456,7 +2456,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Composer selects use the same custom popover instead of the platform menu. */
 .effort-control { height: 28px; display: flex; align-items: center; }
 .effort-control .oc-select-root { min-width: 82px; }
-/* Workflow picker shares the effort-control skin but bounds long pack names. */
+/* Workflow picker shares the effort-control skin but bounds long pack names.
+   It sits right-aligned next to Send (model/effort/fast stay left). */
+.workflow-control { margin-left: auto; }
+/* Two auto margins would SPLIT the leftover space (workflow stranded mid-bar):
+   once the workflow picker owns the push, Send keeps only a fixed gap. */
+.composer-footer:has(.workflow-control) .send-button { margin-left: 8px; }
 .workflow-control .oc-select-root { min-width: 0; }
 .workflow-control .oc-select-value {
   max-width: 96px;
