@@ -21,7 +21,7 @@ import type {
 import { sessionSummaryTitle } from "../shared/session-title.mjs";
 
 export type NavigationSelection =
-  | { kind: "new" }
+  | { kind: "new"; draftId?: string }
   | { kind: "project"; path: string }
   | { kind: "session"; id: string };
 
@@ -174,7 +174,6 @@ export function DesktopTitlebar({
     onReorderTab(drag.sourceKey, targetKey);
   }, [activeKey, onReorderTab, onSelectTab, tabs]);
 
-  const activeTabIsNew = tabs.find((tab) => tab.key === activeKey)?.selection.kind === "new";
   const updateVisible = updaterState?.status === "ready" || updaterState?.status === "installing";
   const updateInstalling = updaterState?.status === "installing";
 
@@ -271,10 +270,10 @@ export function DesktopTitlebar({
         <span className="workspace-tabs-fade workspace-tabs-fade-right" aria-hidden="true" />
       </div>
 
-      {!activeTabIsNew && <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
+      <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
         aria-label="New task" data-tooltip="New task">
         <OcIcon name="plus" size={16} />
-      </button>}
+      </button>
       {updateVisible && <div className="titlebar-update-shell">
         <button type="button" className="titlebar-update" onClick={onOpenUpdate}
           disabled={updateInstalling} aria-busy={updateInstalling}

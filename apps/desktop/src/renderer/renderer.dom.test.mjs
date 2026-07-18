@@ -634,6 +634,15 @@ test("fenced markdown exposes a language header and copy control", async () => {
       text: "```ts\nconst answer = 42;\n```\n\n[Documentation](https://example.com/docs)",
     },
   })));
+  // MarkdownBody is React.lazy; whether its chunk resolved inside the act
+  // above depends on which tests ran earlier in the process. Flush until the
+  // suspense boundary settles (bounded) so the assertion is order-independent.
+  for (let flush = 0; flush < 20 && !document.querySelector(".markdown-code header span"); flush += 1) {
+    await act(async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+  }
   assert.equal(document.querySelector(".markdown-code header span")?.textContent, "ts");
   assert.equal(document.querySelector('[aria-label="Copy code"]') != null, true, "selector [aria-label=\"Copy code\"] should be present");
   const link = document.querySelector(".markdown a");
@@ -3461,8 +3470,11 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   assert.deepEqual(closed, ["two"]);
   assert.deepEqual(selected, ["one", "two", "one", "two"]);
   assert.deepEqual(reordered, [["one", "two"]]);
-  assert.equal(document.querySelector(".titlebar-new"), null,
-    "the active draft tab already represents the new-task action");
+  // OpenCode parity: + stays available even while a draft tab is active —
+  // every press opens another draft. (equal-to-null on a jsdom node would
+  // also inspect the whole DOM into the failure message; assert presence.)
+  assert.equal(document.querySelector(".titlebar-new") !== null, true,
+    "the new-task button stays visible while a draft tab is active");
   await act(async () => root.render(React.createElement(DesktopTitlebar, {
     ...props,
     activeKey: "two",

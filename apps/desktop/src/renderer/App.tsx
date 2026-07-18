@@ -236,9 +236,15 @@ function displayProject(project: Project | null | undefined) {
 }
 
 function navigationKey(selection: NavigationSelection) {
-  if (selection.kind === "new") return "new";
+  if (selection.kind === "new") return `new:${selection.draftId || "default"}`;
   if (selection.kind === "project") return `project:${selection.path}`;
   return `session:${selection.id}`;
+}
+
+// OpenCode-parity draft tabs: every + press opens an independent "New task"
+// draft tab, so each draft needs its own stable key.
+function newDraftSelection(): NavigationSelection {
+  return { kind: "new", draftId: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}` };
 }
 
 function textOf(value: unknown): string {
@@ -371,7 +377,7 @@ export function App() {
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [selection, setSelection] = useState<NavigationSelection>({ kind: "new" });
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
-    { key: "new", title: "New task", selection: { kind: "new" } },
+    { key: "new:default", title: "New task", selection: { kind: "new" } },
   ]);
   const [headerTitleEditingSessionId, setHeaderTitleEditingSessionId] = useState("");
   const [headerTitleDraft, setHeaderTitleDraft] = useState("");
@@ -381,6 +387,8 @@ export function App() {
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const frozenSessionSnapshot = useRef<Snapshot | null>(null);
   const newTaskReady = useRef(false);
+  // Callback-safe view of the active selection for tab-promotion decisions.
+  const selectionRef = useRef<NavigationSelection>({ kind: "new" });
   const sessionRefresh = useRef({
     submitInFlight: false,
     accepted: false,
@@ -503,6 +511,7 @@ export function App() {
     replaceKey = "",
   ) => {
     const key = navigationKey(nextSelection);
+    selectionRef.current = nextSelection;
     setSelection(nextSelection);
     setTabs((current) => {
       const existing = current.findIndex((tab) => tab.key === key);
@@ -590,9 +599,14 @@ export function App() {
     void refreshSessions().then((rows) => {
       if (!selectCurrent) return;
       const current = rows.find((session) => session.currentSession);
+      // A draft tab that just materialized its session PROMOTES in place
+      // (OpenCode promoteDraft): the session tab replaces the draft tab at the
+      // same position instead of appending a duplicate.
+      const active = selectionRef.current;
       if (current) activateSelection(
         { kind: "session", id: current.id },
         sessionSummaryTitle(current),
+        active.kind === "new" ? navigationKey(active) : "",
       );
     }).catch(() => undefined);
   }, [activateSelection, refreshSessions]);
@@ -631,9 +645,11 @@ export function App() {
       sessions.some((session) => session.id === actualSessionId);
     if (knownActualSession) {
       const actualSession = sessions.find((session) => session.id === actualSessionId);
+      const active = selectionRef.current;
       activateSelection(
         { kind: "session", id: actualSessionId },
         sessionSummaryTitle(actualSession),
+        active.kind === "new" ? navigationKey(active) : "",
       );
       newTaskReady.current = false;
       setNewTaskActive(false);
@@ -849,13 +865,13 @@ export function App() {
       pendingSessionDeletes.current.delete(sessionId);
     }
   }, [activateSelection, applySnapshot, refreshSessions, selection, sessions, setError, snapshot.sessionId]);
-  const startTask = () => {
+  const startTask = (draft?: NavigationSelection) => {
     closeSidebarForNavigation();
     void invoke(async () => {
       try {
         const next = await window.mixdogDesktop?.startTask();
         applySnapshot(next);
-        activateSelection({ kind: "new" }, "New task");
+        activateSelection(draft?.kind === "new" ? draft : newDraftSelection(), "New task");
         newTaskReady.current = true;
         setNewTaskActive(true);
         setComposerFocusRequest((value) => value + 1);
@@ -1035,7 +1051,7 @@ export function App() {
   const activeTabKey = navigationKey(navigationSelection);
   const navigateTab = (tab: WorkspaceTab) => {
     if (tab.key === activeTabKey) return;
-    if (tab.selection.kind === "new") startTask();
+    if (tab.selection.kind === "new") startTask(tab.selection);
     else if (tab.selection.kind === "project") startProject(tab.selection.path);
     else resumeSession(tab.selection.id);
   };
