@@ -276,6 +276,7 @@ export const DESKTOP_CAPABILITIES = [
   'listThemes',
   'getTheme',
   'setTheme',
+  'transcribeAudio',
   'setAgentRoute',
   'setDefaultProvider',
   'listProviders',

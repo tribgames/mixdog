@@ -164,6 +164,40 @@ export function createEngineApiB(bag) {
     },
     isRemoteEnabled: () => runtime.isRemoteEnabled?.() === true,
     getVoiceStatus: () => getVoiceStatus(),
+    // Desktop push-to-talk dictation: accept a recorded audio payload
+    // (base64), stage it as a temp file, and run it through the SAME managed
+    // whisper.cpp pipeline the channels use (ffmpeg convert -> whisper server,
+    // model selected per voice.model/system language). Returns the transcript
+    // text or throws a user-actionable error (e.g. runtime not installed).
+    transcribeAudio: async ({ data, mimeType = 'audio/webm' } = {}) => {
+      const base64 = String(data || '');
+      if (!base64) throw new Error('transcribeAudio: audio payload is required');
+      if (base64.length > 40_000_000) throw new Error('transcribeAudio: recording too large');
+      const [{ createVoiceTranscription }, { resolvePluginData }, { readSection }, os, path, fsp, crypto] = await Promise.all([
+        import('../../runtime/channels/lib/voice-transcription.mjs'),
+        import('../../runtime/shared/plugin-paths.mjs'),
+        import('../../runtime/shared/config.mjs'),
+        import('node:os'),
+        import('node:path'),
+        import('node:fs/promises'),
+        import('node:crypto'),
+      ]);
+      const extension = /ogg/i.test(mimeType) ? 'ogg' : /wav/i.test(mimeType) ? 'wav' : /mp4|m4a/i.test(mimeType) ? 'm4a' : 'webm';
+      const audioPath = path.join(os.tmpdir(), `mixdog-dictation-${process.pid}-${Date.now()}.${extension}`);
+      await fsp.writeFile(audioPath, Buffer.from(base64, 'base64'));
+      try {
+        const { transcribeVoice } = createVoiceTranscription({
+          getConfig: () => ({ voice: readSection('voice') || {} }),
+          dataDir: resolvePluginData(),
+        });
+        const text = await transcribeVoice(audioPath, {
+          attachmentId: `dictation-${crypto.randomUUID()}`,
+        });
+        return typeof text === 'string' ? text : '';
+      } finally {
+        fsp.rm(audioPath, { force: true }).catch(() => undefined);
+      }
+    },
     toggleVoice: async () => {
       const result = await toggleVoice({ pushNotice, setProgressHint });
       return {

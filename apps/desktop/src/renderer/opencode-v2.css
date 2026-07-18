@@ -1573,6 +1573,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .composer textarea::placeholder { color: var(--oc-text-faint); }
 .composer-footer { height: 44px; gap: 0; padding: 0 8px; }
+/* Push-to-talk dictation states on the mic tool. */
+.composer-mic.is-recording {
+  color: var(--oc-danger);
+  background: var(--oc-danger-bg);
+  animation: composer-mic-pulse 1.6s ease-in-out infinite;
+}
+.composer-mic.is-transcribing { color: var(--oc-text-muted); }
+.composer-mic-spinner { animation: composer-mic-spin 900ms linear infinite; }
+@keyframes composer-mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+@keyframes composer-mic-spin {
+  to { transform: rotate(360deg); }
+}
 .composer-tool, .send-button, .route-controls > .fast-control, .fast-control .oc-select-trigger, .effort-control select {
   width: 28px;
   height: 28px;

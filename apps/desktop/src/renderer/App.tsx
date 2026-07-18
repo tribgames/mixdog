@@ -26,6 +26,7 @@ import {
   FileDiff,
   Layers3,
   LoaderCircle,
+  Mic,
   Plus,
   ShieldAlert,
   Sparkles,
@@ -2637,6 +2638,14 @@ const Composer = memo(function Composer({
   const [submitting, setSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
+  const [dictationState, setDictationState] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  const dictationSession = useRef<{
+    recorder: MediaRecorder;
+    stream: MediaStream;
+    chunks: Blob[];
+    cancelled: boolean;
+    stopTimer: number;
+  } | null>(null);
   const [composerNotice, setComposerNotice] = useState('');
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedDraft, setSlashDismissedDraft] = useState('');
@@ -2955,6 +2964,80 @@ const Composer = memo(function Composer({
       }
     }
   }, [insertAttachment]);
+
+  // Push-to-talk dictation: record locally, transcribe through the engine's
+  // managed whisper.cpp runtime, and append the transcript to the draft.
+  const toggleDictation = useCallback(async () => {
+    if (dictationState === 'transcribing' || transitioningRef.current) return;
+    const active = dictationSession.current;
+    if (active) {
+      try { active.recorder.stop(); } catch { /* recorder already stopped */ }
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      const session = { recorder, stream, chunks: [] as Blob[], cancelled: false, stopTimer: 0 };
+      dictationSession.current = session;
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) session.chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        void (async () => {
+          window.clearTimeout(session.stopTimer);
+          dictationSession.current = null;
+          for (const track of session.stream.getTracks()) track.stop();
+          if (session.cancelled || session.chunks.length === 0) {
+            setDictationState('idle');
+            return;
+          }
+          setDictationState('transcribing');
+          try {
+            const blob = new Blob(session.chunks, { type: recorder.mimeType || 'audio/webm' });
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onerror = () => reject(reader.error || new Error('Recorded audio could not be read.'));
+              reader.onload = () => resolve(String(reader.result || ''));
+              reader.readAsDataURL(blob);
+            });
+            const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+            const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
+              capability: 'transcribeAudio',
+              args: [{ data: base64, mimeType: blob.type }],
+            }));
+            const text = String(result?.value ?? '').trim();
+            if (text) {
+              setDraft((current) => current
+                ? `${current}${/\s$/.test(current) ? '' : ' '}${text}`
+                : text);
+              window.setTimeout(() => textarea.current?.focus(), 0);
+            }
+          } finally {
+            setDictationState('idle');
+          }
+        })();
+      };
+      recorder.start();
+      // Dictation is sentence-scale; bound runaway recordings.
+      session.stopTimer = window.setTimeout(() => {
+        try { recorder.stop(); } catch { /* already stopped */ }
+      }, 120_000);
+      setDictationState('recording');
+    } catch (reason) {
+      setComposerNotice(reason instanceof Error ? reason.message : String(reason));
+      setDictationState('idle');
+    }
+  }, [dictationState, invokeResult]);
+  useEffect(() => () => {
+    const session = dictationSession.current;
+    if (!session) return;
+    session.cancelled = true;
+    try { session.recorder.stop(); } catch { /* teardown */ }
+    for (const track of session.stream.getTracks()) track.stop();
+  }, []);
 
   const restoredAttachments = useCallback((value: RecordValue, restoredText: string): {
     attachments: ComposerAttachment[];
@@ -3631,6 +3714,17 @@ const Composer = memo(function Composer({
           onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
         <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images or text files" data-tooltip-side="top"
         onClick={() => fileInput.current?.click()}><OcIcon name="plus" size={16} /></button>
+        <button type="button"
+          className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
+          disabled={transitioning || dictationState === 'transcribing'}
+          aria-label={dictationState === 'recording' ? 'Stop dictation' : 'Dictate with voice'}
+          aria-pressed={dictationState === 'recording'}
+          data-tooltip={dictationState === 'recording' ? 'Stop and transcribe'
+            : dictationState === 'transcribing' ? 'Transcribing…' : 'Dictate (local Whisper)'}
+          data-tooltip-side="top"
+          onClick={() => void toggleDictation()}>
+          {dictationState === 'transcribing' ? <LoaderCircle className="composer-mic-spinner" size={15} /> : <Mic size={15} />}
+        </button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
           modelDisabled={commandBusy || transitioning}
           tuningDisabled={turnBusy || commandBusy || transitioning}

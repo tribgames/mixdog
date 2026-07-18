@@ -3583,7 +3583,7 @@ test("desktop composer restores queued work, recalls engine history, and execute
   assert.equal(document.querySelector('[aria-label="Prompt history"]') === null, true, "selector [aria-label=\"Prompt history\"] should be absent");
   assert.deepEqual(
     Array.from(document.querySelectorAll('.composer-footer > .composer-tool')).map((button) => button.getAttribute('aria-label')),
-    ['Attach files'],
+    ['Attach files', 'Dictate with voice'],
   );
   const queueSummary = document.querySelector('.queue-summary');
   assert.equal(queueSummary?.textContent?.includes('1 queued follow-up'), true);
