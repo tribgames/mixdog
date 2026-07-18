@@ -1013,7 +1013,7 @@ export async function createEngineSession({
     });
     return true;
   };
-  const pushUserOrSyntheticItem = (text, id = nextId(), origin = 'user') => {
+  const pushUserOrSyntheticItem = (text, id = nextId(), origin = 'user', extra = null) => {
     // The lenient shape-only wrapper check is display-suppression only and
     // must never hide a real, directly-typed/pasted user prompt just because
     // it happens to resemble "instruction + Result: + quoted body". Only
@@ -1036,7 +1036,13 @@ export async function createEngineSession({
     if (origin === 'user') appendPromptHistory(state.cwd, text);
     const transcriptMeta = transcriptRouteMetadata();
     if (origin === 'user') flags.pendingTranscriptMeta = transcriptMeta;
-    pushItem({ kind: 'user', id, text, ...transcriptMeta });
+    pushItem({
+      kind: 'user', id, text, ...transcriptMeta,
+      // Byte-free attachment metadata (name/mime/size) from the queue entry —
+      // lets the desktop transcript render image chips without ever carrying
+      // base64 payloads through snapshots.
+      ...(extra && Array.isArray(extra.images) && extra.images.length ? { images: extra.images } : {}),
+    });
   };
   const pushAsyncAgentResponse = (text, id = nextId(), origin = 'injected', metadata = {}) => {
     const synthetic = parseSyntheticAgentMessage(text);

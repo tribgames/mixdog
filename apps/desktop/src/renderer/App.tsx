@@ -41,6 +41,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { Image as ImageChipIcon } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type {
@@ -134,7 +135,28 @@ type TranscriptItem = RecordValue & {
   errorCount?: number;
   callErrorCount?: number;
   exitErrorCount?: number;
+  images?: Array<{ id?: number | null; name?: string; mimeType?: string; bytes?: number }>;
 };
+
+// Session-lifetime preview cache for submitted image attachments. Transcript
+// items carry byte-free metadata only (snapshot hygiene); the composer
+// registers the data URL at submit time so the current window can render real
+// thumbnails. After a restart the chip falls back to an icon + filename.
+const MAX_IMAGE_PREVIEW_CACHE = 24;
+const imagePreviewCache = new Map<string, string>();
+function imagePreviewKey(id: number | null | undefined, bytes: number | undefined): string {
+  return `${id ?? 'x'}:${bytes ?? 0}`;
+}
+function registerImagePreview(id: number, bytes: number, dataUrl: string) {
+  const key = imagePreviewKey(id, bytes);
+  imagePreviewCache.delete(key);
+  imagePreviewCache.set(key, dataUrl);
+  while (imagePreviewCache.size > MAX_IMAGE_PREVIEW_CACHE) {
+    const oldest = imagePreviewCache.keys().next().value;
+    if (oldest === undefined) break;
+    imagePreviewCache.delete(oldest);
+  }
+}
 
 const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 80;
 const TRANSCRIPT_VIRTUAL_OVERSCAN = 12;
@@ -2101,7 +2123,24 @@ export const TranscriptRow = memo(function TranscriptRow({
       <article className={`message ${user ? "user" : "assistant"} ${item.streaming ? "streaming" : "settled"} ${user && attachedUser ? "attached-user" : ""}`}
         aria-live={item.streaming || announceSettled ? "off" : undefined}>
         <div className="message-body">
-          {user ? <p>{item.text}</p> : (
+          {user ? <>
+            {Array.isArray(item.images) && item.images.length > 0 && <div className="message-image-chips"
+              aria-label="Attached images">
+              {item.images.map((image, index) => {
+                const preview = imagePreviewCache.get(imagePreviewKey(image.id, image.bytes));
+                return <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`}
+                  title={image.name || 'Attached image'}>
+                  {preview
+                    ? <img src={preview} alt={image.name || 'Attached image'} />
+                    : <span className="message-image-fallback">
+                      <ImageChipIcon size={14} aria-hidden />
+                      <span>{image.name || 'Image'}</span>
+                    </span>}
+                </span>;
+              })}
+            </div>}
+            <p>{item.text}</p>
+          </> : (
             <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
           )}
         </div>
@@ -3216,6 +3255,12 @@ const Composer = memo(function Composer({
         }
       }
       const imageAttachments = used.filter((attachment) => attachment.kind === 'image');
+      // Register byte-free preview sources for the transcript chips this
+      // submit will produce. The transcript item itself carries metadata only.
+      for (const attachment of imageAttachments) {
+        registerImagePreview(attachment.id, attachment.data.length,
+          `data:${attachment.mimeType};base64,${attachment.data}`);
+      }
       if (expandedText.length > MAX_SUBMIT_TEXT_LENGTH) {
         setAttachmentError('This prompt is too large to send. Remove or shorten an inline text attachment.');
         return;

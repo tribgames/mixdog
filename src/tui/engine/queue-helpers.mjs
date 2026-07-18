@@ -150,6 +150,28 @@ export function mergePastedImages(entries) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+// Byte-free image metadata for the user transcript item. The prompt content
+// keeps the full base64 payload for the provider send; transcript items (and
+// therefore desktop snapshots published on every update) carry only
+// name/mime/size so previews can render without bloating state.
+export function promptContentImageMeta(content, pastedImages) {
+  const parts = Array.isArray(content) ? content.filter((part) => part?.type === 'image') : [];
+  if (parts.length === 0) return null;
+  const named = pastedImages && typeof pastedImages === 'object' ? Object.values(pastedImages) : [];
+  return parts.map((part, index) => {
+    const meta = named[index] && typeof named[index] === 'object' ? named[index] : null;
+    const data = typeof part.data === 'string'
+      ? part.data
+      : (typeof part.content === 'string' ? part.content : '');
+    return {
+      id: meta?.id ?? null,
+      name: String(meta?.filename || `Image ${index + 1}`),
+      mimeType: String(part.mimeType || part.mediaType || meta?.mediaType || 'image/png'),
+      bytes: data.length,
+    };
+  });
+}
+
 export function mergePastedTexts(entries) {
   const out = {};
   for (const entry of entries || []) {

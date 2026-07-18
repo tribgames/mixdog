@@ -4,7 +4,7 @@
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { createSessionStats } from './session-stats.mjs';
-import { queuePriorityValue, defaultQueuePriority, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
+  import { queuePriorityValue, defaultQueuePriority, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, promptContentImageMeta, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersist } from './tui-steering-persist.mjs';
 
 export function createSessionFlow(bag) {
@@ -49,6 +49,7 @@ export function createSessionFlow(bag) {
       content: text,
       pastedImages: options.pastedImages && typeof options.pastedImages === 'object' ? options.pastedImages : null,
       pastedTexts: options.pastedTexts && typeof options.pastedTexts === 'object' ? options.pastedTexts : null,
+      images: promptContentImageMeta(text, options.pastedImages),
       onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
       mode,
       priority,
@@ -200,7 +201,12 @@ export function createSessionFlow(bag) {
           // at delivery time; the queued twin is model-visible only and must
           // NOT render a second transcript card here (no fall-back to content).
           if (entry.suppressDisplay) continue;
-          pushUserOrSyntheticItem(entry.text, entry.id, isQueuedEntryEditable(entry) ? 'user' : 'injected');
+          pushUserOrSyntheticItem(
+            entry.text,
+            entry.id,
+            isQueuedEntryEditable(entry) ? 'user' : 'injected',
+            Array.isArray(entry.images) && entry.images.length ? { images: entry.images } : null,
+          );
         }
         const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
         // A completion resume is owned by the completion that woke it. Esc

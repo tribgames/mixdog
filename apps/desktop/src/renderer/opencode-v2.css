@@ -1042,9 +1042,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .thread-welcome p { display: none; }
 .starter-grid { display: none; }
-.message-body { color: var(--oc-text); font-size: 13px; font-weight: 440; line-height: 20px; letter-spacing: -.04px; }
+/* OpenCode v2 reading scale (theme.css): --font-size-base 14px, line-height
+   150%, weight 400, letter-spacing 0. Chrome (tabs/sidebar/labels) stays on
+   the 13px small scale; READING surfaces get the base scale. */
+.message-body { color: var(--oc-text); font-size: 14px; font-weight: 400; line-height: 21px; letter-spacing: 0; }
 .message-body p { margin: 0 0 12px; }
-.message.user .message-body { line-height: 20px; }
+.message.user .message-body { line-height: 21px; }
 .message { position: relative; }
 .message:focus-visible {
   border-radius: 6px;
@@ -1175,7 +1178,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .message.user .message-body {
   width: fit-content;
-  max-width: 100%;
+  /* OpenCode caps the user bubble measure at 64ch — full-width lines were a
+     major readability drag for long prompts. */
+  max-width: min(100%, 64ch);
   padding: 8px 12px;
   border: 1px solid var(--oc-border-muted);
   border-radius: 6px;
@@ -1525,10 +1530,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-height: 52px;
   padding: 16px 16px 8px;
   color: var(--oc-text);
-  font-size: 13px;
-  font-weight: 440;
-  line-height: 20px;
-  letter-spacing: -.04px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 21px;
+  letter-spacing: 0;
 }
 .composer textarea::placeholder { color: var(--oc-text-faint); }
 .composer-footer { height: 44px; gap: 0; padding: 0 8px; }
@@ -2320,7 +2325,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .oc-toast[data-tone="success"] > svg { color: var(--oc-success); }
 .oc-toast-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
 .oc-toast-copy b { overflow: hidden; color: var(--oc-text); font-size: 13px; font-weight: 530; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
-.oc-toast-copy span { color: var(--oc-text-muted); font-size: 13px; font-weight: 440; line-height: 20px; overflow-wrap: anywhere; }
+.thinking-disclosure { max-width: 100%; color: var(--oc-text-muted); font-size: 14px; font-weight: 400; }
 .oc-toast-close { width: 20px; height: 20px; padding: 2px; border: 0; border-radius: 4px; color: var(--oc-icon-muted); background: transparent; }
 .oc-toast-close:hover { color: var(--oc-icon); background: var(--oc-hover); }
 .oc-toast-close { cursor: pointer; }
@@ -3531,10 +3536,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin: 24px 0 12px;
   color: var(--oc-text);
   font-size: 14px;
-  font-weight: 530;
-  line-height: 20px;
+  font-weight: 500;
+  line-height: 21px;
 }
-.markdown strong, .markdown b { color: var(--oc-text); font-weight: 530; }
+.markdown strong, .markdown b { color: var(--oc-text); font-weight: 500; }
 .markdown ul, .markdown ol { margin: 8px 0 12px; padding-left: 32px; }
 .markdown li { margin-bottom: 8px; }
 .markdown li::marker { color: var(--oc-text-faint); }
@@ -3557,7 +3562,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-align: left;
   vertical-align: top;
 }
-.markdown th { color: var(--oc-text); font-weight: 530; }
+.markdown th { color: var(--oc-text); font-weight: 500; }
 
 /* Finished transcript surfaces: constrain rich content without clipping controls or borders. */
 .thread,
@@ -3582,9 +3587,35 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--oc-text);
   background: var(--oc-bg-layer-2);
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
-  font-size: 12px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
+/* Markdown prose breathes at 160% (reference markdown.css) vs the 150%
+   plain-message rhythm. */
+.markdown { line-height: 22px; }
+
+/* Byte-free image attachment chips on user messages (reference
+   user-message-attachments): thumbnail when the submitting window still holds
+   the preview, icon + filename after a restart. */
+.message-image-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.message-image-chip {
+  display: inline-flex;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--oc-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--oc-border-muted);
+}
+.message-image-chip img { display: block; width: 56px; height: 56px; object-fit: cover; }
+.message-image-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: var(--oc-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.message-image-fallback svg { color: var(--oc-icon); }
 .markdown a {
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
