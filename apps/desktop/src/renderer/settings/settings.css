@@ -230,12 +230,31 @@
   overflow: visible;
 }
 .settings-row-control > .settings-model-trigger {
-  width: auto;
+  width: 100%;
   min-width: 0;
-  max-width: 100%;
-  margin-left: auto;
+  max-width: none;
+  margin-left: 0;
   justify-content: flex-end;
   gap: 6px;
+  text-align: right;
+}
+.settings-row-control > .effort-control,
+.settings-row-control > .fast-control {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  flex: 0 0 100%;
+}
+.settings-row-control > .effort-control .oc-select-root,
+.settings-row-control > .fast-control .oc-select-root,
+.settings-row-control > .effort-control .oc-select-trigger,
+.settings-row-control > .fast-control .oc-select-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+.settings-row-control > .effort-control .oc-select-value,
+.settings-row-control > .fast-control .oc-select-value {
   text-align: right;
 }
 .settings-model-trigger > span {
@@ -246,13 +265,14 @@
   text-align: right;
 }
 .mixdog-settings-v2 .settings-resource.settings-agent-route { align-items: start; }
-.mixdog-settings-v2 .settings-agent-route > div:first-child { padding-top: 8px; }
+.mixdog-settings-v2 .settings-agent-route > div:first-child { padding-top: 7px; }
 .settings-agent-route .settings-resource-control,
 .settings-agent-route .settings-route-editor.compact,
 .settings-agent-route .settings-route-controls { width: 100%; }
 .settings-agent-route .settings-route-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   justify-items: end;
 }
 .settings-agent-route .settings-route-controls > *,
@@ -260,15 +280,84 @@
 .settings-agent-route .fast-control,
 .settings-agent-route .oc-select-root,
 .settings-agent-route .oc-select-trigger {
+  width: 100%;
   min-width: 0;
   max-width: 100%;
 }
-.settings-agent-route .settings-model-trigger {
+.settings-agent-route .settings-model-trigger,
+.settings-agent-route .effort-control .oc-select-trigger,
+.settings-agent-route .fast-control .oc-select-trigger {
+  height: 28px;
   justify-content: flex-end;
   gap: 6px;
+  padding: 0 5px 0 8px;
+  color: var(--oc-text);
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 20px;
   text-align: right;
 }
-.settings-agent-route .settings-model-trigger > span { text-align: right; }
+.settings-agent-route .effort-control,
+.settings-agent-route .fast-control {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.settings-agent-route .settings-model-trigger > span,
+.settings-agent-route .oc-select-value { text-align: right; }
+.settings-agent-route .settings-model-trigger:hover,
+.settings-agent-route .settings-model-trigger[aria-expanded="true"],
+.settings-agent-route .oc-select-trigger:hover:not(:disabled),
+.settings-agent-route .oc-select-trigger[aria-expanded="true"] {
+  color: var(--oc-text);
+  background: var(--oc-hover);
+}
+.settings-row-control > .effort-control .oc-select-trigger,
+.settings-row-control > .fast-control .oc-select-trigger {
+  color: var(--oc-text);
+  font-weight: 530;
+}
+
+/* ModelPicker and OpenSelect use different primitives. Settings routes own one
+   shared closed-state chevron, value column, and right edge for both. */
+.settings-row-control > .settings-model-trigger,
+.settings-row-control > .effort-control .oc-select-trigger,
+.settings-row-control > .fast-control .oc-select-trigger,
+.settings-agent-route .settings-model-trigger,
+.settings-agent-route .effort-control .oc-select-trigger,
+.settings-agent-route .fast-control .oc-select-trigger {
+  height: 28px;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 5px 0 8px;
+  color: var(--oc-text);
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 20px;
+  text-align: right;
+}
+.settings-row-control > .settings-model-trigger > svg,
+.settings-row-control > .effort-control .oc-select-trigger > svg,
+.settings-row-control > .fast-control .oc-select-trigger > svg,
+.settings-agent-route .settings-model-trigger > svg,
+.settings-agent-route .effort-control .oc-select-trigger > svg,
+.settings-agent-route .fast-control .oc-select-trigger > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  padding: 0;
+  color: var(--oc-icon-muted);
+  background: transparent;
+  opacity: 1;
+  stroke-width: 2;
+  transition: transform 90ms ease-out;
+}
+.settings-model-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .settings-empty-list {
   box-sizing: border-box;
   min-height: 56px;

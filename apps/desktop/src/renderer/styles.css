@@ -60,10 +60,6 @@ button { color: inherit; }
   pointer-events: none;
 }
 .sidebar-backdrop { display: none; }
-.session-search { display: flex; align-items: center; }
-.session-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; }
-.session-search input::-webkit-search-cancel-button { display: none; }
-.session-search button { display: grid; place-items: center; padding: 0; border: 0; background: transparent; }
 .task-link, .projects-link, .new-project, .project-row, .session-row {
   width: 100%;
   min-width: 0;

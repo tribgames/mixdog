@@ -165,7 +165,8 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
   return createPortal(<div ref={surfaceLayer} className="mixdog-settings-layer" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
-    <section ref={dialog} className="mixdog-settings command-surface" role="dialog" aria-modal="true"
+    <section ref={dialog} className="mixdog-settings command-surface" data-surface={surface}
+      role="dialog" aria-modal="true"
       aria-labelledby="command-surface-title" aria-describedby="command-surface-description" tabIndex={-1}
       aria-busy={loading || Boolean(pending)}>
       <div className="mixdog-settings__panel">
@@ -314,7 +315,7 @@ function contextPercent(value: unknown, total: unknown): number | null {
 
 function contextPercentLabel(value: unknown, total: unknown): string {
   const percent = contextPercent(value, total);
-  if (percent === null) return 'N/A';
+  if (percent === null) return finite(value) === 0 ? '0%' : 'N/A';
   return `${percent > 0 && percent < 1 ? percent.toFixed(1) : Math.floor(percent)}%`;
 }
 
@@ -372,15 +373,20 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
   ]);
   const categories = [
     { key: 'messages', label: 'Messages', tokens: tokenBuckets(semantic, ['chat', 'assistant']) },
-    { key: 'tools', label: 'Tools', tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other']) },
+    { key: 'tools', label: 'Tools', tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'agents', 'session']) },
     { key: 'mcp', label: 'MCP', tokens: tokenBuckets(schema, ['mcp']) },
     { key: 'skills', label: 'Skills', tokens: tokenBuckets(schema, ['skills']) },
     { key: 'memory', label: 'Memory', tokens: tokenBuckets(semantic, ['memory']) + tokenBuckets(schema, ['memory']) },
     { key: 'session', label: 'Session', tokens: tokenBuckets(semantic, ['workspace', 'environment', 'other']) },
-    { key: 'workflow', label: 'Workflow', tokens: tokenBuckets(semantic, ['workflow']) + tokenBuckets(schema, ['agents']) },
+    { key: 'workflow', label: 'Workflow', tokens: tokenBuckets(semantic, ['workflow']) },
     { key: 'system', label: 'System', tokens: tokenBuckets(semantic, ['system']) },
     { key: 'tool-io', label: 'Tool I/O', tokens: tokenBuckets(semantic, ['toolResults']) },
   ];
+  const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
+  const requestOverheadTokens = Math.max(0, used - categorizedTokens);
+  if (requestOverheadTokens > 0) {
+    categories.push({ key: 'request', label: 'Overhead', tokens: requestOverheadTokens });
+  }
 
   return <div className="context-view">
     <section className="context-usage-overview" aria-label="Context usage">

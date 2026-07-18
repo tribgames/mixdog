@@ -67,7 +67,13 @@ const INTERACTION_TOKENS = ['--oc-focus', '--focus', '--oc-text-accent', '--acce
 // The default dark theme is fully defined by opencode-v2.css. Other palettes,
 // including light, must inject their semantic surface tokens.
 function opencodeNative(resolved: string): boolean {
-  return resolved === DEFAULT_THEME_ID || resolved === 'dark';
+  return resolved === DEFAULT_THEME_ID || resolved === 'dark' || resolved === 'light';
+}
+
+function desktopThemeBackground(resolved: string): string {
+  if (resolved === 'light') return '#fafafa';
+  if (opencodeNative(resolved)) return '#080808';
+  return registry[resolved].palette.background;
 }
 
 export type DesktopThemePreference = 'system' | 'dark' | 'white';
@@ -118,7 +124,7 @@ export function applyDesktopTheme(value: unknown): string {
   root.dataset.mixdogTheme = resolved;
   root.style.colorScheme = resolved === 'light' ? 'light' : 'dark';
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-    ?.setAttribute('content', registry[resolved].palette.background);
+    ?.setAttribute('content', desktopThemeBackground(resolved));
   const variables = cssVariables(registry[resolved].palette);
   // Always clear previous inline overrides first so switching back to a
   // css-native theme cannot leave stale palette values behind.

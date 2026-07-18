@@ -9,8 +9,13 @@ import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
 import { updateJsonAtomicSync, updateJsonAtomic, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+import {
+    cleanSessionPreview,
+    isSessionPreviewNoise,
+    sessionMessageText,
+} from '../../../../session-runtime/session-text.mjs';
 
-export const SESSION_SUMMARY_INDEX_VERSION = 1;
+export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
 export function summaryIndexPath() {
     const dir = getPluginData();
@@ -19,52 +24,28 @@ export function summaryIndexPath() {
 }
 
 function _messageText(content) {
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-        return content.map((part) => {
-            if (typeof part === 'string') return part;
-            if (part?.type === 'text') return part.text || '';
-            if (typeof part?.text === 'string') return part.text;
-            try { return JSON.stringify(part); } catch { return ''; }
-        }).filter(Boolean).join('\n');
-    }
-    if (content && typeof content === 'object') {
-        if (typeof content.text === 'string') return content.text;
-        try { return JSON.stringify(content); } catch { return ''; }
-    }
-    return '';
+    return sessionMessageText(content);
 }
 
 export function _cleanPreview(text, max = 240) {
-    const value = String(text || '').replace(/\s+/g, ' ').trim();
+    const value = cleanSessionPreview(text, max);
     return value.length > max ? value.slice(0, max).replace(/\s+\S*$/, '').trim() : value;
 }
 
 function _isPreviewNoise(text) {
-    const value = String(text || '').trim();
-    if (!value) return true;
-    if (value.startsWith('<system-reminder>')) return true;
-    if (/^Reference files:/i.test(value)) return true;
-    return false;
+    return isSessionPreviewNoise(text);
 }
 
 function _sessionPreview(session) {
     const messages = Array.isArray(session?.messages) ? session.messages : [];
-    let first = '';
     for (const m of messages) {
         if (m?.role !== 'user') continue;
-        const text = _cleanPreview(_messageText(m.content));
-        if (_isPreviewNoise(text)) continue;
-        if (!first) first = text;
+        const raw = _messageText(m.content);
+        if (_isPreviewNoise(raw)) continue;
+        const text = _cleanPreview(raw);
+        if (text) return text;
     }
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-        const m = messages[i];
-        if (m?.role !== 'user') continue;
-        const text = _cleanPreview(_messageText(m.content));
-        if (_isPreviewNoise(text)) continue;
-        return text || first;
-    }
-    return first;
+    return '';
 }
 
 function _sessionMessageCount(session) {

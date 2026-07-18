@@ -89,8 +89,9 @@ function Invoke-OptionalWindowEvidence {
   param([int]$TimeoutSeconds = 15)
   $electron = Join-Path $desktopDir 'node_modules\electron\dist\electron.exe'
   $png = Join-Path $distDir 'acceptance-window.png'
+  $captureId = [Guid]::NewGuid().ToString()
   $process = Start-Process -FilePath $electron -ArgumentList @(
-    (Join-Path $desktopDir 'out\main\capture-window.js'), $png
+    (Join-Path $desktopDir 'out\main\capture-window.js'), $png, $captureId
   ) -PassThru
   if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
@@ -137,7 +138,7 @@ try {
     Invoke-AcceptanceStep 'packaging-tests' 'npm run test:packaging' {
       Invoke-CheckedNative -File 'npm.cmd' -Arguments @('run', 'test:packaging') `
         -LogPath (Join-Path $distDir 'acceptance-packaging-test.log')
-      return '6 NSIS/config/migration/archive/sidecar tests passed'
+      return '10 NSIS/config/acceptance/migration/archive/sidecar tests passed'
     } | Out-Null
     Invoke-AcceptanceStep 'installer-build' 'npx electron-builder --win --x64' {
       Invoke-CheckedNative -File 'npx.cmd' -Arguments @('electron-builder', '--win', '--x64') `
@@ -224,6 +225,26 @@ try {
     throw "Packaged renderer/preload CDP target did not appear on port $port; app was $state."
   }
   $preloadSeconds = [Math]::Round($launchWatch.Elapsed.TotalSeconds, 3)
+  $fullE2e = Invoke-AcceptanceStep 'full-tui-desktop-e2e' "node --import tsx scripts/cdp-e2e.mjs `"$($target.webSocketDebuggerUrl)`" `"$ProjectPath`"" {
+    $json = & node --import tsx 'scripts/cdp-e2e.mjs' $target.webSocketDebuggerUrl $ProjectPath
+    if ($LASTEXITCODE -ne 0) { throw "Full TUI desktop E2E exited with $LASTEXITCODE" }
+    $value = $json | ConvertFrom-Json
+    if (
+      $value.mode -ne 'direct-user-environment' -or
+      $value.inventory.tuiCommands -ne 30 -or
+      $value.inventory.desktopCommands -ne 30 -or
+      $value.inventory.settingsItems -ne 20 -or
+      $value.inventory.settingsCategories -ne 12 -or
+      $value.capabilityFailures.Count -ne 0 -or
+      $value.renderer.exceptions.Count -ne 0
+    ) {
+      throw "Full TUI desktop E2E coverage failed: $json"
+    }
+    $value | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $distDir 'acceptance-tui-e2e.log') -Encoding UTF8
+    return $value
+  }
+  # Keep the legacy smoke last: it intentionally disposes the EngineHost and
+  # clears its state subscribers as part of shutdown verification.
   $smoke = Invoke-AcceptanceStep 'project-chat-approval-routing' "node scripts/cdp-smoke.mjs `"$($target.webSocketDebuggerUrl)`" `"$ProjectPath`"" {
     $json = & node 'scripts/cdp-smoke.mjs' $target.webSocketDebuggerUrl $ProjectPath
     if ($LASTEXITCODE -ne 0) { throw "CDP smoke exited with $LASTEXITCODE" }
@@ -321,6 +342,22 @@ try {
   }
   if (Get-Variable debugUserDataDir -ErrorAction SilentlyContinue) {
     Remove-Item -LiteralPath $debugUserDataDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  if (Test-Path -LiteralPath $InstallDir) {
+    $cleanupUninstaller = Join-Path $InstallDir 'Uninstall Mixdog.exe'
+    if (Test-Path -LiteralPath $cleanupUninstaller) {
+      try {
+        $cleanup = Start-Process -FilePath $cleanupUninstaller -ArgumentList '/S' -Wait -PassThru
+        if ($cleanup.ExitCode -eq 0) {
+          $cleanupDeadline = [DateTime]::UtcNow.AddSeconds(15)
+          while ((Test-Path -LiteralPath $InstallDir) -and [DateTime]::UtcNow -lt $cleanupDeadline) {
+            Start-Sleep -Milliseconds 100
+          }
+        }
+      } catch {
+        Write-Warning "Acceptance cleanup uninstall failed: $($_.Exception.Message)"
+      }
+    }
   }
   Stop-Transcript | Out-Null
   if (Get-Variable artifactHash -ErrorAction SilentlyContinue) {

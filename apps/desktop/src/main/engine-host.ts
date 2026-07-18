@@ -19,7 +19,15 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import { DESKTOP_CAPABILITIES } from '../shared/contract';
-import { normalizeSessionTitle, promptTitle, stripSessionEnvelope } from '../shared/session-title.mjs';
+import {
+  generatedSessionTitle,
+  isGeneratedSessionTitleNoise,
+  isSyntheticSessionDisplayText,
+  normalizeSessionTitle,
+  promptTitle,
+  stripInjectedDisplayText,
+  stripSessionEnvelope,
+} from '../shared/session-title.mjs';
 import { desktopSessionSummaries, desktopSnapshot } from './desktop-state';
 import { searchProjectDirectory } from './project-file-search';
 
@@ -295,7 +303,11 @@ function sanitizeTranscriptItem(value: unknown): boolean {
   const kind = normalizedMarker(item?.kind);
   const role = normalizedMarker(item?.role);
   if ((kind === 'user' || role === 'user') && typeof item?.text === 'string') {
-    const visibleText = stripSessionEnvelope(item.text);
+    if (isSyntheticSessionDisplayText(item.text)) return false;
+    const visibleText = stripInjectedDisplayText(stripSessionEnvelope(item.text))
+      .replace(/[ \t]+\r?\n/g, '\n')
+      .replace(/\r?\n{3,}/g, '\n\n')
+      .trim();
     if (visibleText !== item.text) item.text = visibleText;
     if (!visibleText.trim()) return false;
   }
@@ -535,16 +547,11 @@ export class EngineHost {
       const projectStore = await this.loadProjectsModule();
       const registered = this.knownProject(projectStore, requestedPath);
       const canonicalPath = await this.canonicalDirectory(registered.path);
-      const nextEngine = await this.replaceEngine(canonicalPath, {
+      await this.replaceEngine(canonicalPath, {
         classification: 'project',
         projectPath: canonicalPath,
       }, 'desktop-new-project-task');
       this.currentProject = canonicalPath;
-      if (await nextEngine.newSession() !== true) {
-        await this.disposeCurrent('desktop-new-project-task-failed');
-        throw new Error('Unable to create a new project task session.');
-      }
-      await this.applyPendingFastPreference(nextEngine);
       projectStore.touchProjectSelected(registered.path);
       this.recentProjects = this.registeredProjects(projectStore)
         .map((project) => project.path)
@@ -641,16 +648,11 @@ export class EngineHost {
     await this.exclusive(async () => {
       await this.loadSessionTitles();
       const workspace = await this.taskWorkspace();
-      const nextEngine = await this.replaceEngine(workspace, {
+      await this.replaceEngine(workspace, {
         classification: 'task',
         projectPath: null,
       }, 'desktop-new-task');
       this.currentProject = null;
-      if (await nextEngine.newSession() !== true) {
-        await this.disposeCurrent('desktop-new-task-failed');
-        throw new Error('Unable to create a new task session.');
-      }
-      await this.applyPendingFastPreference(nextEngine);
       result = this.getSnapshot();
       this.publish();
     });
@@ -973,6 +975,10 @@ export class EngineHost {
           if (!sameManagedContext) await this.disposeCurrent('desktop-session-resume-failed');
           throw new Error('Session could not be resumed.');
         }
+        if (String(nextEngine.getState()?.sessionId || '') !== sessionId) {
+          if (!sameManagedContext) await this.disposeCurrent('desktop-session-resume-mismatch');
+          throw new Error('Session resume returned an unexpected session.');
+        }
         this.currentProject = selected.classification === 'project' ? workspace : null;
         this.rememberCurrentSessionTitle();
         result = this.getSnapshot();
@@ -984,16 +990,31 @@ export class EngineHost {
     return result;
   }
 
-  submit(prompt: DesktopPromptContent, options: DesktopSubmitOptions = {}): boolean {
+  async submit(prompt: DesktopPromptContent, options: DesktopSubmitOptions = {}): Promise<boolean> {
     const hasText = typeof prompt === 'string'
       ? Boolean(prompt.trim())
       : prompt.some((part) => part.type === 'image' || Boolean(part.text?.trim()));
     if (!hasText) return false;
-    const accepted = this.requireEngine().submit(prompt, options);
-    if (accepted) {
-      const sessionId = String(this.engine?.getState()?.sessionId || '');
-      this.rememberSessionTitle(sessionId, promptTitle(prompt, options.displayText || ''));
-    }
+    let accepted = false;
+    await this.exclusive(async () => {
+      const engine = this.requireEngine();
+      // A blank desktop task owns only its workspace and route preferences.
+      // Materialize the persisted runtime session at the first real submit so
+      // merely opening a task or changing its model never writes/tombstones an
+      // empty system/tool prompt.
+      if (!String(engine.getState()?.sessionId || '')) {
+        if (await engine.newSession() !== true) {
+          throw new Error('Unable to create a task session for the first message.');
+        }
+        await this.applyPendingFastPreference(engine);
+      }
+      accepted = engine.submit(prompt, options);
+      if (accepted) {
+        const sessionId = String(engine.getState()?.sessionId || '');
+        this.rememberSessionTitle(sessionId, promptTitle(prompt, options.displayText || ''));
+      }
+      this.publish();
+    });
     return accepted;
   }
 
@@ -1568,39 +1589,51 @@ export class EngineHost {
         throw new Error('Desktop session metadata could not be loaded.');
       }
     }
-    const normalizedMap = (source: unknown): Record<string, string> => {
+    let generatedMetadataChanged = false;
+    const normalizedMap = (source: unknown, generated = false): Record<string, string> => {
       const result = Object.create(null) as Record<string, string>;
       if (!source || typeof source !== 'object' || Array.isArray(source)) return result;
       for (const [id, value] of Object.entries(source)) {
         if (!/^[A-Za-z0-9_-]+$/.test(id) || typeof value !== 'string') continue;
-        const title = normalizeSessionTitle(value, '');
+        const title = generated
+          ? generatedSessionTitle(value, '')
+          : normalizeSessionTitle(value, '');
+        if (generated && title !== value.trim()) generatedMetadataChanged = true;
         if (title) result[id] = title;
       }
       return result;
     };
     const legacy = parsed.version !== 2;
-    this.sessionTitles = legacy ? Object.create(null) as Record<string, string> : normalizedMap(parsed.titles);
+    this.sessionTitles = legacy
+      ? Object.create(null) as Record<string, string>
+      : normalizedMap(parsed.titles, true);
     this.sessionNames = normalizedMap(legacy ? parsed.titles : parsed.names);
+    if (!legacy && generatedMetadataChanged) await this.queueSessionTitleWrite();
     return this.sessionTitles;
   }
 
   private rememberCurrentSessionTitle(): void {
     const state = this.engine?.getState();
     const firstUser = Array.isArray(state?.items)
-      ? state.items.find((item) => item && typeof item === 'object' &&
-        (item as Record<string, unknown>).kind === 'user') as Record<string, unknown> | undefined
+      ? state.items.find((item) => {
+        if (!item || typeof item !== 'object') return false;
+        const candidate = item as Record<string, unknown>;
+        return candidate.kind === 'user' &&
+          !isGeneratedSessionTitleNoise(candidate.text) &&
+          Boolean(generatedSessionTitle(candidate.text, ''));
+      }) as Record<string, unknown> | undefined
       : undefined;
     const firstUserText = String(firstUser?.text || '');
     this.rememberSessionTitle(
       String(state?.sessionId || ''),
-      normalizeSessionTitle(firstUserText, /\[Image\b/i.test(firstUserText) ? '[Image]' : ''),
+      generatedSessionTitle(firstUserText, /\[Image\b/i.test(firstUserText) ? '[Image]' : ''),
     );
   }
 
   private rememberSessionTitle(sessionId: string, title: string): void {
     if (!this.sessionTitles || !/^[A-Za-z0-9_-]+$/.test(sessionId) ||
       this.sessionNames?.[sessionId] || this.sessionTitles[sessionId]) return;
-    const normalized = normalizeSessionTitle(title, '');
+    const normalized = generatedSessionTitle(title, '');
     if (!normalized) return;
     this.sessionTitles[sessionId] = normalized;
     void this.queueSessionTitleWrite();

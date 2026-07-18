@@ -41,6 +41,7 @@ import {
   X,
 } from "lucide-react";
 import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type {
   DesktopCapability,
   DesktopModelOption,
@@ -85,6 +86,7 @@ import { resolveContextUsage } from "./context-usage";
 import { OpenSelect } from "./OpenSelect";
 import { ModelPicker } from "./ModelPicker";
 import { modelDisplayName } from "./provider-display";
+import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
 import { TooltipLayer } from "./TooltipLayer";
 import { acquireModalLayer } from "./modal-layer";
 import {
@@ -132,6 +134,17 @@ type TranscriptItem = RecordValue & {
   callErrorCount?: number;
   exitErrorCount?: number;
 };
+
+const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 80;
+const TRANSCRIPT_VIRTUAL_OVERSCAN = 12;
+
+function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number {
+  if (!item) return 40;
+  if (item.kind === "assistant") return 160;
+  if (item.kind === "user") return 72;
+  if (item.kind === "tool") return item.expanded ? 180 : 56;
+  return 40;
+}
 type Approval = RecordValue & {
   id?: string;
   name?: string;
@@ -185,7 +198,12 @@ type Snapshot = RecordValue & {
 };
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
-const SettingsView = lazy(() => import("./settings/SettingsView")
+let settingsViewModulePromise: Promise<typeof import("./settings/SettingsView")> | null = null;
+function loadSettingsViewModule() {
+  settingsViewModulePromise ||= import("./settings/SettingsView");
+  return settingsViewModulePromise;
+}
+const SettingsView = lazy(() => loadSettingsViewModule()
   .then((module) => ({ default: module.SettingsView })));
 const OnboardingWizard = lazy(() => import("./settings/OnboardingWizard")
   .then((module) => ({ default: module.OnboardingWizard })));
@@ -347,6 +365,7 @@ export function App() {
   const [newTaskActive, setNewTaskActive] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState("");
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
+  const frozenSessionSnapshot = useRef<Snapshot | null>(null);
   const newTaskReady = useRef(false);
   const sessionRefresh = useRef({
     submitInFlight: false,
@@ -370,6 +389,20 @@ export function App() {
     );
     const duration = performance.getEntriesByName("mixdog:startup:entry-to-first-commit").at(-1)?.duration;
     console.info(`[perf] desktop startup first commit: ${duration?.toFixed(1) ?? "?"}ms`);
+  }, []);
+  useEffect(() => {
+    const api = window.mixdogDesktop;
+    if (!api?.readCapabilities) return;
+    let live = true;
+    const timer = window.setTimeout(() => {
+      void loadSettingsViewModule()
+        .then((module) => live ? module.preloadSettings(api) : undefined)
+        .catch(() => {});
+    }, 0);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
   }, []);
   useEffect(() => {
     const host = window.mixdogDesktop;
@@ -710,6 +743,11 @@ export function App() {
   };
   const openProjectInExplorer = (project: Project) =>
     invoke(() => window.mixdogDesktop.openProjectInExplorer(project));
+  const setProjectPinned = (project: Project, pinned: boolean) =>
+    invoke(async () => {
+      await window.mixdogDesktop.setProjectPinned(project, pinned);
+      await refreshProjects();
+    });
   const renameProject = (project: Project, alias: string) =>
     invoke(async () => {
       await window.mixdogDesktop.renameProject(project, alias);
@@ -818,25 +856,35 @@ export function App() {
     if ((selection.kind === "session" && selection.id === sessionId) || switchingSessionId) return;
     closeSidebarForNavigation();
     const session = sessions.find((item) => item.id === sessionId);
-    activateSelection({ kind: "session", id: sessionId }, sessionSummaryTitle(session));
-    setSessions((current) => {
-      let changed = false;
-      const next = current.map((item) => {
-        const currentSession = item.id === sessionId;
-        if (item.currentSession === currentSession) return item;
-        changed = true;
-        return { ...item, currentSession };
-      });
-      return changed ? next : current;
-    });
-    setNewTaskActive(false);
+    frozenSessionSnapshot.current = selection.kind === "new" && !newTaskActive
+      ? EMPTY_SNAPSHOT
+      : snapshot;
     setSwitchingSessionId(sessionId);
     const timingStart = `mixdog:session-switch:${sessionId}:start`;
     if (import.meta.env?.DEV) performance.mark(timingStart);
     void invoke(async () => {
       try {
         const next = await window.mixdogDesktop?.resumeSession(sessionId);
+        const resumedSessionId = String(asRecord(next)?.sessionId || "");
+        if (resumedSessionId && resumedSessionId !== sessionId) {
+          throw new Error("Session switch returned an unexpected session.");
+        }
+        const resumedTitle = session
+          ? sessionSummaryTitle(session)
+          : String(asRecord(next)?.desktopSessionTitle || "").trim() || "Untitled session";
         applySnapshot(next);
+        activateSelection({ kind: "session", id: sessionId }, resumedTitle);
+        setSessions((current) => {
+          let changed = false;
+          const updated = current.map((item) => {
+            const currentSession = item.id === sessionId;
+            if (item.currentSession === currentSession) return item;
+            changed = true;
+            return { ...item, currentSession };
+          });
+          return changed ? updated : current;
+        });
+        setNewTaskActive(false);
         if (import.meta.env?.DEV) {
           window.requestAnimationFrame(() => {
             const timingEnd = `mixdog:session-switch:${sessionId}:painted`;
@@ -847,18 +895,12 @@ export function App() {
             console.info(`[perf] session switch ${sessionId}: ${duration?.toFixed(1) ?? "?"}ms`);
           });
         }
-        const stableTitle = String(asRecord(next)?.desktopSessionTitle || '').trim();
-        if (stableTitle) {
-          setSessions((current) => current.map((item) => item.id === sessionId
-            ? { ...item, title: stableTitle }
-            : item));
-          activateSelection({ kind: "session", id: sessionId }, stableTitle);
-        }
       } catch (reason) {
         await synchronizeActualHost();
         throw reason;
       } finally {
         setSwitchingSessionId("");
+        frozenSessionSnapshot.current = null;
       }
     });
   };
@@ -900,10 +942,15 @@ export function App() {
     pending.submitInFlight = false;
     if (accepted === true) {
       pending.accepted = true;
-      if (selection.kind === "new" && startedSessionId) {
-        const title = promptTitle(content, options?.displayText || "") || "New task";
-        activateSelection({ kind: "session", id: startedSessionId }, title, "new");
-        setNewTaskActive(false);
+      if (selection.kind === "new") {
+        const activeSessionId = startedSessionId || String(
+          asRecord(await host.getSnapshot())?.sessionId || "",
+        );
+        if (activeSessionId) {
+          const title = promptTitle(content, options?.displayText || "") || "New task";
+          activateSelection({ kind: "session", id: activeSessionId }, title, "new");
+          setNewTaskActive(false);
+        }
       }
       refreshSettledSession();
     } else {
@@ -916,15 +963,21 @@ export function App() {
     }
     return accepted;
   }, [activateSelection, isBusy, refreshSettledSession, selection.kind, snapshot.sessionId]);
+  const selectedSnapshot = switchingSessionId && frozenSessionSnapshot.current
+    ? frozenSessionSnapshot.current
+    : snapshot;
   const visibleSnapshot = selection.kind === "new" && !newTaskActive
     ? EMPTY_SNAPSHOT
-    : snapshot;
-  const selectedSession = selection.kind === "session"
-    ? sessions.find((session) => session.id === selection.id)
+    : selectedSnapshot;
+  const navigationSelection: NavigationSelection = switchingSessionId
+    ? { kind: "session", id: switchingSessionId }
+    : selection;
+  const selectedSession = navigationSelection.kind === "session"
+    ? sessions.find((session) => session.id === navigationSelection.id)
     : undefined;
   const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
   const visibleSessionTitle = currentSessionTitle ||
-    tabs.find((tab) => tab.key === navigationKey(selection))?.title || "New task";
+    tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || "New task";
   const openHeaderTitleEditor = () => {
     if (!selectedSession) return;
     setHeaderTitleDraft(visibleSessionTitle);
@@ -949,9 +1002,9 @@ export function App() {
   };
   const snapshotProjectPath = String(asRecord(visibleSnapshot)?.currentProject ||
     asRecord(visibleSnapshot)?.project || "");
-  const activeProjectPath = selection.kind === "session"
+  const activeProjectPath = navigationSelection.kind === "session"
     ? String(selectedSession?.projectPath || snapshotProjectPath)
-    : selection.kind === "project" ? selection.path : snapshotProjectPath;
+    : navigationSelection.kind === "project" ? navigationSelection.path : snapshotProjectPath;
   const activeProjectSummary = projects.find((project) =>
     project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() ===
     activeProjectPath.replace(/[\\/]+/g, "/").toLocaleLowerCase());
@@ -965,7 +1018,7 @@ export function App() {
   const recentProjectPaths = Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects : [];
   const selectedProjectPath = activeProjectPath ||
     String(recentProjectPaths[0] || "");
-  const activeTabKey = navigationKey(selection);
+  const activeTabKey = navigationKey(navigationSelection);
   const navigateTab = (tab: WorkspaceTab) => {
     if (tab.key === activeTabKey) return;
     if (tab.selection.kind === "new") startTask();
@@ -999,19 +1052,20 @@ export function App() {
         sidebarOpen={sidebarOpen}
         tabs={tabs}
         activeKey={activeTabKey}
+        activeBusy={isBusy}
+        updaterState={updaterState}
         onToggleSidebar={() => setSidebarOpen((open) => !open)}
         onSelectTab={navigateTab}
         onCloseTab={closeTab}
         onReorderTab={reorderTab}
         onNewTask={startTask}
-        updaterState={updaterState}
         onOpenUpdate={openDesktopUpdate}
       />
       <div className="desktop-body">
         <SessionSidebar
           open={sidebarOpen}
           sessions={sessions}
-          selection={selection}
+          selection={navigationSelection}
           onNewTask={startTask}
           onOpenProjects={() => setProjectPanelOpen(true)}
           onOpenSettings={() => openSettings()}
@@ -1050,7 +1104,7 @@ export function App() {
                     {visibleSessionTitle}
                   </button> : visibleSessionTitle}
                 </h1>
-                {selection.kind === "session" && activeProjectLabel &&
+                {navigationSelection.kind === "session" && activeProjectLabel &&
                   <span className="session-project-badge">{activeProjectLabel}</span>}
                 <div className="session-header-status">
                   <LiveWorkStatus snapshot={visibleSnapshot} />
@@ -1059,7 +1113,7 @@ export function App() {
                 </div>
               </div>
             </header>
-            <Conversation snapshot={visibleSnapshot} routeSnapshot={snapshot} invoke={invoke} invokeResult={invokeResult}
+            <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot} invoke={invoke} invokeResult={invokeResult}
               errors={errors} submit={submit} applySnapshot={applySnapshot}
               transitioning={Boolean(switchingSessionId)}
               composerFocusRequest={composerFocusRequest}
@@ -1092,6 +1146,7 @@ export function App() {
         onStartProject={startProject}
         onStartProjectTask={startProjectTask}
         onOpenExplorer={openProjectInExplorer}
+        onSetPinned={setProjectPinned}
         onRename={renameProject}
         onRemove={removeProject}
       />
@@ -1318,6 +1373,8 @@ function Conversation({
   const programmaticScroll = useRef(false);
   const scrollTimer = useRef<number | undefined>(undefined);
   const scrollFrame = useRef<number | undefined>(undefined);
+  const sessionScrollPositions = useRef(new Map<string, { top: number; atEnd: boolean }>());
+  const skipNextFollowFrame = useRef(false);
   const [starter, setStarter] = useState<{ id: number; text: string } | null>(null);
   const [following, setFollowing] = useState(true);
   const composerActions = useRef({
@@ -1332,6 +1389,8 @@ function Conversation({
     () => mergeTranscript(snapshot.items, snapshot.streamingTail),
     [snapshot.items, snapshot.streamingTail],
   );
+  const transcriptSessionKey = String(routeSnapshot.sessionId || 'new-task');
+  const virtualizingTranscript = items.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD;
   const failedTurns = useMemo(() => new Set(snapshot.failedTurnKeys || []), [snapshot.failedTurnKeys]);
   const turnMetadata = useMemo(() => {
     const current = mergeTranscript(snapshot.items, snapshot.streamingTail);
@@ -1368,6 +1427,25 @@ function Conversation({
     failedTurns,
   ]);
   const { turnKeys, lastItemByTurn, lastCompletionByTurn, completionByAssistant, attachedCompletionIndexes } = turnMetadata;
+  const transcriptItemHidden = (index: number) => {
+    if (attachedCompletionIndexes.has(index)) return true;
+    const item = items[index];
+    const completion = item?.kind === "statusdone" || item?.kind === "turndone";
+    const turnKey = turnKeys[index];
+    return Boolean(completion && failedTurns.has(turnKey) && index !== lastCompletionByTurn.get(turnKey));
+  };
+  const transcriptVirtualizer = useVirtualizer({
+    count: virtualizingTranscript ? items.length : 0,
+    enabled: virtualizingTranscript,
+    getScrollElement: () => viewport.current,
+    estimateSize: (index) => transcriptItemHidden(index) ? 0 : estimatedTranscriptRowHeight(items[index]),
+    getItemKey: (index) => `${String(routeSnapshot.sessionId || "new-task")}:${String(
+      items[index]?.id ?? `${items[index]?.kind || "row"}-${index}`,
+    )}:${index}`,
+    overscan: TRANSCRIPT_VIRTUAL_OVERSCAN,
+    initialRect: { width: 800, height: 800 },
+  });
+  const transcriptVirtualSize = transcriptVirtualizer.getTotalSize();
   const jumpToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
     followOutput.current = true;
     setFollowing(true);
@@ -1418,16 +1496,40 @@ function Conversation({
   );
 
   useLayoutEffect(() => {
-    followOutput.current = true;
-    setFollowing(true);
     const element = viewport.current;
     if (!element) return;
+    skipNextFollowFrame.current = true;
+    const saved = sessionScrollPositions.current.get(transcriptSessionKey);
+    const atEnd = saved?.atEnd ?? true;
+    followOutput.current = atEnd;
+    setFollowing(atEnd);
     programmaticScroll.current = true;
-    element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
+    if (virtualizingTranscript) transcriptVirtualizer.measure();
+    if (saved && !saved.atEnd) {
+      if (virtualizingTranscript) transcriptVirtualizer.scrollToOffset(saved.top, { behavior: 'auto' });
+      else element.scrollTo({ top: saved.top, behavior: 'auto' });
+    } else if (virtualizingTranscript && items.length > 0) {
+      transcriptVirtualizer.scrollToIndex(items.length - 1, { align: "end", behavior: "auto" });
+    } else {
+      element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
+    }
     window.clearTimeout(scrollTimer.current);
     scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
-  }, [routeSnapshot.sessionId]);
+  }, [transcriptSessionKey]);
+  useLayoutEffect(() => {
+    if (!transitioning) return;
+    const element = viewport.current;
+    if (!element) return;
+    sessionScrollPositions.current.set(transcriptSessionKey, {
+      top: element.scrollTop,
+      atEnd: element.scrollHeight - element.scrollTop - element.clientHeight < 48,
+    });
+  }, [transitioning, transcriptSessionKey]);
   useEffect(() => {
+    if (skipNextFollowFrame.current) {
+      skipNextFollowFrame.current = false;
+      return;
+    }
     if (followOutput.current && scrollFrame.current === undefined) {
       const element = viewport.current;
       if (!element) return;
@@ -1451,6 +1553,30 @@ function Conversation({
     }
   }, []);
 
+  const renderTranscriptItem = (item: TranscriptItem, index: number) => {
+    const turnKey = turnKeys[index];
+    const completion = item.kind === "statusdone" || item.kind === "turndone";
+    if (failedTurns.has(turnKey) && completion) {
+      if (index !== lastCompletionByTurn.get(turnKey)) return null;
+      return <div className="turn-status failed" role="status"
+        key={`failed-${turnKey}`}>
+        <X size={13} />Failed
+      </div>;
+    }
+    if (attachedCompletionIndexes.has(index)) return null;
+    const row = <TranscriptRow item={item} completion={completionByAssistant.get(index)}
+      attachedUser={item.kind === "user" && items[index - 1]?.kind === "user"}
+      key={`${String(routeSnapshot.sessionId || "new-task")}:${String(item.id ?? `${item.kind}-${index}`)}`} />;
+    const pendingFailure = failedTurns.has(turnKey) &&
+      !lastCompletionByTurn.has(turnKey) &&
+      lastItemByTurn.get(turnKey) === index;
+    if (!pendingFailure) return row;
+    return <React.Fragment key={`pending-${turnKey}`}>
+      {row}
+      <div className="turn-status failed" role="status"><X size={13} />Failed</div>
+    </React.Fragment>;
+  };
+
   return (
     <section className="conversation">
       <div className="transcript" ref={viewport} role="log" aria-label="Conversation transcript"
@@ -1464,11 +1590,17 @@ function Conversation({
         );
         followOutput.current = nextFollowing;
         setFollowing(nextFollowing);
+        sessionScrollPositions.current.set(transcriptSessionKey, {
+          top: event.currentTarget.scrollTop,
+          atEnd: nextFollowing,
+        });
       }} onWheel={() => { programmaticScroll.current = false; }}
         onPointerDown={() => { programmaticScroll.current = false; }}
         onTouchStart={() => { programmaticScroll.current = false; }}
         onKeyDown={(event) => {
-          if (isScrollIntentKey(event.key)) programmaticScroll.current = false;
+          if (isScrollIntentKey(event.key)) {
+            programmaticScroll.current = false;
+          }
         }}>
         <div className="thread">
           {items.length === 0 && !snapshot.busy && !snapshot.commandBusy && !snapshot.thinking
@@ -1486,29 +1618,17 @@ function Conversation({
               </div>
             </div>
           )}
-          {items.map((item, index) => {
-            const turnKey = turnKeys[index];
-            const completion = item.kind === "statusdone" || item.kind === "turndone";
-            if (failedTurns.has(turnKey) && completion) {
-              if (index !== lastCompletionByTurn.get(turnKey)) return null;
-              return <div className="turn-status failed" role="status"
-                key={`failed-${turnKey}`}>
-                <X size={13} />Failed
-              </div>;
-            }
-            if (attachedCompletionIndexes.has(index)) return null;
-            const row = <TranscriptRow item={item} completion={completionByAssistant.get(index)}
-              attachedUser={item.kind === "user" && items[index - 1]?.kind === "user"}
-              key={`${String(routeSnapshot.sessionId || "new-task")}:${String(item.id ?? `${item.kind}-${index}`)}`} />;
-            const pendingFailure = failedTurns.has(turnKey) &&
-              !lastCompletionByTurn.has(turnKey) &&
-              lastItemByTurn.get(turnKey) === index;
-            if (!pendingFailure) return row;
-            return <React.Fragment key={`pending-${turnKey}`}>
-              {row}
-              <div className="turn-status failed" role="status"><X size={13} />Failed</div>
-            </React.Fragment>;
-          })}
+          {virtualizingTranscript ? <div className="transcript-virtual-space" data-virtualized="true"
+            style={{ height: `${transcriptVirtualSize}px` }}>
+            {transcriptVirtualizer.getVirtualItems().map((virtualRow) => (
+              <div className={`transcript-virtual-row ${transcriptItemHidden(virtualRow.index)
+                ? "transcript-virtual-row--empty" : ""}`} key={virtualRow.key}
+                data-index={virtualRow.index} ref={transcriptVirtualizer.measureElement}
+                style={{ transform: `translateY(${virtualRow.start}px)` }}>
+                {renderTranscriptItem(items[virtualRow.index], virtualRow.index)}
+              </div>
+            ))}
+          </div> : items.map(renderTranscriptItem)}
           <LiveActivity snapshot={snapshot} />
           {snapshot.toolApproval && (
             <ApprovalCard key={approvalInstanceKey(snapshot.toolApproval.id)}
@@ -1532,7 +1652,7 @@ function Conversation({
           {String(asRecord(snapshot.progressHint)?.text)}
         </div>}
         <InlineErrors messages={errors} />
-        <Composer key={String(routeSnapshot.sessionId || 'new-task')}
+        <Composer
           turnBusy={Boolean(snapshot.busy)}
           commandBusy={Boolean(routeSnapshot.commandBusy)}
           transitioning={transitioning}
@@ -1683,6 +1803,12 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
 
 function contextMetrics(snapshot: Snapshot) {
   const stats = asRecord(snapshot.stats);
+  if (!String(snapshot.sessionId || "")) {
+    const limit = Math.max(0, Number(
+      snapshot.autoCompactTokenLimit || snapshot.displayContextWindow || snapshot.contextWindow || 0,
+    ));
+    return { used: 0, limit, percent: 0, estimated: false };
+  }
   if (!stats) return null;
   const exact = Math.max(0, Number(stats.currentContextTokens || 0));
   const estimated = Math.max(0, Number(stats.currentEstimatedContextTokens || 0));
@@ -1740,7 +1866,9 @@ export function ContextUsageIndicator({ snapshot, onOpen }: { snapshot: Snapshot
     </button>
     <div className="session-context-popover" id={descriptionId} role="tooltip">
       <div><span>Usage</span><b>{context.percent}%</b></div>
-      <div><span>Tokens</span><b>{context.used.toLocaleString()} / {context.limit.toLocaleString()}</b></div>
+      <div><span>Tokens</span><b>{context.limit > 0
+        ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
+        : context.used.toLocaleString()}</b></div>
     </div>
   </div>;
 }
@@ -2475,7 +2603,7 @@ const Composer = memo(function Composer({
   const [restoring, setRestoring] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const activeHistoryScope = useRef(historyScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const slashPalette = useRef<HTMLDivElement>(null);
   const mentionPalette = useRef<HTMLDivElement>(null);
@@ -2488,6 +2616,29 @@ const Composer = memo(function Composer({
   transitioningRef.current = transitioning;
   const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
+  useLayoutEffect(() => {
+    if (activeHistoryScope.current === historyScope) return;
+    activeHistoryScope.current = historyScope;
+    attachmentsRef.current = [];
+    dragDepth.current = 0;
+    mentionSearchGeneration.current += 1;
+    setDraft('');
+    setAttachments([]);
+    setAttachmentError('');
+    setComposerNotice('');
+    setSlashIndex(0);
+    setSlashDismissedDraft('');
+    setComposerFocused(false);
+    setCaretOffset(0);
+    setMentionIndex(0);
+    setMentionResults([]);
+    setMentionLoading(false);
+    setMentionDismissed('');
+    setRestoring(false);
+    setDraggingFiles(false);
+    setPersistedHistory(readPromptHistory(historyScope));
+    historyNavigation.current = { index: -1, seed: '' };
+  }, [historyScope]);
   const history = useMemo(() => {
     const engineHistory = Array.isArray(promptHistoryList)
       ? promptHistoryList.map((entry) => typeof entry === 'string'
@@ -2557,11 +2708,6 @@ const Composer = memo(function Composer({
     window.addEventListener("resize", resizeTextarea);
     return () => window.removeEventListener("resize", resizeTextarea);
   }, [resizeTextarea]);
-  useEffect(() => {
-    if (turnBusy || commandBusy || draft) return;
-    const timer = window.setInterval(() => setPlaceholderIndex((index) => index + 1), 6500);
-    return () => window.clearInterval(timer);
-  }, [commandBusy, draft, turnBusy]);
   useEffect(() => {
     if (!transitioning) return;
     dragDepth.current = 0;
@@ -3500,17 +3646,18 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
   applySnapshot: (snapshot: EngineSnapshot | null) => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
 }) {
-  const [models, setModels] = useState<DesktopModelOption[]>([]);
+  const [cachedCatalog] = useState(readCachedModelCatalog);
+  const [models, setModels] = useState<DesktopModelOption[]>(cachedCatalog.models);
   const [providerSetup, setProviderSetup] = useState<unknown>(null);
   const [catalogError, setCatalogError] = useState("");
   const [providerSetupError, setProviderSetupError] = useState("");
-  const [catalogLoaded, setCatalogLoaded] = useState(false);
-  const [catalogStarted, setCatalogStarted] = useState(false);
+  const [catalogLoaded, setCatalogLoaded] = useState(cachedCatalog.models.length > 0);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [routing, setRouting] = useState(false);
+  const [optimisticFast, setOptimisticFast] = useState<boolean | null>(null);
   const automaticCatalogAttempted = useRef(false);
   const catalogInFlight = useRef<Promise<void> | null>(null);
-  const catalogLoadedAt = useRef(0);
+  const catalogLoadedAt = useRef(cachedCatalog.updatedAt);
   const routingGuard = useRef(false);
   const restoreAfterRoute = useRef<HTMLElement | null>(null);
   const restoreFastAfterDisabled = useRef(false);
@@ -3520,6 +3667,7 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
   const fastControl = useRef<HTMLButtonElement>(null);
   const modelUnavailable = modelDisabled || routing;
   const tuningUnavailable = tuningDisabled || routing;
+  const displayedFast = optimisticFast ?? fast;
   const catalogModels = useMemo(() => {
     const unique = new Map<string, DesktopModelOption>();
     for (const option of models) {
@@ -3540,16 +3688,12 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
     return catalogModels.filter((option) => providerSetupState(providerSetup, option.provider).configured);
   }, [catalogModels, providerSetup, providerSetupError]);
   const selectedEffort = selected?.effortOptions.find((option) => option.value === effort);
-  const triggerModel = modelDisplayName(
-    selected?.model || model,
-    selected?.provider || provider,
-    selected?.display || "",
-  ) ||
-    (catalogStarted && !catalogLoaded ? "Loading models…" : "Select model");
+  const triggerModel = selected
+    ? modelDisplayName(selected.model, selected.provider, selected.display || "")
+    : "Select model";
 
   const loadCatalog = useCallback(async (force = false) => {
     if (catalogInFlight.current) return catalogInFlight.current;
-    setCatalogStarted(true);
     const listModels = window.mixdogDesktop?.listProviderModels;
     if (!listModels) {
       setCatalogLoaded(true);
@@ -3561,18 +3705,24 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
         setCatalogRefreshing(true);
         setCatalogError("");
         setProviderSetupError("");
-        try {
-          const setup = await window.mixdogDesktop.invokeCapability<unknown>({
-            capability: "getProviderSetup",
-            args: [{ refresh: true }],
-          });
-          setProviderSetup(setup.value);
-        } catch (reason) {
-          setProviderSetupError(reason instanceof Error ? reason.message : String(reason || "Provider status is unavailable."));
-        }
+        const setupRequest = window.mixdogDesktop?.invokeCapability
+          ? window.mixdogDesktop.invokeCapability<unknown>({
+              capability: "getProviderSetup",
+              args: force ? [{ refresh: true }] : [],
+            })
+            .then((setup) => { setProviderSetup(setup.value); })
+            .catch((reason) => {
+              setProviderSetupError(reason instanceof Error
+                ? reason.message
+                : String(reason || "Provider status is unavailable."));
+            })
+          : Promise.resolve();
         try {
           const quick = await listModels({ quick: true });
-          if (Array.isArray(quick)) setModels(quick);
+          if (Array.isArray(quick) && quick.length > 0) {
+            setModels(quick);
+            setCatalogLoaded(true);
+          }
         } catch (reason) {
           failures.push(reason instanceof Error ? reason.message : String(reason || "Quick model catalog failed."));
         }
@@ -3587,12 +3737,14 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
             // The full catalog is authoritative. Replacing the advisory quick
             // rows prevents retired or disconnected models from surviving a
             // refresh forever; an open picker freezes its first rendered set.
-            setModels(full);
-            catalogLoadedAt.current = Date.now();
+            const catalog = writeCachedModelCatalog(full);
+            setModels(catalog.models);
+            catalogLoadedAt.current = catalog.updatedAt;
           }
         } catch (reason) {
           failures.push(reason instanceof Error ? reason.message : String(reason || "Model catalog failed."));
         }
+        await setupRequest;
       } finally {
         setCatalogError([...new Set(failures)].join(" "));
         setCatalogLoaded(true);
@@ -3609,6 +3761,10 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
       void loadCatalog();
     }
   }, [loadCatalog, model, provider]);
+
+  useEffect(() => {
+    if (optimisticFast !== null && optimisticFast === fast) setOptimisticFast(null);
+  }, [fast, optimisticFast]);
 
   useEffect(() => {
     if (routing || !restoreAfterRoute.current) return;
@@ -3664,7 +3820,7 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
         : ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'].find((value) => values.includes(value)) || values[0];
     const nextFast = option.fastCapable
       ? sameModel
-        ? fast
+        ? displayedFast
         : typeof option.savedFast === 'boolean'
           ? option.savedFast
           : option.fastPreferred
@@ -3678,6 +3834,7 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
   };
   const changeFast = async (enabled: boolean) => {
     if (tuningUnavailable || routingGuard.current) return;
+    setOptimisticFast(enabled);
     routingGuard.current = true;
     restoreFastAfterDisabled.current = true;
     restoreAfterRoute.current = fastControl.current;
@@ -3686,6 +3843,7 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
       const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled));
       if (next !== undefined) applySnapshot(next);
     } finally {
+      setOptimisticFast(null);
       routingGuard.current = false;
       setRouting(false);
     }
@@ -3730,9 +3888,9 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
     )}
     {fastCapable && (
       <button ref={fastControl} type="button" className="fast-control" aria-label="Fast mode"
-        aria-pressed={fast} aria-busy={routing || undefined} disabled={tuningUnavailable}
+        aria-pressed={displayedFast} aria-busy={routing || undefined} disabled={tuningUnavailable}
         onFocus={() => { restoreFastAfterDisabled.current = true; }}
-        onClick={() => void changeFast(!fast)}>Fast</button>
+        onClick={() => void changeFast(!displayedFast)}>{displayedFast ? "Fast On" : "Fast Off"}</button>
     )}
   </div>;
 }

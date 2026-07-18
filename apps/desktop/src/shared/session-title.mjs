@@ -1,11 +1,48 @@
 const DEFAULT_SESSION_TITLE = 'Untitled session';
 
+const INJECTED_DISPLAY_BLOCK_TAGS = Object.freeze([
+  'system-reminder',
+  'available-deferred-tools',
+  'mcp-instructions',
+  'memory-context',
+  'event',
+]);
+
+const GENERATED_TITLE_NOISE = Object.freeze([
+  /^\[mixdog-runtime\]/i,
+  /^\[(?:truncated|request interrupted by user)\]$/i,
+  /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
+  /^the async (?:agent|shell) task\b/i,
+  /^#\s*permission\b/i,
+  /^permission:\s*/i,
+  /^cwd:\s*/i,
+]);
+
 export function stripSessionEnvelope(value) {
   return String(value ?? '')
     .replace(/^# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, '')
     .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '')
     // Truncated previews may cut the envelope mid-way: strip progressively.
     .replace(/^#\s*Session\s+Cwd:\s+\S+(?:\s+Model:\s+\S*)?(?:\s+Workflow:\s+\S*)?\s*/i, '');
+}
+
+export function stripInjectedDisplayText(value) {
+  let text = String(value ?? '');
+  for (const tag of INJECTED_DISPLAY_BLOCK_TAGS) {
+    const block = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?(?:<\\/${tag}\\s*>|$)`, 'gi');
+    const closing = new RegExp(`<\\/${tag}\\s*>`, 'gi');
+    text = text.replace(block, ' ').replace(closing, ' ');
+  }
+  return text;
+}
+
+export function isSyntheticSessionDisplayText(value) {
+  const text = String(value ?? '').trim();
+  return !text || GENERATED_TITLE_NOISE.some((pattern) => pattern.test(text));
+}
+
+export function isGeneratedSessionTitleNoise(value) {
+  return isSyntheticSessionDisplayText(value);
 }
 
 /**
@@ -15,10 +52,8 @@ export function stripSessionEnvelope(value) {
  */
 export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 100) {
   let text = String(value ?? '');
-  text = stripSessionEnvelope(text)
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
+  text = stripInjectedDisplayText(stripSessionEnvelope(text))
     .replace(/<file\b[^>]*>[\s\S]*?<\/file>/gi, ' ')
-    .replace(/<available-deferred-tools>[\s\S]*?<\/available-deferred-tools>/gi, ' ')
     .replace(/\[(?:Pasted text|Image)\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]/gi, ' ')
     .replace(/^Reference files:\s*/i, '')
     .replace(/\s+/g, ' ')
@@ -33,20 +68,26 @@ export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, m
   return `${head.trimEnd()}…`;
 }
 
+export function generatedSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 50) {
+  if (isGeneratedSessionTitleNoise(value)) return String(fallback);
+  return normalizeSessionTitle(value, fallback, maxLength);
+}
+
 export function sessionSummaryTitle(session, fallback = DEFAULT_SESSION_TITLE) {
-  return normalizeSessionTitle(session?.title || session?.preview || '', fallback);
+  if (session?.title) return normalizeSessionTitle(session.title, fallback);
+  return generatedSessionTitle(session?.preview || '', fallback);
 }
 
 export function promptTitle(prompt, displayText = '') {
   const imageFallback = Array.isArray(prompt) && prompt.some((part) => part?.type === 'image')
     ? '[Image]'
     : '';
-  if (displayText) return normalizeSessionTitle(displayText, imageFallback);
-  if (typeof prompt === 'string') return normalizeSessionTitle(prompt, '');
+  if (displayText) return generatedSessionTitle(displayText, imageFallback);
+  if (typeof prompt === 'string') return generatedSessionTitle(prompt, '');
   if (!Array.isArray(prompt)) return '';
   const text = prompt
     .filter((part) => part?.type === 'text')
     .map((part) => String(part?.text || ''))
     .join(' ');
-  return normalizeSessionTitle(text, imageFallback);
+  return generatedSessionTitle(text, imageFallback);
 }

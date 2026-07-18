@@ -27,7 +27,7 @@ import {
 import type { EngineHost } from './engine-host';
 import { requiredSessionId } from './desktop-state';
 import type { DesktopSettingsStore } from './settings-store';
-import { setDesktopTitleBarTheme } from './window-options';
+import { setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
 
 const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_IMAGE_BASE64_LENGTH = 16_000_000;
@@ -493,12 +493,14 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.getZoomFactor, async () => {
     const factor = settingsStore ? await settingsStore.readZoom() : 1;
     window.webContents.setZoomFactor(factor);
+    setDesktopTitleBarZoom(window, factor);
     return factor;
   });
   handle(DESKTOP_IPC.setZoomFactor, async (_event, value) => {
     const requested = requiredZoomFactor(value);
     const factor = settingsStore ? await settingsStore.updateZoom(requested) : requested;
     window.webContents.setZoomFactor(factor);
+    setDesktopTitleBarZoom(window, factor);
     window.webContents.send(DESKTOP_IPC.zoomFactorChanged, factor);
     return factor;
   });

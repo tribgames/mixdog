@@ -755,10 +755,45 @@ export async function analyzeShellCommandEffects(command, cwd) {
     return { mutationMode: 'none', paths: [], finalCwd: localCwd };
 }
 
-export function foregroundLongCommandHint(command, timeoutMs, args = {}) {
+// CC detectBlockedSleepPattern parity: a LEADING integer `sleep N` (or the
+// PowerShell `Start-Sleep`/`sleep` alias forms) of 2s or more is blocked
+// preflight with an instructive error instead of running and being killed at
+// its deadline. Only the first top-level segment is considered — sleeps inside
+// pipelines/subshells/scripts are legitimate pacing and pass through. Float
+// durations (sleep 0.5) are allowed, mirroring the reference CLI.
+export function detectBlockedSleepPattern(command) {
+    const cmd = String(command || '').trim();
+    if (!cmd) return null;
+    const sep = cmd.match(/&&|\|\||;|\|/);
+    const first = (sep ? cmd.slice(0, sep.index) : cmd).trim();
+    let secs = null;
+    const posix = /^sleep\s+(\d+)\s*$/.exec(first);
+    if (posix) secs = Number.parseInt(posix[1], 10);
+    if (secs == null) {
+        const ps = /^(?:start-sleep|sleep)\s+(?:-(?:seconds|s)\s+)?(\d+)\s*$/i.exec(first);
+        if (ps) secs = Number.parseInt(ps[1], 10);
+    }
+    if (secs == null) {
+        const psMs = /^start-sleep\s+-(?:milliseconds|m)\s+(\d+)\s*$/i.exec(first);
+        if (psMs) secs = Math.floor(Number.parseInt(psMs[1], 10) / 1000);
+    }
+    if (secs == null || secs < 2) return null;
+    const rest = sep ? cmd.slice(sep.index).replace(/^(?:&&|\|\||;|\|)\s*/, '').trim() : '';
+    return rest ? `sleep ${secs} followed by: ${rest.slice(0, 80)}` : `standalone sleep ${secs}`;
+}
+
+export function foregroundLongCommandHint(command, timeoutMs, args = {}, opts = {}) {
     if (args.run_in_background === true) return '';
     const cmd = String(command || '').trim();
     if (!cmd) return '';
+    // CC validateInput parity: block only while background tasks are enabled —
+    // the remedy we point at (async mode / completion notification) must exist.
+    if (opts.backgroundTasksDisabled !== true) {
+        const blocked = detectBlockedSleepPattern(cmd);
+        if (blocked) {
+            return `Error: blocked — ${blocked}. Run blocking commands as a background task (mode:"async") and act on the completion notification, or use task wait on an existing task_id. If you genuinely need a delay (rate limiting, pacing), keep it under 2 seconds.`;
+        }
+    }
     const longTimeout = Number(timeoutMs) >= 120_000;
     const watchLike = /^\s*gh\s+run\s+watch(?:\s|$)/i.test(cmd)
         || /^\s*(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|watch|serve)(?:\s|$)/i.test(cmd)

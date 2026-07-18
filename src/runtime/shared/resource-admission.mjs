@@ -86,6 +86,8 @@ export class ResourceAdmissionController {
     this.now = now;
     this.active = { agent: 0, shell: 0 };
     this.queue = [];
+    // Live leases for saturation diagnostics only (labels/ages in snapshot()).
+    this.activeLeases = new Set();
     this.context = new AsyncLocalStorage();
   }
 
@@ -183,10 +185,12 @@ export class ResourceAdmissionController {
       restorePending: null,
       parent,
       releasePromise: null,
+      startedAt: this.now(),
       queuedMs: queuedAt == null ? 0 : Math.max(0, this.now() - queuedAt),
       release: () => {
         if (lease.released) return lease.releasePromise || Promise.resolve();
         lease.released = true;
+        this.activeLeases.delete(lease);
         if (lease.restorePending) {
           const item = lease.restorePending.item;
           const index = this.queue.indexOf(item);
@@ -212,6 +216,7 @@ export class ResourceAdmissionController {
         return restored;
       },
     };
+    this.activeLeases.add(lease);
     return lease;
   }
 
@@ -353,10 +358,16 @@ export class ResourceAdmissionController {
   }
 
   snapshot() {
+    const now = this.now();
     return {
       active: { ...this.active },
       queued: this.queue.length,
       limits: { ...this.limits },
+      activeLeases: [...this.activeLeases].map((lease) => ({
+        kind: lease.kind,
+        label: lease.label,
+        ageMs: Math.max(0, now - (lease.startedAt || now)),
+      })),
     };
   }
 }

@@ -1,0 +1,39 @@
+
+Error occurred in handler for 'mixdog:invoke-capability': Error: getTheme is unavailable in UI capture.
+    at CaptureEngineHost.invokeCapability (file:///C:/Project/mixdog/apps/desktop/out/main/capture-window.js:425:11)
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2222:31
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2116:14
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:112778)
+    at Session.emit (node:events:519:28)
+Error occurred in handler for 'mixdog:invoke-capability': Error: getTheme is unavailable in UI capture.
+    at CaptureEngineHost.invokeCapability (file:///C:/Project/mixdog/apps/desktop/out/main/capture-window.js:425:11)
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2222:31
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2116:14
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:112778)
+    at Session.emit (node:events:519:28)
+Error occurred in handler for 'mixdog:invoke-capability': Error: memoryControl is unavailable in UI capture.
+    at CaptureEngineHost.invokeCapability (file:///C:/Project/mixdog/apps/desktop/out/main/capture-window.js:425:11)
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2222:31
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2116:14
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:112778)
+    at Session.emit (node:events:519:28)
+Error occurred in handler for 'mixdog:invoke-capability': Error: memoryControl is unavailable in UI capture.
+    at CaptureEngineHost.invokeCapability (file:///C:/Project/mixdog/apps/desktop/out/main/capture-window.js:425:11)
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2222:31
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2116:14
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:112778)
+    at Session.emit (node:events:519:28)
+Error occurred in handler for 'mixdog:invoke-capability': Error: memoryControl is unavailable in UI capture.
+    at CaptureEngineHost.invokeCapability (file:///C:/Project/mixdog/apps/desktop/out/main/capture-window.js:425:11)
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2222:31
+    at file:///C:/Project/mixdog/apps/desktop/out/main/chunks/ipc-BtHqAenT.js:2116:14
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:112778)
+    at Session.emit (node:events:519:28)
+CAPTURE_PNG=C:\Project\mixdog\apps\desktop\artifacts\mixdog-desktop-window-1113x687.png
+CAPTURE_JSON=C:\Project\mixdog\apps\desktop\artifacts\mixdog-desktop-window-1113x687.json
+CAPTURE_SCHEMA=1; CAPTURE_ID=9496df71-2653-460f-8388-ff3c67f115c4
+CAPTURED_AT=2026-07-18T15:24:22.821Z
+DIMENSIONS={"source":{"width":1113,"height":687},"finalBounds":{"x":640,"y":286,"width":1113,"height":687},"output":{"width":1113,"height":687},"resizeApplied":false}
+IMAGE_SIDEBAR={"method":"dom-geometry-fallback","scanlineY":600,"left":8,"right":267,"width":260,"leftInset":8,"rightGap":{"left":268,"right":275,"width":8},"sidebarExcludedRuns":{"leftInset":true,"rightGap":true},"sampledColors":{"leftOutside":"#161616","leftBorder":"#161616","interior":"#161616","rightBorder":"#161616","rightGap":"#161616"}}
+PIXELS={"titlebar":{"x":400,"y":20,"color":"#080808"},"base":{"x":400,"y":60,"color":"#161616"},"sidebar":{"x":20,"y":60,"color":"#161616"}}
+LIVE_ASSERTIONS={"desktop":{"viewport":{"width":1113,"height":687},"labelsAbsent":true,"hiddenLabelsAbsent":true,"removedLabelMatches":[],"contextChipCount":0,"controlsNonOverlapping":true,"visible":{"modelTrigger":true,"textarea":true,"send":true},"rects":{"sidebar":{"left":8,"top":48,"right":268,"bottom":679,"width":260,"height":631},"main":{"left":276,"top":48,"right":1105,"bottom":679,"width":829,"height":631},"composer":{"left":302.5,"top":570,"right":1078.5,"bottom":671,"width":776,"height":101},"modelTrigger":{"left":338.5,"top":635,"right":447.21875,"bottom":663,"width":108.71875,"height":28},"send":{"left":1042.5,"top":635,"right":1070.5,"bottom":663,"width":28,"height":28}},"sidebarGap":8},"mobile":{"viewport":{"width":720,"height":650},"breakpointActive":true,"open":{"sidebarVisible":true,"backdropVisible":true,"sidebarComputedVisible":true,"backdropComputedVisible":true,"sidebarIntersectsViewport":true,"backdropIntersectsViewport":true,"sidebarStyle":{"display":"flex","visibility":"visible","opacity":1},"backdropStyle":{"display":"block","visibility":"visible","opacity":1},"sidebar":{"left":0,"top":48,"right":260,"bottom":642,"width":260,"height":594},"backdrop":{"left":0,"top":40,"right":720,"bottom":650,"width":720,"height":610}},"closed":{"sidebarHidden":true,"mainVisible":true,"mainMatchesViewport":true,"viewportEdgeTolerance":1,"mainEdgeDeltas":{"left":0,"right":0,"width":0},"composerVisible":true,"composerContained":true,"modelTriggerVisible":true,"sendVisible":true,"sendContained":true,"controlsNonOverlapping":true,"main":{"left":0,"top":48,"right":720,"bottom":642,"width":720,"height":594},"composer":{"left":12,"top":533,"right":708,"bottom":634,"width":696,"height":101},"modelTrigger":{"left":48,"top":598,"right":156.71875,"bottom":626,"width":108.71875,"height":28},"send":{"left":672,"top":598,"right":700,"bottom":626,"width":28,"height":28}}},"settings":{"large":{"viewport":{"width":1280,"height":820},"layer":{"left":0,"top":0,"right":1280,"bottom":820,"width":1280,"height":820},"dialog":{"left":150,"top":101,"right":1130,"bottom":751,"width":980,"height":650},"rail":{"left":150,"top":101,"right":390,"bottom":751,"width":240,"height":650},"pane":{"left":390,"top":101,"right":1130,"bottom":751,"width":740,"height":650},"layerPadding":{"top":48,"right":16,"bottom":16,"left":16},"windowControlsHeight":40,"centerDelta":{"x":0,"y":0},"centered":true,"dialogClearsWindowControls":true,"layerCoversViewport":true,"dialogFitsViewport":true,"backdropColor":"rgba(0, 0, 0, 0.5)","backdropVisible":true,"populatedRowCount":5,"twoPane":true},"compact":{"viewport":{"width":720,"height":650},"layer":{"left":0,"top":0,"right":720,"bottom":650,"width":720,"height":650},"dialog":{"left":8,"top":48,"right":712,"bottom":642,"width":704,"height":594},"rail":{"left":8,"top":48,"right":208,"bottom":642,"width":200,"height":594},"pane":{"left":208,"top":48,"right":712,"bottom":642,"width":504,"height":594},"layerPadding":{"top":48,"right":8,"bottom":8,"left":8},"windowControlsHeight":40,"centerDelta":{"x":0,"y":0},"centered":true,"dialogClearsWindowControls":true,"layerCoversViewport":true,"dialogFitsViewport":true,"backdropColor":"rgba(0, 0, 0, 0.5)","backdropVisible":true,"populatedRowCount":5,"twoPane":true}},"lightTheme":{"theme":"light","colorScheme":"light","titlebarIconColor":"rgb(58, 58, 58)","iconTokenColor":"rgb(58, 58, 58)","activeTabColor":"rgb(22, 22, 22)","textTokenColor":"rgb(22, 22, 22)","titlebarIconMatchesToken":true,"activeTabMatchesToken":true},"modalStack":{"toastParentIsBody":true,"toastVisible":true,"toastOutsideInertTree":true,"toastZIndex":1000,"modalZIndex":60,"toastAboveModal":true}}

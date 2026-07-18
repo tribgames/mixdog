@@ -61,15 +61,18 @@ export function createLifecycleApi(deps) {
       || (sourceType === 'cli')
       || (!sourceType && !sourceName && !isAgentOwner(owner));
     if (!leadish) return null;
-    let preview = cleanSessionPreview(s.preview || '');
+    const rawPreview = s.preview || '';
+    let preview = isSessionPreviewNoise(rawPreview) ? '' : cleanSessionPreview(rawPreview);
     let messageCount = Math.max(0, Number(s.messageCount) || 0);
     if (!preview && Array.isArray(s.messages)) {
       const msgs = s.messages || [];
       const userPreviews = msgs
         .filter(m => m && m.role === 'user')
-        .map(m => cleanSessionPreview(sessionMessageText(m.content)))
-        .filter(text => !isSessionPreviewNoise(text));
-      preview = userPreviews[userPreviews.length - 1] || userPreviews[0] || '';
+        .map(m => sessionMessageText(m.content))
+        .filter(text => !isSessionPreviewNoise(text))
+        .map(text => cleanSessionPreview(text))
+        .filter(Boolean);
+      preview = userPreviews[0] || '';
       messageCount = msgs.filter(m => m && (m.role === 'user' || m.role === 'assistant')).length;
     }
     if (!preview && messageCount === 0) return null;
@@ -279,6 +282,15 @@ export function createLifecycleApi(deps) {
         ? nextDesktopSession
         : null);
       await applyResolvedCwd(cwd, { markRefresh: false, waitForMcpReset: true });
+      // Resuming a historical session temporarily routes the runtime through
+      // that session's provider/model. A fresh desktop task or project must
+      // return to the configured Lead route instead of inheriting the route
+      // of whichever session happened to be open immediately beforehand.
+      if (typeof setRoute === 'function' && typeof getConfig === 'function'
+        && typeof resolveRoute === 'function') {
+        setRoute(resolveRoute(getConfig(), {}));
+        await refreshRouteEffort?.();
+      }
       invalidateContextStatusCache();
       invalidatePreSessionToolSurface();
       return true;

@@ -51,6 +51,7 @@ export function createSettingsPicker({
     const compaction = store.getCompactionSettings?.() || {};
     const memory = store.getMemorySettings?.() || { enabled: true };
     const channels = store.getChannelSettings?.({ includeStatus: false }) || { enabled: true };
+    const systemShell = store.getSystemShell?.() || { source: 'auto', command: '', effective: '' };
     const outputStyle = store.getOutputStyle?.() || store.listOutputStyles?.() || {};
     const workflow = state.workflow || {};
     const mcp = heavyCache ? heavyCache.mcp : (store.mcpStatus?.() || { connectedCount: 0, configuredCount: 0, failedCount: 0 });
@@ -360,6 +361,15 @@ export function createSettingsPicker({
         _action: 'skills',
       },
       {
+        value: 'system-shell',
+        label: 'System shell',
+        meta: systemShell.command || 'Auto',
+        description: systemShell.effective
+          ? `Effective command: ${systemShell.effective}`
+          : 'Use the platform default shell command.',
+        _action: 'system-shell',
+      },
+      {
         value: 'update',
         label: 'Update',
         meta: (() => {
@@ -452,6 +462,15 @@ export function createSettingsPicker({
         else if (item._action === 'plugins') openPluginsPicker();
         else if (item._action === 'hooks') openHooksPicker();
         else if (item._action === 'skills') openSkillsPicker();
+        else if (item._action === 'system-shell') {
+          setPicker(null);
+          setSettingsPrompt({
+            kind: 'system-shell',
+            label: 'System shell',
+            hint: 'Enter a shell command, or leave empty for automatic selection. Windows accepts powershell.exe or pwsh.',
+            initialValue: systemShell.command || '',
+          });
+        }
         else if (item._action === 'update') openUpdatePicker({ returnTo: openSettingsPicker });
       },
       onCancel: () => {

@@ -94,14 +94,15 @@ export function toolSchemaBucket(tool) {
   const kind = toolKind(tool);
   if (kind === 'mcp') return 'mcp';
   if (kind === 'skill') return 'skills';
-  if (kind === 'control') return 'control';
   if (name === 'memory' || name === 'recall' || name.includes('memory')) return 'memory';
   if (name === 'search' || name === 'web_fetch') return 'web';
   if (['read', 'grep', 'find', 'glob', 'list', 'code_graph', 'explore'].includes(name)) return 'code';
   if (['shell', 'apply_patch'].includes(name)) return 'mutation';
   if (name === 'agent' || name === 'delegate') return 'agents';
+  if (name === 'session_manage') return 'session';
   if (name.includes('channel') || name.includes('discord') || name.includes('webhook')) return 'channels';
   if (name.includes('provider') || name === 'load_tool' || name === 'tool_search' || name === 'cwd') return 'setup';
+  if (kind === 'control') return 'control';
   return 'other';
 }
 

@@ -391,11 +391,11 @@ test("host persists the first accepted prompt as a stable desktop session title"
   const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
   try {
     await host.startTask();
-    assert.equal(host.submit("Build the durable desktop title"), true);
+    assert.equal(await host.submit("Build the durable desktop title"), true);
     assert.equal((await host.listSessions())[0].title, "Build the durable desktop title");
     assert.equal(host.getSnapshot().desktopSessionTitle, "Build the durable desktop title");
 
-    assert.equal(host.submit("A newer preview must not rename this session"), true);
+    assert.equal(await host.submit("A newer preview must not rename this session"), true);
     const listed = await host.listSessions();
     assert.equal(listed[0].preview, "A newer preview must not rename this session");
     assert.equal(listed[0].title, "Build the durable desktop title");
@@ -553,6 +553,61 @@ test("host migrates legacy title overrides into manual names without changing th
       version: 2,
       titles: {},
       names: { [row.id]: "Migrated custom name" },
+    });
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host removes polluted generated titles while preserving manual session names", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-generated-title-cleanup-"));
+  const originalCwd = process.cwd();
+  const rows = [
+    {
+      id: "desktop_polluted_title",
+      preview: "Fix transcript filtering",
+      cwd: join(root, "workspace", "unclassified"),
+      desktopSession: { classification: "task", projectPath: null },
+    },
+    {
+      id: "desktop_manual_title",
+      preview: "A later preview",
+      cwd: join(root, "workspace", "unclassified"),
+      desktopSession: { classification: "task", projectPath: null },
+    },
+  ];
+  await writeFile(join(root, "desktop-session-metadata.json"), JSON.stringify({
+    version: 2,
+    titles: {
+      desktop_polluted_title:
+        "A previous model worked on this task and produced the compacted handoff summary below. Build on it.",
+    },
+    names: { desktop_manual_title: "Keep my manual title" },
+  }));
+  const engine = {
+    getState: () => ({ sessionId: rows[0].id, items: [] }),
+    subscribe: () => () => {},
+    listSessions: () => rows,
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    const listed = await host.listSessions();
+    assert.equal(listed.find((row) => row.id === "desktop_polluted_title").title,
+      "Fix transcript filtering");
+    assert.equal(listed.find((row) => row.id === "desktop_manual_title").title,
+      "Keep my manual title");
+    await host.dispose();
+    const metadata = JSON.parse(await readFile(
+      join(root, "desktop-session-metadata.json"),
+      "utf8",
+    ));
+    assert.deepEqual(metadata, {
+      version: 2,
+      titles: {},
+      names: { desktop_manual_title: "Keep my manual title" },
     });
   } finally {
     await host.dispose();
@@ -886,6 +941,43 @@ test("host reuses one legacy workspace context and publishes the detached resume
   }
 });
 
+test("host rejects a resume result that remains bound to the previous session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-session-resume-mismatch-"));
+  const originalCwd = process.cwd();
+  const workspace = join(root, "workspace", "unclassified");
+  const rows = ["desktop_first", "desktop_second"].map((id, index) => ({
+    id,
+    preview: `Task ${index + 1}`,
+    updatedAt: 2 - index,
+    cwd: workspace,
+    desktopSession: { classification: "task", projectPath: null },
+  }));
+  const state = {
+    sessionId: "desktop_first",
+    items: [{ kind: "user", id: "first", text: "Previous task" }],
+  };
+  const engine = {
+    getState: () => state,
+    subscribe: () => () => {},
+    listSessions: () => rows,
+    resume: async () => true,
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    await host.startTask();
+    await assert.rejects(
+      () => host.resumeSession("desktop_second"),
+      /unexpected session/i,
+    );
+    assert.equal(host.getSnapshot().sessionId, "desktop_first");
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("desktop IPC session id validation rejects path-like input", () => {
   assert.equal(requiredSessionId(" session_123 "), "session_123");
   assert.equal(requiredSessionId("a".repeat(256)), "a".repeat(256));
@@ -1191,7 +1283,7 @@ test("desktop fast data follows core catalog capability and persisted preference
   assert.equal("openai/gpt-4.1" in unsupportedConfig.fastModels, false);
 });
 
-test("Fast preference works before a desktop session exists and is applied when one starts", async () => {
+test("Fast preference works before a desktop session exists and is applied on first submit", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-pristine-fast-"));
   const originalCwd = process.cwd();
   let preference = false;
@@ -1204,9 +1296,10 @@ test("Fast preference works before a desktop session exists and is applied when 
     fastCapable: true,
   };
   const calls = [];
-  const engine = {
-    getState: () => state,
-    subscribe: () => () => {},
+    const engine = {
+      getState: () => state,
+      subscribe: () => () => {},
+      submit: () => true,
     switchContext: async () => {
       state = { ...state, sessionId: null, items: [], fast: false };
       return true;
@@ -1232,8 +1325,11 @@ test("Fast preference works before a desktop session exists and is applied when 
     assert.deepEqual(calls, [["setFast", true, null]]);
 
     const active = await host.startTask();
-    assert.equal(active.sessionId, "desktop_pristine");
+    assert.equal(active.sessionId, null);
     assert.equal(active.fast, true);
+    assert.equal(await host.submit("Start the pristine task"), true);
+    assert.equal(host.getSnapshot().sessionId, "desktop_pristine");
+    assert.equal(host.getSnapshot().fast, true);
     assert.equal(preference, true);
   } finally {
     await host.dispose();
@@ -1257,9 +1353,10 @@ test("a pristine route Fast choice supersedes an earlier Fast-only preference", 
     fastCapable: true,
   };
   const calls = [];
-  const engine = {
-    getState: () => state,
-    subscribe: () => () => {},
+    const engine = {
+      getState: () => state,
+      subscribe: () => () => {},
+      submit: () => true,
     switchContext: async () => {
       state = { ...state, sessionId: null, items: [], fast: false };
       return true;
@@ -1300,8 +1397,11 @@ test("a pristine route Fast choice supersedes an earlier Fast-only preference", 
     assert.equal(routed.fast, false);
 
     const active = await host.startTask();
-    assert.equal(active.sessionId, "desktop_route_fast");
+    assert.equal(active.sessionId, null);
     assert.equal(active.fast, false);
+    assert.equal(await host.submit("Start the routed task"), true);
+    assert.equal(host.getSnapshot().sessionId, "desktop_route_fast");
+    assert.equal(host.getSnapshot().fast, false);
     assert.equal(preference, false);
     assert.deepEqual(calls, [
       ["setFast", true],
@@ -1686,6 +1786,31 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
       id: "session-envelope-only",
       text: "# Session\nCwd: C:\\Project\\mixdog\nModel: GPT-5.6-Sol · XHIGH · FAST\nWorkflow: Solo",
     },
+    {
+      kind: "user",
+      id: "inline-system-reminder",
+      text: "Visible before reminder\n<system-reminder>internal only</system-reminder>\nVisible after reminder",
+    },
+    {
+      kind: "user",
+      id: "system-reminder-only",
+      text: "<system-reminder>hidden runtime injection</system-reminder>",
+    },
+    {
+      kind: "user",
+      id: "mcp-instructions-only",
+      text: "<mcp-instructions>hidden MCP bootstrap</mcp-instructions>",
+    },
+    {
+      kind: "user",
+      id: "compacted-handoff",
+      text: "A previous model worked on this task and produced the compacted handoff summary below. Build on it.",
+    },
+    {
+      kind: "user",
+      id: "async-agent-injection",
+      text: "The async agent task task_agent has completed with an internal payload.",
+    },
     { kind: "assistant", id: "a1", text: "Visible answer" },
     { kind: "notice", id: "n1", text: "Visible notice" },
     { kind: "failure", id: "f1", detail: "Visible failure" },
@@ -1790,11 +1915,15 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
   host.subscribe(() => { publications += 1; });
   try {
     const taskResponse = await host.startTask();
-    const desktopId = rows.find((row) => row.desktopSession?.classification === "task").id;
     assert.match(engines[0].options.cwd, /workspace[\\/]unclassified$/);
     assert.equal(taskResponse.currentProject, null);
     assert.deepEqual(taskResponse.recentProjects, []);
-    assert.equal(taskResponse.sessionId, desktopId);
+    assert.equal(taskResponse.sessionId, null);
+    assert.equal(rows.find((row) => row.desktopSession?.classification === "task"), undefined,
+      "opening a blank task must not persist a runtime session");
+    assert.equal(await host.submit("Fresh desktop task"), true);
+    const desktopId = rows.find((row) => row.desktopSession?.classification === "task").id;
+    assert.equal(host.getSnapshot().sessionId, desktopId);
     assert.equal(engines[0].listeners.size, 1);
     const beforeEmit = publications;
     engines[0].emit();
@@ -1820,6 +1949,11 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
     assert.deepEqual(resumeResponse.items, [
       { kind: "user", id: "u1", text: "Persisted prompt" },
       { kind: "user", id: "session-envelope", text: "Visible prompt after envelope" },
+      {
+        kind: "user",
+        id: "inline-system-reminder",
+        text: "Visible before reminder\n\nVisible after reminder",
+      },
       { kind: "assistant", id: "a1", text: "Visible answer" },
       { kind: "notice", id: "n1", text: "Visible notice" },
       { kind: "failure", id: "f1", detail: "Visible failure" },
@@ -1941,7 +2075,9 @@ test("host start/list/resume persists desktop scope, restores transcript, and pu
       assert.equal(freshProjectTask.currentProject, canonicalProject);
       assert.equal(engines.at(-1).options.desktopSession.classification, "project");
       assert.equal(engines.at(-1).options.desktopSession.projectPath, canonicalProject);
-      assert.match(String(freshProjectTask.sessionId), /^desktop_/);
+      assert.equal(freshProjectTask.sessionId, null);
+      assert.equal(await restarted.submit("Fresh project task"), true);
+      assert.match(String(restarted.getSnapshot().sessionId), /^desktop_/);
     } finally {
       await restarted.dispose();
     }

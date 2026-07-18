@@ -19,13 +19,15 @@ import {
   transcriptTurnKeys,
 } from './renderer-logic.mjs';
 import {
+  generatedSessionTitle,
   normalizeSessionTitle,
   promptTitle,
   sessionSummaryTitle,
+  stripInjectedDisplayText,
   stripSessionEnvelope,
 } from '../shared/session-title.mjs';
 import { filterConfiguredModels } from './ModelPicker.tsx';
-import { formatContextWindow, modelContextWindow } from './provider-display.tsx';
+import { formatContextWindow, modelContextWindow, modelDetailTooltip } from './provider-display.tsx';
 
 test('explicit provider context metadata wins over model-family fallbacks', () => {
   const explicitClaude = {
@@ -44,6 +46,20 @@ test('explicit provider context metadata wins over model-family fallbacks', () =
   assert.equal(formatContextWindow(modelContextWindow(legacyClaude)), '1M Context');
 });
 
+test('model detail tooltip reports only available catalog metadata', () => {
+  assert.equal(modelDetailTooltip({
+    provider: 'openai',
+    model: 'gpt-real',
+    display: 'GPT Real',
+    contextWindow: 400_000,
+    effortOptions: [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }],
+    fastCapable: true,
+    fastPreferred: false,
+    latest: true,
+    releaseDate: '2026-03-01',
+  }), 'OpenAI API · gpt-real · 400k Context · Reasoning Low/High · Fast available · Latest · Released 2026-03-01');
+});
+
 test('renderer uses the preload bridge name', async () => {
   const [preload, renderer] = await Promise.all([
     readFile(new URL('../preload/index.ts', import.meta.url), 'utf8'),
@@ -52,6 +68,22 @@ test('renderer uses the preload bridge name', async () => {
   const bridgeName = preload.match(/exposeInMainWorld\('([^']+)'/)?.[1];
   assert.equal(bridgeName, 'mixdogDesktop');
   assert.match(renderer, new RegExp(`window\\.${bridgeName}\\b`));
+});
+
+test('the stable composer placeholder does not schedule idle rerenders', async () => {
+  const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(renderer, /placeholderIndex|setPlaceholderIndex/);
+  assert.doesNotMatch(renderer, /setInterval\(\(\) => setPlaceholder/);
+});
+
+test('session scrolling restores once before paint and preserves per-session positions', async () => {
+  const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
+  assert.match(renderer, /const transcriptVirtualSize = transcriptVirtualizer\.getTotalSize\(\)/);
+  assert.match(renderer, /sessionScrollPositions\.current\.get\(transcriptSessionKey\)/);
+  assert.match(renderer, /sessionScrollPositions\.current\.set\(transcriptSessionKey/);
+  assert.match(renderer, /transcriptVirtualizer\.scrollToOffset\(saved\.top/);
+  assert.match(renderer, /skipNextFollowFrame\.current = true/);
+  assert.doesNotMatch(renderer, /restoringSessionTail|sessionTailRestoreTimer/);
 });
 
 test('settings dialog reserves the native window-controls safe area', async () => {
@@ -70,6 +102,47 @@ test('settings dialog reserves the native window-controls safe area', async () =
   assert.match(settings,
     /\.settings-resource-title,\s*\.settings-form-row > div\.settings-resource-title\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;[^}]*flex-wrap:\s*wrap;/s,
     'form status badges must remain inline with their titles');
+  assert.match(settings,
+    /\.settings-agent-route \.settings-route-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);[^}]*gap:\s*4px;/s);
+  assert.match(settings,
+    /\.settings-agent-route \.settings-route-controls > \*,[\s\S]*?\.settings-agent-route \.oc-select-trigger\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;/s,
+    'agent model, effort, and fast controls must share the full value-column width');
+  assert.match(settings,
+    /\.settings-row-control > \.settings-model-trigger\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*justify-content:\s*flex-end;/s);
+  assert.match(settings,
+    /\.settings-row-control > \.effort-control,[\s\S]*?\.settings-row-control > \.fast-control\s*\{[^}]*width:\s*100%;[^}]*flex:\s*0 0 100%;/s,
+    'model, effort, and fast controls must use one shared settings value column');
+  assert.match(settings,
+    /\.settings-row-control > \.settings-model-trigger > svg,[\s\S]*?\.settings-agent-route \.fast-control \.oc-select-trigger > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*color:\s*var\(--oc-icon-muted\);[^}]*opacity:\s*1;/s,
+    'every route picker must use the same visible down-chevron geometry and color');
+  assert.match(settings,
+    /\.settings-model-trigger\[aria-expanded="true"\] > svg\s*\{\s*transform:\s*rotate\(180deg\);\s*\}/,
+    'model and select chevrons must share the same expanded direction');
+});
+
+test('every renderer stylesheet resolves through the shared OpenCode v2 theme contract', async () => {
+  const [theme, layout, settings] = await Promise.all([
+    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./styles.css', import.meta.url), 'utf8'),
+    readFile(new URL('./settings/settings.css', import.meta.url), 'utf8'),
+  ]);
+  const allCss = `${theme}\n${layout}\n${settings}`;
+  const definitions = new Set([...allCss.matchAll(/(--oc-[\w-]+)\s*:/g)].map((match) => match[1]));
+  const runtimeTokens = new Set(['--oc-scrollbar-thumb', '--oc-scrollbar-thumb-hover']);
+  const unresolved = [...new Set([...allCss.matchAll(/var\((--oc-[\w-]+)/g)].map((match) => match[1]))]
+    .filter((token) => !definitions.has(token) && !runtimeTokens.has(token));
+
+  assert.deepEqual(unresolved, [], 'all shared theme tokens must have a renderer definition');
+  assert.doesNotMatch(`${layout}\n${settings}`, /#[\da-f]{3,8}\b|rgba?\(/i,
+    'layout and settings CSS must use semantic theme tokens rather than private colors');
+  assert.match(theme,
+    /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--oc-text-accent:\s*var\(--oc-blue-600\);[^}]*--oc-danger-bg:\s*#fceceb;[^}]*--oc-success-border:\s*#b8e9c1;/s,
+    'light mode must override accents and every status semantic instead of inheriting dark values');
+  assert.match(theme,
+    /\.session-context-popover\s*\{[^}]*box-shadow:\s*var\(--oc-floating\);/s,
+    'context popovers must use the same semantic floating elevation as other menus');
+  assert.doesNotMatch(theme, /--oc-light-overlay-(?:shadow|border)/,
+    'light overlays must use the shared elevation scale without a private override');
 });
 
 test('OpenCode desktop shell keeps Project and flat recent sessions inside the sidebar rail', async () => {
@@ -77,11 +150,15 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
     readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
     readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(styles, /\.topbar\s*\{[^}]*height:\s*36px;[^}]*align-items:\s*flex-start;[^}]*padding:\s*8px 12px 0 16px;/s);
-  assert.match(styles, /\.workspace-tab\s*\{[^}]*flex:\s*0 1 auto;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*240px;/s);
-  assert.doesNotMatch(styles, /\.workspace-tab\s*\{[^}]*flex-basis:\s*240px;/s);
-  assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*6px 8px 8px;[^}]*background:\s*var\(--oc-window-band\);/s);
-  assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*286px;[^}]*flex:\s*0 0 286px;[^}]*border-radius:\s*10px;/s);
+  assert.match(styles, /--titlebar-height:\s*40px/);
+  assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*flex-start;[^}]*padding:\s*8px 12px 0 16px;/s);
+  assert.match(styles, /\.titlebar-caption-space\s*\{[^}]*env\(titlebar-area-width,\s*calc\(100vw - 138px\)\)/s);
+  assert.match(styles, /--oc-bg-deep:\s*#080808;[\s\S]*?--oc-workspace-sheet:\s*#161616;[\s\S]*?--oc-text:\s*#fafafa;/s);
+  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--oc-bg-deep:\s*#fafafa;[^}]*--oc-workspace-sheet:\s*#fcfcfc;[^}]*--oc-text:\s*#161616;/s);
+  assert.match(styles, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--oc-bg-base\);[^}]*box-shadow:\s*var\(--oc-raised\);/s);
+  assert.match(styles, /\.workspace-tab\s*\{[^}]*width:\s*224px;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
+  assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*8px;[^}]*background:\s*var\(--oc-window-band\);/s);
+  assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*border-radius:\s*10px;/s);
   assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*28px;[^}]*min-height:\s*28px;/s);
   assert.match(styles, /\.session-list\s*\{\s*gap:\s*1px;/s);
   assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*10px;/s);
@@ -89,19 +166,21 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   assert.match(styles, /\.thread\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   assert.match(styles, /\.composer-region\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*440 14px\/20px/s);
-  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*width:\s*min\(286px,\s*calc\(100vw - 32px\)\)/);
+  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*width:\s*min\(var\(--session-sidebar-width,\s*260px\),\s*calc\(100vw - 32px\)\)/);
   assert.match(navigation, /aria-label="Session manager"/);
   assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);
   assert.match(navigation, /className="project-grid project-list"/);
   assert.match(navigation, /aria-label="Open projects"/);
   assert.match(navigation, /className="sidebar-primary-nav"/);
   assert.match(navigation, /<span>Project<\/span>/);
-  assert.match(navigation, /className="sidebar-recent-heading">Recent/);
+  assert.match(navigation, /className="sidebar-recent-heading"/);
   assert.match(navigation, /className="session-list recent-session-list"/);
   assert.doesNotMatch(navigation, /className="sidebar-projects"|project-group-toggle|standalone-group/);
   assert.match(navigation, /<MessageSquare className="session-row-icon"/);
-  assert.doesNotMatch(styles, /\.session-search\s*\{/);
-  assert.doesNotMatch(navigation, /Search sessions|session-search/);
+  assert.doesNotMatch(styles, /\.session-search\b/);
+  assert.doesNotMatch(navigation, /Search sessions|sessionQuery/);
+  assert.doesNotMatch(navigation, /project-avatar-v2|ProjectAvatar/);
+  assert.doesNotMatch(navigation, /<StatusPopover\s*\/>/);
   assert.doesNotMatch(navigation, /LayoutGrid|titlebar-home|topbar-settings/);
 });
 
@@ -158,7 +237,7 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
 
 test('conversation uses native scrolling and silent session transitions', async () => {
   const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
-  assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message/);
+  assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message|message-navigation|navigateMessage/);
   assert.doesNotMatch(renderer, /Opening session|Resuming conversation/);
   assert.match(renderer, /if \(mode === "resuming"\) return null;/);
   assert.match(renderer, /<div className="session-switch-overlay" aria-hidden="true" \/>/);
@@ -211,14 +290,12 @@ test('desktop UI keeps every public TUI command and core capability represented'
     'getOutputStyle',
     'loginOAuthProvider',
     'authenticateProvider',
-    'setSystemShell',
     'setDefaultProvider',
     'listProviders',
     'setToolMode',
     'agentControl',
     'toolsStatus',
     'selectTools',
-    'getSystemShell',
     'reconnectMcp',
     'addMcpServer',
     'removeMcpServer',
@@ -246,7 +323,7 @@ test('desktop UI keeps every public TUI command and core capability represented'
     [],
   );
   for (const capability of capabilitiesWithoutPublicTuiControls) {
-    if (['getOutputStyle', 'loginOAuthProvider', 'authenticateProvider', 'setSystemShell', 'setDefaultProvider', 'listProviders']
+    if (['getOutputStyle', 'loginOAuthProvider', 'authenticateProvider', 'setDefaultProvider', 'listProviders']
       .includes(capability)) continue;
     assert.doesNotMatch(represented, new RegExp(`['\"]${capability}['\"]`),
       `${capability} must stay hidden when no public TUI picker exposes it`);
@@ -290,6 +367,15 @@ test('desktop session titles strip runtime envelopes and prompt payload markup',
   assert.equal(normalizeSessionTitle('[Image #2: screenshot.png] Fix this alignment', ''), 'Fix this alignment');
   assert.equal(normalizeSessionTitle('[Pasted text #3 +24 lines]', ''), '');
   assert.equal(normalizeSessionTitle('[Pasted text #1]', 'New task'), 'New task');
+  assert.equal(
+    stripInjectedDisplayText('Keep this <mcp-instructions>internal tools</mcp-instructions> visible'),
+    'Keep this   visible',
+  );
+  assert.equal(
+    generatedSessionTitle('A previous model worked on this task and produced the compacted handoff summary below.', ''),
+    '',
+  );
+  assert.equal(generatedSessionTitle('[truncated]', ''), '');
 });
 
 test('session title helpers prefer a stable title and extract user-facing prompt text', () => {

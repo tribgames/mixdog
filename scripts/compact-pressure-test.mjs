@@ -176,9 +176,10 @@ test('degenerate main budgets use a documented single-shot fallback', () => {
 
     const oneToken = { contextWindow: 1, compaction: {}, tools: [] };
     const oneTokenPolicy = policyFor(oneToken);
-    assert.ok(oneTokenPolicy.reserveTokens >= oneTokenPolicy.triggerTokens);
-    assert.equal(oneTokenPolicy.singleShot, true,
-        'the request reserve, not the one-token boundary itself, makes this degenerate');
+    assert.equal(oneTokenPolicy.reserveTokens, 0,
+        'an empty request has no synthetic fixed reserve');
+    assert.equal(oneTokenPolicy.singleShot, false,
+        'the one-token boundary alone does not require a single-shot fallback');
     assert.equal(oneTokenPolicy.triggerTokens, 1);
     assert.equal(compactTargetBudget(oneTokenPolicy), 1);
 
@@ -639,22 +640,25 @@ test('OpenAI OAuth WS warmup remains billed but does not double the main context
     const usage = _combineUsageWithWarmup(main, main, { separateMainContext: true });
     assert.equal(usage.inputTokens, 335_270, 'billing usage must retain warmup plus main input');
     const { initProviders, getProvider } = await import('../src/runtime/agent/orchestrator/providers/registry.mjs');
-    const { createSession, askSession, getSession } = await import('../src/runtime/agent/orchestrator/session/manager.mjs');
+    const { createSession, askSession, getSession, closeSession } = await import('../src/runtime/agent/orchestrator/session/manager.mjs');
     await initProviders({ 'openai-oauth': { enabled: true } });
     const provider = getProvider('openai-oauth');
     const originalSend = provider.send;
     const compactEvents = [];
+    let regressionSessionId = '';
     provider.send = async () => ({ content: 'done', usage });
     try {
         const session = createSession({
             provider: 'openai-oauth',
             model: 'warmup-context-regression',
+            owner: 'test',
             tools: [],
             cwd: process.cwd(),
             skipAgentRules: true,
             skipSkills: true,
             compaction: { auto: true },
         });
+        regressionSessionId = session.id;
         session.contextWindow = 272_000;
         session.rawContextWindow = 272_000;
         await askSession(session.id, 'large OAuth WebSocket request', null, null, process.cwd(), null, {
@@ -680,6 +684,9 @@ test('OpenAI OAuth WS warmup remains billed but does not double the main context
         }), false, 'main-request pressure must not trigger compaction');
         assert.equal(compactEvents.length, 0, 'warmup must not cause an auto-compaction');
     } finally {
+        if (regressionSessionId) {
+            closeSession(regressionSessionId, 'warmup-context-regression-cleanup', { tombstone: true });
+        }
         provider.send = originalSend;
     }
 });

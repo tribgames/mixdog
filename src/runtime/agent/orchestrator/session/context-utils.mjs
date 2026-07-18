@@ -479,11 +479,6 @@ export function contextMessagesSignature(messages, count = messages?.length) {
     return hash.digest('hex');
 }
 
-// Per-request overhead the provider injects that never appears in the
-// `messages` array: function-calling preamble + system-prompt framing the
-// provider wraps around the request. The chars/4 message estimate misses all
-// of it, so a "fits" verdict computed from messages alone is optimistic.
-const REQUEST_OVERHEAD_TOKENS = 512;
 const toolSchemaTokenMemo = new WeakMap();
 const requestReserveTokenMemo = new WeakMap();
 
@@ -531,17 +526,16 @@ export function estimateToolSchemaTokens(tools) {
 }
 
 /**
- * Total headroom the caller should reserve out of the context window before
- * compaction: tool-schema bytes + fixed request framing overhead. Pass this as
- * `opts.reserveTokens` so semantic/recall compaction budgets account for
- * request-side bytes the message estimate cannot see.
+ * Total request-side bytes the caller should reserve out of the context window
+ * before compaction. Only serialized tool schemas are counted; providers do
+ * not expose a stable framing cost, so no synthetic fixed allowance is added.
  */
 export function estimateRequestReserveTokens(tools) {
-    if (!Array.isArray(tools)) return estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
+    if (!Array.isArray(tools)) return estimateToolSchemaTokens(tools);
     const signature = toolSchemaSignature(tools);
     const cached = requestReserveTokenMemo.get(tools);
     if (cached?.signature === signature) return cached.value;
-    const reserve = estimateToolSchemaTokens(tools) + REQUEST_OVERHEAD_TOKENS;
+    const reserve = estimateToolSchemaTokens(tools);
     requestReserveTokenMemo.set(tools, { signature, value: reserve });
     return reserve;
 }

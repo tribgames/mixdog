@@ -27,6 +27,7 @@ import {
   fsyncSync,
   unlinkSync,
   writeFileSync,
+  statSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -205,6 +206,9 @@ class TaskOutput {
     this.stdoutFileSize = 0;
     this.stderrFileSize = 0;
     this.writeError = null;
+    // CC parity: direct-capture mode hands the spill files to the child as
+    // stdio fds (no JS pipes). Sizes are then tracked via stat, not writes.
+    this.direct = false;
     // fsync throttle: task wait/read + tail-read polling can call getStdout/
     // getStderr many times per second. Every call used to fsyncSync(fd),
     // a noticeable I/O tax on Windows. Skip if a recent fsync landed
@@ -285,6 +289,27 @@ class TaskOutput {
     this._ensureFileBacking();
   }
 
+  // CC parity (ShellCommand file mode): open the spill files BEFORE spawn and
+  // hand their fds to the child as stdio[1]/stdio[2]. The child (and any
+  // grandchildren) write straight to disk with no parent-side pipes, so a
+  // surviving grandchild can never wedge the caller by holding a pipe handle.
+  // Returns null when file backing could not be opened — caller falls back to
+  // pipe capture.
+  openDirectCapture() {
+    this._ensureFileBacking();
+    if (!this.spilled || this.stdoutFd == null || this.stderrFd == null) return null;
+    this.direct = true;
+    return { stdoutFd: this.stdoutFd, stderrFd: this.stderrFd };
+  }
+
+  // Direct mode has no JS write path, so byte counters must come from the
+  // filesystem (CC "poll the file tail" analogue).
+  _refreshDirectSizes() {
+    if (!this.direct) return;
+    try { this.stdoutFileSize = statSync(this.stdoutPath).size; } catch {}
+    try { this.stderrFileSize = statSync(this.stderrPath).size; } catch {}
+  }
+
   _recordWriteError(stage, err) {
     if (this.writeError) return;
     const msg = (err && err.message) ? err.message : String(err);
@@ -324,13 +349,15 @@ class TaskOutput {
   }
 
   totalDiskBytes() {
+    this._refreshDirectSizes();
     return this.stdoutFileSize + this.stderrFileSize;
   }
 
   async getStdout() {
     if (this.spilled) {
+      this._refreshDirectSizes();
       const now = Date.now();
-      if (now - this._lastStdoutFsyncMs >= MIXDOG_SHELL_FSYNC_THROTTLE_MS) {
+      if (!this.direct && now - this._lastStdoutFsyncMs >= MIXDOG_SHELL_FSYNC_THROTTLE_MS) {
         try { fsyncSync(this.stdoutFd); } catch {}
         this._lastStdoutFsyncMs = now;
       }
@@ -345,8 +372,9 @@ class TaskOutput {
 
   async getStderr() {
     if (this.spilled) {
+      this._refreshDirectSizes();
       const now = Date.now();
-      if (now - this._lastStderrFsyncMs >= MIXDOG_SHELL_FSYNC_THROTTLE_MS) {
+      if (!this.direct && now - this._lastStderrFsyncMs >= MIXDOG_SHELL_FSYNC_THROTTLE_MS) {
         try { fsyncSync(this.stderrFd); } catch {}
         this._lastStderrFsyncMs = now;
       }
@@ -393,6 +421,7 @@ class TaskOutput {
       this.stderrPath = null;
     }
     this.spilled = false;
+    this.direct = false;
   }
 }
 
@@ -442,6 +471,98 @@ export class ExecResult {
 async function _execPolicyBlockMessage(command) {
   const { checkExecPolicyMessage } = await import('./bash-policy-scan.mjs');
   return checkExecPolicyMessage(command);
+}
+
+// Admission-wait ceiling. Without it a saturated shell lane (all leases held
+// by stuck background process trees) blocks acquire() BEFORE spawn — no child
+// exists, so neither timeoutMs nor background promotion can ever fire and the
+// tool call hangs silently forever. Bound the wait and fail with an
+// actionable saturation diagnostic instead. 0 disables the ceiling.
+const _envAdmissionWait = Math.floor(Number(process.env.MIXDOG_SHELL_ADMISSION_WAIT_MS));
+const SHELL_ADMISSION_WAIT_MS = Number.isFinite(_envAdmissionWait) && _envAdmissionWait >= 0
+  ? _envAdmissionWait
+  : 30_000;
+
+// CC parity default: capture child output via file fds (TaskOutput direct
+// mode) instead of parent-side pipes. Opt back into pipe capture with
+// MIXDOG_SHELL_PIPE_CAPTURE=1 (diagnostic escape hatch).
+const SHELL_DIRECT_CAPTURE = !/^(1|true|yes|on)$/i.test(
+  String(process.env.MIXDOG_SHELL_PIPE_CAPTURE || '').trim(),
+);
+
+function _admissionSaturationError(admission, waitMs) {
+  let detail = '';
+  try {
+    const snap = admission.snapshot();
+    const held = (snap.activeLeases || [])
+      .filter((lease) => lease.kind === 'shell')
+      .map((lease) => `[${Math.round(lease.ageMs / 1000)}s] ${String(lease.label || '(unlabeled)')}`)
+      .join(' | ');
+    detail = ` ${snap.active.shell}/${snap.limits.maxShells} shell leases active`
+      + (held ? ` (${held})` : '')
+      + `, ${snap.queued} queued.`;
+  } catch { /* diagnostics must not mask the timeout */ }
+  const error = new Error(
+    `shell admission wait exceeded ${waitMs}ms —${detail} `
+    + 'Long-held leases usually mean stuck background shell process trees: '
+    + 'check task list, cancel stale tasks, kill lingering child processes, or restart the CLI.',
+  );
+  error.code = 'ERESOURCEPRESSURE';
+  return error;
+}
+
+async function _acquireShellLeaseBounded(admission, { abortSignal, label }) {
+  if (!(SHELL_ADMISSION_WAIT_MS > 0)) {
+    return admission.acquire('shell', { signal: abortSignal || null, label });
+  }
+  const ctl = new AbortController();
+  const onAbort = () => {
+    try { ctl.abort(abortSignal.reason); } catch { try { ctl.abort(); } catch {} }
+  };
+  if (abortSignal) {
+    if (abortSignal.aborted) onAbort();
+    else abortSignal.addEventListener('abort', onAbort, { once: true });
+  }
+  const deadline = setTimeout(() => {
+    try { ctl.abort(_admissionSaturationError(admission, SHELL_ADMISSION_WAIT_MS)); } catch {}
+  }, SHELL_ADMISSION_WAIT_MS);
+  if (deadline.unref) deadline.unref();
+  try {
+    const lease = await admission.acquire('shell', { signal: ctl.signal, label });
+    // Hand governance back to the caller's signal: the internal deadline
+    // controller may still fire in a lost race after grant, and a stale
+    // aborted signal on the lease would poison later parent-restore paths.
+    lease.signal = abortSignal || null;
+    return lease;
+  } finally {
+    clearTimeout(deadline);
+    if (abortSignal) { try { abortSignal.removeEventListener('abort', onAbort); } catch {} }
+  }
+}
+
+// After the direct child exits, descendants that survive tree-kill (GUI/daemon
+// helpers such as Electron crashpad) can keep the quiescence tracker pending
+// forever, permanently holding an admission lease. Cap the post-exit linger:
+// the tree stays observed, but the admission capacity is reclaimed so new
+// shell work cannot deadlock on saturation. 0 disables the cap.
+const _envLeaseLinger = Math.floor(Number(process.env.MIXDOG_SHELL_LEASE_LINGER_MAX_MS));
+const SHELL_LEASE_LINGER_MAX_MS = Number.isFinite(_envLeaseLinger) && _envLeaseLinger >= 0
+  ? _envLeaseLinger
+  : 120_000;
+
+function _armLeaseLingerCap(getLease, label) {
+  if (!(SHELL_LEASE_LINGER_MAX_MS > 0)) return;
+  const timer = setTimeout(() => {
+    let lease = null;
+    try { lease = typeof getLease === 'function' ? getLease() : getLease; } catch {}
+    if (!lease || lease.released) return;
+    console.warn(
+      `[shell] ${label}: admission lease force-released ${SHELL_LEASE_LINGER_MAX_MS}ms after root exit; `
+      + 'descendant processes are still alive and remain untracked daemons.',
+    );
+    try { Promise.resolve(lease.release()).catch(() => {}); } catch {}
+  }, SHELL_LEASE_LINGER_MAX_MS);
+  if (timer.unref) timer.unref();
 }
 
 // Count of shell spawns currently in-flight (including those parked in an
@@ -581,8 +702,8 @@ export function execShellCommand({
 
     let child;
     try {
-      resourceLease = await admission.acquire('shell', {
-        signal: abortSignal || null,
+      resourceLease = await _acquireShellLeaseBounded(admission, {
+        abortSignal,
         label: String(command || '').slice(0, 120),
       });
       const _policyErr = await _execPolicyBlockMessage(command);
@@ -607,6 +728,11 @@ export function execShellCommand({
       const argv = Array.isArray(shellArgs) && shellArgs.length > 0
         ? [...shellArgs, _spawnCommand]
         : [shellArg, _spawnCommand];
+      // Direct capture (CC file-mode parity): the child writes stdout/stderr
+      // into the spill files via inherited fds. No parent pipes exist, so
+      // 'close' fires with 'exit' and grandchildren cannot hold the capture
+      // open. Falls back to pipe capture if the files cannot be opened.
+      const _directCapture = SHELL_DIRECT_CAPTURE ? taskOutput.openDirectCapture() : null;
       const spawned = await _spawnShellWithRetry({
         shell,
         argv,
@@ -616,7 +742,9 @@ export function execShellCommand({
         env,
         cwd,
         windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: _directCapture
+          ? ['ignore', _directCapture.stdoutFd, _directCapture.stderrFd]
+          : ['ignore', 'pipe', 'pipe'],
         // NOTE (child-spawn-gate): intentionally NOT routed through
         // src/runtime/shared/child-spawn-gate.mjs. bash/pwsh commands can run
         // for minutes (or auto-background), so holding a finite gate slot for
@@ -678,12 +806,17 @@ export function execShellCommand({
       _treeKillForceSettle('cancellation');
     }
 
-    child.stdout.setEncoding('utf-8');
-    child.stderr.setEncoding('utf-8');
-    child.stdout.on('data', (chunk) => {
-      taskOutput.writeStdout(chunk);
-    });
-    child.stderr.on('data', (chunk) => taskOutput.writeStderr(chunk));
+    // Pipe-capture wiring only; direct mode has no parent-side streams.
+    if (child.stdout) {
+      child.stdout.setEncoding('utf-8');
+      child.stdout.on('data', (chunk) => {
+        taskOutput.writeStdout(chunk);
+      });
+    }
+    if (child.stderr) {
+      child.stderr.setEncoding('utf-8');
+      child.stderr.on('data', (chunk) => taskOutput.writeStderr(chunk));
+    }
 
     // If the spill writer hits an I/O failure (full disk, EBADF after
     // an unlink race) bring the child down so the agent isn't deceived
@@ -741,6 +874,7 @@ export function execShellCommand({
       leaseSettlement.tracker?.rootExited?.();
       await leaseSettlement.tracker?.afterRootExitCheck?.();
       if (!leaseSettlement.pending) await leaseSettlement.promise;
+      else _armLeaseLingerCap(() => leaseSettlement.lease, taskId);
       resolveResult(
         new ExecResult({
           stdout,
@@ -873,6 +1007,8 @@ export function execShellCommand({
           const rc = code == null ? (signal ? 1 : 0) : code;
           try { writeFileSync(job.exitPath, String(rc)); } catch {}
           try { writeFileSync(job.donePath, ''); } catch {}
+          // The adopted child is done writing; release the parent's spill fds.
+          try { taskOutput.closeFds(); } catch {}
         });
       }
       // Snapshot the partial output captured so far for the immediate result.
@@ -907,6 +1043,39 @@ export function execShellCommand({
           stderrFileSize: taskOutput.stderrFileSize,
           taskId,
           partialOutput: true,
+          outputCaptureError: taskOutput.writeError,
+          backgrounded: false,
+        }));
+        return;
+      }
+      // CC parity (BashTool completed-during-promotion race): the child
+      // finished while adoption was committing. Report a clean COMPLETED
+      // result instead of backgrounded — the caller then never arms the
+      // completion watcher, so no redundant task notification fires. Write
+      // the exit/done files here as well: when 'close' fired before the
+      // once('close') wiring above, nothing else would ever flip the adopted
+      // job detail off 'running'.
+      if (child.exitCode != null || child.signalCode != null) {
+        const rc = child.exitCode == null ? 1 : child.exitCode;
+        if (job && job.exitPath && job.donePath) {
+          try { writeFileSync(job.exitPath, String(rc)); } catch {}
+          try { writeFileSync(job.donePath, ''); } catch {}
+        }
+        await promotedLease?.detachDependency?.();
+        detachAbortHandler();
+        resolveResult(new ExecResult({
+          stdout,
+          stderr,
+          exitCode: child.exitCode,
+          signal: child.signalCode || null,
+          timedOut: false,
+          killed: false,
+          stdoutPath,
+          stdoutFileSize: taskOutput.stdoutFileSize,
+          stderrPath: taskOutput.spilled ? taskOutput.stderrPath : null,
+          stderrFileSize: taskOutput.stderrFileSize,
+          taskId,
+          partialOutput: false,
           outputCaptureError: taskOutput.writeError,
           backgrounded: false,
         }));

@@ -64,11 +64,135 @@ const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, unknown[
   ['voice', 'getVoiceStatus'],
   ['workflows', 'listWorkflows'], ['outputStyles', 'listOutputStyles'], ['theme', 'getTheme'],
   ['searchRoute', 'getSearchRoute'], ['searchModels', 'listSearchModels', [{ quick: false }]],
-  ['providerSetup', 'getProviderSetup', [{ refresh: true }]], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
+  ['providerSetup', 'getProviderSetup'], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
   ['hooks', 'hooksStatus'], ['skills', 'skillsStatus'], ['disabledSkills', 'getDisabledSkills'],
   ['agents', 'listAgents'],
+  ['systemShell', 'getSystemShell'],
   ['update', 'getUpdateSettings'], ['updateStatus', 'getUpdateStatus'],
 ];
+
+export interface CachedCapabilitySettings {
+  data: Record<string, unknown>;
+  error: string;
+  loadedAt: number;
+}
+
+interface CapabilitySettingsCacheEntry {
+  value?: CachedCapabilitySettings;
+  inFlight?: Promise<CachedCapabilitySettings>;
+}
+
+const CAPABILITY_SETTINGS_CACHE = new WeakMap<object, CapabilitySettingsCacheEntry>();
+
+function settingsCacheEntry(api: CapabilityApi): CapabilitySettingsCacheEntry {
+  const key = api as object;
+  const cached = CAPABILITY_SETTINGS_CACHE.get(key);
+  if (cached) return cached;
+  const created: CapabilitySettingsCacheEntry = {};
+  CAPABILITY_SETTINGS_CACHE.set(key, created);
+  return created;
+}
+
+export function getCachedCapabilitySettings(api: CapabilityApi): CachedCapabilitySettings | undefined {
+  return CAPABILITY_SETTINGS_CACHE.get(api as object)?.value;
+}
+
+async function readAllCapabilitySettings(
+  api: CapabilityApi,
+  force: boolean,
+  previous?: CachedCapabilitySettings,
+): Promise<CachedCapabilitySettings> {
+  if (!api.invokeCapability && !api.readCapabilities) {
+    return { data: previous?.data || {}, error: '', loadedAt: Date.now() };
+  }
+  const next: Record<string, unknown> = { ...(previous?.data || {}) };
+  let loadError = '';
+  const prepared = SECTION_READS.map(([key, capability, args = []]) => ({
+    key,
+    request: {
+      capability: capability as DesktopReadCapability,
+      args: force && capability === 'listSearchModels'
+        ? [{ ...record(args[0]), force: true }]
+        : force && capability === 'getProviderSetup'
+          ? [{ refresh: true }]
+          : [...args],
+    } satisfies DesktopCapabilityReadRequest,
+  }));
+  const readIndividually = async () => {
+    if (!api.invokeCapability) return;
+    await Promise.all(prepared.map(async ({ key, request }) => {
+      try {
+        next[key] = (await api.invokeCapability!({
+          capability: request.capability,
+          args: request.args,
+        }))?.value;
+      } catch (reason) {
+        next[key] = { error: reason instanceof Error ? reason.message : String(reason) };
+      }
+    }));
+  };
+  const loadReads = async () => {
+    if (!api.readCapabilities) {
+      await readIndividually();
+      return;
+    }
+    try {
+      const results = await api.readCapabilities(prepared.map((entry) => entry.request));
+      prepared.forEach((entry, index) => {
+        const result = results[index];
+        next[entry.key] = result?.ok
+          ? result.value
+          : { error: result && 'error' in result ? result.error : 'Capability read did not return a result.' };
+      });
+    } catch (reason) {
+      if (api.invokeCapability) {
+        await readIndividually();
+      } else {
+        loadError = reason instanceof Error ? reason.message : String(reason);
+      }
+    }
+  };
+  await Promise.all([
+    loadReads(),
+    (async () => {
+      try {
+        next.models = await api.listProviderModels?.({
+          quick: false,
+          ...(force ? { force: true } : {}),
+        }) || [];
+      } catch (reason) {
+        next.models = previous?.data.models || [];
+        loadError = reason instanceof Error ? reason.message : String(reason);
+      }
+    })(),
+    api.getSnapshot?.().then((snapshot) => { next.snapshot = snapshot || null; })
+      .catch(() => { next.snapshot = previous?.data.snapshot || null; }) || Promise.resolve(),
+    api.invokeCapability?.({
+      capability: 'memoryControl',
+      args: [{ action: 'core', op: 'list', project_id: '*' }, { silent: true }],
+    }).then((result) => { next.coreMemory = result.value; })
+      .catch(() => { next.coreMemory = previous?.data.coreMemory; }) || Promise.resolve(),
+  ]);
+  return { data: next, error: loadError, loadedAt: Date.now() };
+}
+
+export function preloadCapabilitySettings(
+  api: CapabilityApi,
+  force = false,
+): Promise<CachedCapabilitySettings> {
+  const entry = settingsCacheEntry(api);
+  if (entry.inFlight) return entry.inFlight;
+  if (entry.value && !force) return Promise.resolve(entry.value);
+  const request = readAllCapabilitySettings(api, force, entry.value);
+  entry.inFlight = request;
+  void request.then((value) => {
+    entry.value = value;
+    if (entry.inFlight === request) entry.inFlight = undefined;
+  }, () => {
+    if (entry.inFlight === request) entry.inFlight = undefined;
+  });
+  return request;
+}
 
 function record(value: unknown): RecordValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
@@ -129,11 +253,11 @@ function durationTextInput(value: unknown): string {
 }
 
 export function CapabilitySettings({ api, category, onCompose, onOpenCategory }: CapabilitySettingsProps) {
-  const [data, setData] = useState<Record<string, unknown>>({});
-  const [loading, setLoading] = useState(true);
-  const [loadedCategory, setLoadedCategory] = useState<SettingsCategory | null>(null);
+  const initialCache = getCachedCapabilitySettings(api);
+  const [data, setData] = useState<Record<string, unknown>>(() => initialCache?.data || {});
+  const [hydrating, setHydrating] = useState(() => !initialCache);
   const [pending, setPending] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => initialCache?.error || '');
   const [notice, setNotice] = useState<{ message: string; tone: 'info' | 'warn' } | null>(null);
   const [confirmation, setConfirmation] = useState<SettingsConfirmation | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<EngineSnapshot>(null);
@@ -143,68 +267,28 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
 
   const load = useCallback(async (force = false) => {
     const sequence = ++loadSequence.current;
-    if (!api.invokeCapability && !api.readCapabilities) {
-      setLoadedCategory(category);
-      setLoading(false);
-      return;
+    const cached = getCachedCapabilitySettings(api);
+    if (cached) {
+      setData(cached.data);
+      setError(cached.error);
+      setHydrating(false);
+    } else {
+      setError('');
+      setHydrating(true);
     }
-    setLoading(true);
-    setError('');
-    const next: Record<string, unknown> = {};
-    let loadError = '';
-    const prepared = SECTION_READS.map(([key, capability, args = []]) => ({
-      key,
-      request: {
-        capability: capability as DesktopReadCapability,
-        args: force && capability === 'listSearchModels'
-          ? [{ ...record(args[0]), force: true }]
-          : force && capability === 'getUsageDashboard'
-            ? [{ ...record(args[0]), refresh: true }]
-            : [...args],
-      } satisfies DesktopCapabilityReadRequest,
-    }));
-    const loadReads = async () => {
-      if (api.readCapabilities) {
-        const results = await api.readCapabilities(prepared.map((entry) => entry.request));
-        prepared.forEach((entry, index) => {
-          const result = results[index];
-          next[entry.key] = result?.ok
-            ? result.value
-            : { error: result && 'error' in result ? result.error : 'Capability read did not return a result.' };
-        });
-        return;
-      }
-      await Promise.all(prepared.map(async ({ key, request }) => {
-        try {
-          next[key] = (await api.invokeCapability!({ capability: request.capability, args: request.args }))?.value;
-        } catch (reason) {
-          next[key] = { error: reason instanceof Error ? reason.message : String(reason) };
-        }
-      }));
-    };
-    const modelCatalogSection = category === 'models' || category === 'workflows';
-    await Promise.all([
-      loadReads(),
-      modelCatalogSection ? (async () => {
-        try { next.models = await api.listProviderModels?.({ quick: false, ...(force ? { force: true } : {}) }) || []; } catch (reason) {
-          next.models = [];
-          loadError = reason instanceof Error ? reason.message : String(reason);
-        }
-      })() : Promise.resolve(),
-      category === 'models' ? api.getSnapshot?.().then((snapshot) => { next.snapshot = snapshot || null; })
-        .catch(() => { next.snapshot = null; }) : Promise.resolve(),
-    ]);
+    const next = await preloadCapabilitySettings(api, force);
     if (sequence !== loadSequence.current) return;
-    setData(next);
-    setError(loadError);
-    setLoadedCategory(category);
-    setLoading(false);
-  }, [api, category]);
+    setData(next.data);
+    setError(next.error);
+    setHydrating(false);
+  }, [api]);
 
   useEffect(() => {
-    void load();
+    const cached = getCachedCapabilitySettings(api);
+    const stale = Boolean(cached && Date.now() - cached.loadedAt >= 15_000);
+    void load(revision > 0 || stale);
     return () => { loadSequence.current += 1; };
-  }, [load, revision]);
+  }, [api, load, revision]);
   useEffect(() => {
     let live = true;
     void api.getSnapshot?.().then((snapshot) => { if (live) setLiveSnapshot(snapshot); }).catch(() => {});
@@ -218,7 +302,7 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
     key: string = capability,
     refresh = true,
   ): Promise<T | undefined> => {
-    if (!api.invokeCapability || pending) return undefined;
+    if (!api.invokeCapability || pending || hydrating) return undefined;
     setPending(key);
     setError('');
     try {
@@ -231,20 +315,20 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
     } finally {
       setPending('');
     }
-  }, [api, pending]);
+  }, [api, hydrating, pending]);
 
   useEffect(() => {
     if (category !== 'system') {
       updateChecked.current = false;
       return;
     }
-    if (loading || updateChecked.current) return;
+    if (hydrating || updateChecked.current) return;
     updateChecked.current = true;
     void run('checkForUpdate', [{}]);
-  }, [category, loading, run]);
+  }, [category, hydrating, run]);
 
   const route = useCallback(async (model: DesktopModelOption) => {
-    if (!api.setModelRoute || pending) return;
+    if (!api.setModelRoute || pending || hydrating) return;
     setPending('model-route');
     setError('');
     try {
@@ -269,10 +353,10 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally { setPending(''); }
-  }, [api, liveSnapshot, pending]);
+  }, [api, hydrating, liveSnapshot, pending]);
 
   const setFast = useCallback(async (enabled: boolean) => {
-    if (!api.setFast || pending) return;
+    if (!api.setFast || pending || hydrating) return;
     setPending('fast');
     setError('');
     try {
@@ -281,21 +365,21 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally { setPending(''); }
-  }, [api, pending]);
+  }, [api, hydrating, pending]);
 
   const confirm = useCallback((options: SettingsConfirmation) => setConfirmation(options), []);
   const pushNotice = useCallback((message: string, tone: 'info' | 'warn' = 'info') => {
     setNotice({ message, tone });
   }, []);
 
+  const effectivePending = hydrating ? 'settings-hydrating' : pending;
   const context = useMemo<PanelContext>(() => ({
-    data, snapshot: liveSnapshot, pending, run, route, setFast, confirm, notice: pushNotice,
+    data, snapshot: liveSnapshot, pending: effectivePending, run, route, setFast, confirm, notice: pushNotice,
     compose: onCompose, openCategory: onOpenCategory,
-  }), [confirm, data, liveSnapshot, onCompose, onOpenCategory, pending, pushNotice, route, run, setFast]);
+  }), [confirm, data, effectivePending, liveSnapshot, onCompose, onOpenCategory, pushNotice, route, run, setFast]);
 
   return <>
-    {loading || loadedCategory !== category ? <p className="settings-loading" role="status">Loading settings…</p>
-      : <CategoryPanel category={category} context={context} />}
+    <CategoryPanel category={category} context={context} />
     {error && <p className="mixdog-settings__error" role="alert">{error}</p>}
     {notice && <p className={`settings-notice settings-notice--${notice.tone}`}
       role={notice.tone === 'warn' ? 'alert' : 'status'}>{notice.message}</p>}
@@ -751,6 +835,7 @@ function ModelsPanel({ data, snapshot: liveSnapshot, pending, run, route, setFas
     : record(data.snapshot as EngineSnapshot);
   const currentKey = `${snapshot.provider || ''}:${snapshot.model || ''}`;
   const selected = models.find((model) => `${model.provider}:${model.model}` === currentKey);
+  const mainFastCapable = snapshot.fastCapable === true || selected?.fastCapable === true;
   const searchRoute = record(data.searchRoute);
   const searchModels = filterConfiguredModels(
     normalizeModelOptions(rows(data.searchModels).map(routeOption)),
@@ -774,7 +859,7 @@ function ModelsPanel({ data, snapshot: liveSnapshot, pending, run, route, setFas
         disabled={busy} options={(selected?.effortOptions || [{ value: 'auto', label: 'Auto' }]).map((entry) => ({ value: entry.value, label: entry.label }))}
         onChange={(value) => void run('setEffort', [value])} />
       <QuietSelectRow title="Fast mode" kind="fast"
-        value={snapshot.fast === true ? 'on' : 'off'} disabled={busy || snapshot.fastCapable !== true}
+        value={snapshot.fast === true ? 'on' : 'off'} disabled={busy || !mainFastCapable}
         options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
         onChange={(value) => void setFast(value === 'on')} />
     </Group>
@@ -1015,7 +1100,7 @@ function MemoryPanel({ data, pending, run, confirm }: PanelContext) {
       checked={memory.enabled !== false} disabled={busy} onChange={(enabled) => void run('setMemoryEnabled', [enabled])} /></Group>
     <section className="settings-group core-memory-section">
       <header><h3>Core memories</h3><p>User-curated memories shared across Mixdog sessions.</p></header>
-      <CoreMemoryManager pending={pending} run={run} confirm={confirm} />
+      <CoreMemoryManager initialValue={data.coreMemory} pending={pending} run={run} confirm={confirm} />
     </section>
   </>;
 }
@@ -1059,29 +1144,30 @@ function memoryResultError(value: unknown): string {
     : '';
 }
 
-function CoreMemoryManager({ pending, run, confirm }: {
+function CoreMemoryManager({ initialValue, pending, run, confirm }: {
+  initialValue: unknown;
   pending: string;
   run: PanelContext['run'];
   confirm: PanelContext['confirm'];
 }) {
-  const [entries, setEntries] = useState<CoreMemoryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [entries, setEntries] = useState<CoreMemoryEntry[]>(() => parseCoreMemoryEntries(initialValue));
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<number | null>(null);
   const loaded = useRef(false);
   const refresh = async () => {
-    setLoading(true);
     const result = await run<unknown>('memoryControl', [
       { action: 'core', op: 'list', project_id: '*' }, { silent: true },
     ], 'core-memory-list', false);
     if (result !== undefined) setEntries(parseCoreMemoryEntries(result));
-    setLoading(false);
   };
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
-    void refresh();
+    if (initialValue === undefined) void refresh();
   }, []);
+  useEffect(() => {
+    if (initialValue !== undefined) setEntries(parseCoreMemoryEntries(initialValue));
+  }, [initialValue]);
   const mutate = async (input: RecordValue) => {
     setError('');
     const result = await run<unknown>('memoryControl', [input, { silent: true }], `core-${input.op}`, false);
@@ -1106,8 +1192,7 @@ function CoreMemoryManager({ pending, run, confirm }: {
       }}><input name="sentence" aria-label="Memory to add" placeholder="What should Mixdog remember?" maxLength={2000} required />
         <button disabled={Boolean(pending)}>Add memory</button></form>
     </section>
-    {loading ? <div className="core-memory-list core-memory-list--empty"><p className="settings-loading">Loading core memories…</p></div>
-      : entries.length ? <div className="core-memory-list">
+    {entries.length ? <div className="core-memory-list">
       {entries.map((entry) => editing === entry.id ? <form className="core-memory-edit" key={entry.id} onSubmit={(event) => {
         event.preventDefault();
         const summary = String(new FormData(event.currentTarget).get('summary') || '').trim();
@@ -1214,8 +1299,20 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
 function SystemPanel(context: PanelContext) {
   const { data, pending, run } = context;
   const worker = record(data.channelWorker);
+  const systemShell = record(data.systemShell);
+  const shellCommand = String(systemShell.command || '');
+  const effectiveShell = String(systemShell.effective || 'Automatic platform default');
   const busy = Boolean(pending);
   return <>
+    <Group title="System shell" description="Command used for one-shot shell tools. Leave it empty to use automatic platform selection.">
+      <AutoSaveRow title="System shell command" name="system-shell" value={shellCommand}
+        placeholder="Automatic" disabled={busy}
+        actions={shellCommand ? <ActionButton disabled={busy}
+          onClick={() => void run('setSystemShell', [''], 'system-shell')}>Use automatic</ActionButton> : undefined}
+        onSave={(command) => void run('setSystemShell', [command.trim()], 'system-shell')} />
+      <ResourceRow title="Effective shell" meta={effectiveShell}
+        status={systemShell.source === 'auto' ? 'Automatic' : 'Configured'} />
+    </Group>
     <Group>
       <ToggleRow title="Remote runtime" description={worker.running
         ? `Channel runtime running · PID ${worker.pid || '?'}`

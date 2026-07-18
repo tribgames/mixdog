@@ -4,11 +4,12 @@ import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, screen, session, shell } from 'electron';
 
 import { EngineHost } from './engine-host';
+import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
 import { registerDesktopIpc } from './ipc';
 import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
 import { desktopUpdater, startAutoUpdater } from './updater';
-import { DESKTOP_WINDOW_OPTIONS } from './window-options';
+import { DESKTOP_WINDOW_OPTIONS, setDesktopTitleBarZoom } from './window-options';
 import { DESKTOP_IPC } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
 
@@ -37,9 +38,37 @@ let quitAfterDispose = false;
 let disposalPromise: Promise<void> | null = null;
 let windowState: ReturnType<typeof persistWindowState> | null = null;
 let windowStateFlush: Promise<void> = Promise.resolve();
+let diagnostics: DesktopDiagnostics | null = null;
+let diagnosticsMemoryTimer: NodeJS.Timeout | null = null;
+
+function currentProcessMemory() {
+  try {
+    return app.getAppMetrics().slice(0, 32).map((metric) => ({
+      pid: metric.pid,
+      type: metric.type,
+      name: metric.name,
+      serviceName: metric.serviceName,
+      workingSetKb: metric.memory.workingSetSize,
+      peakWorkingSetKb: metric.memory.peakWorkingSetSize,
+      privateKb: metric.memory.privateBytes,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 function disposeDesktopResources(): Promise<void> {
-  disposalPromise ??= Promise.all([host.dispose(), windowStateFlush, windowState?.flush()])
+  if (diagnosticsMemoryTimer) {
+    clearInterval(diagnosticsMemoryTimer);
+    diagnosticsMemoryTimer = null;
+  }
+  if (!disposalPromise) diagnostics?.write('desktop-stop');
+  disposalPromise ??= Promise.all([
+    host.dispose(),
+    windowStateFlush,
+    windowState?.flush(),
+    diagnostics?.flush(),
+  ])
     .then(() => undefined)
     .catch((error: unknown) => {
       console.error('Failed to dispose Mixdog engine during quit:', error);
@@ -52,6 +81,7 @@ async function setPersistentZoom(factor: number): Promise<void> {
   if (!window || window.isDestroyed()) return;
   const next = Math.min(10, Math.max(0.2, Math.round(factor * 100) / 100));
   window.webContents.setZoomFactor(next);
+  setDesktopTitleBarZoom(window, next);
   const saved = await settingsStore.updateZoom(next);
   if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
     window.webContents.send(DESKTOP_IPC.zoomFactorChanged, saved);
@@ -109,6 +139,21 @@ async function createWindow(): Promise<void> {
     settingsStore,
     updater: desktopUpdater,
   });
+  diagnostics?.write('window-created');
+
+  window.on('unresponsive', () => {
+    diagnostics?.write('renderer-unresponsive', { processes: currentProcessMemory() });
+  });
+  window.on('responsive', () => {
+    diagnostics?.write('renderer-responsive');
+  });
+  window.webContents.on('render-process-gone', (_event, details) => {
+    diagnostics?.write('render-process-gone', {
+      reason: details.reason,
+      exitCode: details.exitCode,
+      processes: currentProcessMemory(),
+    });
+  });
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => {
@@ -125,6 +170,7 @@ async function createWindow(): Promise<void> {
     });
   });
   window.on('closed', () => {
+    diagnostics?.write('window-closed');
     const state = windowState;
     windowState = null;
     windowStateFlush = state?.flush().finally(() => state.dispose()) ?? Promise.resolve();
@@ -154,6 +200,28 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
+    diagnostics = createDesktopDiagnostics(
+      join(app.getPath('userData'), 'logs', 'desktop-diagnostics.jsonl'),
+      { appVersion: app.getVersion(), packaged: app.isPackaged },
+    );
+    diagnostics.write('desktop-start', {
+      electronVersion: process.versions.electron,
+      chromeVersion: process.versions.chrome,
+      nodeVersion: process.versions.node,
+    });
+    diagnosticsMemoryTimer = setInterval(() => {
+      diagnostics?.write('process-memory', { processes: currentProcessMemory() });
+    }, 5 * 60 * 1000);
+    diagnosticsMemoryTimer.unref();
+    app.on('child-process-gone', (_event, details) => {
+      diagnostics?.write('child-process-gone', {
+        type: details.type,
+        reason: details.reason,
+        exitCode: details.exitCode,
+        serviceName: details.serviceName,
+        name: details.name,
+      });
+    });
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       const development = Boolean(process.env.ELECTRON_RENDERER_URL);
       const policy = development
@@ -182,6 +250,12 @@ if (!app.requestSingleInstanceLock()) {
       }
     });
   }).catch((error: unknown) => {
+    diagnostics?.write('desktop-initialize-failed', {
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorCode: typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as NodeJS.ErrnoException).code || '')
+        : '',
+    });
     console.error('Failed to initialize the Mixdog desktop window:', error);
     app.quit();
   });

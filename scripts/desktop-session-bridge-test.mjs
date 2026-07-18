@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 import {
+  SESSION_SUMMARY_INDEX_VERSION,
   _normalizeSummaryIndex,
   _sessionSummary,
 } from '../src/runtime/agent/orchestrator/session/store-summary-index.mjs';
@@ -99,6 +100,28 @@ test('desktop classification is optional and round-trips through the existing su
   assert.equal(malformed.desktopSession, null);
 });
 
+test('session summaries use the first real user request and remove injected display blocks', () => {
+  const summary = _sessionSummary({
+    id: 'clean_title_source',
+    owner: 'user',
+    messages: [
+      { role: 'user', content: '<system-reminder>runtime bootstrap</system-reminder>' },
+      {
+        role: 'user',
+        content: 'A previous model worked on this task and produced the compacted handoff summary below. Build on it.',
+      },
+      {
+        role: 'user',
+        content: 'Reference files: [Image #1] <mcp-instructions>internal tools</mcp-instructions> Align the project dropdown',
+      },
+      { role: 'user', content: 'The async agent task task_agent completed with internal output.' },
+      { role: 'user', content: 'A later follow-up must not replace the stable title source' },
+    ],
+  });
+
+  assert.equal(summary.preview, 'Align the project dropdown');
+});
+
 test('authoritative summary refresh repairs a stale index and skips malformed session files', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-desktop-summary-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
@@ -165,6 +188,10 @@ test('cached summaries reflect local lifecycle mutations and forced refresh reco
     }));
 
     assert.deepEqual(listStoredSessionSummaries().map((row) => row.id), ['indexed']);
+    assert.equal(
+      JSON.parse(readFileSync(join(root, 'session-summaries.json'), 'utf8')).version,
+      SESSION_SUMMARY_INDEX_VERSION,
+    );
 
     saveSession({
       id: 'cached_new', owner: 'user', updatedAt: 20,
@@ -351,7 +378,7 @@ test('authoritative refresh fails closed when the session directory is unreadabl
   process.env.MIXDOG_DATA_DIR = root;
   try {
     writeFileSync(join(root, 'session-summaries.json'), JSON.stringify({
-      version: 1,
+      version: SESSION_SUMMARY_INDEX_VERSION,
       rows: [{
         id: 'stale_desktop',
         updatedAt: 1,
@@ -644,6 +671,7 @@ test('desktop context switches retain runtime resources while durably closing th
   };
   let cwd = '/old';
   let desktopSession = { classification: 'task', projectPath: null };
+  let route = { provider: 'resumed-provider', model: 'resumed-model' };
   const closed = [];
   const cleanup = [];
   let releaseMcp;
@@ -653,6 +681,9 @@ test('desktop context switches retain runtime resources while durably closing th
     setSession: (value) => { current = value; },
     getDesktopSession: () => desktopSession,
     setDesktopSession: (value) => { desktopSession = value; },
+    getRoute: () => route,
+    setRoute: (value) => { route = value; },
+    getConfig: () => ({ default: 'workflow-lead' }),
     getCurrentCwd: () => cwd,
     mgr: { closeSession: (...args) => { closed.push(args); return true; } },
     cancelBackgroundTasks: (options) => cleanup.push(['background', options]),
@@ -666,6 +697,10 @@ test('desktop context switches retain runtime resources while durably closing th
     },
     invalidateContextStatusCache: () => {},
     invalidatePreSessionToolSurface: () => {},
+    refreshRouteEffort: async () => {},
+    resolveRoute: (_config, value) => Object.keys(value).length > 0
+      ? value
+      : { provider: 'configured-provider', model: 'configured-model' },
   });
 
   let settled = false;
@@ -692,6 +727,7 @@ test('desktop context switches retain runtime resources while durably closing th
   assert.deepEqual(closed, [['old', 'desktop-context-switch', { tombstone: false }]]);
   assert.equal(current, null);
   assert.equal(cwd, '/project');
+  assert.deepEqual(route, { provider: 'configured-provider', model: 'configured-model' });
   assert.deepEqual(desktopSession, { classification: 'project', projectPath: '/project' });
 });
 

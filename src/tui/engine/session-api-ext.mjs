@@ -54,7 +54,7 @@ export function restoredAssistantTranscriptItems(message, nextId) {
 
 export function createEngineApiB(bag) {
   const {
-    runtime, nextId, flags, lifecycle, listeners, getState, set, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
+    runtime, nextId, flags, lifecycle, listeners, getState, set, flushEmitImmediate, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
   } = bag;
   return {
     resolveToolApproval: (id, decision = {}) => {
@@ -587,6 +587,10 @@ export function createEngineApiB(bag) {
         return true;
       } finally {
         set({ commandBusy: false, commandStatus: null });
+        // Desktop resume returns a snapshot immediately after this promise.
+        // Publish the completed route/transcript boundary now so callers never
+        // observe the previous frame's session id and title.
+        flushEmitImmediate();
       }
     },
 

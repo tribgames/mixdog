@@ -8,12 +8,13 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  Download,
+  ArrowDown,
   Folder,
   FolderOpen,
   MessageSquare,
   MoreHorizontal,
   Pencil,
+  Pin,
   Plus,
   Settings,
   Trash2,
@@ -41,12 +42,13 @@ interface DesktopTitlebarProps {
   sidebarOpen: boolean;
   tabs: WorkspaceTab[];
   activeKey: string;
+  activeBusy?: boolean;
+  updaterState?: DesktopUpdaterState;
   onToggleSidebar(): void;
   onSelectTab(tab: WorkspaceTab): void;
   onCloseTab(tab: WorkspaceTab): void;
   onReorderTab(sourceKey: string, targetKey: string): void;
   onNewTask(): void;
-  updaterState?: DesktopUpdaterState;
   onOpenUpdate?(): void;
 }
 
@@ -79,21 +81,28 @@ export function DesktopTitlebar({
   sidebarOpen,
   tabs,
   activeKey,
+  activeBusy = false,
+  updaterState,
   onToggleSidebar,
   onSelectTab,
   onCloseTab,
   onReorderTab,
   onNewTask,
-  updaterState,
   onOpenUpdate,
 }: DesktopTitlebarProps) {
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
-  const draggedTabKey = useRef("");
+  const tabStrip = useRef<HTMLElement>(null);
+  const pointerDrag = useRef<{
+    pointerId: number;
+    sourceKey: string;
+    startX: number;
+    started: boolean;
+    lastTargetKey: string;
+  } | null>(null);
+  const suppressTabClick = useRef("");
   const [draggingKey, setDraggingKey] = useState("");
   const windowsCaptionControls = typeof navigator !== "undefined" &&
     /Windows/i.test(navigator.userAgent);
-  const updateVisible = updaterState?.status === "ready" || updaterState?.status === "installing";
-  const updateInstalling = updaterState?.status === "installing";
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
     if (node) tabNodes.current.set(key, node);
     else tabNodes.current.delete(key);
@@ -110,6 +119,72 @@ export function DesktopTitlebar({
     tabNodes.current.get(activeKey)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey]);
 
+  const finishPointerDrag = useCallback((pointerId: number) => {
+    const drag = pointerDrag.current;
+    if (!drag || drag.pointerId !== pointerId) return;
+    if (drag.started) suppressTabClick.current = drag.sourceKey;
+    const source = tabNodes.current.get(drag.sourceKey);
+    try {
+      if (source?.hasPointerCapture?.(pointerId)) source.releasePointerCapture(pointerId);
+    } catch {
+      // The browser can release capture before React delivers pointercancel.
+    }
+    pointerDrag.current = null;
+    setDraggingKey("");
+  }, []);
+
+  const movePointerDrag = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    const drag = pointerDrag.current;
+    const pointerId = event.pointerId || 1;
+    if (!drag || drag.pointerId !== pointerId) return;
+    if (!drag.started) {
+      if (Math.abs(event.clientX - drag.startX) < 4) return;
+      drag.started = true;
+      const source = tabNodes.current.get(drag.sourceKey);
+      try { source?.setPointerCapture?.(pointerId); } catch {}
+      setDraggingKey(drag.sourceKey);
+      const sourceTab = tabs.find((tab) => tab.key === drag.sourceKey);
+      if (sourceTab && sourceTab.key !== activeKey) onSelectTab(sourceTab);
+    }
+    event.preventDefault();
+
+    const strip = tabStrip.current;
+    if (!strip) return;
+    const stripRect = strip.getBoundingClientRect();
+    const edge = Math.max(24, stripRect.width * 0.05);
+    const scrollDistance = Math.max(8, Math.min(24, edge * 0.5));
+    if (event.clientX < stripRect.left + edge) {
+      strip.scrollBy?.({ left: -scrollDistance, behavior: "auto" });
+    } else if (event.clientX > stripRect.right - edge) {
+      strip.scrollBy?.({ left: scrollDistance, behavior: "auto" });
+    }
+
+    const pointed = document.elementFromPoint?.(event.clientX, event.clientY);
+    let targetNode = pointed?.closest<HTMLElement>(".workspace-tab") ||
+      (event.target as Element | null)?.closest?.<HTMLElement>(".workspace-tab") || null;
+    if (targetNode && !strip.contains(targetNode)) targetNode = null;
+    if (!targetNode) {
+      let closestDistance = Number.POSITIVE_INFINITY;
+      for (const node of tabNodes.current.values()) {
+        const rect = node.getBoundingClientRect();
+        if (rect.width <= 0) continue;
+        const distance = Math.abs(event.clientX - (rect.left + rect.width / 2));
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          targetNode = node;
+        }
+      }
+    }
+    const targetKey = targetNode?.dataset.tabKey || "";
+    if (!targetKey || targetKey === drag.sourceKey || targetKey === drag.lastTargetKey) return;
+    drag.lastTargetKey = targetKey;
+    onReorderTab(drag.sourceKey, targetKey);
+  }, [activeKey, onReorderTab, onSelectTab, tabs]);
+
+  const activeTabIsNew = tabs.find((tab) => tab.key === activeKey)?.selection.kind === "new";
+  const updateVisible = updaterState?.status === "ready" || updaterState?.status === "installing";
+  const updateInstalling = updaterState?.status === "installing";
+
   return (
     <header className="topbar" aria-label="Workspace tabs">
       <div className="titlebar-leading">
@@ -118,7 +193,6 @@ export function DesktopTitlebar({
           className="icon-button toolbar-sidebar"
           onClick={onToggleSidebar}
           aria-label={`${sidebarOpen ? "Collapse" : "Expand"} session sidebar`}
-          data-tooltip={`${sidebarOpen ? "Collapse" : "Expand"} sessions`}
           aria-expanded={sidebarOpen}
           aria-controls="session-sidebar"
         >
@@ -127,40 +201,36 @@ export function DesktopTitlebar({
       </div>
 
       <div className="workspace-tabs-shell" data-slot="workspace-tabs" data-count={tabs.length}>
-        <nav className="workspace-tabs" data-slot="workspace-tabs-scroll" aria-label="Open workspaces"
-          onKeyDown={onTabKeyDown}>
-          {tabs.map((tab, index) => {
+        <nav ref={tabStrip} className="workspace-tabs" data-slot="workspace-tabs-scroll"
+          aria-label="Open workspaces" onKeyDown={onTabKeyDown}
+          onPointerMove={movePointerDrag}
+          onPointerUp={(event) => finishPointerDrag(event.pointerId || 1)}
+          onPointerCancel={(event) => finishPointerDrag(event.pointerId || 1)}>
+          {tabs.map((tab) => {
             const active = tab.key === activeKey;
+            const working = active && activeBusy;
             return (
-              <React.Fragment key={tab.key}>
-                {index > 0 && <span className="workspace-tab-divider" aria-hidden="true" />}
-                <div
+                <div key={tab.key}
                   ref={(node) => setTabNode(tab.key, node)}
                   className={`workspace-tab ${active ? "active" : ""} ${draggingKey === tab.key ? "dragging" : ""}`}
+                  data-tab-key={tab.key}
                   data-active={active}
-                  draggable
+                  data-working={working || undefined}
                   aria-grabbed={draggingKey === tab.key}
-                  onDragStart={(event) => {
-                    draggedTabKey.current = tab.key;
-                    setDraggingKey(tab.key);
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", tab.key);
+                  onPointerDown={(event) => {
+                    if (event.button !== 0 || event.pointerType === "touch" ||
+                      (event.target as Element | null)?.closest?.(".workspace-tab-close")) return;
+                    const pointerId = event.pointerId || 1;
+                    pointerDrag.current = {
+                      pointerId,
+                      sourceKey: tab.key,
+                      startX: event.clientX,
+                      started: false,
+                      lastTargetKey: "",
+                    };
                   }}
-                  onDragOver={(event) => {
-                    if (!draggedTabKey.current || draggedTabKey.current === tab.key) return;
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const sourceKey = draggedTabKey.current || event.dataTransfer.getData("text/plain");
-                    if (sourceKey && sourceKey !== tab.key) onReorderTab(sourceKey, tab.key);
-                    draggedTabKey.current = "";
-                    setDraggingKey("");
-                  }}
-                  onDragEnd={() => {
-                    draggedTabKey.current = "";
-                    setDraggingKey("");
+                  onLostPointerCapture={(event) => {
+                    if (pointerDrag.current?.started) finishPointerDrag(event.pointerId || 1);
                   }}
                   onMouseDown={(event) => {
                     if (event.button !== 1) return;
@@ -171,13 +241,21 @@ export function DesktopTitlebar({
                   <button
                     type="button"
                     className="workspace-tab-main"
-                    onClick={() => onSelectTab(tab)}
+                    onClick={() => {
+                      if (suppressTabClick.current === tab.key) {
+                        suppressTabClick.current = "";
+                        return;
+                      }
+                      onSelectTab(tab);
+                    }}
                     aria-current={active ? "page" : undefined}
                     data-tooltip={tab.title}
                   >
                     {tab.selection.kind === "project"
                       ? <Folder size={14} />
                       : <MessageSquare size={14} />}
+                    {working && <span className="workspace-tab-status" role="status"
+                      aria-label={`${tab.title} is working`} />}
                     <span>{tab.title}</span>
                   </button>
                   <button
@@ -193,7 +271,6 @@ export function DesktopTitlebar({
                     <X size={12} />
                   </button>
                 </div>
-              </React.Fragment>
             );
           })}
         </nav>
@@ -201,19 +278,21 @@ export function DesktopTitlebar({
         <span className="workspace-tabs-fade workspace-tabs-fade-right" aria-hidden="true" />
       </div>
 
-      <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
+      {!activeTabIsNew && <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
         aria-label="New task" data-tooltip="New task">
         <Plus size={16} />
-      </button>
-      <div className="titlebar-spacer" />
+      </button>}
       {updateVisible && <div className="titlebar-update-shell">
         <button type="button" className="titlebar-update" onClick={onOpenUpdate}
           disabled={updateInstalling} aria-busy={updateInstalling}
-          aria-label={updateInstalling ? "Installing update" : `Install Mixdog ${updaterState.version}`}
-          data-tooltip={updateInstalling ? "Installing update…" : `Mixdog ${updaterState.version} ready`}>
-          <span className="titlebar-update-label">Update</span>
-          <span className="titlebar-update-icon">
-            {updateInstalling ? <span className="titlebar-update-loader" aria-hidden="true" /> : <Download size={14} />}
+          aria-label={updateInstalling ? "Installing update" : `Install Mixdog ${updaterState.version}`}>
+          <span className="titlebar-update-label">
+            {updateInstalling ? "Installing" : "Update"}
+          </span>
+          <span className="titlebar-update-icon" aria-hidden="true">
+            {updateInstalling
+              ? <span className="titlebar-update-loader" />
+              : <ArrowDown size={12} />}
           </span>
         </button>
       </div>}
@@ -269,6 +348,26 @@ function projectIdentity(path: string | null | undefined) {
   return String(path || "").replace(/[\\/]+/g, "/").replace(/\/$/, "").toLocaleLowerCase();
 }
 
+const LEGACY_DEFAULT_SIDEBAR_WIDTH = 286;
+const DEFAULT_SIDEBAR_WIDTH = 260;
+const MIN_SIDEBAR_WIDTH = 232;
+const MAX_SIDEBAR_WIDTH = 420;
+const SIDEBAR_WIDTH_KEY = "mixdog:session-sidebar-width";
+
+function clampSidebarWidth(value: number) {
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(value)));
+}
+
+function storedSidebarWidth() {
+  try {
+    const value = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    if (value === LEGACY_DEFAULT_SIDEBAR_WIDTH) return DEFAULT_SIDEBAR_WIDTH;
+    return Number.isFinite(value) && value > 0 ? clampSidebarWidth(value) : DEFAULT_SIDEBAR_WIDTH;
+  } catch {
+    return DEFAULT_SIDEBAR_WIDTH;
+  }
+}
+
 interface SessionSidebarProps {
   open: boolean;
   sessions: DesktopSessionSummary[];
@@ -298,11 +397,28 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [menuSessionId, setMenuSessionId] = useState("");
   const [confirmingSessionId, setConfirmingSessionId] = useState("");
   const [deletingSessionId, setDeletingSessionId] = useState("");
-  const rows = useMemo(() => sessions
+  const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
+  const resizeStart = useRef<{ clientX: number; width: number } | null>(null);
+  const updateSidebarWidth = useCallback((value: number) => {
+    const next = clampSidebarWidth(value);
+    setSidebarWidth(next);
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
+    } catch {
+      // The current window can still resize when persistent storage is unavailable.
+    }
+  }, []);
+  const finishSidebarResize = useCallback(() => {
+    resizeStart.current = null;
+    document.body.classList.remove("session-sidebar-resizing");
+  }, []);
+  useEffect(() => () => document.body.classList.remove("session-sidebar-resizing"), []);
+  const allRows = useMemo(() => sessions
     .filter((session) => session.classification === "task" || session.classification === "project")
     .sort((left, right) =>
       right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)),
   [sessions]);
+  const rows = allRows;
   const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
     setMenuSessionId("");
     setConfirmingSessionId("");
@@ -343,6 +459,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       inert={!open}
       aria-hidden={!open}
       aria-label="Session manager"
+      style={{ "--session-sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
       onPointerDownCapture={(event) => {
         if (!menuSessionId || !(event.target instanceof Element)) return;
         if (event.target.closest(".session-row-menu, .session-row-more")) return;
@@ -363,11 +480,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
 
       <div className="session-sidebar-scroll">
         <section className="sidebar-recent" aria-label="Recent sessions">
-          <div className="sidebar-recent-heading">Recent</div>
-          <nav className="session-list recent-session-list" aria-label="Recent sessions">
-            {rows.length === 0 && <p className="sidebar-section-empty">
-              No sessions
-            </p>}
+          <div className="sidebar-recent-heading">
+            <span>Recent</span>
+          </div>
+          <nav id="recent-session-list" className="session-list recent-session-list" aria-label="Recent sessions">
+            {rows.length === 0 && <p className="sidebar-section-empty">No sessions</p>}
             {rows.map((session) => <SessionSidebarRow key={session.id}
               session={session} active={selection.kind === "session" && selection.id === session.id}
               editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
@@ -382,10 +499,37 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         </section>
       </div>
       <footer className="session-sidebar-footer">
-        <button type="button" onClick={onOpenSettings} aria-label="Open settings" data-tooltip="Settings">
+        <button type="button" className="sidebar-settings-button" onClick={onOpenSettings}
+          aria-label="Open settings" data-tooltip="Settings">
           <Settings size={15} /><span>Settings</span>
         </button>
       </footer>
+      <div className="session-sidebar-resize" role="separator" tabIndex={0}
+        aria-label="Resize session sidebar" aria-orientation="vertical"
+        aria-valuemin={MIN_SIDEBAR_WIDTH} aria-valuemax={MAX_SIDEBAR_WIDTH}
+        aria-valuenow={sidebarWidth} aria-valuetext={`${sidebarWidth} pixels`}
+        onDoubleClick={() => updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft") updateSidebarWidth(sidebarWidth - 16);
+          else if (event.key === "ArrowRight") updateSidebarWidth(sidebarWidth + 16);
+          else if (event.key === "Home") updateSidebarWidth(MIN_SIDEBAR_WIDTH);
+          else if (event.key === "End") updateSidebarWidth(MAX_SIDEBAR_WIDTH);
+          else return;
+          event.preventDefault();
+        }}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          resizeStart.current = { clientX: event.clientX, width: sidebarWidth };
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+          document.body.classList.add("session-sidebar-resizing");
+          event.preventDefault();
+        }}
+        onPointerMove={(event) => {
+          if (!resizeStart.current) return;
+          updateSidebarWidth(resizeStart.current.width + event.clientX - resizeStart.current.clientX);
+        }}
+        onPointerUp={finishSidebarResize}
+        onPointerCancel={finishSidebarResize} />
     </aside>
   );
 });
@@ -520,7 +664,6 @@ const SessionRow = React.memo(function SessionRow({
       data-session-id={session.id}
       aria-current={active ? "page" : undefined}
       onClick={activateFromClick}
-      data-tooltip={sessionLabel(session)}
     >
       {editing ? (
         <input
@@ -642,6 +785,7 @@ interface ProjectSwitcherProps {
   onStartProject(path: string): void;
   onStartProjectTask(path: string): void;
   onOpenExplorer(path: string): void;
+  onSetPinned(path: string, pinned: boolean): Promise<void>;
   onRename(path: string, alias: string): void;
   onRemove(path: string): Promise<void>;
 }
@@ -659,6 +803,7 @@ export function ProjectSwitcher({
   onStartProject,
   onStartProjectTask,
   onOpenExplorer,
+  onSetPinned,
   onRename,
   onRemove,
 }: ProjectSwitcherProps) {
@@ -722,7 +867,7 @@ export function ProjectSwitcher({
   }, [onClose, open]);
 
   if (!open) return null;
-  const ordered = [...projects];
+  const ordered = [...projects].sort((left, right) => Number(right.pinned) - Number(left.pinned));
 
   return createPortal(
     <div className="project-switcher-layer" onPointerDown={(event) => {
@@ -766,7 +911,8 @@ export function ProjectSwitcher({
             const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
             const title = project.alias?.trim() || project.name?.trim() || displayProject(project.path);
             return (
-              <div className={`project-card ${selected ? "selected" : ""}`} key={project.path} role="listitem">
+              <div className={`project-card ${selected ? "selected" : ""} ${project.pinned ? "pinned" : ""}`}
+                key={project.path} role="listitem">
                 {renaming === project.path ? (
                   <RenameProject
                     initialValue={title}
@@ -783,7 +929,11 @@ export function ProjectSwitcher({
                       onClose();
                     }} aria-current={selected ? "page" : undefined}>
                       <span>
-                        <b>{title}</b>
+                        <span className="project-title-line">
+                          <b>{title}</b>
+                          {project.pinned && <Pin className="project-pin-mark" size={11}
+                            aria-label="Pinned project" />}
+                        </span>
                         <small>{project.path}</small>
                       </span>
                     </button>
@@ -808,6 +958,11 @@ export function ProjectSwitcher({
                           onOpenExplorer(project.path);
                           queueMicrotask(() => menuTrigger.current?.focus());
                         }}>Open in Explorer</button>
+                        <button role="menuitem" onClick={() => {
+                          setMenu(null);
+                          void onSetPinned(project.path, !project.pinned)
+                            .finally(() => queueMicrotask(() => menuTrigger.current?.focus()));
+                        }}><Pin size={13} />{project.pinned ? "Unpin project" : "Pin project"}</button>
                         <button role="menuitem" onClick={() => {
                           setMenu(null);
                           setRenaming(project.path);

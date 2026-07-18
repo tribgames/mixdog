@@ -6,7 +6,7 @@
 import { getProvider } from '../../providers/registry.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { collectPromptSkillsCached, buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
-import { saveSession, saveSessionAsync, loadSession, setLiveSession } from '../store.mjs';
+import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession } from '../store.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
 import { loadConfig } from '../../config.mjs';
@@ -533,6 +533,12 @@ export async function resumeSession(sessionId, preset, options = {}) {
     if (missing.length) {
         process.stderr.write(`[session] Warning: ${missing.length} tools no longer available: ${missing.map(t => t.name).join(', ')}\n`);
     }
-    await saveSessionAsync(session, { expectedGeneration: session.generation });
+    // The live session already owns the refreshed tools and desktop scope.
+    // Defer the structured clone + worker round-trip so opening a conversation
+    // is not blocked on persisting the same in-memory state back to disk.
+    void saveSessionAsyncDeferred(session, { expectedGeneration: session.generation })
+        .catch((err) => {
+            try { process.stderr.write(`[session] resume save failed: ${err?.message || err}\n`); } catch {}
+        });
     return session;
 }

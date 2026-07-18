@@ -25,6 +25,7 @@ import {
     waitForWriteCommit as _waitForWriteCommit,
 } from './store/write-guards.mjs';
 import {
+    SESSION_SUMMARY_INDEX_VERSION,
     summaryIndexPath,
     _sessionSummary,
     _normalizeSummaryIndex,
@@ -1141,7 +1142,9 @@ export function listStoredSessionSummaries(options = {}) {
         p = summaryIndexPath();
         hasIndex = existsSync(p);
         if (hasIndex) {
-            indexedRows = _normalizeSummaryIndex(JSON.parse(readFileSync(p, 'utf-8'))).rows;
+            const raw = JSON.parse(readFileSync(p, 'utf-8'));
+            hasIndex = Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION;
+            if (hasIndex) indexedRows = _normalizeSummaryIndex(raw).rows;
         }
     } catch { /* unreadable/malformed sidecar falls through to rebuild */ }
 

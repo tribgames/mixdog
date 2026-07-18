@@ -464,8 +464,11 @@ test('abort during adoption detaches once, resolves once, and releases once', as
     configurable: true,
     get() {
       abortedReads += 1;
-      if (abortedReads === 2) controller.abort(new Error('cancelled during adoption'));
-      return abortedReads >= 2;
+      // Read #1: the bounded admission-wait wrapper (_acquireShellLeaseBounded).
+      // Read #2: the pre-spawn abort check. Read #3: the _autoBackground
+      // adoption re-check — the abort must land exactly there.
+      if (abortedReads === 3) controller.abort(new Error('cancelled during adoption'));
+      return abortedReads >= 3;
     },
   });
   let detachCalls = 0;

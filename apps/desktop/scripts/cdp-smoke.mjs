@@ -25,9 +25,20 @@ const rendererExpression = `(async () => {
   // Windows uses titleBarStyle:hidden with a controls overlay; the topbar is
   // expected to span the titlebar area, which excludes the native buttons.
   const overlay = navigator.windowControlsOverlay;
-  const expectedTitlebarWidth = overlay?.visible
-    ? overlay.getTitlebarAreaRect().width
-    : window.innerWidth;
+  const overlayRect = overlay?.visible ? overlay.getTitlebarAreaRect() : null;
+  const interactiveRects = Array.from(titlebar?.querySelectorAll('button, nav') || [])
+    .filter((element) => element.getClientRects().length)
+    .map((element) => element.getBoundingClientRect());
+  const interactiveRight = interactiveRects.reduce((right, rect) => Math.max(right, rect.right), 0);
+  const captionBounds = titlebar?.querySelector('.titlebar-caption-space')?.getBoundingClientRect() || null;
+  const overlayRight = overlayRect ? overlayRect.x + overlayRect.width : window.innerWidth;
+  const titlebarPaddingRight = titlebar ? Number.parseFloat(getComputedStyle(titlebar).paddingRight) || 0 : 0;
+  const captionReservedRight = captionBounds ? captionBounds.right + titlebarPaddingRight : 0;
+  const interactiveContentSafe = !overlay?.visible || (
+    interactiveRight <= overlayRight &&
+    captionBounds && captionBounds.left <= overlayRight + 1 &&
+    captionReservedRight >= window.innerWidth - 1
+  );
   startedAt = performance.now();
   const approvalRoutingResult = await api.resolveToolApproval(
     '__packaging_smoke__',
@@ -47,8 +58,36 @@ const rendererExpression = `(async () => {
         titlebarBounds
         && Math.round(titlebarBounds.top) === 0
         && Math.round(titlebarBounds.height) === 36
-        && Math.round(titlebarBounds.width) === Math.round(expectedTitlebarWidth)
+        && Math.round(titlebarBounds.width) === Math.round(window.innerWidth)
+        && interactiveContentSafe
       ),
+      titlebarGeometry: {
+        bounds: titlebarBounds ? {
+          x: titlebarBounds.x,
+          y: titlebarBounds.y,
+          width: titlebarBounds.width,
+          height: titlebarBounds.height,
+        } : null,
+        overlayVisible: overlay?.visible === true,
+        overlayRect: overlayRect ? {
+          x: overlayRect.x,
+          y: overlayRect.y,
+          width: overlayRect.width,
+          height: overlayRect.height,
+        } : null,
+        overlayRight,
+        interactiveRight,
+        interactiveContentSafe,
+        titlebarPaddingRight,
+        captionReservedRight,
+        captionBounds: captionBounds ? {
+          x: captionBounds.x,
+          y: captionBounds.y,
+          width: captionBounds.width,
+          height: captionBounds.height,
+        } : null,
+        innerWidth: window.innerWidth,
+      },
       sidebarToggle: Boolean(titlebar?.querySelector(
         'button[aria-controls="session-sidebar"]',
       )),

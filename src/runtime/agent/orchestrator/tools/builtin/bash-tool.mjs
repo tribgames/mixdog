@@ -372,7 +372,12 @@ export async function executeBashTool(args, workDir, options = {}) {
         ? Math.max(0, totalTimeout - timeout)
         : 0;
     const mergeStderr = args.merge_stderr === true;
-    const longForegroundHint = foregroundLongCommandHint(command, timeout, { ...args, run_in_background: runInBackground });
+    const longForegroundHint = foregroundLongCommandHint(
+        command,
+        timeout,
+        { ...args, run_in_background: runInBackground },
+        { backgroundTasksDisabled: _bgTasksDisabled },
+    );
     if (longForegroundHint) return formatShellToolFailure(longForegroundHint);
     // Auto-background threshold. Reference-CLI parity: sync commands run to
     // their timeout without any default auto-promotion, so the default is 0

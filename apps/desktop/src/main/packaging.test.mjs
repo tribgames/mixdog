@@ -5,6 +5,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { listPackage, statFile } from '@electron/asar';
 
+import { SETTINGS_ITEMS } from '../renderer/settings/settings-items.ts';
+
 test('packaged preload path matches electron-vite output', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
@@ -32,6 +34,14 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.doesNotMatch(iconGenerator, /mixdog\.png/);
   const icon = await readFile(new URL('../../build/mixdog.ico', import.meta.url));
   assert.deepEqual([...icon.subarray(0, 4)], [0, 0, 1, 0]);
+});
+
+test('Windows acceptance checks the current canonical settings inventory', async () => {
+  const acceptance = await readFile(new URL('../../scripts/acceptance-windows.ps1', import.meta.url), 'utf8');
+  assert.match(
+    acceptance,
+    new RegExp(`\\$value\\.inventory\\.settingsItems -ne ${SETTINGS_ITEMS.length}`),
+  );
 });
 
 test('production entry has no capture side effects and capture harness is excluded', async () => {
@@ -97,13 +107,14 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /await host\.dispose\(\)/);
   assert.match(options, /Object\.freeze/);
   assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#080808'/);
-  assert.doesNotMatch(options, /color:\s*'#00000000'/);
-  assert.match(options, /color:\s*DESKTOP_BACKGROUND_COLOR/);
-  assert.match(options, /color:\s*light\s*\?\s*DESKTOP_LIGHT_BACKGROUND_COLOR\s*:\s*DESKTOP_BACKGROUND_COLOR/);
+  assert.match(options, /DESKTOP_LIGHT_BACKGROUND_COLOR\s*=\s*'#fafafa'/);
+  assert.match(options, /DESKTOP_TITLEBAR_HEIGHT\s*=\s*40/);
+  assert.match(options, /color:\s*'#00000000'/);
   assert.match(options, /backgroundColor:\s*DESKTOP_BACKGROUND_COLOR/);
-  assert.match(options, /symbolColor:\s*'#e5e5e5'/);
+  assert.match(options, /symbolColor:\s*light\s*\?\s*'black'\s*:\s*'white'/);
+  assert.match(options, /Math\.max\(DESKTOP_TITLEBAR_HEIGHT,\s*Math\.round\(DESKTOP_TITLEBAR_HEIGHT \* zoom\)\)/);
   assert.match(options, /titleBarStyle:\s*'hidden'/);
-  assert.doesNotMatch(options, /frame:\s*(?:false|process\.platform)/);
+  assert.match(options, /frame:\s*false/);
   assert.match(adapter, /out\/main\/capture-window\.js/);
   assert.doesNotMatch(adapter, /out\/main\/index\.js|MIXDOG_DESKTOP_CAPTURE_PATH/);
   assert.match(adapter, /rm\(windowOutput,\s*\{\s*force:\s*true\s*\}\)/);
@@ -121,7 +132,7 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(adapter, /packaged:\s*false/);
   assert.match(capture, /liveDesktop\.sidebarGap !== 8/);
   assert.match(capture, /liveDesktop\.rects\.sidebar\.left !== 8/);
-  assert.match(capture, /liveDesktop\.rects\.sidebar\.top !== 42/);
+  assert.match(capture, /liveDesktop\.rects\.sidebar\.top !== 46/);
   assert.match(capture, /liveDesktop\.rects\.sidebar\.width !== 286/);
   assert.match(capture, /liveDesktop\.viewport\.height - liveDesktop\.rects\.sidebar\.bottom !== 8/);
   assert.match(capture, /liveDesktop\.rects\.main\.left !== 302/);

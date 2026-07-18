@@ -6,7 +6,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 
 register(new URL('./test-css-loader.mjs', import.meta.url));
-const { SettingsView } = await import('./SettingsView.tsx');
+const { SettingsView, preloadSettings } = await import('./SettingsView.tsx');
 const { OnboardingWizard } = await import('./OnboardingWizard.tsx');
 const { CommandSurface } = await import('../CommandSurface.tsx');
 const { StatusPopover } = await import('../StatusPopover.tsx');
@@ -44,12 +44,12 @@ afterEach(async () => {
 const VALUES = [
   'profile', 'autoclear', 'autocompact', 'compact-type', 'channels', 'remote-runtime',
   'channel-backend', 'channel-setting', 'output-style', 'theme', 'workflow', 'model',
-  'search', 'providers', 'mcp', 'plugins', 'hooks', 'skills', 'update',
+  'search', 'providers', 'mcp', 'plugins', 'hooks', 'skills', 'system-shell', 'update',
 ];
 const LABELS = [
   'Profile', 'Auto-clear', 'Auto-compact', 'Compact type', 'Channels enabled', 'Remote Runtime',
   'Channel', 'Setting', 'Output style', 'Theme', 'Workflow', 'Model', 'Search model', 'Providers',
-  'MCP servers', 'Plugins', 'Hooks', 'Skills', 'Update',
+  'MCP servers', 'Plugins', 'Hooks', 'Skills', 'System shell', 'Update',
 ];
 const DESCRIPTIONS = [
   'Your title and response language.',
@@ -70,6 +70,7 @@ const DESCRIPTIONS = [
   '0 detected',
   '0 before-tool rules',
   '0 available',
+  'Use the platform default shell command.',
   'Check version and update mixdog.',
 ];
 
@@ -100,14 +101,24 @@ function capabilityApi(overrides = {}) {
     hooksStatus: { ruleCount: 3, rules: [] },
     skillsStatus: { count: 4, skills: [] },
     getDisabledSkills: { disabled: [] },
+    getSystemShell: { source: 'auto', command: '', effective: 'powershell.exe' },
     getUpdateSettings: { currentVersion: '1.2.3', autoUpdate: false },
     getUpdateStatus: { phase: 'idle' },
     ...overrides,
   };
   const calls = [];
+  const readCalls = [];
   return {
     calls,
+    readCalls,
     api: {
+      readCapabilities: async (requests) => {
+        readCalls.push(requests);
+        return requests.map(({ capability }) => ({
+          ok: true,
+          value: values[capability] ?? { ok: true },
+        }));
+      },
       invokeCapability: async ({ capability, args = [] }) => {
         if (/^(set|toggle|check|run|save|add|remove|delete)/.test(capability)) calls.push([capability, args]);
         return { value: values[capability] ?? { ok: true }, snapshot: { items: [], queued: [] } };
@@ -127,17 +138,48 @@ async function renderSettings(props = {}) {
   });
 }
 
+test('switching settings categories resets the shared pane scroll position', async () => {
+  mount();
+  const { api } = capabilityApi();
+  await renderSettings({ api });
+  const body = document.querySelector('.mixdog-settings__body');
+  body.scrollTop = 240;
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Models').click();
+    await Promise.resolve();
+  });
+  assert.equal(body.scrollTop, 0);
+});
+
 test('SETTINGS_ITEMS is the exact TUI row registry and order', () => {
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.value), VALUES);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.label), LABELS);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.description), DESCRIPTIONS);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.kind), [
     'open', 'toggle', 'toggle', 'static', 'toggle', 'toggle', 'cycle', 'open', 'open',
-    'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open',
+    'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open',
   ]);
   for (const item of SETTINGS_ITEMS) {
     assert.deepEqual(Object.keys(item), ['value', 'label', 'description', 'kind']);
   }
+});
+
+test('background preload prepares every settings surface and opening reuses the shared cache', async () => {
+  mount();
+  const { api, readCalls } = capabilityApi();
+  await preloadSettings(api);
+  assert.equal(readCalls.length, 1);
+  const capabilities = readCalls[0].map((request) => request.capability);
+  assert.ok(capabilities.includes('getProfile'));
+  assert.ok(capabilities.includes('getProviderSetup'));
+  assert.ok(capabilities.includes('getChannelSetup'));
+  assert.ok(capabilities.includes('getSystemShell'));
+
+  await renderSettings({ api });
+  assert.equal(readCalls.length, 1, 'opening should reuse the background preload');
+  assert.doesNotMatch(document.body.textContent, /Loading settings/);
+  assert.equal(document.querySelector('input[name="title"]')?.value, 'Owner');
 });
 
 test('settings renders the flat settings-v2 rail and inline General groups', async () => {
@@ -147,6 +189,10 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
   assert.deepEqual(
     Array.from(document.querySelectorAll('.mixdog-settings__rail button'), (node) => node.textContent),
     SETTINGS_CATEGORIES.map((item) => item.label),
+  );
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.mixdog-settings__rail-group > h2'), (node) => node.textContent),
+    ['Integrations', 'Support'],
   );
   assert.deepEqual(SETTINGS_CATEGORIES.slice(0, 4).map((item) => item.label),
     ['General', 'Models', 'Workflows', 'Output style']);
@@ -732,6 +778,36 @@ test('General exposes only System, White, and Dark with persistent desktop prefe
   assert.equal(window.localStorage.getItem('mixdog.desktop-theme-preference'), 'white');
 });
 
+test('System shell is shared by the TUI registry and Desktop capability editor', async () => {
+  mount();
+  const { api, calls } = capabilityApi({
+    getSystemShell: { source: 'config', command: 'powershell.exe', effective: 'powershell.exe' },
+  });
+  await renderSettings({ api, initialSection: 'system-shell' });
+  assert.equal(document.querySelector('.mixdog-settings__header h1')?.textContent, 'System');
+  assert.match(document.body.textContent, /Effective shellConfiguredpowershell\.exe/);
+  const input = document.querySelector('input[aria-label="System shell command"]');
+  assert.equal(input.value, 'powershell.exe');
+  await act(async () => {
+    input.focus();
+    input.value = 'pwsh';
+    input.blur();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setSystemShell' && args[0] === 'pwsh'));
+
+  const automatic = Array.from(document.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Use automatic');
+  await act(async () => {
+    automatic.click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(calls.some(([name, args]) => name === 'setSystemShell' && args[0] === ''));
+});
+
 test('update auto-checks on open and Update now runs without confirmation', async () => {
   mount();
   const { api, calls } = capabilityApi({
@@ -903,6 +979,26 @@ test('modal closes on Escape and restores the exact prior focus', async () => {
   assert.equal(closes, 1);
   assert.equal(document.activeElement === before, true,
     'closing settings should restore prior focus');
+});
+
+test('modal closes on its backdrop but stays open when the dialog is pressed', async () => {
+  mount();
+  const { api } = capabilityApi();
+  let closes = 0;
+  await renderSettings({ api, onClose: () => { closes += 1; } });
+  const layer = document.querySelector('.mixdog-settings-layer');
+  const dialog = document.querySelector('.mixdog-settings[role="dialog"]');
+
+  await act(async () => {
+    dialog.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
+  });
+  assert.equal(closes, 0, 'pressing inside settings should not close the modal');
+
+  await act(async () => {
+    layer.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.equal(closes, 1, 'pressing the settings backdrop should close the modal');
 });
 
 test('Settings lets a portaled select consume Escape without closing the dialog', async () => {

@@ -1,15 +1,23 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 
 export const DESKTOP_BACKGROUND_COLOR = '#080808';
-export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#ffffff';
+export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#fafafa';
+export const DESKTOP_TITLEBAR_HEIGHT = 40;
 
-const titleBarOverlay = Object.freeze({
-  // Native caption-button hover feedback is composited against this surface;
-  // a transparent overlay makes it imperceptible on the custom dark titlebar.
-  color: DESKTOP_BACKGROUND_COLOR,
-  symbolColor: '#e5e5e5',
-  height: 36,
-});
+type DesktopTitleBarWindow = Pick<BrowserWindow, 'setBackgroundColor' | 'setTitleBarOverlay'>;
+
+const titleBarThemes = new WeakMap<object, boolean>();
+const titleBarZoomFactors = new WeakMap<object, number>();
+
+function titleBarOverlay(light = false, zoom = 1) {
+  return {
+    color: '#00000000',
+    symbolColor: light ? 'black' : 'white',
+    height: Math.max(DESKTOP_TITLEBAR_HEIGHT, Math.round(DESKTOP_TITLEBAR_HEIGHT * zoom)),
+  };
+}
+
+const defaultTitleBarOverlay = Object.freeze(titleBarOverlay());
 
 function themeId(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -19,17 +27,27 @@ function themeId(value: unknown): string {
 }
 
 export function setDesktopTitleBarTheme(
-  window: Pick<BrowserWindow, 'setBackgroundColor' | 'setTitleBarOverlay'>,
+  window: DesktopTitleBarWindow,
   value: unknown,
 ): void {
   const light = themeId(value) === 'light';
+  titleBarThemes.set(window as object, light);
   window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
   if (process.platform !== 'win32') return;
-  window.setTitleBarOverlay({
-    ...titleBarOverlay,
-    color: light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR,
-    symbolColor: light ? '#202020' : '#e5e5e5',
-  });
+  window.setTitleBarOverlay(titleBarOverlay(
+    light,
+    titleBarZoomFactors.get(window as object) ?? 1,
+  ));
+}
+
+export function setDesktopTitleBarZoom(window: DesktopTitleBarWindow, zoom: number): void {
+  const normalized = Number.isFinite(zoom) ? Math.min(10, Math.max(0.2, zoom)) : 1;
+  titleBarZoomFactors.set(window as object, normalized);
+  if (process.platform !== 'win32') return;
+  window.setTitleBarOverlay(titleBarOverlay(
+    titleBarThemes.get(window as object) ?? false,
+    normalized,
+  ));
 }
 
 const webPreferences = Object.freeze({
@@ -50,7 +68,9 @@ export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
   show: false,
   autoHideMenuBar: true,
   titleBarStyle: 'hidden',
-  titleBarOverlay: process.platform === 'win32' ? titleBarOverlay : false,
+  ...(process.platform === 'win32'
+    ? { frame: false, titleBarOverlay: defaultTitleBarOverlay }
+    : { titleBarOverlay: false }),
   backgroundColor: DESKTOP_BACKGROUND_COLOR,
   webPreferences,
 }) satisfies Readonly<BrowserWindowConstructorOptions>;

@@ -278,17 +278,24 @@ export function ModelPicker({
   };
 
   const choose = async (option: DesktopModelOption) => {
+    const previousRecentModelKeys = recentModelKeys;
+    const key = modelKey(option);
+    const nextRecentModelKeys = [
+      key,
+      ...previousRecentModelKeys.filter((entry) => entry !== key),
+    ].slice(0, RECENT_MODELS_LIMIT);
+    setRecentModelKeys(nextRecentModelKeys);
+    writeRecentModelKeys(nextRecentModelKeys);
     close();
     try {
       const selected = await onSelect(option);
-      if (selected !== false) {
-        setRecentModelKeys((current) => {
-          const key = modelKey(option);
-          const next = [key, ...current.filter((entry) => entry !== key)].slice(0, RECENT_MODELS_LIMIT);
-          writeRecentModelKeys(next);
-          return next;
-        });
+      if (selected === false) {
+        setRecentModelKeys(previousRecentModelKeys);
+        writeRecentModelKeys(previousRecentModelKeys);
       }
+    } catch {
+      setRecentModelKeys(previousRecentModelKeys);
+      writeRecentModelKeys(previousRecentModelKeys);
     } finally {
       window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
     }
@@ -305,7 +312,6 @@ export function ModelPicker({
       <span className="model-row-copy">
         <span className="model-row-title">
           <strong>{modelDisplayName(option.model, option.provider, option.display)}</strong>
-          {option.latest && <small className="model-tag">Latest</small>}
         </span>
         <small>{modelOptionDescription(option)}</small>
       </span>

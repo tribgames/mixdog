@@ -18,7 +18,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
-import { CapabilitySettings } from './CapabilitySettings';
+import { CapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
 import {
   SETTINGS_CATEGORIES,
   SETTINGS_ITEMS,
@@ -30,6 +30,10 @@ import './settings.css';
 export type SettingsSection = typeof SETTINGS_ITEMS[number]['value'];
 
 type SettingsApi = Partial<DesktopApi>;
+
+export function preloadSettings(api: SettingsApi): Promise<unknown> {
+  return preloadCapabilitySettings(api);
+}
 
 export interface SettingsViewProps {
   api?: SettingsApi;
@@ -84,12 +88,16 @@ export function SettingsView({
   );
   const [version, setVersion] = useState('');
   const dialogRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (initialSection) setCategory(categoryForSettingsItem(initialSection));
   }, [initialSection]);
+  useLayoutEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [category]);
   useEffect(() => {
     let live = true;
     void api.invokeCapability?.({ capability: 'getUpdateSettings' }).then((result) => {
@@ -186,14 +194,17 @@ export function SettingsView({
   }, [onClose]);
 
   return createPortal(
-    <div className="mixdog-settings-layer">
+    <div className="mixdog-settings-layer" onPointerDown={(event) => {
+      if (event.target !== event.currentTarget) return;
+      requestClose();
+    }}>
     <section ref={dialogRef} className="mixdog-settings mixdog-settings-v2" role="dialog" aria-modal="true"
       aria-labelledby="mixdog-settings-title" tabIndex={-1}>
       <aside className="mixdog-settings__rail" aria-label="Settings categories">
         <nav>
           {(['Mixdog', 'Integrations', 'Support'] as const).map((group) => <div
             className="mixdog-settings__rail-group" key={group}>
-            <h2>{group}</h2>
+            {group !== 'Mixdog' && <h2>{group}</h2>}
             {SETTINGS_CATEGORIES.filter((item) => item.group === group).map((item) => {
               const Icon = CATEGORY_ICONS[item.value];
               return <button type="button" key={item.value}
@@ -215,7 +226,7 @@ export function SettingsView({
           <button ref={closeRef} type="button" className="mixdog-settings__close" onClick={requestClose}
             aria-label="Close settings"><X aria-hidden="true" size={16} /></button>
         </header>
-        <div className="mixdog-settings__body">
+        <div ref={bodyRef} className="mixdog-settings__body">
           <CapabilitySettings api={api} category={category} onCompose={onCompose}
             onOpenCategory={setCategory} />
         </div>

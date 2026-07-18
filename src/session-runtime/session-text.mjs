@@ -27,23 +27,62 @@ export function messageContextText(message) {
   return text;
 }
 
+const INJECTED_DISPLAY_BLOCK_TAGS = Object.freeze([
+  'system-reminder',
+  'available-deferred-tools',
+  'mcp-instructions',
+  'memory-context',
+  'event',
+]);
+
+const SYNTHETIC_SESSION_TEXT_PATTERNS = Object.freeze([
+  /^\[mixdog-runtime\]/i,
+  /^\[(?:truncated|request interrupted by user)\]$/i,
+  /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
+  /^the async (?:agent|shell) task\b/i,
+]);
+
+export function stripSessionDisplayEnvelope(value) {
+  return String(value ?? '')
+    .replace(/^# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, '')
+    .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '')
+    .replace(/^#\s*Session\s+Cwd:\s+\S+(?:\s+Model:\s+\S*)?(?:\s+Workflow:\s+\S*)?\s*/i, '');
+}
+
+export function stripInjectedSessionText(value) {
+  let text = String(value ?? '');
+  for (const tag of INJECTED_DISPLAY_BLOCK_TAGS) {
+    const block = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?(?:<\\/${tag}\\s*>|$)`, 'gi');
+    const closing = new RegExp(`<\\/${tag}\\s*>`, 'gi');
+    text = text.replace(block, ' ').replace(closing, ' ');
+  }
+  return text;
+}
+
+export function isSyntheticSessionText(text) {
+  const value = String(text || '').trim();
+  return SYNTHETIC_SESSION_TEXT_PATTERNS.some((pattern) => pattern.test(value));
+}
+
 export function isSessionPreviewNoise(text) {
   const value = String(text || '').trim();
   return !value
-    || value.startsWith('<system-reminder>')
-    || value.startsWith('</system-reminder>')
+    || isSyntheticSessionText(value)
+    || !cleanSessionPreview(value)
     || isLateToolAnnouncement(value)
     || /^#\s*permission\b/i.test(value)
     || /^permission:\s*/i.test(value)
     || /^cwd:\s*/i.test(value);
 }
 
-export function cleanSessionPreview(text) {
-  return String(text || '')
-    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
+export function cleanSessionPreview(text, max = 160) {
+  const limit = Math.max(16, Number(max) || 160);
+  return stripInjectedSessionText(stripSessionDisplayEnvelope(text))
+    .replace(/\[(?:Pasted text|Image)\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]/gi, ' ')
+    .replace(/^Reference files:\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 160);
+    .slice(0, limit);
 }
 
 // Stable sentinel carried in every late-tool (deferred MCP) announcement

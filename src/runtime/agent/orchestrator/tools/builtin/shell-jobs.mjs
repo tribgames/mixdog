@@ -109,6 +109,7 @@ export function killShellJob(jobId) {
     if (detail.status !== 'running') {
         if (detail.terminationPending === true) {
             killProcessTree(detail.pid, 'SIGKILL');
+            armShellJobLeaseReapDeadline(jobId);
             return { ...detail, killed: true, note: 'termination still awaiting confirmed process exit' };
         }
         releaseShellJobOwnershipWhenQuiescent(jobId, detail.pid);
@@ -128,6 +129,7 @@ export function killShellJob(jobId) {
             try { writeShellJobDetail(detail); } catch {}
         },
     });
+    armShellJobLeaseReapDeadline(jobId);
     return { ...attachJobInsights(detail), killed: true };
 }
 
@@ -256,6 +258,24 @@ function releaseShellJobResourceLease(jobId) {
     shellJobResourceLeases.delete(jobId);
     try { Promise.resolve(lease.release()).catch(() => {}); } catch { /* admission cleanup must not mask job state */ }
     return true;
+}
+// After a kill, the admission lease must not stay held forever by a process
+// tree that refuses to die (crashpad-style daemons survive taskkill /T and
+// keep the quiescence tracker pending). The tree stays tracked for cleanup;
+// only the admission capacity is reclaimed so new shell work cannot deadlock
+// on a saturated lane. 0 disables.
+const _envLeaseReap = Math.floor(Number(process.env.MIXDOG_SHELL_LEASE_REAP_MS));
+const SHELL_LEASE_REAP_MS = Number.isFinite(_envLeaseReap) && _envLeaseReap >= 0
+    ? _envLeaseReap
+    : 30_000;
+function armShellJobLeaseReapDeadline(jobId) {
+    if (!(SHELL_LEASE_REAP_MS > 0) || !shellJobResourceLeases.has(jobId)) return;
+    const timer = setTimeout(() => {
+        if (releaseShellJobResourceLease(jobId)) {
+            console.warn(`[shell] task ${jobId}: admission lease force-released ${SHELL_LEASE_REAP_MS}ms after kill; process tree still not quiescent.`);
+        }
+    }, SHELL_LEASE_REAP_MS);
+    if (typeof timer.unref === 'function') timer.unref();
 }
 export function attachShellJobResourceLease(jobId, lease, { allowUnpersisted = false } = {}) {
     if (!jobId || !lease || typeof lease.release !== 'function') return false;

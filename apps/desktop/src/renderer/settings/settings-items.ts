@@ -26,6 +26,7 @@ export const SETTINGS_ITEMS = [
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
   { value: 'hooks', label: 'Hooks', description: '0 before-tool rules', kind: 'open' },
   { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
+  { value: 'system-shell', label: 'System shell', description: 'Use the platform default shell command.', kind: 'open' },
   { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
@@ -114,7 +115,7 @@ export const SETTINGS_CATEGORIES = [
     value: 'system',
     label: 'System',
     group: 'Support',
-    items: ['remote-runtime', 'update'],
+    items: ['system-shell', 'remote-runtime', 'update'],
   },
 ] as const satisfies ReadonlyArray<SettingsCategoryItem>;
 

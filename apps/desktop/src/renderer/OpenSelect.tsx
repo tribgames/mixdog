@@ -61,11 +61,17 @@ export function OpenSelect({
     option.disabled ? [] : [index]), [options]);
   const selected = options.find((option) => option.value === current);
   const settingsStyle = className.split(/\s+/).includes('settings-select');
+  const projectContextStyle = className.split(/\s+/).includes('project-context-select');
   const activeOption = options[active]?.disabled ? undefined : options[active];
 
   const updatePosition = useCallback(() => {
     const rect = trigger.current?.getBoundingClientRect();
     if (!rect) return;
+    const projectAnchor = projectContextStyle
+      ? trigger.current?.closest<HTMLElement>('.composer-project-context')?.getBoundingClientRect()
+      : null;
+    const anchorRect = projectAnchor || rect;
+    const menuGap = projectContextStyle ? 2 : 4;
     const viewport = window.visualViewport;
     const viewportWidth = viewport?.width ?? window.innerWidth;
     const viewportHeight = viewport?.height ?? window.innerHeight;
@@ -83,17 +89,17 @@ export function OpenSelect({
       };
     const edge = 8;
     const width = Math.min(
-      Math.max(160, Math.min(368, rect.width)),
+      Math.max(160, Math.min(368, anchorRect.width)),
       Math.max(0, bounds.right - bounds.left - edge * 2),
     );
     const estimatedHeight = Math.min(240, options.length * 30 + 8);
-    const spaceBelow = bounds.bottom - rect.bottom - edge;
-    const spaceAbove = rect.top - bounds.top - edge;
+    const spaceBelow = bounds.bottom - anchorRect.bottom - edge;
+    const spaceAbove = anchorRect.top - bounds.top - edge;
     const openAbove = spaceBelow < Math.min(160, estimatedHeight) && spaceAbove > spaceBelow;
-    const availableHeight = Math.max(0, (openAbove ? spaceAbove : spaceBelow) - 4);
+    const availableHeight = Math.max(0, (openAbove ? spaceAbove : spaceBelow) - menuGap);
     const viewportMaxHeight = Math.min(240, viewportHeight - edge * 2);
     const maxHeight = Math.min(viewportMaxHeight, availableHeight);
-    const idealLeft = settingsStyle ? rect.right - width : rect.left;
+    const idealLeft = settingsStyle ? rect.right - width : anchorRect.left;
     const left = Math.max(
       bounds.left + edge,
       Math.min(bounds.right - width - edge, idealLeft),
@@ -103,13 +109,13 @@ export function OpenSelect({
       width,
       ...(openAbove
         ? {
-          bottom: Math.max(edge, viewportHeight - bounds.bottom + (bounds.bottom - rect.top + 4)),
+          bottom: Math.max(edge, viewportHeight - bounds.bottom + (bounds.bottom - anchorRect.top + menuGap)),
           maxHeight,
           transformOrigin: 'bottom center',
         }
-        : { top: Math.min(bounds.bottom - edge, rect.bottom + 4), maxHeight, transformOrigin: 'top center' }),
+        : { top: Math.min(bounds.bottom - edge, anchorRect.bottom + menuGap), maxHeight, transformOrigin: 'top center' }),
     });
-  }, [options.length, settingsStyle]);
+  }, [options.length, projectContextStyle, settingsStyle]);
 
   const select = (next: string) => {
     if (!controlled) setInternalValue(next);

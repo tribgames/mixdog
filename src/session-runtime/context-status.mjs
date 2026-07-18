@@ -6,6 +6,8 @@ import {
   summarizeContextMessages,
   toolSchemaSignature,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
+import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
+import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import {
   resolveCompactionPressureTokens,
   resolveWorkerCompactPolicy,
@@ -130,14 +132,85 @@ export function createContextStatus({
   function contextStatus() {
     const session = getSession();
     const route = getRoute();
+    const committedMessages = Array.isArray(session?.messages) ? session.messages : [];
+    const liveMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
+    const activityMessages = liveMessages || committedMessages;
+    const hasConversationActivity = hasUserConversationMessage(activityMessages)
+      || activityMessages.some((message) => (
+        message?.role === 'user'
+        && typeof message.content === 'string'
+        && message.content.startsWith(SUMMARY_PREFIX)
+      ));
+    // A route is not a conversation. Keep a pristine desktop/TUI task truly
+    // empty until the first real turn. Remote auto-start may prepare a local
+    // session shell containing system/tool templates, but those templates have
+    // not entered a provider request and must not appear as consumed context.
+    if (!session?.id || !hasConversationActivity) {
+      const emptyCompactPolicy = session
+        ? resolveWorkerCompactPolicy(session, Array.isArray(session.tools) ? session.tools : [])
+        : null;
+      const routeWindow = Math.max(0, Number(
+        session?.compactBoundaryTokens
+        || session?.contextWindow
+        || route?.contextWindow
+        || 0,
+      ));
+      return {
+        sessionId: session?.id || null,
+        provider: route.provider,
+        model: route.model,
+        cwd: getCurrentCwd(),
+        toolMode: getMode(),
+        contextWindow: routeWindow || null,
+        effectiveContextWindow: routeWindow || null,
+        rawContextWindow: routeWindow || null,
+        effectiveContextWindowPercent: null,
+        usedTokens: 0,
+        usedSource: 'empty',
+        currentEstimatedTokens: 0,
+        lastApiRequestTokens: 0,
+        lastApiRequestStale: false,
+        freeTokens: routeWindow,
+        compaction: {
+          boundaryTokens: Number(session?.compactBoundaryTokens || emptyCompactPolicy?.boundaryTokens || 0) || null,
+          triggerTokens: Number(emptyCompactPolicy?.triggerTokens || 0) || null,
+          bufferTokens: Number(emptyCompactPolicy?.bufferTokens || 0) || null,
+          bufferRatio: Number.isFinite(emptyCompactPolicy?.bufferRatio)
+            ? emptyCompactPolicy.bufferRatio
+            : null,
+          currentEstimatedTokens: 0,
+          lastApiRequestTokens: 0,
+          lastApiRequestStale: false,
+        },
+        messages: summarizeContextMessages([]),
+        request: {
+          toolSchemaTokens: 0,
+          toolSchemaBreakdown: {},
+          requestOverheadTokens: 0,
+          reserveTokens: 0,
+        },
+        usage: {
+          lastInputTokens: 0,
+          lastUncachedInputTokens: 0,
+          lastOutputTokens: 0,
+          lastCachedReadTokens: 0,
+          lastCacheWriteTokens: 0,
+          lastContextTokens: 0,
+          totalInputTokens: 0,
+          totalUncachedInputTokens: 0,
+          totalOutputTokens: 0,
+          totalCachedReadTokens: 0,
+          totalCacheWriteTokens: 0,
+        },
+      };
+    }
     // Prefer the in-flight working transcript while a turn is running so the
     // context gauge reflects LIVE growth (user turn + tool calls/results) as
     // it accumulates, instead of freezing at the pre-turn committed snapshot.
     // askSession() sets session.liveTurnMessages for the turn duration and
     // clears it on commit/cancel/error, after which we fall back to the
     // authoritative committed transcript.
-    const liveTurnMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
-    const messages = liveTurnMessages || (Array.isArray(session?.messages) ? session.messages : []);
+    const messages = activityMessages;
     const requestProvider = session?.provider || route.provider;
     // Do not even evaluate live native definitions when an in-flight request
     // scope owns the complete immutable provider surface.

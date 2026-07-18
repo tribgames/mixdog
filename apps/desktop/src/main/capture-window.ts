@@ -16,9 +16,16 @@ import type {
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,
   DesktopCapabilityResult,
+  DesktopModelOption,
   DesktopSessionSummary,
 } from '../shared/contract';
 import { DESKTOP_WINDOW_OPTIONS } from './window-options';
+
+// The capture flow owns window lifetime. Without this listener Electron's
+// default quit-on-last-window-close fires the moment a failing step reaches
+// the finally-block destroy, exiting 0 before the error artifact is written
+// and leaving the outer harness to time out with no diagnostic.
+app.on('window-all-closed', () => {});
 
 // Electron's default-app launcher removes the application entry from argv on
 // some platforms/versions. Locate the typed output argument instead of relying
@@ -234,7 +241,9 @@ async function readDesktopAssertions(window: BrowserWindow): Promise<LiveCapture
     const composer = required('.composer');
     const modelTrigger = required('.model-trigger');
     const textarea = required('textarea[aria-label="Message Mixdog"]');
-    const send = required('button[aria-label="Send message"]');
+    // The send button's aria-label mutates with busy state (Queue/Stop);
+    // select by its stable class so state races cannot break the capture.
+    const send = required('button.send-button');
     const sidebarRect = rect(sidebar);
     const mainRect = rect(main);
     const triggerRect = rect(modelTrigger);
@@ -479,7 +488,7 @@ async function readMobileClosedAssertions(window: BrowserWindow): Promise<LiveCa
     const main = required('.main-panel');
     const composer = required('.composer');
     const modelTrigger = required('.model-trigger');
-    const send = required('button[aria-label="Send message"]');
+    const send = required('button.send-button');
     const mainRect = rect(main);
     const composerRect = rect(composer);
     const triggerRect = rect(modelTrigger);
@@ -558,6 +567,15 @@ class CaptureEngineHost extends EngineHost {
     return [];
   }
 
+  // The renderer's model selector warmup would lazily start the runtime
+  // engine. In the isolated capture profile every provider is disabled, so
+  // engine startup fails and strands the snapshot in commandBusy=true, which
+  // relabels the send button and breaks capture selectors. Captures always
+  // see an empty catalog.
+  override async listProviderModels(): Promise<DesktopModelOption[]> {
+    return [];
+  }
+
   override getSnapshot() {
     return {
       ...(super.getSnapshot() || {}),
@@ -600,7 +618,13 @@ class CaptureEngineHost extends EngineHost {
     if (capability === 'getOnboardingStatus') {
       return { value: { completed: true } as T, snapshot: this.getSnapshot() };
     }
-    return super.invokeCapability<T>(capability, args);
+    // Anything else (e.g. the settings preload's memoryControl read) would
+    // boot the runtime engine; with every provider disabled in the isolated
+    // profile that call never settles, so settings hydration stays pending
+    // forever and engine-independent rows (Theme) remain disabled. Fail fast
+    // instead — every capability consumer catches and falls back.
+    void args;
+    throw new Error(`${capability} is unavailable in UI capture.`);
   }
 }
 
@@ -620,8 +644,8 @@ function measureShellTopEdge(image: NativeImage, theme: ShellTopEdgeSample['them
   const pixel = imageReader(image);
   const { width } = image.getSize();
   const x = Math.floor(width / 2);
-  const yStart = 36;
-  const yEnd = 44;
+  const yStart = 40;
+  const yEnd = 48;
   return {
     theme,
     x,
@@ -636,7 +660,7 @@ function measureSidebarGeometry(image: NativeImage): ImageMeasuredSidebar {
   // Stay above the footer controls so icon pixels cannot split the interior run.
   const scanlineY = 600;
   // The OpenCode v2 renderer uses the active theme's bg-base token for the sidebar.
-  const sidebarColor = '#1b1b1e';
+  const sidebarColor = '#161616';
   let longestInterior = { start: -1, end: -1 };
   let runStart = -1;
   for (let x = 0; x <= 400; x += 1) {
@@ -698,7 +722,13 @@ async function captureWindow(): Promise<void> {
   const rendererConsoleErrors: string[] = [];
   window.webContents.on('console-message', (event) => {
     const details = event as unknown as { level: string; message: string };
-    if (details.level === 'error') rendererConsoleErrors.push(details.message);
+    if (details.level === 'error') {
+      rendererConsoleErrors.push(details.message);
+      // Mirror into the module-scope buffer so the top-level failure handler
+      // can surface the real renderer exception behind Electron's generic
+      // "Script failed to execute" executeJavaScript rejection.
+      capturedRendererConsoleErrors.push(details.message);
+    }
   });
   window.on('page-title-updated', (event) => event.preventDefault());
   const captureUpdaterState = { status: 'ready', version: '0.2.0' } as const;
@@ -779,21 +809,41 @@ async function captureWindow(): Promise<void> {
     );
     const largeSettings = await readSettingsPlacement(window);
     const modalStack = await readModalStackAssertions(window);
-    const lightPreview = await window.webContents.executeJavaScript(`(() => {
-      const lightChoice = Array.from(document.querySelectorAll('.settings-theme-choice'))
-        .find((choice) => (choice.querySelector('.settings-resource-title > b')?.textContent || '').trim() === 'Light');
-      const choose = lightChoice?.querySelector('button.settings-action');
-      if (!(choose instanceof HTMLButtonElement)) return {
-        ok: false,
-        title: document.querySelector('.mixdog-settings__header h1')?.textContent || '',
-        themes: Array.from(document.querySelectorAll('.settings-theme-choice .settings-resource-title > b'))
-          .map((node) => (node.textContent || '').trim()),
-        body: (document.querySelector('.mixdog-settings__body')?.textContent || '').trim().slice(0, 500),
-      };
-      choose.click();
-      return { ok: true };
+    // The theme trigger can be transiently disabled (engine/settings busy) and
+    // a click during that window is silently dropped — retry open+check as one
+    // unit instead of a single click followed by a bare wait.
+    // Hydration (settings capability preload) can take 20s+ while the
+    // isolated engine cold-boots; the Theme trigger stays disabled until it
+    // settles. Keep retrying well past that window.
+    const openThemeMenuUntilOption = async (optionText: string): Promise<void> => {
+      const deadline = Date.now() + 30_000;
+      for (;;) {
+        const state = await window.webContents.executeJavaScript(`(() => {
+          const option = Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'))
+            .find((entry) => (entry.textContent || '').trim() === ${JSON.stringify(optionText)});
+          if (option instanceof HTMLButtonElement) return 'open';
+          const trigger = document.querySelector('button[role="combobox"][aria-label="Theme"]');
+          if (!(trigger instanceof HTMLButtonElement)) return 'missing';
+          if (trigger.disabled) return 'disabled';
+          if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
+          return 'clicked';
+        })()`) as string;
+        if (state === 'open') return;
+      if (Date.now() >= deadline) {
+        throw new Error(`Theme option "${optionText}" did not appear within 30000ms (last state: ${state}).`);
+      }
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+    };
+    await openThemeMenuUntilOption('White');
+    const selectedWhite = await window.webContents.executeJavaScript(`(() => {
+      const option = Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'))
+        .find((entry) => (entry.textContent || '').trim() === 'White');
+      if (!(option instanceof HTMLButtonElement)) return false;
+      option.click();
+      return true;
     })()`);
-    if (!lightPreview.ok) throw new Error(`Light theme choice is missing: ${JSON.stringify(lightPreview)}`);
+    if (!selectedWhite) throw new Error('White theme option is missing.');
     await waitForRenderer(
       window,
       `document.documentElement.dataset.mixdogTheme === 'light'`,
@@ -824,22 +874,15 @@ async function captureWindow(): Promise<void> {
     await window.webContents.executeJavaScript(
       "document.querySelector('.mixdog-settings-layer')?.style.removeProperty('display')",
     );
-    await waitForRenderer(
-      window,
-      `Array.from(document.querySelectorAll('.settings-theme-choice')).some((choice) =>
-        (choice.querySelector('.settings-resource-title > b')?.textContent || '').trim() === 'Basic'
-        && choice.querySelector('button.settings-action'))`,
-      'Basic theme choice',
-    );
+    await openThemeMenuUntilOption('Dark');
     const restoredBasic = await window.webContents.executeJavaScript(`(() => {
-      const basicChoice = Array.from(document.querySelectorAll('.settings-theme-choice'))
-        .find((choice) => (choice.querySelector('.settings-resource-title > b')?.textContent || '').trim() === 'Basic');
-      const choose = basicChoice?.querySelector('button.settings-action');
-      if (!(choose instanceof HTMLButtonElement)) return false;
-      choose.click();
+      const option = Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'))
+        .find((entry) => (entry.textContent || '').trim() === 'Dark');
+      if (!(option instanceof HTMLButtonElement)) return false;
+      option.click();
       return true;
     })()`);
-    if (!restoredBasic) throw new Error('Basic theme choice is missing.');
+    if (!restoredBasic) throw new Error('Dark theme option is missing.');
     await waitForRenderer(
       window,
       `document.documentElement.dataset.mixdogTheme === 'basic'`,
@@ -885,10 +928,10 @@ async function captureWindow(): Promise<void> {
       || liveDesktop.removedLabelMatches.length !== 0 || liveDesktop.contextChipCount !== 0
       || !liveDesktop.visible.modelTrigger || !liveDesktop.visible.textarea || !liveDesktop.visible.send
       || !liveDesktop.controlsNonOverlapping || liveDesktop.sidebarGap !== 8
-      || liveDesktop.rects.sidebar.left !== 8 || liveDesktop.rects.sidebar.top !== 42
-      || liveDesktop.rects.sidebar.width !== 286
+      || liveDesktop.rects.sidebar.left !== 8 || liveDesktop.rects.sidebar.top !== 48
+      || liveDesktop.rects.sidebar.width !== 260
       || liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom !== 8
-      || liveDesktop.rects.main.left !== 302) {
+      || liveDesktop.rects.main.left !== 276) {
       throw new Error(`Desktop live assertions failed: ${JSON.stringify(liveDesktop)}`);
     }
     const liveAssertions: LiveCaptureAssertions = {
@@ -955,9 +998,9 @@ async function captureWindow(): Promise<void> {
       sidebarExcludedRuns: { leftInset: true, rightGap: true },
       sampledColors: {
         leftOutside: pixel(domSidebarGeometry.left - 1, 600),
-        leftBorder: '#1b1b1e',
-        interior: '#1b1b1e',
-        rightBorder: '#1b1b1e',
+        leftBorder: '#161616',
+        interior: '#161616',
+        rightBorder: '#161616',
         rightGap: pixel(domSidebarGeometry.right, 600),
       },
     };
@@ -1017,20 +1060,34 @@ async function captureWindow(): Promise<void> {
       removeIpc();
     } finally {
       destroyCaptureWindow(window);
-      await host.dispose();
+      // Engine teardown can hang for 30s+ (session dispose). The capture
+      // artifacts/error are already decided at this point — never let dispose
+      // block the exit path past a short grace.
+      await Promise.race([
+        host.dispose(),
+        new Promise((resolve) => setTimeout(resolve, 5_000)),
+      ]);
     }
   }
 }
 
+const capturedRendererConsoleErrors: string[] = [];
+
 void captureWindow().then(
   () => app.quit(),
   (error: unknown) => {
-    const message = error instanceof Error ? error.stack || error.message : String(error);
+    let message = error instanceof Error ? error.stack || error.message : String(error);
+    if (capturedRendererConsoleErrors.length > 0) {
+      message += `\nRenderer console errors:\n${capturedRendererConsoleErrors.slice(-5).join('\n')}`;
+    }
     console.error(message);
     if (outputPath) {
       mkdirSync(dirname(outputPath), { recursive: true });
       writeFileSync(`${outputPath}.error.txt`, `${message}\n`);
     }
     app.exit(1);
+    // app.exit can stall behind lingering engine/GPU teardown; guarantee the
+    // process dies so the calling harness never waits out its full timeout.
+    setTimeout(() => process.exit(1), 1_500);
   },
 );

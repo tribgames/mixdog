@@ -3,7 +3,7 @@ import type {
   DesktopSessionSummary,
   EngineSnapshot,
 } from '../shared/contract';
-import { normalizeSessionTitle } from '../shared/session-title.mjs';
+import { generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 
 function normalizedPath(value: string): string {
   return value.replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase();
@@ -54,10 +54,12 @@ export function desktopSessionSummaries(
     if (classification === 'project' && (!projectPath || projectPath.includes('\0'))) return [];
     const preview = String(row.preview || '').trim();
     const id = String(row.id || '');
+    const manualTitle = normalizeSessionTitle(names[id] || '', '');
+    const storedTitle = generatedSessionTitle(titles[id] || '', '');
     return [{
       id,
       preview,
-      title: normalizeSessionTitle(names[id] || titles[id] || preview),
+      title: manualTitle || storedTitle || generatedSessionTitle(preview),
       updatedAt: Number(row.updatedAt) || 0,
       cwd,
       classification,

@@ -32,6 +32,7 @@
   --oc-alpha-dark-40: #00000066;
   --oc-blue-400: #a2bcff;
   --oc-blue-500: #7698fd;
+  --oc-blue-600: #3b5cf6;
   --oc-red-500: #f17471;
   --oc-red-1200: #461516;
   --oc-yellow-500: #f2cf76;
@@ -39,38 +40,56 @@
   --oc-green-500: #6bd586;
   --oc-green-900: #1d783c;
   --oc-green-1200: #14361d;
-  --oc-light-overlay-shadow: #1f23282e;
-  --oc-light-overlay-border: #1f232829;
 
-  --oc-bg-base: var(--oc-grey-1100);
-  --oc-bg-deep: var(--oc-grey-1200);
-  --oc-bg-layer-1: var(--oc-grey-1000);
-  --oc-bg-layer-2: var(--oc-grey-900);
-  --oc-bg-layer-3: var(--oc-grey-800);
-  --oc-bg-contrast: var(--oc-grey-700);
-  --oc-window-band: var(--oc-bg-deep);
-  --oc-workspace-sheet: var(--oc-bg-base);
-  --oc-shell-border: var(--oc-border);
-  --oc-text: var(--oc-grey-100);
-  --oc-text-muted: var(--oc-grey-500);
-  --oc-text-faint: var(--oc-grey-600);
+  --oc-bg-base: #161616;
+  --oc-bg-deep: #080808;
+  --oc-bg-layer-1: #242424;
+  --oc-bg-layer-2: #2e2e2e;
+  --oc-bg-layer-3: #3a3a3a;
+  --oc-bg-contrast: #5c5c5c;
+  --oc-window-band: #080808;
+  --oc-workspace-sheet: #161616;
+  --oc-shell-border: rgba(255, 255, 255, .078);
+  --oc-text: #fafafa;
+  --oc-text-muted: #aeaeae;
+  --oc-text-faint: #808080;
   --oc-text-accent: var(--oc-blue-400);
-  --oc-icon: var(--oc-grey-400);
-  --oc-icon-muted: var(--oc-grey-600);
-  --oc-border-muted: var(--oc-alpha-light-8);
-  --oc-border: var(--oc-alpha-light-10);
-  --oc-border-strong: var(--oc-alpha-light-20);
-  /* User request: no colored selection/focus emphasis — neutral ring. */
-  --oc-focus: var(--oc-alpha-light-20);
-  --oc-hover: var(--oc-alpha-light-6);
-  --oc-pressed: var(--oc-alpha-light-10);
-  --oc-scrim: #0009;
+  --oc-accent: var(--oc-text-accent);
+  --oc-font-mono: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace;
+  --oc-icon: #dbdbdb;
+  --oc-icon-muted: #808080;
+  --oc-border-muted: rgba(255, 255, 255, .078);
+  --oc-border: rgba(255, 255, 255, .102);
+  --oc-border-strong: rgba(255, 255, 255, .20);
+  /* OpenCode surface-base: translucent 3.1% plate used by chat bubbles. */
+  --oc-surface-plate: rgba(255, 255, 255, .031);
+  /* OpenCode v2 border-focus: blue-500 in both themes. */
+  --oc-focus: var(--oc-blue-500);
+  --oc-hover: rgba(255, 255, 255, .059);
+  --oc-pressed: rgba(255, 255, 255, .102);
+  /* The v2 token sheet says alpha-light-30 for the dark scrim, but the
+     shipping OpenCode desktop dims dialogs DARK; a white haze over a dark
+     shell reads as washed out. Dim with black in both themes. */
+  --oc-scrim: rgba(0, 0, 0, .5);
+  /* OpenCode v2 accent surface (bg-accent: blue-600 in both themes) and the
+     contrast-button hover overlay (dark: alpha-dark-24, light: alpha-light-12). */
+  --oc-accent-bg: var(--oc-blue-600);
+  --oc-contrast-hover: var(--oc-alpha-dark-24);
+  /* OpenCode v2 switch elevations (dark values). */
+  --oc-switch-off:
+    inset 0 -.5px 0 var(--oc-alpha-light-10),
+    inset 0 0 0 .5px var(--oc-alpha-light-16);
+  --oc-switch-on:
+    inset 0 -.5px 0 var(--oc-alpha-light-10),
+    inset 0 0 0 .5px var(--oc-alpha-light-16);
+  --oc-switch-thumb-shadow: 0 .5px .5px var(--oc-alpha-dark-40);
   --oc-danger-bg: var(--oc-red-1200);
   --oc-danger: var(--oc-red-500);
   --oc-warning-bg: var(--oc-yellow-1200);
   --oc-warning: var(--oc-yellow-500);
   --oc-success-bg: var(--oc-green-1200);
   --oc-success: var(--oc-green-500);
+  --oc-success-border: var(--oc-green-900);
   --oc-raised:
     0 2px 4px var(--oc-alpha-dark-30), 0 1px 2px var(--oc-alpha-dark-30),
     0 0 0 .5px var(--oc-alpha-light-16), 0 -.5px 0 var(--oc-alpha-light-6);
@@ -95,26 +114,89 @@
   line-height: 20px;
   letter-spacing: -.04px;
   font-synthesis: none;
-  --titlebar-height: 36px;
+  --titlebar-height: 40px;
   --base: var(--oc-bg-deep);
   --sidebar: var(--oc-bg-base);
   --surface: var(--oc-bg-base);
-  --input: #1b1b1d;
+  --input: #161616;
   --surface-raised: var(--oc-bg-layer-2);
   --surface-hover: var(--oc-hover);
   --border: var(--oc-border);
   --border-strong: var(--oc-border-strong);
   --muted: var(--oc-text-muted);
-  --accent: #ececed;
+  --accent: var(--oc-text-accent);
   --focus: var(--oc-focus);
-  --danger: #ef7b84;
+  --danger: var(--oc-danger);
 }
 
 :root[data-mixdog-theme="light"] {
-  /* Light palettes use white as their deepest canvas. Keep the window chrome
-     one step quieter while the inset workspace remains the white sheet. */
-  --oc-window-band: var(--oc-bg-base);
-  --oc-workspace-sheet: var(--oc-bg-deep);
+  --oc-bg-base: #ffffff;
+  --oc-bg-deep: #fafafa;
+  --oc-bg-layer-1: #fafafa;
+  --oc-bg-layer-2: #f2f2f2;
+  --oc-bg-layer-3: #eeeeee;
+  --oc-bg-contrast: #242424;
+  --oc-window-band: #fafafa;
+  /* OpenCode's shipping light theme keeps sheets just below pure white
+     (background-stronger #fcfcfc); pure white stays reserved for raised
+     controls (buttons/inputs) so they still lift off the sheet. */
+  --oc-workspace-sheet: #fcfcfc;
+  --oc-shell-border: rgba(0, 0, 0, .078);
+  --oc-text: #161616;
+  --oc-text-muted: #5c5c5c;
+  --oc-text-faint: #808080;
+  --oc-text-accent: var(--oc-blue-600);
+  --oc-accent: var(--oc-text-accent);
+  --oc-icon: #3a3a3a;
+  --oc-icon-muted: #808080;
+  --oc-border-muted: rgba(0, 0, 0, .078);
+  --oc-border: rgba(0, 0, 0, .102);
+  --oc-border-strong: rgba(0, 0, 0, .20);
+  --oc-surface-plate: rgba(0, 0, 0, .031);
+  --oc-focus: var(--oc-blue-500);
+  --oc-hover: rgba(0, 0, 0, .039);
+  --oc-pressed: rgba(0, 0, 0, .078);
+  --oc-scrim: rgba(0, 0, 0, .4);
+  --oc-accent-bg: var(--oc-blue-600);
+  --oc-contrast-hover: rgba(255, 255, 255, .122);
+  --oc-switch-off:
+    inset 0 1px 1px rgba(0, 0, 0, .078), inset 0 .5px .5px rgba(0, 0, 0, .078),
+    inset 0 0 0 .5px rgba(0, 0, 0, .102);
+  --oc-switch-on:
+    inset 0 2px 2px rgba(0, 0, 0, .102), inset 0 1px 1px rgba(0, 0, 0, .102),
+    inset 0 0 0 .5px rgba(0, 0, 0, .20);
+  --oc-switch-thumb-shadow: 0 .5px .5px rgba(0, 0, 0, .40);
+  --oc-danger-bg: #fceceb;
+  --oc-danger: #b82d35;
+  --oc-warning-bg: #fefaec;
+  --oc-warning: #cb9f34;
+  --oc-success-bg: #e7f9ea;
+  --oc-success: #198b43;
+  --oc-success-border: #b8e9c1;
+  --oc-raised:
+    0 2px 4px rgba(0, 0, 0, .039), 0 1px 2px -1px rgba(0, 0, 0, .078),
+    0 0 0 .5px rgba(0, 0, 0, .122);
+  --oc-floating:
+    0 8px 16px rgba(0, 0, 0, .039), 0 4px 8px rgba(0, 0, 0, .078),
+    0 0 0 .5px rgba(0, 0, 0, .122);
+  --oc-overlay:
+    0 16px 32px rgba(0, 0, 0, .039), 0 8px 16px rgba(0, 0, 0, .078),
+    0 0 0 .5px rgba(0, 0, 0, .122);
+  --oc-button:
+    0 1px 1.5px rgba(0, 0, 0, .102), 0 0 0 .5px rgba(0, 0, 0, .141);
+  --oc-button-contrast:
+    0 1px 1.5px rgba(0, 0, 0, .20), 0 0 0 .5px #3a3a3a,
+    inset 0 1px 2px rgba(255, 255, 255, .141), inset 0 -1px 2px rgba(0, 0, 0, .059);
+  --base: #fafafa;
+  --sidebar: #fcfcfc;
+  --surface: #fcfcfc;
+  --input: #ffffff;
+  --surface-raised: #f2f2f2;
+  --surface-hover: rgba(0, 0, 0, .039);
+  --border: rgba(0, 0, 0, .102);
+  --border-strong: rgba(0, 0, 0, .20);
+  --muted: #5c5c5c;
+  --focus: var(--oc-focus);
 }
 
 /* Per-theme semantic tokens are injected from the canonical TUI registry. */
@@ -146,25 +228,36 @@ body, button, input, textarea, select { font-family: inherit; }
 html, body { background: var(--oc-window-band); }
 body { color: var(--oc-text); font-size: 13px; font-weight: 440; line-height: 20px; letter-spacing: -.04px; }
 button, input, textarea, select { color: inherit; }
-input, textarea { caret-color: var(--oc-text-accent); }
+/* OpenCode v2 keeps the native caret (text-colored); only invalid fields recolor it. */
+input, textarea { caret-color: var(--oc-text); }
 input::placeholder, textarea::placeholder { color: var(--oc-text-faint); opacity: 1; }
-::selection { color: var(--oc-grey-50); background: var(--oc-bg-contrast); }
+/* OpenCode v2 defines no custom ::selection; native color-scheme selection applies. */
 code, pre, kbd { font-family: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace; }
 button { font-weight: 530; letter-spacing: -.04px; }
+/* OpenCode's icon set draws at ~1.5px optical weight; lucide's default 2px
+   stroke reads heavier at the same sizes. Thin every lucide glyph slightly. */
+svg.lucide { stroke-width: 1.75px; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible {
   outline: 2px solid var(--oc-focus);
   outline-offset: 2px;
 }
+/* OpenCode v2 buttons float the focus ring slightly further out. */
+button:focus-visible { outline-offset: 2.5px; }
+/* OpenCode v2 dialog titles tighten 15px headings to -0.13px. */
+.model-picker-header h2, .project-switcher h1, .settings-confirm-dialog > header h3,
+.onboarding-dialog h1, .approval-heading b, .settings-section-heading h2,
+.settings-group > header h3, .onboarding-step-heading h2 { letter-spacing: -.13px; }
 
 /* OpenCode shell geometry */
 .app-shell { background: var(--oc-window-band); }
 .topbar {
   position: relative;
   z-index: 20;
-  flex: 0 0 36px;
-  height: 36px;
-  min-height: 36px;
+  flex: 0 0 var(--titlebar-height);
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
   align-items: flex-start;
+  column-gap: 6px;
   padding: 8px 12px 0 16px;
   overflow: visible;
   border: 0;
@@ -179,6 +272,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   height: 28px;
   align-self: center;
   gap: 6px;
+  margin-right: 0;
   pointer-events: auto;
   -webkit-app-region: no-drag;
 }
@@ -216,7 +310,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   height: 16px;
   flex: 0 0 16px;
 }
-.workspace-tabs { height: 28px; align-self: center; gap: 6px; padding: 0; }
+.workspace-tabs { height: 28px; align-self: center; gap: 13.5px; padding: 0; }
 .titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
 .workspace-tabs-shell { align-self: center; }
 .titlebar-update-shell {
@@ -225,53 +319,58 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
-  margin: 4px 4px 0 0;
+  margin: 4px 8px 0 0;
   -webkit-app-region: no-drag;
 }
 .titlebar-update {
+  display: flex;
   position: absolute;
   top: 0;
   right: 0;
-  z-index: 1;
-  display: flex;
   width: 20px;
+  min-width: 20px;
   height: 20px;
   align-items: center;
   justify-content: flex-end;
+  gap: 0;
+  padding: 0 4px;
   overflow: hidden;
-  padding: 0;
   border: 0;
   border-radius: 999px;
   color: var(--oc-text-accent);
   background: color-mix(in srgb, var(--oc-text-accent) 20%, transparent);
-  transition: width 150ms ease-out, background 150ms ease-out;
+  white-space: nowrap;
+  transition: width 120ms ease-out, padding 120ms ease-out, gap 120ms ease-out,
+    background 85ms ease-out, color 85ms ease-out;
 }
 .titlebar-update:hover, .titlebar-update:focus-visible {
-  z-index: 2;
   width: 68px;
-  background: color-mix(in srgb, var(--oc-text-accent) 20%, var(--oc-window-band));
+  gap: 3px;
+  padding: 0 6px 0 9px;
+  background: color-mix(in srgb, var(--oc-text-accent) 28%, var(--oc-window-band));
 }
 .titlebar-update:focus-visible { outline: 2px solid var(--oc-focus); outline-offset: 1px; }
 .titlebar-update:disabled { opacity: .6; }
 .titlebar-update-label {
-  margin: 0 1px 0 8px;
+  max-width: 0;
+  margin: 0;
+  overflow: hidden;
+  opacity: 0;
   font-size: 11px;
   font-weight: 530;
   line-height: 20px;
-  opacity: 0;
-  transform: translateX(8px);
-  transition: opacity 150ms ease-out, transform 150ms ease-out;
+  transition: max-width 120ms ease-out, opacity 80ms ease-out;
 }
 .titlebar-update:hover .titlebar-update-label,
 .titlebar-update:focus-visible .titlebar-update-label {
+  max-width: 44px;
   opacity: 1;
-  transform: translateX(0);
 }
 .titlebar-update-icon {
   display: flex;
-  width: 20px;
+  width: 12px;
   height: 20px;
-  flex: 0 0 20px;
+  flex: 0 0 12px;
   align-items: center;
   justify-content: center;
 }
@@ -283,26 +382,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border-radius: 999px;
   animation: titlebar-update-spin .7s linear infinite;
 }
-.titlebar-caption-space { width: 126px; flex: 0 0 126px; }
+.titlebar-caption-space {
+  width: max(0px, calc(100vw - env(titlebar-area-width, calc(100vw - 138px))));
+  flex: 0 0 max(0px, calc(100vw - env(titlebar-area-width, calc(100vw - 138px))));
+}
 @keyframes titlebar-update-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .titlebar-update, .titlebar-update-label { transition: none; }
-}
-/* Session list rows intentionally omit project initial avatars. */
-.session-sidebar .project-avatar-v2 { display: none; }
-.workspace-tab-divider {
-  width: 1.5px;
-  height: 12px;
-  flex: 0 0 1.5px;
-  border-radius: 999px;
-  background: var(--oc-bg-layer-1);
+  .titlebar-update { transition: none; }
 }
 .workspace-tab {
+  --workspace-tab-surface: var(--oc-window-band);
   position: relative;
-  flex: 0 1 auto;
+  width: 224px;
   height: 28px;
   min-width: 96px;
-  max-width: 240px;
+  max-width: 224px;
+  flex: 1 1 224px;
   gap: 6px;
   padding: 0 6px;
   border: 0;
@@ -315,23 +410,86 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .workspace-tab.dragging { opacity: .35; }
 .workspace-tab:active { cursor: grabbing; }
-.workspace-tab:hover { color: var(--oc-text); background: var(--oc-bg-layer-1); }
-.workspace-tab.active { color: var(--oc-text); background: var(--oc-bg-layer-1); box-shadow: none; }
+.workspace-tab:hover,
+.workspace-tab.active,
 .workspace-tab:focus-within {
+  --workspace-tab-surface: var(--oc-bg-layer-1);
+  color: var(--oc-text);
+  background: var(--workspace-tab-surface);
+}
+.workspace-tab.active { box-shadow: none; }
+.workspace-tab:focus-within { outline: 0; }
+.workspace-tab:has(> .workspace-tab-main:focus-visible),
+.workspace-tab:has(> .workspace-tab-close:focus-visible) {
   outline: 2px solid var(--oc-focus);
   outline-offset: 2px;
 }
 .workspace-tab-main:focus-visible, .workspace-tab-close:focus-visible { outline: 0; }
-.workspace-tab-main { gap: 6px; }
+.workspace-tab-main { gap: 6px; padding: 0; }
+.workspace-tab-main > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
 .workspace-tab-main span { font-size: 13px; font-weight: 530; line-height: 20px; }
-.workspace-tab-close { width: 20px; height: 20px; border-radius: 4px; color: var(--oc-icon-muted); }
-.workspace-tab-close:hover { color: var(--oc-icon); background: var(--oc-hover); }
+.workspace-tab:not(:first-child):not(.active)::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: -7.5px;
+  width: 1.5px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--oc-border);
+  pointer-events: none;
+}
+.workspace-tab.active + .workspace-tab::before { display: none; }
+.workspace-tab-main .workspace-tab-status {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--oc-accent);
+  box-shadow: 0 0 0 2px var(--oc-bg-layer-1);
+  animation: workspace-tab-working 1.2s ease-in-out infinite;
+}
+@keyframes workspace-tab-working {
+  0%, 100% { opacity: .4; transform: scale(.82); }
+  50% { opacity: 1; transform: scale(1); }
+}
+.workspace-tab-close {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: 4px;
+  color: var(--oc-icon-muted);
+  background: var(--workspace-tab-surface);
+}
+.workspace-tab-close::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -4px;
+  right: calc(100% - 1px);
+  width: 16px;
+  height: 28px;
+  background: linear-gradient(to right, transparent, var(--workspace-tab-surface));
+  pointer-events: none;
+}
+.workspace-tab-close:hover {
+  color: var(--oc-icon);
+  background: linear-gradient(var(--oc-hover), var(--oc-hover)), var(--workspace-tab-surface);
+}
 .desktop-body {
   position: relative;
   z-index: 0;
   flex: 1 1 auto;
   gap: 8px;
-  padding: 6px 8px 8px;
+  padding: 8px;
   background: var(--oc-window-band);
 }
 .sidebar-collapsed .desktop-body { gap: 0; }
@@ -342,7 +500,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border: 0;
   border-radius: 10px;
   background: var(--oc-workspace-sheet);
-  box-shadow: 0 0 0 1px var(--oc-shell-border);
+  box-shadow: var(--oc-raised);
 }
 
 /* Session changes keep the current frame in place while the engine resumes. */
@@ -351,21 +509,50 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   z-index: 12;
   inset: 48px 0 0;
   border-radius: 0 0 8px 8px;
-  background: var(--oc-workspace-sheet);
+  background: transparent;
+  cursor: progress;
 }
 
 /* Session-only sidebar, using OpenCode list density and states. */
 .sidebar.session-sidebar {
-  width: 286px;
+  position: relative;
+  width: var(--session-sidebar-width, 260px);
   height: 100%;
-  flex: 0 0 286px;
+  flex: 0 0 var(--session-sidebar-width, 260px);
   margin: 0;
   padding: 8px;
   border: 0;
   border-radius: 10px;
   background: var(--oc-workspace-sheet);
-  box-shadow: 0 0 0 1px var(--oc-shell-border);
+  box-shadow: var(--oc-raised);
 }
+.session-sidebar-resize {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: -5px;
+  bottom: 10px;
+  width: 10px;
+  border-radius: 999px;
+  outline: 0;
+  cursor: col-resize;
+  touch-action: none;
+}
+.session-sidebar-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background 100ms ease-out;
+}
+.session-sidebar-resize:hover::after,
+.session-sidebar-resize:focus-visible::after,
+body.session-sidebar-resizing .session-sidebar-resize::after { background: var(--oc-focus); }
+body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .sidebar-collapsed .sidebar.session-sidebar {
   width: 0;
   flex: 0 0 0px;
@@ -381,10 +568,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .session-sidebar .task-link,
 .session-sidebar .projects-link,
 .session-sidebar .session-row {
+  --session-row-action-surface: var(--oc-workspace-sheet);
+  position: relative;
   height: 28px;
   min-height: 28px;
   gap: 8px;
-  padding: 0 8px;
+  padding: 0 6px;
   border-radius: 6px;
   color: var(--oc-text);
   background: transparent;
@@ -415,16 +604,28 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   text-align: left;
   cursor: pointer;
 }
-.session-row-icon { flex: 0 0 13px; color: var(--oc-icon-muted); }
+.session-row-icon {
+  flex: 0 0 13px;
+  margin: 0 2.5px;
+  color: var(--oc-icon-muted);
+}
 .session-row-actions {
-  position: relative;
-  flex: 0 0 auto;
+  position: absolute;
+  z-index: 3;
+  top: 2px;
+  right: 2px;
+  height: 24px;
+  padding-left: 12px;
   display: flex;
   align-items: center;
   gap: 0;
+  background: transparent;
+  pointer-events: none;
 }
-.session-row-menu-wrap { position: relative; width: 24px; height: 24px; flex: 0 0 24px; }
+.session-row-menu-wrap { position: relative; z-index: 1; width: 24px; height: 24px; flex: 0 0 24px; }
 .session-row-action {
+  position: relative;
+  z-index: 1;
   width: 24px;
   height: 24px;
   flex: 0 0 24px;
@@ -441,9 +642,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .session-row:hover .session-row-action,
 .session-row:focus-within .session-row-action,
+.session-row.selected .session-row-action,
 .session-row-action:focus-visible,
 .session-row.confirming-delete .session-row-action {
+  color: var(--oc-icon);
   opacity: 1;
+  pointer-events: auto;
+}
+.session-row:hover .session-row-actions,
+.session-row:focus-within .session-row-actions,
+.session-row.selected .session-row-actions,
+.session-row.confirming-delete .session-row-actions {
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    var(--session-row-action-surface) 10px,
+    var(--session-row-action-surface) 100%
+  );
   pointer-events: auto;
 }
 .session-row-action:hover { color: var(--oc-icon); background: var(--oc-hover); }
@@ -468,7 +683,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 8px;
+  padding: 0 12px;
   border: 0;
   border-radius: 4px;
   color: inherit;
@@ -487,7 +702,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   padding: 0 6px;
   border: 0;
   border-radius: 4px;
-  outline: 2px solid var(--oc-focus);
+  /* OpenCode inline-input-v2 focuses with a 1px border-focus ring. */
+  outline: 1px solid var(--oc-focus);
   outline-offset: 0;
   color: var(--oc-text);
   background: var(--oc-bg-layer-1);
@@ -497,11 +713,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .session-title-input[aria-invalid="true"] { outline-color: var(--oc-danger); }
 .session-sidebar .task-link,
-.session-sidebar .projects-link { font-size: 14px; font-weight: 440; line-height: 20px; cursor: pointer; }
+.session-sidebar .projects-link { font-size: 13px; font-weight: 440; line-height: 20px; cursor: pointer; }
 .session-sidebar .task-link:hover,
 .session-sidebar .projects-link:hover,
-.session-sidebar .session-row:hover { color: var(--oc-text); background: var(--oc-hover); }
-.session-sidebar .session-row.selected { color: var(--oc-text); background: var(--oc-pressed); box-shadow: none; }
+.session-sidebar .session-row:hover {
+  --session-row-action-surface: var(--oc-bg-layer-1);
+  color: var(--oc-text);
+  background: var(--oc-hover);
+}
+.session-sidebar .session-row.selected {
+  --session-row-action-surface: var(--oc-bg-layer-2);
+  color: var(--oc-text);
+  background: var(--oc-pressed);
+  box-shadow: none;
+}
 .session-sidebar-scroll {
   overflow-y: auto;
   overflow-x: hidden;
@@ -527,6 +752,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-size: 13px;
   font-weight: 440;
   line-height: 20px;
+}
+.sidebar-recent-heading > span { min-width: 0; flex: 1; }
+.sidebar-recent-heading > small {
+  color: var(--oc-text-faint);
+  font: 440 11px/16px "Inter Variable", Inter, sans-serif;
 }
 .sidebar-section-heading,
 .project-group-heading {
@@ -561,9 +791,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .sidebar-section-toggle { color: var(--oc-text-muted); }
 .sidebar-section-toggle > span {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 530;
   line-height: 20px;
-  letter-spacing: 0;
+  letter-spacing: -.04px;
 }
 .project-group-toggle {
   padding-left: 8px;
@@ -579,9 +809,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   overflow: hidden;
   color: inherit;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 530;
   line-height: 20px;
-  letter-spacing: 0;
+  letter-spacing: -.04px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -598,41 +828,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .project-group-toggle:hover .project-group-chevron,
 .project-group-toggle:focus-visible .project-group-chevron,
 .project-group-toggle.selected .project-group-chevron { opacity: 1; }
-.project-avatar-v2 {
-  position: relative;
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-}
-.project-avatar-v2 [data-slot="project-avatar-surface"] {
-  --project-avatar-bg: #555;
-  --project-avatar-border: #777;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border-radius: 4px;
-  color: var(--oc-grey-50);
-  background: linear-gradient(180deg, var(--oc-avatar-gloss), transparent), var(--project-avatar-bg);
-  box-shadow: inset 0 0 0 .5px var(--project-avatar-border);
-  font-size: 11px;
-  font-weight: 530;
-  line-height: 1;
-  text-transform: uppercase;
-  text-shadow: 0 1px 3px var(--oc-avatar-shadow);
-  user-select: none;
-}
-.project-avatar-v2 [data-variant="orange"] { --project-avatar-bg: #a65318; --project-avatar-border: #d77a35; }
-.project-avatar-v2 [data-variant="yellow"] { --project-avatar-bg: #8c6a13; --project-avatar-border: #c49b2c; }
-.project-avatar-v2 [data-variant="cyan"] { --project-avatar-bg: #176f78; --project-avatar-border: #2da2ad; }
-.project-avatar-v2 [data-variant="green"] { --project-avatar-bg: #277044; --project-avatar-border: #42a469; }
-.project-avatar-v2 [data-variant="red"] { --project-avatar-bg: #963d3d; --project-avatar-border: #d25a58; }
-.project-avatar-v2 [data-variant="pink"] { --project-avatar-bg: #914c72; --project-avatar-border: #ca6f9d; }
-.project-avatar-v2 [data-variant="blue"] { --project-avatar-bg: #365e9d; --project-avatar-border: #5785ca; }
-.project-avatar-v2 [data-variant="purple"] { --project-avatar-bg: #67489b; --project-avatar-border: #8f68c8; }
-.project-avatar-v2 [data-variant="gray"] { --project-avatar-bg: #55565b; --project-avatar-border: #77787e; }
 .project-row-icon { flex: 0 0 16px; color: var(--oc-icon-muted); }
 .sidebar-section-toggle:hover,
 .project-group-toggle:hover,
@@ -734,7 +929,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   padding: 12px;
   gap: 8px;
 }
-.session-header h1 { color: var(--oc-text); font-size: 14px; font-weight: 500; line-height: 20px; letter-spacing: 0; }
+.session-header h1 { color: var(--oc-text); font-size: 13px; font-weight: 530; line-height: 20px; letter-spacing: -.04px; }
 .session-title-trigger {
   width: 100%;
   min-width: 0;
@@ -762,7 +957,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   padding: 0;
   border: 0;
   border-radius: 5px;
-  outline: 2px solid var(--oc-focus);
+  outline: 1px solid var(--oc-focus);
   outline-offset: 0;
   color: var(--oc-text);
   background: var(--oc-bg-layer-1);
@@ -784,12 +979,25 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-weight: 530;
   line-height: 20px;
 }
-.transcript { scrollbar-color: var(--oc-scrollbar-thumb) transparent; }
+.transcript {
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--oc-scrollbar-thumb) transparent;
+}
 .transcript:focus-visible {
   outline: 2px solid var(--oc-focus);
   outline-offset: -2px;
 }
 .thread { width: min(100%, 800px); padding: 20px 12px 16px; gap: 16px; }
+.transcript-virtual-space { position: relative; width: 100%; flex: 0 0 auto; }
+.transcript-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding-bottom: 16px;
+  box-sizing: border-box;
+}
+.transcript-virtual-row--empty { padding-bottom: 0; }
 .thread-welcome { width: min(100%, 800px); padding: 0 24px 120px; }
 .welcome-mark {
   width: 40px;
@@ -800,7 +1008,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: transparent;
   box-shadow: none;
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 530;
 }
 .thread-welcome h1 {
   margin: 24px 0 0;
@@ -812,9 +1020,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .thread-welcome p { display: none; }
 .starter-grid { display: none; }
-.message-body { color: var(--oc-text); font-size: 14px; font-weight: 440; line-height: 22px; letter-spacing: 0; }
+.message-body { color: var(--oc-text); font-size: 13px; font-weight: 440; line-height: 20px; letter-spacing: -.04px; }
 .message-body p { margin: 0 0 12px; }
-.message.user .message-body { line-height: 21px; }
+.message.user .message-body { line-height: 20px; }
 .message { position: relative; }
 .message:focus-visible {
   border-radius: 6px;
@@ -943,9 +1151,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   width: fit-content;
   max-width: 100%;
   padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--oc-bg-layer-1);
-  box-shadow: 0 0 0 .5px var(--oc-border-muted);
+  border: 1px solid var(--oc-border-muted);
+  border-radius: 6px;
+  background: var(--oc-surface-plate);
 }
 .message.user .message-body p { margin: 0; }
 .message.user .message-meta-line {
@@ -963,10 +1171,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border: 0;
   border-radius: 6px;
   color: var(--oc-text);
-  background: var(--oc-bg-deep);
-  box-shadow: 0 0 0 .5px var(--oc-border);
-  font-size: 12px;
-  line-height: 18px;
+  /* OpenCode code blocks sit on the sheet tone with a hairline border and
+     run at 13px mono — not a darker inset well. */
+  background: var(--oc-bg-base);
+  box-shadow: 0 0 0 .5px var(--oc-border-muted);
+  font-size: 13px;
+  line-height: 20px;
 }
 .markdown a { color: var(--oc-text-accent); }
 
@@ -1105,8 +1315,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   flex-direction: column;
   overflow: visible;
   gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 530;
 }
 .live-activity-status { min-height: 20px; display: flex; align-items: center; gap: 8px; }
 .live-activity small { color: var(--oc-text-faint); font-size: 13px; font-weight: 440; line-height: 20px; }
@@ -1128,12 +1338,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   overflow: auto;
   border-radius: 6px;
   color: var(--oc-text-muted);
-  background: var(--oc-bg-deep);
-  box-shadow: inset 0 0 0 .5px var(--oc-border);
+  background: var(--oc-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 13px;
+  line-height: 20px;
 }
 .turn-status.complete, .turn-status.success {
   min-height: 20px;
@@ -1208,10 +1418,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* OpenCode prompt input: 96px raised surface and 28px controls. */
 .composer-region { width: min(100%, 800px); padding: 0 12px 8px; }
 .composer-context-bar { min-height: 28px; gap: 6px; margin-bottom: 6px; }
+/* Project pill: one boxed chip. The container owns the plate, ring, and the
+   hover/expanded highlight; the inner select trigger must never paint its own
+   fill or the chip splits into two highlight regions. */
 .composer-project-context {
   height: 24px;
-  gap: 3px;
-  padding-left: 7px;
+  gap: 0;
+  padding-left: 8px;
   border-radius: 6px;
   color: var(--oc-icon-muted);
   background: var(--oc-bg-layer-1);
@@ -1220,30 +1433,43 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .project-context-select .oc-select-trigger {
   width: auto;
   height: 24px;
-  gap: 3px;
-  padding: 0 5px 0 2px;
+  gap: 4px;
+  padding: 0 6px 0 4px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   color: var(--oc-text-muted);
   background: transparent;
   box-shadow: none;
-  font-size: 12px;
-  font-weight: 440;
+  font-size: 13px;
+  font-weight: 530;
+}
+.project-context-select .oc-select-trigger:hover:not(:disabled),
+.project-context-select .oc-select-trigger[aria-expanded="true"],
+.project-context-select .oc-select-trigger:focus-visible,
+.project-context-select .oc-select-trigger:active:not(:disabled) {
+  background: transparent;
+  box-shadow: none;
 }
 .composer-project-context:hover,
-.composer-project-context:focus-within { color: var(--oc-icon); background: var(--oc-hover); }
+.composer-project-context:focus-within,
+.composer-project-context:has(.oc-select-trigger[aria-expanded="true"]) {
+  color: var(--oc-icon);
+  background: linear-gradient(var(--oc-hover), var(--oc-hover)), var(--oc-bg-layer-1);
+}
+.composer-project-context:hover .oc-select-trigger,
+.composer-project-context:focus-within .oc-select-trigger { color: var(--oc-text); }
 .composer {
   min-height: 84px;
   padding: 0;
   border: 0;
-  border-radius: 10px;
-  background: var(--oc-bg-layer-1);
-  box-shadow: 0 8px 24px var(--oc-alpha-dark-24), 0 0 0 .5px var(--oc-border-strong);
+  border-radius: 12px;
+  background: var(--oc-bg-base);
+  box-shadow: var(--oc-raised);
   transition: box-shadow 85ms ease-out;
 }
 .composer:focus-within {
   border: 0;
-  box-shadow: 0 8px 24px var(--oc-alpha-dark-24), 0 0 0 .5px var(--oc-alpha-light-30);
+  box-shadow: var(--oc-raised);
 }
 .composer textarea:focus,
 .composer textarea:focus-visible { outline: 0; box-shadow: none; }
@@ -1274,7 +1500,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-bg-contrast);
   box-shadow: var(--oc-button-contrast);
 }
-.send-button:hover:not(:disabled) { filter: brightness(1.08); }
+/* OpenCode v2 contrast hover: overlay-contrast-hover layered over the
+   contrast fill, not a brightness filter. */
+.send-button:hover:not(:disabled) {
+  background:
+    linear-gradient(var(--oc-contrast-hover), var(--oc-contrast-hover)),
+    linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-bg-contrast);
+}
 .send-button:focus-visible { outline: 0; box-shadow: var(--oc-button-contrast), 0 0 0 1px var(--oc-border-strong); }
 .send-button:disabled { opacity: .5; cursor: default; }
 .route-controls { gap: 0; }
@@ -1303,6 +1535,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .route-controls > .fast-control {
   width: auto;
   min-width: 40px;
+  white-space: nowrap;
 }
 .route-controls > .fast-control[aria-pressed="true"] { color: var(--oc-text); }
 .route-controls > .fast-control:hover:not(:disabled),
@@ -1391,10 +1624,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   flex: 1;
   margin: 0;
   color: var(--oc-text);
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 24px;
-  letter-spacing: -.1px;
+  font-size: 15px;
+  font-weight: 530;
+  line-height: 20px;
+  letter-spacing: -.04px;
 }
 .model-provider-add {
   width: 28px;
@@ -1447,7 +1680,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   gap: 8px;
 }
 .model-picker-dialog .model-search:focus-within { background: var(--oc-bg-layer-2); }
-.model-picker-dialog .model-search input { line-height: 20px; max-height: 20px; font-size: 14px; }
+.model-picker-dialog .model-search input { line-height: 20px; max-height: 20px; font-size: 13px; }
 .model-list {
   gap: 12px;
   overscroll-behavior: contain;
@@ -1480,8 +1713,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border-radius: 6px;
   color: var(--oc-text);
   background: transparent;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 440;
   line-height: 20px;
   text-align: left;
   scroll-margin-top: 28px;
@@ -1515,30 +1748,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   white-space: nowrap;
   color: var(--oc-text);
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 440;
   line-height: 20px;
 }
-.model-row-copy > small:not(.model-tag) {
+.model-row-copy > small {
   max-width: 100%;
   overflow: hidden;
   color: var(--oc-text-faint);
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 440;
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.model-tag {
-  flex: 0 0 auto;
-  height: 18px;
-  padding: 0 6px;
-  border: .5px solid var(--oc-border-muted);
-  border-radius: 2px;
-  color: var(--oc-text-muted);
-  background: var(--oc-bg-layer-2);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 18px;
 }
 .list-item-selected-icon {
   display: inline-flex;
@@ -1552,10 +1773,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   min-height: 36px;
   padding: 8px 12px 8px 8px;
   color: var(--oc-text-faint);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
-  letter-spacing: normal;
+  font-size: 11px;
+  font-weight: 530;
+  line-height: 16px;
+  letter-spacing: .05px;
 }
 .model-group--provider h3 {
   position: sticky;
@@ -1577,7 +1798,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border-radius: 4px;
   color: var(--oc-text-muted);
   background: var(--oc-bg-layer-2);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 16px;
 }
 .model-provider-setup:hover,
@@ -1648,7 +1869,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .slash-palette button span { color: var(--oc-text-muted); font-size: 13px; }
 .slash-palette p { color: var(--oc-text-muted); font-size: 13px; }
 .inline-error { display: none; }
-.runtime-progress { border: 0; color: var(--oc-success); background: var(--oc-success-bg); box-shadow: 0 0 0 .5px var(--oc-green-900); font-size: 11px; }
+.runtime-progress { border: 0; color: var(--oc-success); background: var(--oc-success-bg); box-shadow: 0 0 0 .5px var(--oc-success-border); font-size: 11px; }
 
 /* TUI L2 activity lives beside Context in the session header. */
 .composer-region { position: relative; }
@@ -1714,7 +1935,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: var(--oc-bg-deep);
 }
 .composer-attachments > div.image img { width: 56px; height: 56px; flex-basis: 56px; }
-.composer-attachments > div > span:nth-child(2) { padding-inline: 2px; font-size: 12px; font-weight: 500; line-height: 20px; }
+.composer-attachments > div > span:nth-child(2) { padding-inline: 2px; font-size: 12px; font-weight: 530; line-height: 20px; }
 .composer-attachments button { color: var(--oc-icon-muted); }
 .composer-attachments button:hover { color: var(--oc-danger); background: var(--oc-hover); }
 .composer-error { color: var(--oc-danger); background: var(--oc-danger-bg); }
@@ -1736,7 +1957,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-size: 13px;
   font-weight: 530;
 }
-.composer.dragging-files { box-shadow: 0 8px 24px var(--oc-alpha-dark-24), 0 0 0 1px var(--oc-border-strong); }
+.composer.dragging-files { box-shadow: var(--oc-raised), 0 0 0 1px var(--oc-border-strong); }
 .queue-list {
   position: relative;
   z-index: 0;
@@ -1785,7 +2006,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: var(--oc-text);
   background: transparent;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 530;
 }
 .queue-edit:hover:not(:disabled),
 .queue-edit:focus-visible { background: var(--oc-hover); outline: 0; }
@@ -1820,7 +2041,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: var(--oc-icon);
   background: var(--oc-bg-layer-2);
 }
-.project-switcher h1 { color: var(--oc-text); font-size: 15px; font-weight: 640; line-height: 20px; }
+.project-switcher h1 { color: var(--oc-text); font-size: 15px; font-weight: 530; line-height: 20px; }
 .project-switcher p { color: var(--oc-text-muted); font-size: 11px; line-height: 16px; }
 .project-switcher .icon-button { width: 24px; height: 24px; border-radius: 4px; color: var(--oc-icon-muted); }
 .project-switcher .icon-button:hover { color: var(--oc-icon); background: var(--oc-hover); }
@@ -1856,8 +2077,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: var(--oc-bg-base);
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
 }
-.project-card:hover, .project-card.selected { background: var(--oc-hover); box-shadow: inset 0 0 0 .5px var(--oc-border); }
-.project-card .project-row { height: 60px; padding: 0 36px 0 16px; border-radius: 6px; }
+.project-card:hover { background: var(--oc-hover); box-shadow: inset 0 0 0 .5px var(--oc-border); }
+.project-card .project-row { height: 60px; gap: 10px; padding: 0 36px 0 16px; border-radius: 6px; }
+.project-card .project-row > span:last-child { min-width: 0; }
 .project-avatar {
   width: 28px;
   height: 28px;
@@ -1866,10 +2088,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: var(--oc-text);
   background: var(--oc-bg-layer-2);
   font-size: 12px;
-  font-weight: 640;
+  font-weight: 530;
 }
 .project-card .project-row b { color: var(--oc-text); font-size: 13px; font-weight: 530; }
 .project-card .project-row small { color: var(--oc-text-faint); font-size: 11px; }
+.project-title-line { min-width: 0; display: flex; align-items: center; gap: 5px; }
+.project-title-line b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-pin-mark { flex: 0 0 auto; color: var(--oc-accent); transform: rotate(-18deg); }
 .project-card .project-more {
   top: 50%;
   right: 6px;
@@ -1971,7 +2196,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 8px;
+  padding: 0 12px;
   border: 0;
   border-radius: 4px;
   color: var(--oc-text);
@@ -1982,6 +2207,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   text-align: left;
   cursor: default;
 }
+.oc-menu[aria-label="Project context"] .oc-menu-item { line-height: 20px; }
 .oc-menu-item:hover, .oc-menu-item:focus-visible, .oc-menu-item[data-active="true"] { outline: 0; background: var(--oc-hover); }
 .oc-menu-item[aria-selected="true"] { color: var(--oc-text); font-weight: 440; }
 .oc-menu-item[disabled] { opacity: .5; }
@@ -2015,7 +2241,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border-radius: 8px;
   color: var(--oc-text);
   background: var(--oc-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--oc-border), var(--oc-floating);
+  /* OpenCode toast-v2 carries only the floating elevation — no inset ring. */
+  box-shadow: var(--oc-floating);
   pointer-events: auto;
   animation: oc-toast-in 140ms ease-out;
 }
@@ -2068,33 +2295,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   gap: 2px;
 }
 .oc-keybind kbd {
-  min-width: 18px;
-  height: 18px;
+  min-width: 14px;
+  height: 14px;
   display: inline-grid;
   place-items: center;
-  padding: 0 5px;
+  padding: 0 3px;
   border: 0;
-  border-radius: 3px;
+  border-radius: 2px;
   color: var(--oc-text-muted);
   background: var(--oc-bg-layer-3);
-  box-shadow: inset 0 0 0 .5px var(--oc-border-strong), 0 1px 1px var(--oc-alpha-dark-24);
-  font: 530 10px/1 "Inter Variable", Inter, sans-serif;
+  /* OpenCode keybind-v2: flat 14px chips on layer-03 — no ring, no drop. */
+  font: 530 11px/1 "Inter Variable", Inter, sans-serif;
+  letter-spacing: .05px;
   text-transform: uppercase;
 }
 
-.session-sidebar-footer {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.session-sidebar-footer > button:not(.runtime-status-trigger) { min-width: 0; flex: 1; }
-.session-sidebar-footer .runtime-status-trigger {
-  width: 28px;
-  flex: 0 0 28px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-}
+.session-sidebar-footer > .sidebar-settings-button { width: 100%; }
 .runtime-status-icon { position: relative; width: 16px; height: 16px; display: grid; place-items: center; }
 .runtime-status-icon i {
   position: absolute;
@@ -2179,6 +2395,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: var(--oc-text);
   background: var(--oc-hover);
 }
+.model-trigger,
+.effort-control .oc-select-trigger { color: var(--oc-text); }
 
 /* OpenCode settings v2: compact modal frame with an independently scrolling capability surface. */
 .mixdog-settings-layer {
@@ -2255,7 +2473,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: var(--oc-text);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 530;
   line-height: 20px;
 }
@@ -2297,7 +2515,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background-clip: padding-box;
 }
 .settings-section-heading { min-height: 15px; align-items: center; gap: 16px; }
-.settings-section-heading h2 { color: var(--oc-text); font-size: 15px; font-weight: 640; line-height: 1; }
+.settings-section-heading h2 { color: var(--oc-text); font-size: 15px; font-weight: 530; line-height: 1; }
 .settings-section-heading p { display: none; }
 .settings-refresh {
   height: 28px;
@@ -2315,7 +2533,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .settings-group { gap: 16px; }
 .settings-group + .settings-group { margin-top: 20px; }
 .settings-group > header { gap: 6px; padding: 0; }
-.settings-group > header h3 { color: var(--oc-text); font-size: 15px; font-weight: 640; line-height: 1; }
+.settings-group > header h3 { color: var(--oc-text); font-size: 15px; font-weight: 530; line-height: 1; }
 .settings-group > header p { color: var(--oc-text-muted); font-size: 11px; font-weight: 440; line-height: 16px; }
 .settings-group-body, .mixdog-settings__list {
   padding: 0 20px;
@@ -2393,8 +2611,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border-radius: 999px;
   color: var(--oc-text-muted);
   background: var(--oc-hover);
-  font-size: 10px;
-  font-weight: 520;
+  font-size: 11px;
+  font-weight: 530;
   line-height: 1;
   white-space: nowrap;
 }
@@ -2443,26 +2661,36 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border: 0;
   border-radius: 4px;
   background: linear-gradient(180deg, transparent, var(--oc-alpha-light-20)), var(--oc-bg-layer-3);
-  box-shadow: var(--oc-button);
+  box-shadow: var(--oc-switch-off);
   transition: background 90ms ease-out, opacity 90ms ease-out;
 }
 .mixdog-settings__switch span::after {
   width: 12px;
   height: 12px;
   margin: 0;
-  border: .5px solid var(--oc-alpha-light-20);
+  /* v2 thumb: white depth gradient over grey-200, elements shadow. */
+  border: .5px solid #fff;
   border-radius: 2px;
-  background: linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-grey-200);
-  box-shadow: var(--oc-button);
+  background: linear-gradient(180deg, #fff, transparent), var(--oc-grey-200);
+  box-shadow: var(--oc-switch-thumb-shadow);
   transition: transform 90ms ease-out, width 90ms ease-out, border-radius 90ms ease-out;
 }
 .mixdog-settings__switch:hover span::after { width: 13px; border-radius: 3px; }
+.mixdog-settings__switch:hover span {
+  background: linear-gradient(var(--oc-hover), var(--oc-hover)),
+    linear-gradient(180deg, transparent, var(--oc-alpha-light-20)), var(--oc-bg-layer-3);
+}
 .mixdog-settings__switch input:checked + span {
-  background: var(--oc-text);
+  /* v2 checked switch: blue-600 accent under an alpha-light-10 depth wash. */
+  background: linear-gradient(180deg, transparent, var(--oc-alpha-light-10)), var(--oc-accent-bg);
+  box-shadow: var(--oc-switch-on);
+}
+.mixdog-settings__switch:hover input:checked + span {
+  background: linear-gradient(var(--oc-contrast-hover), var(--oc-contrast-hover)),
+    linear-gradient(180deg, transparent, var(--oc-alpha-light-10)), var(--oc-accent-bg);
 }
 .mixdog-settings__switch input:checked + span::after {
-  border-color: var(--oc-bg-deep);
-  background: var(--oc-bg-deep);
+  background: linear-gradient(180deg, #fff, transparent), var(--oc-grey-300);
   transform: translateX(8px);
 }
 .mixdog-settings__switch:hover input:checked + span::after { transform: translateX(7px); }
@@ -2503,7 +2731,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: linear-gradient(var(--oc-hover), var(--oc-hover)), var(--oc-bg-base);
 }
 .settings-form-controls input:focus, .settings-domain-grid input:focus, .settings-domain-grid textarea:focus,
-.core-memory-add input:focus, .core-memory-edit input:focus { outline-color: var(--oc-border-strong); box-shadow: none; }
+.core-memory-add input:focus, .core-memory-edit input:focus { outline-color: var(--oc-focus); box-shadow: none; }
 .settings-form-controls button, .settings-action, .settings-domain-form button,
 .core-memory-add button, .core-memory-edit button, .core-memory-row button {
   min-height: 28px;
@@ -2666,7 +2894,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   flex: 1;
   margin: 0;
   font-size: 15px;
-  font-weight: 640;
+  font-weight: 530;
   line-height: 20px;
 }
 .settings-confirm-dialog > header button {
@@ -2714,9 +2942,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: linear-gradient(var(--oc-hover), var(--oc-hover)), var(--oc-bg-base);
 }
 .settings-confirm-dialog > footer button.primary {
-  color: var(--oc-bg-base);
-  background: var(--oc-bg-contrast);
+  color: var(--oc-grey-100);
+  background: linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-bg-contrast);
   box-shadow: var(--oc-button-contrast);
+  /* OpenCode contrast buttons etch their label (text-shadow 0 .5px .5px). */
+  text-shadow: 0 .5px .5px rgba(0, 0, 0, .3);
 }
 .settings-confirm-dialog > footer button.danger {
   color: var(--oc-danger);
@@ -2768,9 +2998,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   background: var(--oc-bg-layer-3);
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
   font-size: 15px;
-  font-weight: 640;
+  font-weight: 530;
 }
-.onboarding-dialog h1 { color: var(--oc-text); font-size: 15px; font-weight: 640; line-height: 1; }
+.onboarding-dialog h1 { color: var(--oc-text); font-size: 15px; font-weight: 530; line-height: 1; }
 .onboarding-dialog > header p, .onboarding-step-heading p {
   margin-top: 6px;
   color: var(--oc-text-muted);
@@ -2832,7 +3062,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .onboarding-step { display: grid; gap: 20px; }
 .onboarding-step-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.onboarding-step-heading h2 { color: var(--oc-text); font-size: 15px; font-weight: 640; line-height: 1; }
+.onboarding-step-heading h2 { color: var(--oc-text); font-size: 15px; font-weight: 530; line-height: 1; }
 .onboarding-step-heading button, .onboarding-provider-list button, .onboarding-dialog > footer button {
   min-height: 28px;
   padding: 0 11px;
@@ -2898,7 +3128,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-size: 13px;
   font-weight: 440;
 }
-.onboarding-provider-list input:focus { outline-color: var(--oc-border-strong); box-shadow: none; }
+.onboarding-provider-list input:focus { outline-color: var(--oc-focus); box-shadow: none; }
 .onboarding-model-grid .oc-select-root { width: min(280px, 44vw); min-width: 150px; }
 .onboarding-provider-row > span, .onboarding-provider-list .connected { color: var(--oc-success); font-size: 11px; }
 .onboarding-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -2944,22 +3174,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: var(--oc-grey-100);
   background: linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-bg-contrast);
   box-shadow: var(--oc-button-contrast);
+  text-shadow: 0 .5px .5px rgba(0, 0, 0, .3);
 }
 .onboarding-dialog > footer button.secondary { color: var(--oc-text-muted); background: transparent; box-shadow: none; }
 .onboarding-error { color: var(--oc-danger); font-size: 11px; }
 .onboarding-dialog button:disabled { opacity: .48; cursor: wait; }
 
-:root[data-mixdog-theme="light"] .onboarding-dialog,
-:root[data-mixdog-theme="light"] .project-switcher,
-:root[data-mixdog-theme="light"] .oc-toast {
-  box-shadow: 0 16px 40px var(--oc-light-overlay-shadow), 0 0 0 .5px var(--oc-light-overlay-border);
-}
-
 @media (max-width: 760px) {
   .desktop-body { padding-inline: 0; }
-  .workspace-tab { min-width: 92px; }
   .workspace { border-radius: 0; }
-  .sidebar.session-sidebar { width: min(286px, calc(100vw - 32px)); flex-basis: min(286px, calc(100vw - 32px)); }
+  .sidebar.session-sidebar {
+    width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px));
+    flex-basis: min(var(--session-sidebar-width, 260px), calc(100vw - 32px));
+  }
+  .session-sidebar-resize { display: none; }
   .oc-toast-region { width: calc(100vw - 32px); }
   .composer-region { padding-inline: 12px; }
 }
@@ -2979,13 +3207,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 
 @media (max-width: 480px) {
-  .workspace-tab { min-width: 76px; }
+  .workspace-tab { min-width: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .oc-menu, .oc-toast, .model-picker-dialog, .slash-palette,
   .session-switch-overlay .spin, .live-activity span, .stream-cursor { animation: none; }
   .message-actions { transition: none; }
+  .workspace-tab-status { animation: none; }
   .session-switch-overlay { backdrop-filter: none; }
 }
 
@@ -2995,8 +3224,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   margin: 10px 0;
   overflow: hidden;
   border-radius: 6px;
-  background: var(--oc-bg-deep);
-  box-shadow: 0 0 0 .5px var(--oc-border);
+  background: var(--oc-bg-base);
+  box-shadow: 0 0 0 .5px var(--oc-border-muted);
 }
 .markdown-code > header {
   min-height: 28px;
@@ -3004,11 +3233,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   align-items: center;
   justify-content: space-between;
   padding: 0 6px 0 12px;
-  border-bottom: .5px solid var(--oc-border);
+  border-bottom: .5px solid var(--oc-border-muted);
   color: var(--oc-text-faint);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 530;
   line-height: 16px;
-  text-transform: lowercase;
 }
 .markdown-code-copy {
   width: 24px;
@@ -3072,23 +3301,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   transform: translateX(-50%);
 }
 .jump-to-latest:hover, .jump-to-latest:focus-visible { background: var(--oc-bg-contrast); }
-
 /* Workspace tabs follow the OpenCode scroll affordance without consuming titlebar space. */
 .workspace-tabs-shell {
   position: relative;
-  width: fit-content;
-  max-width: min(68vw, 920px);
+  width: auto;
+  max-width: none;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   align-self: center;
   timeline-scope: --workspace-tabs-scroll;
+  -webkit-app-region: drag;
 }
 .workspace-tabs-shell .workspace-tabs {
-  width: max-content;
+  width: 100%;
   max-width: 100%;
   scroll-timeline: --workspace-tabs-scroll x;
 }
-.workspace-tab { min-width: 96px; }
+.topbar nav.workspace-tabs { -webkit-app-region: drag; }
+.workspace-tabs .workspace-tab { -webkit-app-region: no-drag; }
 .workspace-tabs-fade {
   position: absolute;
   z-index: 1;
@@ -3099,17 +3329,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 .workspace-tabs-fade-left {
   left: 0;
-  background: linear-gradient(to right, var(--oc-bg-deep), transparent);
-  animation: workspace-tabs-fade-left linear both;
-  animation-timeline: --workspace-tabs-scroll;
-  animation-range: 0 0.1px;
+  background: linear-gradient(to right, var(--oc-window-band), transparent);
 }
 .workspace-tabs-fade-right {
   right: 0;
-  background: linear-gradient(to left, var(--oc-bg-deep), transparent);
-  animation: workspace-tabs-fade-right linear both;
-  animation-timeline: --workspace-tabs-scroll;
-  animation-range: calc(100% - 1.1px) calc(100% - 1px);
+  background: linear-gradient(to left, var(--oc-window-band), transparent);
+}
+@supports (animation-timeline: scroll()) {
+  .workspace-tabs-fade-left {
+    animation: workspace-tabs-fade-left linear both;
+    animation-timeline: --workspace-tabs-scroll;
+    animation-range: 0 0.1px;
+  }
+  .workspace-tabs-fade-right {
+    animation: workspace-tabs-fade-right linear both;
+    animation-timeline: --workspace-tabs-scroll;
+    animation-range: calc(100% - 1.1px) calc(100% - 1px);
+  }
 }
 @keyframes workspace-tabs-fade-left {
   from { visibility: hidden; }
@@ -3120,10 +3356,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   to { visibility: hidden; }
 }
 @media (max-width: 760px) {
-  .workspace-tabs-shell { width: calc(100vw - 255px); }
+  .workspace-tabs-shell { width: auto; }
 }
 @media (max-width: 480px) {
-  .workspace-tabs-shell { width: calc(100vw - 224px); }
+  .workspace-tabs-shell { width: auto; }
 }
 
 /* Phase 3 final surface pass: current OpenCode v2 list, markdown, control, and
@@ -3157,7 +3393,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   margin: 0;
   border: 1px solid var(--oc-border-strong);
   border-radius: 4px;
-  accent-color: var(--oc-grey-200);
+  /* OpenCode checkbox-v2 checked fill is bg-accent (blue-600). */
+  accent-color: var(--oc-accent-bg);
 }
 .command-surface-select-row .oc-select-root { width: min(220px, 100%); margin-left: auto; }
 .command-surface-form {
@@ -3275,7 +3512,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: var(--oc-text);
   background: var(--oc-bg-layer-2);
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
-  font-size: .9em;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 .markdown a {
@@ -3523,8 +3760,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   overflow: hidden;
 }
 .model-trigger {
+  width: auto;
   min-width: 0;
-  max-width: min(320px, 100%);
+  max-width: min(220px, 100%);
   flex: 0 1 auto;
 }
 .model-trigger > span {
@@ -3533,8 +3771,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.effort-control,
-.fast-control { flex: 0 0 auto; }
+.effort-control {
+  width: auto;
+  flex: 0 0 auto;
+}
+.fast-control,
+.route-controls > .fast-control {
+  width: 64px;
+  min-width: 64px;
+  flex: 0 0 64px;
+}
 .send-button { flex: 0 0 28px; margin-left: auto; }
 .send-button:disabled {
   color: var(--oc-icon-muted);
@@ -3573,10 +3819,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   overflow: hidden;
   border-radius: 0 0 8px 8px;
   color: var(--oc-grey-100);
-  background: var(--oc-scrim);
+  /* Fixed dark plate under light text; must not follow the themed scrim. */
+  background: var(--oc-avatar-shadow);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 16px;
 }
 .composer-attachments button {
@@ -3663,6 +3910,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .oc-menu-item:disabled { pointer-events: none; opacity: .5; }
 
 .command-surface { outline: 0; }
+.command-surface[data-surface="context"] {
+  height: auto;
+  max-height: min(560px, calc(100vh - 32px));
+}
+.command-surface[data-surface="context"] .mixdog-settings__panel { max-height: 100%; }
+.command-surface[data-surface="context"] .mixdog-settings__body { flex: 0 1 auto; }
 .command-surface .mixdog-settings__body { gap: 28px; }
 .command-surface .mixdog-settings__header h1 { flex: 1 1 auto; }
 .command-surface-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
@@ -3778,7 +4031,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border-radius: 8px;
   color: var(--oc-text);
   background: var(--oc-bg-base);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, .24);
+  box-shadow: var(--oc-floating);
   opacity: 0;
   visibility: hidden;
   transform: translateY(-2px);
@@ -3812,7 +4065,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   justify-content: space-between;
   gap: 16px;
 }
-.context-usage-heading strong { color: var(--oc-text-accent); font-size: 13px; font-weight: 580; }
+.context-usage-heading strong { color: var(--oc-text-accent); font-size: 13px; font-weight: 530; }
 .context-usage-heading span { color: var(--oc-text); font-size: 12px; font-variant-numeric: tabular-nums; }
 .context-main-bar,
 .context-mix-row i {

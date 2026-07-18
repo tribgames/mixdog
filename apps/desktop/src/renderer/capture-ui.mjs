@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +14,15 @@ const windowOutput = join(here, "../../artifacts/mixdog-desktop-window-1113x687.
 const metadataOutput = windowOutput.replace(/\.png$/i, ".json");
 const errorOutput = `${windowOutput}.error.txt`;
 const timeoutMs = Number.parseInt(process.env.MIXDOG_CAPTURE_TIMEOUT_MS || "30000", 10);
+// Last-resort self-destruct: if any cleanup/teardown path wedges past the
+// capture deadline (locked temp profiles, zombie Electron descendants), kill
+// this process outright so the calling shell never waits out its own
+// deadline. unref'd — never delays a normal exit.
+const hardExitWatchdog = setTimeout(() => {
+  console.error(`[capture-ui] hard-exit watchdog fired ${timeoutMs + 30_000}ms after start; forcing exit 3.`);
+  process.exit(3);
+}, timeoutMs + 30_000);
+if (typeof hardExitWatchdog.unref === "function") hardExitWatchdog.unref();
 const userData = await mkdtemp(join(tmpdir(), "mixdog-capture-"));
 // Full shared-state isolation: the capture engine must never touch the real
 // ~/.mixdog home or the machine-shared runtime root (%TMP%/mixdog). A capture
@@ -30,9 +39,25 @@ await rm(errorOutput, { force: true });
 await stat(captureEntry);
 const startedAt = Date.now();
 
+// child.kill() only signals the top-level Electron launcher. Its renderer/GPU
+// children survive on Windows, keep the inherited stdio pipes open, and wedge
+// the calling shell session. Timeouts must always reap the full process tree.
+function killCaptureTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === "win32") {
+    execFile("taskkill", ["/PID", String(child.pid), "/T", "/F"], () => {});
+  } else {
+    child.kill("SIGKILL");
+  }
+}
+
 try {
   const exitCode = await new Promise((resolve, reject) => {
     let settled = false;
+    // stdio must never be "inherit": surviving Electron grandchildren
+    // (crashpad) would hold the calling shell's pipe handles and wedge the
+    // whole pipeline after a kill. Pipe through this process instead so the
+    // pipe always closes when capture-ui exits.
     const child = spawn(electronPath, [captureEntry, windowOutput, captureId], {
       env: {
         ...process.env,
@@ -41,15 +66,17 @@ try {
         MIXDOG_DATA_DIR: join(isolatedHome, "data"),
         MIXDOG_RUNTIME_ROOT: isolatedRuntimeRoot,
       },
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
       windowsHide: false,
     });
+    child.stdout.on("data", (chunk) => process.stdout.write(chunk));
+    child.stderr.on("data", (chunk) => process.stderr.write(chunk));
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
       const error = new Error(`Capture timed out after ${timeoutMs}ms.`);
       const terminate = () => {
-        child.kill();
+        killCaptureTree(child);
         reject(error);
       };
       void writeFile(errorOutput, `${error.message}\n`, "utf8").then(terminate, terminate);
@@ -124,10 +151,9 @@ try {
   );
   assert.deepEqual(metadata.outputDimensions, { width: 1113, height: 687 });
   assert.equal(metadata.resizeApplied, false);
-  // Matches DESKTOP_BACKGROUND_COLOR in src/main/window-options.ts — the
-  // overlay is composited against the custom dark titlebar, not transparent.
-  assert.equal(metadata.sharedOptions.titleBarOverlay.color, "#080808");
-  assert.equal(metadata.sharedOptions.titleBarOverlay.symbolColor, "#e5e5e5");
+  assert.equal(metadata.sharedOptions.titleBarOverlay.color, "#00000000");
+  assert.equal(metadata.sharedOptions.titleBarOverlay.symbolColor, "white");
+  assert.equal(metadata.sharedOptions.titleBarOverlay.height, 40);
   assert.equal(metadata.sharedOptions.backgroundColor, "#080808");
   assert.deepEqual(metadata.rendererValidation, {
     bridgePresent: true,
@@ -166,11 +192,11 @@ try {
     },
     {
       sidebarLeft: 8,
-      sidebarTop: 42,
-      sidebarWidth: 286,
+      sidebarTop: 48,
+      sidebarWidth: 260,
       sidebarBottomInset: 8,
       sidebarGap: 8,
-      mainLeft: 302,
+      mainLeft: 276,
     },
   );
   assert.ok(metadata.liveAssertions.mobile.viewport.width <= 760);
@@ -224,19 +250,19 @@ try {
   );
   assert.equal(metadata.imageMeasuredSidebar.scanlineY, 600);
   assert.equal(metadata.imageMeasuredSidebar.left, 8);
-  assert.equal(metadata.imageMeasuredSidebar.right, 293);
-  assert.equal(metadata.imageMeasuredSidebar.width, 286);
+  assert.equal(metadata.imageMeasuredSidebar.right, 267);
+  assert.equal(metadata.imageMeasuredSidebar.width, 260);
   assert.equal(metadata.imageMeasuredSidebar.leftInset, 8);
-  assert.deepEqual(metadata.imageMeasuredSidebar.rightGap, { left: 294, right: 301, width: 8 });
+  assert.deepEqual(metadata.imageMeasuredSidebar.rightGap, { left: 268, right: 275, width: 8 });
   assert.deepEqual(metadata.imageMeasuredSidebar.sidebarExcludedRuns, { leftInset: true, rightGap: true });
   assert.deepEqual(metadata.domSidebarGeometry, {
     left: 8,
-    top: 42,
-    right: 294,
+    top: 48,
+    right: 268,
     bottom: 679,
-    width: 286,
+    width: 260,
     bottomInset: 8,
-    mainLeft: 302,
+    mainLeft: 276,
     gap: 8,
   });
   assert.equal(metadata.imageMeasuredSidebar.left, metadata.domSidebarGeometry.left);
@@ -245,31 +271,34 @@ try {
   assert.equal(metadata.imageMeasuredSidebar.rightGap.left, metadata.domSidebarGeometry.right);
   assert.equal(metadata.imageMeasuredSidebar.rightGap.right, metadata.domSidebarGeometry.mainLeft - 1);
   assert.equal(metadata.imageMeasuredSidebar.rightGap.width, metadata.domSidebarGeometry.gap);
-  assert.equal(metadata.imageMeasuredSidebar.sampledColors.interior, "#1b1b1e");
+  assert.equal(metadata.imageMeasuredSidebar.sampledColors.interior, "#161616");
   assert.equal(
     metadata.imageMeasuredSidebar.sampledColors.leftBorder,
     metadata.imageMeasuredSidebar.sampledColors.rightBorder,
   );
-  const assertShellTopEdge = (sample, { band, hairline, sheet }) => {
-    assert.equal(sample.yStart, 36);
-    assert.equal(sample.yEnd, 44);
-    assert.deepEqual(
-      sample.colors,
-      [band, band, band, band, band, hairline, sheet, sheet, sheet],
-      `${sample.theme} shell top edge must show the window band, hairline, then sheet.`,
-    );
+  const assertShellTopEdge = (sample, { band, sheet }) => {
+    assert.equal(sample.yStart, 40);
+    assert.equal(sample.yEnd, 48);
+    // The sheet now carries the v2 elevation-raised ring (.5px, antialiased),
+    // so the transition row blends unpredictably. Require: band rows, at most
+    // two transition rows that match neither surface, then sheet rows.
+    const colors = sample.colors;
+    const firstSheet = colors.indexOf(sheet);
+    assert.ok(firstSheet > 0 && firstSheet <= 8, `${sample.theme} shell top edge must reach the sheet within the sample.`);
+    const transition = colors.slice(0, firstSheet).filter((color) => color !== band);
+    assert.ok(transition.length >= 1 && transition.length <= 2,
+      `${sample.theme} shell top edge must show a visible hairline between band and sheet.`);
+    assert.ok(transition.every((color) => color !== sheet && color !== band));
+    assert.ok(colors.slice(0, firstSheet - transition.length).every((color) => color === band),
+      `${sample.theme} rows above the hairline must stay on the window band.`);
+    assert.ok(colors.slice(firstSheet).every((color) => color === sheet),
+      `${sample.theme} rows below the hairline must be the workspace sheet.`);
   };
-  const capturePage = metadata.captureMethod === "webContents.capturePage";
-  assertShellTopEdge(metadata.shellTopEdges.dark, capturePage
-    ? { band: "#080808", hairline: "#212121", sheet: "#161616" }
-    : { band: "#181212", hairline: "#514f53", sheet: "#1b1b1e" });
-  // The light palette is injected from the bundled TUI registry regardless of
-  // capture method, so the sampled band/hairline/sheet are the real light
-  // colors (the old capture-page branch predated renderer palette injection).
-  assertShellTopEdge(metadata.shellTopEdges.light, { band: "#f6f8fa", hairline: "#c8cfd4", sheet: "#ffffff" });
-  assert.equal(metadata.pixelSamples.titlebar.color, capturePage ? "#080808" : "#181212");
-  assert.equal(metadata.pixelSamples.base.color, capturePage ? "#161616" : "#1b1b1e");
-  assert.equal(metadata.pixelSamples.sidebar.color, capturePage ? "#161616" : "#1b1b1e");
+  assertShellTopEdge(metadata.shellTopEdges.dark, { band: "#080808", sheet: "#161616" });
+  assertShellTopEdge(metadata.shellTopEdges.light, { band: "#fafafa", sheet: "#fcfcfc" });
+  assert.equal(metadata.pixelSamples.titlebar.color, "#080808");
+  assert.equal(metadata.pixelSamples.base.color, "#161616");
+  assert.equal(metadata.pixelSamples.sidebar.color, "#161616");
   console.log(`CAPTURE_PNG=${windowOutput}`);
   console.log(`CAPTURE_JSON=${metadataOutput}`);
   console.log(`CAPTURE_SCHEMA=${metadata.schemaVersion}; CAPTURE_ID=${metadata.captureId}`);
@@ -284,5 +313,11 @@ try {
   console.log(`PIXELS=${JSON.stringify(metadata.pixelSamples)}`);
   console.log(`LIVE_ASSERTIONS=${JSON.stringify(metadata.liveAssertions)}`);
 } finally {
-  await rm(userData, { recursive: true, force: true });
+  // Electron's crashpad handler can hold DIPS/lock files for a short window
+  // after process exit; EBUSY here must not fail an otherwise green capture.
+  try {
+    await rm(userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch (error) {
+    console.warn(`capture-ui: temp profile cleanup deferred (${error?.code || error}): ${userData}`);
+  }
 }

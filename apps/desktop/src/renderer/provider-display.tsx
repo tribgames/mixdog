@@ -196,6 +196,21 @@ export function modelOptionDescription(model: DesktopModelOption): string {
     .filter(Boolean).join(" · ");
 }
 
+export function modelDetailTooltip(model: DesktopModelOption): string {
+  const effort = Array.isArray(model.effortOptions)
+    ? model.effortOptions.map((option) => option.label || option.value).filter(Boolean)
+    : [];
+  return [
+    providerDisplayName(model.provider),
+    model.model,
+    formatContextWindow(modelContextWindow(model)),
+    effort.length > 0 ? `Reasoning ${effort.join("/")}` : "",
+    model.fastCapable ? "Fast available" : "",
+    model.latest ? "Latest" : "",
+    model.releaseDate ? `Released ${model.releaseDate}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
 function titleModelPart(part: string) {
   const text = String(part || "").trim();
   if (!text) return "";
