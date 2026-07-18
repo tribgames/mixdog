@@ -504,6 +504,13 @@ export function registerDesktopIpc(
     window.webContents.send(DESKTOP_IPC.zoomFactorChanged, factor);
     return factor;
   });
+  // Renderer-resolved theme (system preference / stored preference / engine
+  // theme) drives the native caption symbol color. The capability path below
+  // only covers explicit getTheme/setTheme calls; preference-based light mode
+  // never hit it, leaving white symbols invisible on the light band.
+  handle(DESKTOP_IPC.applyTitleBarTheme, (_event, theme) => {
+    setDesktopTitleBarTheme(window, requiredString(theme, 'theme'));
+  });
   handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
     const request = requiredDesktopCapabilityRequest(input);
     const result = await host.invokeCapability(request.capability, request.args);

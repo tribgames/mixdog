@@ -125,6 +125,14 @@ export function applyDesktopTheme(value: unknown): string {
   root.style.colorScheme = resolved === 'light' ? 'light' : 'dark';
   document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
     ?.setAttribute('content', desktopThemeBackground(resolved));
+  // The Windows caption overlay (min/max/close) is native chrome: its symbol
+  // color lives in the MAIN process. Without this notification a light theme
+  // kept white symbols on a near-white band — the buttons "disappeared".
+  try {
+    (window as unknown as {
+      mixdogDesktop?: { applyTitleBarTheme?: (theme: string) => Promise<void> };
+    }).mixdogDesktop?.applyTitleBarTheme?.(resolved)?.catch?.(() => undefined);
+  } catch { /* theme application must never fail on bridge absence */ }
   const variables = cssVariables(registry[resolved].palette);
   // Always clear previous inline overrides first so switching back to a
   // css-native theme cannot leave stale palette values behind.

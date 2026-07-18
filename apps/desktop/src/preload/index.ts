@@ -57,6 +57,7 @@ const api: DesktopApi = {
   updateSetting: (key, enabled) => ipcRenderer.invoke(DESKTOP_IPC.updateSetting, key, enabled),
   getZoomFactor: () => ipcRenderer.invoke(DESKTOP_IPC.getZoomFactor),
   setZoomFactor: (factor) => ipcRenderer.invoke(DESKTOP_IPC.setZoomFactor, factor),
+  applyTitleBarTheme: (theme) => ipcRenderer.invoke(DESKTOP_IPC.applyTitleBarTheme, theme),
   onZoomFactorChanged: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, factor: number): void => listener(factor);
     ipcRenderer.on(DESKTOP_IPC.zoomFactorChanged, receive);

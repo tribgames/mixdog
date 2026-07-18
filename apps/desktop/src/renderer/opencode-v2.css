@@ -167,6 +167,9 @@
   --oc-focus: var(--oc-blue-500);
   --oc-hover: rgba(0, 0, 0, .039);
   --oc-pressed: rgba(0, 0, 0, .078);
+  /* Light tab pill: layer-1 (#fafafa) equals the light band, which made the
+     active tab invisible. A black alpha pill reads as the reference grey. */
+  --oc-tab-pill: rgba(0, 0, 0, .055);
   --oc-scrim: rgba(0, 0, 0, .4);
   --oc-accent-bg: var(--oc-blue-600);
   --oc-contrast-hover: rgba(255, 255, 255, .122);
@@ -438,7 +441,7 @@ button:focus-visible { outline-offset: 2.5px; }
 .workspace-tab:hover,
 .workspace-tab.active,
 .workspace-tab:focus-within {
-  --workspace-tab-surface: var(--oc-bg-layer-1);
+  --workspace-tab-surface: var(--oc-tab-pill, var(--oc-bg-layer-1));
   color: var(--oc-text);
   background: var(--workspace-tab-surface);
 }

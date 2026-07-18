@@ -26,6 +26,7 @@ export const DESKTOP_IPC = {
   getZoomFactor: 'mixdog:get-zoom-factor',
   setZoomFactor: 'mixdog:set-zoom-factor',
   zoomFactorChanged: 'mixdog:zoom-factor-changed',
+  applyTitleBarTheme: 'mixdog:apply-titlebar-theme',
   invokeCapability: 'mixdog:invoke-capability',
   readCapabilities: 'mixdog:read-capabilities',
   dispose: 'mixdog:dispose',
@@ -434,6 +435,7 @@ export interface DesktopApi {
   getZoomFactor(): Promise<number>;
   setZoomFactor(factor: number): Promise<number>;
   onZoomFactorChanged(listener: (factor: number) => void): () => void;
+  applyTitleBarTheme(theme: string): Promise<void>;
   invokeCapability<T = unknown>(request: DesktopCapabilityRequest): Promise<DesktopCapabilityResult<T>>;
   readCapabilities(requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]>;
   dispose(): Promise<void>;

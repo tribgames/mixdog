@@ -260,7 +260,7 @@ export function DesktopTitlebar({
                     aria-label={`Close ${tab.title}`}
                     data-tooltip="Close tab"
                   >
-                    <OcIcon name="close-small" size={14} />
+                    <OcIcon name="close-small" size={16} />
                   </button>
                 </div>
             );
