@@ -50,11 +50,14 @@ export function isVoiceEnabled() {
 /** Read the managed runtime state without installing or mutating anything. */
 export async function getVoiceStatus({ dataDir = resolvePluginData() } = {}) {
   const fetcher = await loadVoiceRuntimeFetcher();
-  const runtime = fetcher.resolveVoiceRuntime(dataDir);
+  const runtime = fetcher.resolveVoiceRuntime(dataDir, {
+    modelId: fetcher.selectVoiceModelId(readSection('voice')),
+  });
   return {
     enabled: isVoiceEnabled(),
     busy: isVoiceInstallBusy(),
     installed: runtime.installed === true,
+    modelId: runtime.modelId,
     components: {
       whisper: Boolean(runtime.binary && runtime.serverCmd),
       model: Boolean(runtime.model),
@@ -112,7 +115,10 @@ function makeThrottledProgressNotice({ pushNotice, setProgressHint } = {}, inter
  */
 export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNotice, setProgressHint } = {}) {
   const fetcher = await loadVoiceRuntimeFetcher();
-  let runtime = fetcher.resolveVoiceRuntime(dataDir);
+  // System-language default: Korean devices install the Korean fine-tune,
+  // everything else the standard multilingual Q8. voice.model overrides.
+  const modelId = fetcher.selectVoiceModelId(readSection('voice'));
+  let runtime = fetcher.resolveVoiceRuntime(dataDir, { modelId });
   if (runtime.installed) return runtime;
 
   const onProgress = makeThrottledProgressNotice({ pushNotice, setProgressHint });
@@ -120,13 +126,13 @@ export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), p
     await fetcher.ensureWhisperRuntime(dataDir, onProgress);
   }
   if (!runtime.model) {
-    await fetcher.ensureWhisperModel(dataDir, onProgress);
+    await fetcher.ensureWhisperModel(dataDir, onProgress, modelId);
   }
   if (!runtime.ffmpeg) {
     await fetcher.ensureFfmpegRuntime(dataDir, onProgress);
   }
 
-  runtime = fetcher.resolveVoiceRuntime(dataDir);
+  runtime = fetcher.resolveVoiceRuntime(dataDir, { modelId });
   if (!runtime.installed) {
     throw new Error('voice runtime install did not complete (still missing a required component)');
   }

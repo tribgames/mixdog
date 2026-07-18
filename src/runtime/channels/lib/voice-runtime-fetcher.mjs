@@ -40,6 +40,30 @@ import { spawnSync } from 'child_process'
 import { createGunzip } from 'zlib'
 import { renameWithRetrySync, writeFileAtomicSync } from '../../shared/atomic-file.mjs'
 import { windowsProgramRoots, windowsSystemRoot } from '../../agent/orchestrator/tools/builtin/windows-roots.mjs'
+import { detectDeviceLanguage, normalizeWhisperLanguage } from './whisper-language.mjs'
+
+// Model catalog: `models.standard` / `models.korean` in the manifest, with the
+// legacy single `model` section as the standard fallback for older manifests.
+// Selection: explicit voice.model config wins; 'auto' picks the Korean
+// fine-tune only when the device language resolves to Korean.
+export function selectVoiceModelId(voiceConfig = null) {
+  const pref = String(voiceConfig?.model || 'auto').trim().toLowerCase()
+  if (pref === 'standard' || pref === 'korean') return pref
+  // voice.language is the strongest auto signal: Node's ICU default locale
+  // often resolves to en-US even on a Korean Windows install, so an explicit
+  // transcription language wins over device-locale detection.
+  const configured = normalizeWhisperLanguage(voiceConfig?.language)
+  if (configured === 'ko') return 'korean'
+  if (configured) return 'standard'
+  return detectDeviceLanguage() === 'ko' ? 'korean' : 'standard'
+}
+
+function manifestModelEntry(manifest, modelId = 'standard') {
+  const entry = manifest?.models && typeof manifest.models === 'object'
+    ? manifest.models[modelId]
+    : null
+  return entry || manifest?.model || null
+}
 
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('../data/voice-runtime-manifest.json', import.meta.url))
 const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/channels/data/voice-runtime-manifest.json'
@@ -597,9 +621,29 @@ export function resolveManagedWhisperCmd(dataDir) {
 export function resolveManagedWhisperModel(dataDir) {
   if (!existsSync(BUNDLED_MANIFEST_PATH)) return null
   const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'))
-  if (!manifest.model?.filename) return null
-  const p = join(dataDir, 'voice', 'models', manifest.model.filename)
-  return existsSync(p) ? p : null
+  return resolveManagedWhisperModelForId(manifest, dataDir, 'standard')
+}
+
+export function resolveManagedWhisperModelById(dataDir, modelId = 'standard') {
+  if (!existsSync(BUNDLED_MANIFEST_PATH)) return null
+  const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'))
+  return resolveManagedWhisperModelForId(manifest, dataDir, modelId)
+}
+
+function resolveManagedWhisperModelForId(manifest, dataDir, modelId) {
+  const entry = manifestModelEntry(manifest, modelId)
+  if (!entry?.filename) return null
+  const modelDir = join(dataDir, 'voice', 'models')
+  const p = join(modelDir, entry.filename)
+  if (existsSync(p)) return p
+  // Older installs may still hold a legacy filename (e.g. the F16
+  // ggml-large-v3-turbo.bin before the Q8 default). Keep them working until
+  // the next install swaps the file.
+  for (const legacy of Array.isArray(entry.legacyFilenames) ? entry.legacyFilenames : []) {
+    const lp = join(modelDir, legacy)
+    if (existsSync(lp)) return lp
+  }
+  return null
 }
 
 // Single managed ffmpeg binary used by transcribe (ogg→wav). Layout mirrors
@@ -701,9 +745,9 @@ export function resolveManagedFfmpegPath(dataDir) {
   return null
 }
 
-export function resolveVoiceRuntime(dataDir) {
+export function resolveVoiceRuntime(dataDir, { modelId = 'standard' } = {}) {
   const managedWhisperCmd = resolveManagedWhisperCmd(dataDir)
-  const managedModelPath = resolveManagedWhisperModel(dataDir)
+  const managedModelPath = resolveManagedWhisperModelById(dataDir, modelId)
   const managedFfmpegPath = resolveManagedFfmpegPath(dataDir)
   const ext = process.platform === 'win32' ? '.exe' : ''
   const managedServerCmd = managedWhisperCmd
@@ -720,7 +764,8 @@ export function resolveVoiceRuntime(dataDir) {
     whisperCmd: managedWhisperCmd,
     serverCmd,
     modelPath: managedModelPath,
-    modelName: managedModelPath ? 'ggml-large-v3-turbo.bin' : '',
+    modelId,
+    modelName: managedModelPath ? managedModelPath.split(/[\\/]/).pop() : '',
     ffmpegPath: managedFfmpegPath,
   }
 }
@@ -729,9 +774,9 @@ export function resolveVoiceRuntime(dataDir) {
 // the resolved file exists and matches the manifest sha256, return without
 // re-downloading. Atomic install via stage-then-rename so a partial download
 // on a kill/crash never leaves the model dir holding a corrupted .bin.
-export async function ensureWhisperModel(dataDir, onProgress = null) {
+export async function ensureWhisperModel(dataDir, onProgress = null, modelId = 'standard') {
   const manifest = await loadManifest(dataDir)
-  const model = manifest.model
+  const model = manifestModelEntry(manifest, modelId)
   if (!model) {
     throw new Error('[voice-runtime] manifest is missing the `model` section — cannot resolve whisper model')
   }

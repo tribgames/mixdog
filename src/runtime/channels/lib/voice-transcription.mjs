@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { createRequire } from "module";
-import { resolveVoiceRuntime } from "./voice-runtime-fetcher.mjs";
+import { resolveVoiceRuntime, selectVoiceModelId } from "./voice-runtime-fetcher.mjs";
 import { ensureReady, transcribe } from "./whisper-server.mjs";
 import { normalizeWhisperLanguage, detectDeviceLanguage } from "./whisper-language.mjs";
 
@@ -119,7 +119,7 @@ function createVoiceTranscription({ getConfig, dataDir }) {
   async function _doTranscribeVoice(audioPath, attachmentId) {
     const config = getConfig();
     try {
-      const runtime = resolveVoiceRuntime(dataDir);
+      const runtime = resolveVoiceRuntime(dataDir, { modelId: selectVoiceModelId(config.voice) });
       if (!runtime?.installed) {
         const missing = [runtime?.binary ? null : 'binary', runtime?.model ? null : 'model', runtime?.ffmpeg ? null : 'ffmpeg'].filter(Boolean).join(' + ');
         throw new Error(`voice runtime not installed (missing: ${missing}) — open the setup wizard and click "Install voice"`);

@@ -2,11 +2,28 @@
   "version": "1.8.4",
   "source": "ggml-org/whisper.cpp official release",
   "model": {
-    "id": "large-v3-turbo",
-    "filename": "ggml-large-v3-turbo.bin",
-    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-    "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
-    "size": 1624555275
+    "id": "large-v3-turbo-q8_0",
+    "filename": "ggml-large-v3-turbo-q8_0.bin",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+    "sha256": "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
+    "size": 874188075
+  },
+  "models": {
+    "standard": {
+      "id": "large-v3-turbo-q8_0",
+      "filename": "ggml-large-v3-turbo-q8_0.bin",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+      "sha256": "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
+      "size": 874188075,
+      "legacyFilenames": ["ggml-large-v3-turbo.bin"]
+    },
+    "korean": {
+      "id": "large-v3-turbo-korean-q8_0",
+      "filename": "whisper-large-v3-turbo-korean-q8_0.bin",
+      "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.8.4/whisper-large-v3-turbo-korean-q8_0.bin",
+      "sha256": "b0590271b17d683aba5bbe4ada0c310d5c9031f4c165400423271e7273d30a90",
+      "size": 874188075
+    }
   },
   "ffmpeg": {
     "version": "b6.1.1",

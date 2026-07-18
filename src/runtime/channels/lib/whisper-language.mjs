@@ -6,6 +6,10 @@ let resolvedWhisperLanguage = null;
 function normalizeWhisperLanguage(value) {
   const raw = String(value ?? "").trim().toLowerCase();
   if (!raw || raw === "auto") return null;
+  // POSIX pseudo-locales (LANG=C / C.UTF-8 / POSIX) carry no language signal;
+  // treating them as a language poisoned detection ('c.utf-8' reached whisper
+  // and blocked the ko-KR Intl fallback from ever being consulted).
+  if (raw === "c" || raw === "posix" || raw.startsWith("c.") || raw.startsWith("posix.")) return null;
   if (raw.startsWith("ko")) return "ko";
   if (raw.startsWith("ja")) return "ja";
   if (raw.startsWith("en")) return "en";
