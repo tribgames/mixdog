@@ -1379,6 +1379,25 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 13px;
   font-weight: 440;
 }
+/* Failed-turn retry: quiet ghost control beside the failure label. */
+.turn-status.failed { gap: 8px; }
+.turn-retry {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--oc-text-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 530;
+  cursor: pointer;
+}
+.turn-retry:hover:not(:disabled),
+.turn-retry:focus-visible { color: var(--oc-text); background: var(--oc-hover); }
+.turn-retry:disabled { opacity: .5; cursor: default; }
 .compaction-divider {
   min-height: 24px;
   display: flex;

@@ -710,7 +710,9 @@ test("conversation attaches only successful turn completion to the final assista
   }));
   assert.equal(document.querySelector(".message.assistant .response-footer .turn-status") === null, true, "selector .message.assistant .response-footer .turn-status should be absent");
   assert.equal(document.querySelectorAll(".turn-status.failed").length, 1);
-  assert.equal(document.querySelector(".turn-status.failed")?.textContent?.trim(), "Failed");
+  const failedRow = document.querySelector(".turn-status.failed");
+  assert.equal(failedRow?.textContent?.trim(), "FailedRetry");
+  assert.equal(failedRow?.querySelector(".turn-retry")?.getAttribute("aria-label"), "Retry failed turn");
 });
 
 test("tool cards use the shared TUI surface and expose copy for shell and diff output", async () => {
@@ -2448,8 +2450,9 @@ test("an error toast does not fail a turn until the core publishes a failed comp
     }],
   }));
   const outcomes = Array.from(document.querySelectorAll(".turn-status"));
-  assert.deepEqual(outcomes.map((row) => row.textContent?.trim()), ["Failed"]);
+  assert.deepEqual(outcomes.map((row) => row.textContent?.trim()), ["FailedRetry"]);
   assert.equal(outcomes[0].querySelector(".lucide-check") === null, true, "selector .lucide-check should be absent");
+  assert.ok(outcomes[0].querySelector(".turn-retry"), "failed turns must expose a retry control");
 });
 
 test("a cancelled core completion remains interrupted even when an unrelated error toast is visible", async () => {

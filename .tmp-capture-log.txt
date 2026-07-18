@@ -31,8 +31,8 @@ Error occurred in handler for 'mixdog:invoke-capability': Error: memoryControl i
     at Session.emit (node:events:519:28)
 CAPTURE_PNG=C:\Project\mixdog\apps\desktop\artifacts\mixdog-desktop-window-1113x687.png
 CAPTURE_JSON=C:\Project\mixdog\apps\desktop\artifacts\mixdog-desktop-window-1113x687.json
-CAPTURE_SCHEMA=1; CAPTURE_ID=14452069-1fea-49f9-a09b-feb476218d93
-CAPTURED_AT=2026-07-18T15:33:02.673Z
+CAPTURE_SCHEMA=1; CAPTURE_ID=6a4edd8c-4a6e-4076-a6cc-a3f790d34616
+CAPTURED_AT=2026-07-18T15:41:38.112Z
 DIMENSIONS={"source":{"width":1113,"height":687},"finalBounds":{"x":640,"y":286,"width":1113,"height":687},"output":{"width":1113,"height":687},"resizeApplied":false}
 IMAGE_SIDEBAR={"method":"dom-geometry-fallback","scanlineY":600,"left":8,"right":267,"width":260,"leftInset":8,"rightGap":{"left":268,"right":275,"width":8},"sidebarExcludedRuns":{"leftInset":true,"rightGap":true},"sampledColors":{"leftOutside":"#161616","leftBorder":"#161616","interior":"#161616","rightBorder":"#161616","rightGap":"#161616"}}
 PIXELS={"titlebar":{"x":400,"y":20,"color":"#080808"},"base":{"x":400,"y":60,"color":"#161616"},"sidebar":{"x":20,"y":60,"color":"#161616"}}

@@ -32,6 +32,7 @@ import {
   LoaderCircle,
   Paperclip,
   Plus,
+  RotateCcw,
   Search,
   ShieldAlert,
   Sparkles,
@@ -1556,11 +1557,27 @@ function Conversation({
   const renderTranscriptItem = (item: TranscriptItem, index: number) => {
     const turnKey = turnKeys[index];
     const completion = item.kind === "statusdone" || item.kind === "turndone";
+    // Session retry (OpenCode parity): resubmit the failed turn's original
+    // user prompt through the normal composer submit path.
+    const retryTurn = () => {
+      for (let cursor = 0; cursor < items.length; cursor += 1) {
+        if (turnKeys[cursor] !== turnKey || items[cursor]?.kind !== "user") continue;
+        const text = String(items[cursor]?.text ?? "").trim();
+        if (text) void composerSubmit(text);
+        return;
+      }
+    };
+    const retryDisabled = Boolean(snapshot.busy) || transitioning;
+    const retryButton = <button type="button" className="turn-retry" disabled={retryDisabled}
+      onClick={retryTurn} aria-label="Retry failed turn">
+      <RotateCcw size={12} aria-hidden="true" />Retry
+    </button>;
     if (failedTurns.has(turnKey) && completion) {
       if (index !== lastCompletionByTurn.get(turnKey)) return null;
       return <div className="turn-status failed" role="status"
         key={`failed-${turnKey}`}>
         <X size={13} />Failed
+        {retryButton}
       </div>;
     }
     if (attachedCompletionIndexes.has(index)) return null;
@@ -1573,7 +1590,7 @@ function Conversation({
     if (!pendingFailure) return row;
     return <React.Fragment key={`pending-${turnKey}`}>
       {row}
-      <div className="turn-status failed" role="status"><X size={13} />Failed</div>
+      <div className="turn-status failed" role="status"><X size={13} />Failed{retryButton}</div>
     </React.Fragment>;
   };
 
