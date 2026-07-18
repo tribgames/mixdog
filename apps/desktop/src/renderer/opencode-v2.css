@@ -168,8 +168,9 @@
   --oc-hover: rgba(0, 0, 0, .039);
   --oc-pressed: rgba(0, 0, 0, .078);
   /* Light tab pill: layer-1 (#fafafa) equals the light band, which made the
-     active tab invisible. A black alpha pill reads as the reference grey. */
-  --oc-tab-pill: rgba(0, 0, 0, .055);
+     active tab invisible. OPAQUE grey (≈5.5% black over the band) — an alpha
+     pill stacked with the close-button gradient into blotchy double-darkening. */
+  --oc-tab-pill: #ececec;
   --oc-scrim: rgba(0, 0, 0, .4);
   --oc-accent-bg: var(--oc-blue-600);
   --oc-contrast-hover: rgba(255, 255, 255, .122);
@@ -756,6 +757,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--oc-text);
   background: var(--oc-pressed);
   box-shadow: none;
+}
+/* Light rows: translucent hover/pressed backgrounds under OPAQUE action
+   gradients rendered a visible rectangle around the row actions. Use opaque
+   tones and keep the action surface identical to the row surface. */
+:root[data-mixdog-theme="light"] .session-sidebar .task-link:hover,
+:root[data-mixdog-theme="light"] .session-sidebar .projects-link:hover,
+:root[data-mixdog-theme="light"] .session-sidebar .session-row:hover {
+  --session-row-action-surface: #f1f1f1;
+  background: #f1f1f1;
+}
+:root[data-mixdog-theme="light"] .session-sidebar .session-row.selected {
+  --session-row-action-surface: #e9e9e9;
+  background: #e9e9e9;
 }
 .session-sidebar-scroll {
   overflow-y: auto;
@@ -3408,7 +3422,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-shadow: var(--oc-floating);
   transform: translateX(-50%);
 }
-.jump-to-latest:hover, .jump-to-latest:focus-visible { background: var(--oc-bg-contrast); }
+/* Hover lightens one layer; --oc-bg-contrast is #242424 in LIGHT mode and
+   turned the pill black on hover. */
+.jump-to-latest:hover, .jump-to-latest:focus-visible { background: var(--oc-bg-layer-3); }
 /* Workspace tabs follow the OpenCode scroll affordance without consuming titlebar space. */
 .workspace-tabs-shell {
   position: relative;
