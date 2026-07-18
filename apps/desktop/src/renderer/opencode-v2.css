@@ -1574,6 +1574,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .composer textarea::placeholder { color: var(--oc-text-faint); }
 .composer-footer { height: 44px; gap: 0; padding: 0 8px; }
 /* Push-to-talk dictation states on the mic tool. */
+.composer-mic { margin-left: 6px; }
 .composer-mic.is-recording {
   color: var(--oc-danger);
   background: var(--oc-danger-bg);

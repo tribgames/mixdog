@@ -3714,6 +3714,14 @@ const Composer = memo(function Composer({
           onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
         <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images or text files" data-tooltip-side="top"
         onClick={() => fileInput.current?.click()}><OcIcon name="plus" size={16} /></button>
+        <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
+          modelDisabled={commandBusy || transitioning}
+          tuningDisabled={turnBusy || commandBusy || transitioning}
+          invokeResult={invokeResult} applySnapshot={applySnapshot}
+          onOpenSettings={onOpenSettings} />
+        <WorkflowSelect workflow={workflow}
+          disabled={turnBusy || commandBusy || transitioning}
+          invokeResult={invokeResult} applySnapshot={applySnapshot} />
         <button type="button"
           className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
           disabled={transitioning || dictationState === 'transcribing'}
@@ -3725,14 +3733,6 @@ const Composer = memo(function Composer({
           onClick={() => void toggleDictation()}>
           {dictationState === 'transcribing' ? <LoaderCircle className="composer-mic-spinner" size={15} /> : <Mic size={15} />}
         </button>
-        <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
-          modelDisabled={commandBusy || transitioning}
-          tuningDisabled={turnBusy || commandBusy || transitioning}
-          invokeResult={invokeResult} applySnapshot={applySnapshot}
-          onOpenSettings={onOpenSettings} />
-        <WorkflowSelect workflow={workflow}
-          disabled={turnBusy || commandBusy || transitioning}
-          invokeResult={invokeResult} applySnapshot={applySnapshot} />
         {turnBusy && !draft.trim() ? (
           <button type="button" className="send-button stop" onClick={() => void stop()}
             aria-label="Stop generation" data-tooltip="Stop" data-tooltip-side="top">
