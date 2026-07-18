@@ -331,7 +331,16 @@ export function shouldCompactForSession(messageTokensEst, policy, {
     const pressure = Number.isFinite(Number(pressureTokens))
         ? Number(pressureTokens)
         : resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef });
-    return pressure >= (policy.triggerTokens || policy.boundaryTokens);
+    const trigger = policy.triggerTokens || policy.boundaryTokens;
+    if (pressure >= trigger) return true;
+    // Safety net: the provider-usage baseline exists to correct OVER-counting
+    // transcript estimates, so a lower baseline-derived pressure is normally
+    // preferred. But a stale/wrong baseline must never SUPPRESS compaction
+    // once the raw transcript estimate itself has crossed the trigger — that
+    // failure mode let a live session sail past a 950k trigger to 1.1M+ real
+    // tokens without a single auto compact. The trigger decision (not the
+    // gauge) therefore takes the max of both pressure sources.
+    return compactPressureTokens(messageTokensEst, policy) >= trigger;
 }
 export function countPrunedToolOutputs(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return 0;
@@ -413,6 +422,23 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
             ? true
             : prev.singleShotConsumed === true,
     };
+    // Postmortem ring buffer: the per-check telemetry above is overwritten on
+    // every stage change, which erased all pre-compact evidence when a session
+    // blew past its trigger without compacting. Keep the last few decisions
+    // (pressure vs estimate vs trigger plus the live baseline) on the session
+    // so a missed-trigger incident is diagnosable after the fact.
+    {
+        const prior = Array.isArray(prev.recentChecks) ? prev.recentChecks : [];
+        sessionRef.compaction.recentChecks = [...prior, {
+            at: Date.now(),
+            stage: meta.stage || null,
+            pressure: meta.pressureTokens ?? null,
+            est: meta.beforeTokens ?? null,
+            trigger: policy.triggerTokens || policy.boundaryTokens || null,
+            baseline: positiveTokenInt(sessionRef.contextPressureBaselineTokens) || null,
+            baselineAt: Number(sessionRef.contextPressureBaselineUpdatedAt) || null,
+        }].slice(-8);
+    }
     if (changed) {
         const changedAt = Date.now();
         sessionRef.compaction.lastChangedAt = changedAt;
