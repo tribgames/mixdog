@@ -13,6 +13,7 @@ import {
     rememberCompactTelemetry,
     emitCompactEvent,
     compactEventType,
+    resolveSemanticSummaryModel,
 } from './loop/compact-policy.mjs';
 import {
     pruneToolOutputs,
@@ -177,7 +178,7 @@ export async function runPreSendCompactPass(state) {
                             semanticCompactResult = await semanticCompactMessages(
                                 provider,
                                 compactInputMessages,
-                                model,
+                                resolveSemanticSummaryModel(sessionRef, { budgetTokens: compactBudgetTokens }) || model,
                                 compactBudgetTokens,
                                 {
                                     reserveTokens: compactPolicy.reserveTokens,

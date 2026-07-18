@@ -352,7 +352,7 @@ export async function runSessionCompaction(session, opts = {}) {
                     semanticCompactResult = await semanticCompactMessages(
                         provider,
                         messages,
-                        opts.model || session.model,
+                        opts.model || resolveSemanticSummaryModel(session, { budgetTokens: budget }) || session.model,
                         budget,
                         {
                             reserveTokens,
@@ -396,7 +396,7 @@ export async function runSessionCompaction(session, opts = {}) {
             semanticCompactResult = await semanticCompactMessages(
                 provider,
                 messages,
-                opts.model || session.model,
+                opts.model || resolveSemanticSummaryModel(session, { budgetTokens: budget }) || session.model,
                 budget,
                 {
                     reserveTokens,

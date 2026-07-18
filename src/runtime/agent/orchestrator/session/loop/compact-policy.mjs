@@ -493,3 +493,27 @@ export function emitCompactEvent(opts, event = {}) {
 export function compactEventType(policy, fallback = DEFAULT_COMPACT_TYPE) {
     return policy?.compactType || policy?.type || fallback;
 }
+
+// Semantic-summary model downshift. The compaction summary is a low-effort,
+// bounded-output extraction call; running it on the session's flagship model
+// made a manual /compact cost 27-38s of pure LLM latency. Claude Code runs its
+// summaries on Haiku for the same reason. An explicit
+// compaction.semanticModel (or MIXDOG_AGENT_COMPACT_SEMANTIC_MODEL) always
+// wins; otherwise Anthropic-family sessions downshift to the Haiku default
+// UNLESS the compact budget could produce a prompt too large for Haiku's 200k
+// window, or the session already runs a Haiku-class model. Non-Anthropic
+// providers keep the session model (no cross-provider assumptions).
+const SUMMARY_MODEL_MAX_BUDGET_TOKENS = 160_000;
+export function resolveSemanticSummaryModel(sessionRef, { budgetTokens } = {}) {
+    const cfg = sessionRef?.compaction && typeof sessionRef.compaction === 'object' ? sessionRef.compaction : {};
+    const explicit = String(cfg.semanticModel || '').trim()
+        || String(process.env.MIXDOG_AGENT_COMPACT_SEMANTIC_MODEL || '').trim();
+    if (explicit) return explicit;
+    const provider = String(sessionRef?.provider || '').toLowerCase();
+    if (provider !== 'anthropic' && provider !== 'anthropic-oauth') return null;
+    const model = String(sessionRef?.model || '').toLowerCase();
+    if (!model.startsWith('claude-') || model.startsWith('claude-haiku')) return null;
+    const budget = Number(budgetTokens) || 0;
+    if (budget <= 0 || budget > SUMMARY_MODEL_MAX_BUDGET_TOKENS) return null;
+    return process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'claude-haiku-4-5-20251001';
+}
