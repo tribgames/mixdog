@@ -6,6 +6,24 @@ import { CLAUDE_CURRENT_MODE } from './claude-current.mjs';
 
 const STORE_FILE = 'gateway-session-routes.json';
 const UUIDISH_SESSION_RE = /^[0-9a-z][0-9a-z._-]{7,}$/i;
+// Route entries were written forever and never pruned — a two-week desktop
+// installation reached a 1.1MB store that readStore() parsed synchronously on
+// every route lookup. Bound the store by age and count; a route older than the
+// TTL belongs to a session whose provider pin is long since irrelevant.
+const ROUTE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const MAX_SESSION_ROUTES = 300;
+const MAX_HOST_ROUTES = 100;
+
+function pruneRouteMap(map, now, cap) {
+  const entries = Object.entries(map || {})
+    .filter(([, route]) => {
+      const at = Number(route?.updatedAt) || 0;
+      return at > 0 && (now - at) <= ROUTE_TTL_MS;
+    })
+    .sort((a, b) => (Number(b[1]?.updatedAt) || 0) - (Number(a[1]?.updatedAt) || 0))
+    .slice(0, cap);
+  return Object.fromEntries(entries);
+}
 
 function cleanString(value) {
   const s = typeof value === 'string' ? value.trim() : '';
@@ -163,7 +181,12 @@ export function writeGatewaySessionRoutes(entries = []) {
           sessions[sid] = { ...route, sessionId: sid, updatedAt };
         }
       }
-      return { version: 2, updatedAt, sessions, sessionHosts };
+      return {
+        version: 2,
+        updatedAt,
+        sessions: pruneRouteMap(sessions, updatedAt, MAX_SESSION_ROUTES),
+        sessionHosts: pruneRouteMap(sessionHosts, updatedAt, MAX_HOST_ROUTES),
+      };
     }, { compact: true, fsync: false, fsyncDir: false });
     return true;
   } catch {
