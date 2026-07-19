@@ -3227,7 +3227,7 @@ function GitPanel({ cwd }: { cwd: string | null }) {
     </form>}
     <section>
       <h4 className="dock-git-group">
-        {base === "HEAD" ? "Changes" : `Changes vs ${base}`} <small>{changed.length}</small>
+        Changes <small>{changed.length}</small>
       </h4>
       {changed.map((file) => row(file))}
     </section></>}
@@ -3251,7 +3251,7 @@ function GitPanel({ cwd }: { cwd: string | null }) {
                   <b>{commit.subject || "(no message)"}</b>
                   <small>{commit.shortHash} · {commit.when}</small>
                 </div>
-                {!commit.pushed && <span title="Not pushed yet">↑ local</span>}
+                {!commit.pushed && <i className="dock-git-unpushed" title="Not pushed yet" aria-label="Not pushed yet" />}
               </button>
               {active && <div className="dock-git-inline-diff">
                 {showText === null

@@ -4842,7 +4842,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   white-space: nowrap;
 }
 .dock-git-commit-row small { color: var(--oc-text-faint); font-size: 11px; }
-.dock-git-commit-row > span { flex: 0 0 auto; color: var(--oc-warning); font-size: 11px; font-weight: 600; }
+/* Unpushed marker: one subtle dot per row — the count already lives in the
+   header chip and the Commits band. */
+.dock-git-unpushed {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--oc-warning);
+}
 .dock-git-commit footer { display: flex; align-items: center; gap: 8px; }
 .dock-git-commit footer > span { color: var(--oc-text-faint); font-size: 11px; }
 .dock-git-commit footer > button { margin-left: auto; flex: 0 0 auto; padding: 0 14px; }
