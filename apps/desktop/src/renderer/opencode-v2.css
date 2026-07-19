@@ -2141,7 +2141,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 16px;
 }
 .live-work-status:hover, .live-work-status:focus { background: var(--oc-hover); outline: 0; }
-.live-work-count { font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1; }
+/* Digit centers on the 13px spinner box exactly (user: count sat low). */
+.live-work-count {
+  display: inline-flex;
+  align-items: center;
+  height: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
 .live-work-popover {
   position: absolute;
   z-index: 20;

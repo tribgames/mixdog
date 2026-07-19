@@ -79,7 +79,7 @@ export const Item = React.memo(function Item({ item, prevKind, columns, toolOutp
       }
       // Consecutive tool cards stack without the blank separator row (user:
       // list spacing read too airy); the first card after prose keeps it.
-      node = <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} callErrorCount={item.callErrorCount} exitErrorCount={item.exitErrorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={prevKind === 'tool'} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} doneCategori
+      node = <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} callErrorCount={item.callErrorCount} exitErrorCount={item.exitErrorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={prevKind === 'tool'} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} doneCategories={item.doneCategories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} agentResponseAggregate={item.agentResponseAggregate} />;
       break;
     }
     case 'notice':

@@ -739,7 +739,16 @@ export function createStandaloneAgent({
       ...jobWorkerSnapshot(task.sessionId),
       ...sessionProgressExtras(task.sessionId, task.agent || null, Date.now(), task.status),
     }));
-    return wantedPid ? rows.filter((row) => positiveInt(row.clientHostPid) === wantedPid) : rows;
+    return wantedPid
+      ? rows.filter((row) => {
+        const pid = positiveInt(row.clientHostPid);
+        // Spawn-prep rows have no worker session (and therefore no pid) yet;
+        // they already passed taskMatchesScope, so the queued spawn stays
+        // visible instead of vanishing until a pool slot frees up (user bug:
+        // "spawned 5, only 4 listed").
+        return pid ? pid === wantedPid : true;
+      })
+      : rows;
   }
 
   function getJob(args, context = {}) {

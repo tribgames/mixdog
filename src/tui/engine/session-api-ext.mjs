@@ -52,6 +52,50 @@ export function restoredAssistantTranscriptItems(message, nextId) {
   return items;
 }
 
+// Restored tool cards: stored assistant messages keep their (compacted)
+// tool_calls and the follow-up role:'tool' results, but resume used to drop
+// both — a reopened session lost every tool marker (user bug). Rebuild one
+// transcript tool item per call and attach its result by tool_call_id.
+export function restoredToolCallItems(message, nextId, pendingByCallId) {
+  const calls = Array.isArray(message?.tool_calls) ? message.tool_calls
+    : Array.isArray(message?.toolCalls) ? message.toolCalls : [];
+  const at = Number(message?.meta?.transcript?.at);
+  const items = [];
+  for (const call of calls) {
+    const name = String(call?.function?.name || call?.name || 'tool').trim() || 'tool';
+    let args = call?.function?.arguments ?? call?.arguments;
+    if (typeof args === 'string') {
+      try { args = JSON.parse(args); } catch { /* keep the raw string args */ }
+    }
+    const item = {
+      kind: 'tool',
+      id: nextId(),
+      name,
+      ...(args !== undefined && args !== '' ? { args } : {}),
+      expanded: false,
+      count: 1,
+      completedCount: 1,
+      ...(Number.isFinite(at) ? { at, startedAt: at, completedAt: at } : {}),
+    };
+    const callId = typeof call?.id === 'string' ? call.id : '';
+    if (callId) pendingByCallId.set(callId, item);
+    items.push(item);
+  }
+  return items;
+}
+
+export function attachRestoredToolResult(message, pendingByCallId) {
+  const callId = typeof message?.tool_call_id === 'string' && message.tool_call_id
+    ? message.tool_call_id
+    : typeof message?.toolCallId === 'string' ? message.toolCallId : '';
+  const target = callId ? pendingByCallId.get(callId) : null;
+  if (!target) return;
+  pendingByCallId.delete(callId);
+  const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)) || '';
+  target.result = text;
+  if (/^\s*(?:error|\[error|failed\b)/i.test(text)) target.isError = true;
+}
+
 export function createEngineApiB(bag) {
   const {
     runtime, nextId, flags, lifecycle, listeners, getState, set, flushEmitImmediate, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
@@ -571,6 +615,7 @@ export function createEngineApiB(bag) {
         if (!r) return false;
         resetStatsAndSyncContext();
         const items = [];
+        const pendingToolCalls = new Map();
         for (const m of r.messages || []) {
           if (m.role === 'user') {
             // Injected model-context payloads are model-visible but never
@@ -611,6 +656,9 @@ export function createEngineApiB(bag) {
             }
           } else if (m.role === 'assistant') {
             items.push(...restoredAssistantTranscriptItems(m, nextId));
+            items.push(...restoredToolCallItems(m, nextId, pendingToolCalls));
+          } else if (m.role === 'tool') {
+            attachRestoredToolResult(m, pendingToolCalls);
           }
         }
         set({
