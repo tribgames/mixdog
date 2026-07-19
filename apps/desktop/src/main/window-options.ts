@@ -94,7 +94,10 @@ const webPreferences = Object.freeze({
 export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
   width: 1280,
   height: 820,
-  minWidth: 640,
+  /* 880 keeps the window ABOVE the ≤760px mobile-overlay band (sidebar
+     backdrop over the workspace) and the 760–860 squeeze zone that broke
+     the layout when users shrank the window. */
+  minWidth: 880,
   minHeight: 600,
   show: false,
   autoHideMenuBar: true,
