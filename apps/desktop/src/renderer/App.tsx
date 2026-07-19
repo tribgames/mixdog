@@ -1192,7 +1192,7 @@ export function App() {
         setSidebarOpen((value) => !value);
         return;
       }
-      if (key === "b" && event.altKey && !event.shiftKey) {
+      if (key === "b" && event.shiftKey && !event.altKey) {
         event.preventDefault();
         setDockOpen((value) => !value);
         return;
