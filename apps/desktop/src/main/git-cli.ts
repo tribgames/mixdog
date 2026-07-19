@@ -1,7 +1,8 @@
 // Dock Git panel backend (claudecodeui git-panel pattern): plain `git` CLI
 // calls from the main process, scoped to the active project directory.
 import { execFile } from 'node:child_process';
-import { isAbsolute } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 
 export interface GitFileEntry {
   path: string;
@@ -153,6 +154,60 @@ export function requiredCommitHash(value: unknown): string {
   return hash;
 }
 
+// ── Review surface (opencode project/vcs grammar) ─────────────────────────
+// The review diff is cumulative: merge-base(origin default branch, HEAD)
+// vs the WORKING TREE — committed, uncommitted and untracked work read as
+// one change set (Codex review-pane semantics).
+export interface GitReviewFile {
+  path: string;
+  status: string; // A | M | D (U rendered from untracked)
+  additions: number;
+  deletions: number;
+  untracked: boolean;
+  uncommitted: boolean;
+}
+
+export interface GitReviewResult {
+  base: string;
+  files: GitReviewFile[];
+}
+
+async function resolveReviewBase(cwd: string): Promise<string> {
+  try {
+    const head = (await run(cwd, ['symbolic-ref', 'refs/remotes/origin/HEAD'])).trim();
+    const short = head.replace(/^refs\/remotes\//, '');
+    if (short) return short;
+  } catch { /* no origin/HEAD ref */ }
+  for (const candidate of ['origin/main', 'origin/master']) {
+    try {
+      await run(cwd, ['rev-parse', '--verify', '--quiet', candidate]);
+      return candidate;
+    } catch { /* try next */ }
+  }
+  return 'HEAD';
+}
+
+async function resolveMergeBase(cwd: string): Promise<{ base: string; ref: string }> {
+  const base = await resolveReviewBase(cwd);
+  if (base === 'HEAD') return { base, ref: 'HEAD' };
+  try {
+    const ref = (await run(cwd, ['merge-base', base, 'HEAD'])).trim();
+    return { base, ref: ref || 'HEAD' };
+  } catch {
+    return { base, ref: 'HEAD' };
+  }
+}
+
+async function untrackedStat(cwd: string, path: string): Promise<number> {
+  try {
+    const text = await readFile(join(cwd, path), 'utf8');
+    if (!text || text.includes('\0')) return 0;
+    return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+  } catch {
+    return 0;
+  }
+}
+
 export interface GitLogEntry {
   hash: string;
   shortHash: string;
@@ -190,4 +245,84 @@ export async function gitLog(cwd: string): Promise<GitLogEntry[]> {
 
 export function gitShow(cwd: string, hash: string): Promise<string> {
   return run(cwd, ['show', hash, '--patch', '--format=', '--no-color']);
+}
+
+export async function gitReview(cwd: string): Promise<GitReviewResult> {
+  const { base, ref } = await resolveMergeBase(cwd);
+  const files = new Map<string, GitReviewFile>();
+  try {
+    const nameStatus = await run(cwd, ['diff', ref, '--name-status', '--no-renames', '-z']);
+    const fields = nameStatus.split('\0').filter(Boolean);
+    for (let i = 0; i + 1 < fields.length; i += 2) {
+      const path = fields[i + 1];
+      if (!path) continue;
+      files.set(path, {
+        path,
+        status: fields[i][0] ?? 'M',
+        additions: 0,
+        deletions: 0,
+        untracked: false,
+        uncommitted: false,
+      });
+    }
+    const numstat = await run(cwd, ['diff', ref, '--numstat', '--no-renames', '-z']);
+    for (const field of numstat.split('\0').filter(Boolean)) {
+      const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(field);
+      const entry = match && match[3] ? files.get(match[3]) : undefined;
+      if (!match || !entry) continue;
+      entry.additions = match[1] === '-' ? 0 : Number(match[1]);
+      entry.deletions = match[2] === '-' ? 0 : Number(match[2]);
+    }
+  } catch { /* empty repository (no HEAD yet) */ }
+  // Working-tree overlay: uncommitted rows keep their revert affordance and
+  // untracked files join the set as pure additions.
+  try {
+    const raw = await run(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']);
+    for (const entry of raw.split('\0')) {
+      if (entry.length < 4) continue;
+      const path = entry.slice(3);
+      if (!path) continue;
+      const untracked = entry[0] === '?' && entry[1] === '?';
+      const existing = files.get(path);
+      if (existing) {
+        existing.uncommitted = true;
+        existing.untracked = untracked;
+        continue;
+      }
+      files.set(path, {
+        path,
+        status: untracked ? 'A' : 'M',
+        additions: untracked ? await untrackedStat(cwd, path) : 0,
+        deletions: 0,
+        untracked,
+        uncommitted: true,
+      });
+    }
+  } catch { /* not a repository */ }
+  return { base, files: [...files.values()].sort((a, b) => a.path.localeCompare(b.path)) };
+}
+
+export async function gitReviewDiff(cwd: string, path: string, untracked: boolean): Promise<string> {
+  if (untracked) {
+    // Synthesized all-added patch (opencode patchUntracked semantics without
+    // relying on /dev/null, which Windows git handles inconsistently).
+    try {
+      const text = await readFile(join(cwd, path), 'utf8');
+      if (!text || text.includes('\0')) return '';
+      const lines = text.split('\n');
+      if (lines.at(-1) === '') lines.pop();
+      if (!lines.length) return '';
+      return [
+        `diff --git a/${path} b/${path}`,
+        '--- /dev/null',
+        `+++ b/${path}`,
+        `@@ -0,0 +1,${lines.length} @@`,
+        ...lines.map((line) => `+${line}`),
+      ].join('\n') + '\n';
+    } catch {
+      return '';
+    }
+  }
+  const { ref } = await resolveMergeBase(cwd);
+  return run(cwd, ['diff', ref, '--', path]);
 }

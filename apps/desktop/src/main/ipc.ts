@@ -37,6 +37,8 @@ import {
   gitDiff,
   gitLog,
   gitPush,
+  gitReview,
+  gitReviewDiff,
   gitRevertFile,
   gitShow,
   gitStage,
@@ -624,6 +626,9 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.gitLog, (_event, cwd) => gitLog(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.gitShow, (_event, cwd, hash) =>
     gitShow(requiredRepositoryCwd(cwd), requiredCommitHash(hash)));
+  handle(DESKTOP_IPC.gitReview, (_event, cwd) => gitReview(requiredRepositoryCwd(cwd)));
+  handle(DESKTOP_IPC.gitReviewDiff, (_event, cwd, path, untracked) =>
+    gitReviewDiff(requiredRepositoryCwd(cwd), requiredString(path, 'git path', 4_096), untracked === true));
   const onTermWrite = (event: Electron.IpcMainEvent, id: unknown, data: unknown): void => {
     if (!validTermSender(event)) return;
     terminals?.write(String(id || ''), String(data ?? ''));

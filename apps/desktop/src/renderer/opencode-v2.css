@@ -4681,6 +4681,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .dock-git-sync:hover:not(:disabled) { color: var(--oc-text); background: var(--oc-hover); }
 .dock-git-sync:disabled { cursor: default; }
+.dock-git-base { color: var(--oc-text-faint); font-size: 12px; }
+.dock-git-total { flex: 0 0 auto; font-size: 11px; }
 .dock-git-refresh {
   width: 24px;
   height: 24px;

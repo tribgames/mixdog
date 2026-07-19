@@ -47,6 +47,8 @@ export const DESKTOP_IPC = {
   gitRevert: 'mixdog:git-revert',
   gitLog: 'mixdog:git-log',
   gitShow: 'mixdog:git-show',
+  gitReview: 'mixdog:git-review',
+  gitReviewDiff: 'mixdog:git-review-diff',
   getUpdaterState: 'mixdog:get-updater-state',
   checkForDesktopUpdate: 'mixdog:check-for-desktop-update',
   showDesktopUpdate: 'mixdog:show-desktop-update',
@@ -455,6 +457,9 @@ export interface DesktopApi {
   gitRevert?(cwd: string, path: string, untracked: boolean): Promise<void>;
   gitLog?(cwd: string): Promise<Array<{ hash: string; shortHash: string; subject: string; when: string; pushed: boolean }>>;
   gitShow?(cwd: string, hash: string): Promise<string>;
+  /** Review pane: cumulative diff of the working tree vs merge-base(origin default branch, HEAD). */
+  gitReview?(cwd: string): Promise<{ base: string; files: Array<{ path: string; status: string; additions: number; deletions: number; untracked: boolean; uncommitted: boolean }> }>;
+  gitReviewDiff?(cwd: string, path: string, untracked?: boolean): Promise<string>;
   getUpdaterState(): Promise<DesktopUpdaterState>;
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;

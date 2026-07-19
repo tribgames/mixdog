@@ -221,7 +221,7 @@ type Snapshot = RecordValue & {
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
 const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
-type UtilityDockTab = 'changes' | 'agents' | 'git' | 'terminal';
+type UtilityDockTab = 'review' | 'agents' | 'terminal';
 function clampDockWidth(value: number): number {
   return Math.min(560, Math.max(300, Math.round(Number.isFinite(value) ? value : 380)));
 }
@@ -230,11 +230,11 @@ function readDockState(): { open: boolean; tab: UtilityDockTab; width: number } 
     const raw = JSON.parse(window.localStorage.getItem(DOCK_STATE_KEY) || '{}') as Record<string, unknown>;
     return {
       open: raw.open === true,
-      tab: raw.tab === 'agents' || raw.tab === 'terminal' || raw.tab === 'git' ? raw.tab : 'changes',
+      tab: raw.tab === 'agents' || raw.tab === 'terminal' ? raw.tab : 'review',
       width: clampDockWidth(Number(raw.width)),
     };
   } catch {
-    return { open: false, tab: 'changes', width: 380 };
+    return { open: false, tab: 'review', width: 380 };
   }
 }
 let settingsViewModulePromise: Promise<typeof import("./settings/SettingsView")> | null = null;
@@ -415,7 +415,7 @@ export function App() {
   // Reopening the dock starts fresh on the first tab (user decision, same
   // grammar as the settings dialog reset).
   useEffect(() => {
-    if (dockOpen) setDockTab("changes");
+    if (dockOpen) setDockTab("review");
   }, [dockOpen]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
@@ -2875,7 +2875,6 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
     const timer = window.setInterval(() => setAgentClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [tab]);
-  const changes = useMemo(() => sessionFileChanges(items), [items]);
   const agents = useMemo(() => dockAgentRows(snapshot), [snapshot.agentWorkers, snapshot.agentJobs]);
   // Agent output viewer (opcode AgentRunOutputViewer grammar): click a row →
   // fetch its rendered output via the SILENT agentControl read; refresh every
@@ -2917,26 +2916,15 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
     <div className="utility-dock-resize" role="separator" aria-orientation="vertical"
       aria-label="Resize utility panel" onPointerDown={startResize} />
     <nav className="utility-dock-tabs" aria-label="Utility panel tabs">
-      <button type="button" className={tab === "changes" ? "active" : ""}
-        onClick={() => onTab("changes")}>Changes</button>
+      <button type="button" className={tab === "review" ? "active" : ""}
+        onClick={() => onTab("review")}>Review</button>
       <button type="button" className={tab === "agents" ? "active" : ""}
         onClick={() => onTab("agents")}>Agents</button>
-      <button type="button" className={tab === "git" ? "active" : ""}
-        onClick={() => onTab("git")}>Git</button>
       <button type="button" className={tab === "terminal" ? "active" : ""}
         onClick={() => onTab("terminal")}>Terminal</button>
     </nav>
     <div className="utility-dock-body" data-tab={tab}>
-      {tab === "changes" && (changes.length
-        ? changes.map((file) => <details className="dock-change" key={file.name}>
-          <summary>
-            <FileDiff size={14} aria-hidden="true" />
-            <b title={file.name}>{file.name}</b>
-            <span className="diff-stats"><i>+{file.additions}</i><em>-{file.deletions}</em></span>
-          </summary>
-          {file.patches.map((patch, index) => <CodeDiff key={index} patch={patch} />)}
-        </details>)
-        : <p className="utility-dock-empty">No file changes in this session yet.</p>)}
+      {tab === "review" && <GitPanel cwd={String(snapshot.currentProject || snapshot.project || "") || null} />}
       {tab === "agents" && agentView && (
         <div className="dock-agent-view">
           <header>
@@ -2965,7 +2953,6 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
           </button>)}
         </div>
         : <p className="utility-dock-empty">No agent activity in this session yet.</p>)}
-      {tab === "git" && <GitPanel cwd={String(snapshot.currentProject || snapshot.project || "") || null} />}
       {tab === "terminal" && <Suspense fallback={null}>
         <TerminalPane cwd={String(snapshot.currentProject || snapshot.project || "") || null} />
       </Suspense>}
@@ -2988,6 +2975,21 @@ interface GitLogRow {
   subject: string;
   when: string;
   pushed: boolean;
+}
+// Review pane (Codex/opencode grammar): cumulative diff of the working tree
+// vs merge-base(origin default branch, HEAD) — committed + uncommitted +
+// untracked read as ONE change set.
+interface GitReviewFile {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  untracked: boolean;
+  uncommitted: boolean;
+}
+interface GitReviewInfo {
+  base: string;
+  files: GitReviewFile[];
 }
 // Dock diff bodies: CodeDiff brings its own file header + expand chrome,
 // which duplicates the accordion/row that already names the file. Render the
@@ -3035,10 +3037,11 @@ function GitFileDiff({ patch }: { patch: string }) {
 }
 function GitPanel({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
+  const [review, setReview] = useState<GitReviewInfo | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [diffPath, setDiffPath] = useState<string>("");
+  const [diffPath, setDiffPath] = useState<{ path: string; untracked: boolean } | null>(null);
   // null = loading; empty string means "no textual diff" (binary/whitespace).
   const [diffText, setDiffText] = useState<string | null>(null);
   // aider-desk grammar: no staging surface — one list of uncommitted work
@@ -3049,14 +3052,18 @@ function GitPanel({ cwd }: { cwd: string | null }) {
   const [showText, setShowText] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     if (!cwd) { setStatus(null); return; }
-    if (!window.mixdogDesktop.gitStatus) {
+    if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
       // Old preload without the git bridge: never spin forever on "Loading".
       setError("Git panel needs an app restart to finish updating.");
       return;
     }
     try {
-      const next = await window.mixdogDesktop.gitStatus?.(cwd);
+      const [next, nextReview] = await Promise.all([
+        window.mixdogDesktop.gitStatus(cwd),
+        window.mixdogDesktop.gitReview(cwd),
+      ]);
       setStatus(next ?? null);
+      setReview(nextReview ?? null);
       setError("");
     } catch (reason) {
       setStatus(null);
@@ -3096,7 +3103,7 @@ function GitPanel({ cwd }: { cwd: string | null }) {
     if (!cwd || !diffPath) return undefined;
     let live = true;
     setDiffText(null);
-    void window.mixdogDesktop.gitDiff?.(cwd, diffPath, false)
+    void window.mixdogDesktop.gitReviewDiff?.(cwd, diffPath.path, diffPath.untracked)
       .then((patch) => { if (live) setDiffText(patch || ""); })
       .catch((reason) => { if (live) setDiffText(`Error: ${reason instanceof Error ? reason.message : String(reason)}`); });
     return () => { live = false; };
@@ -3111,33 +3118,34 @@ function GitPanel({ cwd }: { cwd: string | null }) {
   if (error) return <p className="utility-dock-empty">{error}</p>;
   if (!status) return <p className="utility-dock-empty">Loading git status…</p>;
   if (!status.repository) return <p className="utility-dock-empty">Not a git repository.</p>;
-  // aider-desk grammar: ONE change list (no staging surface — commits take
-  // the whole tree), rows carry +/− stats and a confirmed per-file revert.
-  const changed = status.files;
+  // Review grammar (Codex/opencode): ONE cumulative change list vs the
+  // review base; uncommitted rows keep the confirmed per-file revert.
+  const changed = review?.files ?? [];
+  const base = review?.base || "HEAD";
+  const uncommitted = changed.filter((file) => file.uncommitted);
   const totalAdditions = changed.reduce((sum, file) => sum + (file.additions || 0), 0);
   const totalDeletions = changed.reduce((sum, file) => sum + (file.deletions || 0), 0);
-  const row = (file: GitPanelStatus["files"][number]) => {
-    const code = file.untracked ? "U"
-      : file.worktree !== " " && file.worktree !== "?" ? file.worktree : file.index;
-    const active = diffPath === file.path;
+  const row = (file: GitReviewFile) => {
+    const code = file.untracked ? "U" : file.status;
+    const active = diffPath?.path === file.path;
     const confirming = revertPath === file.path;
     return <React.Fragment key={file.path}>
       <div className="dock-git-row" data-active={active || undefined}>
-        <button type="button" className="dock-git-path" disabled={file.untracked}
+        <button type="button" className="dock-git-path"
           title={file.path} aria-expanded={active}
-          onClick={() => setDiffPath(active ? "" : file.path)}>
+          onClick={() => setDiffPath(active ? null : { path: file.path, untracked: file.untracked })}>
           <code data-code={code}>{code}</code>
           <span>{file.path}</span>
         </button>
         {(file.additions > 0 || file.deletions > 0) && <span className="diff-stats dock-git-row-stats">
           <i>+{file.additions}</i><em>-{file.deletions}</em>
         </span>}
-        {confirming
+        {!file.uncommitted ? null : confirming
           ? <button type="button" className="dock-git-revert-confirm" disabled={busy}
             onBlur={() => setRevertPath("")}
             onClick={() => {
               setRevertPath("");
-              if (diffPath === file.path) setDiffPath("");
+              if (diffPath?.path === file.path) setDiffPath(null);
               void act(() => window.mixdogDesktop.gitRevert?.(cwd, file.path, file.untracked));
             }}>
             {file.untracked ? "Delete?" : "Undo?"}
@@ -3160,11 +3168,15 @@ function GitPanel({ cwd }: { cwd: string | null }) {
       </div>}
     </React.Fragment>;
   };
-  const canCommit = changed.length > 0 && Boolean(message.trim()) && !busy;
+  const canCommit = uncommitted.length > 0 && Boolean(message.trim()) && !busy;
   const showPush = status.ahead > 0 || (!status.upstream && changed.length === 0);
   return <div className="dock-git">
     <header className="dock-git-header">
       <b>{status.branch}</b>
+      {base !== "HEAD" && <span className="dock-git-base">→ {base}</span>}
+      {(totalAdditions > 0 || totalDeletions > 0) && <span className="diff-stats dock-git-total">
+        <i>+{totalAdditions}</i><em>-{totalDeletions}</em>
+      </span>}
       {(status.ahead > 0 || status.behind > 0) && <button type="button"
         className="dock-git-sync" disabled={busy || status.ahead === 0}
         title={status.ahead > 0 ? `Push ${status.ahead} commit${status.ahead === 1 ? "" : "s"}` : "Behind upstream"}
@@ -3177,19 +3189,19 @@ function GitPanel({ cwd }: { cwd: string | null }) {
       </button>
     </header>
     {changed.length === 0 && <>
-      <p className="utility-dock-empty">Working tree clean.</p>
+      <p className="utility-dock-empty">{base === "HEAD" ? "Working tree clean." : `No changes vs ${base}.`}</p>
       {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
         onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
         {status.upstream ? `Push ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : "Publish Branch"}
       </button>}
     </>}
-    {changed.length > 0 && <><form className="dock-git-commit" onSubmit={(event) => {
+    {changed.length > 0 && <>{uncommitted.length > 0 && <form className="dock-git-commit" onSubmit={(event) => {
       event.preventDefault();
       if (!canCommit) return;
       void act(async () => {
         await window.mixdogDesktop.gitCommit?.(cwd, message);
         setMessage("");
-        setDiffPath("");
+        setDiffPath(null);
         await loadLog();
       });
     }}>
@@ -3203,19 +3215,16 @@ function GitPanel({ cwd }: { cwd: string | null }) {
           }
         }} />
       <footer>
-        <span>{changed.length} file{changed.length === 1 ? "" : "s"} changed</span>
+        <span>{uncommitted.length} file{uncommitted.length === 1 ? "" : "s"} uncommitted</span>
         <button type="submit" disabled={!canCommit}>
           <Check size={13} aria-hidden="true" />
           Commit
         </button>
       </footer>
-    </form>
+    </form>}
     <section>
       <h4 className="dock-git-group">
-        Uncommitted <small>{changed.length}</small>
-        {(totalAdditions > 0 || totalDeletions > 0) && <span className="diff-stats">
-          <i>+{totalAdditions}</i><em>-{totalDeletions}</em>
-        </span>}
+        {base === "HEAD" ? "Changes" : `Changes vs ${base}`} <small>{changed.length}</small>
       </h4>
       {changed.map((file) => row(file))}
     </section></>}
