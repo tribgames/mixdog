@@ -1095,7 +1095,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    800px measure with a 24px gutter (12px hugged the sheet edges). */
 /* Messages sit 4px INSIDE the composer/header axis (Grok: the input field is
    the widest element of the column; prose tucks slightly in). */
-.thread { width: min(100%, 800px); padding: 20px 36px 16px; gap: 16px; }
+/* Extra bottom room so the settled turn's last line never kisses the
+   composer edge (user: content read as buried at turn end). */
+.thread { width: min(100%, 800px); padding: 20px 36px 28px; gap: 16px; }
 .transcript-virtual-space { position: relative; width: 100%; flex: 0 0 auto; }
 .transcript-virtual-row {
   position: absolute;

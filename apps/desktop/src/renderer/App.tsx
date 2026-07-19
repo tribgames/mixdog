@@ -1774,10 +1774,10 @@ function Conversation({
       else window.clearTimeout(scrollFrame.current);
     }
   }, []);
-  // Bottom-follow across viewport RESIZES (user): the queue tray mounting or
-  // the composer growing shrinks the transcript viewport; while the reader is
-  // at the bottom, stay pinned to the bottom. Off-bottom readers keep their
-  // position untouched.
+  // Bottom-follow across RESIZES (user): the queue tray mounting/composer
+  // growth shrinks the viewport, and async markdown chunks GROW the content
+  // after the turn settles — both must re-pin the reader who is at the
+  // bottom. Off-bottom readers keep their position untouched.
   useEffect(() => {
     const element = viewport.current;
     if (!element || typeof ResizeObserver === "undefined") return undefined;
@@ -1789,6 +1789,7 @@ function Conversation({
       scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
     });
     observer.observe(element);
+    for (const child of element.children) observer.observe(child);
     return () => observer.disconnect();
   }, []);
 
