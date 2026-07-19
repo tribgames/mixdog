@@ -773,6 +773,57 @@ export function createStandaloneAgent({
     return task;
   }
 
+  // Background tasks are process-memory only; a worker SESSION can outlive
+  // its spawn task (task pruned, engine restarted). read/status by tag then
+  // used to throw "no task found" even though the worker exists. Fall back to
+  // a synthetic job view built from the worker session, with the last
+  // assistant message as the readable result.
+  function workerFallbackJob(target, context = {}) {
+    refreshTagsFromSessions({ scanSessions: true, context });
+    const sessionId = tags.get(target) || (mgr.getSession(target) ? target : null);
+    if (!sessionId) return null;
+    const session = mgr.getSession(sessionId);
+    if (!session) return null;
+    const status = session.closed === true ? 'closed' : (session.status || 'idle');
+    const msgs = Array.isArray(session.messages) ? session.messages : [];
+    const lastAssistant = [...msgs].reverse().find((m) => m?.role === 'assistant'
+      && (typeof m.content === 'string' ? m.content.trim() : m.content));
+    const resultText = lastAssistant
+      ? (typeof lastAssistant.content === 'string' ? lastAssistant.content : JSON.stringify(lastAssistant.content))
+      : '(worker session has no assistant output yet)';
+    return {
+      taskId: null,
+      operation: 'worker',
+      status,
+      startedAt: session.createdAt || null,
+      finishedAt: null,
+      error: null,
+      result: resultText,
+      meta: {
+        tag: tags.has(target) ? target : (session.tag || null),
+        sessionId,
+        agent: session.agent || null,
+        preset: session.presetName || null,
+        provider: session.provider || null,
+        model: session.model || null,
+        effort: session.effort || null,
+        fast: session.fast === true,
+        maxLoopIterations: null,
+      },
+    };
+  }
+
+  function getJobOrWorker(args, context = {}) {
+    try {
+      return getJob(args, context);
+    } catch (error) {
+      const target = clean(args.tag || args.sessionId);
+      const fallback = target ? workerFallbackJob(target, context) : null;
+      if (fallback) return fallback;
+      throw error;
+    }
+  }
+
   function renderJob(job, includeResult = false) {
     const meta = job.meta || {};
     let progress = sessionProgressExtras(meta.sessionId, meta.agent || null, Date.now(), job.status);
@@ -1612,8 +1663,8 @@ export function createStandaloneAgent({
       const scopedContext = agentScope(args, context);
       const notifyContext = context;
       if (type === 'list') return renderResult({ workers: list({ scanSessions: wantsSessionScan(args), context: scopedContext }), jobs: listJobs(scopedContext) });
-      if (type === 'status') return renderResult(renderJob(getJob(args, scopedContext), false));
-      if (type === 'read') return renderResult(renderJob(getJob(args, scopedContext), true));
+      if (type === 'status') return renderResult(renderJob(getJobOrWorker(args, scopedContext), false));
+      if (type === 'read') return renderResult(renderJob(getJobOrWorker(args, scopedContext), true));
       if (type === 'cleanup') return renderResult(cleanup(args, scopedContext));
       if (type === 'cancel') return renderResult(close(args, scopedContext));
       if (type === 'close') return renderResult(close(args, scopedContext));

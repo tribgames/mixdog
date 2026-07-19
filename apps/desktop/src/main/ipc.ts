@@ -560,26 +560,9 @@ export function registerDesktopIpc(
     return quitPromise;
   });
 
-  // Zed "Get Notified" parity: when a turn finishes while the window is in
-  // the background, raise an OS notification that refocuses on click.
-  let turnWasBusy = false;
+  // Background turn-finished OS toasts removed (user decision): state fanout
+  // only. Restore behind a setting if notifications return.
   const unsubscribeState = host.subscribe((snapshot) => {
-    const busy = (snapshot as Record<string, unknown> | null)?.busy === true;
-    if (turnWasBusy && !busy && !window.isDestroyed() && !window.isFocused()
-      && NotificationCtor && NotificationCtor.isSupported()) {
-      const notice = new NotificationCtor({
-        title: 'Mixdog',
-        body: 'Response ready — the agent finished this turn.',
-      });
-      notice.on('click', () => {
-        if (window.isDestroyed()) return;
-        if (window.isMinimized()) window.restore();
-        window.show();
-        window.focus();
-      });
-      notice.show();
-    }
-    turnWasBusy = busy;
     if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.send(DESKTOP_IPC.state, snapshot);
     }

@@ -163,9 +163,15 @@ const TRANSCRIPT_VIRTUAL_OVERSCAN = 12;
 
 function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number {
   if (!item) return 40;
-  // An EMPTY streaming tail must not reserve a full prose block: the phantom
-  // 160px read as a huge gap above the thinking spinner (user bug).
-  if (item.kind === "assistant") return String(item.text || "").trim() ? 160 : 28;
+  // Streaming rows estimate by CURRENT text length: a fixed 160px reservation
+  // left a phantom blank band under the growing text (user: "약간 떨어져서
+  // 생성되는 느낌"), and an empty tail reserved a gap above the spinner.
+  if (item.kind === "assistant") {
+    const text = String(item.text || "").trim();
+    if (!text) return 28;
+    if (item.streaming) return Math.min(160, 28 + Math.ceil(text.length / 60) * 22);
+    return 160;
+  }
   if (item.kind === "user") return 72;
   if (item.kind === "tool") return item.expanded ? 180 : 56;
   return 40;
