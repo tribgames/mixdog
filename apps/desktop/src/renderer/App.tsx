@@ -3157,19 +3157,10 @@ const Composer = memo(function Composer({
       ? typedToken
       : command.name;
   };
-  const resizeTextarea = useCallback(() => {
-    const element = textarea.current;
-    if (!element) return;
-    element.style.height = "auto";
-    const contentHeight = element.scrollHeight;
-    element.style.height = `${Math.min(180, Math.max(52, contentHeight))}px`;
-    element.style.overflowY = contentHeight > 180 ? "auto" : "hidden";
-  }, []);
-  useLayoutEffect(resizeTextarea, [draft, resizeTextarea]);
-  useEffect(() => {
-    window.addEventListener("resize", resizeTextarea);
-    return () => window.removeEventListener("resize", resizeTextarea);
-  }, [resizeTextarea]);
+  // Autosize is CSS-native now (field-sizing: content). The old layout-effect
+  // path forced TWO whole-document synchronous reflows per keystroke
+  // (height:auto → scrollHeight read) — the measured source of typing lag on
+  // long transcripts.
   useEffect(() => {
     if (!transitioning) return;
     dragDepth.current = 0;
@@ -4107,6 +4098,15 @@ const Composer = memo(function Composer({
         </div>)}
       </div>}
       <textarea ref={textarea} value={draft} onInput={(event) => {
+        // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,
+        // logged only when a frame is actually slow.
+        if (window.mixdogDesktop?.perfLog) {
+          const inputAt = performance.now();
+          window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+            const ms = performance.now() - inputAt;
+            if (ms >= 25) window.mixdogDesktop?.perfLog?.(`composer-keystroke paint=${ms.toFixed(0)}ms`);
+          }));
+        }
         setDraft(event.currentTarget.value);
         setAttachmentError('');
         setComposerNotice('');
@@ -4227,7 +4227,7 @@ let workflowOptionsCache: { at: number; options: Array<{ value: string; label: s
 
 // Right-aligned composer group: the workflow (mode) picker sits with the Send
 // button while model/effort/fast stay left-aligned.
-function WorkflowSelect({ workflow, disabled, invokeResult, applySnapshot }: {
+const WorkflowSelect = memo(function WorkflowSelect({ workflow, disabled, invokeResult, applySnapshot }: {
   workflow?: RecordValue | null;
   disabled: boolean;
   invokeResult: <T>(action: () => T | Promise<T>) => Promise<T | undefined>;
@@ -4288,9 +4288,9 @@ function WorkflowSelect({ workflow, disabled, invokeResult, applySnapshot }: {
         ...options,
       ]} />
   </div>;
-}
+});
 
-function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabled, tuningDisabled, invokeResult, applySnapshot, onOpenSettings }: {
+const ModelSelector = memo(function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabled, tuningDisabled, invokeResult, applySnapshot, onOpenSettings }: {
   provider: string;
   model: string;
   effort: string;
@@ -4549,4 +4549,4 @@ function ModelSelector({ provider, model, effort, fast, fastCapable, modelDisabl
         onClick={() => void changeFast(!displayedFast)}>{displayedFast ? "Fast On" : "Fast Off"}</button>
     )}
   </div>;
-}
+});

@@ -1687,6 +1687,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .composer textarea:focus-visible { outline: 0; box-shadow: none; }
 .composer textarea {
   min-height: 52px;
+  /* Chromium-native autosize: replaces the per-keystroke JS reflow. */
+  field-sizing: content;
+  max-height: 180px;
+  overflow-y: auto;
   padding: 16px 16px 8px;
   color: var(--oc-text);
   /* Same single-face rule as .message-body: typed Korean+Latin must not mix
@@ -4565,7 +4569,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .utility-dock-tabs button:hover { color: var(--oc-text); background: var(--oc-hover); }
-.utility-dock-tabs button.active { color: var(--oc-text); background: var(--oc-pressed); }
+/* Active state shares the settings-rail grammar (pressed fill + hairline). */
+.utility-dock-tabs button.active {
+  color: var(--oc-text);
+  background: var(--oc-pressed);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+}
 .utility-dock-body { min-height: 0; flex: 1; overflow-y: auto; padding: 10px 12px 14px; scrollbar-width: thin; }
 .utility-dock-empty { margin: 8px 0; color: var(--oc-text-faint); font-size: 13px; }
 .dock-change { border-bottom: .5px solid var(--oc-border-muted); }

@@ -35,6 +35,8 @@ export default function TerminalPane({ cwd }: { cwd: string | null }) {
         lineHeight: 1.35,
         cursorBlink: true,
         cursorStyle: 'bar',
+        // Unfocused xterm defaults to a hollow block; keep the same slim bar.
+        cursorInactiveStyle: 'bar',
         theme: TERMINAL_THEME,
       });
       const fit = new FitAddon();

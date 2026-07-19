@@ -17,6 +17,16 @@ import "./webview-zoom";
 
 if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");
 
+// Kick the webfont fetches BEFORE the first layout: lazily-triggered loads
+// made the first paint render fallback glyphs and then swap (user: the
+// composer hint "pops" right after entry). Local assets resolve in a few ms,
+// so starting them here lands the real faces by first paint.
+try {
+  void document.fonts.load('400 15px "Pretendard Variable"');
+  void document.fonts.load('500 13px "Geist Variable"');
+  void document.fonts.load('400 13px "JetBrains Mono Variable"');
+} catch { /* font swap stays a cosmetic fallback */ }
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

@@ -1920,14 +1920,13 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
     textarea.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
   textarea.setSelectionRange(8, 8);
-  assert.equal(textarea.style.height, "104px");
-  assert.equal(textarea.style.overflowY, "hidden");
+  // Autosize moved to CSS field-sizing: the JS height writer is gone, so the
+  // inline style stays empty (jsdom cannot exercise native field-sizing).
+  assert.equal(textarea.style.height, "");
   assert.equal(document.activeElement === textarea, true, "composer should retain focus after the initial resize");
   assert.equal(textarea.selectionStart, 8);
-  textareaScrollHeight = 240;
   await act(async () => window.dispatchEvent(new window.Event("resize")));
-  assert.equal(textarea.style.height, "180px");
-  assert.equal(textarea.style.overflowY, "auto");
+  assert.equal(textarea.style.height, "");
   assert.equal(document.activeElement === textarea, true, "composer should retain focus after height capping");
   assert.equal(textarea.selectionStart, 8);
   await act(async () => {
@@ -1936,8 +1935,7 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
   });
   assert.deepEqual(submitted, ["Preserve this behavior"]);
   assert.equal(textarea.value, "");
-  assert.equal(textarea.style.height, "52px");
-  assert.equal(textarea.style.overflowY, "hidden");
+  assert.equal(textarea.style.height, "", "autosize is CSS-native (field-sizing), no inline height");
 
   await act(async () => publish({ ...initial, busy: true }));
   const stop = document.querySelector('button[aria-label="Stop generation"]');
@@ -2645,10 +2643,9 @@ test("an empty task offers four Mixdog starters that populate and focus the comp
   );
   assert.doesNotMatch(document.querySelector(".thread-welcome")?.textContent || "", /project|context|unclassified/i);
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
-  Object.defineProperty(textarea, "scrollHeight", { configurable: true, value: 88 });
   await act(async () => starters[1].click());
   assert.equal(textarea.value, "Explain how this codebase is structured.");
-  assert.equal(textarea.style.height, "88px");
+  assert.equal(textarea.style.height, "", "autosize is CSS-native (field-sizing), no inline height");
   assert.equal(document.activeElement === textarea, true, "starter selection should focus the composer");
   assert.equal(document.querySelector(".context-chip") === null, true, "selector .context-chip should be absent");
   assert.doesNotMatch(document.querySelector(".composer")?.textContent || "", /Local context|No project/);
