@@ -40,7 +40,10 @@ export const OC_ICON_MARKUP: Record<string, string> = {
   "file-tree-active": "<path d=\"M2 2L2 18H5L6.5 8.5H18V5H9.5L7.5 2H2Z\" fill=\"currentColor\" fill-opacity=\"0.1\"/> <path d=\"M5 18H18L19.5 8.5H18M5 18H2L2 2H7.5L9.5 5H18V8.5M5 18L6.5 8.5H18\" stroke=\"currentColor\" stroke-linecap=\"square\"/>",
   "magnifying-glass": "<path d=\"M13 13L10.6418 10.6418M11.9552 7.47761C11.9552 9.95053 9.95053 11.9552 7.47761 11.9552C5.0047 11.9552 3 9.95053 3 7.47761C3 5.0047 5.0047 3 7.47761 3C9.95053 3 11.9552 5.0047 11.9552 7.47761Z\" stroke=\"currentColor\" stroke-linecap=\"square\" vector-effect=\"non-scaling-stroke\"/>",
   "plus-small": "<path d=\"M9.99984 5.41699V10.0003M9.99984 10.0003V14.5837M9.99984 10.0003H5.4165M9.99984 10.0003H14.5832\" stroke=\"currentColor\" stroke-linecap=\"square\"/>",
-  "plus": "<path d=\"M9.9987 2.20703V9.9987M9.9987 9.9987V17.7904M9.9987 9.9987H2.20703M9.9987 9.9987H17.7904\" stroke=\"currentColor\" stroke-linecap=\"square\"/>",
+  /* v2 icon.tsx plus (16-box, arms 2.889→13.111 = 64% bleed) scaled to this
+     set's 20-box: the previous 78%-bleed cross rendered ~40% longer arms than
+     the shipping titlebar/composer + at the same pixel size. */
+  "plus": "<path d=\"M10 3.61133V16.3891\" stroke=\"currentColor\" stroke-linejoin=\"round\"/><path d=\"M3.61133 10H16.3891\" stroke=\"currentColor\" stroke-linejoin=\"round\"/>",
   "new-session": "<path d=\"M12 2H2V18H18V8M6 11.3818V14H8.61818L18 4.61818L15.3818 2L6 11.3818Z\" stroke=\"currentColor\"/>",
   "new-session-active": "<path d=\"M6 11.3818V14H8.61818L18 4.61818L15.3818 2L6 11.3818Z\" fill=\"currentColor\" fill-opacity=\"0.1\"/> <path d=\"M12 2H2V18H18V8M6 11.3818V14H8.61818L18 4.61818L15.3818 2L6 11.3818Z\" stroke=\"currentColor\"/>",
   "pencil-line": "<path d=\"M9.58301 17.9166H17.9163M17.9163 5.83325L14.1663 2.08325L2.08301 14.1666V17.9166H5.83301L17.9163 5.83325Z\" stroke=\"currentColor\" stroke-linecap=\"square\"/>",

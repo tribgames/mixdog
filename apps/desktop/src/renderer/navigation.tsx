@@ -9,8 +9,16 @@ import React, {
 import { createPortal } from "react-dom";
 import {
   ArrowDown,
+  Folder,
+  FolderPlus,
+  MessageCircle,
   MoreHorizontal,
+  Pencil,
   Pin,
+  Plus,
+  Settings,
+  Trash2,
+  X,
 } from "lucide-react";
 import { OcIcon } from "./OcIcon";
 import type {
@@ -244,8 +252,8 @@ export function DesktopTitlebar({
                     data-tooltip={tab.title}
                   >
                     {tab.selection.kind === "project"
-                      ? <OcIcon name="folder" size={14} />
-                      : <OcIcon name="speech-bubble" size={14} />}
+                      ? <Folder size={14} />
+                      : <MessageCircle size={14} />}
                     {working && <span className="workspace-tab-status" role="status"
                       aria-label={`${tab.title} is working`} />}
                     <span>{tab.title}</span>
@@ -260,7 +268,7 @@ export function DesktopTitlebar({
                     aria-label={`Close ${tab.title}`}
                     data-tooltip="Close tab"
                   >
-                    <OcIcon name="close-small" size={16} />
+                    <X size={16} />
                   </button>
                 </div>
             );
@@ -268,12 +276,17 @@ export function DesktopTitlebar({
         </nav>
         <span className="workspace-tabs-fade workspace-tabs-fade-left" aria-hidden="true" />
         <span className="workspace-tabs-fade workspace-tabs-fade-right" aria-hidden="true" />
+        {/* OpenCode parity (titlebar.tsx `Show when={!(creating() && params.dir)}`):
+            while a draft tab is active the draft IS the new-session surface, so
+            the + affordance hides; it returns once a real tab is active. */}
+        {!tabs.some((tab) => tab.key === activeKey && tab.selection.kind === "new") && (
+          <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
+            aria-label="New task" data-tooltip="New task">
+            <OcIcon name="plus" size={16} />
+          </button>
+        )}
       </div>
 
-      <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
-        aria-label="New task" data-tooltip="New task">
-        <OcIcon name="plus" size={16} />
-      </button>
       {updateVisible && <div className="titlebar-update-shell">
         <button type="button" className="titlebar-update" onClick={onOpenUpdate}
           disabled={updateInstalling} aria-busy={updateInstalling}
@@ -470,14 +483,16 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         setMenuSessionId("");
       }}
     >
+      {/* Sidebar glyphs use the rounded lucide set (Claude-style): the ported
+          OpenCode square-cap glyphs read flat/washed at list sizes. */}
       <nav className="sidebar-primary-nav" aria-label="Workspace">
         <button type="button" className="task-link" onClick={onNewTask}>
-          <span className="sidebar-nav-icon sidebar-nav-icon--new"><OcIcon name="plus-small" size={14} /></span>
+          <span className="sidebar-nav-icon sidebar-nav-icon--new"><Plus size={16} /></span>
           <span>New task</span>
         </button>
         <button type="button" className="projects-link" onClick={onOpenProjects}
           aria-label="Open projects">
-          <span className="sidebar-nav-icon"><OcIcon name="folder" size={14} /></span>
+          <span className="sidebar-nav-icon"><Folder size={16} /></span>
           <span>Project</span>
         </button>
       </nav>
@@ -505,7 +520,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       <footer className="session-sidebar-footer">
         <button type="button" className="sidebar-settings-button" onClick={onOpenSettings}
           aria-label="Open settings" data-tooltip="Settings">
-          <OcIcon name="settings-gear" size={15} /><span>Settings</span>
+          <Settings size={16} /><span>Settings</span>
         </button>
       </footer>
       <div className="session-sidebar-resize" role="separator" tabIndex={0}
@@ -698,7 +713,7 @@ const SessionRow = React.memo(function SessionRow({
       ) : (
         <>
           <button type="button" className="session-row-main">
-          <OcIcon className="session-row-icon" name="speech-bubble" size={13} />
+          <MessageCircle className="session-row-icon" size={15} />
             <span className="session-row-copy"
               onDoubleClick={(event) => {
                 event.preventDefault();
@@ -719,7 +734,7 @@ const SessionRow = React.memo(function SessionRow({
                     event.stopPropagation();
                     onCancelDelete();
                   }}>
-            <OcIcon name="close-small" size={13} />
+            <X size={13} />
                 </button>
                 <button type="button" className="session-row-action session-row-delete-confirm"
                   aria-label={`Confirm deleting ${sessionLabel(session)}`} data-tooltip="Delete"
@@ -729,7 +744,7 @@ const SessionRow = React.memo(function SessionRow({
                     event.stopPropagation();
                     onConfirmDelete(session);
                   }}>
-            <OcIcon name="trash" size={12} />
+            <Trash2 size={12} />
                 </button>
               </>
             ) : (
@@ -764,12 +779,12 @@ const SessionRow = React.memo(function SessionRow({
                     onClick={() => {
                       onCloseMenu();
                       onStartRename(session);
-          }}><OcIcon name="edit" size={13} />Rename</button>
+          }}><Pencil size={13} />Rename</button>
                   <button type="button" role="menuitem" className="session-row-menu-delete danger"
                     onClick={() => {
                       onCloseMenu();
                       onStartDelete(session);
-          }}><OcIcon name="trash" size={13} />Delete</button>
+          }}><Trash2 size={13} />Delete</button>
                 </div>}
               </div>
             )}
@@ -886,13 +901,13 @@ export function ProjectSwitcher({
           setMenu(null);
         }}>
         <header>
-        <span className="project-switcher-mark"><OcIcon name="folder" size={18} /></span>
+        <span className="project-switcher-mark"><Folder size={18} /></span>
           <div>
             <h1 id="project-switcher-title">Projects</h1>
             <p>Choose the workspace for your next task.</p>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close projects">
-          <OcIcon name="close" size={16} />
+          <X size={16} />
           </button>
         </header>
         <div className="project-switcher-toolbar">
@@ -900,13 +915,13 @@ export function ProjectSwitcher({
             onClose();
             onChooseProject();
           }}>
-          <OcIcon name="folder-add-left" size={15} /> Add project
+          <FolderPlus size={15} /> Add project
           </button>
         </div>
         <div className="project-grid project-list" role="list">
           {ordered.length === 0 && (
             <div className="project-empty">
-            <OcIcon name="folder" size={22} />
+            <Folder size={22} />
               <p>No projects yet</p>
               <small>Add a folder to make it available in Mixdog.</small>
             </div>

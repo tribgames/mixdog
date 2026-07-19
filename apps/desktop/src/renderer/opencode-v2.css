@@ -161,7 +161,9 @@
   --oc-text-accent: var(--oc-blue-600);
   --oc-accent: var(--oc-text-accent);
   --oc-icon: #3a3a3a;
-  --oc-icon-muted: #808080;
+  /* #808080 washed out on the white sheet (user-flagged vs Claude's ~#666
+     sidebar glyphs); one step darker keeps the muted role but stays legible. */
+  --oc-icon-muted: #707070;
   --oc-border-muted: rgba(0, 0, 0, .078);
   --oc-border: rgba(0, 0, 0, .102);
   --oc-border-strong: rgba(0, 0, 0, .20);
@@ -288,9 +290,12 @@ button:focus-visible { outline-offset: 2.5px; }
   flex: 0 0 var(--titlebar-height);
   height: var(--titlebar-height);
   min-height: var(--titlebar-height);
-  align-items: flex-start;
+  /* Center the 28px content row in the 40px bar so it shares the Windows
+     caption buttons' optical center (y=20). The old flex-start + 8px top
+     padding pushed content to y=24 — visibly low next to min/max/close. */
+  align-items: center;
   column-gap: 6px;
-  padding: 8px 12px 0 16px;
+  padding: 0 12px 0 16px;
   overflow: visible;
   border: 0;
   background: var(--oc-window-band);
@@ -521,7 +526,9 @@ button:focus-visible { outline-offset: 2.5px; }
   z-index: 0;
   flex: 1 1 auto;
   gap: 8px;
-  padding: 8px;
+  /* No top inset: the sheets meet the titlebar so the tab row reads with an
+     equal 6px band above and below (was 6px above / 14px below). */
+  padding: 0 8px 8px;
   background: var(--oc-window-band);
 }
 .sidebar-collapsed .desktop-body { gap: 0; }
@@ -622,7 +629,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   place-items: center;
   color: var(--oc-icon-muted);
 }
-.sidebar-nav-icon--new { border-radius: 50%; background: var(--oc-hover); }
+/* The + previously sat in a grey circle chip; every other nav glyph is bare,
+   so the lone chip read as a blob (user feedback). Bare glyph like Claude. */
+.sidebar-nav-icon--new { border-radius: 0; background: transparent; }
 .session-row-main {
   min-width: 0;
   overflow: hidden;
@@ -639,8 +648,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .session-row-icon {
-  flex: 0 0 13px;
-  margin: 0 2.5px;
+  /* 13px squeezed the bubble glyph below the 14px row text and read wispy
+     (Claude/goose row icons sit at or above the text cap height). 15px keeps
+     the same 18px icon column so text alignment is unchanged. */
+  flex: 0 0 15px;
+  margin: 0 1.5px;
   color: var(--oc-icon-muted);
 }
 .session-row-actions {
@@ -3466,12 +3478,31 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-self: center;
   timeline-scope: --workspace-tabs-scroll;
   -webkit-app-region: drag;
+  /* The + new-task button lives INSIDE the shell so it hugs the last tab
+     (opencode places + right after the tab strip, not at the window edge). */
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .workspace-tabs-shell .workspace-tabs {
-  width: 100%;
+  width: auto;
   max-width: 100%;
+  flex: 0 1 auto;
   scroll-timeline: --workspace-tabs-scroll x;
 }
+/* Reserve room for the + only while it is actually rendered (it hides when a
+   draft tab is active, matching OpenCode). */
+.workspace-tabs-shell:has(.titlebar-new) .workspace-tabs { max-width: calc(100% - 34px); }
+.workspace-tabs-shell:has(.titlebar-new) .workspace-tabs-fade-right { right: 34px; }
+/* OpenCode v2 new-session button: icon-button-v2 size "large" (28×28). */
+.workspace-tabs-shell .titlebar-new {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  color: var(--oc-icon-muted);
+}
+.workspace-tabs-shell .titlebar-new:hover,
+.workspace-tabs-shell .titlebar-new:focus-visible { color: var(--oc-text); }
 .topbar nav.workspace-tabs { -webkit-app-region: drag; }
 .workspace-tabs .workspace-tab { -webkit-app-region: no-drag; }
 .workspace-tabs-fade {

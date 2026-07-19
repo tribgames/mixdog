@@ -192,7 +192,7 @@ try {
     },
     {
       sidebarLeft: 8,
-      sidebarTop: 48,
+      sidebarTop: 40,
       sidebarWidth: 260,
       sidebarBottomInset: 8,
       sidebarGap: 8,
@@ -257,7 +257,7 @@ try {
   assert.deepEqual(metadata.imageMeasuredSidebar.sidebarExcludedRuns, { leftInset: true, rightGap: true });
   assert.deepEqual(metadata.domSidebarGeometry, {
     left: 8,
-    top: 48,
+    top: 40,
     right: 268,
     bottom: 679,
     width: 260,
@@ -277,17 +277,17 @@ try {
     metadata.imageMeasuredSidebar.sampledColors.rightBorder,
   );
   const assertShellTopEdge = (sample, { band, sheet }) => {
-    assert.equal(sample.yStart, 40);
-    assert.equal(sample.yEnd, 48);
-    // The sheet now carries the v2 elevation-raised ring (.5px, antialiased),
-    // so the transition row blends unpredictably. Require: band rows, at most
-    // two transition rows that match neither surface, then sheet rows.
+    assert.equal(sample.yStart, 34);
+    assert.equal(sample.yEnd, 44);
+    // The sheet sits flush under the titlebar band. Its .5px elevation ring
+    // may antialias into 1-2 blended rows, or disappear entirely under the
+    // opaque band — accept a clean edge OR a short blend, never more.
     const colors = sample.colors;
     const firstSheet = colors.indexOf(sheet);
     assert.ok(firstSheet > 0 && firstSheet <= 8, `${sample.theme} shell top edge must reach the sheet within the sample.`);
     const transition = colors.slice(0, firstSheet).filter((color) => color !== band);
-    assert.ok(transition.length >= 1 && transition.length <= 2,
-      `${sample.theme} shell top edge must show a visible hairline between band and sheet.`);
+    assert.ok(transition.length <= 2,
+      `${sample.theme} shell top edge must be a clean or briefly blended band→sheet boundary.`);
     assert.ok(transition.every((color) => color !== sheet && color !== band));
     assert.ok(colors.slice(0, firstSheet - transition.length).every((color) => color === band),
       `${sample.theme} rows above the hairline must stay on the window band.`);

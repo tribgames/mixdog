@@ -644,8 +644,10 @@ function measureShellTopEdge(image: NativeImage, theme: ShellTopEdgeSample['them
   const pixel = imageReader(image);
   const { width } = image.getSize();
   const x = Math.floor(width / 2);
-  const yStart = 40;
-  const yEnd = 48;
+  // The workspace sheet now starts flush under the 40px titlebar; sample a
+  // window straddling that boundary (band rows 34-39, sheet from ~41).
+  const yStart = 34;
+  const yEnd = 44;
   return {
     theme,
     x,
@@ -928,7 +930,7 @@ async function captureWindow(): Promise<void> {
       || liveDesktop.removedLabelMatches.length !== 0 || liveDesktop.contextChipCount !== 0
       || !liveDesktop.visible.modelTrigger || !liveDesktop.visible.textarea || !liveDesktop.visible.send
       || !liveDesktop.controlsNonOverlapping || liveDesktop.sidebarGap !== 8
-      || liveDesktop.rects.sidebar.left !== 8 || liveDesktop.rects.sidebar.top !== 48
+      || liveDesktop.rects.sidebar.left !== 8 || liveDesktop.rects.sidebar.top !== 40
       || liveDesktop.rects.sidebar.width !== 260
       || liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom !== 8
       || liveDesktop.rects.main.left !== 276) {

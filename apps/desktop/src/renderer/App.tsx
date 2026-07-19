@@ -24,6 +24,7 @@ import {
   Code2,
   Command,
   FileDiff,
+  Folder,
   Layers3,
   LoaderCircle,
   Mic,
@@ -1759,7 +1760,7 @@ function ProjectContextSelector({ projects, activePath, activeLabel, disabled, o
   const value = activePath || PROJECT_CONTEXT_LOCAL;
   return <div className="composer-context-bar">
     <div className="composer-project-context">
-      <OcIcon name="folder" size={13} />
+      <Folder size={13} />
       <OpenSelect className="project-context-select" ariaLabel="Project context"
         value={value} displayValue={activeLabel || "Project"} disabled={disabled}
         options={options} onChange={(next) => {

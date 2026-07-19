@@ -38,8 +38,8 @@ Legend: OK = already matches consensus · GAP = polish target
 | 11 | Empty state | compact wordmark + starter hints (goose SessionInsights, crystal EmptyState) | oversized raw "mixdog" watermark | **GAP-E** |
 | 12 | Elevation | surfaces stack via color, shadows only for floating (cherry §1; goose single `--shadow-default`) | v2 elevation already aligned | OK |
 | 13 | Status/usage | tokens+cost visible per session (opcode usage dashboard; goose bottom bar) | context gauge in composer | OK |
-| 14 | Titlebar/session tabs | tabs carry live status (crystal `PanelTabBar` StatusDot per tab; opcode Topbar keeps a green/red engine status chip) | v2 tabs, no per-tab activity indicator | GAP-F (optional) |
-| 15 | Context gauge detail | progress bar + hover breakdown (in/out/cache) + inline compact confirm (cline `task-header/ContextWindow.tsx`) | percent gauge only, /compact via slash | GAP-F (optional) |
+| 14 | Titlebar/session tabs | tabs carry live status (crystal `PanelTabBar` StatusDot per tab; opcode Topbar keeps a green/red engine status chip) | active-tab working dot only | GAP-F **deferred**: desktop runs one engine session at a time (`engine-host.ts` resumes in place), so background tabs can never be busy; per-tab dots need multi-session concurrency — architecture work, not polish |
+| 15 | Context gauge detail | progress bar + hover breakdown (in/out/cache) + inline compact confirm (cline `task-header/ContextWindow.tsx`) | hover popover: usage % + tokens with `(est.)` marker | OK — done |
 | 16 | Empty state anatomy | icon-in-circle + title + one-line description + primary CTA (crystal `EmptyState.tsx:18-28`) | oversized watermark, hidden `<p>`, starters disabled (`opencode-v2.css:1079-1080`) | folds into **GAP-E** |
 | 17 | Toasts | sonner-style bottom-right (jan), 320px cards | top-right 320px `.oc-toast` — documented intentional choice, tests pin it | OK — keep |
 | 18 | Scrollbars | thin translucent, transparent track, hover raise (jan `index.css:200-224`) | 8px thin translucent + hairline inset, same philosophy | OK |

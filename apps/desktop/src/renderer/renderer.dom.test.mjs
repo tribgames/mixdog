@@ -3279,14 +3279,14 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(openCodeCss,
     /\.sidebar-collapsed \.sidebar\.session-sidebar\s*\{[^}]*width:\s*0;[^}]*flex:\s*0 0 0px;[^}]*flex-basis:\s*0px;/s);
   assert.match(openCodeCss, /\.titlebar-leading\s*\{[^}]*height:\s*28px;[^}]*gap:\s*6px;[^}]*margin-right:\s*0;/s);
-  assert.match(openCodeCss, /\.topbar\s*\{[^}]*padding:\s*8px 12px 0 16px;/s);
+  assert.match(openCodeCss, /\.topbar\s*\{[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 16px;/s);
   assert.match(openCodeCss, /\.workspace-tabs\s*\{[^}]*height:\s*28px;[^}]*gap:\s*13\.5px;[^}]*padding:\s*0;/s);
   assert.match(openCodeCss,
     /\.workspace-tab\s*\{[^}]*width:\s*224px;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
   assert.match(openCodeCss,
     /\.workspace-tab-main > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*flex:\s*0 0 14px;/s);
   assert.match(openCodeCss, /\.transcript\s*\{[^}]*scrollbar-gutter:\s*stable;/s);
-  assert.match(openCodeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*8px;/s);
+  assert.match(openCodeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*0 8px 8px;/s);
   assert.match(openCodeCss, /\.sidebar-collapsed \.desktop-body\s*\{[^}]*gap:\s*0;/s);
   assert.match(openCodeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
   assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px;/s);
@@ -3314,7 +3314,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(openCodeCss,
     /\.session-row-action\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s);
   assert.match(openCodeCss,
-    /\.session-row-icon\s*\{[^}]*flex:\s*0 0 13px;[^}]*margin:\s*0 2\.5px;/s);
+    /\.session-row-icon\s*\{[^}]*flex:\s*0 0 15px;[^}]*margin:\s*0 1\.5px;/s);
   assert.match(openCodeCss,
     /\.workspace-tabs-shell\s*\{[^}]*width:\s*auto;[^}]*max-width:\s*none;[^}]*flex:\s*1 1 0;[^}]*-webkit-app-region:\s*drag;/s);
   assert.match(openCodeCss,
@@ -3465,20 +3465,23 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   assert.deepEqual(closed, ["two"]);
   assert.deepEqual(selected, ["one", "two", "one", "two"]);
   assert.deepEqual(reordered, [["one", "two"]]);
-  // OpenCode parity: + stays available even while a draft tab is active —
-  // every press opens another draft. (equal-to-null on a jsdom node would
-  // also inspect the whole DOM into the failure message; assert presence.)
-  assert.equal(document.querySelector(".titlebar-new") !== null, true,
-    "the new-task button stays visible while a draft tab is active");
+  // OpenCode parity (titlebar.tsx `Show when={!(creating())}`): with the
+  // session tab active the + is available; switching to a draft tab hides it
+  // because the draft itself is the new-session surface.
+  assert.equal(document.querySelector(".titlebar-new") === null, true,
+    "the new-task button hides while a draft tab is active");
   await act(async () => root.render(React.createElement(DesktopTitlebar, {
     ...props,
     activeKey: "two",
     updaterState: { status: "ready", version: "2.0.0" },
   })));
-  assert.equal(document.querySelector(".workspace-tabs-shell")?.nextElementSibling?.classList.contains("titlebar-new"), true);
+  assert.equal(document.querySelector(".titlebar-new") !== null, true,
+    "the new-task button returns once a session tab is active");
+  assert.equal(document.querySelector(".workspace-tabs-shell")?.lastElementChild?.classList.contains("titlebar-new"), true,
+    "the new-task button hugs the tab strip inside the tabs shell");
   assert.equal(document.querySelector(".titlebar-update")?.getAttribute("aria-label"), "Install Mixdog 2.0.0");
   assert.equal(document.querySelector(".titlebar-update-shell")?.previousElementSibling?.classList.contains(
-    "titlebar-new"), true);
+    "workspace-tabs-shell"), true);
 });
 
 test("model selector remains available for a next-session route during turn busy and closes for commandBusy", async () => {
