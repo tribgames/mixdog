@@ -3,6 +3,7 @@ import {
   Brain,
   Cable,
   Cpu,
+  Keyboard,
   PenLine,
   Plug,
   Radio,
@@ -55,6 +56,7 @@ const CATEGORY_ICONS = {
   skills: Sparkles,
   memory: Brain,
   system: Wrench,
+  shortcuts: Keyboard,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
 export interface SettingsTriggerProps {

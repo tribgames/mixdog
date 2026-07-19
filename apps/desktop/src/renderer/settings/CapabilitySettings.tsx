@@ -67,7 +67,6 @@ const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, unknown[
   ['providerSetup', 'getProviderSetup'], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
   ['hooks', 'hooksStatus'], ['skills', 'skillsStatus'], ['disabledSkills', 'getDisabledSkills'],
   ['agents', 'listAgents'],
-  ['systemShell', 'getSystemShell'],
   ['update', 'getUpdateSettings'], ['updateStatus', 'getUpdateStatus'],
 ];
 
@@ -725,7 +724,44 @@ function CategoryPanel({ category, context }: {
   if (category === 'skills') return <SkillsPanel {...context} />;
   if (category === 'memory') return <MemoryPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
+  if (category === 'shortcuts') return <ShortcutsPanel />;
   return <GeneralPanel {...context} />;
+}
+
+// OpenCode-style keybind reference (read-only). Bindings live in App.tsx's
+// global keydown handler and the composer key map; keep this list in sync.
+const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
+  ['Workspace', [
+    ['Ctrl+N', 'New task'],
+    ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous tab'],
+    ['Ctrl+Alt+← / →', 'Switch tab (works while typing)'],
+    ['Ctrl+← / →', 'Switch tab (outside text fields)'],
+    ['Ctrl+B', 'Toggle sidebar'],
+    ['Ctrl+,', 'Open settings'],
+    ['Esc', 'Close menus and popovers'],
+  ]],
+  ['Composer', [
+    ['Enter', 'Send message'],
+    ['Shift+Enter / Ctrl+Enter', 'Insert new line'],
+    ['Ctrl+J', 'Insert new line'],
+    ['Ctrl+U', 'Delete to line start'],
+    ['↑ / ↓', 'Prompt history (empty draft)'],
+    ['/', 'Command palette'],
+    ['@', 'File and context mentions'],
+  ]],
+];
+
+function ShortcutsPanel() {
+  return <>
+    {SHORTCUT_GROUPS.map(([title, rows]) => <Group key={title} title={title}>
+      <div className="settings-shortcut-list">
+        {rows.map(([keys, label]) => <div className="settings-shortcut-row" key={keys}>
+          <span>{label}</span>
+          <kbd>{keys}</kbd>
+        </div>)}
+      </div>
+    </Group>)}
+  </>;
 }
 
 function ChoicePanel({ title, values, active, pending, emptyText, onChoose }: {
@@ -1299,20 +1335,8 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
 function SystemPanel(context: PanelContext) {
   const { data, pending, run } = context;
   const worker = record(data.channelWorker);
-  const systemShell = record(data.systemShell);
-  const shellCommand = String(systemShell.command || '');
-  const effectiveShell = String(systemShell.effective || 'Automatic platform default');
   const busy = Boolean(pending);
   return <>
-    <Group title="System shell" description="Command used for one-shot shell tools. Leave it empty to use automatic platform selection.">
-      <AutoSaveRow title="System shell command" name="system-shell" value={shellCommand}
-        placeholder="Automatic" disabled={busy}
-        actions={shellCommand ? <ActionButton disabled={busy}
-          onClick={() => void run('setSystemShell', [''], 'system-shell')}>Use automatic</ActionButton> : undefined}
-        onSave={(command) => void run('setSystemShell', [command.trim()], 'system-shell')} />
-      <ResourceRow title="Effective shell" meta={effectiveShell}
-        status={systemShell.source === 'auto' ? 'Automatic' : 'Configured'} />
-    </Group>
     <Group>
       <ToggleRow title="Remote runtime" description={worker.running
         ? `Channel runtime running · PID ${worker.pid || '?'}`

@@ -159,6 +159,7 @@ export function createToolCardResults({
       count: group.count,
       completedCount: group.completed,
       completedAt: Date.now(),
+      liveOutput: null,
     };
     if (group.count <= 1) {
       const body = String(text || rawText || '').trim();
@@ -292,7 +293,8 @@ export function createToolCardResults({
         const currentItem = itemById(card.itemId);
         resultText = withCancelledResultMarker(resultText, currentItem);
       }
-      patchToolItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, callErrorCount: group.callErrors || 0, exitErrorCount: group.exitErrors || 0, count: group.count, completedCount: group.completed, completedAt: Date.now() });
+      // liveOutput: null — the settled result supersedes any streamed tail.
+      patchToolItem(card.itemId, { result: resultText, text: resultText, isError: group.errors > 0, errorCount: group.errors, callErrorCount: group.callErrors || 0, exitErrorCount: group.exitErrors || 0, count: group.count, completedCount: group.completed, completedAt: Date.now(), liveOutput: null });
       card.done = true;
       if (card.callId) done.add(card.callId);
     }

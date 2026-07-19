@@ -573,10 +573,16 @@ export function createEngineApiB(bag) {
         const items = [];
         for (const m of r.messages || []) {
           if (m.role === 'user') {
+            // Injected model-context payloads are model-visible but never
+            // user-authored: skill bodies (meta:'skill'), hook/system
+            // reminders (meta:'hook'), and tag-wrapped context blocks. They
+            // must not restore as user bubbles in any client (TUI/desktop).
+            if (m.meta === 'skill' || m.meta === 'hook') continue;
             // content may be a string OR an array of parts (text/tool-call
             // interleaving) — toolResultText coerces both to readable text so
             // array-content messages aren't silently dropped.
             const text = (typeof m.content === 'string' ? m.content : toolResultText(m.content)).trim();
+            if (/^<(?:system-reminder|skill|memory-context|mcp-instructions|available-deferred-tools|event)\b/i.test(text)) continue;
             if (text) {
               const synthetic = parseSyntheticAgentMessage(text);
               if (synthetic) {

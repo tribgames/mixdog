@@ -89,7 +89,10 @@ test('desktop settings items exactly match the TUI settings picker', async () =>
     new URL('../../../../src/tui/app/settings-picker.mjs', import.meta.url),
     'utf8',
   );
-  const expected = parseTuiSettingsItems(tuiSettingsPicker);
+  // 'system-shell' is intentionally TUI-only: the desktop hides the shell
+  // override (user decision — automatic platform selection only).
+  const expected = parseTuiSettingsItems(tuiSettingsPicker)
+    .filter((item) => item.value !== 'system-shell');
 
   assert.deepEqual(
     SETTINGS_ITEMS.map(({ value, label }) => ({ value, label })),

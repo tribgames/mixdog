@@ -816,6 +816,44 @@ test("running tool cards tick a live elapsed readout; settled cards stay quiet",
     "settled cards must not render the elapsed readout");
 });
 
+test("running shell cards stream liveOutput; settled cards ignore a stale tail", async () => {
+  installDom();
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    key: "live-shell",
+    item: {
+      id: "live-shell",
+      kind: "tool",
+      name: "shell_command",
+      args: { command: "npm run build" },
+      startedAt: Date.now() - 5_000,
+      liveOutput: "step 1 ok\nstep 2 building\u2026",
+    },
+  })));
+  const live = document.querySelector(".tool-card");
+  const liveBlock = live?.querySelector('.tool-content[data-live="true"]');
+  assert.ok(liveBlock, "running card must render the live output block without expanding");
+  assert.equal(liveBlock?.querySelector(".shell-output") != null, true);
+  assert.equal(liveBlock?.textContent?.includes("step 2 building"), true);
+  assert.equal(liveBlock?.textContent?.includes("$ npm run build"), true,
+    "live output must lead with the command line");
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    key: "stale-shell",
+    item: {
+      id: "stale-shell",
+      kind: "tool",
+      name: "shell_command",
+      args: { command: "npm run build" },
+      result: "done",
+      liveOutput: "stale tail",
+      startedAt: Date.now() - 5_000,
+      completedAt: Date.now(),
+    },
+  })));
+  const stale = document.querySelector(".tool-card");
+  assert.equal(stale?.querySelector('.tool-content[data-live="true"]') === null, true,
+    "settled cards must never render the live block");
+});
+
 test("launch selects New task and immediately shows the project-free composer", async () => {
   installDom();
   const calls = [];
@@ -3328,7 +3366,9 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(openCodeCss, /\.sidebar-collapsed \.desktop-body\s*\{[^}]*gap:\s*0;/s);
   assert.match(openCodeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
   assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 32px;/s);
-  assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*14px;[^}]*line-height:\s*21px;/s);
+  // Conversation title runs one step above tab chrome (user: important info
+  // read underweighted at 14px/500).
+  assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*15px;[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);
   assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 36px 16px;/s);
   assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s);
   assert.match(openCodeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);

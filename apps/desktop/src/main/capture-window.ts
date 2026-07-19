@@ -394,8 +394,8 @@ async function readLightThemeAssertions(window: BrowserWindow): Promise<LightThe
     };
     const titlebarIconColor = getComputedStyle(icon).color;
     const activeTabColor = getComputedStyle(activeTab).color;
-    // The rail toggle rests on the MUTED icon ink (Claude-style rail voice).
-    const iconTokenColor = resolveColor('--oc-icon-muted');
+    // The rail toggle carries the LABEL ink (user: icons match text color).
+    const iconTokenColor = resolveColor('--oc-text');
     const textTokenColor = resolveColor('--oc-text');
     return {
       theme: root.dataset.mixdogTheme || '',
@@ -901,7 +901,7 @@ async function captureWindow(): Promise<void> {
         const icon = document.querySelector('.toolbar-sidebar');
         if (!(icon instanceof HTMLElement)) return false;
         const probe = document.createElement('span');
-        probe.style.color = 'var(--oc-icon-muted)';
+        probe.style.color = 'var(--oc-text)';
         document.body.append(probe);
         const settled = getComputedStyle(icon).color === getComputedStyle(probe).color;
         probe.remove();
@@ -1084,6 +1084,7 @@ async function captureWindow(): Promise<void> {
         {
           id: 'sc-shell-running', kind: 'tool', name: 'shell',
           args: { command: 'npm test' }, startedAt: Date.now() - 12_000,
+          liveOutput: '> vitest run\n\u2713 retry configuration (3 tests)\n\u2713 boot sequence (5 tests)\nrunning suite: integration \u2026',
         },
       ],
     });
@@ -1107,6 +1108,10 @@ async function captureWindow(): Promise<void> {
           .some((node) => (node.textContent || '').includes('npm test')),
         editInputBlocks: document.querySelectorAll('.tool-card[data-category="Patch"] .detail-block').length,
         runningElapsed: (document.querySelector('.tool-card:not(.settled) .tool-elapsed')?.textContent || '').trim(),
+        liveOutputVisible: Boolean(document.querySelector(
+          '.tool-card:not(.settled) .tool-content[data-live="true"] .shell-output',
+        )),
+        liveOutputText: (document.querySelector('.tool-card:not(.settled) .tool-content[data-live="true"] code')?.textContent || '').trim(),
       };
     })()`), 'Tool showcase render', 8_000) as {
       toolCards: number;
@@ -1118,6 +1123,8 @@ async function captureWindow(): Promise<void> {
       runningCommandVisible: boolean;
       editInputBlocks: number;
       runningElapsed: string;
+      liveOutputVisible: boolean;
+      liveOutputText: string;
     };
     // Flush a real presented frame before reading the compositor: DOM commit
     // alone is not a paint, and an occluded window may still hold the frame

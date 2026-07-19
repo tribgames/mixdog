@@ -333,7 +333,8 @@ try {
   assert.equal(metadata.toolShowcase.toolCards, 4, "tool showcase must render all four tool cards");
   assert.equal(metadata.toolShowcase.failedCards, 1, "failed shell card must carry the failed state");
   assert.equal(metadata.toolShowcase.settledCards, 3, "completed cards must settle; the running card must not");
-  assert.equal(metadata.toolShowcase.shellOutputs, 2, "both completed shell cards must render command output blocks");
+  assert.equal(metadata.toolShowcase.shellOutputs, 3,
+    "completed shell cards (2) plus the running card's live tail must render command output blocks");
   assert.equal(metadata.toolShowcase.diffFiles, 1, "edit card must render a parsed diff file");
   assert.equal(metadata.toolShowcase.reviewBar, true, "turn review bar must summarize the edit diff");
   assert.equal(metadata.toolShowcase.runningCommandVisible, true,
@@ -342,6 +343,10 @@ try {
     "edit cards with a rendered diff must not show the raw Input JSON block");
   assert.match(metadata.toolShowcase.runningElapsed, /^\d+s$/,
     "running shell card must tick a live elapsed readout");
+  assert.equal(metadata.toolShowcase.liveOutputVisible, true,
+    "running shell card must stream the live output tail");
+  assert.ok(metadata.toolShowcase.liveOutputText.startsWith("$ npm test"),
+    "live output must lead with the command line");
   console.log(`CAPTURE_TOOLS_PNG=${toolsOutput}`);
   console.log(`CAPTURE_TOOLS_TOP_PNG=${toolsTopOutput}`);
   console.log(`CAPTURE_PNG=${windowOutput}`);

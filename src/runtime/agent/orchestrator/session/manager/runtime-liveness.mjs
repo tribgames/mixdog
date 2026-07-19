@@ -133,6 +133,8 @@ export function markSessionAskStart(id) {
     entry.lastToolCall = null;
     entry.toolStartedAt = null;
     entry.toolSelfDeadlineMs = null;
+    entry.toolOutputTail = null;
+    entry.toolOutputTailAt = null;
     entry.lastError = null;
     // A new ask starts a fresh turn lifecycle — clear any stale empty-final
     // classification from the prior turn so inspectBridgeEntry doesn't keep
@@ -238,6 +240,9 @@ export function markSessionToolCall(id, toolName, selfDeadlineMs) {
     const entry = _touchRuntime(id);
     entry.stage = 'tool_running';
     entry.lastToolCall = toolName || null;
+    // A new tool call invalidates the previous call's live-output tail.
+    entry.toolOutputTail = null;
+    entry.toolOutputTailAt = null;
     // Self-enforced deadline (ms) for tools that kill themselves at a known
     // budget (shell timeout / task wait). The watchdog raises the tool-running
     // ceiling to this + grace instead of aborting at toolRunningMs. Null/<=0
@@ -255,6 +260,18 @@ export function markSessionToolCall(id, toolName, selfDeadlineMs) {
     entry.updatedAt = entry.toolStartedAt;
     publishHeartbeat(id, entry.toolStartedAt);
     _startToolActivityHeartbeat(id);
+}
+// Live shell-output tail for the CURRENT running tool. Written by the shell
+// tool's onOutputTail timer (~1 s cadence), read by engine transcript
+// consumers via getSessionProgressSnapshot. Never creates a runtime entry —
+// a settled/unknown session ignores late writes.
+export function markSessionToolOutputTail(id, tail) {
+    if (!id) return;
+    const entry = _runtimeState.get(id);
+    if (!entry) return;
+    const text = typeof tail === 'string' ? tail : String(tail ?? '');
+    entry.toolOutputTail = text ? text.slice(-4000) : null;
+    entry.toolOutputTailAt = Date.now();
 }
 // Parent AbortSignal listeners are dropped on askSession unwind (finally /
 // terminal return) and on error/cancel/close — not in markSessionDone, which
@@ -383,6 +400,8 @@ export function getSessionProgressSnapshot(sessionId) {
         toolStartedAt: entry.toolStartedAt || 0,
         currentTool: entry.lastToolCall || null,
         toolSelfDeadlineMs: entry.toolSelfDeadlineMs || 0,
+        toolOutputTail: entry.toolOutputTail || null,
+        toolOutputTailAt: entry.toolOutputTailAt || 0,
         lastProgressAt: entry.lastProgressAt || 0,
         updatedAt: entry.updatedAt || 0,
         hasFirstActivity: Boolean(firstSemanticAt && (!askStartedAt || firstSemanticAt >= askStartedAt)),

@@ -230,6 +230,34 @@ export function createRunTurn(bag) {
     const toolCards = [];
     const toolGroups = new Map();
     const resultsDone = new Set();
+    // ── Live shell-output tail → running tool card ─────────────────────────
+    // 1 s poll of orchestrator liveness while this turn runs. When exactly one
+    // standalone (non-aggregate) card is unresolved and the runtime reports a
+    // fresh toolOutputTail for the running tool, patch it onto the card as
+    // `liveOutput` so transcript consumers (desktop) can render live command
+    // output. The result patch clears the field; timer dies with the turn.
+    let liveTailTimer = null;
+    let lastLiveTailPatched = '';
+    const clearLiveTailTimer = () => {
+      if (liveTailTimer) { clearInterval(liveTailTimer); liveTailTimer = null; }
+    };
+    liveTailTimer = setInterval(() => {
+      if (!isCurrentTurn()) { clearLiveTailTimer(); return; }
+      let liveness = null;
+      try { liveness = runtime.getTurnLiveness?.(); } catch { return; }
+      if (!liveness || liveness.stage !== 'tool_running') return;
+      const tail = typeof liveness.toolOutputTail === 'string' ? liveness.toolOutputTail : '';
+      if (!tail || tail === lastLiveTailPatched) return;
+      const running = toolCards.filter((c) => !c.done && !c.aggregate);
+      if (running.length !== 1) return;
+      const card = running[0];
+      // Real output proves the tool is genuinely running — surface the card
+      // even if its deferred-display timer has not fired yet.
+      card.ensureVisible?.();
+      lastLiveTailPatched = tail;
+      patchItem(card.itemId, { liveOutput: tail });
+    }, 1000);
+    liveTailTimer.unref?.();
     // Streaming providers can deliver eager onToolResult before onToolCall registers
     // cards (send() still in flight). Hold those by callId until the batch lands.
     const earlyResultBuffer = new Map();
@@ -1273,6 +1301,7 @@ export function createRunTurn(bag) {
       // Turn is unwinding normally (or via abort) — cancel the idle watchdog and
       // its force-release grace so they never fire on a live turn.
       clearWatchdog();
+      clearLiveTailTimer();
       // If the watchdog force-release already fired, a NEWER turn now owns the
       // shared store (busy, flags.activePromptRestore, turndone, drain). This stale
       // unwind must NOT write shared getState() or it corrupts that turn.

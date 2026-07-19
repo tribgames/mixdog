@@ -9,7 +9,7 @@ import { executeBashSessionTool } from '../../tools/bash-session.mjs';
 import { executePatchTool } from '../../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../../internal-tools.mjs';
 import { normalizeToolEnvelope, makeToolEnvelope } from '../tool-envelope.mjs';
-import { getSessionAbortSignal, enqueuePendingMessage, markCompletionEntry } from '../manager.mjs';
+import { getSessionAbortSignal, enqueuePendingMessage, markCompletionEntry, markSessionToolOutputTail } from '../manager.mjs';
 import { createScopedCacheOutcome } from '../cache/scoped-cache-outcome.mjs';
 import { modelVisibleToolCompletionMessage } from '../../../../shared/tool-execution-contract.mjs';
 import { _isScopedCacheableTool } from './tool-classify.mjs';
@@ -81,6 +81,12 @@ export async function executeTool(name, args, cwd, callerSessionId, sessionRef, 
         routingSessionId: callerSessionId,
         clientHostPid: sessionRef?.clientHostPid,
         notifyFn,
+        // Live shell-output tail → session liveness (~1 s cadence from the
+        // shell tool's tail timer), surfaced to transcript consumers (desktop
+        // running tool cards) via getSessionProgressSnapshot.
+        onOutputTail: (tail) => {
+            try { markSessionToolOutputTail(callerSessionId, tail); } catch { /* best effort */ }
+        },
     };
     const beforeToolHook = typeof executeOpts.beforeToolHook === 'function'
         ? executeOpts.beforeToolHook

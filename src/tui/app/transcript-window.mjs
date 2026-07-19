@@ -336,7 +336,7 @@ function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false, 
   }
 }
 
-function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
+function estimateTranscriptItemRows(item, columns, toolOutputExpanded, attachedTool = false) {
   if (!item) return 1;
   switch (item.kind) {
     case 'user':
@@ -347,7 +347,9 @@ function estimateTranscriptItemRows(item, columns, toolOutputExpanded) {
         ? measureStreamingMarkdownRenderedRows(item.text, columns, item.id)
         : measureMarkdownRenderedRows(item.text, columns));
     case 'tool': {
-      const TOOL_MARGIN_TOP = 1;
+      // Consecutive tool cards render attached (marginTop 0) — see
+      // TranscriptItem's attached={prevKind === 'tool'}.
+      const TOOL_MARGIN_TOP = attachedTool ? 0 : 1;
       if (shouldSuppressFullyFailedToolItem(item)) return 0;
       if (isHookApprovalDenialToolItem(item)) {
         const detail = formatHookDenialDetail(toolItemResultText(item));
@@ -787,7 +789,7 @@ export function streamingTailMountedGrowth(items, columns, toolOutputExpanded) {
   return { tailRows: idEntry.rows, delta };
 }
 
-export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded) {
+export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded, attachedTool = false) {
   if (!item) return Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
   if (shouldSuppressFullyFailedToolItem(item)) return 0;
   if (item.kind === 'assistant' && item.streaming) {
@@ -838,17 +840,19 @@ export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpand
   }
   const variantKey = transcriptItemVariantKey(item);
   const toolExpanded = toolOutputExpanded ? 1 : 0;
+  const attached = attachedTool ? 1 : 0;
   const cached = transcriptRowsCache.get(item);
   if (cached
     && cached.columns === columns
     && cached.toolExpanded === toolExpanded
+    && cached.attached === attached
     && cached.variantKey === variantKey
     && cached.id === item.id
     && cached.kind === item.kind) {
     return cached.rows;
   }
-  const rows = Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
-  transcriptRowsCache.set(item, { id: item.id, kind: item.kind, variantKey, columns, toolExpanded, rows });
+  const rows = Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded, attachedTool)));
+  transcriptRowsCache.set(item, { id: item.id, kind: item.kind, variantKey, columns, toolExpanded, attached, rows });
   return rows;
 }
 
@@ -866,12 +870,13 @@ export function buildTranscriptRowIndex(items, {
     const item = streamingTailItem && i === allItems.length - 1
       ? streamingTailItem
       : allItems[i];
+    const attachedTool = item?.kind === 'tool' && allItems[i - 1]?.kind === 'tool';
     const measured = suppressMeasuredRowHeights
       ? null
       : measuredTranscriptRows(item, columns, toolOutputExpanded);
     const rowCount = measured != null
       ? measured
-      : estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded);
+      : estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded, attachedTool);
     rows[i] = rowCount;
     prefixRows[i + 1] = prefixRows[i] + rowCount;
   }

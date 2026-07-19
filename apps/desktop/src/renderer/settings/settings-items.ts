@@ -26,7 +26,9 @@ export const SETTINGS_ITEMS = [
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
   { value: 'hooks', label: 'Hooks', description: '0 before-tool rules', kind: 'open' },
   { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
-  { value: 'system-shell', label: 'System shell', description: 'Use the platform default shell command.', kind: 'open' },
+  // 'system-shell' stays TUI-only: the desktop hides the override (user
+  // decision — automatic platform selection is the only sensible desktop
+  // default; the shared config key remains editable from the TUI).
   { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
@@ -35,7 +37,7 @@ export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];
 export type SettingsCategory =
   | 'general' | 'models' | 'workflows' | 'output-style'
   | 'providers' | 'channels' | 'mcp' | 'plugins' | 'hooks' | 'skills' | 'memory'
-  | 'system';
+  | 'system' | 'shortcuts';
 
 export interface SettingsCategoryItem {
   value: SettingsCategory;
@@ -115,7 +117,15 @@ export const SETTINGS_CATEGORIES = [
     value: 'system',
     label: 'System',
     group: 'Support',
-    items: ['system-shell', 'remote-runtime', 'update'],
+    items: ['remote-runtime', 'update'],
+  },
+  // Desktop-only surface (no TUI settings-item counterpart): a read-only
+  // OpenCode-style keybind reference for the workspace shortcuts.
+  {
+    value: 'shortcuts',
+    label: 'Shortcuts',
+    group: 'Support',
+    items: [],
   },
 ] as const satisfies ReadonlyArray<SettingsCategoryItem>;
 

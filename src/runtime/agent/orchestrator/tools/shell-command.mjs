@@ -353,6 +353,39 @@ class TaskOutput {
     return this.stdoutFileSize + this.stderrFileSize;
   }
 
+  // Cheap synchronous tail for live-progress consumers (running tool cards).
+  // Never fsyncs and never throws: inline mode slices the in-memory buffers;
+  // spilled mode reads the file tails directly (kernel write-back is fresh
+  // enough for display). Best-effort — any FS error yields ''.
+  getLiveTail(maxChars = 4000) {
+    try {
+      const merge = (out, err) => {
+        const merged = err ? `${out}${out && err ? '\n' : ''}${err}` : out;
+        return merged.length > maxChars ? merged.slice(-maxChars) : merged;
+      };
+      if (!this.spilled) return merge(this.stdoutBuf, this.stderrBuf);
+      this._refreshDirectSizes();
+      const readTail = (path, size) => {
+        if (!path || !(size > 0)) return '';
+        const bytes = Math.min(size, maxChars * 3);
+        const fd = openSync(path, 'r');
+        try {
+          const buffer = Buffer.alloc(bytes);
+          const read = readSync(fd, buffer, 0, bytes, Math.max(0, size - bytes));
+          return buffer.toString('utf-8', 0, read);
+        } finally {
+          try { closeSync(fd); } catch {}
+        }
+      };
+      return merge(
+        readTail(this.stdoutPath, this.stdoutFileSize),
+        readTail(this.stderrPath, this.stderrFileSize),
+      );
+    } catch {
+      return '';
+    }
+  }
+
   async getStdout() {
     if (this.spilled) {
       this._refreshDirectSizes();
@@ -587,6 +620,7 @@ export function execShellCommand({
   abortSignal,
   autoBackgroundMs,
   onProgress,
+  onOutputTail,
   clientHostPid,
   backgroundOnTimeout,
   promotedTimeoutMs = 0,
@@ -662,8 +696,15 @@ export function execShellCommand({
     const _hasProgress = typeof onProgress === 'function';
     const _startMs = Date.now();
     let progressTimer = null;
+    // Live output tail: 1 s cadence for in-process transcript consumers
+    // (desktop/TUI running tool cards). Independent of the MCP onProgress
+    // channel; cleared together with it on settle / auto-background.
+    const _hasOutputTail = typeof onOutputTail === 'function';
+    let outputTailTimer = null;
+    let _lastOutputTail = '';
     const _clearProgressTimer = () => {
       if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+      if (outputTailTimer) { clearInterval(outputTailTimer); outputTailTimer = null; }
     };
     // Auto-background transition flag. Set the moment the autoBackgroundMs
     // timer fires and adopts the still-running child. Once
@@ -1183,6 +1224,22 @@ export function execShellCommand({
         try { onProgress(`running ${secs}s`); } catch {}
       }, 2000);
       if (progressTimer.unref) progressTimer.unref();
+    }
+
+    // Live output tail pump (see declaration above). Emits only on change so
+    // idle commands cost one getLiveTail per second and zero downstream work.
+    if (_hasOutputTail && !_isBackground) {
+      outputTailTimer = setInterval(() => {
+        if (settled || autoBackgrounded) return;
+        try {
+          const tail = taskOutput.getLiveTail(4000);
+          if (tail && tail !== _lastOutputTail) {
+            _lastOutputTail = tail;
+            onOutputTail(tail);
+          }
+        } catch { /* best effort */ }
+      }, 1000);
+      if (outputTailTimer.unref) outputTailTimer.unref();
     }
 
     // Arm the auto-background timer only for the genuine foreground one-shot

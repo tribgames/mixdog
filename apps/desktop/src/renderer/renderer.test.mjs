@@ -160,12 +160,16 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*0 8px 8px;[^}]*background:\s*var\(--oc-window-band\);/s);
   assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*border-radius:\s*10px;/s);
   assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*36px;[^}]*min-height:\s*36px;/s);
+  // Session rows override to a denser 31px (user: list read too airy).
+  assert.match(styles, /\.session-sidebar \.session-row\s*\{[^}]*height:\s*31px;[^}]*min-height:\s*31px;/s);
   assert.match(styles, /\.session-list\s*\{\s*gap:\s*1px;/s);
   assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*10px;/s);
   assert.match(styles, /\.project-switcher\s*\{[^}]*width:\s*min\(640px,/s);
   assert.match(styles, /\.thread\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   assert.match(styles, /\.composer-region\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
-  assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*400 14px\/20px/s);
+  // Control chrome (Settings, New task, pickers) runs medium weight for
+  // hierarchy against 400 content rows.
+  assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*500 14px\/20px/s);
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*width:\s*min\(var\(--session-sidebar-width,\s*260px\),\s*calc\(100vw - 32px\)\)/);
   assert.match(navigation, /aria-label="Session manager"/);
   assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);
@@ -242,7 +246,7 @@ test('conversation uses native scrolling and silent session transitions', async 
   const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message|message-navigation|navigateMessage/);
   assert.doesNotMatch(renderer, /Opening session|Resuming conversation/);
-  assert.match(renderer, /if \(mode === "resuming"\) return null;/);
+  assert.match(renderer, /if \(mode === "resuming"\) \{/);
   assert.match(renderer, /<div className="session-switch-overlay" aria-hidden="true" \/>/);
 });
 
@@ -299,6 +303,10 @@ test('desktop UI keeps every public TUI command and core capability represented'
     'agentControl',
     'toolsStatus',
     'selectTools',
+    // Hidden from desktop settings by user decision (automatic platform
+    // shell only); the shared config stays editable from the TUI registry.
+    'getSystemShell',
+    'setSystemShell',
     'reconnectMcp',
     'addMcpServer',
     'removeMcpServer',

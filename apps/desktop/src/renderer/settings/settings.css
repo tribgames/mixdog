@@ -166,10 +166,12 @@
 .mixdog-settings__rail-group h2 {
   margin: 0 0 4px;
   padding: 0 10px;
-  color: var(--oc-text-faint);
-  font-size: 11px;
-  font-weight: 530;
-  line-height: 16px;
+  /* Match the workspace sidebar section-heading grammar (Recent): full ink,
+     14px/600 — the 11px faint caps read as a weaker, mismatched hierarchy. */
+  color: var(--oc-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
 }
 .mixdog-settings__rail-group button {
   width: 100%;
@@ -180,7 +182,10 @@
   padding: 0 10px;
   border: 0;
   border-radius: 6px;
-  color: var(--oc-text-muted);
+  /* Sidebar row grammar: 14px medium, full ink. */
+  color: var(--oc-text);
+  font-size: 14px;
+  font-weight: 500;
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -194,7 +199,7 @@
   background: var(--oc-pressed);
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
 }
-.mixdog-settings__rail-group button svg { color: var(--oc-icon-muted); }
+.mixdog-settings__rail-group button svg { color: inherit; }
 .mixdog-settings__rail-group button.active svg { color: var(--oc-icon); }
 .mixdog-settings__rail footer {
   display: grid;

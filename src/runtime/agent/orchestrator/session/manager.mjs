@@ -43,6 +43,7 @@ export {
     markSessionAskStart,
     markSessionStreamDelta,
     markSessionToolCall,
+    markSessionToolOutputTail,
     markSessionDone,
     markSessionEmptyFinal,
     markSessionError,

@@ -123,6 +123,7 @@ type TranscriptItem = RecordValue & {
   elapsedMs?: number;
   startedAt?: number;
   completedAt?: number;
+  liveOutput?: string;
   outputTokens?: number;
   errorCount?: number;
   callErrorCount?: number;
@@ -1076,6 +1077,56 @@ export function App() {
       return next;
     });
   }, []);
+  // Global workspace shortcuts (OpenCode desktop grammar + user requests):
+  // mod+N new task · ctrl+Tab / mod+alt+←→ cycle tabs · mod+, settings ·
+  // mod+B sidebar toggle. Plain mod+←→ also cycles tabs, but only outside
+  // editable fields so composer word-jump keeps working.
+  useEffect(() => {
+    const editable = (target: EventTarget | null) => {
+      const element = target instanceof HTMLElement ? target : null;
+      if (!element) return false;
+      return element.tagName === "INPUT" || element.tagName === "TEXTAREA"
+        || element.tagName === "SELECT" || element.isContentEditable;
+    };
+    const cycleTab = (offset: number) => {
+      if (tabs.length < 2) return;
+      const index = tabs.findIndex((tab) => tab.key === activeTabKey);
+      const next = tabs[(index + offset + tabs.length) % tabs.length];
+      if (next) navigateTab(next);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod) return;
+      const key = event.key.toLowerCase();
+      if (key === "n" && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        startTask();
+        return;
+      }
+      if (key === "," && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        openSettings();
+        return;
+      }
+      if (key === "b" && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        setSidebarOpen((value) => !value);
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        cycleTab(event.shiftKey ? -1 : 1);
+        return;
+      }
+      if ((event.key === "ArrowRight" || event.key === "ArrowLeft")
+        && (event.altKey || !editable(event.target))) {
+        event.preventDefault();
+        cycleTab(event.key === "ArrowRight" ? 1 : -1);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
 
   return (
     <div className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"}`}>
@@ -1960,15 +2011,26 @@ function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
   const activity = spinner || command;
   const [now, setNow] = useState(Date.now());
   const startedAt = Number(activity?.startedAt || 0);
+  // Stream events flip the activity mode (thinking→responding→tool-use)
+  // several times a second; a status line that rewrites itself that fast
+  // reads as flicker. Hold each verb for a minimum dwell before accepting
+  // the next one — appearance/disappearance stays immediate.
+  const heldVerb = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   useEffect(() => {
     if (!activity || !startedAt) return undefined;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [activity, startedAt]);
-  if (!activity && !snapshot.thinking) return null;
+  if (!activity && !snapshot.thinking) {
+    heldVerb.current = { text: "", at: 0 };
+    return null;
+  }
   const mode = String(activity?.mode || (snapshot.thinking ? "thinking" : "responding"));
-  if (mode === "resuming") return null;
+  if (mode === "resuming") {
+    heldVerb.current = { text: "", at: 0 };
+    return null;
+  }
   const canonicalVerb: Record<string, string> = {
     requesting: "Requesting",
     responding: "Responding",
@@ -1980,7 +2042,17 @@ function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
   };
   // Mirror Spinner's MODE_VERBS boundary: only those modes have a stable
   // canonical first phrase. Other modes carry engine-authored status detail.
-  const verb = canonicalVerb[mode] || String(activity?.verb || "Working");
+  const rawVerb = canonicalVerb[mode] || String(activity?.verb || "Working");
+  const nowMs = Date.now();
+  // Engine-authored statuses (retry countdowns, compaction detail) must break
+  // through immediately; only the canonical stream verbs dwell.
+  const canonicalMode = Boolean(canonicalVerb[mode]);
+  if (!heldVerb.current.text
+    || !canonicalMode
+    || (rawVerb !== heldVerb.current.text && nowMs - heldVerb.current.at >= 3_000)) {
+    heldVerb.current = { text: rawVerb, at: nowMs };
+  }
+  const verb = heldVerb.current.text;
   const elapsed = startedAt ? formatElapsed(now - startedAt) : "";
   const outputTokens = Math.max(0, Number(activity?.outputTokens || activity?.tokens || 0));
   const reasoning = publicThinkingSummary(snapshot.thinking);
@@ -2274,6 +2346,9 @@ function ToolCard({ item }: { item: TranscriptItem }) {
   const count = Math.max(1, Math.round(Number(item.count || 1)));
   const errorCard = (failed || denied) && hasResult;
   const exceptionalState = denied ? "Denied" : failed ? "Failed" : exited ? "Exit" : "";
+  // Streamed tail from the running command (engine liveOutput plumbing).
+  // Only meaningful pre-settlement; the settled result supersedes it.
+  const liveOutput = !done && typeof item.liveOutput === "string" ? item.liveOutput : "";
   return (
     <article className={`tool-card ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
@@ -2298,7 +2373,12 @@ function ToolCard({ item }: { item: TranscriptItem }) {
         {!done && !exceptionalState && <span className="sr-only" role="status">Running</span>}
         {hasDetails && <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>}
       </button>
-      {hasDetails && open && (
+      {liveOutput && (
+        <div className="tool-content" id={contentId} data-live="true">
+          <ToolOutput value={liveOutput} command={shellCommand} follow />
+        </div>
+      )}
+      {!liveOutput && hasDetails && open && (
         <div className="tool-content" id={contentId}>
           {/* A rendered diff already communicates the edit; raw args JSON on
               top of it is noise no reference client shows. */}
@@ -2314,18 +2394,25 @@ function ToolCard({ item }: { item: TranscriptItem }) {
   );
 }
 
-function ToolOutput({ value, command = "", copyLabel }: {
+function ToolOutput({ value, command = "", copyLabel, follow = false }: {
   value: unknown;
   command?: string;
   copyLabel?: string;
+  follow?: boolean;
 }) {
   const output = boundedTextOf(value);
   const text = command ? `$ ${command}${output.trim() ? `\n\n${output}` : ""}` : output;
+  const scroller = useRef<HTMLDivElement>(null);
+  // Live tails append at the bottom; keep the capped viewport pinned there
+  // (reference clients' terminal-follow behavior). Static outputs never jump.
+  useEffect(() => {
+    if (follow && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [follow, text]);
   if (!text.trim()) return null;
   return <div className={`tool-output ${command ? "shell-output" : ""}`}>
     {copyLabel && <CopyControl value={text} label={copyLabel}
       className="tool-detail-copy tool-output-copy" />}
-    <div className="tool-output-scroll">
+    <div className="tool-output-scroll" ref={scroller}>
       <pre><code>{text}</code></pre>
     </div>
   </div>;
@@ -2823,9 +2910,12 @@ const Composer = memo(function Composer({
     });
   }, [historyScope]);
   // User request: one stable placeholder — no rotating variants.
-  const placeholder = turnBusy ? 'Steer the active turn or queue a follow-up…'
-    : commandBusy ? 'Queue a message after the current command…'
-      : hasConversation ? 'Ask Mixdog a follow-up…' : COMPOSER_PLACEHOLDERS[0];
+  // User request: once a session has content, the composer shows NO hint copy
+  // at all — instructional placeholders belong to the empty new-task state.
+  const placeholder = hasConversation ? ''
+    : turnBusy ? 'Steer the active turn or queue a follow-up…'
+      : commandBusy ? 'Queue a message after the current command…'
+        : COMPOSER_PLACEHOLDERS[0];
   // Match the TUI palette: it only owns a single, argument-free /token.
   // Once whitespace is entered the composer returns to normal editing and the
   // argument hint/submit path owns the draft.

@@ -360,9 +360,9 @@ button:focus-visible { outline-offset: 2.5px; }
   stroke-width: 1.25px;
 }
 /* One rail icon voice: toggle, New task +, Project folder, and Settings all
-   share the thin stroke and the muted ink (Claude's rail). svg.lucide
-   qualifier outranks the global 1.75px lucide thinning rule. */
-.toolbar-sidebar { color: var(--oc-icon-muted); }
+   share the thin stroke and the LABEL ink (user: icon color must match the
+   text). svg.lucide qualifier outranks the global 1.75px lucide rule. */
+.toolbar-sidebar { color: var(--oc-text); }
 .toolbar-sidebar svg.lucide,
 .sidebar-nav-icon svg.lucide,
 .session-sidebar-footer .sidebar-settings-button svg.lucide {
@@ -650,7 +650,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 18px;
   display: grid;
   place-items: center;
-  color: var(--oc-icon-muted);
+  /* Icons carry the same ink as their labels (user: icon/label tone split). */
+  color: inherit;
 }
 /* The + previously sat in a grey circle chip; every other nav glyph is bare,
    so the lone chip read as a blob (user feedback). Bare glyph like Claude. */
@@ -772,7 +773,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .session-title-input[aria-invalid="true"] { outline-color: var(--oc-danger); }
 .session-sidebar .task-link,
-.session-sidebar .projects-link { font-size: 14px; font-weight: 400; line-height: 21px; cursor: pointer; }
+.session-sidebar .projects-link { font-size: 14px; font-weight: 500; line-height: 21px; cursor: pointer; }
 .session-sidebar .task-link:hover,
 .session-sidebar .projects-link:hover,
 .session-sidebar .session-row:hover {
@@ -822,7 +823,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* EXACTLY the row-pill inset (6px): session titles render at the same 6px
      inside their pills, so header and titles share one left line. */
   padding: 0 6px;
-  color: var(--oc-text-muted);
+  /* Full ink like the model trigger — muted read as a weaker tier than the
+     500-weight controls around it (user: Recent looks washed). */
+  color: var(--oc-text);
   /* …same 14px size as the rows, one step bolder (Grok's 기록 header). */
   font-size: 14px;
   font-weight: 600;
@@ -941,6 +944,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    align on a 10px inset (nested project sessions keep one indent step). */
 .session-sidebar .project-group .session-row { padding-left: 22px; }
 .session-sidebar .standalone-session-list .session-row { padding-left: 6px; }
+/* Session rows sit tighter than the 36px nav links: 31px keeps the 14px title
+   comfortable while the list stops reading airy (user request). */
+.session-sidebar .session-row { height: 31px; min-height: 31px; }
 .sidebar-section-empty,
 .project-sessions-empty {
   margin: 0;
@@ -963,6 +969,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   height: 36px;
   display: flex;
   align-items: center;
+  /* Full label ink so the gear matches the Settings text (was faint). */
+  color: var(--oc-text);
   gap: 8px;
   padding: 0 6px;
   border-radius: 8px;
@@ -972,11 +980,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
-  color: var(--oc-icon-muted);
+  color: inherit;
 }
 .session-sidebar-footer span {
   color: var(--oc-text);
-  font: 400 14px/20px "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 500 14px/20px "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
   letter-spacing: 0;
 }
 .session-sidebar .standalone-group,
@@ -1015,7 +1023,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 12px 32px;
   gap: 8px;
 }
-.session-header h1 { color: var(--oc-text); font-size: 14px; font-weight: 500; line-height: 21px; letter-spacing: 0; }
+/* Conversation title is important info: one step up from tab chrome. */
+.session-header h1 { color: var(--oc-text); font-size: 15px; font-weight: 600; line-height: 22px; letter-spacing: 0; }
 .session-title-trigger {
   width: 100%;
   min-width: 0;
@@ -1140,7 +1149,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    15px with >=1.53 leading. */
 /* 450 optical weight: variable Geist/Pretendard fill Hangul strokes the way
    Claude's reading face does — 400 read thin next to it. */
-.message-body { color: var(--oc-text); font-size: 15px; font-weight: 450; line-height: 23px; letter-spacing: 0; }
+/* Reading surface runs Pretendard-first for BOTH scripts: with Geist leading,
+   Latin words inside Korean prose rendered in a different face and read a
+   visible half-tone lighter (user: "폰트가 균일하게 잘 안보여"). One face for
+   the whole paragraph = one ink density; Pretendard's Latin is
+   Inter-metric-compatible so rhythm is preserved. Chrome (13px UI) stays
+   Geist-led. */
+.message-body {
+  color: var(--oc-text);
+  font-family: "Pretendard Variable", Pretendard, "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font-size: 15px;
+  font-weight: 450;
+  line-height: 23px;
+  letter-spacing: 0;
+}
 .message-body p { margin: 0 0 12px; }
 .message.user .message-body { line-height: 23px; }
 .message { position: relative; }
@@ -1341,6 +1363,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-icon { width: 16px; height: 16px; color: var(--oc-icon-muted); }
 .tool-title { min-width: 0; flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; }
 .tool-title b, .tool-title small { font-size: 13px; font-weight: 400; line-height: 16px; }
+/* Card titles carry the primary "what happened" info — medium weight so they
+   do not read as secondary chrome (user: important info looks underweighted). */
+.tool-title b { font-weight: 500; }
 .tool-title b { flex: 0 0 auto; }
 .tool-title small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* OpenCode basic-tool-v2 subtitles read as muted, not faint. */
@@ -1593,7 +1618,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 0;
   padding-left: 8px;
   border-radius: 6px;
-  color: var(--oc-icon-muted);
+  color: var(--oc-icon);
   background: var(--oc-bg-layer-1);
   box-shadow: 0 0 0 .5px var(--oc-border);
 }
@@ -1604,7 +1629,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 0 6px 0 4px;
   border: 0;
   border-radius: 6px;
-  color: var(--oc-text-muted);
+  /* Same ink tier as the model trigger (user: chip read lighter than peers). */
+  color: var(--oc-text);
   background: transparent;
   box-shadow: none;
   font-size: 13px;
@@ -1644,9 +1670,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-height: 52px;
   padding: 16px 16px 8px;
   color: var(--oc-text);
-  font-size: 14px;
+  /* Same single-face rule as .message-body: typed Korean+Latin must not mix
+     Geist/Pretendard ink densities inside one sentence. */
+  font-family: "Pretendard Variable", Pretendard, "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  /* Typing surface matches the 15px reading scale (was one step small). */
+  font-size: 15px;
   font-weight: 400;
-  line-height: 21px;
+  line-height: 22px;
   letter-spacing: 0;
 }
 .composer textarea::placeholder { color: var(--oc-text-faint); }
@@ -1678,6 +1708,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .composer-tool:hover, .composer-tool:focus-visible, .route-controls > .fast-control:hover, .fast-control .oc-select-trigger:hover,
 .effort-control select:hover { color: var(--oc-text); background: var(--oc-hover); }
+/* Attach + and mic match the composer control text ink (model trigger). */
+.composer-tool { color: var(--oc-text); }
 .send-button {
   color: var(--oc-grey-100);
   background: linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-bg-contrast);
@@ -1699,7 +1731,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 6px;
   color: var(--oc-text-muted);
   font-size: 13px;
-  font-weight: 400;
+  /* Controls read as controls: medium weight separates chrome from prose
+     (user: "위계가 없다" — New task/Project/pickers all sat at 400). */
+  font-weight: 500;
 }
 /* The 28px square icon-button sizing above must not apply to the effort
    select: it renders text and needs its natural width and line box. */
@@ -2341,7 +2375,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: linear-gradient(180deg, var(--oc-alpha-light-2), transparent), var(--oc-bg-base);
   box-shadow: var(--oc-button);
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1;
   text-align: left;
   cursor: default;
@@ -3047,6 +3081,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   justify-content: flex-end;
   gap: 8px;
 }
+/* Edit/Delete and Save/Cancel share one column width so entering edit mode
+   never shifts the action column (user-flagged). */
+.core-memory-actions button { min-width: 64px; }
 @media (max-width: 640px) {
   .core-memory-add { grid-template-columns: 1fr; }
   .core-memory-add button { justify-self: start; }
@@ -3056,6 +3093,28 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .core-memory-actions { grid-column: 2; }
 }
 .settings-route-controls { gap: 8px; }
+/* Shortcuts reference rows: label left, keybind chip right (OpenCode
+   keybind-v2 chip language). */
+.settings-shortcut-list { display: grid; }
+.settings-shortcut-row {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-shortcut-row + .settings-shortcut-row { border-top: .5px solid var(--oc-border-muted); }
+.settings-shortcut-row span { color: var(--oc-text); font-size: 13px; font-weight: 400; }
+.settings-shortcut-row kbd {
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--oc-text-muted);
+  background: var(--oc-bg-layer-3);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .05px;
+  white-space: nowrap;
+}
 .settings-meta { color: var(--oc-text-faint); font-size: 11px; font-weight: 400; }
 .settings-resource-actions { gap: 8px; }
 .settings-resource-actions .settings-action { min-height: 28px; padding-inline: 11px; }
@@ -3760,7 +3819,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--oc-text);
   background: var(--oc-bg-layer-2);
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
-  font-size: 13px;
+  /* Track the surrounding prose (15px body → ~13.8px) instead of a fixed
+     13px that read undersized for paths/tokens — the info chips users scan. */
+  font-size: .92em;
   overflow-wrap: anywhere;
 }
 /* Markdown prose breathes at 160% (reference markdown.css) vs the 150%
@@ -4368,8 +4429,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 12px;
 }
 .context-runtime-lines span,
-.context-mix-row > span,
-.context-view h3 { color: var(--oc-text-muted); font-size: 12px; font-weight: 400; line-height: 18px; }
+.context-mix-row > span { color: var(--oc-text-muted); font-size: 13px; font-weight: 500; line-height: 18px; }
+/* Section heading matches the settings group-heading tier (user: unify the
+   type scale — 12px/400 read as a third, weaker grammar). */
+.context-view h3 { color: var(--oc-text); font-size: 13px; font-weight: 600; line-height: 18px; }
 .context-runtime-lines strong {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -4383,13 +4446,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .context-mix-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 72px 44px minmax(24px, 1fr) 46px;
+  grid-template-columns: 80px 44px minmax(24px, 1fr) 46px;
   align-items: center;
   gap: 7px;
 }
-.context-mix-row small { color: var(--oc-text-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.context-mix-row small { color: var(--oc-text-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .context-mix-row i { height: 6px; }
-.context-mix-row strong { color: var(--oc-text); text-align: right; font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.context-mix-row strong { color: var(--oc-text); text-align: right; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) {
   .session-header-content { padding-inline: 16px; }
   .context-mix-grid { grid-template-columns: 1fr; }

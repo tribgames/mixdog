@@ -5,6 +5,7 @@ const INJECTED_DISPLAY_BLOCK_TAGS = Object.freeze([
   'available-deferred-tools',
   'mcp-instructions',
   'memory-context',
+  'skill',
   'event',
 ]);
 

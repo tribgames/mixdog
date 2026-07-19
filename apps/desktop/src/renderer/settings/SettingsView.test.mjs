@@ -44,12 +44,12 @@ afterEach(async () => {
 const VALUES = [
   'profile', 'autoclear', 'autocompact', 'compact-type', 'channels', 'remote-runtime',
   'channel-backend', 'channel-setting', 'output-style', 'theme', 'workflow', 'model',
-  'search', 'providers', 'mcp', 'plugins', 'hooks', 'skills', 'system-shell', 'update',
+  'search', 'providers', 'mcp', 'plugins', 'hooks', 'skills', 'update',
 ];
 const LABELS = [
   'Profile', 'Auto-clear', 'Auto-compact', 'Compact type', 'Channels enabled', 'Remote Runtime',
   'Channel', 'Setting', 'Output style', 'Theme', 'Workflow', 'Model', 'Search model', 'Providers',
-  'MCP servers', 'Plugins', 'Hooks', 'Skills', 'System shell', 'Update',
+  'MCP servers', 'Plugins', 'Hooks', 'Skills', 'Update',
 ];
 const DESCRIPTIONS = [
   'Your title and response language.',
@@ -70,7 +70,6 @@ const DESCRIPTIONS = [
   '0 detected',
   '0 before-tool rules',
   '0 available',
-  'Use the platform default shell command.',
   'Check version and update mixdog.',
 ];
 
@@ -158,7 +157,7 @@ test('SETTINGS_ITEMS is the exact TUI row registry and order', () => {
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.description), DESCRIPTIONS);
   assert.deepEqual(SETTINGS_ITEMS.map((item) => item.kind), [
     'open', 'toggle', 'toggle', 'static', 'toggle', 'toggle', 'cycle', 'open', 'open',
-    'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open',
+    'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open', 'open',
   ]);
   for (const item of SETTINGS_ITEMS) {
     assert.deepEqual(Object.keys(item), ['value', 'label', 'description', 'kind']);
@@ -174,7 +173,8 @@ test('background preload prepares every settings surface and opening reuses the 
   assert.ok(capabilities.includes('getProfile'));
   assert.ok(capabilities.includes('getProviderSetup'));
   assert.ok(capabilities.includes('getChannelSetup'));
-  assert.ok(capabilities.includes('getSystemShell'));
+  // System shell stays TUI-only; the desktop neither preloads nor renders it.
+  assert.ok(!capabilities.includes('getSystemShell'));
 
   await renderSettings({ api });
   assert.equal(readCalls.length, 1, 'opening should reuse the background preload');
@@ -778,35 +778,8 @@ test('General exposes only System, White, and Dark with persistent desktop prefe
   assert.equal(window.localStorage.getItem('mixdog.desktop-theme-preference'), 'white');
 });
 
-test('System shell is shared by the TUI registry and Desktop capability editor', async () => {
-  mount();
-  const { api, calls } = capabilityApi({
-    getSystemShell: { source: 'config', command: 'powershell.exe', effective: 'powershell.exe' },
-  });
-  await renderSettings({ api, initialSection: 'system-shell' });
-  assert.equal(document.querySelector('.mixdog-settings__header h1')?.textContent, 'System');
-  assert.match(document.body.textContent, /Effective shellConfiguredpowershell\.exe/);
-  const input = document.querySelector('input[aria-label="System shell command"]');
-  assert.equal(input.value, 'powershell.exe');
-  await act(async () => {
-    input.focus();
-    input.value = 'pwsh';
-    input.blur();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  assert.ok(calls.some(([name, args]) => name === 'setSystemShell' && args[0] === 'pwsh'));
-
-  const automatic = Array.from(document.querySelectorAll('button'))
-    .find((button) => button.textContent === 'Use automatic');
-  await act(async () => {
-    automatic.click();
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  assert.ok(calls.some(([name, args]) => name === 'setSystemShell' && args[0] === ''));
-});
+// System shell moved back to TUI-only surface (user decision): the desktop
+// hides the override entirely, so no editor test remains.
 
 test('update auto-checks on open and Update now runs without confirmation', async () => {
   mount();

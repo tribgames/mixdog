@@ -553,6 +553,10 @@ export async function executeBashTool(args, workDir, options = {}) {
             // callTool onprogress). execShellCommand emits throttled "running
             // Ns" frames while the foreground command runs.
             onProgress: typeof options?.onProgress === 'function' ? options.onProgress : null,
+            // In-process live-output tail (~1 s cadence) for transcript
+            // consumers (desktop/TUI running tool cards). Distinct channel from
+            // the MCP onProgress label stream.
+            onOutputTail: typeof options?.onOutputTail === 'function' ? options.onOutputTail : null,
         });
         // Auto-backgrounded: the command outlived autoBackgroundMs and is
         // still running, now adopted as a tracked shell-job. Surface the
