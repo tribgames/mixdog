@@ -53,15 +53,16 @@
   --oc-green-1200: #14361d;
 
   /* Warm dark axis, unified with the light warm-neutral set: same hue family
-     (paper → charcoal), same crisp-ink philosophy. */
-  --oc-bg-base: #1a1918;
-  --oc-bg-deep: #0b0a09;
-  --oc-bg-layer-1: #262421;
-  --oc-bg-layer-2: #302d2a;
-  --oc-bg-layer-3: #3c3834;
+     (paper → charcoal), same crisp-ink philosophy. Lifted from near-black to
+     a Cursor-like mid-dark ramp (user: "적당히 어둡게"). */
+  --oc-bg-base: #211f1d;
+  --oc-bg-deep: #141312;
+  --oc-bg-layer-1: #2a2825;
+  --oc-bg-layer-2: #34312e;
+  --oc-bg-layer-3: #403c38;
   --oc-bg-contrast: #5e5a54;
-  --oc-window-band: #0b0a09;
-  --oc-workspace-sheet: #1a1918;
+  --oc-window-band: #191816;
+  --oc-workspace-sheet: #211f1d;
   --oc-shell-border: rgba(255, 255, 255, .078);
   --oc-text: #f4f2ee;
   --oc-text-muted: #b3aea6;

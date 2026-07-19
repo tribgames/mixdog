@@ -154,7 +154,7 @@ try {
   assert.equal(metadata.sharedOptions.titleBarOverlay.color, "#00000000");
   assert.equal(metadata.sharedOptions.titleBarOverlay.symbolColor, "white");
   assert.equal(metadata.sharedOptions.titleBarOverlay.height, 40);
-  assert.equal(metadata.sharedOptions.backgroundColor, "#0b0a09");
+  assert.equal(metadata.sharedOptions.backgroundColor, "#191816");
   assert.deepEqual(metadata.rendererValidation, {
     bridgePresent: true,
     inlineErrorCount: 0,
@@ -280,7 +280,7 @@ try {
   assert.equal(metadata.imageMeasuredSidebar.rightGap.left, metadata.domSidebarGeometry.right);
   assert.equal(metadata.imageMeasuredSidebar.rightGap.right, metadata.domSidebarGeometry.mainLeft - 1);
   assert.equal(metadata.imageMeasuredSidebar.rightGap.width, metadata.domSidebarGeometry.gap);
-  assert.equal(metadata.imageMeasuredSidebar.sampledColors.interior, "#0b0a09");
+  assert.equal(metadata.imageMeasuredSidebar.sampledColors.interior, "#191816");
   assert.equal(
     metadata.imageMeasuredSidebar.sampledColors.leftBorder,
     metadata.imageMeasuredSidebar.sampledColors.rightBorder,
@@ -303,11 +303,11 @@ try {
     assert.ok(colors.slice(firstSheet).every((color) => color === sheet),
       `${sample.theme} rows below the hairline must be the workspace sheet.`);
   };
-  assertShellTopEdge(metadata.shellTopEdges.dark, { band: "#0b0a09", sheet: "#1a1918" });
+  assertShellTopEdge(metadata.shellTopEdges.dark, { band: "#191816", sheet: "#211f1d" });
   assertShellTopEdge(metadata.shellTopEdges.light, { band: "#f1efec", sheet: "#faf8f5" });
-  assert.equal(metadata.pixelSamples.titlebar.color, "#0b0a09");
-  assert.equal(metadata.pixelSamples.base.color, "#1a1918");
-  assert.equal(metadata.pixelSamples.sidebar.color, "#0b0a09");
+  assert.equal(metadata.pixelSamples.titlebar.color, "#191816");
+  assert.equal(metadata.pixelSamples.base.color, "#211f1d");
+  assert.equal(metadata.pixelSamples.sidebar.color, "#191816");
   // Dictation E2E (fake Chromium mic + stubbed engine transcription): the
   // whole renderer chain must land the transcript in the draft and settle.
   assert.equal(metadata.dictationSmoke.transcriptApplied, true,

@@ -2,7 +2,7 @@ import { readFileSync, writeFile } from 'node:fs';
 
 import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 
-export const DESKTOP_BACKGROUND_COLOR = '#0b0a09';
+export const DESKTOP_BACKGROUND_COLOR = '#191816';
 /* Light window band (warm neutral set) — must track --oc-window-band. */
 export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#f1efec';
 export const DESKTOP_TITLEBAR_HEIGHT = 40;
