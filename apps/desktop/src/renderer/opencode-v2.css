@@ -5064,7 +5064,10 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 32px 10px;
+  /* Fixed height so the file-header sticky offset below matches EXACTLY —
+     a mismatched offset let rows slide half-buried under this bar. */
+  height: 52px;
+  padding: 0 32px;
   background: var(--oc-workspace-sheet);
 }
 .review-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
@@ -5099,36 +5102,6 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   cursor: pointer;
 }
 .review-action-btn:hover:not(:disabled) { color: var(--oc-text); background: var(--oc-hover); }
-.review-commit { width: min(100%, 800px); display: flex; align-items: center; gap: 8px; margin: 0 auto 12px; padding: 0 32px; }
-.review-commit input {
-  flex: 1;
-  min-width: 0;
-  height: 30px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 7px;
-  color: var(--oc-text);
-  background: var(--oc-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
-  font-size: 13px;
-}
-.review-commit small { flex: 0 0 auto; color: var(--oc-text-faint); font-size: 11px; }
-.review-commit button {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 7px;
-  color: var(--oc-grey-100);
-  background: var(--oc-bg-contrast);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.review-commit button:disabled { opacity: .5; cursor: default; }
 .review-empty { padding: 32px; color: var(--oc-text-muted); font-size: 13px; text-align: center; }
 /* Whole-pane states (no project / loading / error): center on both axes. */
 .review-pane > .review-empty:only-child { margin: auto; padding: 0; }
@@ -5142,7 +5115,7 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 }
 .review-file-header {
   position: sticky;
-  top: 44px;
+  top: 52px;
   z-index: 2;
   display: flex;
   align-items: center;

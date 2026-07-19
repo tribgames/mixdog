@@ -36,7 +36,6 @@ import {
   ShieldAlert,
   Sparkles,
   Trash2,
-  Undo2,
   X,
 } from "lucide-react";
 import { OcIcon } from "./OcIcon";
@@ -3024,12 +3023,10 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
   const [review, setReview] = useState<GitReviewInfo | null>(null);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [revertPath, setRevertPath] = useState("");
-  // opencode session-review grammar: multi-open accordions over a lazy
-  // per-file diff cache; oversized diffs need an explicit render opt-in.
-  const [openFiles, setOpenFiles] = useState<string[]>([]);
+  // Single-open accordion (user decision): opening a file closes the rest
+  // and snaps the opened card flush under the sticky header.
+  const [openFile, setOpenFile] = useState("");
   const [forced, setForced] = useState<string[]>([]);
   const [diffs, setDiffs] = useState<Record<string, string | null>>({});
   // No manual refresh control: the 4s poll owns freshness, so cached diffs
@@ -3092,7 +3089,7 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
   useEffect(() => {
     if (!cwd || !review) return;
     for (const file of review.files) {
-      if (!openFiles.includes(file.path) || diffs[file.path] !== undefined) continue;
+      if (file.path !== openFile || diffs[file.path] !== undefined) continue;
       setDiffs((current) => ({ ...current, [file.path]: null }));
       void window.mixdogDesktop.gitReviewDiff?.(cwd, file.path, file.untracked)
         .then((patch) => setDiffs((current) => ({ ...current, [file.path]: patch || "" })))
@@ -3101,7 +3098,7 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
           [file.path]: `Error: ${reason instanceof Error ? reason.message : String(reason)}`,
         })));
     }
-  }, [cwd, review, openFiles, diffs]);
+  }, [cwd, review, openFile, diffs]);
   const act = async (action: () => Promise<unknown> | undefined) => {
     setBusy(true);
     try {
@@ -3117,14 +3114,21 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
   if (!status.repository) return <div className="review-pane"><p className="review-empty">Not a git repository.</p></div>;
   const changed = review?.files ?? [];
   const base = review?.base || "HEAD";
-  const uncommitted = changed.filter((file) => file.uncommitted);
   const totalAdditions = changed.reduce((sum, file) => sum + (file.additions || 0), 0);
   const totalDeletions = changed.reduce((sum, file) => sum + (file.deletions || 0), 0);
-  const canCommit = uncommitted.length > 0 && Boolean(message.trim()) && !busy;
   const showPush = status.ahead > 0 || (!status.upstream && changed.length === 0);
-  const toggleFile = (path: string) => setOpenFiles((current) => current.includes(path)
-    ? current.filter((entry) => entry !== path)
-    : [...current, path]);
+  const toggleFile = (path: string, trigger: HTMLElement) => {
+    const opening = openFile !== path;
+    setOpenFile(opening ? path : "");
+    if (!opening) return;
+    // Snap the opened card flush under the sticky header.
+    const pane = trigger.closest(".review-pane");
+    const section = trigger.closest(".review-file");
+    if (!(pane instanceof HTMLElement) || !(section instanceof HTMLElement)) return;
+    requestAnimationFrame(() => {
+      pane.scrollTop += section.getBoundingClientRect().top - pane.getBoundingClientRect().top - 52;
+    });
+  };
   return <div className="review-pane">
     <header className="review-header">
       <div className="review-title">
@@ -3146,27 +3150,8 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
           <button type="button" aria-pressed={diffStyle === "split"}
             onClick={() => setDiffStyle("split")}>Split</button>
         </div>}
-        {changed.length > 0 && <button type="button" className="review-action-btn"
-          onClick={() => setOpenFiles(openFiles.length > 0 ? [] : changed.map((file) => file.path))}>
-          {openFiles.length > 0 ? "Collapse all" : "Expand all"}
-        </button>}
       </div>
     </header>
-    {uncommitted.length > 0 && <form className="review-commit" onSubmit={(event) => {
-      event.preventDefault();
-      if (!canCommit) return;
-      void act(async () => {
-        await window.mixdogDesktop.gitCommit?.(cwd, message);
-        setMessage("");
-      });
-    }}>
-      <input value={message} placeholder={`Commit ${uncommitted.length} uncommitted file${uncommitted.length === 1 ? "" : "s"} on ${status.branch}…`}
-        onChange={(event) => setMessage(event.currentTarget.value)} />
-      <button type="submit" disabled={!canCommit}>
-        <Check size={13} aria-hidden="true" />
-        Commit
-      </button>
-    </form>}
     {changed.length === 0 && <div className="review-empty-state">
       <p className="review-empty">{base === "HEAD" ? "Working tree clean." : `No changes vs ${base}.`}</p>
       {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
@@ -3176,7 +3161,7 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
     </div>}
     <div className="review-list">
       {changed.map((file) => {
-        const open = openFiles.includes(file.path);
+        const open = openFile === file.path;
         const slash = file.path.lastIndexOf("/");
         const dir = slash >= 0 ? file.path.slice(0, slash + 1) : "";
         const name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
@@ -3184,11 +3169,10 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
         const deleted = file.status === "D";
         const tooLarge = file.additions + file.deletions > 500 && !forced.includes(file.path);
         const patch = diffs[file.path];
-        const confirming = revertPath === file.path;
         return <section className="review-file" data-open={open || undefined} key={file.path}>
           <div className="review-file-header">
             <button type="button" className="review-file-trigger" aria-expanded={open}
-              onClick={() => toggleFile(file.path)}>
+              onClick={(event) => toggleFile(file.path, event.currentTarget)}>
               <FileDiff size={14} aria-hidden="true" />
               <span className="review-file-name">
                 {dir && <small>{dir}</small>}
@@ -3203,21 +3187,6 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
               </span>
               <ChevronDown size={14} className="review-chevron" aria-hidden="true" />
             </button>
-            {file.uncommitted && (confirming
-              ? <button type="button" className="dock-git-revert-confirm" disabled={busy}
-                onBlur={() => setRevertPath("")}
-                onClick={() => {
-                  setRevertPath("");
-                  void act(() => window.mixdogDesktop.gitRevert?.(cwd, file.path, file.untracked));
-                }}>
-                {file.untracked ? "Delete?" : "Undo?"}
-              </button>
-              : <button type="button" className="dock-git-action" disabled={busy}
-                aria-label={`Revert ${file.path}`}
-                title={file.untracked ? "Delete untracked file" : "Discard uncommitted changes"}
-                onClick={() => setRevertPath(file.path)}>
-                <Undo2 size={13} />
-              </button>)}
           </div>
           {open && <div className="review-file-body">
             {tooLarge
