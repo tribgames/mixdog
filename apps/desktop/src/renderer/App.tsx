@@ -52,7 +52,6 @@ import {
   approvalInstanceKey,
   draftAfterSubmission,
   followAfterScroll,
-  focusTrapIndex,
   isApprovalDismissKey,
   isScrollIntentKey,
   mergeTranscript,
@@ -82,7 +81,6 @@ import { ModelPicker } from "./ModelPicker";
 import { modelDisplayName } from "./provider-display";
 import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
 import { TooltipLayer } from "./TooltipLayer";
-import { acquireModalLayer } from "./modal-layer";
 import {
   SLASH_COMMANDS,
   type CommandSurface as CommandSurfaceName,
@@ -1914,7 +1912,7 @@ export function ContextUsageIndicator({ snapshot, onOpen }: { snapshot: Snapshot
     </button>
     <div className="session-context-popover" id={descriptionId} role="tooltip">
       <div><span>Usage</span><b>{context.percent}%</b></div>
-      <div><span>Tokens</span><b>{context.limit > 0
+      <div><span>{context.estimated ? "Tokens (est.)" : "Tokens"}</span><b>{context.limit > 0
         ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
         : context.used.toLocaleString()}</b></div>
     </div>
@@ -2398,7 +2396,6 @@ export function ApprovalCard({ approval, resolve }: {
   const [resolving, setResolving] = useState(false);
   const [approvalError, setApprovalError] = useState("");
   const dialog = useRef<HTMLElement>(null);
-  const approvalLayer = useRef<HTMLDivElement>(null);
   const resolvingRef = useRef(false);
   const resolveRef = useRef(resolve);
   resolveRef.current = resolve;
@@ -2423,16 +2420,12 @@ export function ApprovalCard({ approval, resolve }: {
     }
   }, []);
   useEffect(() => {
-    const background = document.querySelector<HTMLElement>(".app-shell");
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const layer = acquireModalLayer(background ? [background] : []);
-    layer.attachSurface(approvalLayer.current);
     const focusable = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ) || []);
     (focusable()[0] || dialog.current)?.focus();
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (!layer.isTop()) return;
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ||
         (target instanceof HTMLElement && target.isContentEditable)) return;
@@ -2449,27 +2442,18 @@ export function ApprovalCard({ approval, resolve }: {
         void decide(false);
         return;
       }
-      if (event.key !== "Tab") return;
-      const controls = focusable();
-      if (controls.length === 0) {
-        event.preventDefault();
-        dialog.current?.focus();
-        return;
-      }
-      const currentIndex = controls.indexOf(document.activeElement as HTMLElement);
-      event.preventDefault();
-      controls[focusTrapIndex(currentIndex, controls.length, event.shiftKey)]?.focus();
     };
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
-      layer.release();
       previousFocus?.focus();
     };
   }, [decide]);
-  return createPortal(
-    <div ref={approvalLayer} className="approval-layer">
-      <article ref={dialog} className="approval-card" role="dialog" aria-modal="true" tabIndex={-1}
+  // Inline approval (goose/cline convention): the request renders in the
+  // transcript flow with a warning ring instead of a modal overlay, so the
+  // user can keep reading and typing while deciding.
+  return (
+    <article ref={dialog} className="approval-card approval-card--inline" role="group"
       aria-labelledby="approval-title" aria-describedby="approval-description"
       >
       <div className="approval-heading"><span><ShieldAlert size={19} /></span>
@@ -2489,9 +2473,7 @@ export function ApprovalCard({ approval, resolve }: {
         <button disabled={resolving} className="allow" onClick={() => void decide(true)}>
           <Check size={15} /> Allow once</button>
       </div>
-      </article>
-    </div>,
-    document.body,
+    </article>
   );
 }
 

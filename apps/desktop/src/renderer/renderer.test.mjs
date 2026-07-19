@@ -154,7 +154,7 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*flex-start;[^}]*padding:\s*8px 12px 0 16px;/s);
   assert.match(styles, /\.titlebar-caption-space\s*\{[^}]*env\(titlebar-area-width,\s*calc\(100vw - 138px\)\)/s);
   assert.match(styles, /--oc-bg-deep:\s*#080808;[\s\S]*?--oc-workspace-sheet:\s*#161616;[\s\S]*?--oc-text:\s*#fafafa;/s);
-  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--oc-bg-deep:\s*#fafafa;[^}]*--oc-workspace-sheet:\s*#fcfcfc;[^}]*--oc-text:\s*#161616;/s);
+  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--oc-bg-deep:\s*#fafafa;[^}]*--oc-window-band:\s*#f2f2f2;[^}]*--oc-workspace-sheet:\s*#ffffff;[^}]*--oc-text:\s*#161616;/s);
   assert.match(styles, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--oc-bg-base\);[^}]*box-shadow:\s*var\(--oc-raised\);/s);
   assert.match(styles, /\.workspace-tab\s*\{[^}]*width:\s*224px;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
   assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*8px;[^}]*background:\s*var\(--oc-window-band\);/s);

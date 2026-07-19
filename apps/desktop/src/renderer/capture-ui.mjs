@@ -295,7 +295,7 @@ try {
       `${sample.theme} rows below the hairline must be the workspace sheet.`);
   };
   assertShellTopEdge(metadata.shellTopEdges.dark, { band: "#080808", sheet: "#161616" });
-  assertShellTopEdge(metadata.shellTopEdges.light, { band: "#fafafa", sheet: "#fcfcfc" });
+  assertShellTopEdge(metadata.shellTopEdges.light, { band: "#f2f2f2", sheet: "#ffffff" });
   assert.equal(metadata.pixelSamples.titlebar.color, "#080808");
   assert.equal(metadata.pixelSamples.base.color, "#161616");
   assert.equal(metadata.pixelSamples.sidebar.color, "#161616");

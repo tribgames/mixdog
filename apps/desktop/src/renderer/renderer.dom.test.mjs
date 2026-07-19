@@ -435,7 +435,7 @@ test("project context menu aligns to the whole project pill with a two pixel upp
   assert.equal(menu.style.bottom, "172px");
 });
 
-test("approval portal traps and restores focus, isolates background, reports failure, and denies on Escape", async () => {
+test("inline approval renders in the transcript flow, reports failure, denies on Escape, and restores focus", async () => {
   const background = installDom();
   const before = document.getElementById("before");
   before.focus();
@@ -457,23 +457,20 @@ test("approval portal traps and restores focus, isolates background, reports fai
     }));
   });
 
-  const dialog = document.querySelector('[role="dialog"]');
-  const buttons = Array.from(dialog.querySelectorAll("button"));
-  assert.equal(dialog.parentElement?.parentElement === document.body, true, "approval portal should be attached to document.body");
-  assert.equal(background.inert, true);
-  assert.equal(background.getAttribute("aria-hidden"), "true");
-  assert.equal(document.activeElement === buttons[0], true, "approval dialog should initially focus the first action");
-
-  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
-  assert.equal(document.activeElement === buttons[1], true, "Tab should focus the second approval action");
-  document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
-  assert.equal(document.activeElement === buttons[0], true, "Shift+Tab should return focus to the first approval action");
+  const card = document.querySelector(".approval-card");
+  const buttons = Array.from(card.querySelectorAll("button"));
+  assert.equal(document.querySelector(".approval-layer"), null, "inline approval must not mount an overlay layer");
+  assert.equal(document.querySelector('[role="dialog"]'), null, "inline approval must not be a modal dialog");
+  assert.notEqual(card.parentElement, document.body, "inline approval renders in place, not in a body portal");
+  assert.equal(background.inert, false, "inline approval must not inert the background");
+  assert.equal(background.hasAttribute("aria-hidden"), false);
+  assert.equal(document.activeElement === buttons[0], true, "inline approval should initially focus the first action");
 
   await act(async () => {
     buttons[1].click();
     await Promise.resolve();
   });
-  const alert = dialog.querySelector('[role="alert"]');
+  const alert = card.querySelector('[role="alert"]');
   assert.match(alert.textContent || "", /IPC unavailable/);
   assert.equal(alert.getAttribute("aria-live"), "assertive");
   assert.equal(buttons.every((button) => !button.disabled), true);
@@ -486,8 +483,6 @@ test("approval portal traps and restores focus, isolates background, reports fai
   assert.equal(buttons.every((button) => button.disabled), true);
 
   await act(async () => root.render(null));
-  assert.equal(background.inert, false);
-  assert.equal(background.hasAttribute("aria-hidden"), false);
   assert.equal(document.activeElement === before, true, "closing the approval should restore prior focus");
 });
 

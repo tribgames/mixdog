@@ -39,7 +39,9 @@ export const desktopUpdater = {
 export function startAutoUpdater(stop: () => Promise<void> = async () => {}): void {
   if (controller || checkInterval) return;
   if (!app.isPackaged || process.env.ELECTRON_RENDERER_URL) {
-    console.info('Auto-update is disabled outside packaged production builds.');
+    // Dev/unpackaged builds silently disable updates; the state is already
+    // published to the Settings UI. A console.info here leaks into whatever
+    // terminal launched the app and reads like an in-app message.
     publish({ status: 'disabled' });
     return;
   }
