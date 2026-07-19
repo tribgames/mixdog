@@ -3007,6 +3007,18 @@ function GitPanel({ cwd }: { cwd: string | null }) {
     }
   }, [cwd]);
   useEffect(() => { void refresh(); }, [refresh]);
+  // Live status (VSCode SCM grammar): commits/stages made OUTSIDE the panel
+  // (CLI, the agent itself) must show up without a manual refresh — poll
+  // while the tab is mounted and refetch on window focus.
+  useEffect(() => {
+    const timer = window.setInterval(() => { void refresh(); }, 4_000);
+    const onFocus = () => { void refresh(); };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refresh]);
   useEffect(() => {
     if (!cwd || !diffPath) return undefined;
     let live = true;
@@ -3037,7 +3049,9 @@ function GitPanel({ cwd }: { cwd: string | null }) {
         <button type="button" className="dock-git-path" disabled={file.untracked && !isStaged}
           title={file.path} aria-expanded={active}
           onClick={() => setDiffPath(active ? null : { path: file.path, staged: isStaged })}>
-          <code>{isStaged ? file.index : file.untracked ? "U" : file.worktree}</code>
+          <code data-code={isStaged ? file.index : file.untracked ? "U" : file.worktree}>
+            {isStaged ? file.index : file.untracked ? "U" : file.worktree}
+          </code>
           <span>{file.path}</span>
         </button>
         <button type="button" className="dock-git-action" disabled={busy}
@@ -3064,9 +3078,12 @@ function GitPanel({ cwd }: { cwd: string | null }) {
   return <div className="dock-git">
     <header className="dock-git-header">
       <b>{status.branch}</b>
-      {(status.ahead > 0 || status.behind > 0) && <small className="dock-git-sync">
+      {(status.ahead > 0 || status.behind > 0) && <button type="button"
+        className="dock-git-sync" disabled={busy || status.ahead === 0}
+        title={status.ahead > 0 ? `Push ${status.ahead} commit${status.ahead === 1 ? "" : "s"}` : "Behind upstream"}
+        onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
         {status.ahead > 0 ? `↑${status.ahead}` : ""}{status.behind > 0 ? ` ↓${status.behind}` : ""}
-      </small>}
+      </button>}
       <button type="button" className="dock-git-refresh" disabled={busy}
         onClick={() => void refresh()} aria-label="Refresh git status">
         <RotateCcw size={13} />
@@ -3095,15 +3112,34 @@ function GitPanel({ cwd }: { cwd: string | null }) {
             : "Commit"}
         </button>}
     </form>
-    {status.files.length === 0 && <p className="utility-dock-empty">Working tree clean.</p>}
-    {staged.length > 0 && <section>
-      <h4>Staged Changes <small>{staged.length}</small></h4>
-      {staged.map((file) => row(file, true))}
-    </section>}
-    {unstaged.length > 0 && <section>
-      <h4>Changes <small>{unstaged.length}</small></h4>
-      {unstaged.map((file) => row(file, false))}
-    </section>}
+    {status.files.length === 0
+      ? <p className="utility-dock-empty">Working tree clean.</p>
+      : <>
+        <section>
+          <h4 className="dock-git-group">
+            Staged Changes <small>{staged.length}</small>
+            {staged.length > 0 && <button type="button" disabled={busy}
+              onClick={() => void act(() => window.mixdogDesktop.gitUnstage?.(cwd, staged.map((file) => file.path)))}>
+              Unstage All
+            </button>}
+          </h4>
+          {staged.length
+            ? staged.map((file) => row(file, true))
+            : <p className="dock-git-group-empty">No staged changes.</p>}
+        </section>
+        <section>
+          <h4 className="dock-git-group">
+            Changes <small>{unstaged.length}</small>
+            {unstaged.length > 0 && <button type="button" disabled={busy}
+              onClick={() => void act(() => window.mixdogDesktop.gitStage?.(cwd, unstaged.map((file) => file.path)))}>
+              Stage All
+            </button>}
+          </h4>
+          {unstaged.length
+            ? unstaged.map((file) => row(file, false))
+            : <p className="dock-git-group-empty">All changes staged.</p>}
+        </section>
+      </>}
   </div>;
 }
 
