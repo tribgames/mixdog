@@ -1311,7 +1311,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border: 1px solid var(--oc-border-muted);
   /* Grok-web user pill: a softer, rounder bubble. */
   border-radius: 10px;
-  background: var(--oc-surface-plate);
+  /* User bubble reads too faint at the 3–4% plate (user feedback, Codex
+     reference): use the deeper pressed tint so the pill is clearly a block. */
+  background: var(--oc-pressed);
 }
 .message.user .message-body p { margin: 0; }
 .message.user .message-meta-line {
@@ -3846,7 +3848,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 1px 4px;
   border-radius: 4px;
   color: var(--oc-text);
-  background: var(--oc-bg-layer-2);
+  /* Inline emphasis chips deepen with the bubble (same pressed tint). */
+  background: var(--oc-pressed);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
   /* Track the surrounding prose (15px body → ~13.8px) instead of a fixed
      13px that read undersized for paths/tokens — the info chips users scan. */
