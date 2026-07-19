@@ -25,6 +25,7 @@ import {
   Command,
   FileDiff,
   Folder,
+  GitCompare,
   Layers3,
   LoaderCircle,
   Mic,
@@ -221,7 +222,8 @@ type Snapshot = RecordValue & {
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
 const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
-type UtilityDockTab = 'review' | 'agents' | 'terminal';
+const REVIEW_DIFF_STYLE_KEY = 'mixdog.review-diff-style.v1';
+type UtilityDockTab = 'agents' | 'terminal';
 function clampDockWidth(value: number): number {
   return Math.min(560, Math.max(300, Math.round(Number.isFinite(value) ? value : 380)));
 }
@@ -230,11 +232,11 @@ function readDockState(): { open: boolean; tab: UtilityDockTab; width: number } 
     const raw = JSON.parse(window.localStorage.getItem(DOCK_STATE_KEY) || '{}') as Record<string, unknown>;
     return {
       open: raw.open === true,
-      tab: raw.tab === 'agents' || raw.tab === 'terminal' ? raw.tab : 'review',
+      tab: raw.tab === 'terminal' ? raw.tab : 'agents',
       width: clampDockWidth(Number(raw.width)),
     };
   } catch {
-    return { open: false, tab: 'review', width: 380 };
+    return { open: false, tab: 'agents', width: 380 };
   }
 }
 let settingsViewModulePromise: Promise<typeof import("./settings/SettingsView")> | null = null;
@@ -407,6 +409,9 @@ export function App() {
   const [dockOpen, setDockOpen] = useState<boolean>(false);
   const [dockTab, setDockTab] = useState<UtilityDockTab>(() => readDockState().tab);
   const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
+  // Review takes over the MAIN area (opencode session review-tab grammar):
+  // a full-width pane, not a squeezed side dock. Resets per selection.
+  const [reviewOpen, setReviewOpen] = useState(false);
   useEffect(() => {
     try {
       window.localStorage.setItem(DOCK_STATE_KEY, JSON.stringify({ open: dockOpen, tab: dockTab, width: dockWidth }));
@@ -415,13 +420,14 @@ export function App() {
   // Reopening the dock starts fresh on the first tab (user decision, same
   // grammar as the settings dialog reset).
   useEffect(() => {
-    if (dockOpen) setDockTab("review");
+    if (dockOpen) setDockTab("agents");
   }, [dockOpen]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
   const [sessions, setSessions] = useState<DesktopSessionSummary[]>([]);
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [selection, setSelection] = useState<NavigationSelection>({ kind: "new" });
+  useEffect(() => { setReviewOpen(false); }, [selection]);
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
     { key: "new:default", title: "New task", selection: { kind: "new" } },
   ]);
@@ -1288,6 +1294,12 @@ export function App() {
                   <ContextUsageIndicator snapshot={visibleSnapshot}
                     onOpen={() => setCommandSurface("context")} />
                   <button type="button" className="session-dock-toggle"
+                    onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
+                    aria-label={reviewOpen ? "Back to chat" : "Review changes"}
+                    data-tooltip={reviewOpen ? "Back to chat" : "Review"}>
+                    <GitCompare size={17} aria-hidden="true" />
+                  </button>
+                  <button type="button" className="session-dock-toggle"
                     onClick={() => setDockOpen((value) => !value)} aria-pressed={dockOpen}
                     aria-label={dockOpen ? "Close utility panel" : "Open utility panel"}
                     data-tooltip={dockOpen ? "Close panel" : "Open panel"}>
@@ -1296,7 +1308,9 @@ export function App() {
                 </div>
               </div>
             </header>
-            <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot} invoke={invoke} invokeResult={invokeResult}
+            {reviewOpen
+              ? <ReviewPane cwd={String(visibleSnapshot.currentProject || visibleSnapshot.project || "") || null} />
+              : <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot} invoke={invoke} invokeResult={invokeResult}
               errors={errors} submit={submit} applySnapshot={applySnapshot}
               transitioning={Boolean(switchingSessionId)}
               composerFocusRequest={composerFocusRequest}
@@ -1315,7 +1329,7 @@ export function App() {
               onOpenCommandSurface={(surface) => {
                 setSettingsOpen(false);
                 setCommandSurface(surface);
-              }} />
+              }} />}
             {switchingSessionId && <div className="session-switch-overlay" aria-hidden="true" />}
           </div>
         </main>
@@ -2919,15 +2933,12 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
     <div className="utility-dock-resize" role="separator" aria-orientation="vertical"
       aria-label="Resize utility panel" onPointerDown={startResize} />
     <nav className="utility-dock-tabs" aria-label="Utility panel tabs">
-      <button type="button" className={tab === "review" ? "active" : ""}
-        onClick={() => onTab("review")}>Review</button>
       <button type="button" className={tab === "agents" ? "active" : ""}
         onClick={() => onTab("agents")}>Agents</button>
       <button type="button" className={tab === "terminal" ? "active" : ""}
         onClick={() => onTab("terminal")}>Terminal</button>
     </nav>
     <div className="utility-dock-body" data-tab={tab}>
-      {tab === "review" && <GitPanel cwd={String(snapshot.currentProject || snapshot.project || "") || null} />}
       {tab === "agents" && agentView && (
         <div className="dock-agent-view">
           <header>
@@ -2972,13 +2983,6 @@ interface GitPanelStatus {
   upstream: boolean;
   files: Array<{ path: string; index: string; worktree: string; untracked: boolean; additions: number; deletions: number }>;
 }
-interface GitLogRow {
-  hash: string;
-  shortHash: string;
-  subject: string;
-  when: string;
-  pushed: boolean;
-}
 // Review pane (Codex/opencode grammar): cumulative diff of the working tree
 // vs merge-base(origin default branch, HEAD) — committed + uncommitted +
 // untracked read as ONE change set.
@@ -2994,70 +2998,50 @@ interface GitReviewInfo {
   base: string;
   files: GitReviewFile[];
 }
-// Dock diff bodies: CodeDiff brings its own file header + expand chrome,
+// Bare diff bodies: CodeDiff brings its own file header + expand chrome,
 // which duplicates the accordion/row that already names the file. Render the
 // bare diff body (Shiki DiffView) only — no second header, no height cap.
-function GitDiffBody({ file }: { file: ReturnType<typeof parseUnifiedDiff>[number] }) {
+function GitDiffBody({ file, mode }: { file: ReturnType<typeof parseUnifiedDiff>[number]; mode?: "unified" | "split" }) {
   const fallback = <pre className="diff-fallback">{file.patch}</pre>;
   if (!file.renderable) return fallback;
   return <DiffBoundary fallback={fallback}>
     <Suspense fallback={<div className="diff-loading" aria-hidden="true">Loading diff…</div>}>
-      <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.patch] }} />
+      <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.patch] }} mode={mode} />
     </Suspense>
   </DiffBoundary>;
 }
-// Commit detail: the dock is narrow, so a raw multi-file CodeDiff dump is
-// unreadable. Reuse the session Changes-tab grammar instead — one collapsed
-// <details> accordion per file with +/− stats, expanding to that file only.
-function CommitFileDiffs({ patch }: { patch: string }) {
-  const files = useMemo(() => {
-    try { return parseUnifiedDiff(patch); } catch { return []; }
-  }, [patch]);
-  if (!files.length) return <pre className="diff-fallback">{patch}</pre>;
-  return <>{files.map((file, index) => {
-    const lines = file.hunks.join("\n").split("\n");
-    const additions = lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
-    const deletions = lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
-    const name = String(file.newFile?.fileName || "file");
-    return <details className="dock-change" key={`${name}-${index}`}>
-      <summary>
-        <FileDiff size={14} aria-hidden="true" />
-        <b title={name}>{name}</b>
-        <span className="diff-stats"><i>+{additions}</i><em>-{deletions}</em></span>
-      </summary>
-      <GitDiffBody file={file} />
-    </details>;
-  })}</>;
-}
 // Working-tree file diff (single file): the row already names the file, so
 // the body renders hunks only.
-function GitFileDiff({ patch }: { patch: string }) {
+function GitFileDiff({ patch, mode }: { patch: string; mode?: "unified" | "split" }) {
   const files = useMemo(() => {
     try { return parseUnifiedDiff(patch); } catch { return []; }
   }, [patch]);
   if (!files.length) return <pre className="diff-fallback">{patch}</pre>;
-  return <>{files.map((file, index) => <GitDiffBody file={file} key={index} />)}</>;
+  return <>{files.map((file, index) => <GitDiffBody file={file} mode={mode} key={index} />)}</>;
 }
-function GitPanel({ cwd }: { cwd: string | null }) {
+function ReviewPane({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
   const [review, setReview] = useState<GitReviewInfo | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [diffPath, setDiffPath] = useState<{ path: string; untracked: boolean } | null>(null);
-  // null = loading; empty string means "no textual diff" (binary/whitespace).
-  const [diffText, setDiffText] = useState<string | null>(null);
-  // aider-desk grammar: no staging surface — one list of uncommitted work
-  // plus commit groups. Reverting a file is a two-step inline confirm.
-  const [revertPath, setRevertPath] = useState<string>("");
-  const [log, setLog] = useState<GitLogRow[] | null>(null);
-  const [showHash, setShowHash] = useState("");
-  const [showText, setShowText] = useState<string | null>(null);
+  const [revertPath, setRevertPath] = useState("");
+  // opencode session-review grammar: multi-open accordions over a lazy
+  // per-file diff cache; oversized diffs need an explicit render opt-in.
+  const [openFiles, setOpenFiles] = useState<string[]>([]);
+  const [forced, setForced] = useState<string[]>([]);
+  const [diffs, setDiffs] = useState<Record<string, string | null>>({});
+  const [diffStyle, setDiffStyle] = useState<"unified" | "split">(() => {
+    try { return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === "split" ? "split" : "unified"; }
+    catch { return "unified"; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle); } catch { /* persistence only */ }
+  }, [diffStyle]);
   const refresh = useCallback(async () => {
     if (!cwd) { setStatus(null); return; }
     if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
-      // Old preload without the git bridge: never spin forever on "Loading".
-      setError("Git panel needs an app restart to finish updating.");
+      setError("Review needs an app restart to finish updating.");
       return;
     }
     try {
@@ -3073,199 +3057,171 @@ function GitPanel({ cwd }: { cwd: string | null }) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }, [cwd]);
-  const loadLog = useCallback(async () => {
-    if (!cwd || !window.mixdogDesktop.gitLog) return;
-    try { setLog(await window.mixdogDesktop.gitLog(cwd)); } catch { setLog([]); }
-  }, [cwd]);
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => { void loadLog(); }, [loadLog]);
-  // Commit detail (claudecodeui HistoryView): expanded commit loads its patch.
   useEffect(() => {
-    if (!cwd || !showHash) return undefined;
-    let live = true;
-    setShowText(null);
-    void window.mixdogDesktop.gitShow?.(cwd, showHash)
-      .then((patch) => { if (live) setShowText(patch || ""); })
-      .catch((reason) => { if (live) setShowText(`Error: ${reason instanceof Error ? reason.message : String(reason)}`); });
-    return () => { live = false; };
-  }, [cwd, showHash]);
-  // Live status (VSCode SCM grammar): commits/stages made OUTSIDE the panel
-  // (CLI, the agent itself) must show up without a manual refresh — poll
-  // while the tab is mounted and refetch on window focus.
-  useEffect(() => {
-    const tick = () => { void refresh(); void loadLog(); };
-    const timer = window.setInterval(tick, 4_000);
-    const onFocus = tick;
+    const timer = window.setInterval(() => { void refresh(); }, 4_000);
+    const onFocus = () => { void refresh(); };
     window.addEventListener("focus", onFocus);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [refresh, loadLog]);
+  }, [refresh]);
+  // Lazy diff loads for open files that are not cached yet.
   useEffect(() => {
-    if (!cwd || !diffPath) return undefined;
-    let live = true;
-    setDiffText(null);
-    void window.mixdogDesktop.gitReviewDiff?.(cwd, diffPath.path, diffPath.untracked)
-      .then((patch) => { if (live) setDiffText(patch || ""); })
-      .catch((reason) => { if (live) setDiffText(`Error: ${reason instanceof Error ? reason.message : String(reason)}`); });
-    return () => { live = false; };
-  }, [cwd, diffPath]);
+    if (!cwd || !review) return;
+    for (const file of review.files) {
+      if (!openFiles.includes(file.path) || diffs[file.path] !== undefined) continue;
+      setDiffs((current) => ({ ...current, [file.path]: null }));
+      void window.mixdogDesktop.gitReviewDiff?.(cwd, file.path, file.untracked)
+        .then((patch) => setDiffs((current) => ({ ...current, [file.path]: patch || "" })))
+        .catch((reason) => setDiffs((current) => ({
+          ...current,
+          [file.path]: `Error: ${reason instanceof Error ? reason.message : String(reason)}`,
+        })));
+    }
+  }, [cwd, review, openFiles, diffs]);
   const act = async (action: () => Promise<unknown> | undefined) => {
     setBusy(true);
-    try { await action(); await refresh(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    try {
+      await action();
+      setDiffs({});
+      await refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
-  if (!cwd) return <p className="utility-dock-empty">Select a project to use Git.</p>;
-  if (error) return <p className="utility-dock-empty">{error}</p>;
-  if (!status) return <p className="utility-dock-empty">Loading git status…</p>;
-  if (!status.repository) return <p className="utility-dock-empty">Not a git repository.</p>;
-  // Review grammar (Codex/opencode): ONE cumulative change list vs the
-  // review base; uncommitted rows keep the confirmed per-file revert.
+  if (!cwd) return <div className="review-pane"><p className="review-empty">Select a project to review changes.</p></div>;
+  if (error) return <div className="review-pane"><p className="review-empty">{error}</p></div>;
+  if (!status) return <div className="review-pane"><p className="review-empty">Loading review…</p></div>;
+  if (!status.repository) return <div className="review-pane"><p className="review-empty">Not a git repository.</p></div>;
   const changed = review?.files ?? [];
   const base = review?.base || "HEAD";
   const uncommitted = changed.filter((file) => file.uncommitted);
   const totalAdditions = changed.reduce((sum, file) => sum + (file.additions || 0), 0);
   const totalDeletions = changed.reduce((sum, file) => sum + (file.deletions || 0), 0);
-  const row = (file: GitReviewFile) => {
-    const code = file.untracked ? "U" : file.status;
-    const active = diffPath?.path === file.path;
-    const confirming = revertPath === file.path;
-    return <React.Fragment key={file.path}>
-      <div className="dock-git-row" data-active={active || undefined}>
-        <button type="button" className="dock-git-path"
-          title={file.path} aria-expanded={active}
-          onClick={() => setDiffPath(active ? null : { path: file.path, untracked: file.untracked })}>
-          <code data-code={code}>{code}</code>
-          <span>{file.path}</span>
-        </button>
-        {(file.additions > 0 || file.deletions > 0) && <span className="diff-stats dock-git-row-stats">
-          <i>+{file.additions}</i><em>-{file.deletions}</em>
-        </span>}
-        {!file.uncommitted ? null : confirming
-          ? <button type="button" className="dock-git-revert-confirm" disabled={busy}
-            onBlur={() => setRevertPath("")}
-            onClick={() => {
-              setRevertPath("");
-              if (diffPath?.path === file.path) setDiffPath(null);
-              void act(() => window.mixdogDesktop.gitRevert?.(cwd, file.path, file.untracked));
-            }}>
-            {file.untracked ? "Delete?" : "Undo?"}
-          </button>
-          : <button type="button" className="dock-git-action" disabled={busy}
-            aria-label={`Revert ${file.path}`}
-            title={file.untracked ? "Delete untracked file" : "Discard changes"}
-            onClick={() => setRevertPath(file.path)}>
-            <RotateCcw size={12} />
-          </button>}
-      </div>
-      {active && <div className="dock-git-inline-diff">
-        {diffText === null
-          ? <p className="utility-dock-empty">Loading diff…</p>
-          : diffText.startsWith("Error:")
-            ? <p className="utility-dock-empty">{diffText}</p>
-            : diffText
-              ? <GitFileDiff patch={diffText} />
-              : <p className="utility-dock-empty">No textual diff for this file.</p>}
-      </div>}
-    </React.Fragment>;
-  };
   const canCommit = uncommitted.length > 0 && Boolean(message.trim()) && !busy;
   const showPush = status.ahead > 0 || (!status.upstream && changed.length === 0);
-  return <div className="dock-git">
-    <header className="dock-git-header">
-      <b>{status.branch}</b>
-      {base !== "HEAD" && <span className="dock-git-base">→ {base}</span>}
-      {(totalAdditions > 0 || totalDeletions > 0) && <span className="diff-stats dock-git-total">
-        <i>+{totalAdditions}</i><em>-{totalDeletions}</em>
-      </span>}
-      {(status.ahead > 0 || status.behind > 0) && <button type="button"
-        className="dock-git-sync" disabled={busy || status.ahead === 0}
-        title={status.ahead > 0 ? `Push ${status.ahead} commit${status.ahead === 1 ? "" : "s"}` : "Behind upstream"}
-        onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
-        {status.ahead > 0 ? `↑${status.ahead}` : ""}{status.behind > 0 ? ` ↓${status.behind}` : ""}
-      </button>}
-      <button type="button" className="dock-git-refresh" disabled={busy}
-        onClick={() => void refresh()} aria-label="Refresh git status">
-        <RotateCcw size={13} />
-      </button>
+  const toggleFile = (path: string) => setOpenFiles((current) => current.includes(path)
+    ? current.filter((entry) => entry !== path)
+    : [...current, path]);
+  return <div className="review-pane">
+    <header className="review-header">
+      <div className="review-title">
+        <h2>Review</h2>
+        <span className="review-branch"><b>{status.branch}</b>{base !== "HEAD" ? ` → ${base}` : ""}</span>
+        {(totalAdditions > 0 || totalDeletions > 0) && <span className="diff-stats review-total">
+          <i>+{totalAdditions}</i><em>-{totalDeletions}</em>
+        </span>}
+        {status.ahead > 0 && <button type="button" className="dock-git-sync" disabled={busy}
+          title={`Push ${status.ahead} commit${status.ahead === 1 ? "" : "s"}`}
+          onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
+          ↑{status.ahead}
+        </button>}
+      </div>
+      <div className="review-actions">
+        {changed.length > 0 && <div className="review-style-toggle" role="radiogroup" aria-label="Diff style">
+          <button type="button" aria-pressed={diffStyle === "unified"}
+            onClick={() => setDiffStyle("unified")}>Unified</button>
+          <button type="button" aria-pressed={diffStyle === "split"}
+            onClick={() => setDiffStyle("split")}>Split</button>
+        </div>}
+        {changed.length > 0 && <button type="button" className="review-action-btn"
+          onClick={() => setOpenFiles(openFiles.length > 0 ? [] : changed.map((file) => file.path))}>
+          {openFiles.length > 0 ? "Collapse all" : "Expand all"}
+        </button>}
+        <button type="button" className="dock-git-refresh" disabled={busy}
+          onClick={() => { setDiffs({}); void refresh(); }} aria-label="Refresh review">
+          <RotateCcw size={13} />
+        </button>
+      </div>
     </header>
-    {changed.length === 0 && <>
-      <p className="utility-dock-empty">{base === "HEAD" ? "Working tree clean." : `No changes vs ${base}.`}</p>
-      {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
-        onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
-        {status.upstream ? `Push ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : "Publish Branch"}
-      </button>}
-    </>}
-    {changed.length > 0 && <>{uncommitted.length > 0 && <form className="dock-git-commit" onSubmit={(event) => {
+    {uncommitted.length > 0 && <form className="review-commit" onSubmit={(event) => {
       event.preventDefault();
       if (!canCommit) return;
       void act(async () => {
         await window.mixdogDesktop.gitCommit?.(cwd, message);
         setMessage("");
-        setDiffPath(null);
-        await loadLog();
       });
     }}>
-      <textarea value={message} rows={3}
-        placeholder={`Message (Ctrl+Enter to commit on ${status.branch})`}
-        onChange={(event) => setMessage(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-            event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
-          }
-        }} />
-      <footer>
-        <span>{uncommitted.length} file{uncommitted.length === 1 ? "" : "s"} uncommitted</span>
-        <button type="submit" disabled={!canCommit}>
-          <Check size={13} aria-hidden="true" />
-          Commit
-        </button>
-      </footer>
+      <input value={message} placeholder={`Commit ${uncommitted.length} uncommitted file${uncommitted.length === 1 ? "" : "s"} on ${status.branch}…`}
+        onChange={(event) => setMessage(event.currentTarget.value)} />
+      <button type="submit" disabled={!canCommit}>
+        <Check size={13} aria-hidden="true" />
+        Commit
+      </button>
     </form>}
-    <section>
-      <h4 className="dock-git-group">
-        Changes <small>{changed.length}</small>
-      </h4>
-      {changed.map((file) => row(file))}
-    </section></>}
-    <section>
-      <h4 className="dock-git-group">
-        Commits
-        {status.ahead > 0 && <small>↑{status.ahead} to push</small>}
-      </h4>
-      {log === null
-        ? <p className="dock-git-group-empty">Loading commits…</p>
-        : log.length === 0
-          ? <p className="dock-git-group-empty">No commits yet.</p>
-          : <div className="dock-git-log">
-          {log.map((commit) => {
-            const active = commit.hash === showHash;
-            return <React.Fragment key={commit.hash}>
-              <button type="button" className="dock-git-commit-row"
-                data-active={active || undefined} aria-expanded={active}
-                onClick={() => setShowHash(active ? "" : commit.hash)}>
-                <div>
-                  <b>{commit.subject || "(no message)"}</b>
-                  <small>{commit.shortHash} · {commit.when}</small>
-                </div>
-                {!commit.pushed && <i className="dock-git-unpushed" title="Not pushed yet" aria-label="Not pushed yet" />}
+    {changed.length === 0 && <div className="review-empty-state">
+      <p className="review-empty">{base === "HEAD" ? "Working tree clean." : `No changes vs ${base}.`}</p>
+      {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
+        onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
+        {status.upstream ? `Push ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : "Publish Branch"}
+      </button>}
+    </div>}
+    <div className="review-list">
+      {changed.map((file) => {
+        const open = openFiles.includes(file.path);
+        const slash = file.path.lastIndexOf("/");
+        const dir = slash >= 0 ? file.path.slice(0, slash + 1) : "";
+        const name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
+        const added = file.untracked || file.status === "A";
+        const deleted = file.status === "D";
+        const tooLarge = file.additions + file.deletions > 500 && !forced.includes(file.path);
+        const patch = diffs[file.path];
+        const confirming = revertPath === file.path;
+        return <section className="review-file" data-open={open || undefined} key={file.path}>
+          <div className="review-file-header">
+            <button type="button" className="review-file-trigger" aria-expanded={open}
+              onClick={() => toggleFile(file.path)}>
+              <FileDiff size={14} aria-hidden="true" />
+              <span className="review-file-name">
+                {dir && <small>{dir}</small>}
+                <b>{name}</b>
+              </span>
+              <span className="review-file-meta">
+                {added && <em className="review-change-label" data-type="added">Added</em>}
+                {deleted && <em className="review-change-label" data-type="removed">Removed</em>}
+                {(file.additions > 0 || file.deletions > 0) && <span className="diff-stats">
+                  <i>+{file.additions}</i><em>-{file.deletions}</em>
+                </span>}
+              </span>
+              <ChevronDown size={14} className="review-chevron" aria-hidden="true" />
+            </button>
+            {file.uncommitted && (confirming
+              ? <button type="button" className="dock-git-revert-confirm" disabled={busy}
+                onBlur={() => setRevertPath("")}
+                onClick={() => {
+                  setRevertPath("");
+                  void act(() => window.mixdogDesktop.gitRevert?.(cwd, file.path, file.untracked));
+                }}>
+                {file.untracked ? "Delete?" : "Undo?"}
               </button>
-              {active && <div className="dock-git-inline-diff">
-                {showText === null
-                  ? <p className="utility-dock-empty">Loading diff…</p>
-                  : showText.startsWith("Error:")
-                    ? <p className="utility-dock-empty">{showText}</p>
-                    : showText
-                      ? <CommitFileDiffs patch={showText} />
-                      : <p className="utility-dock-empty">Empty commit.</p>}
-              </div>}
-            </React.Fragment>;
-          })}
-        </div>}
-    </section>
+              : <button type="button" className="dock-git-action" disabled={busy}
+                aria-label={`Revert ${file.path}`}
+                title={file.untracked ? "Delete untracked file" : "Discard uncommitted changes"}
+                onClick={() => setRevertPath(file.path)}>
+                <RotateCcw size={12} />
+              </button>)}
+          </div>
+          {open && <div className="review-file-body">
+            {tooLarge
+              ? <div className="review-large-diff">
+                <b>Large diff</b>
+                <span>{(file.additions + file.deletions).toLocaleString()} changed lines exceed the 500-line render limit.</span>
+                <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
+                  Render anyway
+                </button>
+              </div>
+              : patch === undefined || patch === null
+                ? <p className="review-empty">Loading diff…</p>
+                : patch.startsWith("Error:")
+                  ? <p className="review-empty">{patch}</p>
+                  : patch
+                    ? <GitFileDiff patch={patch} mode={diffStyle} />
+                    : <p className="review-empty">No textual diff for this file.</p>}
+          </div>}
+        </section>;
+      })}
+    </div>
   </div>;
 }
 

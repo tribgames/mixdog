@@ -4,7 +4,7 @@ import "@git-diff-view/react/styles/diff-view.css";
 
 type DiffData = ComponentProps<typeof DiffView>["data"];
 
-export default function LazyDiffView({ data }: { data: DiffData }) {
+export default function LazyDiffView({ data, mode }: { data: DiffData; mode?: "unified" | "split" }) {
   const [theme, setTheme] = useState<"light" | "dark">(
     () => getComputedStyle(document.documentElement).colorScheme === "light" ? "light" : "dark",
   );
@@ -17,7 +17,7 @@ export default function LazyDiffView({ data }: { data: DiffData }) {
   }, []);
   return <DiffView
     data={data}
-    diffViewMode={DiffModeEnum.Unified}
+    diffViewMode={mode === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified}
     diffViewTheme={theme}
     diffViewWrap
     diffViewFontSize={12}

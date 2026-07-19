@@ -5010,3 +5010,141 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 
 
+
+/* ── Main-area Review pane (opencode session-review grammar) ─────────── */
+.review-pane {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 0 24px 24px;
+}
+.review-header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 10px;
+  background: var(--oc-workspace-sheet);
+}
+.review-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.review-title h2 { font-size: 14px; font-weight: 600; line-height: 1; }
+.review-branch { color: var(--oc-text-muted); font-size: 12px; white-space: nowrap; }
+.review-branch b { color: var(--oc-text); font-weight: 600; }
+.review-total { flex: 0 0 auto; font-size: 12px; }
+.review-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.review-style-toggle { display: flex; border-radius: 6px; background: var(--oc-pressed); padding: 2px; }
+.review-style-toggle button {
+  min-height: 22px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--oc-text-muted);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.review-style-toggle button[aria-pressed="true"] { color: var(--oc-text); background: var(--oc-workspace-sheet); box-shadow: 0 0 0 .5px var(--oc-border-muted); }
+.review-action-btn {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-text-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.review-action-btn:hover:not(:disabled) { color: var(--oc-text); background: var(--oc-hover); }
+.review-commit { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+.review-commit input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--oc-text);
+  background: var(--oc-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+  font-size: 13px;
+}
+.review-commit small { flex: 0 0 auto; color: var(--oc-text-faint); font-size: 11px; }
+.review-commit button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--oc-grey-100);
+  background: var(--oc-bg-contrast);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.review-commit button:disabled { opacity: .5; cursor: default; }
+.review-empty { padding: 32px 0; color: var(--oc-text-muted); font-size: 13px; text-align: center; }
+.review-clean { display: grid; gap: 12px; justify-items: center; }
+.review-list { display: flex; flex-direction: column; gap: 8px; }
+.review-file {
+  border-radius: 8px;
+  background: var(--oc-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+}
+.review-file-header {
+  position: sticky;
+  top: 44px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  background: var(--oc-bg-layer-1);
+}
+.review-file[data-open] .review-file-header { border-radius: 8px 8px 0 0; box-shadow: 0 .5px 0 var(--oc-border-muted); }
+.review-file-trigger {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--oc-icon-muted);
+  text-align: left;
+  cursor: pointer;
+}
+.review-file-name { min-width: 0; flex: 1; display: flex; align-items: baseline; overflow: hidden; white-space: nowrap; }
+.review-file-name small { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--oc-text-faint); font-size: 12px; }
+.review-file-name b { flex: 0 0 auto; color: var(--oc-text); font-size: 12.5px; font-weight: 500; }
+.review-file-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.review-file-meta .diff-stats { font-size: 11px; }
+.review-change-label { font-size: 11px; font-style: normal; font-weight: 500; }
+.review-change-label[data-type="added"] { color: var(--oc-success); }
+.review-change-label[data-type="removed"] { color: var(--oc-danger); }
+.review-chevron { flex: 0 0 auto; color: var(--oc-icon-muted); transition: transform .15s ease; }
+.review-file[data-open] .review-chevron { transform: rotate(180deg); }
+.review-file-header .dock-git-action, .review-file-header .dock-git-revert-confirm { margin-right: 8px; }
+.review-file-body { padding: 4px 12px 10px; }
+.review-large-diff { display: grid; gap: 6px; justify-items: start; padding: 14px 4px; }
+.review-large-diff b { font-size: 13px; font-weight: 600; }
+.review-large-diff span { color: var(--oc-text-muted); font-size: 12px; }
+.review-large-diff button {
+  min-height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-text);
+  background: var(--oc-pressed);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
