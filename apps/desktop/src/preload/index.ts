@@ -67,6 +67,8 @@ const api: DesktopApi = {
   gitShow: (cwd, hash) => ipcRenderer.invoke(DESKTOP_IPC.gitShow, cwd, hash),
   gitReview: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitReview, cwd),
   gitReviewDiff: (cwd, path, untracked) => ipcRenderer.invoke(DESKTOP_IPC.gitReviewDiff, cwd, path, untracked === true),
+  revealFile: (cwd, path) => ipcRenderer.invoke(DESKTOP_IPC.revealFile, cwd, path),
+  openFilePath: (cwd, path) => ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path),
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {

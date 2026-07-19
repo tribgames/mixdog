@@ -5178,3 +5178,32 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   font-weight: 500;
   cursor: pointer;
 }
+/* Review file context menu (Codex grammar): open / reveal / copy / discard. */
+.review-context-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 192px;
+  display: grid;
+  padding: 4px;
+  border: .5px solid var(--oc-border-strong);
+  border-radius: 8px;
+  background: var(--oc-bg-base);
+  box-shadow: var(--oc-floating);
+}
+.review-context-menu button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--oc-text);
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+.review-context-menu button:hover, .review-context-menu button:focus-visible {
+  background: var(--oc-hover);
+  outline: 0;
+}
+.review-context-menu button[data-danger] { color: var(--oc-danger); }

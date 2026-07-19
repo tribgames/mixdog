@@ -29,6 +29,7 @@ import {
   type ToolApprovalDecision,
 } from '../shared/contract';
 import type { EngineHost } from './engine-host';
+import { resolve as resolvePath, sep as pathSep } from 'node:path';
 import { requiredSessionId } from './desktop-state';
 import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
@@ -352,7 +353,7 @@ interface DesktopIpcDependencies {
   app: Pick<App, 'quit'>;
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler' | 'on' | 'removeListener'>;
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>;
-  shell: Pick<Shell, 'openPath' | 'openExternal'>;
+  shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder'>;
   settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update' | 'readZoom' | 'updateZoom'>;
   updater?: {
     getState(): DesktopUpdaterState;
@@ -629,6 +630,22 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.gitReview, (_event, cwd) => gitReview(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.gitReviewDiff, (_event, cwd, path, untracked) =>
     gitReviewDiff(requiredRepositoryCwd(cwd), requiredString(path, 'git path', 4_096), untracked === true));
+  // Review context menu: OS reveal/open, confined to the project directory.
+  const resolveInsideProject = (cwd: unknown, path: unknown): string => {
+    const root = resolvePath(requiredRepositoryCwd(cwd));
+    const absolute = resolvePath(root, requiredString(path, 'file path', 4_096));
+    if (absolute !== root && !absolute.startsWith(root + pathSep)) {
+      throw new TypeError('The file path escapes the project directory.');
+    }
+    return absolute;
+  };
+  handle(DESKTOP_IPC.revealFile, (_event, cwd, path) => {
+    shell.showItemInFolder(resolveInsideProject(cwd, path));
+  });
+  handle(DESKTOP_IPC.openFilePath, async (_event, cwd, path) => {
+    const failure = await shell.openPath(resolveInsideProject(cwd, path));
+    if (failure) throw new Error(`Unable to open file: ${failure}`);
+  });
   const onTermWrite = (event: Electron.IpcMainEvent, id: unknown, data: unknown): void => {
     if (!validTermSender(event)) return;
     terminals?.write(String(id || ''), String(data ?? ''));

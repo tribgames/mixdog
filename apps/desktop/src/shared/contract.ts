@@ -49,6 +49,8 @@ export const DESKTOP_IPC = {
   gitShow: 'mixdog:git-show',
   gitReview: 'mixdog:git-review',
   gitReviewDiff: 'mixdog:git-review-diff',
+  revealFile: 'mixdog:reveal-file',
+  openFilePath: 'mixdog:open-file-path',
   getUpdaterState: 'mixdog:get-updater-state',
   checkForDesktopUpdate: 'mixdog:check-for-desktop-update',
   showDesktopUpdate: 'mixdog:show-desktop-update',
@@ -460,6 +462,9 @@ export interface DesktopApi {
   /** Review pane: cumulative diff of the working tree vs merge-base(origin default branch, HEAD). */
   gitReview?(cwd: string): Promise<{ base: string; files: Array<{ path: string; status: string; additions: number; deletions: number; untracked: boolean; uncommitted: boolean }> }>;
   gitReviewDiff?(cwd: string, path: string, untracked?: boolean): Promise<string>;
+  /** Review file context menu: OS-level reveal/open for a project-relative file. */
+  revealFile?(cwd: string, path: string): Promise<void>;
+  openFilePath?(cwd: string, path: string): Promise<void>;
   getUpdaterState(): Promise<DesktopUpdaterState>;
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;

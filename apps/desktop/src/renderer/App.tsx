@@ -3045,6 +3045,23 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
   // Single-open accordion (user decision): opening a file closes the rest
   // and snaps the opened card flush under the sticky header.
   const [openFile, setOpenFile] = useState("");
+  // Right-click context menu (Codex review grammar): open / reveal / copy
+  // path, plus a two-stage discard for uncommitted files.
+  const [menu, setMenu] = useState<{ x: number; y: number; file: GitReviewFile; confirm: boolean } | null>(null);
+  useEffect(() => {
+    if (!menu) return undefined;
+    const close = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest(".review-context-menu")) return;
+      setMenu(null);
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") setMenu(null); };
+    window.addEventListener("pointerdown", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
   const [forced, setForced] = useState<string[]>([]);
   const [diffs, setDiffs] = useState<Record<string, string | null>>({});
   // No manual refresh control: the 4s poll owns freshness, so cached diffs
@@ -3189,7 +3206,16 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
         const tooLarge = file.additions + file.deletions > 500 && !forced.includes(file.path);
         const patch = diffs[file.path];
         return <section className="review-file" data-open={open || undefined} key={file.path}>
-          <div className="review-file-header">
+          <div className="review-file-header"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setMenu({
+                x: Math.min(event.clientX, window.innerWidth - 208),
+                y: Math.min(event.clientY, window.innerHeight - 168),
+                file,
+                confirm: false,
+              });
+            }}>
             <button type="button" className="review-file-trigger" aria-expanded={open}
               onClick={(event) => toggleFile(file.path, event.currentTarget)}>
               <FileDiff size={14} aria-hidden="true" />
@@ -3228,6 +3254,33 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
       })}
     </div>
     </div>
+    {menu && <div className="review-context-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
+      <button type="button" role="menuitem" onClick={() => {
+        setMenu(null);
+        void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
+      }}>Open file</button>
+      <button type="button" role="menuitem" onClick={() => {
+        setMenu(null);
+        void window.mixdogDesktop.revealFile?.(cwd, menu.file.path).catch(() => {});
+      }}>Reveal in Explorer</button>
+      <button type="button" role="menuitem" onClick={() => {
+        setMenu(null);
+        const sep = cwd.includes("\\") ? "\\" : "/";
+        void copyTextToClipboard(cwd.replace(/[\\/]+$/, "") + sep + menu.file.path.split("/").join(sep));
+      }}>Copy path</button>
+      {menu.file.uncommitted && <button type="button" role="menuitem" data-danger={menu.confirm || undefined}
+        onClick={() => {
+          if (!menu.confirm) { setMenu({ ...menu, confirm: true }); return; }
+          const target = menu.file;
+          setMenu(null);
+          if (openFile === target.path) setOpenFile("");
+          void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked));
+        }}>
+        {menu.confirm
+          ? (menu.file.untracked ? "Click again to delete" : "Click again to discard")
+          : (menu.file.untracked ? "Delete untracked file…" : "Discard changes…")}
+      </button>}
+    </div>}
   </div>;
 }
 
