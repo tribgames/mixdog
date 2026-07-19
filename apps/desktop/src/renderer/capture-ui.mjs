@@ -308,6 +308,42 @@ try {
   assert.equal(metadata.pixelSamples.titlebar.color, "#0b0a09");
   assert.equal(metadata.pixelSamples.base.color, "#1a1918");
   assert.equal(metadata.pixelSamples.sidebar.color, "#0b0a09");
+  // Dictation E2E (fake Chromium mic + stubbed engine transcription): the
+  // whole renderer chain must land the transcript in the draft and settle.
+  assert.equal(metadata.dictationSmoke.transcriptApplied, true,
+    'dictation smoke must append the stubbed transcript to the draft');
+  assert.equal(metadata.dictationSmoke.micIdle, true, 'mic button must settle back to idle');
+  assert.equal(metadata.dictationSmoke.notice, '', 'dictation smoke must not raise a composer notice');
+  // Tool presentation E2E: the injected rich transcript must render every
+  // card archetype through the real transcript renderer, and the capture
+  // artifact ships alongside the main PNG for visual review.
+  const toolsOutput = windowOutput.replace(/\.png$/i, "-tools.png");
+  const toolsTopOutput = windowOutput.replace(/\.png$/i, "-tools-top.png");
+  const [toolsPng, toolsStat, toolsTopPng, toolsTopStat] = await Promise.all([
+    readFile(toolsOutput), stat(toolsOutput), readFile(toolsTopOutput), stat(toolsTopOutput),
+  ]);
+  assert.ok(toolsStat.mtimeMs >= startedAt && toolsStat.mtimeMs <= completedAt,
+    "Tool showcase capture mtime is outside the current run window.");
+  assert.deepEqual([...toolsPng.subarray(1, 4)], [0x50, 0x4e, 0x47], "Tool showcase capture is not a PNG.");
+  assert.equal(toolsPng.readUInt32BE(16), 1113, "Tool showcase capture width is not 1113.");
+  assert.equal(toolsPng.readUInt32BE(20), 687, "Tool showcase capture height is not 687.");
+  assert.ok(toolsTopStat.mtimeMs >= startedAt && toolsTopStat.mtimeMs <= completedAt,
+    "Tool showcase top capture mtime is outside the current run window.");
+  assert.deepEqual([...toolsTopPng.subarray(1, 4)], [0x50, 0x4e, 0x47], "Tool showcase top capture is not a PNG.");
+  assert.equal(metadata.toolShowcase.toolCards, 4, "tool showcase must render all four tool cards");
+  assert.equal(metadata.toolShowcase.failedCards, 1, "failed shell card must carry the failed state");
+  assert.equal(metadata.toolShowcase.settledCards, 3, "completed cards must settle; the running card must not");
+  assert.equal(metadata.toolShowcase.shellOutputs, 2, "both completed shell cards must render command output blocks");
+  assert.equal(metadata.toolShowcase.diffFiles, 1, "edit card must render a parsed diff file");
+  assert.equal(metadata.toolShowcase.reviewBar, true, "turn review bar must summarize the edit diff");
+  assert.equal(metadata.toolShowcase.runningCommandVisible, true,
+    "running shell card header must surface the bare command");
+  assert.equal(metadata.toolShowcase.editInputBlocks, 0,
+    "edit cards with a rendered diff must not show the raw Input JSON block");
+  assert.match(metadata.toolShowcase.runningElapsed, /^\d+s$/,
+    "running shell card must tick a live elapsed readout");
+  console.log(`CAPTURE_TOOLS_PNG=${toolsOutput}`);
+  console.log(`CAPTURE_TOOLS_TOP_PNG=${toolsTopOutput}`);
   console.log(`CAPTURE_PNG=${windowOutput}`);
   console.log(`CAPTURE_JSON=${metadataOutput}`);
   console.log(`CAPTURE_SCHEMA=${metadata.schemaVersion}; CAPTURE_ID=${metadata.captureId}`);

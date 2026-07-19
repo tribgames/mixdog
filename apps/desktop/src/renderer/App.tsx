@@ -2224,6 +2224,19 @@ function ToolCard({ item }: { item: TranscriptItem }) {
   const done = item.completedAt != null || (item.completedCount === undefined
     ? item.result != null || item.rawResult != null
     : item.completedCount >= (item.count || 1));
+  // Live elapsed readout for running cards (cline/zed timer grammar). Ticks
+  // only while the card is unsettled; ≥3s threshold keeps fast tools quiet.
+  const startedAt = Number(item.startedAt || 0);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (done || !startedAt) return;
+    const timer = window.setInterval(() => setNowTick(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [done, startedAt]);
+  const elapsedSeconds = !done && startedAt > 0 ? Math.floor((nowTick - startedAt) / 1000) : 0;
+  const elapsedLabel = elapsedSeconds >= 3
+    ? elapsedSeconds >= 60 ? `${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s` : `${elapsedSeconds}s`
+    : "";
   const failedCount = Math.max(0, Number(item.errorCount || 0));
   const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
   const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
@@ -2247,7 +2260,11 @@ function ToolCard({ item }: { item: TranscriptItem }) {
   const title = aggregateTitle || (item.aggregate
     ? `${item.count || 1} tool operations`
     : category === "Shell" ? "Shell" : surface.label);
-  const argumentSummary = item.aggregate ? "" : category === "Shell" ? shellDescription : surface.summary;
+  // Shell cards mirror cline/zed: the header names the command itself when no
+  // human description exists, so running/failed rows are identifiable unopened.
+  const argumentSummary = item.aggregate ? ""
+    : category === "Shell" ? (shellDescription || shellCommand) : surface.summary;
+  const monoSummary = category === "Shell" && !shellDescription && Boolean(shellCommand);
   const rawResult = item.result ?? item.rawResult;
   const patch = findPatch(item);
   const hasInput = !item.aggregate && category !== "Shell"
@@ -2272,17 +2289,20 @@ function ToolCard({ item }: { item: TranscriptItem }) {
           </b>
           {!item.aggregate && count > 1 && <span className="tool-count-label"
             data-component="tool-count-label">{count} calls</span>}
-          {argumentSummary && <small>{argumentSummary}</small>}
+          {argumentSummary && <small className={monoSummary ? "tool-command-inline" : undefined}>{argumentSummary}</small>}
         </span>
         {exceptionalState && <span className={`tool-state ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""}`} role="status">
           <X size={13} />{exceptionalState}
         </span>}
+        {elapsedLabel && !exceptionalState && <span className="tool-elapsed" role="timer">{elapsedLabel}</span>}
         {!done && !exceptionalState && <span className="sr-only" role="status">Running</span>}
         {hasDetails && <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>}
       </button>
       {hasDetails && open && (
         <div className="tool-content" id={contentId}>
-          {hasInput && <DetailBlock label="Input" value={surface.args} />}
+          {/* A rendered diff already communicates the edit; raw args JSON on
+              top of it is noise no reference client shows. */}
+          {hasInput && patch == null && <DetailBlock label="Input" value={surface.args} />}
           {patch ? <CodeDiff patch={patch} /> :
             category === "Shell"
               ? <ToolOutput value={rawResult} command={shellCommand} copyLabel="Copy command output" />
@@ -3699,6 +3719,10 @@ const Composer = memo(function Composer({
       <QueueList queued={queued} restoring={restoring}
         onEdit={(id) => void restoreQueue(draft, id)}
         onRemove={(id) => void discardQueued(id)} />
+      {/* Error/notice banners float ABOVE the input card (user-flagged: they
+          previously rendered inside the pill and read as composer content). */}
+      {(attachmentError) && <p className="composer-error" role="alert">{attachmentError}</p>}
+      {composerNotice && <p className="composer-notice" role="status">{composerNotice}</p>}
       <form className={`composer ${draggingFiles && !transitioning ? 'dragging-files' : ''}`} onSubmit={onSubmit}
         aria-busy={transitioning} onMouseDown={(event) => {
           const target = event.target as HTMLElement;
@@ -3782,8 +3806,6 @@ const Composer = memo(function Composer({
           }}><OcIcon name="close-small" size={13} /></button>
         </div>)}
       </div>}
-      {(attachmentError) && <p className="composer-error" role="alert">{attachmentError}</p>}
-      {composerNotice && <p className="composer-notice" role="status">{composerNotice}</p>}
       <textarea ref={textarea} value={draft} onInput={(event) => {
         setDraft(event.currentTarget.value);
         setAttachmentError('');

@@ -1307,7 +1307,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 13px;
   line-height: 20px;
 }
-.markdown a { color: var(--oc-text-accent); }
+/* Neutral link ink (user: no blue emphasis text) — the underline carries the
+   affordance. */
+.markdown a { color: var(--oc-text); }
 
 /* Tool / diff / approval surfaces use the same v2 layers. */
 .tool-card {
@@ -1343,7 +1345,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-title small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* OpenCode basic-tool-v2 subtitles read as muted, not faint. */
 .tool-title small { color: var(--oc-text-muted); }
+/* Bare command subtitles (no human description) read in mono like the
+   reference clients' command rows. */
+.tool-title small.tool-command-inline { font-family: var(--oc-font-mono); font-size: 12px; }
 .tool-state { flex: 0 0 auto; gap: 3px; color: var(--oc-text-faint); font-size: 11px; font-weight: 500; line-height: 12px; }
+/* Running-card elapsed readout: same quiet weight as .tool-state, mono so the
+   ticking digits do not shift the header. */
+.tool-elapsed {
+  flex: 0 0 auto;
+  color: var(--oc-text-faint);
+  font-family: var(--oc-font-mono);
+  font-size: 11px;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .tool-chevron {
   width: 20px;
   height: 20px;
@@ -2282,7 +2297,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .project-card .project-row small { color: var(--oc-text-faint); font-size: 12px; }
 .project-title-line { min-width: 0; display: flex; align-items: center; gap: 5px; }
 .project-title-line b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-pin-mark { flex: 0 0 auto; color: var(--oc-accent); transform: rotate(-18deg); }
+.project-pin-mark { flex: 0 0 auto; color: var(--oc-icon-muted); transform: rotate(-18deg); }
 .project-card .project-more {
   top: 50%;
   right: 6px;
@@ -3703,7 +3718,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding-left: 10px;
   /* Reference consensus (jan): quotes carry a soft accent border instead of
      a neutral hairline, keeping quoted text distinct from plain prose. */
-  border-left: 2px solid color-mix(in srgb, var(--oc-text-accent) 55%, transparent);
+  border-left: 2px solid var(--oc-border-strong);
   color: var(--oc-text-muted);
 }
 .markdown table {
@@ -4111,9 +4126,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .composer-attachments > div.image button:focus-visible { opacity: 1; }
 .composer-error,
 .composer-notice {
-  margin: 6px 8px 0;
-  padding: 6px 8px;
-  border-radius: 6px;
+  /* Banner ABOVE the input card: full column width, card-language radius. */
+  margin: 0 0 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 19px;
   overflow-wrap: anywhere;
 }
 .composer-error { box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--oc-danger) 25%, transparent); }
@@ -4168,10 +4186,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .oc-menu-item { box-sizing: border-box; user-select: none; }
 .oc-menu-item[aria-selected="true"] {
-  color: var(--oc-text-accent);
+  color: var(--oc-text);
   font-weight: 500;
 }
-.oc-menu-item[aria-selected="true"] svg { color: var(--oc-text-accent); }
+.oc-menu-item[aria-selected="true"] svg { color: var(--oc-icon); }
 .oc-menu-item:disabled { pointer-events: none; opacity: .5; }
 
 .command-surface { outline: 0; }
@@ -4330,7 +4348,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   justify-content: space-between;
   gap: 16px;
 }
-.context-usage-heading strong { color: var(--oc-text-accent); font-size: 13px; font-weight: 500; }
+.context-usage-heading strong { color: var(--oc-text); font-size: 13px; font-weight: 500; }
 .context-usage-heading span { color: var(--oc-text); font-size: 12px; font-variant-numeric: tabular-nums; }
 .context-main-bar,
 .context-mix-row i {

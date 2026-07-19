@@ -737,8 +737,11 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   const shell = document.querySelector(".tool-card");
   assert.equal(shell?.dataset.category, "Shell");
   assert.equal(shell?.querySelector(".tool-title b")?.textContent, "Shell");
-  assert.equal(shell?.querySelector(".tool-title small") === null, true,
-    "selector .tool-title small should be absent");
+  // Description-less shell cards surface the bare command in the header so a
+  // collapsed card still identifies what ran (cline/zed command-row grammar).
+  assert.equal(shell?.querySelector(".tool-title small")?.textContent, "npm test");
+  assert.equal(shell?.querySelector(".tool-title small")?.classList.contains("tool-command-inline"), true,
+    "bare command subtitle must use the mono treatment");
   assert.equal(shell?.querySelector(".tool-state") === null, true,
     "selector .tool-state should be absent");
   assert.equal(shell?.querySelector(".tool-title")?.nextElementSibling?.classList.contains("tool-chevron"), true);
@@ -778,6 +781,39 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   assert.equal(aggregate?.querySelector(".detail-block-heading") === null, true,
     "selector .detail-block-heading should be absent from aggregate tools");
   assert.equal(aggregate?.textContent?.includes("Input"), false);
+});
+
+test("running tool cards tick a live elapsed readout; settled cards stay quiet", async () => {
+  installDom();
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    key: "running-shell",
+    item: {
+      id: "running-shell",
+      kind: "tool",
+      name: "shell_command",
+      args: { command: "npm test" },
+      startedAt: Date.now() - 5_000,
+    },
+  })));
+  const running = document.querySelector(".tool-card");
+  assert.equal(running?.classList.contains("settled"), false);
+  assert.match(running?.querySelector(".tool-elapsed")?.textContent || "", /^\d+s$/,
+    "running card must show seconds elapsed once past the 3s threshold");
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    key: "settled-shell",
+    item: {
+      id: "settled-shell",
+      kind: "tool",
+      name: "shell_command",
+      args: { command: "npm test" },
+      result: "done",
+      startedAt: Date.now() - 5_000,
+      completedAt: Date.now(),
+    },
+  })));
+  const settled = document.querySelector(".tool-card");
+  assert.equal(settled?.querySelector(".tool-elapsed") === null, true,
+    "settled cards must not render the elapsed readout");
 });
 
 test("launch selects New task and immediately shows the project-free composer", async () => {

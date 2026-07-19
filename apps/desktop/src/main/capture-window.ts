@@ -11,6 +11,7 @@ import {
 } from 'electron';
 import { EngineHost } from './engine-host';
 import { registerDesktopIpc } from './ipc';
+import { DESKTOP_IPC } from '../shared/contract';
 import type {
   DesktopCapability,
   DesktopCapabilityReadRequest,
@@ -37,6 +38,11 @@ const captureId = outputArgIndex >= 0 ? process.argv[outputArgIndex + 1] : '';
 if (process.env.MIXDOG_CAPTURE_USER_DATA) {
   app.setPath('userData', resolve(process.env.MIXDOG_CAPTURE_USER_DATA));
 }
+
+// Dictation E2E: synthesize a Chromium fake microphone so MediaRecorder
+// records real (tone) audio without hardware or a permission prompt.
+app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 
 const schemaVersion = 1;
 const captureTitle = `Mixdog Capture ${process.pid}`;
@@ -593,6 +599,13 @@ class CaptureEngineHost extends EngineHost {
     return [];
   }
 
+  // New-task activation without booting the disabled engine: App renders
+  // EMPTY_SNAPSHOT on the new-task tab until startTask succeeds, so the tool
+  // showcase pass clicks New task and this override must resolve instantly.
+  override async startTask() {
+    return this.getSnapshot();
+  }
+
   override getSnapshot() {
     return {
       ...(super.getSnapshot() || {}),
@@ -625,6 +638,16 @@ class CaptureEngineHost extends EngineHost {
     if (capability === 'setTheme') {
       this.captureTheme = String(args[0] || 'basic');
       return { value: this.captureTheme as T, snapshot: this.getSnapshot() };
+    }
+    // Dictation E2E: the fake Chromium media device feeds MediaRecorder; the
+    // engine transcription is stubbed so the smoke validates the FULL renderer
+    // chain (record → stop → base64 → IPC → draft append) hardware-free.
+    if (capability === 'transcribeAudio') {
+      const payload = args[0] as { data?: string; mimeType?: string } | undefined;
+      if (!payload || typeof payload.data !== 'string' || payload.data.length < 512) {
+        throw new Error('capture transcribeAudio received no recorded audio payload.');
+      }
+      return { value: 'dictation smoke transcript' as T, snapshot: this.getSnapshot() };
     }
     if (capability === 'getUpdateSettings') {
       return { value: { currentVersion: 'capture', autoUpdate: false } as T, snapshot: this.getSnapshot() };
@@ -780,6 +803,10 @@ async function captureWindow(): Promise<void> {
     window.setTitle(captureTitle);
     window.show();
     window.focus();
+    // Never let occlusion/background throttling suspend frame production —
+    // late capture passes (tool showcase) read the compositor's latest frame
+    // and a paint-suspended window serves stale pre-mutation pixels.
+    window.webContents.setBackgroundThrottling(false);
     await new Promise((resolve) => setTimeout(resolve, 500));
     window.setSize(1_000, 650);
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -972,6 +999,171 @@ async function captureWindow(): Promise<void> {
     if (sourceSize.width !== targetSize.width || sourceSize.height !== targetSize.height) {
       throw new Error(`Desktop capture source is ${sourceSize.width}x${sourceSize.height}, expected 1113x687; refusing to resize evidence.`);
     }
+    // Dictation smoke (post-PNG so the evidence stays clean): drives the FULL
+    // renderer chain — fake mic → MediaRecorder → base64 → IPC → stubbed
+    // transcription → draft append.
+    const dictationSmoke = await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
+      const mic = document.querySelector('.composer-mic');
+      if (!(mic instanceof HTMLElement)) throw new Error('Missing capture element: .composer-mic');
+      mic.click();
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      mic.click();
+      const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+      const started = Date.now();
+      while (Date.now() - started < 6000) {
+        if ((textarea.value || '').includes('dictation smoke transcript')) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return {
+        transcriptApplied: (textarea.value || '').includes('dictation smoke transcript'),
+        micIdle: !mic.className.includes('is-recording') && !mic.className.includes('is-transcribing'),
+        notice: (document.querySelector('.composer-notice')?.textContent || '').trim(),
+      };
+    })()`), 'Dictation smoke', 10_000) as { transcriptApplied: boolean; micIdle: boolean; notice: string };
+    // Tool-presentation E2E: inject a synthetic rich transcript over the live
+    // state channel so the REAL transcript renderer (tool cards, shell output,
+    // failure states, diff review bar) is exercised and captured — no
+    // provider/engine required. The artifact ships next to the main PNG for
+    // visual review; counts are asserted by capture-ui. NOTE: the diff body
+    // must not contain an `import ... from "..."` line — electron-vite's CJS
+    // shim pass lexes the bundled chunk for import statements and splices the
+    // chunk mid-string, corrupting the build.
+    const showcasePatch = [
+      '--- a/src/app.ts',
+      '+++ b/src/app.ts',
+      '@@ -1,4 +1,4 @@',
+      ' const config = loadConfig();',
+      '-const retries = 1;',
+      '+const retries = 3;',
+      ' boot({ config, retries });',
+      '',
+    ].join('\n');
+    const baseSnapshot = host.getSnapshot();
+    await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
+      const link = document.querySelector('.sidebar-primary-nav .task-link');
+      if (!(link instanceof HTMLElement)) throw new Error('Missing capture element: .task-link');
+      link.click();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return true;
+    })()`), 'New-task activation', 8_000);
+    window.webContents.send(DESKTOP_IPC.state, {
+      ...baseSnapshot,
+      toasts: [],
+      busy: true,
+      items: [
+        { id: 'sc-user', kind: 'user', text: 'Run the test suite and fix the retry regression.' },
+        {
+          id: 'sc-shell-ok',
+          kind: 'tool',
+          name: 'shell',
+          args: { command: 'npm run typecheck:node', description: 'Typecheck the main process' },
+          result: 'Exit code: 0\n> tsc -p tsconfig.node.json\nTypecheck passed in 4.2s.',
+          completedAt: 1,
+          expanded: true,
+        },
+        {
+          id: 'sc-shell-fail',
+          kind: 'tool',
+          name: 'shell',
+          args: { command: 'npm test' },
+          result: 'Exit code: 1\n1) retry configuration\n   AssertionError: expected retries to equal 3, got 1',
+          isError: true,
+          completedAt: 2,
+          expanded: true,
+        },
+        {
+          id: 'sc-edit',
+          kind: 'tool',
+          name: 'edit',
+          args: { path: 'src/app.ts' },
+          result: showcasePatch,
+          completedAt: 3,
+          expanded: true,
+        },
+        { id: 'sc-assistant', kind: 'assistant', text: 'Retry count fixed — rerunning the suite now.' },
+        {
+          id: 'sc-shell-running', kind: 'tool', name: 'shell',
+          args: { command: 'npm test' }, startedAt: Date.now() - 12_000,
+        },
+      ],
+    });
+    const toolShowcase = await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
+      const started = Date.now();
+      while (Date.now() - started < 5000) {
+        const cardsReady = document.querySelectorAll('.tool-card').length >= 4;
+        const diffNode = document.querySelector('.diff-file');
+        const diffReady = Boolean(diffNode) && !(diffNode.textContent || '').includes('Loading diff');
+        if (cardsReady && diffReady) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return {
+        toolCards: document.querySelectorAll('.tool-card').length,
+        failedCards: document.querySelectorAll('.tool-card.failed').length,
+        settledCards: document.querySelectorAll('.tool-card.settled').length,
+        shellOutputs: document.querySelectorAll('.shell-output').length,
+        diffFiles: document.querySelectorAll('.diff-file').length,
+        reviewBar: Boolean(document.querySelector('.turn-review-bar')),
+        runningCommandVisible: Array.from(document.querySelectorAll('.tool-card:not(.settled) .tool-title small'))
+          .some((node) => (node.textContent || '').includes('npm test')),
+        editInputBlocks: document.querySelectorAll('.tool-card[data-category="Patch"] .detail-block').length,
+        runningElapsed: (document.querySelector('.tool-card:not(.settled) .tool-elapsed')?.textContent || '').trim(),
+      };
+    })()`), 'Tool showcase render', 8_000) as {
+      toolCards: number;
+      failedCards: number;
+      settledCards: number;
+      shellOutputs: number;
+      diffFiles: number;
+      reviewBar: boolean;
+      runningCommandVisible: boolean;
+      editInputBlocks: number;
+      runningElapsed: string;
+    };
+    // Flush a real presented frame before reading the compositor: DOM commit
+    // alone is not a paint, and an occluded window may still hold the frame
+    // from the previous capture pass.
+    window.moveTop();
+    window.focus();
+    // Top frame first: the completed shell cards (success + failure) sit at
+    // the transcript top and fall outside the bottom-anchored viewport.
+    await window.webContents.executeJavaScript(
+      "(() => { const scroller = document.querySelector('.thread')?.parentElement; "
+      + 'if (scroller) scroller.scrollTop = 0; return true; })()',
+    );
+    await window.webContents.executeJavaScript(
+      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const toolsTopImage: NativeImage = await withCaptureTimeout(
+      window.webContents.capturePage(),
+      'toolShowcase top capturePage',
+    );
+    const toolsTopPng = toolsTopImage.toPNG();
+    await window.webContents.executeJavaScript(
+      "(() => { const scroller = document.querySelector('.thread')?.parentElement; "
+      + 'if (scroller) scroller.scrollTop = scroller.scrollHeight; return true; })()',
+    );
+    await window.webContents.executeJavaScript(
+      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const toolsImage: NativeImage = await withCaptureTimeout(
+      window.webContents.capturePage(),
+      'toolShowcase capturePage',
+    );
+    const toolsPng = toolsImage.toPNG();
+    const toolShowcaseDimensions = toolsImage.getSize();
+    // Restore the empty-session state so the trailing renderer validation
+    // (inline errors, welcome view) still checks the shipped default screen.
+    window.webContents.send(DESKTOP_IPC.state, { ...baseSnapshot, toasts: [], items: [] });
+    await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
+      const started = Date.now();
+      while (Date.now() - started < 5000) {
+        if (document.querySelectorAll('.tool-card').length === 0) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error('Tool showcase did not restore the empty session.');
+    })()`), 'Tool showcase restore', 8_000);
     const outputSize = image.getSize();
     const nativeWindow = {
       resizable: window.isResizable(),
@@ -1065,6 +1257,8 @@ async function captureWindow(): Promise<void> {
         base: { x: 400, y: 60, color: pixel(400, 60) },
         sidebar: { x: 20, y: 60, color: pixel(20, 60) },
       },
+      dictationSmoke,
+      toolShowcase: { ...toolShowcase, dimensions: toolShowcaseDimensions },
       nativeWindow: {
         ...nativeWindow,
       },
@@ -1073,6 +1267,8 @@ async function captureWindow(): Promise<void> {
     if (!window.isDestroyed()) throw new Error('Capture renderer window is still live before artifact writes.');
     mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, png);
+    writeFileSync(outputPath.replace(/\.png$/i, '-tools.png'), toolsPng);
+    writeFileSync(outputPath.replace(/\.png$/i, '-tools-top.png'), toolsTopPng);
     writeFileSync(outputPath.replace(/\.png$/i, '.json'), `${JSON.stringify(metadata, null, 2)}\n`);
   } finally {
     try {
