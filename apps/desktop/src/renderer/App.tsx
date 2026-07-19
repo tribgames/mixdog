@@ -2989,6 +2989,18 @@ interface GitLogRow {
   when: string;
   pushed: boolean;
 }
+// Dock diff bodies: CodeDiff brings its own file header + expand chrome,
+// which duplicates the accordion/row that already names the file. Render the
+// bare diff body (Shiki DiffView) only — no second header, no height cap.
+function GitDiffBody({ file }: { file: ReturnType<typeof parseUnifiedDiff>[number] }) {
+  const fallback = <pre className="diff-fallback">{file.patch}</pre>;
+  if (!file.renderable) return fallback;
+  return <DiffBoundary fallback={fallback}>
+    <Suspense fallback={<div className="diff-loading" aria-hidden="true">Loading diff…</div>}>
+      <DiffView data={file} />
+    </Suspense>
+  </DiffBoundary>;
+}
 // Commit detail: the dock is narrow, so a raw multi-file CodeDiff dump is
 // unreadable. Reuse the session Changes-tab grammar instead — one collapsed
 // <details> accordion per file with +/− stats, expanding to that file only.
@@ -3008,9 +3020,18 @@ function CommitFileDiffs({ patch }: { patch: string }) {
         <b title={name}>{name}</b>
         <span className="diff-stats"><i>+{additions}</i><em>-{deletions}</em></span>
       </summary>
-      <CodeDiff patch={file.patch} />
+      <GitDiffBody file={file} />
     </details>;
   })}</>;
+}
+// Working-tree file diff (single file): the row already names the file, so
+// the body renders hunks only.
+function GitFileDiff({ patch }: { patch: string }) {
+  const files = useMemo(() => {
+    try { return parseUnifiedDiff(patch); } catch { return []; }
+  }, [patch]);
+  if (!files.length) return <pre className="diff-fallback">{patch}</pre>;
+  return <>{files.map((file, index) => <GitDiffBody file={file} key={index} />)}</>;
 }
 function GitPanel({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
@@ -3117,7 +3138,7 @@ function GitPanel({ cwd }: { cwd: string | null }) {
           : diffText.startsWith("Error:")
             ? <p className="utility-dock-empty">{diffText}</p>
             : diffText
-              ? <CodeDiff patch={diffText} />
+              ? <GitFileDiff patch={diffText} />
               : <p className="utility-dock-empty">No textual diff for this file.</p>}
       </div>}
     </React.Fragment>;
