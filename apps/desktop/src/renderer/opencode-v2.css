@@ -5092,6 +5092,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .review-commit button:disabled { opacity: .5; cursor: default; }
 .review-empty { padding: 32px 0; color: var(--oc-text-muted); font-size: 13px; text-align: center; }
+/* Whole-pane states (no project / loading / error): center on both axes. */
+.review-pane > .review-empty:only-child { margin: auto; padding: 0; }
 .review-clean { display: grid; gap: 12px; justify-items: center; }
 .review-list { display: flex; flex-direction: column; gap: 8px; }
 .review-file {
