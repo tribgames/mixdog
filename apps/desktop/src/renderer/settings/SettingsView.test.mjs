@@ -772,8 +772,8 @@ test('General exposes only System, White, and Dark with persistent desktop prefe
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.ok(calls.some(([capability, args]) => capability === 'setTheme'
-    && args[0] === 'light' && args[1]?.persist === true));
+  assert.equal(calls.some(([capability]) => capability === 'setTheme'), false,
+    'the desktop theme toggle stays local and never writes the engine/TUI theme');
   assert.equal(document.documentElement.dataset.mixdogTheme, 'light');
   assert.equal(window.localStorage.getItem('mixdog.desktop-theme-preference'), 'white');
 });

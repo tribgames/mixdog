@@ -92,8 +92,11 @@ const webPreferences = Object.freeze({
 // Shared by the real entry and the excluded capture harness so evidence uses
 // the same immutable window/chrome/security settings as production.
 export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
-  width: 1280,
-  height: 820,
+  /* First-install layout (user reference): a compact ~1040×700 window with
+     the sidebar open and the dock closed. Later launches restore the saved
+     bounds via window-state. */
+  width: 1040,
+  height: 700,
   /* 880 keeps the window ABOVE the ≤760px mobile-overlay band (sidebar
      backdrop over the workspace) and the 760–860 squeeze zone that broke
      the layout when users shrank the window. */

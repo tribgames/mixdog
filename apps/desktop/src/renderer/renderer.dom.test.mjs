@@ -41,6 +41,10 @@ function installDom() {
     FileReader: dom.window.FileReader,
     MutationObserver: dom.window.MutationObserver,
   });
+  // Layout persistence baseline: legacy assertions were written against the
+  // collapsed-sidebar launch; a FRESH install now opens the sidebar, so the
+  // suite pins the stored preference and a dedicated test covers the default.
+  try { dom.window.localStorage.setItem("mixdog.desktop-sidebar-open.v1", "false"); } catch { /* jsdom storage */ }
   for (const method of ["scrollTo", "scrollIntoView"]) {
     Object.defineProperty(dom.window.HTMLElement.prototype, method, {
       value() {},
@@ -902,8 +906,8 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".session-header-divider") === null, true, "selector .session-header-divider should be absent");
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Mixdog|Local account/);
   assert.equal(document.querySelectorAll(".toolbar-sidebar").length, 1);
-  // Both side panels start MINIMIZED (user decision) — launch shows the
-  // collapsed rail until the user expands it.
+  // The suite baseline pins the stored layout to a collapsed sidebar; the
+  // fresh-install default (open) has its own test below.
   assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Expand session sidebar");
   assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon").dataset.state, "closed");
   // Outline-only toggle glyph (lucide PanelLeft): no filled open-state layer.
@@ -4198,4 +4202,22 @@ test("stopping a turn restores engine-owned image attachments and keeps the curr
   assert.equal(textarea.value, 'Inspect [Image #7: restored.png]\nKeep this steering note');
   assert.match(document.querySelector('.composer-attachments').textContent, /restored\.png/);
   assert.match(document.querySelector('.composer-attachments img').src, /^data:image\/png;base64,aGVsbG8=/);
+});
+
+test("fresh install opens the session sidebar and persists the layout choice", async () => {
+  installDom();
+  window.localStorage.removeItem("mixdog.desktop-sidebar-open.v1");
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    listSessions: async () => [],
+    subscribeState: () => () => {},
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Collapse session sidebar");
+  await act(async () => document.querySelector(".toolbar-sidebar").click());
+  assert.equal(window.localStorage.getItem("mixdog.desktop-sidebar-open.v1"), "false",
+    "collapsing the sidebar persists the layout for the next launch");
 });

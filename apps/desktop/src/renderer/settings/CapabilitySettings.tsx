@@ -807,22 +807,19 @@ function UpdatePanel({ data, pending, run }: PanelContext) {
   </Group>;
 }
 
-function ThemeChoices({ data, pending, run }: Pick<PanelContext, 'data' | 'pending' | 'run'>) {
+function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>) {
   const backendTheme = String(data.theme || 'basic');
   const [preference, setPreference] = useState<DesktopThemePreference>(() =>
     getDesktopThemePreference() || desktopThemePreferenceForTheme(backendTheme));
   useEffect(() => {
     setPreference(getDesktopThemePreference() || desktopThemePreferenceForTheme(backendTheme));
   }, [backendTheme]);
-  const choose = async (next: string) => {
+  // Desktop-local theme (user decision): the toggle persists to desktop
+  // storage only and never writes the engine/TUI theme.
+  const choose = (next: string) => {
     const selected = next as DesktopThemePreference;
-    const previous = preference;
     setPreference(selected);
-    const resolved = setDesktopThemePreference(selected);
-    const result = await run('setTheme', [resolved, { persist: true }], `theme-${selected}`);
-    if (result !== undefined) return;
-    setPreference(previous);
-    setDesktopThemePreference(previous);
+    setDesktopThemePreference(selected);
   };
   return <Group title="Theme">
     <SelectRow title="Theme" value={preference} disabled={Boolean(pending)}
@@ -831,7 +828,7 @@ function ThemeChoices({ data, pending, run }: Pick<PanelContext, 'data' | 'pendi
         { value: 'white', label: 'White' },
         { value: 'dark', label: 'Dark' },
       ]}
-      onChange={(next) => void choose(next)} />
+      onChange={choose} />
   </Group>;
 }
 
@@ -850,7 +847,7 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
       <SelectRow title="Language" value={String(profile.language || 'system')} disabled={busy}
         options={languageOptions} onChange={(language) => void run('setProfile', [{ language }])} />
     </Group>
-    <ThemeChoices data={data} pending={pending} run={run} />
+        <ThemeChoices data={data} pending={pending} />
     <Group title="Session lifecycle">
       <ToggleRow title="Auto-compact" description="Compact automatically as the active context reaches its limit."
         checked={compaction.auto !== false} disabled={busy} onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])} />

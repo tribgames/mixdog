@@ -222,6 +222,8 @@ type Snapshot = RecordValue & {
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
 const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
+const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
+const LAST_PROJECT_KEY = 'mixdog.desktop-last-project.v1';
 const REVIEW_DIFF_STYLE_KEY = 'mixdog.review-diff-style.v1';
 type UtilityDockTab = 'agents' | 'terminal';
 function clampDockWidth(value: number): number {
@@ -394,9 +396,16 @@ function useDesktopState() {
 
 export function App() {
   const { snapshot, connected, error, setError, applySnapshot } = useDesktopState();
-  // Both side panels start MINIMIZED (user decision): the workspace opens
-  // clean and panels are opt-in per session.
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Layout persists across launches (user decision); a FRESH install opens
+  // with the sidebar visible and the dock closed.
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try { return window.localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false"; }
+    catch { return true; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen)); }
+    catch { /* layout persistence is a convenience only */ }
+  }, [sidebarOpen]);
   const [projectPanelOpen, setProjectPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Settings stays MOUNTED after first use (hidden via display:none): the
@@ -406,7 +415,7 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
   // Right utility dock (Cursor-style side panel): open/tab/width persist.
-  const [dockOpen, setDockOpen] = useState<boolean>(false);
+  const [dockOpen, setDockOpen] = useState<boolean>(() => readDockState().open);
   const [dockTab, setDockTab] = useState<UtilityDockTab>(() => readDockState().tab);
   const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
   // Review takes over the MAIN area (opencode session review-tab grammar):
@@ -495,40 +504,22 @@ export function App() {
 
   useEffect(() => {
     let live = true;
-    const invokeCapability = window.mixdogDesktop?.invokeCapability;
     const systemTheme = typeof window.matchMedia === 'function'
       ? window.matchMedia('(prefers-color-scheme: dark)')
       : null;
+    // The desktop theme is a LOCAL preference (user decision): it never
+    // reads or writes the engine/TUI theme, so both apps theme independently.
     const applyStoredPreference = () => {
       const preference = getDesktopThemePreference();
       if (!preference) return false;
-      const resolved = applyDesktopThemePreference(preference);
-      if (preference === 'system' && invokeCapability) {
-        void invokeCapability({
-          capability: 'setTheme',
-          args: [resolved, { persist: true }],
-        }).catch(() => {});
-      }
+      applyDesktopThemePreference(preference);
       return true;
     };
     const handleSystemThemeChange = () => {
       if (live && getDesktopThemePreference() === 'system') applyStoredPreference();
     };
     systemTheme?.addEventListener('change', handleSystemThemeChange);
-    if (!invokeCapability) {
-      if (!applyStoredPreference()) applyDesktopTheme('basic');
-      return () => {
-        live = false;
-        systemTheme?.removeEventListener('change', handleSystemThemeChange);
-      };
-    }
-    void invokeCapability<string>({ capability: 'getTheme' })
-      .then((result) => {
-        if (live && !applyStoredPreference()) applyDesktopTheme(result.value);
-      })
-      .catch(() => {
-        if (live && !applyStoredPreference()) applyDesktopTheme('basic');
-      });
+    if (!applyStoredPreference()) applyDesktopTheme('basic');
     return () => {
       live = false;
       systemTheme?.removeEventListener('change', handleSystemThemeChange);
@@ -584,6 +575,23 @@ export function App() {
     });
   }, []);
   const closeProjectPanel = useCallback(() => setProjectPanelOpen(false), []);
+  // Last-project restore (user decision): a fresh launch that lands on an
+  // empty engine re-enters the most recent project context automatically.
+  const restoredLastProject = useRef(false);
+  useEffect(() => {
+    if (restoredLastProject.current || snapshot === EMPTY_SNAPSHOT) return;
+    restoredLastProject.current = true;
+    if (String(snapshot.currentProject || snapshot.project || "") || String(snapshot.sessionId || "")) return;
+    let stored = "";
+    try { stored = window.localStorage.getItem(LAST_PROJECT_KEY) || ""; } catch { return; }
+    if (!stored) return;
+    void window.mixdogDesktop?.startProjectTask(stored).then((next) => {
+      applySnapshot(next);
+      activateSelection({ kind: "new" }, "New task");
+      newTaskReady.current = true;
+      setNewTaskActive(true);
+    }).catch(() => {});
+  }, [snapshot, applySnapshot, activateSelection]);
 
   useEffect(() => {
     if (sidebarOpen) return;
@@ -1142,6 +1150,11 @@ export function App() {
   const recentProjectPaths = Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects : [];
   const selectedProjectPath = activeProjectPath ||
     String(recentProjectPaths[0] || "");
+  useEffect(() => {
+    if (!activeProjectPath) return;
+    try { window.localStorage.setItem(LAST_PROJECT_KEY, activeProjectPath); }
+    catch { /* persistence is a convenience only */ }
+  }, [activeProjectPath]);
   const activeTabKey = navigationKey(navigationSelection);
   const navigateTab = (tab: WorkspaceTab) => {
     if (tab.key === activeTabKey) return;
