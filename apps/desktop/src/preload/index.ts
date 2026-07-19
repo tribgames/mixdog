@@ -56,6 +56,12 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.termData, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.termData, receive);
   },
+  gitStatus: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitStatus, cwd),
+  gitDiff: (cwd, path, staged) => ipcRenderer.invoke(DESKTOP_IPC.gitDiff, cwd, path, staged === true),
+  gitStage: (cwd, paths) => ipcRenderer.invoke(DESKTOP_IPC.gitStage, cwd, paths),
+  gitUnstage: (cwd, paths) => ipcRenderer.invoke(DESKTOP_IPC.gitUnstage, cwd, paths),
+  gitCommit: (cwd, message) => ipcRenderer.invoke(DESKTOP_IPC.gitCommit, cwd, message),
+  gitPush: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitPush, cwd),
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {

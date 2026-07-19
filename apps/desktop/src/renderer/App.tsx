@@ -221,7 +221,7 @@ type Snapshot = RecordValue & {
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
 const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
-type UtilityDockTab = 'changes' | 'agents' | 'terminal';
+type UtilityDockTab = 'changes' | 'agents' | 'git' | 'terminal';
 function clampDockWidth(value: number): number {
   return Math.min(560, Math.max(300, Math.round(Number.isFinite(value) ? value : 380)));
 }
@@ -230,7 +230,7 @@ function readDockState(): { open: boolean; tab: UtilityDockTab; width: number } 
     const raw = JSON.parse(window.localStorage.getItem(DOCK_STATE_KEY) || '{}') as Record<string, unknown>;
     return {
       open: raw.open === true,
-      tab: raw.tab === 'agents' || raw.tab === 'terminal' ? raw.tab : 'changes',
+      tab: raw.tab === 'agents' || raw.tab === 'terminal' || raw.tab === 'git' ? raw.tab : 'changes',
       width: clampDockWidth(Number(raw.width)),
     };
   } catch {
@@ -2921,6 +2921,8 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
         onClick={() => onTab("changes")}>Changes</button>
       <button type="button" className={tab === "agents" ? "active" : ""}
         onClick={() => onTab("agents")}>Agents</button>
+      <button type="button" className={tab === "git" ? "active" : ""}
+        onClick={() => onTab("git")}>Git</button>
       <button type="button" className={tab === "terminal" ? "active" : ""}
         onClick={() => onTab("terminal")}>Terminal</button>
     </nav>
@@ -2963,11 +2965,146 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
           </button>)}
         </div>
         : <p className="utility-dock-empty">No agent activity in this session yet.</p>)}
+      {tab === "git" && <GitPanel cwd={String(snapshot.currentProject || snapshot.project || "") || null} />}
       {tab === "terminal" && <Suspense fallback={null}>
         <TerminalPane cwd={String(snapshot.currentProject || snapshot.project || "") || null} />
       </Suspense>}
     </div>
   </aside>;
+}
+
+// ── Dock Git panel (claudecodeui git-panel grammar) ───────────────────────
+interface GitPanelStatus {
+  repository: boolean;
+  branch: string;
+  ahead: number;
+  behind: number;
+  upstream: boolean;
+  files: Array<{ path: string; index: string; worktree: string; untracked: boolean }>;
+}
+function GitPanel({ cwd }: { cwd: string | null }) {
+  const [status, setStatus] = useState<GitPanelStatus | null>(null);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [diffPath, setDiffPath] = useState<{ path: string; staged: boolean } | null>(null);
+  // null = loading; empty string means "no textual diff" (binary/whitespace).
+  const [diffText, setDiffText] = useState<string | null>(null);
+  const refresh = useCallback(async () => {
+    if (!cwd) { setStatus(null); return; }
+    if (!window.mixdogDesktop.gitStatus) {
+      // Old preload without the git bridge: never spin forever on "Loading".
+      setError("Git panel needs an app restart to finish updating.");
+      return;
+    }
+    try {
+      const next = await window.mixdogDesktop.gitStatus?.(cwd);
+      setStatus(next ?? null);
+      setError("");
+    } catch (reason) {
+      setStatus(null);
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }, [cwd]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!cwd || !diffPath) return undefined;
+    let live = true;
+    setDiffText(null);
+    void window.mixdogDesktop.gitDiff?.(cwd, diffPath.path, diffPath.staged)
+      .then((patch) => { if (live) setDiffText(patch || ""); })
+      .catch((reason) => { if (live) setDiffText(`Error: ${reason instanceof Error ? reason.message : String(reason)}`); });
+    return () => { live = false; };
+  }, [cwd, diffPath]);
+  const act = async (action: () => Promise<unknown> | undefined) => {
+    setBusy(true);
+    try { await action(); await refresh(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  };
+  if (!cwd) return <p className="utility-dock-empty">Select a project to use Git.</p>;
+  if (error) return <p className="utility-dock-empty">{error}</p>;
+  if (!status) return <p className="utility-dock-empty">Loading git status…</p>;
+  if (!status.repository) return <p className="utility-dock-empty">Not a git repository.</p>;
+  const staged = status.files.filter((file) => !file.untracked && file.index !== " " && file.index !== "?");
+  const unstaged = status.files.filter((file) => file.untracked || (file.worktree !== " " && file.worktree !== "?"));
+  // VSCode SCM grammar: the diff opens INLINE right under the clicked row (a
+  // bottom-of-panel diff was effectively invisible below long file lists).
+  const row = (file: GitPanelStatus["files"][number], isStaged: boolean) => {
+    const active = diffPath !== null && diffPath.path === file.path && diffPath.staged === isStaged;
+    return <React.Fragment key={`${isStaged ? "s" : "w"}:${file.path}`}>
+      <div className="dock-git-row" data-active={active || undefined}>
+        <button type="button" className="dock-git-path" disabled={file.untracked && !isStaged}
+          title={file.path} aria-expanded={active}
+          onClick={() => setDiffPath(active ? null : { path: file.path, staged: isStaged })}>
+          <code>{isStaged ? file.index : file.untracked ? "U" : file.worktree}</code>
+          <span>{file.path}</span>
+        </button>
+        <button type="button" className="dock-git-action" disabled={busy}
+          aria-label={isStaged ? `Unstage ${file.path}` : `Stage ${file.path}`}
+          onClick={() => void act(() => isStaged
+            ? window.mixdogDesktop.gitUnstage?.(cwd, [file.path])
+            : window.mixdogDesktop.gitStage?.(cwd, [file.path]))}>
+          {isStaged ? "−" : "+"}
+        </button>
+      </div>
+      {active && <div className="dock-git-inline-diff">
+        {diffText === null
+          ? <p className="utility-dock-empty">Loading diff…</p>
+          : diffText.startsWith("Error:")
+            ? <p className="utility-dock-empty">{diffText}</p>
+            : diffText
+              ? <CodeDiff patch={diffText} />
+              : <p className="utility-dock-empty">No textual diff for this file.</p>}
+      </div>}
+    </React.Fragment>;
+  };
+  const canCommit = staged.length > 0 && Boolean(message.trim()) && !busy;
+  const showPush = staged.length === 0 && (status.ahead > 0 || (!status.upstream && status.files.length === 0));
+  return <div className="dock-git">
+    <header className="dock-git-header">
+      <b>{status.branch}</b>
+      {(status.ahead > 0 || status.behind > 0) && <small className="dock-git-sync">
+        {status.ahead > 0 ? `↑${status.ahead}` : ""}{status.behind > 0 ? ` ↓${status.behind}` : ""}
+      </small>}
+      <button type="button" className="dock-git-refresh" disabled={busy}
+        onClick={() => void refresh()} aria-label="Refresh git status">
+        <RotateCcw size={13} />
+      </button>
+    </header>
+    <form className="dock-git-commit" onSubmit={(event) => {
+      event.preventDefault();
+      if (!canCommit) return;
+      void act(async () => {
+        await window.mixdogDesktop.gitCommit?.(cwd, message);
+        setMessage("");
+        setDiffPath(null);
+      });
+    }}>
+      <textarea value={message} placeholder={`Message (commit on ${status.branch})`} rows={2}
+        onChange={(event) => setMessage(event.currentTarget.value)} />
+      {showPush
+        ? <button type="button" disabled={busy}
+          onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
+          {status.upstream ? `Push ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : "Publish Branch"}
+        </button>
+        : <button type="submit" disabled={!canCommit}>
+          <Check size={13} aria-hidden="true" />
+          {staged.length > 0
+            ? `Commit ${staged.length} file${staged.length === 1 ? "" : "s"}`
+            : "Commit"}
+        </button>}
+    </form>
+    {status.files.length === 0 && <p className="utility-dock-empty">Working tree clean.</p>}
+    {staged.length > 0 && <section>
+      <h4>Staged Changes <small>{staged.length}</small></h4>
+      {staged.map((file) => row(file, true))}
+    </section>}
+    {unstaged.length > 0 && <section>
+      <h4>Changes <small>{unstaged.length}</small></h4>
+      {unstaged.map((file) => row(file, false))}
+    </section>}
+  </div>;
 }
 
 function QueueList({ queued, restoring, onEdit, onRemove }: {

@@ -32,6 +32,15 @@ import type { EngineHost } from './engine-host';
 import { requiredSessionId } from './desktop-state';
 import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
+import {
+  gitCommit,
+  gitDiff,
+  gitPush,
+  gitStage,
+  gitStatus,
+  gitUnstage,
+  requiredRepositoryCwd,
+} from './git-cli';
 
 const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_IMAGE_BASE64_LENGTH = 16_000_000;
@@ -589,6 +598,23 @@ export function registerDesktopIpc(
       typeof cwd === 'string' && cwd ? cwd : null,
     ));
   }
+  // Dock Git panel: plain git CLI scoped to an absolute project directory.
+  const requiredGitPaths = (value: unknown): string[] => {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
+      throw new TypeError('git paths are invalid.');
+    }
+    return value.map((entry) => requiredString(entry, 'git path', 4_096));
+  };
+  handle(DESKTOP_IPC.gitStatus, (_event, cwd) => gitStatus(requiredRepositoryCwd(cwd)));
+  handle(DESKTOP_IPC.gitDiff, (_event, cwd, path, staged) =>
+    gitDiff(requiredRepositoryCwd(cwd), requiredString(path, 'git path', 4_096), staged === true));
+  handle(DESKTOP_IPC.gitStage, (_event, cwd, paths) =>
+    gitStage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)));
+  handle(DESKTOP_IPC.gitUnstage, (_event, cwd, paths) =>
+    gitUnstage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)));
+  handle(DESKTOP_IPC.gitCommit, (_event, cwd, message) =>
+    gitCommit(requiredRepositoryCwd(cwd), requiredString(message, 'commit message', 20_000)));
+  handle(DESKTOP_IPC.gitPush, (_event, cwd) => gitPush(requiredRepositoryCwd(cwd)));
   const onTermWrite = (event: Electron.IpcMainEvent, id: unknown, data: unknown): void => {
     if (!validTermSender(event)) return;
     terminals?.write(String(id || ''), String(data ?? ''));

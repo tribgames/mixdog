@@ -38,6 +38,12 @@ export const DESKTOP_IPC = {
   termWrite: 'mixdog:term-write',
   termResize: 'mixdog:term-resize',
   termData: 'mixdog:term-data',
+  gitStatus: 'mixdog:git-status',
+  gitDiff: 'mixdog:git-diff',
+  gitStage: 'mixdog:git-stage',
+  gitUnstage: 'mixdog:git-unstage',
+  gitCommit: 'mixdog:git-commit',
+  gitPush: 'mixdog:git-push',
   getUpdaterState: 'mixdog:get-updater-state',
   checkForDesktopUpdate: 'mixdog:check-for-desktop-update',
   showDesktopUpdate: 'mixdog:show-desktop-update',
@@ -436,6 +442,13 @@ export interface DesktopApi {
   termWrite?(id: string, data: string): void;
   termResize?(id: string, cols: number, rows: number): void;
   subscribeTermData?(listener: (event: { id: string; data: string }) => void): () => void;
+  /** Dock Git panel: plain git CLI over the active project directory. */
+  gitStatus?(cwd: string): Promise<{ repository: boolean; branch: string; upstream: boolean; ahead: number; behind: number; files: Array<{ path: string; index: string; worktree: string; untracked: boolean }> }>;
+  gitDiff?(cwd: string, path: string, staged?: boolean): Promise<string>;
+  gitStage?(cwd: string, paths: string[]): Promise<void>;
+  gitUnstage?(cwd: string, paths: string[]): Promise<void>;
+  gitCommit?(cwd: string, message: string): Promise<string>;
+  gitPush?(cwd: string): Promise<string>;
   getUpdaterState(): Promise<DesktopUpdaterState>;
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;

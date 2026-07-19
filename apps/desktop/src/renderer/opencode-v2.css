@@ -1707,8 +1707,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Push-to-talk dictation states on the mic tool. */
 .composer-mic { margin-left: 6px; }
 .composer-mic.is-recording {
-  color: var(--oc-danger);
-  background: var(--oc-danger-bg);
+  /* No red for the stop/recording state (user, both themes): the contrast
+     disc + breathing pulse carries the "live" signal instead. */
+  color: var(--oc-grey-100);
+  background: var(--oc-bg-contrast);
   animation: composer-mic-pulse 1.6s ease-in-out infinite;
 }
 .composer-mic.is-transcribing { color: var(--oc-text-muted); }
@@ -4664,6 +4666,99 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow-wrap: anywhere;
 }
 /* Terminal tab: always-dark surface (Cursor grammar) so ANSI palettes read. */
+/* Dock Git panel (claudecodeui git-panel grammar). */
+.dock-git { display: flex; flex-direction: column; gap: 10px; }
+.dock-git-header { display: flex; align-items: center; gap: 8px; }
+.dock-git-header b { font-size: 13px; font-weight: 600; }
+.dock-git-sync { color: var(--oc-text-faint); font-size: 11px; }
+.dock-git-refresh {
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.dock-git-refresh:hover { color: var(--oc-icon); background: var(--oc-hover); }
+.dock-git section h4 {
+  margin: 4px 0 2px;
+  color: var(--oc-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.dock-git section h4 small { margin-left: 6px; color: var(--oc-text-faint); font-weight: 400; }
+.dock-git-row { display: flex; align-items: center; gap: 4px; min-height: 26px; }
+.dock-git-path {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-text);
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-git-path:hover:not(:disabled) { background: var(--oc-hover); }
+.dock-git-path:disabled { cursor: default; }
+.dock-git-path code { flex: 0 0 auto; color: var(--oc-text-faint); font-size: 11px; }
+.dock-git-path span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.dock-git-action {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-text-muted);
+  background: transparent;
+  font-size: 14px;
+  cursor: pointer;
+}
+.dock-git-action:hover:not(:disabled) { color: var(--oc-text); background: var(--oc-hover); }
+/* Inline diff accordion under the clicked row (VSCode SCM grammar). */
+.dock-git-row[data-active] .dock-git-path { background: var(--oc-pressed); }
+.dock-git-inline-diff {
+  margin: 2px 0 6px 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--oc-border-muted);
+  min-width: 0;
+}
+.dock-git-inline-diff .utility-dock-empty { padding: 6px 0; text-align: left; }
+.dock-git-commit { display: grid; gap: 6px; }
+.dock-git-commit textarea {
+  min-height: 48px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--oc-text);
+  background: var(--oc-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+  font-size: 13px;
+}
+.dock-git-commit button {
+  justify-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-grey-100);
+  background: var(--oc-bg-contrast);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.dock-git-commit button:disabled { opacity: .5; cursor: default; }
 .utility-dock-body[data-tab="terminal"] { padding: 0; overflow: hidden; background: #141312; }
 .dock-terminal { min-height: 0; height: 100%; padding: 8px 6px 8px 12px; }
 .dock-terminal .xterm { height: 100%; }
