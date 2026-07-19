@@ -3046,8 +3046,8 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
   // and snaps the opened card flush under the sticky header.
   const [openFile, setOpenFile] = useState("");
   // Right-click context menu (Codex review grammar): open / reveal / copy
-  // path, plus a two-stage discard for uncommitted files.
-  const [menu, setMenu] = useState<{ x: number; y: number; file: GitReviewFile; confirm: boolean } | null>(null);
+  // path, plus a confirm-dialog revert for uncommitted files.
+  const [menu, setMenu] = useState<{ x: number; y: number; file: GitReviewFile } | null>(null);
   useEffect(() => {
     if (!menu) return undefined;
     const close = (event: Event) => {
@@ -3213,7 +3213,6 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
                 x: Math.min(event.clientX, window.innerWidth - 208),
                 y: Math.min(event.clientY, window.innerHeight - 168),
                 file,
-                confirm: false,
               });
             }}>
             <button type="button" className="review-file-trigger" aria-expanded={open}
@@ -3268,17 +3267,18 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
         const sep = cwd.includes("\\") ? "\\" : "/";
         void copyTextToClipboard(cwd.replace(/[\\/]+$/, "") + sep + menu.file.path.split("/").join(sep));
       }}>Copy path</button>
-      {menu.file.uncommitted && <button type="button" role="menuitem" data-danger={menu.confirm || undefined}
+      {menu.file.uncommitted && <button type="button" role="menuitem" data-danger
         onClick={() => {
-          if (!menu.confirm) { setMenu({ ...menu, confirm: true }); return; }
           const target = menu.file;
           setMenu(null);
+          const warning = target.untracked
+            ? `Delete untracked file "${target.path}"? This cannot be undone.`
+            : `Discard uncommitted changes to "${target.path}"? This cannot be undone.`;
+          if (!window.confirm(warning)) return;
           if (openFile === target.path) setOpenFile("");
           void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked));
         }}>
-        {menu.confirm
-          ? (menu.file.untracked ? "Click again to delete" : "Click again to discard")
-          : (menu.file.untracked ? "Delete untracked file…" : "Discard changes…")}
+        {menu.file.untracked ? "Delete file" : "Revert changes"}
       </button>}
     </div>}
   </div>;
