@@ -39,6 +39,9 @@ const api: DesktopApi = {
   perfLog: (line) => {
     try { ipcRenderer.send(DESKTOP_IPC.perfLog, String(line)); } catch { /* diagnostics only */ }
   },
+  rendererReady: () => {
+    try { ipcRenderer.send(DESKTOP_IPC.rendererReady); } catch { /* show falls back to timeout */ }
+  },
   termEnsure: (id, cwd) => ipcRenderer.invoke(DESKTOP_IPC.termEnsure, id, cwd ?? null),
   termWrite: (id, data) => {
     try { ipcRenderer.send(DESKTOP_IPC.termWrite, id, data); } catch { /* keystroke lost */ }

@@ -2147,7 +2147,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .live-work-spinner {
   flex: 0 0 auto;
   color: var(--oc-success);
-  animation: spin 1.1s linear infinite;
+  /* Calm rotation — 1.1s read frantic next to the quiet header (user). */
+  animation: spin 2s linear infinite;
 }
 .composer-attachments {
   align-items: flex-start;
@@ -4562,7 +4563,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 0 10px;
   border: 0;
   border-radius: 6px;
-  color: var(--oc-text-muted);
+  /* Same control ink as New task/Project (user: labels read a tier lighter). */
+  color: var(--oc-text);
   background: transparent;
   font-size: 13px;
   font-weight: 500;
@@ -4576,7 +4578,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
 }
 .utility-dock-body { min-height: 0; flex: 1; overflow-y: auto; padding: 10px 12px 14px; scrollbar-width: thin; }
-.utility-dock-empty { margin: 8px 0; color: var(--oc-text-faint); font-size: 13px; }
 .dock-change { border-bottom: .5px solid var(--oc-border-muted); }
 .dock-change summary {
   min-height: 32px;
@@ -4625,6 +4626,43 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-agent-copy b { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-agent-copy small { color: var(--oc-text-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-agent-row > span { flex: 0 0 auto; color: var(--oc-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Rows are buttons now (click → output viewer). */
+.dock-agent-row { border: 0; background: transparent; text-align: left; cursor: pointer; }
+.dock-agent-row:hover:not(:disabled) { background: var(--oc-hover); border-radius: 6px; }
+.dock-agent-row:disabled { cursor: default; }
+/* Agent output viewer (opcode AgentRunOutputViewer grammar). */
+.dock-agent-view { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.dock-agent-view header { display: flex; align-items: center; gap: 8px; }
+.dock-agent-view header b { font-size: 13px; font-weight: 500; }
+.dock-agent-view header span { margin-left: auto; color: var(--oc-text-faint); font-size: 11px; }
+.dock-agent-view header span[data-state="failed"] { color: var(--oc-danger); }
+.dock-agent-back {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.dock-agent-back:hover { color: var(--oc-icon); background: var(--oc-hover); }
+.dock-agent-view pre {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--oc-text);
+  background: var(--oc-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* Terminal tab: always-dark surface (Cursor grammar) so ANSI palettes read. */
 .utility-dock-body[data-tab="terminal"] { padding: 0; overflow: hidden; background: #141312; }
 .dock-terminal { min-height: 0; height: 100%; padding: 8px 6px 8px 12px; }

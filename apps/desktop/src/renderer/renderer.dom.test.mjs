@@ -1167,8 +1167,11 @@ test("sidebar footer keeps settings while the titlebar exposes the OpenCode-styl
     await Promise.resolve();
   });
 
-  const trigger = document.querySelector(".session-sidebar-footer [aria-label='Open settings']");
-  assert.equal(trigger != null, true, "settings trigger should be present in the sidebar footer");
+  // Settings moved into the primary nav (user: footer label removed).
+  const trigger = document.querySelector(".sidebar-primary-nav [aria-label='Open settings']");
+  assert.equal(trigger != null, true, "settings trigger should be present in the sidebar nav");
+  assert.equal(document.querySelector(".session-sidebar-footer"), null,
+    "the sidebar footer is gone — settings lives in the primary nav");
   assert.equal(trigger.closest(".session-sidebar") !== null, true);
   assert.equal(trigger.getAttribute("aria-label"), "Open settings");
   assert.equal(trigger.getAttribute("data-tooltip"), "Settings");
@@ -1216,7 +1219,7 @@ test("sidebar keeps Project below New task and lists every session newest-first"
   });
 
   assert.deepEqual(Array.from(document.querySelectorAll(".sidebar-primary-nav > button"),
-    (node) => node.textContent.trim()), ["New task", "Project"]);
+    (node) => node.textContent.trim()), ["New task", "Project", "Settings"]);
   assert.equal(document.querySelector('[aria-label="Open projects"]')?.textContent.trim(), "Project");
   assert.equal(document.querySelector(".sidebar-recent-heading")?.textContent.trim(), "Recent");
   assert.equal(document.querySelector(".sidebar-section-toggle"), null);

@@ -206,7 +206,13 @@ export function createEngineApiA(bag) {
         set({ commandBusy: false });
       }
     },
-    agentControl: async (args = {}) => {
+    agentControl: async (args = {}, options = {}) => {
+      // Silent reads (desktop dock agent viewer) go straight to the runtime:
+      // no transcript card, no commandBusy — mirrors memoryControl's silent
+      // read path.
+      if (options.silent === true) {
+        return runtime.agentControl(args);
+      }
       if (getState().commandBusy) return null;
       set({ commandBusy: true });
       try {

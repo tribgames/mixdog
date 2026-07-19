@@ -300,7 +300,6 @@ test('desktop UI keeps every public TUI command and core capability represented'
     'setDefaultProvider',
     'listProviders',
     'setToolMode',
-    'agentControl',
     'toolsStatus',
     'selectTools',
     // Hidden from desktop settings by user decision (automatic platform

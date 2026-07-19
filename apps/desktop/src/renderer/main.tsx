@@ -32,3 +32,10 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>,
 );
+
+// Tell main the first commit is painted: the window used to show on the
+// renderer's FIRST paint (empty band), so the tab strip popped in a frame
+// later (user-reported launch jolt). Double rAF = post-commit, post-paint.
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  window.mixdogDesktop?.rendererReady?.();
+}));

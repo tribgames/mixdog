@@ -483,6 +483,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           <span className="sidebar-nav-icon"><Folder size={18} /></span>
           <span>Project</span>
         </button>
+        {/* Settings joins the primary nav (user: no bottom footer label). */}
+        <button type="button" className="projects-link sidebar-settings-button" onClick={onOpenSettings}
+          aria-label="Open settings" data-tooltip="Settings">
+          <span className="sidebar-nav-icon"><Settings size={18} /></span>
+          <span>Settings</span>
+        </button>
       </nav>
 
       <div className="session-sidebar-scroll">
@@ -505,12 +511,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           </nav>
         </section>
       </div>
-      <footer className="session-sidebar-footer">
-        <button type="button" className="sidebar-settings-button" onClick={onOpenSettings}
-          aria-label="Open settings" data-tooltip="Settings">
-          <Settings size={18} /><span>Settings</span>
-        </button>
-      </footer>
       <div className="session-sidebar-resize" role="separator" tabIndex={0}
         aria-label="Resize session sidebar" aria-orientation="vertical"
         aria-valuemin={MIN_SIDEBAR_WIDTH} aria-valuemax={MAX_SIDEBAR_WIDTH}

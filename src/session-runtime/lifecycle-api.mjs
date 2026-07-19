@@ -44,7 +44,7 @@ export function createLifecycleApi(deps) {
     withTeardownDeadline, closePatchRuntimeIfLoaded,
     createCurrentSession, refreshRouteEffort,
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
-    applyResolvedCwd, resolveRoute, applyDeferredToolSurface, standaloneTools,
+    applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
     pushTranscriptRebind,
     notificationListeners, remoteStateListeners, desktopSession,
   } = deps;
@@ -342,7 +342,7 @@ export function createLifecycleApi(deps) {
       const session = getSession();
       session.effort = getRoute().effectiveEffort || null;
       session.cwd = getCurrentCwd();
-      applyDeferredToolSurface(session, deferredSurfaceModeForLead(getMode()), standaloneTools, { provider: getRoute().provider });
+      applyDeferredToolSurface(session, deferredSurfaceModeForLead(getMode()), getStandaloneTools(), { provider: getRoute().provider });
       invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
       setSessionNeedsCwdRefresh(false);

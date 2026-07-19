@@ -184,12 +184,32 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-redirect', (event, url) => {
     if (!isAllowedNavigation(url)) event.preventDefault();
   });
-  window.once('ready-to-show', () => {
+  // Show only after BOTH the compositor is ready AND the renderer committed
+  // its first React frame — showing on ready-to-show alone painted an empty
+  // band and the tab strip popped in a frame later (user-reported jolt).
+  // A fallback timer guarantees the window always appears.
+  let readyToShow = false;
+  let rendererCommitted = false;
+  let shown = false;
+  const showWhenComposed = (force = false) => {
+    if (shown || window.isDestroyed()) return;
+    if (!force && !(readyToShow && rendererCommitted)) return;
+    shown = true;
     window.show();
     startAutoUpdater(async () => {
       await disposeDesktopResources();
       quitAfterDispose = true;
     });
+  };
+  ipcMain.on(DESKTOP_IPC.rendererReady, (event) => {
+    if (event.sender !== window.webContents) return;
+    rendererCommitted = true;
+    showWhenComposed();
+  });
+  window.once('ready-to-show', () => {
+    readyToShow = true;
+    showWhenComposed();
+    setTimeout(() => showWhenComposed(true), 1_500);
   });
   window.on('closed', () => {
     diagnostics?.write('window-closed');

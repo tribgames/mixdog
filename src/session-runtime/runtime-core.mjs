@@ -1071,6 +1071,27 @@ export async function createMixdogSessionRuntime({
   ].map(applyStandaloneToolDefaults);
   bootProfile('tools:ready', { ms: (performance.now() - toolsStartedAt).toFixed(1), count: standaloneTools.length });
 
+  // Workflow-aware model surface: a pack that declares an EMPTY agents list
+  // (Solo) must not advertise the agent tool at all — the model calling a
+  // schema-visible tool that policy always rejects is a guaranteed error turn
+  // (user-reported in Solo). Names derive from the live agent tool defs.
+  const agentToolNames = new Set(agentTool.tools.map((tool) => String(tool?.name || '')).filter(Boolean));
+  function workflowAllowsAgents() {
+    try {
+      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      const pack = loadWorkflowPack(dataDir, activeWorkflowId(config));
+      if (!pack || pack.agentsConfigured !== true) return true;
+      return Array.isArray(pack.agents) && pack.agents.length > 0;
+    } catch {
+      return true;
+    }
+  }
+  function modelStandaloneTools() {
+    return workflowAllowsAgents()
+      ? standaloneTools
+      : standaloneTools.filter((tool) => !agentToolNames.has(String(tool?.name || '')));
+  }
+
   function invalidatePreSessionToolSurface() {
     preSessionToolSurface = null;
   }
@@ -1088,7 +1109,7 @@ export async function createMixdogSessionRuntime({
       : [];
     const tools = filterDisallowedTools(previewTools, LEAD_DISALLOWED_TOOLS);
     const surface = { tools: Array.isArray(tools) ? tools.slice() : [] };
-    applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), standaloneTools, { provider: route.provider });
+    applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), { provider: route.provider });
     return surface;
   }
 
@@ -1551,7 +1572,7 @@ export async function createMixdogSessionRuntime({
       applyDeferredToolSurface(
         session,
         deferredSurfaceModeForLead(mode),
-        connectedMcpTools.length ? [...standaloneTools, ...connectedMcpTools] : standaloneTools,
+        connectedMcpTools.length ? [...modelStandaloneTools(), ...connectedMcpTools] : modelStandaloneTools(),
         { provider: route.provider },
       );
       // Session-local one-shot: mark this FRESH session eligible for the
@@ -2127,7 +2148,9 @@ export async function createMixdogSessionRuntime({
     applyResolvedCwd,
     resolveRoute,
     applyDeferredToolSurface,
-    standaloneTools,
+    // Live getter: cwd-refresh session rebuilds must re-evaluate the
+    // workflow's agent-tool gate, not reuse the boot-time array.
+    getStandaloneTools: modelStandaloneTools,
     desktopSession,
   });
   const resourceApi = createResourceApi({

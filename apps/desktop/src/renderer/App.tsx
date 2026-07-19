@@ -2817,6 +2817,7 @@ interface DockAgentRow {
   startedAt: number;
   done: boolean;
   failed: boolean;
+  readArgs: RecordValue | null;
 }
 function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
   const workers = Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [];
@@ -2830,7 +2831,12 @@ function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
     const done = TERMINAL_AGENT_STATUS.test(status);
     const failed = /error|fail|killed|timeout|cancel/i.test(status);
     const detail = String(record.task || record.description || record.summary || record.model || "").trim();
-    return [{ key: `${name}-${String(record.id ?? index)}`, name, status, detail, startedAt, done, failed }];
+    const tag = String(record.tag || "").trim();
+    const taskId = String(record.task_id || record.taskId || record.jobId || "").trim();
+    const readArgs: RecordValue | null = taskId
+      ? { type: "read", task_id: taskId }
+      : tag ? { type: "read", tag } : null;
+    return [{ key: `${name}-${String(record.id ?? index)}`, name, status, detail, startedAt, done, failed, readArgs }];
   });
 }
 function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
@@ -2871,6 +2877,30 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
   }, [tab]);
   const changes = useMemo(() => sessionFileChanges(items), [items]);
   const agents = useMemo(() => dockAgentRows(snapshot), [snapshot.agentWorkers, snapshot.agentJobs]);
+  // Agent output viewer (opcode AgentRunOutputViewer grammar): click a row →
+  // fetch its rendered output via the SILENT agentControl read; refresh every
+  // 3s while the run is still live.
+  const [agentView, setAgentView] = useState<DockAgentRow | null>(null);
+  const [agentOutput, setAgentOutput] = useState<string>("");
+  useEffect(() => {
+    if (tab !== "agents" && agentView) setAgentView(null);
+  }, [tab, agentView]);
+  useEffect(() => {
+    if (!agentView?.readArgs) return undefined;
+    let live = true;
+    const load = () => void window.mixdogDesktop.invokeCapability?.({
+      capability: 'agentControl',
+      args: [agentView.readArgs, { silent: true }],
+    }).then((result) => {
+      if (live) setAgentOutput(String(result?.value ?? "").trim() || "No output yet.");
+    }).catch((reason) => {
+      if (live) setAgentOutput(`Error: ${reason instanceof Error ? reason.message : String(reason)}`);
+    });
+    setAgentOutput("Loading…");
+    load();
+    const timer = agentView.done ? 0 : window.setInterval(load, 3_000);
+    return () => { live = false; if (timer) window.clearInterval(timer); };
+  }, [agentView]);
   const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -2905,17 +2935,32 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
           {file.patches.map((patch, index) => <CodeDiff key={index} patch={patch} />)}
         </details>)
         : <p className="utility-dock-empty">No file changes in this session yet.</p>)}
-      {tab === "agents" && (agents.length
+      {tab === "agents" && agentView && (
+        <div className="dock-agent-view">
+          <header>
+            <button type="button" className="dock-agent-back" onClick={() => setAgentView(null)}
+              aria-label="Back to agent list"><ChevronRight size={14} style={{ transform: "rotate(180deg)" }} /></button>
+            <b>{agentView.name}</b>
+            <span data-state={agentView.failed ? "failed" : agentView.done ? "done" : "running"}>
+              {agentView.status}
+            </span>
+          </header>
+          <pre>{agentOutput}</pre>
+        </div>
+      )}
+      {tab === "agents" && !agentView && (agents.length
         ? <div className="dock-agent-list" role="list">
-          {agents.map((agent) => <div className="dock-agent-row" role="listitem" key={agent.key}
-            data-state={agent.failed ? "failed" : agent.done ? "done" : "running"}>
+          {agents.map((agent) => <button type="button" className="dock-agent-row" role="listitem" key={agent.key}
+            data-state={agent.failed ? "failed" : agent.done ? "done" : "running"}
+            disabled={!agent.readArgs}
+            onClick={() => agent.readArgs && setAgentView(agent)}>
             <i aria-hidden="true" />
             <div className="dock-agent-copy">
               <b>{agent.name}</b>
               {agent.detail && <small title={agent.detail}>{agent.detail}</small>}
             </div>
             <span>{agent.done || !agent.startedAt ? agent.status : formatWorkElapsed(agentClock - agent.startedAt)}</span>
-          </div>)}
+          </button>)}
         </div>
         : <p className="utility-dock-empty">No agent activity in this session yet.</p>)}
       {tab === "terminal" && <Suspense fallback={null}>

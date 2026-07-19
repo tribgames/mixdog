@@ -33,6 +33,7 @@ export const DESKTOP_IPC = {
   quit: 'mixdog:quit',
   state: 'mixdog:state',
   perfLog: 'mixdog:perf-log',
+  rendererReady: 'mixdog:renderer-ready',
   termEnsure: 'mixdog:term-ensure',
   termWrite: 'mixdog:term-write',
   termResize: 'mixdog:term-resize',
@@ -428,6 +429,8 @@ export interface DesktopApi {
   subscribeState(listener: (snapshot: EngineSnapshot) => void): () => void;
   /** Fire-and-forget renderer perf timing line (MIXDOG_DESKTOP_PERF=1 only). */
   perfLog?(line: string): void;
+  /** First React commit signal — main defers window.show until it lands. */
+  rendererReady?(): void;
   /** Dock terminal: create or reattach the shared PTY (main-process owned). */
   termEnsure?(id: string | null, cwd?: string | null): Promise<{ id: string; replay: string }>;
   termWrite?(id: string, data: string): void;
