@@ -55,14 +55,16 @@
   /* Warm dark axis, unified with the light warm-neutral set: same hue family
      (paper → charcoal), same crisp-ink philosophy. Lifted from near-black to
      a Cursor-like mid-dark ramp (user: "적당히 어둡게"). */
-  --oc-bg-base: #211f1d;
-  --oc-bg-deep: #141312;
-  --oc-bg-layer-1: #2a2825;
-  --oc-bg-layer-2: #34312e;
-  --oc-bg-layer-3: #403c38;
-  --oc-bg-contrast: #5e5a54;
-  --oc-window-band: #191816;
-  --oc-workspace-sheet: #211f1d;
+  /* Cursor-style separation: the composer/menu surface (base) sits one step
+     LIGHTER than the sheet so inputs and cards visibly float. */
+  --oc-bg-base: #2b2926;
+  --oc-bg-deep: #171614;
+  --oc-bg-layer-1: #34312d;
+  --oc-bg-layer-2: #3e3a36;
+  --oc-bg-layer-3: #4a453f;
+  --oc-bg-contrast: #6a655e;
+  --oc-window-band: #1c1b19;
+  --oc-workspace-sheet: #242220;
   --oc-shell-border: rgba(255, 255, 255, .078);
   --oc-text: #f4f2ee;
   --oc-text-muted: #b3aea6;
