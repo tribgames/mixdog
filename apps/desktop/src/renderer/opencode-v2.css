@@ -5015,6 +5015,34 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 
 /* ── Main-area Review pane (opencode session-review grammar) ─────────── */
+/* Diff surface theming: @git-diff-view ships a GitHub palette (blue hunk
+   bands, saturated pastel add/del). Override its custom properties with our
+   warm tokens — var()-based, so light AND dark themes both resolve. The
+   div-prefixed selector outranks the library's lazily loaded sheet. */
+div.diff-tailwindcss-wrapper[data-theme="light"],
+div.diff-tailwindcss-wrapper[data-theme="dark"] {
+  font-family: var(--oc-font-mono, "JetBrains Mono Variable", Consolas, monospace);
+  --diff-border--: var(--oc-border-muted);
+  --diff-plain-content--: var(--oc-bg-base);
+  --diff-plain-lineNumber--: var(--oc-bg-base);
+  --diff-plain-lineNumber-color--: var(--oc-text-faint);
+  --diff-expand-content--: var(--oc-bg-layer-1);
+  --diff-expand-lineNumber--: var(--oc-bg-layer-1);
+  --diff-expand-lineNumber-color--: var(--oc-text-faint);
+  --diff-empty-content--: var(--oc-bg-layer-1);
+  --diff-add-content--: color-mix(in srgb, var(--oc-success) 11%, var(--oc-bg-base));
+  --diff-add-lineNumber--: color-mix(in srgb, var(--oc-success) 20%, var(--oc-bg-base));
+  --diff-add-content-highlight--: color-mix(in srgb, var(--oc-success) 30%, var(--oc-bg-base));
+  --diff-del-content--: color-mix(in srgb, var(--oc-danger) 9%, var(--oc-bg-base));
+  --diff-del-lineNumber--: color-mix(in srgb, var(--oc-danger) 17%, var(--oc-bg-base));
+  --diff-del-content-highlight--: color-mix(in srgb, var(--oc-danger) 27%, var(--oc-bg-base));
+  --diff-hunk-content--: color-mix(in srgb, var(--oc-text) 5%, var(--oc-bg-base));
+  --diff-hunk-lineNumber--: color-mix(in srgb, var(--oc-text) 9%, var(--oc-bg-base));
+  --diff-hunk-lineNumber-hover--: var(--oc-text-muted);
+  --diff-hunk-content-color--: var(--oc-text-muted);
+  --diff-add-widget--: var(--oc-bg-contrast);
+  --diff-add-widget-color--: var(--oc-grey-100);
+}
 .review-pane {
   min-height: 0;
   flex: 1;
