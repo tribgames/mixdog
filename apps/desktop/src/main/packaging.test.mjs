@@ -104,10 +104,12 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /host:\s*'CaptureEngineHost'/);
   assert.match(capture, /sessionMode:\s*'empty-session'/);
   assert.match(capture, /removeIpc\(\)/);
-  assert.match(capture, /await host\.dispose\(\)/);
+  // Dispose is bounded: engine teardown may hang 30s+, so the capture exit
+  // path races it against a short grace instead of awaiting it bare.
+  assert.match(capture, /await Promise\.race\(\[\s*host\.dispose\(\),/);
   assert.match(options, /Object\.freeze/);
-  assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#080808'/);
-  assert.match(options, /DESKTOP_LIGHT_BACKGROUND_COLOR\s*=\s*'#fafafa'/);
+  assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#0b0a09'/);
+  assert.match(options, /DESKTOP_LIGHT_BACKGROUND_COLOR\s*=\s*'#f1efec'/);
   assert.match(options, /DESKTOP_TITLEBAR_HEIGHT\s*=\s*40/);
   assert.match(options, /color:\s*'#00000000'/);
   assert.match(options, /backgroundColor:\s*DESKTOP_BACKGROUND_COLOR/);
@@ -132,10 +134,10 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(adapter, /packaged:\s*false/);
   assert.match(capture, /liveDesktop\.sidebarGap !== 8/);
   assert.match(capture, /liveDesktop\.rects\.sidebar\.left !== 8/);
-  assert.match(capture, /liveDesktop\.rects\.sidebar\.top !== 46/);
-  assert.match(capture, /liveDesktop\.rects\.sidebar\.width !== 286/);
+  assert.match(capture, /liveDesktop\.rects\.sidebar\.top !== 40/);
+  assert.match(capture, /liveDesktop\.rects\.sidebar\.width !== 260/);
   assert.match(capture, /liveDesktop\.viewport\.height - liveDesktop\.rects\.sidebar\.bottom !== 8/);
-  assert.match(capture, /liveDesktop\.rects\.main\.left !== 302/);
+  assert.match(capture, /liveDesktop\.rects\.main\.left !== 276/);
   assert.match(capture, /breakpointActive:\s*mobileViewport\.width <= 760/);
   assert.match(adapter, /mobile\.viewport\.width <= 760/);
   assert.match(capture, /const domSidebarGeometry = \{/);
@@ -153,8 +155,8 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /imageMeasuredSidebar\.rightGap\.left !== domSidebarGeometry\.right/);
   assert.match(capture, /imageMeasuredSidebar\.rightGap\.right !== domSidebarGeometry\.mainLeft - 1/);
   assert.match(capture, /imageMeasuredSidebar\.rightGap\.width !== domSidebarGeometry\.gap/);
-  assert.match(adapter, /metadata\.imageMeasuredSidebar\.width,\s*286/);
-  assert.match(adapter, /mainLeft:\s*302/);
+  assert.match(adapter, /metadata\.imageMeasuredSidebar\.width,\s*260/);
+  assert.match(adapter, /mainLeft:\s*276/);
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.left,\s*metadata\.domSidebarGeometry\.left/);
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.right,\s*metadata\.domSidebarGeometry\.right - 1/);
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.width,\s*metadata\.domSidebarGeometry\.width/);

@@ -322,7 +322,8 @@ test("header context usage floors percent and dismisses focus popover without re
     "the compact context trigger should not render secondary text");
   const popoverText = indicator.querySelector('[role="tooltip"]')?.textContent || "";
   assert.match(popoverText, /Usage79%Tokens796 \/ 1,000/);
-  assert.doesNotMatch(popoverText, /Cost|\$/);
+  // Roo/cline task-header parity: session cost surfaces in the same popover.
+  assert.match(popoverText, /Cost\$12\.50/);
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
     trigger.focus();
@@ -826,7 +827,8 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelectorAll(".toolbar-sidebar").length, 1);
   assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Collapse session sidebar");
   assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon").dataset.state, "open");
-  assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon-active") != null, true, "selector .toolbar-sidebar .sidebar-toggle-icon-active should be present");
+  // Outline-only toggle glyph (lucide PanelLeft): no filled open-state layer.
+  assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon-active") === null, true, "selector .toolbar-sidebar .sidebar-toggle-icon-active should be absent");
   assert.doesNotMatch(document.body.textContent || "", /No project selected|\bReady\b/);
 
   await act(async () => document.querySelector(".sidebar-backdrop").click());
@@ -1145,7 +1147,7 @@ test("sidebar keeps Project below New task and lists every session newest-first"
   const shortcuts = Array.from(recent.querySelectorAll(".session-row"));
   assert.deepEqual(shortcuts.map((row) => row.textContent.trim()),
     ["Recent 6", "Recent 5", "Recent 4", "Recent 3", "Recent 2", "Recent 1"]);
-  assert.equal(recent.querySelectorAll(".session-row-icon").length, 6);
+  assert.equal(recent.querySelectorAll(".session-row-main").length, 6);
   assert.equal(shortcuts.every((row) => row.getAttribute('data-tooltip') === null), true);
   assert.equal(recent.querySelectorAll('.session-row-actions .session-row-more').length, 6);
 
@@ -2177,7 +2179,7 @@ test("flat recent sessions and separate project switcher preserve navigation and
   assert.deepEqual(Array.from(document.querySelectorAll('.recent-session-list .session-row-copy b'),
     (row) => row.textContent.trim()),
   ["Unregistered folder task", "Newest project work", "Untitled session", "Project work", "Older task"]);
-  assert.equal(document.querySelectorAll(".session-sidebar-scroll .session-row-icon").length, 5);
+  assert.equal(document.querySelectorAll(".session-sidebar-scroll .session-row-main").length, 5);
   assert.equal(document.querySelector(".sidebar [aria-label='Open projects']")?.textContent.trim(), "Project");
   assert.equal(document.querySelector(".sidebar .project-group"), null);
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Legacy/);
@@ -2921,7 +2923,7 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.doesNotMatch(openCodeCss, /\.model-tag\s*\{/);
   assert.match(openCodeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
   assert.match(openCodeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
-  assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 8px;/s,
+  assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s,
     "the composer should sit close to the workspace bottom edge");
   assert.match(openCodeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--oc-bg-base\);[^}]*box-shadow:\s*var\(--oc-raised\);/s,
     "the composer should use the solid OpenCode v2 base and its subtle raised elevation");
@@ -3279,22 +3281,22 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(openCodeCss,
     /\.sidebar-collapsed \.sidebar\.session-sidebar\s*\{[^}]*width:\s*0;[^}]*flex:\s*0 0 0px;[^}]*flex-basis:\s*0px;/s);
   assert.match(openCodeCss, /\.titlebar-leading\s*\{[^}]*height:\s*28px;[^}]*gap:\s*6px;[^}]*margin-right:\s*0;/s);
-  assert.match(openCodeCss, /\.topbar\s*\{[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 16px;/s);
+  assert.match(openCodeCss, /\.topbar\s*\{[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 13px;/s);
   assert.match(openCodeCss, /\.workspace-tabs\s*\{[^}]*height:\s*28px;[^}]*gap:\s*13\.5px;[^}]*padding:\s*0;/s);
   assert.match(openCodeCss,
     /\.workspace-tab\s*\{[^}]*width:\s*224px;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
   assert.match(openCodeCss,
     /\.workspace-tab-main > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*flex:\s*0 0 14px;/s);
-  assert.match(openCodeCss, /\.transcript\s*\{[^}]*scrollbar-gutter:\s*stable;/s);
+  assert.match(openCodeCss, /\.transcript\s*\{[^}]*scrollbar-gutter:\s*stable both-edges;/s);
   assert.match(openCodeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*0 8px 8px;/s);
   assert.match(openCodeCss, /\.sidebar-collapsed \.desktop-body\s*\{[^}]*gap:\s*0;/s);
   assert.match(openCodeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
-  assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px;/s);
+  assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 32px;/s);
   assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*14px;[^}]*line-height:\s*21px;/s);
-  assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 12px 16px;/s);
-  assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 8px;/s);
+  assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 36px 16px;/s);
+  assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s);
   assert.match(openCodeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
-  assert.match(openCodeCss, /\.session-sidebar-footer button\s*\{[^}]*height:\s*28px;/s);
+  assert.match(openCodeCss, /\.session-sidebar-footer button\s*\{[^}]*height:\s*36px;/s);
   assert.doesNotMatch(openCodeCss, /\.workspace-tab-divider\s*\{/);
   assert.match(openCodeCss,
     /\.workspace-tab:not\(:first-child\):not\(\.active\)::before\s*\{[^}]*width:\s*1\.5px;[^}]*height:\s*12px;/s);
@@ -3302,10 +3304,10 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     /\.session-row-actions\s*\{[^}]*position:\s*absolute;[^}]*right:\s*2px;[^}]*background:\s*transparent;/s);
   assert.match(openCodeCss,
     /\.session-row:hover \.session-row-actions,[\s\S]*?\{[^}]*background:\s*linear-gradient\([\s\S]*?transparent 0,[\s\S]*?var\(--session-row-action-surface\) 10px,[\s\S]*?var\(--session-row-action-surface\) 100%[\s\S]*?\);[^}]*pointer-events:\s*auto;/s);
-  assert.match(openCodeCss,
-    /\.session-row\.selected \.session-row-action,/s);
-  assert.match(openCodeCss,
-    /\.session-row\.selected \.session-row-actions,/s);
+  // Selected rows must NOT pin the … actions open — they reveal on hover,
+  // keyboard focus, or an open menu only (user-flagged persistent ellipsis).
+  assert.doesNotMatch(openCodeCss, /\.session-row\.selected \.session-row-action,/s);
+  assert.doesNotMatch(openCodeCss, /\.session-row\.selected \.session-row-actions,/s);
   assert.match(openCodeCss,
     /\.session-sidebar \.session-row:hover\s*\{[^}]*--session-row-action-surface:\s*var\(--oc-bg-layer-1\);/s);
   assert.match(openCodeCss,
@@ -3313,8 +3315,8 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.doesNotMatch(openCodeCss, /\.session-row-actions::before/);
   assert.match(openCodeCss,
     /\.session-row-action\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s);
-  assert.match(openCodeCss,
-    /\.session-row-icon\s*\{[^}]*flex:\s*0 0 15px;[^}]*margin:\s*0 1\.5px;/s);
+  // Grok-web recent rows are plain text — the per-row icon rule is gone.
+  assert.doesNotMatch(openCodeCss, /\.session-row-icon\s*\{/);
   assert.match(openCodeCss,
     /\.workspace-tabs-shell\s*\{[^}]*width:\s*auto;[^}]*max-width:\s*none;[^}]*flex:\s*1 1 0;[^}]*-webkit-app-region:\s*drag;/s);
   assert.match(openCodeCss,

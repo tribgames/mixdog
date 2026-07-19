@@ -13,6 +13,7 @@ import {
   FolderPlus,
   MessageCircle,
   MoreHorizontal,
+  PanelLeft,
   Pencil,
   Pin,
   Plus,
@@ -54,28 +55,10 @@ interface DesktopTitlebarProps {
 }
 
 function SidebarToggleIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      className="sidebar-toggle-icon"
-      data-state={open ? "open" : "closed"}
-      viewBox="0 0 20 20"
-      fill="none"
-      aria-hidden="true"
-    >
-      {open ? (
-        <path
-          className="sidebar-toggle-icon-active"
-          d="M2 2V18H5.2H7.86667V2H5.2H2Z"
-          fill="currentColor"
-          fillOpacity="0.1"
-        />
-      ) : null}
-      <path
-        d="M7.86667 2H5.2H2V18H5.2H7.86667M7.86667 2H18V18H7.86667M7.86667 2V18"
-        stroke="currentColor"
-      />
-    </svg>
-  );
+  // Outline-only glyph (user: no filled state) from the rounded lucide set,
+  // matching the New task / Project icons.
+  return <PanelLeft className="sidebar-toggle-icon" size={18}
+    data-state={open ? "open" : "closed"} aria-hidden="true" />;
 }
 
 export function DesktopTitlebar({
@@ -487,12 +470,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           OpenCode square-cap glyphs read flat/washed at list sizes. */}
       <nav className="sidebar-primary-nav" aria-label="Workspace">
         <button type="button" className="task-link" onClick={onNewTask}>
-          <span className="sidebar-nav-icon sidebar-nav-icon--new"><Plus size={16} /></span>
+          <span className="sidebar-nav-icon sidebar-nav-icon--new"><Plus size={18} /></span>
           <span>New task</span>
         </button>
         <button type="button" className="projects-link" onClick={onOpenProjects}
           aria-label="Open projects">
-          <span className="sidebar-nav-icon"><Folder size={16} /></span>
+          <span className="sidebar-nav-icon"><Folder size={18} /></span>
           <span>Project</span>
         </button>
       </nav>
@@ -520,7 +503,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       <footer className="session-sidebar-footer">
         <button type="button" className="sidebar-settings-button" onClick={onOpenSettings}
           aria-label="Open settings" data-tooltip="Settings">
-          <Settings size={16} /><span>Settings</span>
+          <Settings size={18} /><span>Settings</span>
         </button>
       </footer>
       <div className="session-sidebar-resize" role="separator" tabIndex={0}
@@ -713,7 +696,7 @@ const SessionRow = React.memo(function SessionRow({
       ) : (
         <>
           <button type="button" className="session-row-main">
-          <MessageCircle className="session-row-icon" size={15} />
+            {/* Grok-web recent list: plain titles, no per-row glyph. */}
             <span className="session-row-copy"
               onDoubleClick={(event) => {
                 event.preventDefault();
@@ -947,9 +930,10 @@ export function ProjectSwitcher({
                       onStartProject(project.path);
                       onClose();
                     }} aria-current={selected ? "page" : undefined}>
-                      <span className="project-avatar" aria-hidden="true"
-                        data-avatar={avatarVariantFor(projectIdentity(project.path))}>
-                        {avatarInitials(title)}
+                      {/* Grok-clean rows: a quiet folder glyph instead of the
+                          coloured initials chip (user-flagged as noisy). */}
+                      <span className="project-avatar project-avatar--icon" aria-hidden="true">
+                        <Folder size={16} />
                       </span>
                       <span>
                         <span className="project-title-line">

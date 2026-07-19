@@ -151,15 +151,15 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
     readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
   ]);
   assert.match(styles, /--titlebar-height:\s*40px/);
-  assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 16px;/s);
+  assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 13px;/s);
   assert.match(styles, /\.titlebar-caption-space\s*\{[^}]*env\(titlebar-area-width,\s*calc\(100vw - 138px\)\)/s);
-  assert.match(styles, /--oc-bg-deep:\s*#080808;[\s\S]*?--oc-workspace-sheet:\s*#161616;[\s\S]*?--oc-text:\s*#fafafa;/s);
-  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--oc-bg-deep:\s*#fafafa;[^}]*--oc-window-band:\s*#f2f2f2;[^}]*--oc-workspace-sheet:\s*#ffffff;[^}]*--oc-text:\s*#161616;/s);
+  assert.match(styles, /--oc-bg-deep:\s*#0b0a09;[\s\S]*?--oc-workspace-sheet:\s*#1a1918;[\s\S]*?--oc-text:\s*#f4f2ee;/s);
+  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--oc-bg-deep:\s*#f8f6f3;[^}]*--oc-window-band:\s*#f1efec;[^}]*--oc-workspace-sheet:\s*#faf8f5;[^}]*--oc-text:\s*#1b1a17;/s);
   assert.match(styles, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--oc-bg-base\);[^}]*box-shadow:\s*var\(--oc-raised\);/s);
   assert.match(styles, /\.workspace-tab\s*\{[^}]*width:\s*224px;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
   assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*0 8px 8px;[^}]*background:\s*var\(--oc-window-band\);/s);
   assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*border-radius:\s*10px;/s);
-  assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*32px;[^}]*min-height:\s*32px;/s);
+  assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*36px;[^}]*min-height:\s*36px;/s);
   assert.match(styles, /\.session-list\s*\{\s*gap:\s*1px;/s);
   assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*10px;/s);
   assert.match(styles, /\.project-switcher\s*\{[^}]*width:\s*min\(640px,/s);
@@ -176,7 +176,8 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   assert.match(navigation, /className="sidebar-recent-heading"/);
   assert.match(navigation, /className="session-list recent-session-list"/);
   assert.doesNotMatch(navigation, /className="sidebar-projects"|project-group-toggle|standalone-group/);
-  assert.match(navigation, /<MessageCircle className="session-row-icon"/);
+  // Grok-web recent list: plain titles, no per-row glyph.
+  assert.doesNotMatch(navigation, /session-row-icon/);
   assert.doesNotMatch(styles, /\.session-search\b/);
   assert.doesNotMatch(navigation, /Search sessions|sessionQuery/);
   assert.doesNotMatch(navigation, /project-avatar-v2|ProjectAvatar/);
@@ -211,13 +212,13 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   assert.match(styles, /\.session-row-menu-wrap\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
   assert.match(styles, /\.session-row-copy b\s*\{[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
   assert.match(styles, /\.message\.user\.attached-user\s*\{\s*margin-top:\s*-12px;/);
-  assert.match(styles, /\.thread\s*\{[^}]*padding:\s*20px 12px 16px;[^}]*gap:\s*16px;/s);
+  assert.match(styles, /\.thread\s*\{[^}]*padding:\s*20px 36px 16px;[^}]*gap:\s*16px;/s);
   assert.match(styles, /\.message\.user \+ \.message\.assistant\s*\{\s*margin-top:\s*-16px;/);
   assert.match(styles, /\.message\.user \.message-meta-line\s*\{[^}]*position:\s*static;[^}]*width:\s*100%;/s);
   assert.match(styles, /\.tool-title\s*\{[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.tool-card\[data-open="true"\] \.tool-chevron svg\s*\{[^}]*rotate\(90deg\)/s);
-  assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--oc-border-muted\);[^}]*border-radius:\s*6px;/s);
-  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*min\(100%, 800px\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px;/s);
+  assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--oc-border-muted\);[^}]*border-radius:\s*8px;/s);
+  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*min\(100%, 800px\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px 32px;/s);
   assert.match(styles, /\.session-header-content h1\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*min\(52ch,\s*100%\);[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.session-title-trigger\s*\{[^}]*width:\s*100%;[^}]*padding:\s*0;/s);
   assert.match(styles, /\.session-header-title-input\s*\{[^}]*field-sizing:\s*content;[^}]*width:\s*auto;[^}]*max-width:\s*100%;[^}]*padding:\s*0;/s);
@@ -227,7 +228,9 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   assert.match(styles, /\.session-context-indicator > button\s*\{[^}]*place-items:\s*center end;/s);
   assert.match(styles, /\.session-header-status\s*\{[^}]*margin-left:\s*auto;/s);
   assert.match(styles, /\.live-work-status\s*\{[^}]*margin-left:\s*0;/s);
-  assert.doesNotMatch(styles, /\.send-button\.stop/);
+  // The stop state shares the send-button surface; its only override is the
+  // OpenCode stop-pulse breathing on the glyph (icon-button.css parity).
+  assert.match(styles, /\.send-button\.stop svg rect\s*\{[^}]*animation:\s*send-stop-pulse/s);
   assert.match(app, /className="session-header-status"[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>\s*<ContextUsageIndicator/);
   assert.equal((app.match(/<LiveWorkStatus\b/g) || []).length, 1);
   assert.match(navigation, /aria-label=\{`More actions for \$\{sessionLabel\(session\)\}`\}/);

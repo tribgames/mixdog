@@ -59,3 +59,25 @@ Legend: OK = already matches consensus · GAP = polish target
 Constraints: opencode v2 chrome tokens (band/sheet colors, elevation, focus
 ring, switches) stay untouched; renderer tests + capture assertions updated in
 the same change as any metric they pin.
+
+## Round 2 refs — Zed agent panel + Roo Code (added on request)
+
+| Repo | Authoritative for |
+|---|---|
+| `zed` | agent-panel UX concepts (`docs/src/ai/agent-panel.md`, `crates/agent_ui`): queue steer/edit, review-changes bar, done-notifications, prompt-jump navigation |
+| `roo-code` | cline fork iterations (`webview-ui/src/components/chat/TaskHeader.tsx`): collapsible task header with context bar + condense + cost, todo display |
+
+### Gap list vs mixdog desktop (verified 2026-07-19)
+
+| # | Improvement | Reference | mixdog now | Size |
+|---|---|---|---|---|
+| R1 | OS notification (+opt sound) when a turn finishes while the window is unfocused | zed `agent.notify_when_agent_waiting` / `play_sound_when_agent_done` | none (0 Notification usages) | S — Electron `Notification`, settings toggle |
+| R2 | "Review changes" summary: files/lines edited this turn in an accordion above the composer → opens diff | zed Reviewing Changes; cline COMPLETION_RESULT_CHANGES_FLAG | diffs live only inside scattered tool cards | M |
+| R3 | Context popover: cost + cache read/write rows, and an inline Compact action | roo `TaskHeader`/`ContextWindowProgress`; cline compact confirm | usage % + tokens `(est.)` only, no cost anywhere (0 usages) | S-M (engine already meters cost for TUI) |
+| R4 | Queued messages: edit/remove/send-now (+steer toggle) on queue rows | zed Queueing Messages | queue renders rows; management affordances minimal | M — engine queue API dependent |
+| R5 | Prompt-jump navigation (prev/next own prompt) from the thread scroller | zed Navigating the Thread | jump-to-latest only | S |
+| R6 | Regenerate thread title action in the header ellipsis | zed Thread titles | manual rename only | S |
+
+Deliberately skipped: checkpoints/restore (VCS-integration scope), todo list
+display (no runtime todo surface), worktree isolation (crystal/zed parallel
+agents — architecture), editable past user messages (transcript contract).

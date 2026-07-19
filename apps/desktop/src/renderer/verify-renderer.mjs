@@ -17,6 +17,7 @@ await build({
     '@git-diff-view/react',
     '@git-diff-view/react/*',
     '@fontsource-variable/inter',
+    '@fontsource-variable/geist',
     '@fontsource-variable/jetbrains-mono',
     '*.css',
   ],

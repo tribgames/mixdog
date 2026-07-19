@@ -29,6 +29,7 @@ import {
   LoaderCircle,
   Mic,
   Plus,
+  RotateCcw,
   ShieldAlert,
   Sparkles,
   Trash2,
@@ -1136,10 +1137,25 @@ export function App() {
                 </h1>
                 {navigationSelection.kind === "session" && activeProjectLabel &&
                   <span className="session-project-badge">{activeProjectLabel}</span>}
+                {selectedSession && headerTitleEditingSessionId !== selectedSession.id && (
+                  <button type="button" className="session-title-regenerate"
+                    aria-label="Regenerate title" data-tooltip="Regenerate title"
+                    onClick={() => {
+                      const seed = ((visibleSnapshot.items || []) as TranscriptItem[]).find((entry) =>
+                        entry?.kind === "user" && String(entry.text || "").trim());
+                      if (seed) void renameSession(selectedSession.id, promptTitle(String(seed.text || "")));
+                    }}>
+                    <RotateCcw size={13} />
+                  </button>
+                )}
                 <div className="session-header-status">
                   <LiveWorkStatus snapshot={visibleSnapshot} />
                   <ContextUsageIndicator snapshot={visibleSnapshot}
-                    onOpen={() => setCommandSurface("context")} />
+                    onOpen={() => setCommandSurface("context")}
+                    onCompact={() => void invokeResult(async () => {
+                      const result = await window.mixdogDesktop.invokeCapability({ capability: 'compact' });
+                      if (result?.snapshot) applySnapshot(result.snapshot);
+                    })} />
                 </div>
               </div>
             </header>
@@ -1698,6 +1714,7 @@ function Conversation({
           disabled={transitioning || Boolean(snapshot.busy)}
           onClear={onNewTask} onSelect={onSelectProject} onChoose={onChooseProject} />}
         <InlineErrors messages={errors} />
+        <TurnReviewBar items={items} />
         <Composer
           turnBusy={Boolean(snapshot.busy)}
           commandBusy={Boolean(routeSnapshot.commandBusy)}
@@ -1873,7 +1890,11 @@ function contextMetrics(snapshot: Snapshot) {
   };
 }
 
-export function ContextUsageIndicator({ snapshot, onOpen }: { snapshot: Snapshot; onOpen(): void }) {
+export function ContextUsageIndicator({ snapshot, onOpen, onCompact }: {
+  snapshot: Snapshot;
+  onOpen(): void;
+  onCompact?(): void;
+}) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const keyboardFocusIntent = useRef(false);
   const context = contextMetrics(snapshot);
@@ -1916,6 +1937,19 @@ export function ContextUsageIndicator({ snapshot, onOpen }: { snapshot: Snapshot
       <div><span>{context.estimated ? "Tokens (est.)" : "Tokens"}</span><b>{context.limit > 0
         ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
         : context.used.toLocaleString()}</b></div>
+      {(() => {
+        const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
+        return cost > 0
+          ? <div><span>Cost</span><b>${cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}</b></div>
+          : null;
+      })()}
+      {onCompact && context.percent > 0 && (
+        <button type="button" className="context-compact"
+          disabled={Boolean(snapshot.busy) || Boolean(snapshot.commandBusy)}
+          onClick={() => { setPopoverOpen(false); onCompact(); }}>
+          Compact conversation
+        </button>
+      )}
     </div>
   </div>;
 }
@@ -2521,10 +2555,64 @@ function queuedFollowupPreview(entry: unknown) {
   return queueText(entry).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "[Attachment]";
 }
 
-function QueueList({ queued, restoring, onEdit }: {
+// Zed "Review Changes" parity: an accordion above the composer summarizing the
+// files the current turn edited (count + line delta), expandable per file.
+function TurnReviewBar({ items }: { items: TranscriptItem[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const summary = useMemo(() => {
+    let lastUser = -1;
+    for (let index = items.length - 1; index >= 0; index--) {
+      if (items[index]?.kind === "user") { lastUser = index; break; }
+    }
+    const files = new Map<string, { additions: number; deletions: number }>();
+    for (let index = lastUser + 1; index < items.length; index++) {
+      const item = items[index];
+      if (!item || item.kind !== "tool") continue;
+      const patch = findPatch(item);
+      if (typeof patch !== "string" || !patch) continue;
+      try {
+        for (const file of parseUnifiedDiff(patch)) {
+          const name = String(file.newFile?.fileName || "");
+          if (!name) continue;
+          const body = file.hunks.join("\n").split("\n");
+          const entry = files.get(name) || { additions: 0, deletions: 0 };
+          entry.additions += body.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+          entry.deletions += body.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+          files.set(name, entry);
+        }
+      } catch { /* non-diff payload — skip */ }
+    }
+    let additions = 0;
+    let deletions = 0;
+    for (const entry of files.values()) { additions += entry.additions; deletions += entry.deletions; }
+    return { files, additions, deletions };
+  }, [items]);
+  if (summary.files.size === 0) return null;
+  return (
+    <section className="turn-review-bar" aria-label="Files changed this turn"
+      data-expanded={expanded ? "true" : "false"}>
+      <button type="button" className="turn-review-summary" aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}>
+        <FileDiff size={14} aria-hidden="true" />
+        <strong>{summary.files.size} file{summary.files.size === 1 ? "" : "s"} changed</strong>
+        <span className="diff-stats"><i>+{summary.additions}</i><em>-{summary.deletions}</em></span>
+        <ChevronDown className="turn-review-chevron" size={14} aria-hidden="true" />
+      </button>
+      {expanded && <ul className="turn-review-files">
+        {[...summary.files.entries()].map(([name, entry]) => (
+          <li key={name}><code>{name}</code>
+            <span className="diff-stats"><i>+{entry.additions}</i><em>-{entry.deletions}</em></span></li>
+        ))}
+      </ul>}
+    </section>
+  );
+}
+
+function QueueList({ queued, restoring, onEdit, onRemove }: {
   queued?: unknown[];
   restoring: boolean;
   onEdit: (id: string) => void;
+  onRemove: (id: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const itemsId = useId();
@@ -2550,6 +2638,11 @@ function QueueList({ queued, restoring, onEdit }: {
             <button type="button" className="queue-edit" disabled={restoring || !id}
               onClick={() => onEdit(id)} aria-label={`Edit queued follow-up: ${text}`}>
               {restoring ? "Editing…" : "Edit"}
+            </button>
+            <button type="button" className="queue-remove" disabled={restoring || !id}
+              onClick={() => onRemove(id)} aria-label={`Remove queued follow-up: ${text}`}
+              data-tooltip="Remove">
+              <X size={13} />
             </button>
           </div>;
         })}
@@ -2630,6 +2723,17 @@ const Composer = memo(function Composer({
     stopTimer: number;
   } | null>(null);
   const [composerNotice, setComposerNotice] = useState('');
+  // Composer notices are transient helpers (mic errors, etc.): auto-dismiss
+  // after a beat instead of pinning to the composer forever (user-flagged).
+  const composerNoticeTimer = useRef(0);
+  const showComposerNotice = useCallback((message: string) => {
+    window.clearTimeout(composerNoticeTimer.current);
+    setComposerNotice(message);
+    if (message) {
+      composerNoticeTimer.current = window.setTimeout(() => setComposerNotice(''), 6_000);
+    }
+  }, []);
+  useEffect(() => () => window.clearTimeout(composerNoticeTimer.current), []);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedDraft, setSlashDismissedDraft] = useState('');
   const [composerFocused, setComposerFocused] = useState(false);
@@ -2958,6 +3062,11 @@ const Composer = memo(function Composer({
       return;
     }
     try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      if (!devices.some((device) => device.kind === 'audioinput')) {
+        showComposerNotice('No microphone was detected. Connect one and try again.');
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
@@ -3010,10 +3119,20 @@ const Composer = memo(function Composer({
       }, 120_000);
       setDictationState('recording');
     } catch (reason) {
-      setComposerNotice(reason instanceof Error ? reason.message : String(reason));
+      // Raw DOMException names ("NotAllowedError") read as broken UI; map the
+      // three real-world failures to actionable notices (goose keeps the same
+      // taxonomy for its dictation errors).
+      const name = reason instanceof DOMException ? reason.name : '';
+      showComposerNotice(name === 'NotAllowedError'
+        ? 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.'
+        : name === 'NotFoundError' || name === 'OverconstrainedError'
+          ? 'No microphone was detected. Connect one and try again.'
+          : name === 'NotReadableError'
+            ? 'The microphone is busy in another app. Close it and try again.'
+            : reason instanceof Error ? reason.message : String(reason));
       setDictationState('idle');
     }
-  }, [dictationState, invokeResult]);
+  }, [dictationState, invokeResult, showComposerNotice]);
   useEffect(() => () => {
     const session = dictationSession.current;
     if (!session) return;
@@ -3108,6 +3227,19 @@ const Composer = memo(function Composer({
     }
   };
 
+  // Zed queue parity: discard a queued follow-up in place. restoreQueued
+  // removes the entry from the engine queue; the merged text it returns is
+  // intentionally ignored so the current draft is untouched.
+  const discardQueued = async (queuedId: string) => {
+    if (restoring || !queuedId) return;
+    setRestoring(true);
+    try {
+      await invokeCapability<RecordValue>('restoreQueued', [draft, queuedId]);
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const executeSlash = async (raw: string): Promise<boolean> => {
     let invocationFailed = false;
     const commandCapability = async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
@@ -3166,8 +3298,8 @@ const Composer = memo(function Composer({
       else if (value === 'status') {
         const status = asRecord(await commandCapability('getAutoClear'));
         if (invocationFailed) return false;
-        if (!status) setComposerNotice('Auto-clear unavailable.');
-        else setComposerNotice(`Auto-clear ${status.enabled ? 'on' : 'off'} · idle ${formatIdleDuration(status.idleMs)}`);
+        if (!status) showComposerNotice('Auto-clear unavailable.');
+        else showComposerNotice(`Auto-clear ${status.enabled ? 'on' : 'off'} · idle ${formatIdleDuration(status.idleMs)}`);
       }
       else if (['on', 'enable', 'enabled'].includes(value)) await commandCapability('setAutoClear', [{ enabled: true }]);
       else if (['off', 'disable', 'disabled'].includes(value)) await commandCapability('setAutoClear', [{ enabled: false }]);
@@ -3184,7 +3316,7 @@ const Composer = memo(function Composer({
         const status = asRecord(await commandCapability('getOutputStyle'));
         if (invocationFailed) return false;
         const current = asRecord(status?.current);
-        setComposerNotice(`Output style: ${String(current?.label || current?.id || status?.configured || 'Default')}`);
+        showComposerNotice(`Output style: ${String(current?.label || current?.id || status?.configured || 'Default')}`);
       }
       else await commandCapability('setOutputStyle', [argument]);
     } else if (name === 'theme') {
@@ -3197,7 +3329,7 @@ const Composer = memo(function Composer({
           if (invocationFailed) return false;
           const current = typeof value === 'string' ? value : String(asRecord(value)?.id || 'default');
           const entry = themes.map(asRecord).find((theme) => String(theme?.id || '') === current);
-          setComposerNotice(`Theme: ${String(entry?.label || current || 'default')}`);
+          showComposerNotice(`Theme: ${String(entry?.label || current || 'default')}`);
           return true;
         }
         const theme = themes.map(asRecord).find((entry) =>
@@ -3565,7 +3697,8 @@ const Composer = memo(function Composer({
   return (
     <>
       <QueueList queued={queued} restoring={restoring}
-        onEdit={(id) => void restoreQueue(draft, id)} />
+        onEdit={(id) => void restoreQueue(draft, id)}
+        onRemove={(id) => void discardQueued(id)} />
       <form className={`composer ${draggingFiles && !transitioning ? 'dragging-files' : ''}`} onSubmit={onSubmit}
         aria-busy={transitioning} onMouseDown={(event) => {
           const target = event.target as HTMLElement;
@@ -3719,7 +3852,7 @@ const Composer = memo(function Composer({
         {turnBusy && !draft.trim() ? (
           <button type="button" className="send-button stop" onClick={() => void stop()}
             aria-label="Stop generation" data-tooltip="Stop" data-tooltip-side="top">
-            <OcIcon name="stop" size={14} />
+            <OcIcon name="stop" size={16} />
           </button>
         ) : (
           <button className="send-button" disabled={!draft.trim() || submitting || transitioning}

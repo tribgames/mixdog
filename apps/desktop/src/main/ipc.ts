@@ -8,6 +8,10 @@ import type {
   IpcMainInvokeEvent,
   Shell,
 } from 'electron';
+// Namespace import + optional access: the engine-host test stubs the electron
+// module without a Notification export.
+import * as electronModule from 'electron';
+const NotificationCtor = (electronModule as { Notification?: typeof import('electron').Notification }).Notification;
 
 import {
   DESKTOP_CAPABILITIES,
@@ -533,7 +537,26 @@ export function registerDesktopIpc(
     return quitPromise;
   });
 
+  // Zed "Get Notified" parity: when a turn finishes while the window is in
+  // the background, raise an OS notification that refocuses on click.
+  let turnWasBusy = false;
   const unsubscribeState = host.subscribe((snapshot) => {
+    const busy = (snapshot as Record<string, unknown> | null)?.busy === true;
+    if (turnWasBusy && !busy && !window.isDestroyed() && !window.isFocused()
+      && NotificationCtor && NotificationCtor.isSupported()) {
+      const notice = new NotificationCtor({
+        title: 'Mixdog',
+        body: 'Response ready — the agent finished this turn.',
+      });
+      notice.on('click', () => {
+        if (window.isDestroyed()) return;
+        if (window.isMinimized()) window.restore();
+        window.show();
+        window.focus();
+      });
+      notice.show();
+    }
+    turnWasBusy = busy;
     if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.send(DESKTOP_IPC.state, snapshot);
     }

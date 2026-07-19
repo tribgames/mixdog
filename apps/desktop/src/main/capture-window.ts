@@ -135,6 +135,12 @@ interface LiveCaptureAssertions {
       send: RectMeasurement;
     };
     sidebarGap: number;
+    headerAxis: {
+      titleLeft: number;
+      statusRight: number;
+      composerLeft: number;
+      composerRight: number;
+    };
   };
   mobile: {
     viewport: { width: number; height: number };
@@ -240,6 +246,8 @@ async function readDesktopAssertions(window: BrowserWindow): Promise<LiveCapture
     const main = required('.workspace');
     const composer = required('.composer');
     const modelTrigger = required('.model-trigger');
+    const headerTitle = required('.session-header-content h1');
+    const headerStatus = required('.session-header-status');
     const textarea = required('textarea[aria-label="Message Mixdog"]');
     // The send button's aria-label mutates with busy state (Queue/Stop);
     // select by its stable class so state races cannot break the capture.
@@ -272,6 +280,14 @@ async function readDesktopAssertions(window: BrowserWindow): Promise<LiveCapture
         send: sendRect,
       },
       sidebarGap: mainRect.left - sidebarRect.right,
+      // Header/composer shared axis: the session title's left edge and the
+      // status cluster's right edge must sit ON the composer field edges.
+      headerAxis: {
+        titleLeft: rect(headerTitle).left,
+        statusRight: rect(headerStatus).right,
+        composerLeft: rect(composer).left,
+        composerRight: rect(composer).right,
+      },
     };
   })()`) as Promise<LiveCaptureAssertions['desktop']>;
 }
@@ -372,7 +388,8 @@ async function readLightThemeAssertions(window: BrowserWindow): Promise<LightThe
     };
     const titlebarIconColor = getComputedStyle(icon).color;
     const activeTabColor = getComputedStyle(activeTab).color;
-    const iconTokenColor = resolveColor('--oc-icon');
+    // The rail toggle rests on the MUTED icon ink (Claude-style rail voice).
+    const iconTokenColor = resolveColor('--oc-icon-muted');
     const textTokenColor = resolveColor('--oc-text');
     return {
       theme: root.dataset.mixdogTheme || '',
@@ -662,7 +679,7 @@ function measureSidebarGeometry(image: NativeImage): ImageMeasuredSidebar {
   // Stay above the footer controls so icon pixels cannot split the interior run.
   const scanlineY = 600;
   // The OpenCode v2 renderer uses the active theme's bg-base token for the sidebar.
-  const sidebarColor = '#161616';
+  const sidebarColor = '#0b0a09';
   let longestInterior = { start: -1, end: -1 };
   let runStart = -1;
   for (let x = 0; x <= 400; x += 1) {
@@ -857,7 +874,7 @@ async function captureWindow(): Promise<void> {
         const icon = document.querySelector('.toolbar-sidebar');
         if (!(icon instanceof HTMLElement)) return false;
         const probe = document.createElement('span');
-        probe.style.color = 'var(--oc-icon)';
+        probe.style.color = 'var(--oc-icon-muted)';
         document.body.append(probe);
         const settled = getComputedStyle(icon).color === getComputedStyle(probe).color;
         probe.remove();
@@ -1000,9 +1017,9 @@ async function captureWindow(): Promise<void> {
       sidebarExcludedRuns: { leftInset: true, rightGap: true },
       sampledColors: {
         leftOutside: pixel(domSidebarGeometry.left - 1, 600),
-        leftBorder: '#161616',
-        interior: '#161616',
-        rightBorder: '#161616',
+        leftBorder: '#0b0a09',
+        interior: '#0b0a09',
+        rightBorder: '#0b0a09',
         rightGap: pixel(domSidebarGeometry.right, 600),
       },
     };

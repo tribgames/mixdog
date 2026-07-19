@@ -131,6 +131,17 @@ async function createWindow(): Promise<void> {
   if (savedState?.maximized) window.maximize();
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
+  // Apply the persisted zoom BEFORE the first paint. It used to be applied by
+  // the renderer's lazy getZoomFactor call a beat after the window appeared,
+  // which rescaled the page and the titlebar overlay height in quick
+  // succession — the visible double "pop" of the title tab on startup.
+  const initialZoom = settingsStore ? await settingsStore.readZoom() : 1;
+  if (initialZoom !== 1) {
+    setDesktopTitleBarZoom(window, initialZoom);
+    window.webContents.on('dom-ready', () => {
+      window.webContents.setZoomFactor(initialZoom);
+    });
+  }
   removeIpc = registerDesktopIpc(window, host, {
     app,
     ipcMain,
@@ -233,6 +244,16 @@ if (!app.requestSingleInstanceLock()) {
           'Content-Security-Policy': [policy],
         },
       });
+    });
+    // Push-to-talk dictation records via getUserMedia. Grant `media`
+    // deterministically (goose desktop `main.ts` sets the same handler) and
+    // log any other permission request so future surfaces fail loudly instead
+    // of depending on Electron's default-allow behavior.
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      if (permission !== 'media') {
+        diagnostics?.write('permission-request', { permission });
+      }
+      callback(true);
     });
     await createWindow();
     // Keep the synchronous native-menu construction off the critical path to

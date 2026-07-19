@@ -3,6 +3,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "@fontsource-variable/inter";
+// Grok-web feel: Geist leads the Latin stack (Universal Sans's closest open
+// stand-in); Inter stays as fallback and Pretendard owns Hangul.
+import "@fontsource-variable/geist";
 import "@fontsource-variable/jetbrains-mono";
 // Hangul coverage: Inter has no Korean glyphs, so without a bundled Korean
 // face the UI fell back to Malgun Gothic. Pretendard Variable is the modern
