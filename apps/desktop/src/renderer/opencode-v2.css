@@ -2143,11 +2143,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 16px;
 }
 .live-work-status:hover, .live-work-status:focus { background: var(--oc-hover); outline: 0; }
-/* Digit centers on the 13px spinner box exactly (user: count sat low). */
+/* Digit centers on the spinner box exactly (user: count sat low). */
 .live-work-count {
   display: inline-flex;
   align-items: center;
-  height: 13px;
+  height: 16px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   line-height: 1;

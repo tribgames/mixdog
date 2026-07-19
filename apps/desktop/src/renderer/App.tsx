@@ -2052,7 +2052,9 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   </div>;
   return <div className="live-work-status" role="status" tabIndex={0}
     aria-label={`Background activity: ${total} running`}>
-    <LoaderCircle className="live-work-spinner" size={13} aria-hidden="true" />
+    {/* 16px matches the optical weight of the neighboring 18–20px controls;
+        13px read as vertically off next to them (user). */}
+    <LoaderCircle className="live-work-spinner" size={16} aria-hidden="true" />
     <span className="live-work-count">{total}</span>
     <div className="live-work-popover" role="tooltip">
       {runningCount > 0 && row("agents", `Agent${runningCount === 1 ? "" : "s"} ${runningCount}`,

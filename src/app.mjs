@@ -113,6 +113,29 @@ export async function run(argv = []) {
     );
     return 1;
   }
+  // Stale-bundle guard: a dist built before hot runtime sources caused weeks
+  // of ghost failures (compaction placeholder patches) that no longer existed
+  // in src. Sample a few hot files — a newer source than the bundle means the
+  // running behavior will NOT match the tree, so warn loudly.
+  try {
+    const { statSync } = await import('node:fs');
+    const bundleMtime = statSync(bundle).mtimeMs;
+    const hotSources = [
+      join(__dirname, 'runtime', 'agent', 'orchestrator', 'session', 'agent-loop.mjs'),
+      join(__dirname, 'runtime', 'agent', 'orchestrator', 'session', 'loop', 'stored-tool-args.mjs'),
+      join(__dirname, 'tui', 'engine', 'session-api-ext.mjs'),
+      join(__dirname, 'standalone', 'agent-tool.mjs'),
+    ];
+    const stale = hotSources.some((file) => {
+      try { return statSync(file).mtimeMs > bundleMtime + 1_000; } catch { return false; }
+    });
+    if (stale) {
+      process.stderr.write(
+        'mixdog: TUI bundle is OLDER than runtime sources — behavior will not match the tree.\n'
+        + '  Rebuild with: npm run build:tui\n',
+      );
+    }
+  } catch { /* advisory only */ }
   const { runTui } = await import('./tui/dist/index.mjs');
   bootProfile('tui:imported');
   return await runTui(opts);
