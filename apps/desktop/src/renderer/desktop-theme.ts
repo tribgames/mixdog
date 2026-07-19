@@ -72,7 +72,7 @@ function opencodeNative(resolved: string): boolean {
 
 function desktopThemeBackground(resolved: string): string {
   if (resolved === 'light') return '#f1efec';
-  if (opencodeNative(resolved)) return '#1c1b19';
+  if (opencodeNative(resolved)) return '#201e1c';
   return registry[resolved].palette.background;
 }
 

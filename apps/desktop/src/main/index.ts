@@ -242,6 +242,9 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
+    // Windows toast/taskbar identity: without an explicit AppUserModelID the
+    // dev/preview shell reports "electron.app.Electron" as the app name.
+    if (process.platform === 'win32') app.setAppUserModelId('io.mixdog.desktop');
     diagnostics = createDesktopDiagnostics(
       join(app.getPath('userData'), 'logs', 'desktop-diagnostics.jsonl'),
       { appVersion: app.getVersion(), packaged: app.isPackaged },
