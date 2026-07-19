@@ -2982,6 +2982,13 @@ interface GitPanelStatus {
   upstream: boolean;
   files: Array<{ path: string; index: string; worktree: string; untracked: boolean }>;
 }
+interface GitLogRow {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  when: string;
+  pushed: boolean;
+}
 function GitPanel({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
   const [error, setError] = useState("");
@@ -2990,6 +2997,10 @@ function GitPanel({ cwd }: { cwd: string | null }) {
   const [diffPath, setDiffPath] = useState<{ path: string; staged: boolean } | null>(null);
   // null = loading; empty string means "no textual diff" (binary/whitespace).
   const [diffText, setDiffText] = useState<string | null>(null);
+  const [view, setView] = useState<"changes" | "history">("changes");
+  const [log, setLog] = useState<GitLogRow[] | null>(null);
+  const [showHash, setShowHash] = useState("");
+  const [showText, setShowText] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     if (!cwd) { setStatus(null); return; }
     if (!window.mixdogDesktop.gitStatus) {
@@ -3006,7 +3017,22 @@ function GitPanel({ cwd }: { cwd: string | null }) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }, [cwd]);
+  const loadLog = useCallback(async () => {
+    if (!cwd || !window.mixdogDesktop.gitLog) return;
+    try { setLog(await window.mixdogDesktop.gitLog(cwd)); } catch { setLog([]); }
+  }, [cwd]);
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { if (view === "history") void loadLog(); }, [view, loadLog]);
+  // Commit detail (claudecodeui HistoryView): expanded commit loads its patch.
+  useEffect(() => {
+    if (!cwd || !showHash) return undefined;
+    let live = true;
+    setShowText(null);
+    void window.mixdogDesktop.gitShow?.(cwd, showHash)
+      .then((patch) => { if (live) setShowText(patch || ""); })
+      .catch((reason) => { if (live) setShowText(`Error: ${reason instanceof Error ? reason.message : String(reason)}`); });
+    return () => { live = false; };
+  }, [cwd, showHash]);
   // Live status (VSCode SCM grammar): commits/stages made OUTSIDE the panel
   // (CLI, the agent itself) must show up without a manual refresh — poll
   // while the tab is mounted and refetch on window focus.
@@ -3089,17 +3115,37 @@ function GitPanel({ cwd }: { cwd: string | null }) {
         <RotateCcw size={13} />
       </button>
     </header>
-    <form className="dock-git-commit" onSubmit={(event) => {
+    <nav className="dock-git-views" aria-label="Git panel views">
+      <button type="button" className={view === "changes" ? "active" : ""}
+        onClick={() => setView("changes")}>
+        Changes{status.files.length > 0 && <small>{status.files.length}</small>}
+      </button>
+      <button type="button" className={view === "history" ? "active" : ""}
+        onClick={() => setView("history")}>
+        Commits{status.ahead > 0 && <small>↑{status.ahead}</small>}
+      </button>
+    </nav>
+    {view === "changes" && <><form className="dock-git-commit" onSubmit={(event) => {
       event.preventDefault();
       if (!canCommit) return;
       void act(async () => {
         await window.mixdogDesktop.gitCommit?.(cwd, message);
         setMessage("");
         setDiffPath(null);
+        await loadLog();
       });
     }}>
-      <textarea value={message} placeholder={`Message (commit on ${status.branch})`} rows={2}
-        onChange={(event) => setMessage(event.currentTarget.value)} />
+      <textarea value={message} rows={3}
+        placeholder={`Message (Ctrl+Enter to commit on ${status.branch})`}
+        onChange={(event) => setMessage(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+          }
+        }} />
+      <footer>
+        <span>{staged.length} file{staged.length === 1 ? "" : "s"} staged</span>
       {showPush
         ? <button type="button" disabled={busy}
           onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
@@ -3107,10 +3153,9 @@ function GitPanel({ cwd }: { cwd: string | null }) {
         </button>
         : <button type="submit" disabled={!canCommit}>
           <Check size={13} aria-hidden="true" />
-          {staged.length > 0
-            ? `Commit ${staged.length} file${staged.length === 1 ? "" : "s"}`
-            : "Commit"}
+          Commit
         </button>}
+      </footer>
     </form>
     {status.files.length === 0
       ? <p className="utility-dock-empty">Working tree clean.</p>
@@ -3139,7 +3184,36 @@ function GitPanel({ cwd }: { cwd: string | null }) {
             ? unstaged.map((file) => row(file, false))
             : <p className="dock-git-group-empty">All changes staged.</p>}
         </section>
-      </>}
+      </>}</>}
+    {view === "history" && (log === null
+      ? <p className="utility-dock-empty">Loading commits…</p>
+      : log.length === 0
+        ? <p className="utility-dock-empty">No commits yet.</p>
+        : <div className="dock-git-log">
+          {log.map((commit) => {
+            const active = commit.hash === showHash;
+            return <React.Fragment key={commit.hash}>
+              <button type="button" className="dock-git-commit-row"
+                data-active={active || undefined} aria-expanded={active}
+                onClick={() => setShowHash(active ? "" : commit.hash)}>
+                <div>
+                  <b>{commit.subject || "(no message)"}</b>
+                  <small>{commit.shortHash} · {commit.when}</small>
+                </div>
+                {!commit.pushed && <span title="Not pushed yet">↑ local</span>}
+              </button>
+              {active && <div className="dock-git-inline-diff">
+                {showText === null
+                  ? <p className="utility-dock-empty">Loading diff…</p>
+                  : showText.startsWith("Error:")
+                    ? <p className="utility-dock-empty">{showText}</p>
+                    : showText
+                      ? <CodeDiff patch={showText} />
+                      : <p className="utility-dock-empty">Empty commit.</p>}
+              </div>}
+            </React.Fragment>;
+          })}
+        </div>)}
   </div>;
 }
 

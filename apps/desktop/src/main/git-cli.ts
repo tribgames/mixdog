@@ -102,3 +102,49 @@ export async function gitPush(cwd: string): Promise<string> {
   }
   return run(cwd, hasUpstream ? ['push'] : ['push', '-u', 'origin', 'HEAD']);
 }
+
+const COMMIT_HASH_PATTERN = /^[0-9a-f]{4,64}$/i;
+export function requiredCommitHash(value: unknown): string {
+  const hash = typeof value === 'string' ? value.trim() : '';
+  if (!COMMIT_HASH_PATTERN.test(hash)) throw new TypeError('A commit hash is required.');
+  return hash;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  when: string;
+  pushed: boolean;
+}
+
+// History view (claudecodeui HistoryView grammar): recent commits with an
+// unpushed marker so "committed but not pushed" is visible at a glance.
+export async function gitLog(cwd: string): Promise<GitLogEntry[]> {
+  let raw = '';
+  try {
+    raw = await run(cwd, ['log', '-n', '30', '--pretty=format:%H%x1f%h%x1f%s%x1f%cr']);
+  } catch {
+    return []; // Empty repository (no commits yet).
+  }
+  let unpushed: Set<string> | 'all' = 'all';
+  try {
+    unpushed = new Set((await run(cwd, ['rev-list', '@{u}..HEAD'])).split(/\s+/).filter(Boolean));
+  } catch {
+    unpushed = 'all'; // No upstream: every commit is local-only.
+  }
+  return raw.split('\n').filter(Boolean).map((line) => {
+    const [hash = '', shortHash = '', subject = '', when = ''] = line.split('\u001f');
+    return {
+      hash,
+      shortHash,
+      subject,
+      when,
+      pushed: unpushed === 'all' ? false : !unpushed.has(hash),
+    };
+  });
+}
+
+export function gitShow(cwd: string, hash: string): Promise<string> {
+  return run(cwd, ['show', hash, '--patch', '--format=', '--no-color']);
+}

@@ -4773,6 +4773,64 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .dock-git-inline-diff .utility-dock-empty { padding: 6px 0; text-align: left; }
 .dock-git-commit { display: grid; gap: 6px; }
+/* Changes/Commits sub-tabs (claudecodeui GitViewTabs grammar). */
+.dock-git-views { display: flex; border-bottom: .5px solid var(--oc-border-muted); }
+.dock-git-views > button {
+  flex: 1;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  color: var(--oc-text-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.dock-git-views > button:hover { color: var(--oc-text); }
+.dock-git-views > button.active { color: var(--oc-text); border-bottom-color: var(--oc-text); }
+.dock-git-views > button small {
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--oc-text-muted);
+  background: var(--oc-pressed);
+  font-size: 10px;
+  line-height: 16px;
+}
+/* History list (claudecodeui HistoryView grammar). */
+.dock-git-log { display: grid; }
+.dock-git-commit-row {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-git-commit-row:hover { background: var(--oc-hover); }
+.dock-git-commit-row[data-active] { background: var(--oc-pressed); }
+.dock-git-commit-row > div { min-width: 0; flex: 1; display: grid; }
+.dock-git-commit-row b {
+  color: var(--oc-text);
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-git-commit-row small { color: var(--oc-text-faint); font-size: 11px; }
+.dock-git-commit-row > span { flex: 0 0 auto; color: var(--oc-warning); font-size: 11px; font-weight: 600; }
+.dock-git-commit footer { display: flex; align-items: center; gap: 8px; }
+.dock-git-commit footer > span { color: var(--oc-text-faint); font-size: 11px; }
+.dock-git-commit footer > button { margin-left: auto; flex: 0 0 auto; padding: 0 14px; }
 .dock-git-commit textarea {
   min-height: 48px;
   padding: 8px 10px;

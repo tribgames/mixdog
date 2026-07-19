@@ -35,10 +35,13 @@ import { setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-option
 import {
   gitCommit,
   gitDiff,
+  gitLog,
   gitPush,
+  gitShow,
   gitStage,
   gitStatus,
   gitUnstage,
+  requiredCommitHash,
   requiredRepositoryCwd,
 } from './git-cli';
 
@@ -615,6 +618,9 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.gitCommit, (_event, cwd, message) =>
     gitCommit(requiredRepositoryCwd(cwd), requiredString(message, 'commit message', 20_000)));
   handle(DESKTOP_IPC.gitPush, (_event, cwd) => gitPush(requiredRepositoryCwd(cwd)));
+  handle(DESKTOP_IPC.gitLog, (_event, cwd) => gitLog(requiredRepositoryCwd(cwd)));
+  handle(DESKTOP_IPC.gitShow, (_event, cwd, hash) =>
+    gitShow(requiredRepositoryCwd(cwd), requiredCommitHash(hash)));
   const onTermWrite = (event: Electron.IpcMainEvent, id: unknown, data: unknown): void => {
     if (!validTermSender(event)) return;
     terminals?.write(String(id || ''), String(data ?? ''));

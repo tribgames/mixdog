@@ -44,6 +44,8 @@ export const DESKTOP_IPC = {
   gitUnstage: 'mixdog:git-unstage',
   gitCommit: 'mixdog:git-commit',
   gitPush: 'mixdog:git-push',
+  gitLog: 'mixdog:git-log',
+  gitShow: 'mixdog:git-show',
   getUpdaterState: 'mixdog:get-updater-state',
   checkForDesktopUpdate: 'mixdog:check-for-desktop-update',
   showDesktopUpdate: 'mixdog:show-desktop-update',
@@ -449,6 +451,8 @@ export interface DesktopApi {
   gitUnstage?(cwd: string, paths: string[]): Promise<void>;
   gitCommit?(cwd: string, message: string): Promise<string>;
   gitPush?(cwd: string): Promise<string>;
+  gitLog?(cwd: string): Promise<Array<{ hash: string; shortHash: string; subject: string; when: string; pushed: boolean }>>;
+  gitShow?(cwd: string, hash: string): Promise<string>;
   getUpdaterState(): Promise<DesktopUpdaterState>;
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;
