@@ -1237,6 +1237,7 @@ export function App() {
         <SessionSidebar
           open={sidebarOpen}
           sessions={sessions}
+          busySessionId={isBusy ? String(snapshot.sessionId || "") : ""}
           selection={navigationSelection}
           onNewTask={startTask}
           onOpenProjects={() => setProjectPanelOpen(true)}
@@ -1297,7 +1298,7 @@ export function App() {
                     onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
                     aria-label={reviewOpen ? "Back to chat" : "Review changes"}
                     data-tooltip={reviewOpen ? "Back to chat" : "Review"}>
-                    <GitCompare size={17} aria-hidden="true" />
+                    <GitCompare size={18} aria-hidden="true" />
                   </button>
                   <button type="button" className="session-dock-toggle"
                     onClick={() => setDockOpen((value) => !value)} aria-pressed={dockOpen}
@@ -3122,11 +3123,11 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
     setOpenFile(opening ? path : "");
     if (!opening) return;
     // Snap the opened card flush under the sticky header.
-    const pane = trigger.closest(".review-pane");
+    const pane = trigger.closest(".review-scroll");
     const section = trigger.closest(".review-file");
     if (!(pane instanceof HTMLElement) || !(section instanceof HTMLElement)) return;
     requestAnimationFrame(() => {
-      pane.scrollTop += section.getBoundingClientRect().top - pane.getBoundingClientRect().top - 52;
+      pane.scrollTop += section.getBoundingClientRect().top - pane.getBoundingClientRect().top;
     });
   };
   return <div className="review-pane">
@@ -3152,6 +3153,7 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
         </div>}
       </div>
     </header>
+    <div className="review-scroll">
     {changed.length === 0 && <div className="review-empty-state">
       <p className="review-empty">{base === "HEAD" ? "Working tree clean." : `No changes vs ${base}.`}</p>
       {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
@@ -3207,6 +3209,7 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
           </div>}
         </section>;
       })}
+    </div>
     </div>
   </div>;
 }

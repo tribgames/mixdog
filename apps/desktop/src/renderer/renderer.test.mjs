@@ -229,7 +229,7 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   assert.match(styles, /\.session-project-badge\s*\{[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.mixdog-settings__close\s*\{[^}]*flex:\s*0 0 24px;[^}]*place-items:\s*center;/s);
   assert.match(styles, /\.command-surface-header-actions\s*\{[^}]*flex:\s*0 0 auto;/s);
-  assert.match(styles, /\.session-context-indicator > button\s*\{[^}]*place-items:\s*center end;/s);
+  assert.match(styles, /\.session-context-indicator > button\s*\{[^}]*place-items:\s*center;/s);
   assert.match(styles, /\.session-header-status\s*\{[^}]*margin-left:\s*auto;/s);
   assert.match(styles, /\.live-work-status\s*\{[^}]*margin-left:\s*0;/s);
   // The stop state shares the send-button surface; its only override is the

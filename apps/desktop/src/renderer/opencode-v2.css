@@ -504,18 +504,17 @@ button:focus-visible { outline-offset: 2.5px; }
   pointer-events: none;
 }
 .workspace-tab.active + .workspace-tab::before { display: none; }
+/* Working tab: the tab glyph itself becomes a progress spinner. */
 .workspace-tab-main .workspace-tab-status {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
-  border-radius: 50%;
-  background: var(--oc-accent);
-  box-shadow: 0 0 0 2px var(--oc-bg-layer-1);
-  animation: workspace-tab-working 1.2s ease-in-out infinite;
+  flex: 0 0 auto;
+  color: var(--oc-text-muted);
+  animation: spin 1.1s linear infinite;
 }
-@keyframes workspace-tab-working {
-  0%, 100% { opacity: .4; transform: scale(.82); }
-  50% { opacity: 1; transform: scale(1); }
+.session-row-spinner {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  color: var(--oc-text-muted);
+  animation: spin 1.1s linear infinite;
 }
 .workspace-tab-close {
   position: absolute;
@@ -4368,7 +4367,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  /* One 28px slot per control, one 4px rhythm between them (user: the
+     context/review/panel cluster read unevenly spaced). */
+  gap: 4px;
   flex: 0 1 auto;
   margin-left: auto;
   overflow: visible;
@@ -4392,16 +4393,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .session-context-indicator {
   position: relative;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   margin-left: 0;
 }
 .session-context-indicator > button {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: grid;
-  place-items: center end;
+  place-items: center;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -5052,24 +5053,23 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: auto;
-  padding: 0 0 24px;
+  overflow: hidden;
+  padding: 0;
 }
 .review-header {
-  position: sticky;
-  top: 0;
-  z-index: 4;
+  flex: 0 0 auto;
   width: min(100%, 800px);
   margin: 0 auto;
   display: flex;
   align-items: center;
   gap: 12px;
-  /* Fixed height so the file-header sticky offset below matches EXACTLY —
-     a mismatched offset let rows slide half-buried under this bar. */
   height: 52px;
   padding: 0 32px;
   background: var(--oc-workspace-sheet);
 }
+/* The scrollbar belongs to the CONTENT band under the header (user), so the
+   header sits outside the scroller and file headers stick at top 0. */
+.review-scroll { min-height: 0; flex: 1; overflow: auto; padding-bottom: 24px; }
 .review-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .review-title h2 { font-size: 14px; font-weight: 600; line-height: 1; }
 .review-branch { color: var(--oc-text-muted); font-size: 12px; white-space: nowrap; }
@@ -5115,8 +5115,8 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 }
 .review-file-header {
   position: sticky;
-  top: 52px;
-  z-index: 2;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   border-radius: 8px;
@@ -5160,7 +5160,9 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .review-file-header:hover .dock-git-action,
 .review-file-header:focus-within .dock-git-action,
 .review-file-header .dock-git-revert-confirm { opacity: 1; }
-.review-file-body { padding: 4px 12px 10px; }
+/* Contain the diff library's internal z-indexes (up to 10 !important) so
+   rows can never paint over the sticky header. */
+.review-file-body { position: relative; z-index: 0; padding: 4px 12px 10px; }
 .review-large-diff { display: grid; gap: 6px; justify-items: start; padding: 14px 4px; }
 .review-large-diff b { font-size: 13px; font-weight: 600; }
 .review-large-diff span { color: var(--oc-text-muted); font-size: 12px; }

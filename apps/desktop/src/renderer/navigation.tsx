@@ -11,6 +11,7 @@ import {
   ArrowDown,
   Folder,
   FolderPlus,
+  LoaderCircle,
   MessageCircle,
   MoreHorizontal,
   PanelLeft,
@@ -239,11 +240,14 @@ export function DesktopTitlebar({
                     aria-current={active ? "page" : undefined}
                     data-tooltip={tab.title}
                   >
-                    {tab.selection.kind === "project"
-                      ? <Folder size={14} />
-                      : <MessageCircle size={14} />}
-                    {working && <span className="workspace-tab-status" role="status"
-                      aria-label={`${tab.title} is working`} />}
+                    {/* While the session works, the tab GLYPH becomes the
+                        progress spinner (user decision) — no extra dot. */}
+                    {working
+                      ? <LoaderCircle size={14} className="workspace-tab-status" role="status"
+                        aria-label={`${tab.title} is working`} />
+                      : tab.selection.kind === "project"
+                        ? <Folder size={14} />
+                        : <MessageCircle size={14} />}
                     <span>{tab.title}</span>
                   </button>
                   <button
@@ -376,6 +380,7 @@ function storedSidebarWidth() {
 interface SessionSidebarProps {
   open: boolean;
   sessions: DesktopSessionSummary[];
+  busySessionId?: string;
   selection: NavigationSelection;
   onNewTask(): void;
   onOpenProjects(): void;
@@ -388,6 +393,7 @@ interface SessionSidebarProps {
 export const SessionSidebar = React.memo(function SessionSidebar({
   open,
   sessions,
+  busySessionId = "",
   selection,
   onNewTask,
   onOpenProjects,
@@ -500,6 +506,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             {rows.length === 0 && <p className="sidebar-section-empty">No sessions</p>}
             {rows.map((session) => <SessionSidebarRow key={session.id}
               session={session} active={selection.kind === "session" && selection.id === session.id}
+              working={session.id === busySessionId}
               editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
               sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
               confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
@@ -544,6 +551,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
 const SessionSidebarRow = React.memo(function SessionSidebarRow({
   session,
   active,
+  working,
   editingSessionId,
   sessionTitleDraft,
   sessionTitleInvalid,
@@ -563,6 +571,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
 }: {
   session: DesktopSessionSummary;
   active: boolean;
+  working?: boolean;
   editingSessionId: string;
   sessionTitleDraft: string;
   sessionTitleInvalid: boolean;
@@ -580,7 +589,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onSetDeleting: React.Dispatch<React.SetStateAction<string>>;
   onDeleteSession(sessionId: string): Promise<void>;
 }) {
-  return <SessionRow session={session} active={active}
+  return <SessionRow session={session} active={active} working={working}
     editing={editingSessionId === session.id}
     titleDraft={sessionTitleDraft}
     titleInvalid={sessionTitleInvalid}
@@ -616,6 +625,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
 const SessionRow = React.memo(function SessionRow({
   session,
   active,
+  working,
   editing,
   titleDraft,
   titleInvalid,
@@ -635,6 +645,7 @@ const SessionRow = React.memo(function SessionRow({
 }: {
   session: DesktopSessionSummary;
   active: boolean;
+  working?: boolean;
   editing: boolean;
   titleDraft: string;
   titleInvalid: boolean;
@@ -701,7 +712,10 @@ const SessionRow = React.memo(function SessionRow({
       ) : (
         <>
           <button type="button" className="session-row-main">
-            {/* Grok-web recent list: plain titles, no per-row glyph. */}
+            {/* Grok-web recent list: plain titles — the ONLY glyph is the
+                progress spinner while this session is working. */}
+            {working && <LoaderCircle size={12} className="session-row-spinner" role="status"
+              aria-label={`${sessionLabel(session)} is working`} />}
             <span className="session-row-copy"
               onDoubleClick={(event) => {
                 event.preventDefault();
