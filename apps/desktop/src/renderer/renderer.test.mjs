@@ -216,7 +216,7 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   assert.match(styles, /\.session-row-menu-wrap\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
   assert.match(styles, /\.session-row-copy b\s*\{[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
   assert.match(styles, /\.message\.user\.attached-user\s*\{\s*margin-top:\s*-12px;/);
-  assert.match(styles, /\.thread\s*\{[^}]*padding:\s*20px 36px 16px;[^}]*gap:\s*16px;/s);
+  assert.match(styles, /\.thread\s*\{[^}]*padding:\s*20px 36px 28px;[^}]*gap:\s*16px;/s);
   assert.match(styles, /\.message\.user \+ \.message\.assistant\s*\{\s*margin-top:\s*-16px;/);
   assert.match(styles, /\.message\.user \.message-meta-line\s*\{[^}]*position:\s*static;[^}]*width:\s*100%;/s);
   assert.match(styles, /\.tool-title\s*\{[^}]*flex:\s*0 1 auto;/s);

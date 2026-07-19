@@ -3388,7 +3388,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   // Conversation title runs one step above tab chrome (user: important info
   // read underweighted at 14px/500).
   assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*15px;[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);
-  assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 36px 16px;/s);
+  assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 36px 28px;/s);
   assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s);
   assert.match(openCodeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
   assert.match(openCodeCss, /\.session-sidebar-footer button\s*\{[^}]*height:\s*36px;/s);
