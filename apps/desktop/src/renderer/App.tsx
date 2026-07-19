@@ -2870,13 +2870,18 @@ interface DockAgentRow {
 function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
   const workers = Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [];
   const jobs = Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [];
-  return [...workers, ...jobs].flatMap((entry, index) => {
+  // The dock lists CURRENT spawns only (user decision): terminal runs drop
+  // off, and a spawn reported both as a worker AND a job merges into ONE row
+  // (task id → tag → name identity) so nothing shows twice.
+  const rows = new Map<string, DockAgentRow>();
+  [...workers, ...jobs].forEach((entry, index) => {
     const record = asRecord(entry);
-    if (!record) return [];
+    if (!record) return;
     const name = String(record.tag || record.agent || record.name || record.role || record.id || "agent").trim() || "agent";
     const status = String(record.stage || record.status || "running").trim() || "running";
     const startedAt = timeMs(record.startedAt || record.startTime || record.createdAt);
     const done = TERMINAL_AGENT_STATUS.test(status);
+    if (done) return;
     const failed = /error|fail|killed|timeout|cancel/i.test(status);
     const detail = String(record.task || record.description || record.summary || record.model || "").trim();
     const tag = String(record.tag || "").trim();
@@ -2884,8 +2889,21 @@ function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
     const readArgs: RecordValue | null = taskId
       ? { type: "read", task_id: taskId }
       : tag ? { type: "read", tag } : null;
-    return [{ key: `${name}-${String(record.id ?? index)}`, name, status, detail, startedAt, done, failed, readArgs }];
+    const identity = taskId || tag || `${name}-${String(record.id ?? index)}`;
+    const existing = rows.get(identity);
+    if (!existing) {
+      rows.set(identity, { key: identity, name, status, detail, startedAt, done, failed, readArgs });
+      return;
+    }
+    rows.set(identity, {
+      ...existing,
+      detail: existing.detail || detail,
+      startedAt: existing.startedAt || startedAt,
+      failed: existing.failed || failed,
+      readArgs: existing.readArgs || readArgs,
+    });
   });
+  return [...rows.values()].sort((left, right) => left.startedAt - right.startedAt);
 }
 function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
   const files = new Map<string, SessionFileChange>();
