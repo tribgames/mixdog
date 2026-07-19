@@ -1485,7 +1485,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .notice { border: 0; border-radius: 6px; color: var(--oc-text-muted); background: var(--oc-bg-layer-1); box-shadow: 0 0 0 .5px var(--oc-border); font-size: 13px; }
 .notice.error { color: var(--oc-danger); background: var(--oc-danger-bg); }
-.turn-status, .live-activity { color: var(--oc-text-faint); font-size: 13px; font-weight: 400; line-height: 20px; }
+/* Empty states center on BOTH axes inside the dock body. */
+.utility-dock-body { display: flex; flex-direction: column; }
+.utility-dock-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--oc-text-faint);
+  font-size: 13px;
+  text-align: center;
+}
 .live-activity {
   height: auto;
   min-height: 20px;
@@ -4606,9 +4616,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-agent-copy b { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-agent-copy small { color: var(--oc-text-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-agent-row > span { flex: 0 0 auto; color: var(--oc-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-/* Terminal tab: xterm fills the body edge-to-edge on the sheet tone. */
-.utility-dock-body[data-tab="terminal"] { padding: 4px 8px 8px; overflow: hidden; }
-.dock-terminal { min-height: 0; height: 100%; }
+/* Terminal tab: always-dark surface (Cursor grammar) so ANSI palettes read. */
+.utility-dock-body[data-tab="terminal"] { padding: 0; overflow: hidden; background: #141312; }
+.dock-terminal { min-height: 0; height: 100%; padding: 8px 6px 8px 12px; }
 .dock-terminal .xterm { height: 100%; }
 @media (max-width: 900px) {
   .utility-dock { display: none; }

@@ -8,16 +8,16 @@ import '@xterm/xterm/css/xterm.css';
 
 let shared: { id: string | null; term: Terminal; fit: FitAddon } | null = null;
 
-function xtermTheme() {
-  const styles = getComputedStyle(document.documentElement);
-  const token = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
-  return {
-    background: token('--oc-workspace-sheet', '#1a1918'),
-    foreground: token('--oc-text', '#f4f2ee'),
-    cursor: token('--oc-text', '#f4f2ee'),
-    selectionBackground: token('--oc-pressed', '#3a3733'),
-  };
-}
+// Terminals stay DARK on both app themes (Cursor grammar): ANSI palettes —
+// PSReadLine yellows included — assume a dark background, and a light sheet
+// made typed input and the cursor unreadable (user-flagged).
+const TERMINAL_THEME = {
+  background: '#141312',
+  foreground: '#f4f2ee',
+  cursor: '#f4f2ee',
+  cursorAccent: '#141312',
+  selectionBackground: 'rgba(244, 242, 238, .28)',
+};
 
 export default function TerminalPane({ cwd }: { cwd: string | null }) {
   const host = useRef<HTMLDivElement>(null);
@@ -34,14 +34,14 @@ export default function TerminalPane({ cwd }: { cwd: string | null }) {
         fontSize: 13,
         lineHeight: 1.35,
         cursorBlink: true,
-        theme: xtermTheme(),
+        cursorStyle: 'bar',
+        theme: TERMINAL_THEME,
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
       shared = { id: null, term, fit };
     }
     const { term, fit } = shared;
-    term.options.theme = xtermTheme();
     if (term.element) container.appendChild(term.element);
     else term.open(container);
     void (async () => {
