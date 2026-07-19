@@ -344,6 +344,12 @@ interface DesktopIpcDependencies {
     check(): Promise<DesktopUpdaterState>;
     install(): Promise<void>;
   };
+  terminals?: {
+    ensure(id: string | null, cwd: string | null): { id: string; replay: string };
+    write(id: string, data: string): void;
+    resize(id: string, cols: number, rows: number): void;
+    subscribe(listener: (event: { id: string; data: string }) => void): () => void;
+  };
 }
 
 function requiredExternalUrl(value: unknown): string {
@@ -375,7 +381,7 @@ export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
 export function registerDesktopIpc(
   window: BrowserWindow,
   host: EngineHost,
-  { app, ipcMain, dialog, shell, settingsStore, updater }: DesktopIpcDependencies,
+  { app, ipcMain, dialog, shell, settingsStore, updater, terminals }: DesktopIpcDependencies,
 ): () => void {
   let quitPromise: Promise<void> | null = null;
   const assertSender = (event: IpcMainInvokeEvent): void => {
@@ -571,7 +577,36 @@ export function registerDesktopIpc(
     (host as { perfLog?: (line: string) => void }).perfLog?.(String(line ?? ''));
   };
   ipcMain.on(DESKTOP_IPC.perfLog, onPerfLog);
-  const eventChannels = new Set<string>([DESKTOP_IPC.state, DESKTOP_IPC.updaterState, DESKTOP_IPC.perfLog]);
+  // Dock terminal: invoke for ensure, fire-and-forget events for keystrokes
+  // and resize (latency), a push event for PTY output. Same sender guard as
+  // the invoke surface — a compromised child frame must not reach the PTY.
+  const validTermSender = (event: Electron.IpcMainEvent): boolean =>
+    event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame;
+  if (terminals) {
+    handle(DESKTOP_IPC.termEnsure, (_event, id, cwd) => terminals.ensure(
+      typeof id === 'string' && id ? id : null,
+      typeof cwd === 'string' && cwd ? cwd : null,
+    ));
+  }
+  const onTermWrite = (event: Electron.IpcMainEvent, id: unknown, data: unknown): void => {
+    if (!validTermSender(event)) return;
+    terminals?.write(String(id || ''), String(data ?? ''));
+  };
+  const onTermResize = (event: Electron.IpcMainEvent, id: unknown, cols: unknown, rows: unknown): void => {
+    if (!validTermSender(event)) return;
+    terminals?.resize(String(id || ''), Number(cols), Number(rows));
+  };
+  ipcMain.on(DESKTOP_IPC.termWrite, onTermWrite);
+  ipcMain.on(DESKTOP_IPC.termResize, onTermResize);
+  const unsubscribeTerminals = terminals?.subscribe((event) => {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+      window.webContents.send(DESKTOP_IPC.termData, event);
+    }
+  }) ?? (() => {});
+  const eventChannels = new Set<string>([
+    DESKTOP_IPC.state, DESKTOP_IPC.updaterState, DESKTOP_IPC.perfLog,
+    DESKTOP_IPC.termWrite, DESKTOP_IPC.termResize, DESKTOP_IPC.termData,
+  ]);
   const channels = Object.values(DESKTOP_IPC).filter((channel) => !eventChannels.has(channel));
   let removed = false;
 
@@ -580,7 +615,10 @@ export function registerDesktopIpc(
     removed = true;
     unsubscribeState();
     unsubscribeUpdater();
+    unsubscribeTerminals();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
+    ipcMain.removeListener(DESKTOP_IPC.termWrite, onTermWrite);
+    ipcMain.removeListener(DESKTOP_IPC.termResize, onTermResize);
     for (const channel of channels) ipcMain.removeHandler(channel);
   };
 }

@@ -844,6 +844,20 @@ async function captureWindow(): Promise<void> {
         )];
       })),
     };
+    // Panels default MINIMIZED; the capture contract measures the EXPANDED
+    // rail, so open the session sidebar before any geometry pass.
+    await window.webContents.executeJavaScript(`(() => {
+      if (document.querySelector('.app-shell.sidebar-collapsed')) {
+        const toggle = document.querySelector('.toolbar-sidebar');
+        if (toggle instanceof HTMLElement) toggle.click();
+      }
+      return true;
+    })()`);
+    await waitForRenderer(
+      window,
+      "!document.querySelector('.app-shell.sidebar-collapsed')",
+      'expanded session sidebar',
+    );
     window.setSize(1_000, 650);
     await new Promise((resolve) => setTimeout(resolve, 150));
     const resizedBounds = window.getBounds();

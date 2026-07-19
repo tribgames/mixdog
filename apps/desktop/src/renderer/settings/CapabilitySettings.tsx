@@ -743,6 +743,7 @@ const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [s
     ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous tab'],
     ['Ctrl+← / →', 'Switch tab'],
     ['Ctrl+B', 'Toggle sidebar'],
+    ['Ctrl+Alt+B', 'Toggle utility panel'],
     ['Ctrl+,', 'Open settings'],
     ['Esc', 'Close menus and popovers'],
   ]],

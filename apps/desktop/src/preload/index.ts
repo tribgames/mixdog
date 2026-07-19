@@ -39,6 +39,20 @@ const api: DesktopApi = {
   perfLog: (line) => {
     try { ipcRenderer.send(DESKTOP_IPC.perfLog, String(line)); } catch { /* diagnostics only */ }
   },
+  termEnsure: (id, cwd) => ipcRenderer.invoke(DESKTOP_IPC.termEnsure, id, cwd ?? null),
+  termWrite: (id, data) => {
+    try { ipcRenderer.send(DESKTOP_IPC.termWrite, id, data); } catch { /* keystroke lost */ }
+  },
+  termResize: (id, cols, rows) => {
+    try { ipcRenderer.send(DESKTOP_IPC.termResize, id, cols, rows); } catch { /* next resize wins */ }
+  },
+  subscribeTermData: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, payload: { id: string; data: string }): void => {
+      listener(payload);
+    };
+    ipcRenderer.on(DESKTOP_IPC.termData, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.termData, receive);
+  },
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {

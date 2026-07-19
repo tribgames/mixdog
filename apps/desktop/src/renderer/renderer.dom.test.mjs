@@ -899,12 +899,15 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".session-header-divider") === null, true, "selector .session-header-divider should be absent");
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Mixdog|Local account/);
   assert.equal(document.querySelectorAll(".toolbar-sidebar").length, 1);
-  assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Collapse session sidebar");
-  assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon").dataset.state, "open");
+  // Both side panels start MINIMIZED (user decision) — launch shows the
+  // collapsed rail until the user expands it.
+  assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Expand session sidebar");
+  assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon").dataset.state, "closed");
   // Outline-only toggle glyph (lucide PanelLeft): no filled open-state layer.
   assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon-active") === null, true, "selector .toolbar-sidebar .sidebar-toggle-icon-active should be absent");
   assert.doesNotMatch(document.body.textContent || "", /No project selected|\bReady\b/);
 
+  await act(async () => document.querySelector(".toolbar-sidebar").click());
   await act(async () => document.querySelector(".sidebar-backdrop").click());
   const sidebar = document.querySelector(".sidebar");
   assert.equal(sidebar.classList.contains("open"), false);
@@ -1351,6 +1354,8 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
     await Promise.resolve();
     await Promise.resolve();
   });
+  // Panels start minimized: expand the session sidebar for row interactions.
+  await act(async () => document.querySelector(".toolbar-sidebar").click());
 
   let title = document.querySelector(".recent-session-list .session-row-copy");
   assert.equal(document.querySelector(".session-row-more")?.getAttribute("aria-label"), "More actions for Original title");
@@ -1800,6 +1805,8 @@ test("a failed project replacement synchronizes to the empty actual host without
     root.render(React.createElement(App));
     await Promise.resolve();
   });
+  // Panels start minimized: expand the session sidebar for nav assertions.
+  await act(async () => document.querySelector(".toolbar-sidebar").click());
 
   let dialog = await openProjectSwitcher();
   let rows = dialog.querySelectorAll(".project-row");
@@ -2250,6 +2257,8 @@ test("flat recent sessions and separate project switcher preserve navigation and
     await Promise.resolve();
     await Promise.resolve();
   });
+  // Panels start minimized: expand the session sidebar for row assertions.
+  await act(async () => document.querySelector(".toolbar-sidebar").click());
   assert.deepEqual(Array.from(document.querySelectorAll('.recent-session-list .session-row-copy b'),
     (row) => row.textContent.trim()),
   ["Unregistered folder task", "Newest project work", "Untitled session", "Project work", "Older task"]);
@@ -2417,6 +2426,9 @@ test("desktop sidebar remains open immediately above the 760px breakpoint", asyn
     await Promise.resolve();
     await Promise.resolve();
   });
+  // Panels start minimized by default; the breakpoint contract is about the
+  // EXPANDED sidebar staying open above 760px.
+  await act(async () => document.querySelector(".toolbar-sidebar").click());
   await selectFirstProject();
   const shell = document.querySelector(".app-shell");
   assert.equal(shell.classList.contains("sidebar-collapsed"), false);
@@ -3416,6 +3428,8 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     root.render(React.createElement(App));
     await Promise.resolve();
   });
+  // Panels start minimized: expand the sidebar so the resize rail is live.
+  await act(async () => document.querySelector(".toolbar-sidebar").click());
   const sidebar = document.querySelector(".sidebar");
   const shell = sidebar?.closest(".app-shell");
   const toggle = document.querySelector(".toolbar-sidebar");

@@ -8,6 +8,7 @@ import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-dia
 import { registerDesktopIpc } from './ipc';
 import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
+import { TerminalManager } from './terminal-manager';
 import { desktopUpdater, startAutoUpdater } from './updater';
 import {
   DESKTOP_WINDOW_OPTIONS,
@@ -39,6 +40,7 @@ const settingsStore = new DesktopSettingsStore({
 });
 let mainWindow: BrowserWindow | null = null;
 let removeIpc: (() => void) | null = null;
+const terminalManager = new TerminalManager();
 let quitAfterDispose = false;
 let disposalPromise: Promise<void> | null = null;
 let windowState: ReturnType<typeof persistWindowState> | null = null;
@@ -68,6 +70,7 @@ function disposeDesktopResources(): Promise<void> {
     diagnosticsMemoryTimer = null;
   }
   if (!disposalPromise) diagnostics?.write('desktop-stop');
+  terminalManager.disposeAll();
   disposalPromise ??= Promise.all([
     host.dispose(),
     windowStateFlush,
@@ -156,6 +159,7 @@ async function createWindow(): Promise<void> {
     shell,
     settingsStore,
     updater: desktopUpdater,
+    terminals: terminalManager,
   });
   diagnostics?.write('window-created');
 

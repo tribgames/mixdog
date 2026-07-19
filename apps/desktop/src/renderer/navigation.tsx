@@ -14,6 +14,7 @@ import {
   MessageCircle,
   MoreHorizontal,
   PanelLeft,
+  PanelRight,
   Pencil,
   Pin,
   Plus,
@@ -46,12 +47,14 @@ interface DesktopTitlebarProps {
   activeKey: string;
   activeBusy?: boolean;
   updaterState?: DesktopUpdaterState;
+  dockOpen?: boolean;
   onToggleSidebar(): void;
   onSelectTab(tab: WorkspaceTab): void;
   onCloseTab(tab: WorkspaceTab): void;
   onReorderTab(sourceKey: string, targetKey: string): void;
   onNewTask(): void;
   onOpenUpdate?(): void;
+  onToggleDock?(): void;
 }
 
 function SidebarToggleIcon({ open }: { open: boolean }) {
@@ -67,12 +70,14 @@ export function DesktopTitlebar({
   activeKey,
   activeBusy = false,
   updaterState,
+  dockOpen = false,
   onToggleSidebar,
   onSelectTab,
   onCloseTab,
   onReorderTab,
   onNewTask,
   onOpenUpdate,
+  onToggleDock,
 }: DesktopTitlebarProps) {
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
   const tabStrip = useRef<HTMLElement>(null);

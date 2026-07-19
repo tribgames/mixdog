@@ -29,6 +29,7 @@ import {
   LoaderCircle,
   Mic,
   ArrowUp,
+  PanelRight,
   Plus,
   RotateCcw,
   ShieldAlert,
@@ -37,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import { OcIcon } from "./OcIcon";
+import { ContextBody } from "./CommandSurface";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type {
@@ -218,6 +220,23 @@ type Snapshot = RecordValue & {
 };
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
+const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
+type UtilityDockTab = 'changes' | 'agents' | 'terminal';
+function clampDockWidth(value: number): number {
+  return Math.min(560, Math.max(300, Math.round(Number.isFinite(value) ? value : 380)));
+}
+function readDockState(): { open: boolean; tab: UtilityDockTab; width: number } {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(DOCK_STATE_KEY) || '{}') as Record<string, unknown>;
+    return {
+      open: raw.open === true,
+      tab: raw.tab === 'agents' || raw.tab === 'terminal' ? raw.tab : 'changes',
+      width: clampDockWidth(Number(raw.width)),
+    };
+  } catch {
+    return { open: false, tab: 'changes', width: 380 };
+  }
+}
 let settingsViewModulePromise: Promise<typeof import("./settings/SettingsView")> | null = null;
 function loadSettingsViewModule() {
   settingsViewModulePromise ||= import("./settings/SettingsView");
@@ -230,6 +249,7 @@ const OnboardingWizard = lazy(() => import("./settings/OnboardingWizard")
 const CommandSurface = lazy(() => import("./CommandSurface")
   .then((module) => ({ default: module.CommandSurface })));
 const DiffView = lazy(() => import("./DiffView.lazy"));
+const TerminalPane = lazy(() => import("./TerminalPane"));
 
 function asRecord(value: unknown): RecordValue | null {
   return value !== null && typeof value === "object" ? value as RecordValue : null;
@@ -372,7 +392,9 @@ function useDesktopState() {
 
 export function App() {
   const { snapshot, connected, error, setError, applySnapshot } = useDesktopState();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Both side panels start MINIMIZED (user decision): the workspace opens
+  // clean and panels are opt-in per session.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [projectPanelOpen, setProjectPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Settings stays MOUNTED after first use (hidden via display:none): the
@@ -381,6 +403,20 @@ export function App() {
   const [settingsMounted, setSettingsMounted] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
+  // Right utility dock (Cursor-style side panel): open/tab/width persist.
+  const [dockOpen, setDockOpen] = useState<boolean>(false);
+  const [dockTab, setDockTab] = useState<UtilityDockTab>(() => readDockState().tab);
+  const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DOCK_STATE_KEY, JSON.stringify({ open: dockOpen, tab: dockTab, width: dockWidth }));
+    } catch { /* dock state is a convenience only */ }
+  }, [dockOpen, dockTab, dockWidth]);
+  // Reopening the dock starts fresh on the first tab (user decision, same
+  // grammar as the settings dialog reset).
+  useEffect(() => {
+    if (dockOpen) setDockTab("changes");
+  }, [dockOpen]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
   const [sessions, setSessions] = useState<DesktopSessionSummary[]>([]);
@@ -1150,6 +1186,11 @@ export function App() {
         setSidebarOpen((value) => !value);
         return;
       }
+      if (key === "b" && event.altKey && !event.shiftKey) {
+        event.preventDefault();
+        setDockOpen((value) => !value);
+        return;
+      }
       if (key === "q" && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         const active = tabs.find((tab) => tab.key === activeTabKey);
@@ -1246,6 +1287,12 @@ export function App() {
                   <LiveWorkStatus snapshot={visibleSnapshot} />
                   <ContextUsageIndicator snapshot={visibleSnapshot}
                     onOpen={() => setCommandSurface("context")} />
+                  <button type="button" className="session-dock-toggle"
+                    onClick={() => setDockOpen((value) => !value)} aria-pressed={dockOpen}
+                    aria-label={dockOpen ? "Close utility panel" : "Open utility panel"}
+                    data-tooltip={dockOpen ? "Close panel" : "Open panel"}>
+                    <PanelRight size={18} aria-hidden="true" />
+                  </button>
                 </div>
               </div>
             </header>
@@ -1272,6 +1319,9 @@ export function App() {
             {switchingSessionId && <div className="session-switch-overlay" aria-hidden="true" />}
           </div>
         </main>
+        {dockOpen && <UtilityDock width={dockWidth} tab={dockTab}
+          onTab={setDockTab} onResize={(value) => setDockWidth(clampDockWidth(value))}
+          items={(visibleSnapshot.items || []) as TranscriptItem[]} snapshot={visibleSnapshot} />}
       </div>
       <ProjectSwitcher
         open={projectPanelOpen}
@@ -2747,6 +2797,132 @@ function TurnReviewBar({ items }: { items: TranscriptItem[] }) {
       </ul>}
     </section>
   );
+}
+
+// ── Right utility dock (Cursor-style side panel) ─────────────────────────
+// Changes: session-wide file edits (every tool patch), expandable per file.
+// Context: the live context surface (same body as the modal), polled while
+// the tab is visible.
+interface SessionFileChange {
+  name: string;
+  additions: number;
+  deletions: number;
+  patches: string[];
+}
+interface DockAgentRow {
+  key: string;
+  name: string;
+  status: string;
+  detail: string;
+  startedAt: number;
+  done: boolean;
+  failed: boolean;
+}
+function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
+  const workers = Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [];
+  const jobs = Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [];
+  return [...workers, ...jobs].flatMap((entry, index) => {
+    const record = asRecord(entry);
+    if (!record) return [];
+    const name = String(record.tag || record.agent || record.name || record.role || record.id || "agent").trim() || "agent";
+    const status = String(record.stage || record.status || "running").trim() || "running";
+    const startedAt = timeMs(record.startedAt || record.startTime || record.createdAt);
+    const done = TERMINAL_AGENT_STATUS.test(status);
+    const failed = /error|fail|killed|timeout|cancel/i.test(status);
+    const detail = String(record.task || record.description || record.summary || record.model || "").trim();
+    return [{ key: `${name}-${String(record.id ?? index)}`, name, status, detail, startedAt, done, failed }];
+  });
+}
+function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
+  const files = new Map<string, SessionFileChange>();
+  for (const item of items) {
+    if (item?.kind !== "tool") continue;
+    const patch = findPatch(item);
+    if (!patch) continue;
+    try {
+      for (const file of parseUnifiedDiff(patch)) {
+        const name = file.newFile.fileName || file.oldFile?.fileName || "unknown file";
+        const entry = files.get(name) || { name, additions: 0, deletions: 0, patches: [] };
+        const body = file.hunks.join("\n").split("\n");
+        entry.additions += body.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+        entry.deletions += body.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+        if (!entry.patches.includes(patch)) entry.patches.push(patch);
+        files.set(name, entry);
+      }
+    } catch { /* non-diff payload — skip */ }
+  }
+  return [...files.values()];
+}
+
+function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
+  width: number;
+  tab: UtilityDockTab;
+  onTab(tab: UtilityDockTab): void;
+  onResize(width: number): void;
+  items: TranscriptItem[];
+  snapshot: Snapshot;
+}) {
+  // Elapsed readouts for running agents tick once a second while visible.
+  const [agentClock, setAgentClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (tab !== "agents") return undefined;
+    const timer = window.setInterval(() => setAgentClock(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [tab]);
+  const changes = useMemo(() => sessionFileChanges(items), [items]);
+  const agents = useMemo(() => dockAgentRows(snapshot), [snapshot.agentWorkers, snapshot.agentJobs]);
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = width;
+    const move = (moveEvent: PointerEvent) => onResize(startWidth + (startX - moveEvent.clientX));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  return <aside className="utility-dock" style={{ width, flexBasis: width }} aria-label="Utility panel">
+    <div className="utility-dock-resize" role="separator" aria-orientation="vertical"
+      aria-label="Resize utility panel" onPointerDown={startResize} />
+    <nav className="utility-dock-tabs" aria-label="Utility panel tabs">
+      <button type="button" className={tab === "changes" ? "active" : ""}
+        onClick={() => onTab("changes")}>Changes</button>
+      <button type="button" className={tab === "agents" ? "active" : ""}
+        onClick={() => onTab("agents")}>Agents</button>
+      <button type="button" className={tab === "terminal" ? "active" : ""}
+        onClick={() => onTab("terminal")}>Terminal</button>
+    </nav>
+    <div className="utility-dock-body" data-tab={tab}>
+      {tab === "changes" && (changes.length
+        ? changes.map((file) => <details className="dock-change" key={file.name}>
+          <summary>
+            <FileDiff size={14} aria-hidden="true" />
+            <b title={file.name}>{file.name}</b>
+            <span className="diff-stats"><i>+{file.additions}</i><em>-{file.deletions}</em></span>
+          </summary>
+          {file.patches.map((patch, index) => <CodeDiff key={index} patch={patch} />)}
+        </details>)
+        : <p className="utility-dock-empty">No file changes in this session yet.</p>)}
+      {tab === "agents" && (agents.length
+        ? <div className="dock-agent-list" role="list">
+          {agents.map((agent) => <div className="dock-agent-row" role="listitem" key={agent.key}
+            data-state={agent.failed ? "failed" : agent.done ? "done" : "running"}>
+            <i aria-hidden="true" />
+            <div className="dock-agent-copy">
+              <b>{agent.name}</b>
+              {agent.detail && <small title={agent.detail}>{agent.detail}</small>}
+            </div>
+            <span>{agent.done || !agent.startedAt ? agent.status : formatWorkElapsed(agentClock - agent.startedAt)}</span>
+          </div>)}
+        </div>
+        : <p className="utility-dock-empty">No agent activity in this session yet.</p>)}
+      {tab === "terminal" && <Suspense fallback={null}>
+        <TerminalPane cwd={String(snapshot.currentProject || snapshot.project || "") || null} />
+      </Suspense>}
+    </div>
+  </aside>;
 }
 
 function QueueList({ queued, restoring, onEdit, onRemove }: {

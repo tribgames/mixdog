@@ -366,6 +366,7 @@ button:focus-visible { outline-offset: 2.5px; }
 .toolbar-sidebar svg.lucide,
 .sidebar-nav-icon svg.lucide,
 .workspace-tab-main > svg.lucide,
+.session-dock-toggle svg.lucide,
 .session-sidebar-footer .sidebar-settings-button svg.lucide {
   stroke-width: 1.25px;
 }
@@ -554,6 +555,9 @@ button:focus-visible { outline-offset: 2.5px; }
   background: var(--oc-window-band);
 }
 .sidebar-collapsed .desktop-body { gap: 0; }
+/* gap:0 above exists for the collapsed LEFT rail; the dock still needs its
+   sheet gap (user: panels fused when the sidebar was minimized). */
+.sidebar-collapsed .desktop-body > .utility-dock { margin-left: 8px; }
 .main-panel { background: transparent; }
 .workspace {
   position: relative;
@@ -4345,6 +4349,23 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin-left: auto;
   overflow: visible;
 }
+/* Dock toggle rides the session header, in the sidebar-toggle voice: same
+   thin stroke, same label ink. */
+.session-dock-toggle {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-text);
+  background: transparent;
+  cursor: pointer;
+}
+.session-dock-toggle:hover, .session-dock-toggle:focus-visible {
+  background: var(--oc-hover);
+}
 .session-context-indicator {
   position: relative;
   width: 24px;
@@ -4498,6 +4519,100 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 /* Round-2 reference parity (zed/roo-code): review bar, queue remove, popover
    compact action, title regenerate. */
+/* ── Right utility dock (Cursor-style side panel) ── */
+.utility-dock {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 300px;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  /* EXACTLY the workspace-sheet language: same radius, same sheet tone,
+     same raised elevation (user: dock must match the main session card). */
+  border-radius: 10px;
+  background: var(--oc-workspace-sheet);
+  box-shadow: var(--oc-raised);
+  overflow: hidden;
+}
+.utility-dock-resize {
+  position: absolute;
+  inset-block: 0;
+  left: -4px;
+  width: 9px;
+  z-index: 5;
+  cursor: col-resize;
+}
+.utility-dock-tabs { display: flex; gap: 2px; padding: 8px 8px 6px; border-bottom: .5px solid var(--oc-border-muted); }
+.utility-dock-tabs button {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-text-muted);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.utility-dock-tabs button:hover { color: var(--oc-text); background: var(--oc-hover); }
+.utility-dock-tabs button.active { color: var(--oc-text); background: var(--oc-pressed); }
+.utility-dock-body { min-height: 0; flex: 1; overflow-y: auto; padding: 10px 12px 14px; scrollbar-width: thin; }
+.utility-dock-empty { margin: 8px 0; color: var(--oc-text-faint); font-size: 13px; }
+.dock-change { border-bottom: .5px solid var(--oc-border-muted); }
+.dock-change summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--oc-text);
+}
+.dock-change summary::-webkit-details-marker { display: none; }
+.dock-change summary svg { flex: 0 0 auto; color: var(--oc-icon-muted); }
+.dock-change summary b {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.dock-change summary .diff-stats { margin-left: auto; }
+.dock-change[open] { padding-bottom: 10px; }
+/* Agents tab: opcode AgentRunsList grammar — status dot, name+detail, right
+   elapsed/status. */
+.dock-agent-list { display: grid; }
+.dock-agent-row {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+}
+.dock-agent-row + .dock-agent-row { border-top: .5px solid var(--oc-border-muted); }
+.dock-agent-row > i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--oc-success);
+}
+.dock-agent-row[data-state="done"] > i { background: var(--oc-icon-muted); }
+.dock-agent-row[data-state="failed"] > i { background: var(--oc-danger); }
+.dock-agent-copy { min-width: 0; flex: 1; display: grid; }
+.dock-agent-copy b { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-agent-copy small { color: var(--oc-text-faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-agent-row > span { flex: 0 0 auto; color: var(--oc-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* Terminal tab: xterm fills the body edge-to-edge on the sheet tone. */
+.utility-dock-body[data-tab="terminal"] { padding: 4px 8px 8px; overflow: hidden; }
+.dock-terminal { min-height: 0; height: 100%; }
+.dock-terminal .xterm { height: 100%; }
+@media (max-width: 900px) {
+  .utility-dock { display: none; }
+}
 .turn-review-bar {
   width: min(100%, 800px);
   margin: 0 auto 6px;

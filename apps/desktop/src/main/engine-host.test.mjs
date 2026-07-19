@@ -1275,7 +1275,8 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   assert.deepEqual(new Set(removed), new Set(
     Object.values(DESKTOP_IPC).filter((channel) =>
       channel !== DESKTOP_IPC.state && channel !== DESKTOP_IPC.updaterState
-      && channel !== DESKTOP_IPC.perfLog),
+      && channel !== DESKTOP_IPC.perfLog && channel !== DESKTOP_IPC.termData
+      && channel !== DESKTOP_IPC.termWrite && channel !== DESKTOP_IPC.termResize),
   ));
 });
 

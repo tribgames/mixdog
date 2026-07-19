@@ -33,6 +33,10 @@ export const DESKTOP_IPC = {
   quit: 'mixdog:quit',
   state: 'mixdog:state',
   perfLog: 'mixdog:perf-log',
+  termEnsure: 'mixdog:term-ensure',
+  termWrite: 'mixdog:term-write',
+  termResize: 'mixdog:term-resize',
+  termData: 'mixdog:term-data',
   getUpdaterState: 'mixdog:get-updater-state',
   checkForDesktopUpdate: 'mixdog:check-for-desktop-update',
   showDesktopUpdate: 'mixdog:show-desktop-update',
@@ -424,6 +428,11 @@ export interface DesktopApi {
   subscribeState(listener: (snapshot: EngineSnapshot) => void): () => void;
   /** Fire-and-forget renderer perf timing line (MIXDOG_DESKTOP_PERF=1 only). */
   perfLog?(line: string): void;
+  /** Dock terminal: create or reattach the shared PTY (main-process owned). */
+  termEnsure?(id: string | null, cwd?: string | null): Promise<{ id: string; replay: string }>;
+  termWrite?(id: string, data: string): void;
+  termResize?(id: string, cols: number, rows: number): void;
+  subscribeTermData?(listener: (event: { id: string; data: string }) => void): () => void;
   getUpdaterState(): Promise<DesktopUpdaterState>;
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;
