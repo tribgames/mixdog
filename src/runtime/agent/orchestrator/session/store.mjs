@@ -355,7 +355,15 @@ function _getOrSpawnWorker() {
     if (_saveWorker) return _saveWorker;
     _saveWorker = new Worker(new URL('./save-session-worker.mjs', import.meta.url), {
         execArgv: [],
+        // Worker-thread stdout/stderr default to COPYING into the process's
+        // real fds, bypassing the TUI's process.stderr.write guard and
+        // printing over the terminal frame. Capture both and route through the
+        // parent's (guardable) stderr stream instead.
+        stdout: true,
+        stderr: true,
     });
+    _saveWorker.stdout?.on('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
+    _saveWorker.stderr?.on('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
     _saveWorker.on('message', ({ ok, saved, error, reqId }) => {
         const p = _saveWorkerPending.get(reqId);
         if (!p) return;

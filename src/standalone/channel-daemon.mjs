@@ -67,6 +67,38 @@ function log(line) {
   } catch {}
 }
 
+// Redirect raw process.stderr/stdout writes and console.* from ANY module in
+// this process to the daemon log file. Installed at the ready boundary (same
+// point fileLogging flips) so pre-ready lines still reach the spawner mirror.
+function installDaemonLogRedirect() {
+  if (process.env.MIXDOG_DAEMON_ALLOW_STDERR === '1') return;
+  const file = (chunk) => {
+    try {
+      const text = String(chunk ?? '').trimEnd();
+      if (text) {
+        mkdirSync(path.dirname(LOG_PATH), { recursive: true });
+        appendFileSync(LOG_PATH, `[${new Date().toISOString()}] ${text}\n`);
+      }
+    } catch { /* logging must never fail the daemon */ }
+  };
+  const patch = (stream) => {
+    stream.write = ((chunk, encoding, callback) => {
+      const done = typeof encoding === 'function' ? encoding : callback;
+      file(chunk);
+      if (typeof done === 'function') { try { done(); } catch {} }
+      return true;
+    });
+  };
+  patch(process.stderr);
+  patch(process.stdout);
+  for (const m of ['log', 'info', 'warn', 'error', 'debug', 'trace']) {
+    console[m] = (...args) => file(`[console.${m}] ${args.map((a) => {
+      if (typeof a === 'string') return a;
+      try { return JSON.stringify(a); } catch { return String(a); }
+    }).join(' ')}`);
+  }
+}
+
 let channels = null;
 let transport = null;
 let memoryRuntime = null;
@@ -136,6 +168,14 @@ async function main() {
   // rotateBoundedLog), and rotating now would race other processes' buffered
   // appends into the same log.
   fileLogging = true;
+  // Global stderr/console redirect: runtime modules hosted in this daemon
+  // (session sweeps, scheduler, inbound handlers, providers…) write raw
+  // process.stderr lines. With the current pipe stdio those bytes die with the
+  // spawner, and a daemon inherited from an older spawn path prints them into
+  // whatever terminal originally launched it — the "[session-sweep] …" text
+  // observed inside the TUI composer. Route EVERY stderr/console line to the
+  // daemon log so no spawn mode can ever reach a user terminal.
+  installDaemonLogRedirect();
   // Guard the ready handshake against a dead/closing parent pipe. process.send
   // delivery is async: if the spawner TUI already exited, the write fails with
   // an async 'error' (EPIPE) that a sync try/catch cannot catch — it would

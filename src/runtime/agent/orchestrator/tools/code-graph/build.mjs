@@ -396,7 +396,9 @@ export function _spawnCodeGraphWorker(
   manifest = null,
   signature = null,
   {
-    createWorker = (url, options) => new Worker(url, options),
+    // stdout/stderr captured: worker threads otherwise copy straight into the
+    // real fds, bypassing the TUI stderr guard (terminal frame corruption).
+    createWorker = (url, options) => new Worker(url, { ...options, stdout: true, stderr: true }),
     getGeneration = _getCodeGraphGen,
     setMemoryCache = _setCodeGraphCache,
     setDiskCache = _setDiskCodeGraphEntry,
@@ -432,6 +434,8 @@ export function _spawnCodeGraphWorker(
           workerData: { cwd, manifest, signature, buildOptions },
           execArgv: [],
         });
+        _worker.stdout?.on?.('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
+        _worker.stderr?.on?.('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
       } catch (e) {
         settle(e instanceof Error ? e : new Error(String(e)));
         return;

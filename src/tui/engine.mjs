@@ -190,7 +190,9 @@ export function cleanupStaleTranscriptSpillDirs({
 export function createTranscriptSpillBuffer({
   cap = TRANSCRIPT_LIVE_ITEM_CAP,
   chunkSize = TRANSCRIPT_SPILL_CHUNK_ITEMS,
-  workerFactory = (source) => new Worker(source, { eval: true }),
+  // stdout/stderr: worker threads otherwise copy straight into the REAL fds,
+  // bypassing the TUI stderr guard and printing over the terminal frame.
+  workerFactory = (source) => new Worker(source, { eval: true, stdout: true, stderr: true }),
   onWarning = (message) => tuiDebug(message),
   writeTimeoutMs = 5000,
 } = {}) {
@@ -270,6 +272,8 @@ export function createTranscriptSpillBuffer({
       const worker = workerFactory(workerSource);
       spillWorker = worker;
       workerSpawnCount += 1;
+      worker.stdout?.on?.('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
+      worker.stderr?.on?.('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
       worker.on('message', (result) => {
         if (spillWorker !== worker || result?.id !== activeWrite?.id) return;
         finishWrite(result?.ok === true, result?.error);
