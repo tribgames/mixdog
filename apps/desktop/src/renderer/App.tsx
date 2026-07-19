@@ -589,16 +589,29 @@ export function App() {
   useEffect(() => {
     if (restoredLastProject.current || snapshot === EMPTY_SNAPSHOT) return;
     restoredLastProject.current = true;
-    if (String(snapshot.currentProject || snapshot.project || "") || String(snapshot.sessionId || "")) return;
+    // The window reveal waits for this decision (main.tsx): restoring the
+    // last project AFTER first paint made the welcome block and tab strip
+    // visibly jump on launch.
+    const settleStartup = () => {
+      (window as { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled = true;
+      window.dispatchEvent(new Event("mixdog:startup-settled"));
+    };
+    if (String(snapshot.currentProject || snapshot.project || "") || String(snapshot.sessionId || "")) {
+      settleStartup();
+      return;
+    }
     let stored = "";
-    try { stored = window.localStorage.getItem(LAST_PROJECT_KEY) || ""; } catch { return; }
-    if (!stored) return;
+    try { stored = window.localStorage.getItem(LAST_PROJECT_KEY) || ""; } catch { /* fall through */ }
+    if (!stored) {
+      settleStartup();
+      return;
+    }
     void window.mixdogDesktop?.startProjectTask(stored).then((next) => {
       applySnapshot(next);
       activateSelection({ kind: "new" }, "New task");
       newTaskReady.current = true;
       setNewTaskActive(true);
-    }).catch(() => {});
+    }).catch(() => {}).finally(settleStartup);
   }, [snapshot, applySnapshot, activateSelection]);
 
   useEffect(() => {

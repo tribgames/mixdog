@@ -36,6 +36,17 @@ createRoot(document.getElementById("root")!).render(
 // Tell main the first commit is painted: the window used to show on the
 // renderer's FIRST paint (empty band), so the tab strip popped in a frame
 // later (user-reported launch jolt). Double rAF = post-commit, post-paint.
+// The reveal ALSO waits for the last-project restore decision (capped) so the
+// welcome block and tabs never jump after the window is visible.
 requestAnimationFrame(() => requestAnimationFrame(() => {
-  window.mixdogDesktop?.rendererReady?.();
+  const signal = () => window.mixdogDesktop?.rendererReady?.();
+  if ((window as { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled) {
+    signal();
+    return;
+  }
+  const timer = window.setTimeout(signal, 900);
+  window.addEventListener("mixdog:startup-settled", () => {
+    window.clearTimeout(timer);
+    requestAnimationFrame(() => requestAnimationFrame(signal));
+  }, { once: true });
 }));
