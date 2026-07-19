@@ -163,7 +163,9 @@ const TRANSCRIPT_VIRTUAL_OVERSCAN = 12;
 
 function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number {
   if (!item) return 40;
-  if (item.kind === "assistant") return 160;
+  // An EMPTY streaming tail must not reserve a full prose block: the phantom
+  // 160px read as a huge gap above the thinking spinner (user bug).
+  if (item.kind === "assistant") return String(item.text || "").trim() ? 160 : 28;
   if (item.kind === "user") return 72;
   if (item.kind === "tool") return item.expanded ? 180 : 56;
   return 40;
