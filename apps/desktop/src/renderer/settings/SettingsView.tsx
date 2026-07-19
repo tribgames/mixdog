@@ -38,6 +38,8 @@ export function preloadSettings(api: SettingsApi): Promise<unknown> {
 
 export interface SettingsViewProps {
   api?: SettingsApi;
+  /** Keep-mounted visibility: false hides the layer without unmounting. */
+  open?: boolean;
   initialSection?: SettingsSection | null;
   onCompose?: (text: string) => void;
   onClose(): void;
@@ -81,6 +83,7 @@ export function SettingsTrigger({ onOpen, className }: SettingsTriggerProps) {
 
 export function SettingsView({
   api = (window as unknown as { mixdogDesktop: DesktopApi }).mixdogDesktop,
+  open = true,
   initialSection = null,
   onCompose,
   onClose,
@@ -94,9 +97,13 @@ export function SettingsView({
   const closeRef = useRef<HTMLButtonElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
 
+  // Every (re)open starts fresh: explicit section when given, else General
+  // (user: the kept-mounted dialog must not resume the last-visited page).
   useEffect(() => {
-    if (initialSection) setCategory(categoryForSettingsItem(initialSection));
-  }, [initialSection]);
+    if (!open) return;
+    setCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general');
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [open, initialSection]);
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [category]);
@@ -120,6 +127,7 @@ export function SettingsView({
   };
 
   useLayoutEffect(() => {
+    if (!open) return undefined;
     priorFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     const background = Array.from(document.body.children)
@@ -145,9 +153,23 @@ export function SettingsView({
       }
       restoreFocus();
     };
-  }, []);
+  }, [open]);
+
+  // Perf diagnostics: report request→first-paint for the settings dialog
+  // (opener stamps __mixdogSettingsOpenAt; main drops lines unless
+  // MIXDOG_DESKTOP_PERF=1).
+  useEffect(() => {
+    if (!open) return;
+    const stamped = (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
+    if (typeof stamped !== 'number') return;
+    delete (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt;
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      window.mixdogDesktop?.perfLog?.(`settings-open paint=${(performance.now() - stamped).toFixed(0)}ms`);
+    }));
+  }, [open]);
 
   useEffect(() => {
+    if (!open) return undefined;
     const handleKey = (event: KeyboardEvent) => {
       const dialog = dialogRef.current;
       const nestedDialog = dialog?.querySelector<HTMLElement>('[data-settings-nested-dialog]') || null;
@@ -193,10 +215,11 @@ export function SettingsView({
     };
     document.addEventListener('keydown', handleKey, true);
     return () => document.removeEventListener('keydown', handleKey, true);
-  }, [onClose]);
+  }, [open, onClose]);
 
   return createPortal(
-    <div className="mixdog-settings-layer" onPointerDown={(event) => {
+    <div className="mixdog-settings-layer" style={open ? undefined : { display: 'none' }}
+      aria-hidden={open ? undefined : true} onPointerDown={(event) => {
       if (event.target !== event.currentTarget) return;
       requestClose();
     }}>

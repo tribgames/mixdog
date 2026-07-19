@@ -6,6 +6,23 @@
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#0b0a09" />
     <title>Mixdog</title>
+    <script>
+      // First-paint theme: resolve the stored preference BEFORE any CSS
+      // evaluates so a light-theme launch never flashes the dark band
+      // (user-reported titlebar/tab "pop" at startup). Mirrors
+      // desktop-theme.ts (key 'mixdog.desktop-theme-preference').
+      try {
+        var mixdogThemePref = localStorage.getItem('mixdog.desktop-theme-preference');
+        var mixdogLight = mixdogThemePref === 'white'
+          || (mixdogThemePref !== 'dark'
+            && window.matchMedia
+            && window.matchMedia('(prefers-color-scheme: light)').matches);
+        if (mixdogLight) {
+          document.documentElement.dataset.mixdogTheme = 'light';
+          document.documentElement.style.colorScheme = 'light';
+        }
+      } catch (error) { /* default dark */ }
+    </script>
   </head>
   <body>
     <div id="root"></div>

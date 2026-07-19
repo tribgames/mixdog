@@ -36,6 +36,9 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.state, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.state, receive);
   },
+  perfLog: (line) => {
+    try { ipcRenderer.send(DESKTOP_IPC.perfLog, String(line)); } catch { /* diagnostics only */ }
+  },
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {

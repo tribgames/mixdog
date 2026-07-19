@@ -255,9 +255,9 @@ test("context view renders engine stats and omits unavailable optional fields", 
   const text = document.querySelector(".context-view")?.textContent || "";
   assert.doesNotMatch(text, /Context fixture|sess_/);
   assert.match(text, /7% used16k \/ 200k · 184k free/);
-  assert.match(text, /Sourceeffective 200k · raw 250k/);
-  assert.match(text, /Compactioncompleted · Compact complete · type semantic · trigger 180k · boundary 200k/);
-  assert.match(text, /API\/cachelast ctx 12k · uncached\/out 4\.0k\/1\.0k · raw in 9\.0k · write 1\.0k · cache 33%/);
+  // Runtime detail lines (Source/Compaction/API-cache) were removed by user
+  // decision — the surface is usage + composition only.
+  assert.doesNotMatch(text, /Source|Compaction|API\/cache/);
   assert.match(text, /Context mixMessages.*Tools.*MCP.*Skills.*Memory.*Session.*Workflow.*System.*Tool I\/O.*Overhead/);
   assert.equal(document.querySelectorAll(".context-mix-row").length, 10);
   const toolsRow = Array.from(document.querySelectorAll(".context-mix-row"))

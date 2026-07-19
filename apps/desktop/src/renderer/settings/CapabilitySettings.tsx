@@ -266,6 +266,7 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
 
   const load = useCallback(async (force = false) => {
     const sequence = ++loadSequence.current;
+    const startedAt = performance.now();
     const cached = getCachedCapabilitySettings(api);
     if (cached) {
       setData(cached.data);
@@ -280,6 +281,11 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
     setData(next.data);
     setError(next.error);
     setHydrating(false);
+    // Perf diagnostics (dropped unless MIXDOG_DESKTOP_PERF=1): how long the
+    // panel showed skeleton/stale values before real data landed.
+    if (!cached) {
+      window.mixdogDesktop?.perfLog?.(`settings-hydrate ms=${(performance.now() - startedAt).toFixed(0)}`);
+    }
   }, [api]);
 
   useEffect(() => {
@@ -733,9 +739,9 @@ function CategoryPanel({ category, context }: {
 const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
   ['Workspace', [
     ['Ctrl+N', 'New task'],
+    ['Ctrl+Q', 'Close tab'],
     ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous tab'],
-    ['Ctrl+Alt+← / →', 'Switch tab (works while typing)'],
-    ['Ctrl+← / →', 'Switch tab (outside text fields)'],
+    ['Ctrl+← / →', 'Switch tab'],
     ['Ctrl+B', 'Toggle sidebar'],
     ['Ctrl+,', 'Open settings'],
     ['Esc', 'Close menus and popovers'],

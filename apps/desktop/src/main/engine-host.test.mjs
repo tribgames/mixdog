@@ -1026,6 +1026,8 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
       removed.push(channel);
       handlers.delete(channel);
     },
+    on: () => {},
+    removeListener: () => {},
   };
   const mainFrame = {};
   const sent = [];
@@ -1272,7 +1274,8 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   assert.equal(handlers.size, 0);
   assert.deepEqual(new Set(removed), new Set(
     Object.values(DESKTOP_IPC).filter((channel) =>
-      channel !== DESKTOP_IPC.state && channel !== DESKTOP_IPC.updaterState),
+      channel !== DESKTOP_IPC.state && channel !== DESKTOP_IPC.updaterState
+      && channel !== DESKTOP_IPC.perfLog),
   ));
 });
 

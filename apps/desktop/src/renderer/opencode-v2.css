@@ -365,6 +365,7 @@ button:focus-visible { outline-offset: 2.5px; }
 .toolbar-sidebar { color: var(--oc-text); }
 .toolbar-sidebar svg.lucide,
 .sidebar-nav-icon svg.lucide,
+.workspace-tab-main > svg.lucide,
 .session-sidebar-footer .sidebar-settings-button svg.lucide {
   stroke-width: 1.25px;
 }
@@ -1285,6 +1286,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .message.user {
   max-width: min(82%, 64ch);
+  /* Anchor the whole user block to the RIGHT edge: with the default stretch
+     anchor, a long multi-line bubble grew from the LEFT edge and read like an
+     assistant block (user report). */
+  margin-left: auto;
   display: flex;
   align-items: flex-end;
   flex-direction: column;
@@ -1710,19 +1715,22 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .effort-control select:hover { color: var(--oc-text); background: var(--oc-hover); }
 /* Attach + and mic match the composer control text ink (model trigger). */
 .composer-tool { color: var(--oc-text); }
+/* Cursor-style composer circles, FLAT (user: the gradient read as 3D).
+   Send is a solid contrast disc; the mic stays a quiet ghost circle until
+   it actually records. Placed after the shared 28px rule so 6px cannot win. */
+.composer-mic, .send-button { border-radius: 999px; }
+/* Cursor-weight glyphs inside the circles: the 1.75px default read wispy at
+   15px on a filled disc. */
+.composer-mic svg.lucide, .send-button svg.lucide { stroke-width: 2.5px; }
 .send-button {
   color: var(--oc-grey-100);
-  background: linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-bg-contrast);
-  box-shadow: var(--oc-button-contrast);
+  background: var(--oc-bg-contrast);
+  box-shadow: none;
 }
-/* OpenCode v2 contrast hover: overlay-contrast-hover layered over the
-   contrast fill, not a brightness filter. */
 .send-button:hover:not(:disabled) {
-  background:
-    linear-gradient(var(--oc-contrast-hover), var(--oc-contrast-hover)),
-    linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-bg-contrast);
+  background: linear-gradient(var(--oc-contrast-hover), var(--oc-contrast-hover)), var(--oc-bg-contrast);
 }
-.send-button:focus-visible { outline: 0; box-shadow: var(--oc-button-contrast), 0 0 0 1px var(--oc-border-strong); }
+.send-button:focus-visible { outline: 0; box-shadow: 0 0 0 1px var(--oc-border-strong); }
 .send-button:disabled { opacity: .5; cursor: default; }
 .route-controls { gap: 0; }
 .model-trigger, .effort-control select, .route-controls > .fast-control, .fast-control .oc-select-trigger {
@@ -4411,8 +4419,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .context-usage-heading strong { color: var(--oc-text); font-size: 13px; font-weight: 500; }
 .context-usage-heading span { color: var(--oc-text); font-size: 12px; font-variant-numeric: tabular-nums; }
-.context-main-bar,
-.context-mix-row i {
+.context-main-bar {
   width: 100%;
   height: 8px;
   overflow: hidden;
@@ -4420,8 +4427,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 999px;
   background: var(--oc-hover);
 }
-.context-main-bar span,
-.context-mix-row i b { height: 100%; display: block; border-radius: inherit; background: var(--oc-text-accent); }
+.context-main-bar span { height: 100%; display: block; border-radius: inherit; background: var(--oc-text-accent); }
 .context-runtime-lines > div {
   min-width: 0;
   display: grid;
@@ -4442,17 +4448,49 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 18px;
 }
 .context-view h3 { margin: 0; }
-.context-mix-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; }
+/* Cursor-style composition: one stacked bar + color-chip legend. */
+.context-stack-bar {
+  display: flex;
+  gap: 1px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--oc-hover);
+}
+.context-stack-bar b { height: 100%; min-width: 2px; background: var(--ctx-color, var(--oc-text-accent)); }
+.context-mix-grid { display: grid; gap: 0; }
 .context-mix-row {
   min-width: 0;
-  display: grid;
-  grid-template-columns: 80px 44px minmax(24px, 1fr) 46px;
+  min-height: 26px;
+  display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
 }
-.context-mix-row small { color: var(--oc-text-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
-.context-mix-row i { height: 6px; }
-.context-mix-row strong { color: var(--oc-text); text-align: right; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.context-mix-row i {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 3px;
+  background: var(--ctx-color, var(--oc-text-accent));
+}
+.context-mix-row strong {
+  margin-left: auto;
+  color: var(--oc-text);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* Category palette (muted mid-tones that hold up on both themes). */
+.context-mix [data-context-key="messages"] { --ctx-color: #a091d6; }
+.context-mix [data-context-key="tools"] { --ctx-color: #7fae7f; }
+.context-mix [data-context-key="mcp"] { --ctx-color: #c493b8; }
+.context-mix [data-context-key="skills"] { --ctx-color: #cfa963; }
+.context-mix [data-context-key="memory"] { --ctx-color: #74a6bd; }
+.context-mix [data-context-key="session"] { --ctx-color: #bd8674; }
+.context-mix [data-context-key="workflow"] { --ctx-color: #94ad70; }
+.context-mix [data-context-key="system"] { --ctx-color: #8f8a81; }
+.context-mix [data-context-key="tool-io"] { --ctx-color: #b8a377; }
+.context-mix [data-context-key="request"] { --ctx-color: #7a756c; }
 @media (max-width: 640px) {
   .session-header-content { padding-inline: 16px; }
   .context-mix-grid { grid-template-columns: 1fr; }

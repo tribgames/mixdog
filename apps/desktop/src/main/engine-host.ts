@@ -1,4 +1,5 @@
 import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -123,6 +124,10 @@ const EMPTY_PROJECT_PREFERENCES: DesktopProjectPreferences = {
 
 const DESKTOP_CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const ENGINE_PUBLICATION_INTERVAL_MS = 50;
+// Perf instrumentation (MIXDOG_DESKTOP_PERF=1): appends coarse stage timings
+// to <userData>/desktop-perf.log so slow session-switch/settings reports can
+// be diagnosed from a real run instead of guesses. Zero-cost when unset.
+const DESKTOP_PERF_ENABLED = process.env.MIXDOG_DESKTOP_PERF === '1';
 // shellJobsStatus itself is cache-only and refreshes its disk-backed cache
 // asynchronously. Polling at the cache's 1s cadence keeps disk work out of the
 // engine's 50ms publication path.
@@ -482,7 +487,15 @@ export class EngineHost {
   }
 
   getSnapshot(): EngineSnapshot {
+    const cloneStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
     const snapshot = desktopSnapshot(copySnapshot(this.engine), this.currentProject, this.recentProjects);
+    if (DESKTOP_PERF_ENABLED) {
+      const ms = performance.now() - cloneStarted;
+      if (ms >= 5) {
+        const items = Array.isArray(snapshot?.items) ? snapshot.items.length : 0;
+        this.perfLog(`snapshot-clone ms=${ms.toFixed(1)} items=${items}`);
+      }
+    }
     const sessionId = String(snapshot?.sessionId || '');
     const desktopSessionTitle = sessionId
       ? this.sessionNames?.[sessionId] || this.sessionTitles?.[sessionId]
@@ -914,6 +927,8 @@ export class EngineHost {
   async resumeSession(sessionId: string): Promise<EngineSnapshot> {
     if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
     let result: EngineSnapshot = null;
+    const totalStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+    let stageNote = '';
     await this.exclusive(async () => {
       await this.withPublicationsHeld(async () => {
         await this.loadSessionTitles();
@@ -970,11 +985,18 @@ export class EngineHost {
         ));
         const nextEngine = sameManagedContext
           ? this.requireEngine()
-          : await this.replaceEngine(workspace, targetDesktopSession, 'desktop-session-resume');
+          : await (async () => {
+            const replaceStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+            const engine = await this.replaceEngine(workspace, targetDesktopSession, 'desktop-session-resume');
+            if (DESKTOP_PERF_ENABLED) stageNote += ` replace-engine=${(performance.now() - replaceStarted).toFixed(0)}ms`;
+            return engine;
+          })();
+        const resumeStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
         if (await nextEngine.resume(sessionId) !== true) {
           if (!sameManagedContext) await this.disposeCurrent('desktop-session-resume-failed');
           throw new Error('Session could not be resumed.');
         }
+        if (DESKTOP_PERF_ENABLED) stageNote += ` engine-resume=${(performance.now() - resumeStarted).toFixed(0)}ms`;
         if (String(nextEngine.getState()?.sessionId || '') !== sessionId) {
           if (!sameManagedContext) await this.disposeCurrent('desktop-session-resume-mismatch');
           throw new Error('Session resume returned an unexpected session.');
@@ -987,6 +1009,9 @@ export class EngineHost {
         this.publish(result);
       });
     });
+    if (DESKTOP_PERF_ENABLED) {
+      this.perfLog(`resume-session id=${sessionId} total=${(performance.now() - totalStarted).toFixed(0)}ms${stageNote}`);
+    }
     return result;
   }
 
@@ -1176,8 +1201,20 @@ export class EngineHost {
     // to go. Avoid cloning a potentially long transcript until another window
     // subscribes.
     if (this.listeners.size === 0) return;
+    const publishStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
     const published = snapshot === undefined ? this.getSnapshot() : snapshot;
     for (const listener of this.listeners) listener(published);
+    if (DESKTOP_PERF_ENABLED) {
+      const ms = performance.now() - publishStarted;
+      if (ms >= 10) this.perfLog(`publish ms=${ms.toFixed(1)}`);
+    }
+  }
+
+  perfLog(line: string): void {
+    if (!DESKTOP_PERF_ENABLED) return;
+    try {
+      appendFileSync(join(this.userDataRoot(), 'desktop-perf.log'), `${new Date().toISOString()} ${line}\n`);
+    } catch { /* diagnostics only */ }
   }
 
   private async withPublicationsHeld<T>(action: () => Promise<T>): Promise<T> {

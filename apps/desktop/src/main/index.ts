@@ -9,7 +9,12 @@ import { registerDesktopIpc } from './ipc';
 import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
 import { desktopUpdater, startAutoUpdater } from './updater';
-import { DESKTOP_WINDOW_OPTIONS, setDesktopTitleBarZoom } from './window-options';
+import {
+  DESKTOP_WINDOW_OPTIONS,
+  configureTitleBarThemePersistence,
+  initialTitleBarWindowOverrides,
+  setDesktopTitleBarZoom,
+} from './window-options';
 import { DESKTOP_IPC } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
 
@@ -120,8 +125,10 @@ async function createWindow(): Promise<void> {
 
   const statePath = join(app.getPath('userData'), 'window-state.json');
   const savedState = await readWindowState(statePath, screen.getAllDisplays());
+  configureTitleBarThemePersistence(join(app.getPath('userData'), 'desktop-titlebar-theme'));
   const window = new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,
+    ...initialTitleBarWindowOverrides(),
     ...(savedState?.bounds ?? {}),
     webPreferences: {
       ...DESKTOP_WINDOW_OPTIONS.webPreferences,

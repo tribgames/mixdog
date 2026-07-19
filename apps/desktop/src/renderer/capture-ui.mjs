@@ -349,6 +349,7 @@ try {
     "live output must lead with the command line");
   console.log(`CAPTURE_TOOLS_PNG=${toolsOutput}`);
   console.log(`CAPTURE_TOOLS_TOP_PNG=${toolsTopOutput}`);
+  console.log(`CAPTURE_STARTUP_GEOMETRY=${JSON.stringify(metadata.startupGeometry?.deltas ?? null)}`);
   console.log(`CAPTURE_PNG=${windowOutput}`);
   console.log(`CAPTURE_JSON=${metadataOutput}`);
   console.log(`CAPTURE_SCHEMA=${metadata.schemaVersion}; CAPTURE_ID=${metadata.captureId}`);

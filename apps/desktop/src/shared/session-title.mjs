@@ -69,7 +69,10 @@ export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, m
   return `${head.trimEnd()}…`;
 }
 
-export function generatedSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 50) {
+// 32 chars keeps auto-titles scannable in the sidebar/tabs/header (user:
+// long first prompts produced paragraph-length titles). Word-boundary clip
+// with an ellipsis comes from normalizeSessionTitle.
+export function generatedSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 32) {
   if (isGeneratedSessionTitleNoise(value)) return String(fallback);
   return normalizeSessionTitle(value, fallback, maxLength);
 }

@@ -1,3 +1,5 @@
+import { readFileSync, writeFile } from 'node:fs';
+
 import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 
 export const DESKTOP_BACKGROUND_COLOR = '#0b0a09';
@@ -34,11 +36,39 @@ export function setDesktopTitleBarTheme(
   const light = themeId(value) === 'light';
   titleBarThemes.set(window as object, light);
   window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
+  // Remember the applied band for the NEXT launch: the window constructor
+  // reads it so a light-theme start never flashes the dark default band
+  // (user-reported titlebar/tab pop right after launch).
+  if (titleBarThemePersistPath) {
+    writeFile(titleBarThemePersistPath, light ? 'light' : 'dark', () => { /* best effort */ });
+  }
   if (process.platform !== 'win32') return;
   window.setTitleBarOverlay(titleBarOverlay(
     light,
     titleBarZoomFactors.get(window as object) ?? 1,
   ));
+}
+
+let titleBarThemePersistPath: string | null = null;
+
+export function configureTitleBarThemePersistence(path: string): void {
+  titleBarThemePersistPath = path;
+}
+
+/** Constructor overrides for the persisted theme (empty when dark/unknown). */
+export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstructorOptions> {
+  if (!titleBarThemePersistPath) return {};
+  let light = false;
+  try {
+    light = readFileSync(titleBarThemePersistPath, 'utf8').trim() === 'light';
+  } catch {
+    return {};
+  }
+  if (!light) return {};
+  return {
+    backgroundColor: DESKTOP_LIGHT_BACKGROUND_COLOR,
+    ...(process.platform === 'win32' ? { titleBarOverlay: titleBarOverlay(true) } : {}),
+  };
 }
 
 export function setDesktopTitleBarZoom(window: DesktopTitleBarWindow, zoom: number): void {

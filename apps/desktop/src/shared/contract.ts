@@ -32,6 +32,7 @@ export const DESKTOP_IPC = {
   dispose: 'mixdog:dispose',
   quit: 'mixdog:quit',
   state: 'mixdog:state',
+  perfLog: 'mixdog:perf-log',
   getUpdaterState: 'mixdog:get-updater-state',
   checkForDesktopUpdate: 'mixdog:check-for-desktop-update',
   showDesktopUpdate: 'mixdog:show-desktop-update',
@@ -421,6 +422,8 @@ export interface DesktopApi {
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   getSnapshot(): Promise<EngineSnapshot>;
   subscribeState(listener: (snapshot: EngineSnapshot) => void): () => void;
+  /** Fire-and-forget renderer perf timing line (MIXDOG_DESKTOP_PERF=1 only). */
+  perfLog?(line: string): void;
   getUpdaterState(): Promise<DesktopUpdaterState>;
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;

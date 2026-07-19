@@ -94,6 +94,8 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
     ipcMain: {
       handle: (channel, listener) => handlers.set(channel, listener),
       removeHandler: (channel) => handlers.delete(channel),
+      on: () => {},
+      removeListener: () => {},
     },
     dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
     shell: { openPath: async () => '', openExternal: async () => {} },

@@ -28,6 +28,7 @@ import {
   Layers3,
   LoaderCircle,
   Mic,
+  ArrowUp,
   Plus,
   RotateCcw,
   ShieldAlert,
@@ -151,7 +152,10 @@ function registerImagePreview(id: number, bytes: number, dataUrl: string) {
   }
 }
 
-const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 80;
+// Perf: main-process timings show session switches settle in <80ms; the
+// perceived lag is the renderer mounting every markdown/tool row at once.
+// Virtualize much earlier so long sessions paint a window, not the world.
+const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 32;
 const TRANSCRIPT_VIRTUAL_OVERSCAN = 12;
 
 function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number {
@@ -371,6 +375,10 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [projectPanelOpen, setProjectPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Settings stays MOUNTED after first use (hidden via display:none): the
+  // dialog tree costs ~330ms to mount (measured), so reopen must not repay
+  // it. An idle prewarm absorbs the first-open cost too.
+  const [settingsMounted, setSettingsMounted] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -887,6 +895,7 @@ export function App() {
   const resumeSession = (sessionId: string) => {
     if ((selection.kind === "session" && selection.id === sessionId) || switchingSessionId) return;
     closeSidebarForNavigation();
+    const switchStartedAt = performance.now();
     const session = sessions.find((item) => item.id === sessionId);
     frozenSessionSnapshot.current = selection.kind === "new" && !newTaskActive
       ? EMPTY_SNAPSHOT
@@ -933,13 +942,47 @@ export function App() {
       } finally {
         setSwitchingSessionId("");
         frozenSessionSnapshot.current = null;
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+          window.mixdogDesktop?.perfLog?.(
+            `session-switch-render id=${sessionId} paint=${(performance.now() - switchStartedAt).toFixed(0)}ms`,
+          );
+        }));
       }
     });
   };
   const openSettings = useCallback((section: SettingsSection | null = null) => {
+    // Perf diagnostics: SettingsView's mount effect reports the request→paint
+    // delta through the perf-log channel (no-op unless MIXDOG_DESKTOP_PERF=1).
+    (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt = performance.now();
     setCommandSurface(null);
     setSettingsSection(section);
+    setSettingsMounted(true);
     setSettingsOpen(true);
+  }, []);
+  useEffect(() => {
+    // Early enough that even a hasty first open lands on the prewarmed tree.
+    const timer = window.setTimeout(() => setSettingsMounted(true), 600);
+    return () => window.clearTimeout(timer);
+  }, []);
+  // Launch-jolt diagnostics (MIXDOG_DESKTOP_PERF=1): the top tab reportedly
+  // pops once right after start. Sample the first tab's rect over the boot
+  // window so the exact moment/delta shows up in the perf log.
+  useEffect(() => {
+    if (!window.mixdogDesktop?.perfLog) return undefined;
+    const startedAt = performance.now();
+    let last = '';
+    const timers = [100, 400, 1000, 2000, 3500].map((delay) => window.setTimeout(() => {
+      const tab = document.querySelector('.workspace-tab');
+      const box = tab?.getBoundingClientRect();
+      const line = box
+        ? `tabs=${document.querySelectorAll('.workspace-tab').length} left=${box.left.toFixed(1)} top=${box.top.toFixed(1)} w=${box.width.toFixed(1)} h=${box.height.toFixed(1)}`
+        : 'tabs=0';
+      if (line !== last) {
+        last = line;
+        window.mixdogDesktop?.perfLog?.(`launch-tab t=${(performance.now() - startedAt).toFixed(0)}ms ${line}`);
+      }
+    }, delay));
+    return () => { for (const timer of timers) window.clearTimeout(timer); };
   }, []);
   const submit = useCallback(async (
     content: DesktopPromptContent,
@@ -1078,16 +1121,10 @@ export function App() {
     });
   }, []);
   // Global workspace shortcuts (OpenCode desktop grammar + user requests):
-  // mod+N new task · ctrl+Tab / mod+alt+←→ cycle tabs · mod+, settings ·
-  // mod+B sidebar toggle. Plain mod+←→ also cycles tabs, but only outside
-  // editable fields so composer word-jump keeps working.
+  // mod+N new task · ctrl+Tab / mod+←→ cycle tabs (everywhere — user chose
+  // tab switching over composer word-jump; shift+mod+←→ keeps word
+  // selection) · mod+, settings · mod+B sidebar toggle.
   useEffect(() => {
-    const editable = (target: EventTarget | null) => {
-      const element = target instanceof HTMLElement ? target : null;
-      if (!element) return false;
-      return element.tagName === "INPUT" || element.tagName === "TEXTAREA"
-        || element.tagName === "SELECT" || element.isContentEditable;
-    };
     const cycleTab = (offset: number) => {
       if (tabs.length < 2) return;
       const index = tabs.findIndex((tab) => tab.key === activeTabKey);
@@ -1113,13 +1150,19 @@ export function App() {
         setSidebarOpen((value) => !value);
         return;
       }
+      if (key === "q" && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        const active = tabs.find((tab) => tab.key === activeTabKey);
+        if (active) closeTab(active);
+        return;
+      }
       if (event.key === "Tab") {
         event.preventDefault();
         cycleTab(event.shiftKey ? -1 : 1);
         return;
       }
       if ((event.key === "ArrowRight" || event.key === "ArrowLeft")
-        && (event.altKey || !editable(event.target))) {
+        && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         cycleTab(event.key === "ArrowRight" ? 1 : -1);
       }
@@ -1202,11 +1245,7 @@ export function App() {
                 <div className="session-header-status">
                   <LiveWorkStatus snapshot={visibleSnapshot} />
                   <ContextUsageIndicator snapshot={visibleSnapshot}
-                    onOpen={() => setCommandSurface("context")}
-                    onCompact={() => void invokeResult(async () => {
-                      const result = await window.mixdogDesktop.invokeCapability({ capability: 'compact' });
-                      if (result?.snapshot) applySnapshot(result.snapshot);
-                    })} />
+                    onOpen={() => setCommandSurface("context")} />
                 </div>
               </div>
             </header>
@@ -1248,7 +1287,8 @@ export function App() {
         onRemove={removeProject}
       />
       <Suspense fallback={null}>
-        {settingsOpen && <SettingsView
+        {settingsMounted && <SettingsView
+          open={settingsOpen}
           initialSection={settingsSection}
           onCompose={(text) => {
             setSettingsOpen(false);
@@ -1941,10 +1981,9 @@ function contextMetrics(snapshot: Snapshot) {
   };
 }
 
-export function ContextUsageIndicator({ snapshot, onOpen, onCompact }: {
+export function ContextUsageIndicator({ snapshot, onOpen }: {
   snapshot: Snapshot;
   onOpen(): void;
-  onCompact?(): void;
 }) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const keyboardFocusIntent = useRef(false);
@@ -1994,13 +2033,8 @@ export function ContextUsageIndicator({ snapshot, onOpen, onCompact }: {
           ? <div><span>Cost</span><b>${cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}</b></div>
           : null;
       })()}
-      {onCompact && context.percent > 0 && (
-        <button type="button" className="context-compact"
-          disabled={Boolean(snapshot.busy) || Boolean(snapshot.commandBusy)}
-          onClick={() => { setPopoverOpen(false); onCompact(); }}>
-          Compact conversation
-        </button>
-      )}
+      {/* Compact action removed from the hover popover by user decision —
+          /compact and auto-compact remain the compaction paths. */}
     </div>
   </div>;
 }
@@ -3971,7 +4005,7 @@ const Composer = memo(function Composer({
             aria-label={turnBusy ? "Queue or steer active turn" : commandBusy ? "Queue after current command" : "Send message"}
             data-tooltip={turnBusy ? "Queue or steer · Enter" : commandBusy ? "Queue after command · Enter" : "Send · Enter"}
             data-tooltip-side="top">
-            <OcIcon name="arrow-up" size={16} />
+            <ArrowUp size={15} />
           </button>
         )}
       </div>

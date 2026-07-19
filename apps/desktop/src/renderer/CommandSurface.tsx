@@ -330,47 +330,14 @@ function metric(parts: Array<string | null | undefined | false>): string {
 export function ContextBody({ status, snapshot }: { status: unknown; snapshot: unknown }) {
   const context = record(status);
   const state = record(snapshot);
-  const usage = record(context.usage);
   const messages = record(context.messages);
   const semantic = record(messages.semantic);
   const request = record(context.request);
   const schema = record(request.toolSchemaBreakdown);
-  const compaction = record(context.compaction);
   const used = finite(context.usedTokens ?? context.currentEstimatedTokens);
   const windowTokens = finite(context.contextWindow ?? state.contextWindow ?? context.rawContextWindow);
-  const rawWindowTokens = finite(context.rawContextWindow ?? state.rawContextWindow ?? windowTokens);
   const freeTokens = windowTokens ? Math.max(0, windowTokens - used) : finite(context.freeTokens);
   const usedPercent = contextPercent(used, windowTokens) || 0;
-  const cachedRead = finite(usage.lastCachedReadTokens);
-  const cacheWrite = finite(usage.lastCacheWriteTokens);
-  const rawInput = finite(usage.lastInputTokens);
-  const freshInput = finite(usage.lastUncachedInputTokens ?? Math.max(rawInput - cachedRead - cacheWrite, 0));
-  const cacheDenominator = finite(usage.lastContextTokens) || cachedRead + freshInput + cacheWrite;
-  const cacheHitRate = cacheDenominator > 0 ? `${Math.round((cachedRead / cacheDenominator) * 100)}%` : 'N/A';
-  const compactRunning = compaction.inProgress === true || compaction.lastStage === 'compacting';
-  const compactState = compactRunning ? 'Compacting conversation'
-    : compaction.lastStage === 'interrupted' ? 'Compact interrupted'
-      : compaction.lastStage === 'auto_clear_failed' ? 'Auto-clear skipped'
-        : compaction.lastStage === 'auto_clear' || compaction.lastClearAt ? 'Auto-clear complete'
-          : compaction.lastChanged ? 'Compact complete' : 'Compact checked';
-  const sourceLine = metric([
-    `effective ${compactTokens(windowTokens)}`,
-    rawWindowTokens && rawWindowTokens !== windowTokens ? `raw ${compactTokens(rawWindowTokens)}` : '',
-  ]);
-  const compactionLine = metric([
-    compaction.lastStage && compaction.lastStage !== 'pending' ? String(compaction.lastStage) : '',
-    compactState,
-    compaction.compactType || compaction.type ? `type ${String(compaction.compactType || compaction.type)}` : '',
-    compaction.triggerTokens ? `trigger ${compactTokens(compaction.triggerTokens)}` : '',
-    compaction.boundaryTokens ? `boundary ${compactTokens(compaction.boundaryTokens)}` : '',
-  ]);
-  const apiLine = metric([
-    `last ctx ${compactTokens(usage.lastContextTokens)}`,
-    `uncached/out ${compactTokens(freshInput)}/${compactTokens(usage.lastOutputTokens)}`,
-    rawInput && rawInput !== freshInput ? `raw in ${compactTokens(rawInput)}` : '',
-    cacheWrite ? `write ${compactTokens(cacheWrite)}` : '',
-    `cache ${cacheHitRate}`,
-  ]);
   const categories = [
     { key: 'messages', label: 'Messages', tokens: tokenBuckets(semantic, ['chat', 'assistant']) },
     { key: 'tools', label: 'Tools', tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'agents', 'session']) },
@@ -399,22 +366,23 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
         <span style={{ width: `${usedPercent}%` }} />
       </div>
     </section>
-    <section className="context-runtime-lines" aria-label="Context details">
-      {[['Source', sourceLine], ['Compaction', compactionLine], ['API/cache', apiLine]].map(([label, value]) =>
-        <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
-    </section>
     <section className="context-mix" aria-labelledby="context-mix-title">
       <h3 id="context-mix-title">Context mix</h3>
+      {/* Cursor-style composition: ONE stacked bar over a color-chip legend
+          instead of a per-row bar forest. */}
+      <div className="context-stack-bar" role="img" aria-label="Context composition">
+        {categories.filter((category) => category.tokens > 0).map((category) => (
+          <b key={category.key} data-context-key={category.key}
+            style={{ width: `${Math.max(0.75, contextPercent(category.tokens, windowTokens) || 0)}%` }} />
+        ))}
+      </div>
       <div className="context-mix-grid">
-        {categories.map((category) => {
-          const percent = contextPercent(category.tokens, windowTokens) || 0;
-          return <div className="context-mix-row" key={category.key}>
-            <span>{category.label}</span>
-            <small>{contextPercentLabel(category.tokens, windowTokens)}</small>
-            <i><b style={{ width: `${percent}%` }} /></i>
-            <strong>{compactTokens(category.tokens)}</strong>
-          </div>;
-        })}
+        {categories.map((category) => <div className="context-mix-row" key={category.key}
+          data-context-key={category.key}>
+          <i aria-hidden="true" />
+          <span>{category.label}</span>
+          <strong>{compactTokens(category.tokens)}</strong>
+        </div>)}
       </div>
     </section>
   </div>;

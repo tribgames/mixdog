@@ -334,7 +334,7 @@ function requiredModelCatalogOptions(value: unknown): DesktopModelCatalogOptions
 
 interface DesktopIpcDependencies {
   app: Pick<App, 'quit'>;
-  ipcMain: Pick<IpcMain, 'handle' | 'removeHandler'>;
+  ipcMain: Pick<IpcMain, 'handle' | 'removeHandler' | 'on' | 'removeListener'>;
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>;
   shell: Pick<Shell, 'openPath' | 'openExternal'>;
   settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update' | 'readZoom' | 'updateZoom'>;
@@ -566,7 +566,12 @@ export function registerDesktopIpc(
       window.webContents.send(DESKTOP_IPC.updaterState, next);
     }
   }) ?? (() => {});
-  const eventChannels = new Set<string>([DESKTOP_IPC.state, DESKTOP_IPC.updaterState]);
+  // Renderer perf lines ride a fire-and-forget event channel (no invoke).
+  const onPerfLog = (_event: Electron.IpcMainEvent, line: unknown): void => {
+    (host as { perfLog?: (line: string) => void }).perfLog?.(String(line ?? ''));
+  };
+  ipcMain.on(DESKTOP_IPC.perfLog, onPerfLog);
+  const eventChannels = new Set<string>([DESKTOP_IPC.state, DESKTOP_IPC.updaterState, DESKTOP_IPC.perfLog]);
   const channels = Object.values(DESKTOP_IPC).filter((channel) => !eventChannels.has(channel));
   let removed = false;
 
@@ -575,6 +580,7 @@ export function registerDesktopIpc(
     removed = true;
     unsubscribeState();
     unsubscribeUpdater();
+    ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
     for (const channel of channels) ipcMain.removeHandler(channel);
   };
 }

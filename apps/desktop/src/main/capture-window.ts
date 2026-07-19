@@ -807,7 +807,43 @@ async function captureWindow(): Promise<void> {
     // late capture passes (tool showcase) read the compositor's latest frame
     // and a paint-suspended window serves stale pre-mutation pixels.
     window.webContents.setBackgroundThrottling(false);
+    // Startup-geometry stability: sample the chrome rects right after show and
+    // again after the settle window. Any delta is the "tab pops once at
+    // launch" class of first-paint jolt (env(titlebar-area) resolution, font
+    // swap, async layout) — captured as numbers so it can be pinned down.
+    const sampleStartupGeometry = `(() => {
+      const rect = (selector) => {
+        const node = document.querySelector(selector);
+        if (!node) return null;
+        const box = node.getBoundingClientRect();
+        return { left: box.left, top: box.top, width: box.width, height: box.height };
+      };
+      return {
+        tab: rect('.workspace-tab'),
+        tabsShell: rect('.workspace-tabs'),
+        sidebar: rect('.session-sidebar'),
+        toggle: rect('.toolbar-sidebar'),
+        composer: rect('.composer'),
+      };
+    })()`;
+    const startupGeometryEarly = await window.webContents.executeJavaScript(sampleStartupGeometry) as Record<string, { left: number; top: number; width: number; height: number } | null>;
     await new Promise((resolve) => setTimeout(resolve, 500));
+    const startupGeometrydSettled = await window.webContents.executeJavaScript(sampleStartupGeometry) as Record<string, { left: number; top: number; width: number; height: number } | null>;
+    const startupGeometry = {
+      early: startupGeometryEarly,
+      settled: startupGeometrydSettled,
+      deltas: Object.fromEntries(Object.keys(startupGeometrydSettled).map((key) => {
+        const before = startupGeometryEarly[key];
+        const after = startupGeometrydSettled[key];
+        if (!before || !after) return [key, before === after ? 0 : -1];
+        return [key, Math.max(
+          Math.abs(before.left - after.left),
+          Math.abs(before.top - after.top),
+          Math.abs(before.width - after.width),
+          Math.abs(before.height - after.height),
+        )];
+      })),
+    };
     window.setSize(1_000, 650);
     await new Promise((resolve) => setTimeout(resolve, 150));
     const resizedBounds = window.getBounds();
@@ -916,7 +952,21 @@ async function captureWindow(): Promise<void> {
       layer.style.display = 'none';
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const lightShellTopEdge = measureShellTopEdge(await window.webContents.capturePage(), 'light');
+    // The earlier mobile pass may have auto-collapsed the sidebar (<=760px
+    // navigation close). Reopen it so the light frame shows the full rail.
+    await window.webContents.executeJavaScript(`(() => {
+      if (document.querySelector('.app-shell.sidebar-collapsed')) {
+        const toggle = document.querySelector('.toolbar-sidebar');
+        if (toggle instanceof HTMLElement) toggle.click();
+      }
+      return true;
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    // Keep the full light-theme frame as a standing artifact so dark/light
+    // parity can be reviewed visually, not just via token assertions.
+    const lightImage = await window.webContents.capturePage();
+    const lightShellTopEdge = measureShellTopEdge(lightImage, 'light');
+    const lightPng = lightImage.toPNG();
     await window.webContents.executeJavaScript(
       "document.querySelector('.mixdog-settings-layer')?.style.removeProperty('display')",
     );
@@ -1266,6 +1316,7 @@ async function captureWindow(): Promise<void> {
       },
       dictationSmoke,
       toolShowcase: { ...toolShowcase, dimensions: toolShowcaseDimensions },
+      startupGeometry,
       nativeWindow: {
         ...nativeWindow,
       },
@@ -1276,6 +1327,7 @@ async function captureWindow(): Promise<void> {
     writeFileSync(outputPath, png);
     writeFileSync(outputPath.replace(/\.png$/i, '-tools.png'), toolsPng);
     writeFileSync(outputPath.replace(/\.png$/i, '-tools-top.png'), toolsTopPng);
+    writeFileSync(outputPath.replace(/\.png$/i, '-light.png'), lightPng);
     writeFileSync(outputPath.replace(/\.png$/i, '.json'), `${JSON.stringify(metadata, null, 2)}\n`);
   } finally {
     try {
