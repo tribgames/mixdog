@@ -367,7 +367,9 @@ export function projectDesktopLiveWorkState(snapshot: Record<string, unknown>): 
     .flatMap((value) => {
       const source = recordValue(value);
       const entry = projectedAgentEntry(value);
-      if (!source || !entry || !/running/i.test(String(source.status || source.stage || ''))) return [];
+      // Queued spawns count too (user: "5 spawned, only 4 visible" — the
+      // worker pool caps concurrency, so the overflow job waits as queued).
+      if (!source || !entry || !/running|pending|queued|starting/i.test(String(source.status || source.stage || ''))) return [];
       return [entry];
     });
   snapshot.agentWorkers = workers;

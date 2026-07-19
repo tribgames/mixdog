@@ -2007,7 +2007,7 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
     if (startedAt > 0) oldestAgentStart = Math.min(oldestAgentStart, startedAt);
   });
   jobs.forEach((job) => {
-    if (!/running/i.test(String(job.status || job.stage || ""))) return;
+    if (!/running|pending|queued|starting/i.test(String(job.status || job.stage || ""))) return;
     const tag = String(job.tag || job.agent || job.type || job.task_id || job.taskId || "").trim();
     if (tag) taggedRunningKeys.add(tag);
     else untaggedRunningCount += 1;
@@ -3471,7 +3471,11 @@ const Composer = memo(function Composer({
     attachmentsRef.current = [];
     dragDepth.current = 0;
     mentionSearchGeneration.current += 1;
-    setDraft('');
+    // Scope settles ASYNC after a session switch/promotion; when the user is
+    // ALREADY typing in the composer, the in-flight text carries over instead
+    // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
+    const typingLive = document.activeElement === textarea.current;
+    setDraft((current) => (typingLive && current.trim() ? current : ''));
     setAttachments([]);
     setAttachmentError('');
     setComposerNotice('');
