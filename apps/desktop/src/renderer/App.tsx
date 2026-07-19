@@ -2598,7 +2598,10 @@ function CodeDiff({ patch }: { patch: string }) {
               </header>
               {file.renderable ? (
                 <Suspense fallback={<div className="diff-loading" aria-hidden="true">Loading diff…</div>}>
-                  <DiffView data={file} />
+                  {/* The library's parser requires the ---/+++ header in each
+                      hunk entry; header-less @@ hunks parse as an EMPTY diff.
+                      Feed the full per-file patch instead. */}
+                  <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.patch] }} />
                 </Suspense>
               ) : <pre className="diff-fallback">{file.patch}</pre>}
             </div>;
@@ -2999,7 +3002,7 @@ function GitDiffBody({ file }: { file: ReturnType<typeof parseUnifiedDiff>[numbe
   if (!file.renderable) return fallback;
   return <DiffBoundary fallback={fallback}>
     <Suspense fallback={<div className="diff-loading" aria-hidden="true">Loading diff…</div>}>
-      <DiffView data={file} />
+      <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.patch] }} />
     </Suspense>
   </DiffBoundary>;
 }
