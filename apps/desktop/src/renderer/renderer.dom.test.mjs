@@ -163,13 +163,16 @@ test("live-work strip renders ordered snapshot segments and filters terminal age
       shellJobs: { count: 2, elapsedLabel: "9s" },
     },
   })));
-  const labels = Array.from(document.querySelectorAll(".live-work-segment"))
-    .map((element) => element.textContent.replace(/\s+/g, " ").trim());
-  assert.deepEqual(labels, [
-    "Running 5 Agents· 1h 1m 5s",
-    "Exploring· 4s",
-    "Web Searching· 3s",
-    "Running 2 Shells· 9s",
+  assert.equal(document.querySelector(".live-work-count")?.textContent, "10",
+    "the aggregate chip totals agents + explore + search + shells");
+  const rows = Array.from(document.querySelectorAll(".live-work-row"))
+    .map((element) => Array.from(element.children)
+      .map((child) => child.textContent.trim()).filter(Boolean).join(" "));
+  assert.deepEqual(rows, [
+    "Agents 5 1h 1m 5s",
+    "Explore 4s",
+    "Web search 3s",
+    "Shell 2 9s",
   ]);
 });
 

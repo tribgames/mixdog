@@ -2119,34 +2119,47 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 /* TUI L2 activity lives beside Context in the session header. */
 .composer-region { position: relative; }
+/* Aggregate activity chip (user decision): spinner + count, breakdown in a
+   hover/focus popover — the header stays quiet. */
 .live-work-status {
-  min-width: 0;
-  max-width: min(480px, 46vw);
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  flex: 0 1 auto;
+  position: relative;
   margin-left: 0;
-  overflow: hidden;
-  color: var(--oc-text-faint);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 16px;
-  pointer-events: none;
-}
-.live-work-segment {
-  min-width: 0;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  white-space: nowrap;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--oc-text-muted);
+  font-size: 12px;
+  line-height: 16px;
 }
-.live-work-segment + .live-work-segment::before {
-  content: "·";
-  margin-right: 6px;
-  color: var(--oc-border-strong);
+.live-work-status:hover, .live-work-status:focus { background: var(--oc-hover); outline: 0; }
+.live-work-count { font-weight: 500; font-variant-numeric: tabular-nums; }
+.live-work-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 176px;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: .5px solid var(--oc-border-strong);
+  border-radius: 8px;
+  color: var(--oc-text);
+  background: var(--oc-bg-base);
+  box-shadow: var(--oc-floating);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 100ms ease;
 }
-.live-work-segment small { color: var(--oc-text-faint); font: inherit; }
+.live-work-status:hover .live-work-popover,
+.live-work-status:focus .live-work-popover,
+.live-work-status:focus-within .live-work-popover { opacity: 1; visibility: visible; }
+.live-work-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.live-work-row small { color: var(--oc-text-faint); font-size: 11px; }
 .live-work-spinner {
   flex: 0 0 auto;
   color: var(--oc-success);

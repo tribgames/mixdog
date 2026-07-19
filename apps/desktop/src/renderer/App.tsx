@@ -2020,21 +2020,27 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
     return () => window.clearInterval(timer);
   }, [active, fixedNow]);
   if (!active) return null;
-  const segment = (key: string, label: string, elapsed: string) => <span className="live-work-segment" key={key}>
-    <LoaderCircle className="live-work-spinner" size={12} aria-hidden="true" />
-    <span>{label}</span>{elapsed && <small>· {elapsed}</small>}
-  </span>;
-  return <div className="live-work-status" role="status" aria-label="Background activity">
-    {runningCount > 0 && segment("agents",
-      `Running ${runningCount} Agent${runningCount === 1 ? "" : "s"}`,
-      Number.isFinite(oldestAgentStart) ? formatWorkElapsed(clock - oldestAgentStart) : "")}
-    {exploreCount > 0 && segment("explore", "Exploring",
-      tools.explore?.startedAt ? formatWorkElapsed(clock - Number(tools.explore.startedAt)) : "")}
-    {searchCount > 0 && segment("search", "Web Searching",
-      tools.search?.startedAt ? formatWorkElapsed(clock - Number(tools.search.startedAt)) : "")}
-    {shellCount > 0 && segment("shells",
-      `Running ${shellCount} Shell${shellCount === 1 ? "" : "s"}`,
-      String(snapshot.shellJobs?.elapsedLabel || ""))}
+  // Aggregate chip (user decision): ONE quiet spinner+count left of the
+  // context gauge; the per-activity breakdown lives in a hover popover.
+  const total = runningCount + exploreCount + searchCount + shellCount;
+  const row = (key: string, label: string, elapsed: string) => <div className="live-work-row" key={key}>
+    <span>{label}</span>
+    {elapsed && <small>{elapsed}</small>}
+  </div>;
+  return <div className="live-work-status" role="status" tabIndex={0}
+    aria-label={`Background activity: ${total} running`}>
+    <LoaderCircle className="live-work-spinner" size={13} aria-hidden="true" />
+    <span className="live-work-count">{total}</span>
+    <div className="live-work-popover" role="tooltip">
+      {runningCount > 0 && row("agents", `Agent${runningCount === 1 ? "" : "s"} ${runningCount}`,
+        Number.isFinite(oldestAgentStart) ? formatWorkElapsed(clock - oldestAgentStart) : "")}
+      {exploreCount > 0 && row("explore", "Explore",
+        tools.explore?.startedAt ? formatWorkElapsed(clock - Number(tools.explore.startedAt)) : "")}
+      {searchCount > 0 && row("search", "Web search",
+        tools.search?.startedAt ? formatWorkElapsed(clock - Number(tools.search.startedAt)) : "")}
+      {shellCount > 0 && row("shells", `Shell ${shellCount}`,
+        String(snapshot.shellJobs?.elapsedLabel || ""))}
+    </div>
   </div>;
 }
 
