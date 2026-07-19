@@ -2902,6 +2902,10 @@ interface DockAgentRow {
   failed: boolean;
   readArgs: RecordValue | null;
 }
+// Reused-session workers can surface without a startedAt (round-2 spawns);
+// anchor their elapsed timer to first sight so the dock shows a ticking
+// duration instead of the literal word "running".
+const agentRowFirstSeen = new Map<string, number>();
 function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
   const workers = Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [];
   const jobs = Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [];
@@ -2940,7 +2944,18 @@ function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
       readArgs: existing.readArgs || readArgs,
     });
   });
-  return [...rows.values()].sort((left, right) => left.startedAt - right.startedAt);
+  const result = [...rows.values()];
+  for (const row of result) {
+    if (!row.startedAt) {
+      const seen = agentRowFirstSeen.get(row.key) ?? Date.now();
+      agentRowFirstSeen.set(row.key, seen);
+      row.startedAt = seen;
+    }
+  }
+  for (const key of agentRowFirstSeen.keys()) {
+    if (!rows.has(key)) agentRowFirstSeen.delete(key);
+  }
+  return result.sort((left, right) => left.startedAt - right.startedAt);
 }
 function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
   const files = new Map<string, SessionFileChange>();
