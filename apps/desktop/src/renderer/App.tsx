@@ -2989,6 +2989,29 @@ interface GitLogRow {
   when: string;
   pushed: boolean;
 }
+// Commit detail: the dock is narrow, so a raw multi-file CodeDiff dump is
+// unreadable. Reuse the session Changes-tab grammar instead — one collapsed
+// <details> accordion per file with +/− stats, expanding to that file only.
+function CommitFileDiffs({ patch }: { patch: string }) {
+  const files = useMemo(() => {
+    try { return parseUnifiedDiff(patch); } catch { return []; }
+  }, [patch]);
+  if (!files.length) return <pre className="diff-fallback">{patch}</pre>;
+  return <>{files.map((file, index) => {
+    const lines = file.hunks.join("\n").split("\n");
+    const additions = lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+    const deletions = lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+    const name = String(file.newFile?.fileName || "file");
+    return <details className="dock-change" key={`${name}-${index}`}>
+      <summary>
+        <FileDiff size={14} aria-hidden="true" />
+        <b title={name}>{name}</b>
+        <span className="diff-stats"><i>+{additions}</i><em>-{deletions}</em></span>
+      </summary>
+      <CodeDiff patch={file.patch} />
+    </details>;
+  })}</>;
+}
 function GitPanel({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
   const [error, setError] = useState("");
@@ -3125,7 +3148,14 @@ function GitPanel({ cwd }: { cwd: string | null }) {
         Commits{status.ahead > 0 && <small>↑{status.ahead}</small>}
       </button>
     </nav>
-    {view === "changes" && <><form className="dock-git-commit" onSubmit={(event) => {
+    {view === "changes" && status.files.length === 0 && <>
+      <p className="utility-dock-empty">Working tree clean.</p>
+      {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
+        onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
+        {status.upstream ? `Push ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : "Publish Branch"}
+      </button>}
+    </>}
+    {view === "changes" && status.files.length > 0 && <><form className="dock-git-commit" onSubmit={(event) => {
       event.preventDefault();
       if (!canCommit) return;
       void act(async () => {
@@ -3157,9 +3187,7 @@ function GitPanel({ cwd }: { cwd: string | null }) {
         </button>}
       </footer>
     </form>
-    {status.files.length === 0
-      ? <p className="utility-dock-empty">Working tree clean.</p>
-      : <>
+    <>
         <section>
           <h4 className="dock-git-group">
             Staged Changes <small>{staged.length}</small>
@@ -3184,7 +3212,7 @@ function GitPanel({ cwd }: { cwd: string | null }) {
             ? unstaged.map((file) => row(file, false))
             : <p className="dock-git-group-empty">All changes staged.</p>}
         </section>
-      </>}</>}
+      </></>}
     {view === "history" && (log === null
       ? <p className="utility-dock-empty">Loading commits…</p>
       : log.length === 0
@@ -3208,7 +3236,7 @@ function GitPanel({ cwd }: { cwd: string | null }) {
                   : showText.startsWith("Error:")
                     ? <p className="utility-dock-empty">{showText}</p>
                     : showText
-                      ? <CodeDiff patch={showText} />
+                      ? <CommitFileDiffs patch={showText} />
                       : <p className="utility-dock-empty">Empty commit.</p>}
               </div>}
             </React.Fragment>;

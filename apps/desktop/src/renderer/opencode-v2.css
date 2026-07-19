@@ -4857,6 +4857,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .dock-git-commit button:disabled { opacity: .5; cursor: default; }
+.dock-git-clean-push {
+  align-self: center;
+  min-height: 26px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-grey-100);
+  background: var(--oc-bg-contrast);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.dock-git-clean-push:disabled { opacity: .5; cursor: default; }
 .utility-dock-body[data-tab="terminal"] { padding: 0; overflow: hidden; background: #141312; }
 .dock-terminal { min-height: 0; height: 100%; padding: 8px 6px 8px 12px; }
 .dock-terminal .xterm { height: 100%; }
