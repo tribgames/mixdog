@@ -36,6 +36,7 @@ import {
   ShieldAlert,
   Sparkles,
   Trash2,
+  Undo2,
   X,
 } from "lucide-react";
 import { OcIcon } from "./OcIcon";
@@ -3031,6 +3032,9 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
   const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [forced, setForced] = useState<string[]>([]);
   const [diffs, setDiffs] = useState<Record<string, string | null>>({});
+  // No manual refresh control: the 4s poll owns freshness, so cached diffs
+  // must self-invalidate when a file's stats change under it.
+  const reviewRef = useRef<GitReviewInfo | null>(null);
   const [diffStyle, setDiffStyle] = useState<"unified" | "split">(() => {
     try { return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === "split" ? "split" : "unified"; }
     catch { return "unified"; }
@@ -3051,6 +3055,23 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
       ]);
       setStatus(next ?? null);
       setReview(nextReview ?? null);
+      const prev = reviewRef.current;
+      reviewRef.current = nextReview ?? null;
+      if (prev && nextReview) {
+        const signature = (file: GitReviewFile) => `${file.additions}:${file.deletions}:${file.uncommitted}`;
+        const before = new Map(prev.files.map((file) => [file.path, signature(file)]));
+        setDiffs((current) => {
+          let dirty = false;
+          const draft = { ...current };
+          for (const file of nextReview.files) {
+            if (draft[file.path] !== undefined && before.get(file.path) !== signature(file)) {
+              delete draft[file.path];
+              dirty = true;
+            }
+          }
+          return dirty ? draft : current;
+        });
+      }
       setError("");
     } catch (reason) {
       setStatus(null);
@@ -3129,10 +3150,6 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
           onClick={() => setOpenFiles(openFiles.length > 0 ? [] : changed.map((file) => file.path))}>
           {openFiles.length > 0 ? "Collapse all" : "Expand all"}
         </button>}
-        <button type="button" className="dock-git-refresh" disabled={busy}
-          onClick={() => { setDiffs({}); void refresh(); }} aria-label="Refresh review">
-          <RotateCcw size={13} />
-        </button>
       </div>
     </header>
     {uncommitted.length > 0 && <form className="review-commit" onSubmit={(event) => {
@@ -3199,7 +3216,7 @@ function ReviewPane({ cwd }: { cwd: string | null }) {
                 aria-label={`Revert ${file.path}`}
                 title={file.untracked ? "Delete untracked file" : "Discard uncommitted changes"}
                 onClick={() => setRevertPath(file.path)}>
-                <RotateCcw size={12} />
+                <Undo2 size={13} />
               </button>)}
           </div>
           {open && <div className="review-file-body">

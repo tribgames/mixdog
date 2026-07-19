@@ -3949,6 +3949,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   white-space: nowrap;
 }
 .diff-stats { flex: 0 0 auto; white-space: nowrap; }
+/* Conventional review colors: additions green, deletions red (app-wide). */
+.diff-stats i { color: var(--oc-success); font-style: normal; }
+.diff-stats em { color: var(--oc-danger); font-style: normal; }
 .diff-loading {
   min-height: 96px;
   display: grid;
@@ -5036,19 +5039,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .review-branch b { color: var(--oc-text); font-weight: 600; }
 .review-total { flex: 0 0 auto; font-size: 12px; }
 .review-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.review-style-toggle { display: flex; border-radius: 6px; background: var(--oc-pressed); padding: 2px; }
+.review-style-toggle { display: flex; gap: 2px; }
 .review-style-toggle button {
   min-height: 22px;
   padding: 0 10px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   color: var(--oc-text-muted);
   background: transparent;
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
 }
-.review-style-toggle button[aria-pressed="true"] { color: var(--oc-text); background: var(--oc-workspace-sheet); box-shadow: 0 0 0 .5px var(--oc-border-muted); }
+.review-style-toggle button:hover { color: var(--oc-text); background: var(--oc-hover); }
+.review-style-toggle button[aria-pressed="true"] { color: var(--oc-text); background: var(--oc-pressed); }
 .review-action-btn {
   min-height: 26px;
   padding: 0 10px;
@@ -5098,7 +5102,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .review-list { display: flex; flex-direction: column; gap: 8px; }
 .review-file {
   border-radius: 8px;
-  background: var(--oc-bg-layer-1);
+  background: transparent;
   box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
 }
 .review-file-header {
@@ -5108,7 +5112,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   align-items: center;
   border-radius: 8px;
-  background: var(--oc-bg-layer-1);
+  background: var(--oc-workspace-sheet);
 }
 .review-file[data-open] .review-file-header { border-radius: 8px 8px 0 0; box-shadow: 0 .5px 0 var(--oc-border-muted); }
 .review-file-trigger {
