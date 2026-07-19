@@ -797,6 +797,7 @@ export function App() {
     activateSelection({ kind: "new" }, "New task");
     newTaskReady.current = true;
     setNewTaskActive(true);
+    setComposerFocusRequest((value) => value + 1);
     await refreshProjects();
     refreshSessionsBestEffort();
   };
@@ -921,7 +922,13 @@ export function App() {
     closeSidebarForNavigation();
     void invoke(async () => {
       try {
-        const next = await window.mixdogDesktop?.startTask();
+        // Fresh tasks keep the LAST project preselected (user decision):
+        // current project first, then the most recent one.
+        const lastProject = String(snapshot.currentProject || snapshot.project ||
+          (Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects[0] : "") || "");
+        const next = lastProject
+          ? await window.mixdogDesktop.startProjectTask(lastProject)
+          : await window.mixdogDesktop?.startTask();
         applySnapshot(next);
         activateSelection(draft?.kind === "new" ? draft : newDraftSelection(), "New task");
         newTaskReady.current = true;
