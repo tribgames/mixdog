@@ -2130,11 +2130,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  min-height: 28px;
-  padding: 0 8px;
+  height: 28px;
+  padding: 0 7px;
   border-radius: 6px;
-  color: var(--oc-text-muted);
+  /* Same voice as the toggle cluster: label ink, no accent green. */
+  color: var(--oc-text);
   font-size: 12px;
   line-height: 16px;
 }
@@ -2165,7 +2167,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .live-work-row small { color: var(--oc-text-faint); font-size: 11px; }
 .live-work-spinner {
   flex: 0 0 auto;
-  color: var(--oc-success);
+  color: currentColor;
   /* Calm rotation — 1.1s read frantic next to the quiet header (user). */
   animation: spin 2s linear infinite;
 }
@@ -4637,7 +4639,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 2px;
+  padding: 4px 10px;
 }
 .dock-agent-row + .dock-agent-row { border-top: .5px solid var(--oc-border-muted); }
 .dock-agent-row > i {

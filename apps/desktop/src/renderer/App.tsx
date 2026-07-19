@@ -2887,7 +2887,9 @@ function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
     const readArgs: RecordValue | null = taskId
       ? { type: "read", task_id: taskId }
       : tag ? { type: "read", tag } : null;
-    const identity = taskId || tag || `${name}-${String(record.id ?? index)}`;
+    // Tag FIRST: one spawn often reports as a tagged worker AND a task-id
+    // job; the tag is the stable spawn handle, so both collapse into it.
+    const identity = tag || taskId || `${name}-${String(record.id ?? index)}`;
     const existing = rows.get(identity);
     if (!existing) {
       rows.set(identity, { key: identity, name, status, detail, startedAt, done, failed, readArgs });
