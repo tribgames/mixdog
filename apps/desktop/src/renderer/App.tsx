@@ -2980,7 +2980,7 @@ interface GitPanelStatus {
   ahead: number;
   behind: number;
   upstream: boolean;
-  files: Array<{ path: string; index: string; worktree: string; untracked: boolean }>;
+  files: Array<{ path: string; index: string; worktree: string; untracked: boolean; additions: number; deletions: number }>;
 }
 interface GitLogRow {
   hash: string;
@@ -3038,10 +3038,12 @@ function GitPanel({ cwd }: { cwd: string | null }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [diffPath, setDiffPath] = useState<{ path: string; staged: boolean } | null>(null);
+  const [diffPath, setDiffPath] = useState<string>("");
   // null = loading; empty string means "no textual diff" (binary/whitespace).
   const [diffText, setDiffText] = useState<string | null>(null);
-  const [view, setView] = useState<"changes" | "history">("changes");
+  // aider-desk grammar: no staging surface — one list of uncommitted work
+  // plus commit groups. Reverting a file is a two-step inline confirm.
+  const [revertPath, setRevertPath] = useState<string>("");
   const [log, setLog] = useState<GitLogRow[] | null>(null);
   const [showHash, setShowHash] = useState("");
   const [showText, setShowText] = useState<string | null>(null);
@@ -3066,7 +3068,7 @@ function GitPanel({ cwd }: { cwd: string | null }) {
     try { setLog(await window.mixdogDesktop.gitLog(cwd)); } catch { setLog([]); }
   }, [cwd]);
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => { if (view === "history") void loadLog(); }, [view, loadLog]);
+  useEffect(() => { void loadLog(); }, [loadLog]);
   // Commit detail (claudecodeui HistoryView): expanded commit loads its patch.
   useEffect(() => {
     if (!cwd || !showHash) return undefined;
@@ -3081,19 +3083,20 @@ function GitPanel({ cwd }: { cwd: string | null }) {
   // (CLI, the agent itself) must show up without a manual refresh — poll
   // while the tab is mounted and refetch on window focus.
   useEffect(() => {
-    const timer = window.setInterval(() => { void refresh(); }, 4_000);
-    const onFocus = () => { void refresh(); };
+    const tick = () => { void refresh(); void loadLog(); };
+    const timer = window.setInterval(tick, 4_000);
+    const onFocus = tick;
     window.addEventListener("focus", onFocus);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [refresh]);
+  }, [refresh, loadLog]);
   useEffect(() => {
     if (!cwd || !diffPath) return undefined;
     let live = true;
     setDiffText(null);
-    void window.mixdogDesktop.gitDiff?.(cwd, diffPath.path, diffPath.staged)
+    void window.mixdogDesktop.gitDiff?.(cwd, diffPath, false)
       .then((patch) => { if (live) setDiffText(patch || ""); })
       .catch((reason) => { if (live) setDiffText(`Error: ${reason instanceof Error ? reason.message : String(reason)}`); });
     return () => { live = false; };
@@ -3108,29 +3111,43 @@ function GitPanel({ cwd }: { cwd: string | null }) {
   if (error) return <p className="utility-dock-empty">{error}</p>;
   if (!status) return <p className="utility-dock-empty">Loading git status…</p>;
   if (!status.repository) return <p className="utility-dock-empty">Not a git repository.</p>;
-  const staged = status.files.filter((file) => !file.untracked && file.index !== " " && file.index !== "?");
-  const unstaged = status.files.filter((file) => file.untracked || (file.worktree !== " " && file.worktree !== "?"));
-  // VSCode SCM grammar: the diff opens INLINE right under the clicked row (a
-  // bottom-of-panel diff was effectively invisible below long file lists).
-  const row = (file: GitPanelStatus["files"][number], isStaged: boolean) => {
-    const active = diffPath !== null && diffPath.path === file.path && diffPath.staged === isStaged;
-    return <React.Fragment key={`${isStaged ? "s" : "w"}:${file.path}`}>
+  // aider-desk grammar: ONE change list (no staging surface — commits take
+  // the whole tree), rows carry +/− stats and a confirmed per-file revert.
+  const changed = status.files;
+  const totalAdditions = changed.reduce((sum, file) => sum + (file.additions || 0), 0);
+  const totalDeletions = changed.reduce((sum, file) => sum + (file.deletions || 0), 0);
+  const row = (file: GitPanelStatus["files"][number]) => {
+    const code = file.untracked ? "U"
+      : file.worktree !== " " && file.worktree !== "?" ? file.worktree : file.index;
+    const active = diffPath === file.path;
+    const confirming = revertPath === file.path;
+    return <React.Fragment key={file.path}>
       <div className="dock-git-row" data-active={active || undefined}>
-        <button type="button" className="dock-git-path" disabled={file.untracked && !isStaged}
+        <button type="button" className="dock-git-path" disabled={file.untracked}
           title={file.path} aria-expanded={active}
-          onClick={() => setDiffPath(active ? null : { path: file.path, staged: isStaged })}>
-          <code data-code={isStaged ? file.index : file.untracked ? "U" : file.worktree}>
-            {isStaged ? file.index : file.untracked ? "U" : file.worktree}
-          </code>
+          onClick={() => setDiffPath(active ? "" : file.path)}>
+          <code data-code={code}>{code}</code>
           <span>{file.path}</span>
         </button>
-        <button type="button" className="dock-git-action" disabled={busy}
-          aria-label={isStaged ? `Unstage ${file.path}` : `Stage ${file.path}`}
-          onClick={() => void act(() => isStaged
-            ? window.mixdogDesktop.gitUnstage?.(cwd, [file.path])
-            : window.mixdogDesktop.gitStage?.(cwd, [file.path]))}>
-          {isStaged ? "−" : "+"}
-        </button>
+        {(file.additions > 0 || file.deletions > 0) && <span className="diff-stats dock-git-row-stats">
+          <i>+{file.additions}</i><em>-{file.deletions}</em>
+        </span>}
+        {confirming
+          ? <button type="button" className="dock-git-revert-confirm" disabled={busy}
+            onBlur={() => setRevertPath("")}
+            onClick={() => {
+              setRevertPath("");
+              if (diffPath === file.path) setDiffPath("");
+              void act(() => window.mixdogDesktop.gitRevert?.(cwd, file.path, file.untracked));
+            }}>
+            {file.untracked ? "Delete?" : "Undo?"}
+          </button>
+          : <button type="button" className="dock-git-action" disabled={busy}
+            aria-label={`Revert ${file.path}`}
+            title={file.untracked ? "Delete untracked file" : "Discard changes"}
+            onClick={() => setRevertPath(file.path)}>
+            <RotateCcw size={12} />
+          </button>}
       </div>
       {active && <div className="dock-git-inline-diff">
         {diffText === null
@@ -3143,8 +3160,8 @@ function GitPanel({ cwd }: { cwd: string | null }) {
       </div>}
     </React.Fragment>;
   };
-  const canCommit = staged.length > 0 && Boolean(message.trim()) && !busy;
-  const showPush = staged.length === 0 && (status.ahead > 0 || (!status.upstream && status.files.length === 0));
+  const canCommit = changed.length > 0 && Boolean(message.trim()) && !busy;
+  const showPush = status.ahead > 0 || (!status.upstream && changed.length === 0);
   return <div className="dock-git">
     <header className="dock-git-header">
       <b>{status.branch}</b>
@@ -3159,30 +3176,20 @@ function GitPanel({ cwd }: { cwd: string | null }) {
         <RotateCcw size={13} />
       </button>
     </header>
-    <nav className="dock-git-views" aria-label="Git panel views">
-      <button type="button" className={view === "changes" ? "active" : ""}
-        onClick={() => setView("changes")}>
-        Changes{status.files.length > 0 && <small>{status.files.length}</small>}
-      </button>
-      <button type="button" className={view === "history" ? "active" : ""}
-        onClick={() => setView("history")}>
-        Commits{status.ahead > 0 && <small>↑{status.ahead}</small>}
-      </button>
-    </nav>
-    {view === "changes" && status.files.length === 0 && <>
+    {changed.length === 0 && <>
       <p className="utility-dock-empty">Working tree clean.</p>
       {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
         onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
         {status.upstream ? `Push ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : "Publish Branch"}
       </button>}
     </>}
-    {view === "changes" && status.files.length > 0 && <><form className="dock-git-commit" onSubmit={(event) => {
+    {changed.length > 0 && <><form className="dock-git-commit" onSubmit={(event) => {
       event.preventDefault();
       if (!canCommit) return;
       void act(async () => {
         await window.mixdogDesktop.gitCommit?.(cwd, message);
         setMessage("");
-        setDiffPath(null);
+        setDiffPath("");
         await loadLog();
       });
     }}>
@@ -3196,49 +3203,32 @@ function GitPanel({ cwd }: { cwd: string | null }) {
           }
         }} />
       <footer>
-        <span>{staged.length} file{staged.length === 1 ? "" : "s"} staged</span>
-      {showPush
-        ? <button type="button" disabled={busy}
-          onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
-          {status.upstream ? `Push ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : "Publish Branch"}
-        </button>
-        : <button type="submit" disabled={!canCommit}>
+        <span>{changed.length} file{changed.length === 1 ? "" : "s"} changed</span>
+        <button type="submit" disabled={!canCommit}>
           <Check size={13} aria-hidden="true" />
           Commit
-        </button>}
+        </button>
       </footer>
     </form>
-    <>
-        <section>
-          <h4 className="dock-git-group">
-            Staged Changes <small>{staged.length}</small>
-            {staged.length > 0 && <button type="button" disabled={busy}
-              onClick={() => void act(() => window.mixdogDesktop.gitUnstage?.(cwd, staged.map((file) => file.path)))}>
-              Unstage All
-            </button>}
-          </h4>
-          {staged.length
-            ? staged.map((file) => row(file, true))
-            : <p className="dock-git-group-empty">No staged changes.</p>}
-        </section>
-        <section>
-          <h4 className="dock-git-group">
-            Changes <small>{unstaged.length}</small>
-            {unstaged.length > 0 && <button type="button" disabled={busy}
-              onClick={() => void act(() => window.mixdogDesktop.gitStage?.(cwd, unstaged.map((file) => file.path)))}>
-              Stage All
-            </button>}
-          </h4>
-          {unstaged.length
-            ? unstaged.map((file) => row(file, false))
-            : <p className="dock-git-group-empty">All changes staged.</p>}
-        </section>
-      </></>}
-    {view === "history" && (log === null
-      ? <p className="utility-dock-empty">Loading commits…</p>
-      : log.length === 0
-        ? <p className="utility-dock-empty">No commits yet.</p>
-        : <div className="dock-git-log">
+    <section>
+      <h4 className="dock-git-group">
+        Uncommitted <small>{changed.length}</small>
+        {(totalAdditions > 0 || totalDeletions > 0) && <span className="diff-stats">
+          <i>+{totalAdditions}</i><em>-{totalDeletions}</em>
+        </span>}
+      </h4>
+      {changed.map((file) => row(file))}
+    </section></>}
+    <section>
+      <h4 className="dock-git-group">
+        Commits
+        {status.ahead > 0 && <small>↑{status.ahead} to push</small>}
+      </h4>
+      {log === null
+        ? <p className="dock-git-group-empty">Loading commits…</p>
+        : log.length === 0
+          ? <p className="dock-git-group-empty">No commits yet.</p>
+          : <div className="dock-git-log">
           {log.map((commit) => {
             const active = commit.hash === showHash;
             return <React.Fragment key={commit.hash}>
@@ -3262,7 +3252,8 @@ function GitPanel({ cwd }: { cwd: string | null }) {
               </div>}
             </React.Fragment>;
           })}
-        </div>)}
+        </div>}
+    </section>
   </div>;
 }
 

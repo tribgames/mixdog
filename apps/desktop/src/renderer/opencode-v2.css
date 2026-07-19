@@ -4763,6 +4763,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .dock-git-action:hover:not(:disabled) { color: var(--oc-text); background: var(--oc-hover); }
+.dock-git-row-stats { flex: 0 0 auto; font-size: 11px; }
+.dock-git-revert-confirm {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-grey-100);
+  background: var(--oc-bg-contrast);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
 /* Inline diff accordion under the clicked row (VSCode SCM grammar). */
 .dock-git-row[data-active] .dock-git-path { background: var(--oc-pressed); }
 .dock-git-inline-diff {

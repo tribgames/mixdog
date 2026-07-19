@@ -8,6 +8,8 @@ export interface GitFileEntry {
   index: string;
   worktree: string;
   untracked: boolean;
+  additions: number;
+  deletions: number;
 }
 
 export interface GitStatusResult {
@@ -66,15 +68,43 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
     const worktree = entry[1];
     const path = entry.slice(3);
     if (!path) continue;
-    files.push({ path, index, worktree, untracked: index === '?' && worktree === '?' });
+    files.push({ path, index, worktree, untracked: index === '?' && worktree === '?', additions: 0, deletions: 0 });
     // -z rename/copy records append the OLD path as the next NUL field.
     if (index === 'R' || index === 'C') i += 1;
+  }
+  // aider-desk grammar: rows carry +/− stats. Numstat covers tracked files
+  // (worktree vs HEAD); untracked files stay at 0/0.
+  const stats = new Map<string, { additions: number; deletions: number }>();
+  try {
+    const numstat = await run(cwd, ['diff', 'HEAD', '--numstat', '-z']);
+    const fields = numstat.split('\0').filter(Boolean);
+    for (let i = 0; i < fields.length; i++) {
+      const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(fields[i]);
+      if (!match) continue;
+      // A rename record has an empty path in the stat field; the two
+      // following NUL fields carry old/new paths.
+      let path = match[3];
+      if (!path) {
+        i += 2;
+        path = fields[i] ?? '';
+      }
+      if (path) stats.set(path, {
+        additions: match[1] === '-' ? 0 : Number(match[1]),
+        deletions: match[2] === '-' ? 0 : Number(match[2]),
+      });
+    }
+  } catch { /* empty repository (no HEAD yet) */ }
+  for (const file of files) {
+    const stat = stats.get(file.path);
+    if (stat) { file.additions = stat.additions; file.deletions = stat.deletions; }
   }
   return { repository: true, branch, upstream, ahead, behind, files };
 }
 
 export function gitDiff(cwd: string, path: string, staged: boolean): Promise<string> {
-  return run(cwd, ['diff', ...(staged ? ['--cached'] : []), '--', path]);
+  // Commit-all model (aider-desk): the working diff is always vs HEAD so
+  // staged and unstaged edits read as one change.
+  return run(cwd, ['diff', ...(staged ? ['--cached'] : ['HEAD']), '--', path]);
 }
 
 export async function gitStage(cwd: string, paths: string[]): Promise<void> {
@@ -88,7 +118,20 @@ export async function gitUnstage(cwd: string, paths: string[]): Promise<void> {
 export async function gitCommit(cwd: string, message: string): Promise<string> {
   const trimmed = message.trim();
   if (!trimmed) throw new TypeError('A commit message is required.');
+  // Commit-all model (aider-desk/agent workflow): no staging surface in the
+  // panel; a commit takes the whole working tree.
+  await run(cwd, ['add', '-A']);
   return run(cwd, ['commit', '-m', trimmed]);
+}
+
+export async function gitRevertFile(cwd: string, path: string, untracked: boolean): Promise<void> {
+  if (untracked) {
+    // Untracked file: delete it (git clean keeps us inside repo semantics).
+    await run(cwd, ['clean', '-f', '--', path]);
+    return;
+  }
+  // Tracked file: restore index AND worktree from HEAD (full discard).
+  await run(cwd, ['checkout', 'HEAD', '--', path]);
 }
 
 export async function gitPush(cwd: string): Promise<string> {
