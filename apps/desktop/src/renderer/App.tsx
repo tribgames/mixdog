@@ -2769,10 +2769,8 @@ const MAX_SUBMIT_TEXT_LENGTH = 950_000;
 const MAX_PERSISTED_PROMPT_HISTORY = 100;
 const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
 const COMPOSER_PLACEHOLDERS = [
-  'Ask anything, / for commands, @ for context…',
-  'Ask Mixdog to explain this project…',
-  'Ask Mixdog to plan your next change…',
-  'Ask Mixdog to find and fix a bug…',
+  // One quiet line (user decision): no rotating tips, no syntax lecture.
+  'Ask anything…',
 ] as const;
 
 function promptHistoryStorageKey(scope: string) {
