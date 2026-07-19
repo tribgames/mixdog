@@ -1754,6 +1754,23 @@ function Conversation({
       else window.clearTimeout(scrollFrame.current);
     }
   }, []);
+  // Bottom-follow across viewport RESIZES (user): the queue tray mounting or
+  // the composer growing shrinks the transcript viewport; while the reader is
+  // at the bottom, stay pinned to the bottom. Off-bottom readers keep their
+  // position untouched.
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      if (!followOutput.current) return;
+      programmaticScroll.current = true;
+      window.clearTimeout(scrollTimer.current);
+      element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
+      scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const renderTranscriptItem = (item: TranscriptItem, index: number) => {
     const turnKey = turnKeys[index];

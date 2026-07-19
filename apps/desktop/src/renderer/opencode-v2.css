@@ -2209,20 +2209,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   position: relative;
   z-index: 0;
   max-height: 168px;
-  margin-bottom: -14px;
-  padding-bottom: 14px;
+  margin-bottom: -10px;
+  padding-bottom: 10px;
   overflow: hidden;
-  border: .5px solid var(--oc-border-strong);
+  border: .5px solid var(--oc-border-muted);
   border-bottom: 0;
-  border-radius: 10px 10px 0 0;
+  border-radius: 8px 8px 0 0;
   color: var(--oc-text);
   background: var(--oc-bg-layer-1);
 }
 .queue-summary {
   width: 100%;
-  min-height: 36px;
+  min-height: 32px;
   gap: 8px;
-  padding: 0 8px 0 12px;
+  padding: 0 10px 0 14px;
   border: 0;
   color: var(--oc-text);
   background: transparent;
@@ -2230,14 +2230,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .queue-summary:hover,
 .queue-summary:focus-visible { background: var(--oc-hover); outline: 0; }
-.queue-summary strong { flex: 0 0 auto; font-size: 13px; font-weight: 500; line-height: 20px; }
+.queue-summary strong { flex: 0 0 auto; color: var(--oc-text-muted); font-size: 12px; font-weight: 500; line-height: 20px; }
 .queue-collapsed-preview { color: var(--oc-text-muted); font-size: 13px; line-height: 20px; }
 .queue-chevron { flex: 0 0 auto; margin-left: auto; color: var(--oc-icon-muted); transition: transform 120ms ease; }
 .queue-list[data-collapsed="true"] .queue-chevron { transform: rotate(180deg); }
-.queue-list[data-collapsed="true"] { padding-bottom: 20px; }
-.queue-items { max-height: 118px; padding: 0 12px 22px; overflow-y: auto; scrollbar-width: none; }
+.queue-list[data-collapsed="true"] { padding-bottom: 16px; }
+.queue-items { max-height: 118px; padding: 0 14px 18px; overflow-y: auto; scrollbar-width: none; }
 .queue-items::-webkit-scrollbar { display: none; }
-.queue-item { min-height: 32px; gap: 8px; padding: 4px 0; font-size: 13px; line-height: 20px; }
+.queue-item { min-height: 30px; gap: 8px; padding: 3px 0; font-size: 13px; line-height: 20px; }
+.queue-item + .queue-item { border-top: .5px solid var(--oc-border-muted); }
 .queue-item small {
   flex: 0 0 auto;
   color: var(--oc-text-faint);
