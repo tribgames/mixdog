@@ -2323,13 +2323,16 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
 
 function contextMetrics(snapshot: Snapshot) {
   const stats = asRecord(snapshot.stats);
-  if (!String(snapshot.sessionId || "")) {
-    const limit = Math.max(0, Number(
-      snapshot.autoCompactTokenLimit || snapshot.displayContextWindow || snapshot.contextWindow || 0,
-    ));
-    return { used: 0, limit, percent: 0, estimated: false };
-  }
-  if (!stats) return null;
+  const limit = Math.max(0, Number(
+    snapshot.autoCompactTokenLimit || snapshot.displayContextWindow || snapshot.contextWindow || 0,
+  ));
+  // Boot stability (user: the gauge flashed then vanished on New task): the
+  // gauge is ALWAYS mounted — before a session, and for a session whose
+  // context tokens have not been computed yet, it reads 0% instead of
+  // unmounting, so the header never pops in and out.
+  const idleGauge = { used: 0, limit, percent: 0, estimated: false };
+  if (!String(snapshot.sessionId || "")) return idleGauge;
+  if (!stats) return idleGauge;
   const exact = Math.max(0, Number(stats.currentContextTokens || 0));
   const estimated = Math.max(0, Number(stats.currentEstimatedContextTokens || 0));
   const used = exact || estimated;
@@ -2339,7 +2342,7 @@ function contextMetrics(snapshot: Snapshot) {
     displayContextWindow: snapshot.displayContextWindow,
     contextWindow: snapshot.contextWindow,
   });
-  if (!usage) return null;
+  if (!usage) return idleGauge;
   return {
     ...usage,
     estimated: exact === 0 && estimated > 0,
