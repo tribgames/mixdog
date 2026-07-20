@@ -6,7 +6,7 @@
 import { createHash } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
-import { loadSession, saveSessionAsync, saveSessionAsyncDeferred } from '../store.mjs';
+import { loadSession, saveSessionAsync, saveSessionAsyncDeferred, readSessionLifecycleFromDisk } from '../store.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { logLlmCall } from '../../../../shared/llm/usage-log.mjs';
 import { appendAgentTrace } from '../../agent-trace.mjs';
@@ -266,6 +266,19 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         // recover the stale transient stage before the loop's pre-send compact
         // path runs (it will overwrite lastStage with real telemetry).
         normalizeStaleCompactingStage(preSession);
+        // Split-brain re-adoption: another surface (e.g. desktop click-through
+        // of a session still actively owned by this process) may have
+        // resumed-and-detached this session, bumping the ON-DISK generation
+        // while the conversation kept going here. Every save from this process
+        // would then be silently dropped by _shouldDrop's ownership rule and
+        // the on-disk transcript would freeze at the last landed save. A new
+        // ask on a NON-closed session is an explicit ownership claim: adopt
+        // the disk generation so this turn's commits land and heal the file.
+        const diskLifecycle = readSessionLifecycleFromDisk(sessionId);
+        if (diskLifecycle && diskLifecycle.closed !== true
+            && diskLifecycle.generation > (typeof preSession.generation === 'number' ? preSession.generation : 0)) {
+            preSession.generation = diskLifecycle.generation;
+        }
         askGeneration = typeof preSession.generation === 'number' ? preSession.generation : 0;
         const runtime = _touchRuntime(sessionId);
         // Preserve any parent-abort link agent-dispatch established BEFORE we

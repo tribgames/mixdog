@@ -214,9 +214,38 @@ const _savePending = new Map();
 /** Same-process authoritative session snapshots (createSession → loadSession / askSession). */
 const _liveSessions = new Map();
 
+// Session ids whose most recent save attempt was DROPPED by the ownership
+// guard (_shouldDrop: disk generation moved past the caller's expected
+// generation) or failed outright. For these ids the local live snapshot is
+// AHEAD of disk — the on-disk transcript froze at the last landed save — so
+// it must not be evicted (data loss) nor shadowed by the stale disk copy.
+const _droppedSaveIds = new Set();
+
 export function setLiveSession(session) {
     if (!session?.id) return;
     _liveSessions.set(session.id, session);
+}
+
+/**
+ * Cheap authoritative lifecycle read straight from disk (no live/pending
+ * cache). Used by askSession's split-brain re-adoption: a new ask on a
+ * non-closed session claims ownership by adopting the on-disk generation.
+ */
+export function readSessionLifecycleFromDisk(id) {
+    if (!id) return null;
+    const target = sessionPath(id);
+    if (!existsSync(target)) return null;
+    try {
+        const raw = readFileSync(target, 'utf-8');
+        let onDisk = scanTopLevelLifecycle(raw);
+        if (onDisk === null) onDisk = JSON.parse(raw);
+        return {
+            generation: typeof onDisk.generation === 'number' ? onDisk.generation : 0,
+            closed: onDisk.closed === true,
+        };
+    } catch {
+        return null;
+    }
 }
 
 function _clearLiveSession(id) {
@@ -275,6 +304,10 @@ export function evictIdleLiveSessions(options = {}) {
         if (isSessionLive && isSessionLive(id)) continue;
         if (_hasPendingPersistence(id)) continue;
         if (!existsSync(sessionPath(id))) continue;
+        // A dropped last save means the disk copy is BEHIND this snapshot
+        // (ownership split-brain). Evicting would lose the only complete
+        // transcript; keep it until a save lands again (re-adoption).
+        if (_droppedSaveIds.has(id)) continue;
         if (_messagesCarryLiveMedia(session?.messages)) {
             const lastActive = Math.max(session?.updatedAt || 0, session?.lastUsedAt || 0);
             if (lastActive > 0 && now - lastActive <= LIVE_MEDIA_RETENTION_MS) continue;
@@ -449,8 +482,16 @@ function _getOrSpawnWorker() {
             // A close/delete may have completed while the worker was writing.
             // Do not let this older completion put an open row back in the
             // process-local cache after its tombstone/removal.
-            if (saved) _queueSessionSummaryUpsert(session, summaryVersion);
-            else _rollbackCachedSessionSummary(id, summaryVersion);
+            if (saved) {
+                _queueSessionSummaryUpsert(session, summaryVersion);
+                _droppedSaveIds.delete(id);
+            } else {
+                // The worker's _shouldDrop declined the write: disk ownership
+                // moved past this snapshot — flag the split-brain so eviction
+                // and disk-over-live arbitration keep the richer local copy.
+                _rollbackCachedSessionSummary(id, summaryVersion);
+                _droppedSaveIds.add(id);
+            }
             clearSessionSaveError(id);
             for (const w of waiters) w.resolve();
         }
@@ -646,25 +687,28 @@ export function _saveSessionSync(session, opts) {
 function _doSaveSync(payload) {
     const { session, opts, summaryVersion = null } = payload;
     const id = session.id;
-    if (_shouldDrop(id, opts)) return false;
+    if (_shouldDrop(id, opts)) { _droppedSaveIds.add(id); return false; }
     const target = sessionPath(id);
     const tmp = target + '.' + randomBytes(6).toString('hex') + '.tmp';
     try {
         writeFileSync(tmp, JSON.stringify(_sessionForDisk(session)), 'utf-8');
         if (_shouldDrop(id, opts)) {
             try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
+            _droppedSaveIds.add(id);
             return false;
         }
         const commitControl = _acquireWriteCommit(opts);
         if (commitControl === false || _shouldDrop(id, opts)) {
             try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
             _releaseWriteCommit(commitControl);
+            _droppedSaveIds.add(id);
             return false;
         }
         try {
             _renameWithRetrySync(tmp, target);
             _queueSessionSummaryUpsert(session, summaryVersion);
             clearSessionSaveError(id);
+            _droppedSaveIds.delete(id);
         } finally {
             _releaseWriteCommit(commitControl);
         }
@@ -812,6 +856,7 @@ async function _doSave(payload) {
     // First check: upfront, before any disk I/O. Cheap short-circuit when a
     // tombstone is already on disk when the caller arrives.
     if (_shouldDrop(id, opts)) {
+        _droppedSaveIds.add(id);
         _drainQueue(id);
         return false;
     }
@@ -825,6 +870,7 @@ async function _doSave(payload) {
         if (_shouldDrop(id, opts)) {
             try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
             process.stderr.write(`[session-store] ${id}: dropped stale save (tombstone planted during write)\n`);
+            _droppedSaveIds.add(id);
             _drainQueue(id);
             return false;
         }
@@ -832,6 +878,7 @@ async function _doSave(payload) {
         if (commitControl === false || _shouldDrop(id, opts)) {
             try { unlinkSync(tmp); } catch { /* ignore cleanup failure */ }
             _releaseWriteCommit(commitControl);
+            _droppedSaveIds.add(id);
             _drainQueue(id);
             return false;
         }
@@ -839,6 +886,7 @@ async function _doSave(payload) {
             _renameWithRetrySync(tmp, target);
             _queueSessionSummaryUpsert(session, summaryVersion);
             clearSessionSaveError(id);
+            _droppedSaveIds.delete(id);
         } finally {
             _releaseWriteCommit(commitControl);
         }
@@ -954,6 +1002,7 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
     // Preserve a sidecar published strictly after the sweep's scan snapshot.
     _deleteHeartbeatUnlessNewer(id, options);
     _queueSessionSummaryUpsert(tombstone);
+    _droppedSaveIds.delete(id);
     // Structured close metric. Single emission point because every close
     // path funnels through markSessionClosed. lifeMs = updatedAt-createdAt
     // straddles the tombstone (updatedAt was just set to Date.now()), so
@@ -1019,6 +1068,7 @@ export function bumpSessionGeneration(id, reason = 'detach') {
     _clearLiveSession(id);
     _deleteHeartbeat(id);
     _queueSessionSummaryUpsert(detached);
+    _droppedSaveIds.delete(id);
     return newGen;
 }
 
@@ -1053,7 +1103,10 @@ export function loadSession(id) {
         // be dropped by _shouldDrop's ownership rule anyway).
         const liveGen = typeof live.generation === 'number' ? live.generation : 0;
         const storedGen = stored && typeof stored.generation === 'number' ? stored.generation : 0;
-        if (stored && storedGen > liveGen) {
+        // A flagged dropped save means the generation moved WITHOUT newer
+        // content landing (detach re-persists stale content) — the local
+        // snapshot is the only complete transcript, so it keeps winning.
+        if (stored && storedGen > liveGen && !_droppedSaveIds.has(id)) {
             _liveSessions.delete(id);
         } else {
             return _ensureLifecycleFields(live);
