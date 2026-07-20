@@ -32,6 +32,7 @@ const MIME_TYPES: Record<string, string> = {
   '.ttf': 'font/ttf',
   '.wasm': 'application/wasm',
   '.txt': 'text/plain; charset=utf-8',
+  '.apk': 'application/vnd.android.package-archive',
 };
 
 export interface RemoteBridgeOptions extends RemoteMethodDependencies {
@@ -91,7 +92,12 @@ function lanUrls(port: number): string[] {
   return urls.length ? urls : [`http://127.0.0.1:${port}`];
 }
 
-function serveStatic(rendererDir: string, request: IncomingMessage, response: ServerResponse): void {
+function serveStatic(
+  rendererDir: string,
+  userDataPath: string,
+  request: IncomingMessage,
+  response: ServerResponse,
+): void {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     response.writeHead(405).end();
     return;
@@ -101,6 +107,32 @@ function serveStatic(rendererDir: string, request: IncomingMessage, response: Se
     pathname = decodeURIComponent(new URL(request.url || '/', 'http://localhost').pathname);
   } catch {
     response.writeHead(400).end();
+    return;
+  }
+  // The Android package downloads from a STABLE home (userData survives
+  // renderer rebuilds; out/renderer is wiped by every build, and the SPA
+  // fallback then served index.html as "mixdog.apk" — the web app opened
+  // instead of the installer).
+  if (pathname === '/mixdog.apk') {
+    const apk = join(userDataPath, 'mixdog.apk');
+    if (!existsSync(apk) || !statSync(apk).isFile()) {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+        .end('Mixdog remote bridge: no Android package staged.');
+      return;
+    }
+    response.writeHead(200, {
+      'Content-Type': MIME_TYPES['.apk'],
+      'Content-Length': statSync(apk).size,
+      // Forces a download even in in-app browsers that would otherwise try
+      // to render the package (user saw a blank page, not the installer).
+      'Content-Disposition': 'attachment; filename="mixdog.apk"',
+      'Cache-Control': 'no-store',
+    });
+    if (request.method === 'HEAD') {
+      response.end();
+      return;
+    }
+    createReadStream(apk).on('error', () => response.destroy()).pipe(response);
     return;
   }
   const root = resolve(rendererDir);
@@ -113,6 +145,12 @@ function serveStatic(rendererDir: string, request: IncomingMessage, response: Se
     if (target === root || !statSync(target).isFile()) target = join(root, 'index.html');
   } catch {
     target = join(root, 'index.html');
+  }
+  // SPA fallback belongs to extension-less routes only: a missing FILE must
+  // 404 instead of masquerading as the web app.
+  if (target === join(root, 'index.html') && extname(pathname) && pathname !== '/index.html') {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
+    return;
   }
   if (!existsSync(target)) {
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -132,7 +170,8 @@ function serveStatic(rendererDir: string, request: IncomingMessage, response: Se
 export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<RemoteBridgeHandle> {
   const token = await loadOrCreateToken(options.userDataPath);
   const methods = createRemoteMethods(options);
-  const server = createServer((request, response) => serveStatic(options.rendererDir, request, response));
+  const server = createServer((request, response) =>
+    serveStatic(options.rendererDir, options.userDataPath, request, response));
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES,

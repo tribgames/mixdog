@@ -234,15 +234,19 @@ export async function compactSessionMessages(sessionId) {
     const result = await runSessionCompaction(session, {
         mode: 'manual',
         force: true,
-        // /compact is a direct reduction of the active session transcript.
-        // Do not re-ingest/search Memory (recall-fasttrack) before summarizing.
-        compactType: DEFAULT_COMPACT_TYPE,
-        // Older source history uses the same pure-conversation filter as
-        // Memory ingest_session; protected system context and recent turns are
-        // still preserved separately by semantic compaction.
+        // No compactType/model override: follow the hard-locked per-session
+        // type (main = recall-fasttrack, agent = semantic). The former forced
+        // semantic + session.model here ran every manual /compact as a
+        // flagship-model summary call (27-38s measured); fasttrack is local
+        // (ingest + digest) and semantic remains only the degraded fallback
+        // inside the runner, where resolveSemanticSummaryModel downshifts the
+        // summary model.
+        // If the semantic fallback does run, filter older source history
+        // through the same pure-conversation filter as Memory ingest_session;
+        // protected system context and recent turns are still preserved
+        // separately by semantic compaction.
         filterOldHistoryForIngest: true,
         provider: getProvider(session.provider),
-        model: session.model,
         sessionId,
         signal: getSessionAbortSignal(sessionId),
     });
