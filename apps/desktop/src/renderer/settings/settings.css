@@ -404,10 +404,20 @@
 .settings-connection-card b { font-size: 13px; }
 .settings-connection-card small { color: var(--settings-muted); font-size: 11px; }
 .settings-connection-note { margin: 0; color: var(--settings-muted); font-size: 12.5px; line-height: 18px; }
-.settings-connection-links { display: grid; gap: 8px; }
-.settings-connection-links > div { display: grid; gap: 3px; }
-.settings-connection-links span { color: var(--settings-muted); font-size: 11.5px; }
+/* Settings row grammar: label left, value + copy right, divided rows. */
+.settings-connection-links { display: grid; }
+.settings-connection-links > div {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block: 6px;
+}
+.settings-connection-links > div + div { border-top: .5px solid var(--oc-border-muted); }
+.settings-connection-links span { flex: 0 0 132px; color: var(--settings-muted); font-size: 12px; }
 .settings-connection-links code {
+  flex: 1;
+  min-width: 0;
   padding: 7px 9px;
   border-radius: 6px;
   overflow-wrap: anywhere;

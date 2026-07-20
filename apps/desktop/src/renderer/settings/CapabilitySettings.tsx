@@ -817,8 +817,14 @@ function ConnectionPanel() {
     </Group>
     <Group title="Links" description={`Bridge listening on port ${info.port}.`}>
       <div className="settings-connection-links">
-        <div><span>Android app (APK)</span><code>{info.apkUrl}</code></div>
-        <div><span>Browser URL</span><code>{info.browserUrl}</code></div>
+        {([['Android app (APK)', info.apkUrl], ['Browser URL', info.browserUrl]] as const)
+          .map(([label, value]) => <div key={label}>
+            <span>{label}</span>
+            <code>{value}</code>
+            <ActionButton onClick={() => { void navigator.clipboard?.writeText(value).catch(() => {}); }}>
+              Copy
+            </ActionButton>
+          </div>)}
       </div>
     </Group>
   </>;
