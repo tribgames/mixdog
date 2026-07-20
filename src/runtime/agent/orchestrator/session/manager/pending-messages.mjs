@@ -1,7 +1,7 @@
 // Steering / pending-message queue with sync buffered + atomic-file persistence.
 // Extracted verbatim from manager.mjs (behavior-preserving).
 import { join } from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, statSync } from 'fs';
 import { createHash, randomBytes } from 'crypto';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { updateJsonAtomicSync, updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
@@ -636,6 +636,82 @@ export function enqueuePendingMessage(sessionId, message) {
     q.push(entry);
     const bufferedDepth = schedulePendingMessagePersist(sessionId, entry);
     return Math.max(q.length, bufferedDepth || 0);
+}
+
+/**
+ * Remote-attach injection enqueue: persist a user message into the shared
+ * cross-process spool WITHOUT touching this process's in-memory queues. Used
+ * by a viewer surface attached to a session another live process owns — the
+ * owner's injection poller (drainForeignUserInjections) picks it up there.
+ * Skipping the local queues is deliberate: if this process later takes real
+ * ownership of the session, a lingering local copy would double-inject.
+ */
+export function enqueueRemotePendingMessage(sessionId, message) {
+    if (!isValidPendingSessionId(sessionId)) return 0;
+    const normalized = pendingMessageQueueEntry(message);
+    if (!normalized) return 0;
+    return persistPendingMessages(sessionId, [{ ...normalized, id: newPendingMessageId() }]);
+}
+
+// Spool-file mtime gate so the owner's idle poller costs one stat per tick,
+// not a locked read-modify-write.
+let _foreignSpoolScanMtime = 0;
+
+/**
+ * Owner-side drain of FOREIGN user injections for a session this process
+ * owns: atomically removes (and returns the text of) genuine user/steering
+ * entries that were persisted by ANOTHER process — entries known locally
+ * (own steering buffers, hydrated, in-delivery, acked) and completion/
+ * internal-notification entries are left untouched for the normal
+ * askSession hydrate path.
+ */
+export function drainForeignUserInjections(sessionId) {
+    if (!isValidPendingSessionId(sessionId)) return [];
+    let mtime = 0;
+    try { mtime = statSync(pendingMessagesPath()).mtimeMs || 0; } catch { return []; }
+    if (mtime === _foreignSpoolScanMtime) return [];
+    _foreignSpoolScanMtime = mtime;
+    const localIds = new Set();
+    for (const map of [_sessionPendingMessages, _pendingPersistBuffers, _hydratedPendingMessages]) {
+        for (const entry of map.get(sessionId) || []) {
+            const id = pendingMessageId(entry);
+            if (id) localIds.add(id);
+        }
+    }
+    for (const set of [_inDeliveryPendingIds.get(sessionId), _ackedPendingIds.get(sessionId)]) {
+        for (const id of set || []) localIds.add(id);
+    }
+    const taken = [];
+    try {
+        updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
+            const next = normalizePendingStore(raw);
+            const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
+            if (q.length === 0) return undefined;
+            const kept = [];
+            for (const entry of q) {
+                const id = pendingMessageId(entry);
+                const text = pendingMessageText(entry);
+                const foreignUser = id && !localIds.has(id)
+                    && !isCompletionNotificationEntry(entry)
+                    && !isLegacyUnmarkedCompletionNotification(text)
+                    && text && !isInternalRuntimeNotificationText(text);
+                if (foreignUser) taken.push(text);
+                else kept.push(entry);
+            }
+            if (taken.length === 0) return undefined;
+            if (kept.length > 0) next.sessions[sessionId] = kept;
+            else {
+                delete next.sessions[sessionId];
+                if (next.sessionTouchedAt) delete next.sessionTouchedAt[sessionId];
+            }
+            next.updatedAt = Date.now();
+            return next;
+        }, { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false });
+    } catch (err) {
+        try { process.stderr.write(`[session] foreign-injection drain failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
+        return [];
+    }
+    return taken;
 }
 
 export function drainPendingMessages(sessionId) {

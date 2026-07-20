@@ -1255,6 +1255,22 @@ export async function createEngineSession({
   });
   Object.assign(bag, createSessionFlow(bag));
   bag.runTurn = createRunTurn(bag);
+  // Remote-attach injection poller: a viewer surface attached to OUR live
+  // session (terminal/desktop/mobile cross-open) delivers its user messages
+  // through the shared pending spool. When idle, drain foreign user entries
+  // and run them through the normal queue — full user bubble + streaming,
+  // exactly as if typed here. Cheap: one spool mtime stat per idle tick.
+  const remoteAttachTimer = setInterval(() => {
+    if (flags.disposed || flags.pendingSessionReset) return;
+    try {
+      if (state.busy || state.commandBusy) return;
+      const injected = runtime.takeRemoteInjections?.() || [];
+      if (injected.length === 0) return;
+      for (const text of injected) bag.enqueue(text);
+      void bag.drain();
+    } catch { /* best-effort */ }
+  }, 3000);
+  remoteAttachTimer.unref?.();
   void bag.restoreLeadSteeringFromDisk();
   return createEngineApi(bag);
 }

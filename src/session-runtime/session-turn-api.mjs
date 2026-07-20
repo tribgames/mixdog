@@ -58,6 +58,18 @@ export function createSessionTurnApi(deps) {
       };
     },
     async ask(prompt, options = {}) {
+      // Remote-attach: this surface is a viewer on a session that another
+      // live process owns. Never run a turn here — persist the prompt into
+      // the shared pending spool; the owner's injection poller submits it as
+      // a normal user turn and this surface refreshes from disk.
+      const attachedSession = getSession();
+      if (attachedSession?.remoteAttached) {
+        try { mgr.enqueueRemotePendingMessage?.(attachedSession.id, prompt); } catch { /* best-effort */ }
+        return {
+          result: { content: 'Delivered to the live owner of this session — the reply will appear here shortly.' },
+          session: attachedSession,
+        };
+      }
       setActiveTurnCount(getActiveTurnCount() + 1);
       // Lazy code-graph prewarm: kick off the build ONCE, on the first real
       // turn, so a likely code lookup hits a warm cache.
@@ -301,6 +313,15 @@ export function createSessionTurnApi(deps) {
     },
     agentStatus() {
       return agentStatusState();
+    },
+    // Owner-side injection intake: foreign user messages persisted into the
+    // shared spool by an attached surface. Engine pollers call this while
+    // idle and run each returned text through the normal submit queue.
+    takeRemoteInjections() {
+      const session = getSession();
+      if (!session?.id || session.remoteAttached) return [];
+      if (getActiveTurnCount() > 0) return [];
+      try { return mgr.drainForeignUserInjections?.(session.id) || []; } catch { return []; }
     },
     agentControl(args = {}) {
       const session = getSession();

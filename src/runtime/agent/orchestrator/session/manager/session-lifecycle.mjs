@@ -482,18 +482,20 @@ export function updateSessionRoute(id, route = {}) {
 }
 
 // --- resume (reload tools for a stored session) ---
-// Fork-on-resume guard (claude-code/codex pattern): resuming a session that
-// another live process is ACTIVELY driving right now must not create a second
-// writer on the same file — that split-brain silently freezes one side's
-// transcript (generation ownership drops the loser's saves). Such a resume
-// opens a FORK: a full transcript copy under a fresh id, leaving the original
-// untouched for its live owner. Idle sessions keep the normal single-identity
-// handoff (terminal ↔ desktop continue-where-you-left-off).
-const ACTIVE_RESUME_FORK_MS = 2 * 60 * 1000; // heartbeat freshness window
+// Attach-on-resume guard: resuming a session that another live process is
+// ACTIVELY driving right now must not create a second writer on the same
+// file — that split-brain silently freezes one side's transcript (generation
+// ownership drops the loser's saves). Such a resume ATTACHES instead: the
+// caller gets the live transcript flagged remoteAttached, its submits are
+// persisted into the shared pending spool (the owner's injection poller runs
+// them as normal user turns), and its view refreshes from disk. ONE writer,
+// ONE transcript, every surface talking into the same conversation. Idle
+// sessions keep the normal single-identity handoff.
+const ACTIVE_OWNER_HB_FRESH_MS = 2 * 60 * 1000; // heartbeat freshness window
 
-function _shouldForkActiveResume(session, sessionId) {
+function _isActivelyOwnedElsewhere(session, sessionId) {
     // This process already owns the runtime for the id — switching back to
-    // one of our own sessions (desktop tab switch, TUI /resume) never forks.
+    // one of our own sessions (desktop tab switch, TUI /resume) never attaches.
     const entry = _getRuntimeEntry(sessionId);
     if (entry && entry.closed !== true) return false;
     // Heartbeats publish only while a turn is running (≤5s cadence) and the
@@ -503,47 +505,7 @@ function _shouldForkActiveResume(session, sessionId) {
         Number(readSessionHeartbeatMtime(sessionId)) || 0,
         Number(session.lastHeartbeatAt) || 0,
     );
-    return lastHb > 0 && Date.now() - lastHb <= ACTIVE_RESUME_FORK_MS;
-}
-
-function _forkSessionForActiveResume(session) {
-    const now = Date.now();
-    const fork = {
-        ...session,
-        id: mintSessionId(),
-        messages: Array.isArray(session.messages)
-            ? session.messages.map((m) => (m && typeof m === 'object' ? { ...m } : m))
-            : [],
-        closed: false,
-        status: 'idle',
-        generation: 0,
-        createdAt: now,
-        updatedAt: now,
-        lastUsedAt: now,
-        lastHeartbeatAt: null,
-        mcpPid: process.pid,
-        clientHostPid: null,
-        providerState: undefined,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalCachedReadTokens: 0,
-        totalCacheWriteTokens: 0,
-        lastInputTokens: 0,
-        lastOutputTokens: 0,
-        lastCachedReadTokens: 0,
-        lastCacheWriteTokens: 0,
-        lastContextTokens: 0,
-        lastContextTokensUpdatedAt: now,
-        lastContextTokensStaleAfterCompact: false,
-        // Shell state must not alias the live owner's persistent shells.
-        implicitBashSessionId: null,
-        allBashSessionIds: [],
-        scopeKey: null,
-        forkedFrom: session.id,
-    };
-    delete fork.liveTurnMessages;
-    delete fork.toolApprovalHook;
-    return fork;
+    return lastHb > 0 && Date.now() - lastHb <= ACTIVE_OWNER_HB_FRESH_MS;
 }
 
 export async function resumeSession(sessionId, preset, options = {}) {
@@ -570,11 +532,19 @@ export async function resumeSession(sessionId, preset, options = {}) {
         session.desktopSession = expectedDesktop;
     }
     if (!session.owner) session.owner = 'user';
-    if (_shouldForkActiveResume(session, sessionId)) {
-        session = _forkSessionForActiveResume(session);
+    if (_isActivelyOwnedElsewhere(session, sessionId)) {
+        // ATTACH (viewer mode, zero ownership): hand back the live transcript
+        // under the SAME id, flagged remoteAttached. No tool refresh, no save,
+        // no generation claim — the session file remains exclusively the
+        // owner's. session-turn-api routes this surface's submits into the
+        // shared pending spool instead of running a local turn.
+        const attached = { ...session, remoteAttached: true };
+        delete attached.liveTurnMessages;
+        delete attached.toolApprovalHook;
         if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
-            try { process.stderr.write(`[session] fork-on-resume: ${session.forkedFrom} is live elsewhere → forked as ${session.id}\n`); } catch { /* best-effort */ }
+            try { process.stderr.write(`[session] attach-on-resume: ${sessionId} is live elsewhere → viewer attach\n`); } catch { /* best-effort */ }
         }
+        return attached;
     }
     const oldTools = session.tools || [];
     const ownerIsAgent = isAgentOwner(session);

@@ -28,6 +28,9 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     // (fresh id, copied transcript), hosts validating "resume returned the
     // requested session" must accept the fork by its origin id.
     sessionForkedFrom: runtime.session?.forkedFrom || null,
+    // Remote-attach marker: this surface is a live viewer on a session owned
+    // by another process; submits are injected, transcript follows disk.
+    sessionRemoteAttached: runtime.session?.remoteAttached === true,
     clientHostPid: runtime.clientHostPid || null,
     model: runtime.model,
     provider: runtime.provider,

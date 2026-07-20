@@ -821,6 +821,11 @@ export function App() {
   // Instant sidebar: main watches the on-disk session store and pushes fresh
   // catalogs (~0.5s debounce), so activity from any mixdog process lands here
   // without waiting for a poll tick or an extra list round-trip.
+  // Remote-attach live follow: when the current session is a viewer on a
+  // session owned by another process, re-resume it whenever its row advances
+  // so the owner's turns (including our injected messages) appear here.
+  const remoteAttachedSessionRef = useRef("");
+  const attachedRefreshAtRef = useRef(new Map<string, number>());
   useEffect(() => {
     const host = window.mixdogDesktop;
     if (typeof host?.subscribeSessions !== "function") return;
@@ -829,8 +834,19 @@ export function App() {
       const rows = projectSessionRows(next);
       setSessions(rows);
       reconcileUnreadSessions(rows);
+      const attachedId = remoteAttachedSessionRef.current;
+      if (attachedId) {
+        const row = rows.find((item) => item.id === attachedId);
+        const lastSeen = attachedRefreshAtRef.current.get(attachedId) || 0;
+        if (row && row.updatedAt > lastSeen) {
+          attachedRefreshAtRef.current.set(attachedId, row.updatedAt);
+          void window.mixdogDesktop?.resumeSession(attachedId)
+            .then((snap) => applySnapshot(snap))
+            .catch(() => { /* next push retries */ });
+        }
+      }
     });
-  }, [projectSessionRows, reconcileUnreadSessions]);
+  }, [projectSessionRows, reconcileUnreadSessions, applySnapshot]);
   const refreshSessionsBestEffort = useCallback((
     selectCurrent = false,
   ) => {
@@ -1068,6 +1084,20 @@ export function App() {
       }
     }
   }, [refreshSessions, sessions, setError, tabs]);
+  // Codex-style archive: hide from Recent without touching the on-disk file.
+  // Optimistic flip moves the row immediately; the sessions push reconciles.
+  const archiveSession = useCallback(async (sessionId: string, archived: boolean) => {
+    setError("");
+    try {
+      await window.mixdogDesktop.setSessionArchived?.(sessionId, archived);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      throw reason;
+    }
+    setSessions((current) => current.map((session) => session.id === sessionId
+      ? { ...session, archived }
+      : session));
+  }, [setError]);
   const deleteSession = useCallback(async (sessionId: string) => {
     const previousSession = sessions.find((session) => session.id === sessionId);
     if (!previousSession || pendingSessionDeletes.current.has(sessionId)) return;
@@ -1335,6 +1365,9 @@ export function App() {
   };
   const snapshotProjectPath = String(asRecord(visibleSnapshot)?.currentProject ||
     asRecord(visibleSnapshot)?.project || "");
+  remoteAttachedSessionRef.current = asRecord(visibleSnapshot)?.sessionRemoteAttached
+    ? String(asRecord(visibleSnapshot)?.sessionId || "")
+    : "";
   const activeProjectPath = navigationSelection.kind === "session"
     ? String(selectedSession?.projectPath || snapshotProjectPath)
     : navigationSelection.kind === "project" ? navigationSelection.path : snapshotProjectPath;
@@ -1467,6 +1500,7 @@ export function App() {
           onOpenSettings={() => openSettings()}
           onResumeSession={resumeSession}
           onRenameSession={renameSession}
+          onArchiveSession={archiveSession}
           onDeleteSession={deleteSession}
         />
         {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)}

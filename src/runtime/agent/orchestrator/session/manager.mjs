@@ -63,6 +63,8 @@ export { previewSessionTools } from './manager/tool-resolution.mjs';
 export {
     _mergePendingMessageEntries,
     enqueuePendingMessage,
+    enqueueRemotePendingMessage,
+    drainForeignUserInjections,
     drainPendingMessages,
     markCompletionEntry,
     COMPLETION_NOTIFICATION_KIND,

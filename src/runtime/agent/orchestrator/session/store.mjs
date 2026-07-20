@@ -1193,6 +1193,9 @@ const RUNNING_STALL_MS = 10 * 60 * 1000;
 // (options.isSessionLive) is additionally protected as defense-in-depth.
 const RESUMABLE_OPEN_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const RESUMABLE_OPEN_MAX_COUNT = 300;
+// Blank scratch sessions (zero user/assistant conversation) are reaped once
+// idle this long — see the blank-scratch branch in sweepStaleSessions.
+const BLANK_SCRATCH_MAX_AGE_MS = 60 * 60 * 1000; // 1h
 
 function _storedSessionFromFile(dir, filename, ensureLifecycle = true) {
     if (!filename.endsWith('.json')) return null;
@@ -1616,6 +1619,33 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             // foreground session, which is idle during a gated sweep). Only the
             // ephemeral agent/ownerless sessions below feed the cap.
             if (typeof effOwner === 'string' && effOwner.length > 0 && !isAgentOwner(ownerRef)) {
+                // Blank-scratch exception to user-session permanence: a session
+                // with ZERO user/assistant conversation (engine boot artifact,
+                // force-killed window, crashed host) has nothing to preserve.
+                // Relaunch storms otherwise pile hundreds of "(blank)" rows
+                // that no sweep may touch. Reap once cold; liveness/heartbeat
+                // vetoes inside deleteSession still protect an in-flight boot.
+                const _msgsArr = Array.isArray(actual?.messages) ? actual.messages : null;
+                const _convCount = _msgsArr
+                    ? _msgsArr.filter((m) => m && (m.role === 'user' || m.role === 'assistant')).length
+                    : (Number(row.messageCount) || 0);
+                const _blankLastActive = Math.max(effUpdatedAt, effLastHb, effCreatedAt, heartbeatMtime || 0);
+                if (sweepIdle && _convCount === 0
+                    && now - _blankLastActive > BLANK_SCRATCH_MAX_AGE_MS
+                    && !(isSessionLive && isSessionLive(row.id))) {
+                    try {
+                        if (deleteSession(row.id, {
+                            deferSummaryUpdate: true,
+                            isSessionLive,
+                            heartbeatSnapshotMtime: heartbeatMtime,
+                            heartbeatFreshMs: BLANK_SCRATCH_MAX_AGE_MS,
+                        })) {
+                            openPruned++;
+                            openPrunedDetails.push({ id: row.id, ageSeconds: Math.floor((now - _blankLastActive) / 1000) });
+                            continue;
+                        }
+                    } catch { /* keep the row on failure */ }
+                }
                 remaining++;
                 continue;
             }
