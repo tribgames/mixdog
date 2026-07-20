@@ -6,20 +6,33 @@ export interface NativeZoomActions {
   zoomOut(): void;
 }
 
+export interface NativeMenuExtras {
+  /** Opens the phone pairing window; absent while the bridge is disabled. */
+  showRemoteAccess?: () => void;
+}
+
 export function nativeMenuTemplate(
   development: boolean,
   zoom?: NativeZoomActions,
+  extras?: NativeMenuExtras,
 ): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
   if (process.platform === 'darwin') {
     template.push({ role: 'appMenu' });
   }
+  const fileItems: MenuItemConstructorOptions[] = [];
+  if (extras?.showRemoteAccess) {
+    fileItems.push(
+      { label: 'Remote Access…', click: extras.showRemoteAccess },
+      { type: 'separator' },
+    );
+  }
   template.push(
     {
       label: 'File',
       submenu: process.platform === 'darwin'
-        ? [{ role: 'close', accelerator: 'CmdOrCtrl+W' }]
-        : [{ role: 'quit', accelerator: 'CmdOrCtrl+Q' }],
+        ? [...fileItems, { role: 'close', accelerator: 'CmdOrCtrl+W' }]
+        : [...fileItems, { role: 'quit', accelerator: 'CmdOrCtrl+Q' }],
     },
     {
       label: 'Edit',
@@ -53,6 +66,10 @@ export function nativeMenuTemplate(
   return template;
 }
 
-export function installNativeMenu(development: boolean, zoom?: NativeZoomActions): void {
-  Menu.setApplicationMenu(Menu.buildFromTemplate(nativeMenuTemplate(development, zoom)));
+export function installNativeMenu(
+  development: boolean,
+  zoom?: NativeZoomActions,
+  extras?: NativeMenuExtras,
+): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(nativeMenuTemplate(development, zoom, extras)));
 }

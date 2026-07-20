@@ -181,7 +181,7 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   assert.match(navigation, /aria-label="Open projects"/);
   assert.match(navigation, /className="sidebar-primary-nav"/);
   assert.match(navigation, /<span>Project<\/span>/);
-  assert.match(navigation, /className="sidebar-recent-heading"/);
+  assert.match(navigation, /className="sidebar-recent-heading[^"]*"/);
   assert.match(navigation, /className="session-list recent-session-list"/);
   assert.doesNotMatch(navigation, /className="sidebar-projects"|project-group-toggle|standalone-group/);
   // Grok-web recent list: plain titles, no per-row glyph.

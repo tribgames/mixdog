@@ -1,0 +1,960 @@
+
+> @mixdog/desktop@0.9.56 test:renderer
+> node --max-old-space-size=1024 --import tsx --test --test-concurrency=1 src/renderer/renderer.test.mjs src/renderer/renderer.dom.test.mjs src/main/engine-host.test.mjs src/main/desktop-diagnostics.test.mjs
+
+TAP version 13
+# Subtest: desktop diagnostics persist structured process evidence without user content
+ok 1 - desktop diagnostics persist structured process evidence without user content
+  ---
+  duration_ms: 7.284
+  type: 'test'
+  ...
+# Subtest: desktop diagnostics rotate before crossing the configured file limit
+ok 2 - desktop diagnostics rotate before crossing the configured file limit
+  ---
+  duration_ms: 5.1019
+  type: 'test'
+  ...
+# Subtest: desktop process snapshots stay bounded and omit user-content fields
+ok 3 - desktop process snapshots stay bounded and omit user-content fields
+  ---
+  duration_ms: 0.9824
+  type: 'test'
+  ...
+# Subtest: engine module resolution uses the Electron app root outside packaged builds
+ok 4 - engine module resolution uses the Electron app root outside packaged builds
+  ---
+  duration_ms: 0.935
+  type: 'test'
+  ...
+# Subtest: packaged engine module resolution remains in the curated runtime archive
+ok 5 - packaged engine module resolution remains in the curated runtime archive
+  ---
+  duration_ms: 0.1561
+  type: 'test'
+  ...
+# Subtest: project registration resolves to the shared TUI store in source and packaged runtimes
+ok 6 - project registration resolves to the shared TUI store in source and packaged runtimes
+  ---
+  duration_ms: 0.1652
+  type: 'test'
+  ...
+# Subtest: non-packaged engine resolution rejects missing, empty, and relative application paths
+ok 7 - non-packaged engine resolution rejects missing, empty, and relative application paths
+  ---
+  duration_ms: 0.3207
+  type: 'test'
+  ...
+# Subtest: non-packaged hosts require application paths only for real engine loading
+ok 8 - non-packaged hosts require application paths only for real engine loading
+  ---
+  duration_ms: 0.2241
+  type: 'test'
+  ...
+# Subtest: resolved non-packaged runtime engine module imports
+ok 9 - resolved non-packaged runtime engine module imports
+  ---
+  duration_ms: 88.7955
+  type: 'test'
+  ...
+# Subtest: desktop snapshot exposes production current and recent project navigation state
+ok 10 - desktop snapshot exposes production current and recent project navigation state
+  ---
+  duration_ms: 0.8884
+  type: 'test'
+  ...
+# Subtest: desktop snapshot retains recent projects while the active engine is switching
+ok 11 - desktop snapshot retains recent projects while the active engine is switching
+  ---
+  duration_ms: 0.0833
+  type: 'test'
+  ...
+# Subtest: desktop live-work projection removes terminal history and trims IPC records
+ok 12 - desktop live-work projection removes terminal history and trims IPC records
+  ---
+  duration_ms: 0.4878
+  type: 'test'
+  ...
+# Subtest: shell polling backs off while idle and accelerates for engine or shell activity
+ok 13 - shell polling backs off while idle and accelerates for engine or shell activity
+  ---
+  duration_ms: 0.2389
+  type: 'test'
+  ...
+# Subtest: desktop session summaries prioritize manual names over generated titles and previews
+ok 14 - desktop session summaries prioritize manual names over generated titles and previews
+  ---
+  duration_ms: 1.7045
+  type: 'test'
+  ...
+# Subtest: desktop session summaries hide abandoned blank sessions but keep the active blank
+ok 15 - desktop session summaries hide abandoned blank sessions but keep the active blank
+  ---
+  duration_ms: 0.1313
+  type: 'test'
+  ...
+# Subtest: host refreshes session summaries from storage for sidebar listing
+ok 16 - host refreshes session summaries from storage for sidebar listing
+  ---
+  duration_ms: 5.8616
+  type: 'test'
+  ...
+# Subtest: resume authorization reuses the cached catalog when the selected session is present
+ok 17 - resume authorization reuses the cached catalog when the selected session is present
+  ---
+  duration_ms: 4.0774
+  type: 'test'
+  ...
+# Subtest: host persists the first accepted prompt as a stable desktop session title
+ok 18 - host persists the first accepted prompt as a stable desktop session title
+  ---
+  duration_ms: 5.6617
+  type: 'test'
+  ...
+# Subtest: host persists user-renamed session titles and restores the override after restart
+ok 19 - host persists user-renamed session titles and restores the override after restart
+  ---
+  duration_ms: 5.6502
+  type: 'test'
+  ...
+# Subtest: host deletes session metadata and returns the replacement snapshot for the active session
+ok 20 - host deletes session metadata and returns the replacement snapshot for the active session
+  ---
+  duration_ms: 8.8414
+  type: 'test'
+  ...
+# Subtest: host migrates legacy title overrides into manual names without changing their display
+ok 21 - host migrates legacy title overrides into manual names without changing their display
+  ---
+  duration_ms: 6.2484
+  type: 'test'
+  ...
+# Subtest: host removes polluted generated titles while preserving manual session names
+ok 22 - host removes polluted generated titles while preserving manual session names
+  ---
+  duration_ms: 6.3686
+  type: 'test'
+  ...
+# Subtest: host recovers corrupt session title metadata and atomically replaces it
+ok 23 - host recovers corrupt session title metadata and atomically replaces it
+  ---
+  duration_ms: 6.0926
+  type: 'test'
+  ...
+# Subtest: host recovers null and array session metadata roots
+ok 24 - host recovers null and array session metadata roots
+  ---
+  duration_ms: 6.135
+  type: 'test'
+  ...
+# Subtest: session title overrides safely support prototype-shaped session ids
+ok 25 - session title overrides safely support prototype-shaped session ids
+  ---
+  duration_ms: 6.4538
+  type: 'test'
+  ...
+# Subtest: project file traversal enforces its scan cap before consuming a directory
+ok 26 - project file traversal enforces its scan cap before consuming a directory
+  ---
+  duration_ms: 8.4091
+  type: 'test'
+  ...
+# Subtest: host searches active project files with fuzzy matching, ignore pruning, and caps
+ok 27 - host searches active project files with fuzzy matching, ignore pruning, and caps
+  ---
+  duration_ms: 16.381
+  type: 'test'
+  ...
+# Subtest: host rejects file search results when the active project changes during traversal
+ok 28 - host rejects file search results when the active project changes during traversal
+  ---
+  duration_ms: 4.746
+  type: 'test'
+  ...
+# Subtest: host resumes another desktop task session in the same managed context without switching
+ok 29 - host resumes another desktop task session in the same managed context without switching
+  ---
+  duration_ms: 4.768
+  type: 'test'
+  ...
+# Subtest: host reuses one legacy workspace context and publishes the detached resume result
+ok 30 - host reuses one legacy workspace context and publishes the detached resume result
+  ---
+  duration_ms: 4.1081
+  type: 'test'
+  ...
+# Subtest: host rejects a resume result that remains bound to the previous session
+ok 31 - host rejects a resume result that remains bound to the previous session
+  ---
+  duration_ms: 2.9881
+  type: 'test'
+  ...
+# Subtest: desktop IPC session id validation rejects path-like input
+ok 32 - desktop IPC session id validation rejects path-like input
+  ---
+  duration_ms: 0.1914
+  type: 'test'
+  ...
+# Subtest: desktop IPC enforces the owning main frame and validates bridge arguments
+ok 33 - desktop IPC enforces the owning main frame and validates bridge arguments
+  ---
+  duration_ms: 2.0073
+  type: 'test'
+  ...
+# Subtest: desktop IPC state pushes ride identity-prefix transcript deltas
+ok 34 - desktop IPC state pushes ride identity-prefix transcript deltas
+  ---
+  duration_ms: 0.2674
+  type: 'test'
+  ...
+# Subtest: desktop fast data follows core catalog capability and persisted preference semantics
+ok 35 - desktop fast data follows core catalog capability and persisted preference semantics
+  ---
+  duration_ms: 0.3423
+  type: 'test'
+  ...
+# Subtest: Fast preference works before a desktop session exists and is applied on first submit
+ok 36 - Fast preference works before a desktop session exists and is applied on first submit
+  ---
+  duration_ms: 6.7135
+  type: 'test'
+  ...
+# Subtest: a pristine route Fast choice supersedes an earlier Fast-only preference
+ok 37 - a pristine route Fast choice supersedes an earlier Fast-only preference
+  ---
+  duration_ms: 4.2568
+  type: 'test'
+  ...
+# Subtest: host lists normalized core models and applies next-session routes during an active turn
+ok 38 - host lists normalized core models and applies next-session routes during an active turn
+  ---
+  duration_ms: 3.4001
+  type: 'test'
+  ...
+# Subtest: full desktop model catalog recovers after an advisory quick warmup
+ok 39 - full desktop model catalog recovers after an advisory quick warmup
+  ---
+  duration_ms: 2.0609
+  type: 'test'
+  ...
+# Subtest: host rejects a route when an engine command starts while the catalog is loading
+ok 40 - host rejects a route when an engine command starts while the catalog is loading
+  ---
+  duration_ms: 2.4992
+  type: 'test'
+  ...
+# Subtest: desktop projects are sourced only from the shared registered-project store
+ok 41 - desktop projects are sourced only from the shared registered-project store
+  ---
+  duration_ms: 6.4465
+  type: 'test'
+  ...
+# Subtest: host start/list/resume persists desktop scope, restores transcript, and publishes once
+ok 42 - host start/list/resume persists desktop scope, restores transcript, and publishes once
+  ---
+  duration_ms: 185.8461
+  type: 'test'
+  ...
+# Subtest: host reuses a context-switch capable backend and only tears it down at final disposal
+ok 43 - host reuses a context-switch capable backend and only tears it down at final disposal
+  ---
+  duration_ms: 4.5754
+  type: 'test'
+  ...
+# Subtest: host recreates after context switch rejection or failure and restores cwd if recreation fails
+ok 44 - host recreates after context switch rejection or failure and restores cwd if recreation fails
+  ---
+  duration_ms: 11.845
+  type: 'test'
+  ...
+# Subtest: host restores cwd when initial or legacy replacement creation fails
+ok 45 - host restores cwd when initial or legacy replacement creation fails
+  ---
+  duration_ms: 5.2581
+  type: 'test'
+  ...
+# Subtest: desktop capabilities invoke the existing engine and serialize interactive OAuth flows
+ok 46 - desktop capabilities invoke the existing engine and serialize interactive OAuth flows
+  ---
+  duration_ms: 4.272
+  type: 'test'
+  ...
+# Subtest: toast region anchors to the sheet top-right
+ok 47 - toast region anchors to the sheet top-right
+  ---
+  duration_ms: 103.6614
+  type: 'test'
+  ...
+# Subtest: live-work strip renders ordered snapshot segments and filters terminal agents
+ok 48 - live-work strip renders ordered snapshot segments and filters terminal agents
+  ---
+  duration_ms: 11.4351
+  type: 'test'
+  ...
+# Subtest: live-work strip hides when snapshot work is terminal or empty
+ok 49 - live-work strip hides when snapshot work is terminal or empty
+  ---
+  duration_ms: 7.985
+  type: 'test'
+  ...
+# Subtest: context view renders engine stats and omits unavailable optional fields
+ok 50 - context view renders engine stats and omits unavailable optional fields
+  ---
+  duration_ms: 9.8842
+  type: 'test'
+  ...
+# Subtest: context view never projects raw transcript records
+ok 51 - context view never projects raw transcript records
+  ---
+  duration_ms: 7.2825
+  type: 'test'
+  ...
+# Subtest: context view keeps the TUI sections for a zero-token session
+ok 52 - context view keeps the TUI sections for a zero-token session
+  ---
+  duration_ms: 7.6897
+  type: 'test'
+  ...
+# Subtest: header context usage floors percent and dismisses focus popover without reopening
+ok 53 - header context usage floors percent and dismisses focus popover without reopening
+  ---
+  duration_ms: 13.7733
+  type: 'test'
+  ...
+# Subtest: header context usage remains available at zero before a session exists
+ok 54 - header context usage remains available at zero before a session exists
+  ---
+  duration_ms: 5.9987
+  type: 'test'
+  ...
+# Subtest: consecutive user messages mark only the follow-up as attached
+ok 55 - consecutive user messages mark only the follow-up as attached
+  ---
+  duration_ms: 11.5458
+  type: 'test'
+  ...
+# Subtest: workspace overlays clamp upward menus and tooltip widths to the sheet
+ok 56 - workspace overlays clamp upward menus and tooltip widths to the sheet
+  ---
+  duration_ms: 178.6362
+  type: 'test'
+  ...
+# Subtest: project context menu aligns to the whole project pill with a two pixel upper gap
+ok 57 - project context menu aligns to the whole project pill with a two pixel upper gap
+  ---
+  duration_ms: 20.1888
+  type: 'test'
+  ...
+# Subtest: inline approval renders in the transcript flow, reports failure, denies on Escape, and restores focus
+ok 58 - inline approval renders in the transcript flow, reports failure, denies on Escape, and restores focus
+  ---
+  duration_ms: 14.4913
+  type: 'test'
+  ...
+# Subtest: a retained streaming row announces completion without rereading the response
+ok 59 - a retained streaming row announces completion without rereading the response
+  ---
+  duration_ms: 24.4105
+  type: 'test'
+  ...
+# Subtest: user messages render as compact unlabeled bubbles
+ok 60 - user messages render as compact unlabeled bubbles
+  ---
+  duration_ms: 6.0593
+  type: 'test'
+  ...
+# Subtest: message metadata uses engine per-item fields and localized short timestamps
+ok 61 - message metadata uses engine per-item fields and localized short timestamps
+  ---
+  duration_ms: 13.8878
+  type: 'test'
+  ...
+# Subtest: legacy messages omit unavailable metadata without losing actions
+ok 62 - legacy messages omit unavailable metadata without losing actions
+  ---
+  duration_ms: 16.9833
+  type: 'test'
+  ...
+# Subtest: unknown transcript kinds stay hidden
+ok 63 - unknown transcript kinds stay hidden
+  ---
+  duration_ms: 4.0379
+  type: 'test'
+  ...
+# Subtest: cancelled aliases use the TUI completion wording
+ok 64 - cancelled aliases use the TUI completion wording
+  ---
+  duration_ms: 4.061
+  type: 'test'
+  ...
+# Subtest: failed tools expose a failed status instead of a successful completion
+ok 65 - failed tools expose a failed status instead of a successful completion
+  ---
+  duration_ms: 5.9893
+  type: 'test'
+  ...
+# Subtest: tool counters and hook-denial visibility mirror the TUI
+ok 66 - tool counters and hook-denial visibility mirror the TUI
+  ---
+  duration_ms: 6.69
+  type: 'test'
+  ...
+# Subtest: fenced markdown exposes a language header and copy control
+ok 67 - fenced markdown exposes a language header and copy control
+  ---
+  duration_ms: 9.174
+  type: 'test'
+  ...
+# Subtest: assistant completion metadata and copy action share a response footer without duplicate announcements
+ok 68 - assistant completion metadata and copy action share a response footer without duplicate announcements
+  ---
+  duration_ms: 6.1443
+  type: 'test'
+  ...
+# Subtest: conversation attaches only successful turn completion to the final assistant response
+ok 69 - conversation attaches only successful turn completion to the final assistant response
+  ---
+  duration_ms: 54.4349
+  type: 'test'
+  ...
+# Subtest: tool cards use the shared TUI surface and expose copy for shell and diff output
+ok 70 - tool cards use the shared TUI surface and expose copy for shell and diff output
+  ---
+  duration_ms: 12.707
+  type: 'test'
+  ...
+# Subtest: running tool cards tick a live elapsed readout; settled cards stay quiet
+ok 71 - running tool cards tick a live elapsed readout; settled cards stay quiet
+  ---
+  duration_ms: 6.151
+  type: 'test'
+  ...
+# Subtest: running shell cards stream liveOutput; settled cards ignore a stale tail
+ok 72 - running shell cards stream liveOutput; settled cards ignore a stale tail
+  ---
+  duration_ms: 6.1474
+  type: 'test'
+  ...
+# Subtest: launch selects New task and immediately shows the project-free composer
+ok 73 - launch selects New task and immediately shows the project-free composer
+  ---
+  duration_ms: 71.6531
+  type: 'test'
+  ...
+# Subtest: new tasks choose a registered project or open a folder from the composer context control
+ok 74 - new tasks choose a registered project or open a folder from the composer context control
+  ---
+  duration_ms: 62.7269
+  type: 'test'
+  ...
+# Subtest: project sessions show their project beside the session title
+ok 75 - project sessions show their project beside the session title
+  ---
+  duration_ms: 38.6475
+  type: 'test'
+  ...
+# Subtest: session switching keeps the target title while its correlated snapshot is pending
+ok 76 - session switching keeps the target title while its correlated snapshot is pending
+  ---
+  duration_ms: 38.9779
+  type: 'test'
+  ...
+# Subtest: session switching freezes the previous transcript until the target snapshot is complete
+ok 77 - session switching freezes the previous transcript until the target snapshot is complete
+  ---
+  duration_ms: 56.3432
+  type: 'test'
+  ...
+# Subtest: sidebar footer keeps settings while the titlebar exposes the OpenCode-style update control
+ok 78 - sidebar footer keeps settings while the titlebar exposes the OpenCode-style update control
+  ---
+  duration_ms: 25.9047
+  type: 'test'
+  ...
+# Subtest: sidebar keeps Project below New task and lists every session newest-first
+not ok 79 - sidebar keeps Project below New task and lists every session newest-first
+  ---
+  duration_ms: 37.9552
+  type: 'test'
+  location: 'C:\\Project\\mixdog\\apps\\desktop\\src\\renderer\\renderer.dom.test.mjs:1224:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    0 !== 6
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 6
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Project\mixdog\apps\desktop\src\renderer\renderer.dom.test.mjs:1264:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: sidebar omits the runtime status trigger
+ok 80 - sidebar omits the runtime status trigger
+  ---
+  duration_ms: 20.0696
+  type: 'test'
+  ...
+# Subtest: long transcripts virtualize offscreen rows while preserving the full scroll range
+ok 81 - long transcripts virtualize offscreen rows while preserving the full scroll range
+  ---
+  duration_ms: 58.5076
+  type: 'test'
+  ...
+# Subtest: sidebar session titles rename inline with commit, cancel, validation, and rollback
+ok 82 - sidebar session titles rename inline with commit, cancel, validation, and rollback # SKIP rename UI removed - delete-only session actions
+  ---
+  duration_ms: 0.0753
+  type: 'test'
+  ...
+# Subtest: current session title renames from the workspace header
+ok 83 - current session title renames from the workspace header
+  ---
+  duration_ms: 45.2605
+  type: 'test'
+  ...
+# Subtest: sidebar session deletion requires confirmation and replaces the active session with New task
+ok 84 - sidebar session deletion requires confirmation and replaces the active session with New task
+  ---
+  duration_ms: 60.157
+  type: 'test'
+  ...
+# Subtest: a pending session rename survives an overlapping stale session refresh
+ok 85 - a pending session rename survives an overlapping stale session refresh # SKIP rename UI removed - delete-only session actions
+  ---
+  duration_ms: 0.0685
+  type: 'test'
+  ...
+# Subtest: OpenCode tooltip placement stays inside the viewport and flips away from a clipped edge
+ok 86 - OpenCode tooltip placement stays inside the viewport and flips away from a clipped edge
+  ---
+  duration_ms: 23.778
+  type: 'test'
+  ...
+# Subtest: snapshot notifications render and dismiss through the OpenCode toast surface
+ok 87 - snapshot notifications render and dismiss through the OpenCode toast surface
+  ---
+  duration_ms: 19.2611
+  type: 'test'
+  ...
+# Subtest: desktop retains, deduplicates, bounds, and explicitly dismisses engine error toasts
+ok 88 - desktop retains, deduplicates, bounds, and explicitly dismisses engine error toasts
+  ---
+  duration_ms: 35.2761
+  type: 'test'
+  ...
+# Subtest: a failed project replacement synchronizes to the empty actual host without stale selection
+ok 89 - a failed project replacement synchronizes to the empty actual host without stale selection
+  ---
+  duration_ms: 78.1659
+  type: 'test'
+  ...
+# Subtest: submit, stop, and tool diff controls remain wired through the app
+ok 90 - submit, stop, and tool diff controls remain wired through the app
+  ---
+  duration_ms: 83.5381
+  type: 'test'
+  ...
+# Subtest: a durable new task refreshes and selects exactly once after busy settles
+ok 91 - a durable new task refreshes and selects exactly once after busy settles
+  ---
+  duration_ms: 75.8026
+  type: 'test'
+  ...
+# Subtest: a rejected submit clears settlement tracking before later busy cycles
+ok 92 - a rejected submit clears settlement tracking before later busy cycles
+  ---
+  duration_ms: 67.8263
+  type: 'test'
+  ...
+# Subtest: a throwing submit clears settlement tracking before an unrelated busy cycle
+ok 93 - a throwing submit clears settlement tracking before an unrelated busy cycle
+  ---
+  duration_ms: 67.7165
+  type: 'test'
+  ...
+# Subtest: failed resume preserves a surviving known project session, then clears when the actual host is empty
+ok 94 - failed resume preserves a surviving known project session, then clears when the actual host is empty
+  ---
+  duration_ms: 41.781
+  type: 'test'
+  ...
+# Subtest: flat recent sessions and separate project switcher preserve navigation and project actions
+ok 95 - flat recent sessions and separate project switcher preserve navigation and project actions
+  ---
+  duration_ms: 87.2206
+  type: 'test'
+  ...
+# Subtest: mobile sidebar closes at the inclusive 760px breakpoint after navigation
+ok 96 - mobile sidebar closes at the inclusive 760px breakpoint after navigation
+  ---
+  duration_ms: 27.9996
+  type: 'test'
+  ...
+# Subtest: desktop sidebar remains open immediately above the 760px breakpoint
+ok 97 - desktop sidebar remains open immediately above the 760px breakpoint
+  ---
+  duration_ms: 22.065
+  type: 'test'
+  ...
+# Subtest: settings and provider error toasts use the notification surface without changing successful turn outcomes
+ok 98 - settings and provider error toasts use the notification surface without changing successful turn outcomes
+  ---
+  duration_ms: 26.2245
+  type: 'test'
+  ...
+# Subtest: an error toast does not fail a turn until the core publishes a failed completion
+ok 99 - an error toast does not fail a turn until the core publishes a failed completion
+  ---
+  duration_ms: 24.3399
+  type: 'test'
+  ...
+# Subtest: a cancelled core completion remains interrupted even when an unrelated error toast is visible
+ok 100 - a cancelled core completion remains interrupted even when an unrelated error toast is visible
+  ---
+  duration_ms: 22.8587
+  type: 'test'
+  ...
+# Subtest: successful completion markers leave a quiet persistent transcript row
+ok 101 - successful completion markers leave a quiet persistent transcript row
+  ---
+  duration_ms: 18.8723
+  type: 'test'
+  ...
+# Subtest: an empty task offers four Mixdog starters that populate and focus the composer
+ok 102 - an empty task offers four Mixdog starters that populate and focus the composer
+  ---
+  duration_ms: 24.6654
+  type: 'test'
+  ...
+# Subtest: modal layers retain isolation until the final owner releases and have one keyboard owner
+ok 103 - modal layers retain isolation until the final owner releases and have one keyboard owner
+  ---
+  duration_ms: 14.5781
+  type: 'test'
+  ...
+# Subtest: model selector shows Recent and provider-grouped models in one stable list
+ok 104 - model selector shows Recent and provider-grouped models in one stable list
+  ---
+  duration_ms: 110.7828
+  type: 'test'
+  ...
+# Subtest: model selector renders the persisted catalog before background refresh completes
+ok 105 - model selector renders the persisted catalog before background refresh completes
+  ---
+  duration_ms: 14.756
+  type: 'test'
+  ...
+# Subtest: model selector keeps catalog failures visible inline
+ok 106 - model selector keeps catalog failures visible inline
+  ---
+  duration_ms: 19.2601
+  type: 'test'
+  ...
+# Subtest: model selector never presents an unknown persisted route as a selectable model
+ok 107 - model selector never presents an unknown persisted route as a selectable model
+  ---
+  duration_ms: 21.509
+  type: 'test'
+  ...
+# Subtest: model control styles keep the reference compact geometry and bounded list
+ok 108 - model control styles keep the reference compact geometry and bounded list
+  ---
+  duration_ms: 3.1192
+  type: 'test'
+  ...
+# Subtest: model selection applies the secure route result, hides unrelated effort, and recovers from errors
+ok 109 - model selection applies the secure route result, hides unrelated effort, and recovers from errors
+  ---
+  duration_ms: 48.0688
+  type: 'test'
+  ...
+# Subtest: successful effort selection uses the dedicated capability and restores focus
+ok 110 - successful effort selection uses the dedicated capability and restores focus
+  ---
+  duration_ms: 31.1413
+  type: 'test'
+  ...
+# Subtest: Fast follows core capability and disables tuning while a turn is busy
+ok 111 - Fast follows core capability and disables tuning while a turn is busy
+  ---
+  duration_ms: 80.0925
+  type: 'test'
+  ...
+# Subtest: Fast recovers from a rejected toggle and can be retried
+ok 112 - Fast recovers from a rejected toggle and can be retried
+  ---
+  duration_ms: 41.8737
+  type: 'test'
+  ...
+# Subtest: Fast reflects the click before route persistence completes
+ok 113 - Fast reflects the click before route persistence completes
+  ---
+  duration_ms: 32.4275
+  type: 'test'
+  ...
+# Subtest: live engine activity and completion or compaction rows preserve runtime status
+ok 114 - live engine activity and completion or compaction rows preserve runtime status
+  ---
+  duration_ms: 51.9062
+  type: 'test'
+  ...
+# Subtest: desktop session sidebar resizes accessibly, releases its rail when collapsed, and restores it
+ok 115 - desktop session sidebar resizes accessibly, releases its rail when collapsed, and restores it
+  ---
+  duration_ms: 37.3937
+  type: 'test'
+  ...
+# Subtest: workspace tabs reveal the active tab and handle scoped tab commands
+ok 116 - workspace tabs reveal the active tab and handle scoped tab commands
+  ---
+  duration_ms: 13.0072
+  type: 'test'
+  ...
+# Subtest: model selector remains available for a next-session route during turn busy and closes for commandBusy
+ok 117 - model selector remains available for a next-session route during turn busy and closes for commandBusy
+  ---
+  duration_ms: 71.5101
+  type: 'test'
+  ...
+# Subtest: desktop composer restores queued work, recalls engine history, and executes slash capabilities
+ok 118 - desktop composer restores queued work, recalls engine history, and executes slash capabilities
+  ---
+  duration_ms: 54.8319
+  type: 'test'
+  ...
+# Subtest: composer separates turn and command activity, mirrors TUI slash acceptance, and ignores IME navigation
+ok 119 - composer separates turn and command activity, mirrors TUI slash acceptance, and ignores IME navigation
+  ---
+  duration_ms: 112.8777
+  type: 'test'
+  ...
+# Subtest: desktop composer folds large pasted text and submits the expanded attachment contract
+ok 120 - desktop composer folds large pasted text and submits the expanded attachment contract
+  ---
+  duration_ms: 27.0353
+  type: 'test'
+  ...
+# Subtest: desktop composer accepts clipboard images exposed through DataTransfer items
+ok 121 - desktop composer accepts clipboard images exposed through DataTransfer items
+  ---
+  duration_ms: 31.5254
+  type: 'test'
+  ...
+# Subtest: desktop composer searches, cancels stale @ file mentions, selects by keyboard, and submits the path
+ok 122 - desktop composer searches, cancels stale @ file mentions, selects by keyboard, and submits the path
+  ---
+  duration_ms: 658.0818
+  type: 'test'
+  ...
+# Subtest: desktop slash aliases preserve core command semantics and forced catalog refresh
+ok 123 - desktop slash aliases preserve core command semantics and forced catalog refresh
+  ---
+  duration_ms: 102.0831
+  type: 'test'
+  ...
+# Subtest: stopping a turn restores engine-owned image attachments and keeps the current draft
+ok 124 - stopping a turn restores engine-owned image attachments and keeps the current draft
+  ---
+  duration_ms: 37.3317
+  type: 'test'
+  ...
+# Subtest: fresh install opens the session sidebar and persists the layout choice
+ok 125 - fresh install opens the session sidebar and persists the layout choice
+  ---
+  duration_ms: 21.7192
+  type: 'test'
+  ...
+# Subtest: explicit provider context metadata wins over model-family fallbacks
+ok 126 - explicit provider context metadata wins over model-family fallbacks
+  ---
+  duration_ms: 0.8832
+  type: 'test'
+  ...
+# Subtest: model detail tooltip reports only available catalog metadata
+ok 127 - model detail tooltip reports only available catalog metadata
+  ---
+  duration_ms: 0.172
+  type: 'test'
+  ...
+# Subtest: renderer uses the preload bridge name
+ok 128 - renderer uses the preload bridge name
+  ---
+  duration_ms: 3.3566
+  type: 'test'
+  ...
+# Subtest: the stable composer placeholder does not schedule idle rerenders
+ok 129 - the stable composer placeholder does not schedule idle rerenders
+  ---
+  duration_ms: 1.0147
+  type: 'test'
+  ...
+# Subtest: session scrolling restores once before paint and preserves per-session positions
+ok 130 - session scrolling restores once before paint and preserves per-session positions
+  ---
+  duration_ms: 1.0177
+  type: 'test'
+  ...
+# Subtest: settings dialog reserves the native window-controls safe area
+ok 131 - settings dialog reserves the native window-controls safe area
+  ---
+  duration_ms: 1.5118
+  type: 'test'
+  ...
+# Subtest: every renderer stylesheet resolves through the shared OpenCode v2 theme contract
+ok 132 - every renderer stylesheet resolves through the shared OpenCode v2 theme contract
+  ---
+  duration_ms: 2.6376
+  type: 'test'
+  ...
+# Subtest: OpenCode desktop shell keeps Project and flat recent sessions inside the sidebar rail
+ok 133 - OpenCode desktop shell keeps Project and flat recent sessions inside the sidebar rail
+  ---
+  duration_ms: 3.7037
+  type: 'test'
+  ...
+# Subtest: copy hover changes only icon color while keyboard focus keeps its frame
+ok 134 - copy hover changes only icon color while keyboard focus keeps its frame
+  ---
+  duration_ms: 1.2126
+  type: 'test'
+  ...
+# Subtest: session title actions, message hover rows, and tool disclosures keep OpenCode rhythm
+ok 135 - session title actions, message hover rows, and tool disclosures keep OpenCode rhythm
+  ---
+  duration_ms: 2.4269
+  type: 'test'
+  ...
+# Subtest: conversation uses native scrolling and silent session transitions
+ok 136 - conversation uses native scrolling and silent session transitions
+  ---
+  duration_ms: 1.463
+  type: 'test'
+  ...
+# Subtest: authenticated keychain providers are immediately selectable without a second enabled flag
+ok 137 - authenticated keychain providers are immediately selectable without a second enabled flag
+  ---
+  duration_ms: 0.3199
+  type: 'test'
+  ...
+# Subtest: desktop UI keeps every public TUI command and core capability represented
+ok 138 - desktop UI keeps every public TUI command and core capability represented
+  ---
+  duration_ms: 11.6296
+  type: 'test'
+  ...
+# Subtest: dedicated command surfaces preserve TUI actions without exposing automation editors
+ok 139 - dedicated command surfaces preserve TUI actions without exposing automation editors
+  ---
+  duration_ms: 1.6169
+  type: 'test'
+  ...
+# Subtest: desktop session titles strip runtime envelopes and prompt payload markup
+ok 140 - desktop session titles strip runtime envelopes and prompt payload markup
+  ---
+  duration_ms: 1.5051
+  type: 'test'
+  ...
+# Subtest: session title helpers prefer a stable title and extract user-facing prompt text
+ok 141 - session title helpers prefer a stable title and extract user-facing prompt text
+  ---
+  duration_ms: 0.3335
+  type: 'test'
+  ...
+# Subtest: prompt history navigation respects caret, selection, and modifier intent
+ok 142 - prompt history navigation respects caret, selection, and modifier intent
+  ---
+  duration_ms: 0.1365
+  type: 'test'
+  ...
+# Subtest: full model catalogs merge over quick results without losing provider-specific routes
+ok 143 - full model catalogs merge over quick results without losing provider-specific routes
+  ---
+  duration_ms: 0.1349
+  type: 'test'
+  ...
+# Subtest: streaming tail is appended or replaces a matching settled item
+ok 144 - streaming tail is appended or replaces a matching settled item
+  ---
+  duration_ms: 0.1017
+  type: 'test'
+  ...
+# Subtest: turn failure attribution uses authoritative transcript outcomes, not error toasts
+ok 145 - turn failure attribution uses authoritative transcript outcomes, not error toasts
+  ---
+  duration_ms: 0.3328
+  type: 'test'
+  ...
+# Subtest: turn failures are recalculated when sessions in the same project reuse transcript ids
+ok 146 - turn failures are recalculated when sessions in the same project reuse transcript ids
+  ---
+  duration_ms: 0.0914
+  type: 'test'
+  ...
+# Subtest: an explicit transcript error marks only its unfinished turn
+ok 147 - an explicit transcript error marks only its unfinished turn
+  ---
+  duration_ms: 0.0704
+  type: 'test'
+  ...
+# Subtest: auto-follow remains enabled only near the bottom
+ok 148 - auto-follow remains enabled only near the bottom
+  ---
+  duration_ms: 0.0766
+  type: 'test'
+  ...
+# Subtest: sequential approvals reset identity and focus remains trapped
+ok 149 - sequential approvals reset identity and focus remains trapped
+  ---
+  duration_ms: 0.1243
+  type: 'test'
+  ...
+# Subtest: draft clears only after an accepted submission of the unchanged text
+ok 150 - draft clears only after an accepted submission of the unchanged text
+  ---
+  duration_ms: 0.0456
+  type: 'test'
+  ...
+# Subtest: complete multi-line, multi-hunk, multi-file diffs are retained
+ok 151 - complete multi-line, multi-hunk, multi-file diffs are retained
+  ---
+  duration_ms: 0.6685
+  type: 'test'
+  ...
+# Subtest: a truncated leading hunk is retained before a later git file marker
+ok 152 - a truncated leading hunk is retained before a later git file marker
+  ---
+  duration_ms: 0.1725
+  type: 'test'
+  ...
+# Subtest: commit metadata before a git patch does not create a phantom file
+ok 153 - commit metadata before a git patch does not create a phantom file
+  ---
+  duration_ms: 0.1339
+  type: 'test'
+  ...
+# Subtest: apply-patch add and delete envelopes normalize into visible file diffs
+ok 154 - apply-patch add and delete envelopes normalize into visible file diffs
+  ---
+  duration_ms: 0.3194
+  type: 'test'
+  ...
+# Subtest: only Escape dismisses an approval from the keyboard
+ok 155 - only Escape dismisses an approval from the keyboard
+  ---
+  duration_ms: 0.052
+  type: 'test'
+  ...
+1..155
+# tests 155
+# suites 0
+# pass 152
+# fail 1
+# cancelled 0
+# skipped 2
+# todo 0
+# duration_ms 5887.7962

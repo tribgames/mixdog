@@ -737,6 +737,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-row-delete:hover,
 .session-row-delete-confirm:hover { color: var(--oc-danger); }
 .session-row-action:disabled { opacity: 0.45; pointer-events: none; }
+/* Archive carries the red tone (user decision); restore stays neutral. */
+.session-row-action.session-row-archive { color: var(--oc-danger); }
+.session-row:hover .session-row-action.session-row-archive,
+.session-row:focus-within .session-row-action.session-row-archive {
+  color: var(--oc-danger);
+  opacity: 1;
+}
+.session-row-action.session-row-archive:hover { color: var(--oc-danger); opacity: 1; }
+.session-row-action.session-row-restore { color: var(--oc-icon); }
+.session-row-action.session-row-restore:hover { color: var(--oc-text); }
 /* Delete-only row action (rename menu removed): the trash glyph reads as a
    destructive affordance, so it carries the danger tone at rest and full
    danger on hover. */
@@ -872,6 +882,38 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .sidebar-recent-heading > small {
   color: var(--oc-text-faint);
   font: 400 11px/16px "Geist Variable", "Inter Variable", Inter, sans-serif;
+}
+/* AFTER the base heading rules on purpose: the collapsible heading variant
+   must win order-dependent overrides. Settled scale (user): 14px/500, one
+   step darker than full ink, chevron hugging the title at the 6px row line. */
+.sidebar-recent-heading.sidebar-heading-toggle {
+  height: 32px;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 21px;
+  letter-spacing: 0;
+  color: color-mix(in srgb, var(--oc-text) 72%, transparent);
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-recent-heading.sidebar-heading-toggle:focus-visible { outline: none; }
+.sidebar-recent-heading.sidebar-heading-toggle > span { flex: 0 0 auto; min-width: 0; }
+.sidebar-recent-heading.sidebar-heading-toggle svg { color: var(--oc-text-muted); flex: 0 0 auto; }
+/* Empty-state line matches the section rows' type (user). */
+.sidebar-section-empty {
+  margin: 2px 0 0;
+  color: var(--oc-text-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
 }
 .sidebar-section-heading,
 .project-group-heading {

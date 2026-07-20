@@ -325,7 +325,7 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
   if (isNativeShell) {
     const appPlugin = (window as unknown as {
       Capacitor?: { Plugins?: { App?: {
-        addListener?: (event: string, handler: () => void) => unknown;
+        addListener?: (event: string, handler: (payload?: { url?: string }) => void) => unknown;
         minimizeApp?: () => void;
       } } };
     }).Capacitor?.Plugins?.App;
@@ -334,6 +334,21 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
         new CustomEvent('mixdog:hardware-back', { cancelable: true }),
       );
       if (!consumed) appPlugin.minimizeApp?.();
+    });
+    // Pairing deep link (QR on the desktop's Remote Access window):
+    // mixdog://pair?server=<origin>&token=<hex> — persist and reload so the
+    // socket dials the new desktop without any typing.
+    appPlugin?.addListener?.('appUrlOpen', (payload) => {
+      try {
+        const link = new URL(String(payload?.url || ''));
+        if (link.protocol !== 'mixdog:') return;
+        const server = link.searchParams.get('server');
+        const pairToken = link.searchParams.get('token');
+        if (!server) return;
+        localStorage.setItem(SERVER_STORAGE_KEY, new URL(server).origin);
+        if (pairToken) localStorage.setItem(TOKEN_STORAGE_KEY, pairToken);
+        location.reload();
+      } catch { /* malformed link — keep the current pairing */ }
     });
   }
   if (isNativeShell && !serverBase) {

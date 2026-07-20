@@ -22,6 +22,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, createReadStream, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
 import { extname, join, resolve, sep } from 'node:path';
 
 import { WebSocketServer } from 'ws';
@@ -146,11 +147,22 @@ function serveStatic(rendererDir, request, response) {
   createReadStream(target).on('error', () => response.destroy()).pipe(response);
 }
 
-export async function startRelay({ port = 9800, dataDir = './data', rendererDir = '' } = {}) {
+export async function startRelay({
+  port = 9800,
+  dataDir = './data',
+  rendererDir = '',
+  // TLS termination stays in-process (no reverse proxy in the data path):
+  // point these at fullchain.pem / privkey.pem to serve https+wss directly.
+  tlsCert = '',
+  tlsKey = '',
+} = {}) {
   const store = new DeviceStore(resolve(dataDir));
   // deviceId -> { socket, clients: Map<clientId, phoneSocket> }
   const liveDesktops = new Map();
-  const server = createServer((request, response) => serveStatic(rendererDir, request, response));
+  const handler = (request, response) => serveStatic(rendererDir, request, response);
+  const server = tlsCert && tlsKey
+    ? createTlsServer({ cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }, handler)
+    : createServer(handler);
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES,
@@ -250,8 +262,11 @@ if (invokedDirectly) {
   const port = Number(process.env.PORT || 9800);
   const dataDir = process.env.DATA_DIR || './data';
   const rendererDir = process.env.RENDERER_DIR || '';
-  startRelay({ port, dataDir, rendererDir }).then((relay) => {
-    console.log(`[relay] listening on :${relay.port} (renderer: ${rendererDir || 'none'})`);
+  const tlsCert = process.env.TLS_CERT || '';
+  const tlsKey = process.env.TLS_KEY || '';
+  startRelay({ port, dataDir, rendererDir, tlsCert, tlsKey }).then((relay) => {
+    const scheme = tlsCert && tlsKey ? 'https' : 'http';
+    console.log(`[relay] ${scheme} listening on :${relay.port} (renderer: ${rendererDir || 'none'})`);
   }).catch((error) => {
     console.error('[relay] failed to start:', error.message);
     process.exit(1);

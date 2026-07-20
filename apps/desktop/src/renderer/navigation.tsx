@@ -16,6 +16,9 @@ import {
   LoaderCircle,
   MessageCircle,
   MoreHorizontal,
+  ArchiveRestore,
+  ChevronDown,
+  ChevronRight,
   PanelLeft,
   PanelRight,
   Pencil,
@@ -434,12 +437,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   }, []);
   useEffect(() => () => document.body.classList.remove("session-sidebar-resizing"), []);
   const allRows = useMemo(() => sessions
-    .filter((session) => (session.classification === "task" || session.classification === "project")
-      && session.archived !== true)
+    .filter((session) => session.classification === "task" || session.classification === "project")
     .sort((left, right) =>
       right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)),
   [sessions]);
-  const rows = allRows;
+  const rows = useMemo(() => allRows.filter((session) => session.archived !== true), [allRows]);
+  const archivedRows = useMemo(() => allRows.filter((session) => session.archived === true), [allRows]);
+  const [recentOpen, setRecentOpen] = useState(true);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
     setMenuSessionId("");
     setConfirmingSessionId("");
@@ -515,9 +520,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
 
       <div className="session-sidebar-scroll">
         <section className="sidebar-recent" aria-label="Recent sessions">
-          <div className="sidebar-recent-heading">
+          <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
+            aria-expanded={recentOpen}
+            onClick={() => setRecentOpen((open) => !open)}>
             <span>Recent</span>
-          </div>
+            {recentOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </button>
+          {recentOpen && (
           <nav id="recent-session-list" className="session-list recent-session-list" aria-label="Recent sessions">
             {rows.length === 0 && <p className="sidebar-section-empty">No sessions</p>}
             {rows.map((session) => <SessionSidebarRow key={session.id}
@@ -534,7 +543,35 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
               onArchiveSession={onArchiveSession} />)}
           </nav>
+          )}
         </section>
+        {archivedRows.length > 0 && (
+          <section className="sidebar-recent sidebar-archived" aria-label="Archived sessions">
+            <button type="button" className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
+              aria-expanded={archivedOpen}
+              onClick={() => setArchivedOpen((open) => !open)}>
+              <span>Archived</span>
+              {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </button>
+            {archivedOpen && (
+              <nav className="session-list archived-session-list" aria-label="Archived sessions">
+                {archivedRows.map((session) => <SessionSidebarRow key={session.id}
+                  session={session} active={selection.kind === "session" && selection.id === session.id}
+                  working={session.id === busySessionId}
+                  unread={unreadSessionIds?.has(session.id) === true}
+                  editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
+                  sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
+                  confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
+                  onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
+                  onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+                  onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
+                  onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
+                  onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
+                  onArchiveSession={onArchiveSession} />)}
+              </nav>
+            )}
+          </section>
+        )}
       </div>
       <div className="session-sidebar-resize" role="separator" tabIndex={0}
         aria-label="Resize session sidebar" aria-orientation="vertical"
@@ -782,10 +819,31 @@ const SessionRow = React.memo(function SessionRow({
                 </button>
               </>
             ) : (
-              // Direct row actions (user decision, no "..." menu): archive
-              // hides the session from Recent (codex-style, restorable), the
-              // trash keeps its X/✓ inline confirm.
-              <>
+              // Codex-style split (user decision, no "..." menu): Recent rows
+              // only ARCHIVE (instant, restorable — the file stays on disk);
+              // destructive delete lives on ARCHIVED rows with the X/✓ confirm.
+              session.archived === true ? (
+                <>
+                  <button type="button" className="session-row-action session-row-restore"
+                    aria-label={`Restore ${sessionLabel(session)}`} data-tooltip="Restore"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void onArchiveSession(session.id, false).catch(() => {});
+                    }}>
+            <ArchiveRestore size={13} />
+                  </button>
+                  <button type="button" className="session-row-action session-row-delete danger"
+                    aria-label={`Delete ${sessionLabel(session)}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onStartDelete(session);
+                    }}>
+            <Trash2 size={13} />
+                  </button>
+                </>
+              ) : (
                 <button type="button" className="session-row-action session-row-archive"
                   aria-label={`Archive ${sessionLabel(session)}`} data-tooltip="Archive"
                   onClick={(event) => {
@@ -795,16 +853,7 @@ const SessionRow = React.memo(function SessionRow({
                   }}>
             <Archive size={13} />
                 </button>
-                <button type="button" className="session-row-action session-row-delete danger"
-                  aria-label={`Delete ${sessionLabel(session)}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onStartDelete(session);
-                  }}>
-            <Trash2 size={13} />
-                </button>
-              </>
+              )
             )}
           </div>
         </>

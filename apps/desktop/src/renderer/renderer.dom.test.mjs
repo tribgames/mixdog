@@ -103,10 +103,28 @@ async function selectFirstProject() {
 }
 
 async function chooseSessionAction(row, action) {
+  // Codex-style archive-first flow: Recent rows only ARCHIVE (instant, no
+  // confirm); destructive delete lives on rows inside the Archived section.
+  const archiveButton = row.querySelector(".session-row-archive");
+  if (archiveButton) {
+    await act(async () => {
+      archiveButton.click();
+      await Promise.resolve();
+    });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const toggle = document.querySelector(".sidebar-archived-toggle");
+    if (toggle && toggle.getAttribute("aria-expanded") !== "true") {
+      await act(async () => {
+        toggle.click();
+        await Promise.resolve();
+      });
+    }
+  }
+  const archivedRow = document.querySelector(
+    `.archived-session-list [data-session-id="${row.dataset.sessionId}"]`,
+  ) || row;
   await act(async () => {
-    // Delete-only session actions: the "..." menu was replaced by a direct
-    // trash icon (rename UI removed by user decision).
-    row.querySelector(".session-row-delete").click();
+    archivedRow.querySelector(".session-row-delete").click();
     await Promise.resolve();
   });
   void action;
@@ -1243,7 +1261,7 @@ test("sidebar keeps Project below New task and lists every session newest-first"
     ["Recent 6", "Recent 5", "Recent 4", "Recent 3", "Recent 2", "Recent 1"]);
   assert.equal(recent.querySelectorAll(".session-row-main").length, 6);
   assert.equal(shortcuts.every((row) => row.getAttribute('data-tooltip') === null), true);
-  assert.equal(recent.querySelectorAll('.session-row-actions .session-row-delete').length, 6);
+  assert.equal(recent.querySelectorAll('.session-row-actions .session-row-archive').length, 6);
 
   assert.equal(document.querySelector('[aria-label="Search sessions"]'), null);
   assert.equal(recent.querySelectorAll(".session-row").length, 6);
@@ -1375,7 +1393,7 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
   await act(async () => document.querySelector(".toolbar-sidebar").click());
 
   let title = document.querySelector(".recent-session-list .session-row-copy");
-  assert.equal(document.querySelector(".session-row-delete")?.getAttribute("aria-label"), "Delete Original title");
+  assert.equal(document.querySelector(".session-row-archive")?.getAttribute("aria-label"), "Archive Original title");
   await act(async () => {
     title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
     await Promise.resolve();

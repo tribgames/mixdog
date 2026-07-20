@@ -365,6 +365,17 @@ if (!app.requestSingleInstanceLock()) {
       reset: () => { void setPersistentZoom(1); },
       zoomIn: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) + 0.2); },
       zoomOut: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) - 0.2); },
+    }, {
+      showRemoteAccess: remoteBridge
+        ? () => {
+          const bridge = remoteBridge;
+          if (!bridge) return;
+          void import('./remote-access-window').then(({ showRemoteAccessWindow }) =>
+            showRemoteAccessWindow(bridge, mainWindow)).catch((error: unknown) => {
+            console.error('Failed to open the remote access window:', error);
+          });
+        }
+        : undefined,
     });
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
