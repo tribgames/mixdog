@@ -1,0 +1,19 @@
+{
+  "name": "@mixdog/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mixdog mobile shell: Capacitor wrapper around the desktop renderer, driven over the remote bridge.",
+  "scripts": {
+    "sync:web": "node scripts/sync-web.mjs",
+    "sync": "npm run sync:web && npx cap sync android",
+    "apk": "npm run sync && cd android && gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/core": "^7.4.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.0"
+  }
+}

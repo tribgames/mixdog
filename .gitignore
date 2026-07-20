@@ -9,6 +9,11 @@ apps/desktop/.runtime/
 apps/desktop/dist/
 apps/desktop/out/
 apps/desktop/artifacts/
+apps/mobile/www/
+apps/mobile/node_modules/
+# Junction-assembled Android SDK (Unity-provided toolchain + downloads)
+.android-sdk/
+.remote-dom.html
 
 # Logs
 *.log
