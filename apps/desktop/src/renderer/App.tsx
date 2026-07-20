@@ -2161,7 +2161,8 @@ function Conversation({
           disabled={transitioning || Boolean(snapshot.busy)}
           onClear={onNewTask} onSelect={onSelectProject} onChoose={onChooseProject} />}
         <InlineErrors messages={errors} />
-        <TurnReviewBar items={items} />
+        <TurnReviewBar items={items}
+          cwd={String(snapshot.currentProject || snapshot.project || snapshot.cwd || "")} />
         <Composer
           turnBusy={Boolean(snapshot.busy)}
           commandBusy={Boolean(routeSnapshot.commandBusy)}
@@ -3094,15 +3095,25 @@ function queuedFollowupPreview(entry: unknown) {
 }
 
 // Zed "Review Changes" parity: an accordion above the composer summarizing the
-// files the current turn edited (count + line delta), expandable per file.
-function TurnReviewBar({ items }: { items: TranscriptItem[] }) {
+// files the current turn edited (count + line delta). Scope rule: every tool
+// item AFTER the last user message whose args/result carry a unified diff
+// (apply_patch/edit payloads) is parsed and aggregated per file. Rows expand
+// to the actual diff and carry a guarded working-tree revert.
+function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: string }) {
   const [expanded, setExpanded] = useState(false);
+  const [openFile, setOpenFile] = useState("");
+  const [confirmFile, setConfirmFile] = useState("");
+  const [reverted, setReverted] = useState<string[]>([]);
   const summary = useMemo(() => {
     let lastUser = -1;
     for (let index = items.length - 1; index >= 0; index--) {
       if (items[index]?.kind === "user") { lastUser = index; break; }
     }
-    const files = new Map<string, { additions: number; deletions: number }>();
+    const files = new Map<string, {
+      additions: number;
+      deletions: number;
+      parts: ReturnType<typeof parseUnifiedDiff>;
+    }>();
     for (let index = lastUser + 1; index < items.length; index++) {
       const item = items[index];
       if (!item || item.kind !== "tool") continue;
@@ -3113,9 +3124,10 @@ function TurnReviewBar({ items }: { items: TranscriptItem[] }) {
           const name = String(file.newFile?.fileName || "");
           if (!name) continue;
           const body = file.hunks.join("\n").split("\n");
-          const entry = files.get(name) || { additions: 0, deletions: 0 };
+          const entry = files.get(name) || { additions: 0, deletions: 0, parts: [] };
           entry.additions += body.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
           entry.deletions += body.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+          entry.parts.push(file);
           files.set(name, entry);
         }
       } catch { /* non-diff payload — skip */ }
@@ -3137,10 +3149,58 @@ function TurnReviewBar({ items }: { items: TranscriptItem[] }) {
         <ChevronDown className="turn-review-chevron" size={14} aria-hidden="true" />
       </button>
       {expanded && <ul className="turn-review-files">
-        {[...summary.files.entries()].map(([name, entry]) => (
-          <li key={name}><code>{name}</code>
-            <span className="diff-stats"><i>+{entry.additions}</i><em>-{entry.deletions}</em></span></li>
-        ))}
+        {[...summary.files.entries()].map(([name, entry]) => {
+          // Tool patches sometimes carry ABSOLUTE paths; display and revert
+          // use the project-relative form (git confinement expects it).
+          const normalizedCwd = String(cwd || "").replace(/\\/g, "/").replace(/\/+$/, "");
+          const normalizedName = name.replace(/\\/g, "/");
+          const rel = normalizedCwd && normalizedName.toLowerCase().startsWith(`${normalizedCwd.toLowerCase()}/`)
+            ? normalizedName.slice(normalizedCwd.length + 1)
+            : normalizedName;
+          const isReverted = reverted.includes(name);
+          const confirming = confirmFile === name;
+          return (
+          <li key={name} data-open={openFile === name ? "true" : "false"}
+            data-reverted={isReverted ? "true" : "false"}>
+            <button type="button" className="turn-review-file" aria-expanded={openFile === name}
+              onClick={() => setOpenFile((current) => current === name ? "" : name)}>
+              <code>{rel}</code>
+              <span className="diff-stats"><i>+{entry.additions}</i><em>-{entry.deletions}</em></span>
+            </button>
+            {Boolean(cwd) && !isReverted && (confirming ? (
+              <span className="turn-review-confirm" role="group"
+                aria-label={`Confirm reverting ${rel} (discards ALL working-tree changes in the file)`}>
+                <button type="button" className="turn-review-revert"
+                  aria-label="Cancel revert" data-tooltip="Cancel"
+                  onClick={() => setConfirmFile("")}>
+                  <X size={12} />
+                </button>
+                <button type="button" className="turn-review-revert danger"
+                  aria-label={`Confirm revert of ${rel}`} data-tooltip="Revert to HEAD"
+                  onClick={() => {
+                    setConfirmFile("");
+                    void window.mixdogDesktop.gitRevert?.(cwd as string, rel, false)
+                      .then(() => setReverted((current) => [...current, name]))
+                      .catch(() => {});
+                  }}>
+                  <Check size={12} />
+                </button>
+              </span>
+            ) : (
+              <button type="button" className="turn-review-revert"
+                aria-label={`Revert ${rel}`} data-tooltip="Revert file (working tree → HEAD)"
+                onClick={() => setConfirmFile(name)}>
+                <RotateCcw size={12} />
+              </button>
+            ))}
+            {openFile === name && <div className="turn-review-diff">
+              {entry.parts.map((file, index) => (
+                <GitDiffBody key={`${name}:${index}`} file={file} />
+              ))}
+            </div>}
+          </li>
+          );
+        })}
       </ul>}
     </section>
   );

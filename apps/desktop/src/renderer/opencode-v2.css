@@ -1112,7 +1112,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: min(100%, 800px);
   height: 48px;
   margin: 0 auto;
-  padding: 12px 32px;
+  /* Same 36px prose inset as .thread so the title sits on the transcript's
+     left line (user: header misaligned vs content). */
+  padding: 12px 36px;
   gap: 8px;
 }
 /* Conversation title is important info: one step up from tab chrome. */
@@ -5380,10 +5382,57 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-height: 22px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   font-size: 12px;
   line-height: 18px;
+}
+/* Row → inline diff + guarded revert (user request): the filename is a
+   disclosure button; revert resets the file's WORKING TREE to HEAD. */
+.turn-review-file {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.turn-review-file .diff-stats { margin-left: auto; }
+.turn-review-file:hover code { color: var(--oc-text); }
+.turn-review-revert {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--oc-text-muted);
+  padding: 2px;
+  cursor: pointer;
+}
+.turn-review-revert:hover { color: var(--oc-danger); }
+.turn-review-revert:disabled { opacity: 0.4; cursor: default; }
+.turn-review-diff {
+  flex: 1 0 100%;
+  max-height: 320px;
+  overflow: auto;
+  margin: 4px 0 6px;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--oc-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--oc-border);
+}
+/* Inline X/✓ confirm replaces the native window.confirm (user: OS popup
+   clashed with the app chrome). Same grammar as session-row delete. */
+.turn-review-confirm { display: inline-flex; align-items: center; gap: 2px; }
+.turn-review-revert.danger { color: var(--oc-danger); }
+.turn-review-files li[data-reverted="true"] code {
+  text-decoration: line-through;
+  color: var(--oc-text-faint);
 }
 .turn-review-files code {
   overflow: hidden;

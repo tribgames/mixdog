@@ -36,7 +36,7 @@ export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];
 
 export type SettingsCategory =
   | 'general' | 'models' | 'workflows' | 'output-style'
-  | 'providers' | 'channels' | 'mcp' | 'plugins' | 'hooks' | 'skills' | 'memory'
+  | 'providers' | 'channels' | 'connection' | 'mcp' | 'plugins' | 'hooks' | 'skills' | 'memory'
   | 'system' | 'shortcuts';
 
 export interface SettingsCategoryItem {
@@ -82,6 +82,13 @@ export const SETTINGS_CATEGORIES = [
     label: 'Channels',
     group: 'Integrations',
     items: ['channels', 'channel-backend', 'channel-setting'],
+  },
+  // Desktop-only surface: phone pairing (QRs, APK, bridge status).
+  {
+    value: 'connection',
+    label: 'Connection',
+    group: 'Integrations',
+    items: [],
   },
   {
     value: 'mcp',

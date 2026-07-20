@@ -23,6 +23,7 @@ import {
   type DesktopModelSelection,
   type DesktopModelCatalogOptions,
   type DesktopPromptContent,
+  type DesktopRemoteAccessInfo,
   type DesktopSubmitOptions,
   type DesktopSettingKey,
   type DesktopUpdaterState,
@@ -399,6 +400,8 @@ interface DesktopIpcDependencies {
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>;
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder'>;
   settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update' | 'readZoom' | 'updateZoom'>;
+  /** Settings → Connection pairing card; resolves null while the bridge is off. */
+  remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   updater?: {
     getState(): DesktopUpdaterState;
     subscribe(listener: (state: DesktopUpdaterState) => void): () => void;
@@ -442,7 +445,7 @@ export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
 export function registerDesktopIpc(
   window: BrowserWindow,
   host: EngineHost,
-  { app, ipcMain, dialog, shell, settingsStore, updater, terminals }: DesktopIpcDependencies,
+  { app, ipcMain, dialog, shell, settingsStore, updater, terminals, remoteAccessInfo }: DesktopIpcDependencies,
 ): () => void {
   let quitPromise: Promise<void> | null = null;
   const assertSender = (event: IpcMainInvokeEvent): void => {
@@ -492,6 +495,8 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.removeProject, (_event, projectPath) =>
     host.removeProject(requiredString(projectPath, 'projectPath')));
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
+  // Settings → Connection: pairing card (null while the bridge is off).
+  handle(DESKTOP_IPC.remoteAccessInfo, () => remoteAccessInfo?.() ?? null);
   handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
     host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)));
   handle(DESKTOP_IPC.deleteSession, (_event, sessionId) =>

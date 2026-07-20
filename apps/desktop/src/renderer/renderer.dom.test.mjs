@@ -3409,7 +3409,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(openCodeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*0 8px 8px;/s);
   assert.match(openCodeCss, /\.sidebar-collapsed \.desktop-body\s*\{[^}]*gap:\s*0;/s);
   assert.match(openCodeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
-  assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 32px;/s);
+  assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 36px;/s);
   // Conversation title runs one step above tab chrome (user: important info
   // read underweighted at 14px/500).
   assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*15px;[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);

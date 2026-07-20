@@ -11,6 +11,7 @@ import type {
   DesktopReadCapability,
   DesktopModelOption,
   DesktopModelSelection,
+  DesktopRemoteAccessInfo,
   EngineSnapshot,
 } from '../../shared/contract';
 import type { SettingsCategory } from './settings-items';
@@ -731,6 +732,7 @@ function CategoryPanel({ category, context }: {
   if (category === 'memory') return <MemoryPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
   if (category === 'shortcuts') return <ShortcutsPanel />;
+  if (category === 'connection') return <ConnectionPanel />;
   return <GeneralPanel {...context} />;
 }
 
@@ -768,6 +770,57 @@ function ShortcutsPanel() {
         </div>)}
       </div>
     </Group>)}
+  </>;
+}
+
+// Settings → Connection: pairing card for the phone remote (ChatGPT-desktop
+// 연결 page grammar). Data + pre-rendered QR SVGs come from the main process;
+// the remote shim omits the API, so a phone session shows the fallback note.
+function ConnectionPanel() {
+  const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
+    if (!host?.getRemoteAccessInfo) {
+      setInfo(null);
+      return () => { live = false; };
+    }
+    void host.getRemoteAccessInfo()
+      .then((value) => { if (live) setInfo(value ?? null); })
+      .catch(() => { if (live) setInfo(null); });
+    return () => { live = false; };
+  }, []);
+  if (info === undefined) {
+    return <Group title="Phone remote"><p className="settings-connection-note">Loading…</p></Group>;
+  }
+  if (info === null) {
+    return <Group title="Phone remote">
+      <p className="settings-connection-note">
+        Remote access is unavailable in this session. On the desktop it is on by
+        default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable pairing.
+      </p>
+    </Group>;
+  }
+  return <>
+    <Group title="Phone remote"
+      description="Same Wi-Fi as this PC. Scan with the phone camera.">
+      <div className="settings-connection-grid">
+        <figure className="settings-connection-card">
+          <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: info.browserQrSvg }} />
+          <figcaption><b>Browser</b><small>Opens the web app directly</small></figcaption>
+        </figure>
+        <figure className="settings-connection-card">
+          <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: info.appQrSvg }} />
+          <figcaption><b>Mixdog app</b><small>Pairs the installed Android app</small></figcaption>
+        </figure>
+      </div>
+    </Group>
+    <Group title="Links" description={`Bridge listening on port ${info.port}.`}>
+      <div className="settings-connection-links">
+        <div><span>Android app (APK)</span><code>{info.apkUrl}</code></div>
+        <div><span>Browser URL</span><code>{info.browserUrl}</code></div>
+      </div>
+    </Group>
   </>;
 }
 

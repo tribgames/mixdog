@@ -13,6 +13,7 @@ export const DESKTOP_IPC = {
   renameSession: 'mixdog:rename-session',
   setSessionArchived: 'mixdog:set-session-archived',
   deleteSession: 'mixdog:delete-session',
+  remoteAccessInfo: 'mixdog:remote-access-info',
   resumeSession: 'mixdog:resume-session',
   searchProjectFiles: 'mixdog:search-project-files',
   getSnapshot: 'mixdog:get-snapshot',
@@ -434,6 +435,18 @@ export interface DesktopSettings {
 
 export type DesktopSessionClassification = 'task' | 'project' | null;
 
+/** Pairing card data for Settings → Connection (QRs pre-rendered as SVG in
+ *  the main process so the renderer needs no QR dependency). */
+export interface DesktopRemoteAccessInfo {
+  port: number;
+  urls: string[];
+  browserUrl: string;
+  appLink: string;
+  apkUrl: string;
+  browserQrSvg: string;
+  appQrSvg: string;
+}
+
 export interface DesktopSessionSummary {
   id: string;
   preview: string;
@@ -476,6 +489,10 @@ export interface DesktopApi {
   renameSession(sessionId: string, title: string): Promise<void>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   deleteSession(sessionId: string): Promise<EngineSnapshot>;
+  /** Settings → Connection: pairing QRs + URLs for the phone remote. Only
+   *  the in-process desktop implements it (null while the bridge is off);
+   *  the remote shim omits it — a phone never needs its own pairing card. */
+  getRemoteAccessInfo?(): Promise<DesktopRemoteAccessInfo | null>;
   resumeSession(sessionId: string): Promise<EngineSnapshot>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   getSnapshot(): Promise<EngineSnapshot>;

@@ -226,7 +226,7 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   assert.match(styles, /\.tool-title\s*\{[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.tool-card\[data-open="true"\] \.tool-chevron svg\s*\{[^}]*rotate\(90deg\)/s);
   assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--oc-border-muted\);[^}]*border-radius:\s*8px;/s);
-  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*min\(100%, 800px\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px 32px;/s);
+  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*min\(100%, 800px\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px 36px;/s);
   assert.match(styles, /\.session-header-content h1\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*min\(52ch,\s*100%\);[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.session-title-trigger\s*\{[^}]*width:\s*100%;[^}]*padding:\s*0;/s);
   assert.match(styles, /\.session-header-title-input\s*\{[^}]*field-sizing:\s*content;[^}]*width:\s*auto;[^}]*max-width:\s*100%;[^}]*padding:\s*0;/s);

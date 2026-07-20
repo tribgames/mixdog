@@ -4,6 +4,7 @@
 import { BrowserWindow } from 'electron';
 import QRCode from 'qrcode';
 
+import type { DesktopRemoteAccessInfo } from '../shared/contract';
 import type { RemoteBridgeHandle } from './remote-bridge';
 
 function preferredUrl(urls: string[]): string {
@@ -15,10 +16,7 @@ function preferredUrl(urls: string[]): string {
     || '';
 }
 
-export async function showRemoteAccessWindow(
-  bridge: RemoteBridgeHandle,
-  parent?: BrowserWindow | null,
-): Promise<void> {
+export async function buildRemoteAccessInfo(bridge: RemoteBridgeHandle): Promise<DesktopRemoteAccessInfo> {
   const origin = preferredUrl(bridge.urls);
   const browserUrl = `${origin}/?token=${encodeURIComponent(bridge.token)}`;
   const appLink = `mixdog://pair?server=${encodeURIComponent(origin)}&token=${encodeURIComponent(bridge.token)}`;
@@ -27,6 +25,22 @@ export async function showRemoteAccessWindow(
     QRCode.toString(browserUrl, { type: 'svg', margin: 1, width: 220, color: { dark: '#1b1a17', light: '#f4f2ee' } }),
     QRCode.toString(appLink, { type: 'svg', margin: 1, width: 220, color: { dark: '#1b1a17', light: '#f4f2ee' } }),
   ]);
+  return {
+    port: bridge.port,
+    urls: bridge.urls,
+    browserUrl,
+    appLink,
+    apkUrl,
+    browserQrSvg: browserQr,
+    appQrSvg: appQr,
+  };
+}
+
+export async function showRemoteAccessWindow(
+  bridge: RemoteBridgeHandle,
+  parent?: BrowserWindow | null,
+): Promise<void> {
+  const { browserUrl, apkUrl, browserQrSvg: browserQr, appQrSvg: appQr } = await buildRemoteAccessInfo(bridge);
   const html = `<!doctype html><meta charset="utf-8"><title>Remote access</title>
 <style>
   body { margin: 0; padding: 28px; background: #201e1c; color: #f4f2ee;

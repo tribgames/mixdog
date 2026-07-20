@@ -177,6 +177,11 @@ async function createWindow(): Promise<void> {
     settingsStore,
     updater: desktopUpdater,
     terminals: terminalManager,
+    remoteAccessInfo: async () => {
+      if (!remoteBridge) return null;
+      const { buildRemoteAccessInfo } = await import('./remote-access-window');
+      return buildRemoteAccessInfo(remoteBridge);
+    },
   });
   diagnostics?.write('window-created');
 
