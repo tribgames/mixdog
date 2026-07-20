@@ -4,6 +4,10 @@ appId: io.mixdog.desktop
 productName: Mixdog
 artifactName: mixdog-desktop-${os}-${arch}.${ext}
 asar: true
+# Native modules ship as prebuilt binaries mirrored into runtime.asar.unpacked
+# by prepare-runtime.mjs; never rebuild them against Electron headers here.
+npmRebuild: false
+nodeGypRebuild: false
 extraMetadata:
   name: mixdog-desktop
 protocols:
