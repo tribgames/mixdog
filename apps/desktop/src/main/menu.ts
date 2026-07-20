@@ -23,7 +23,9 @@ export function nativeMenuTemplate(
   const fileItems: MenuItemConstructorOptions[] = [];
   if (extras?.showRemoteAccess) {
     fileItems.push(
-      { label: 'Remote Access…', click: extras.showRemoteAccess },
+      // The Windows shell is frameless (no visible menu bar), so the
+      // accelerator IS the entry point there; macOS shows the item too.
+      { label: 'Remote Access…', accelerator: 'CmdOrCtrl+Shift+R', click: extras.showRemoteAccess },
       { type: 'separator' },
     );
   }
