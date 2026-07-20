@@ -24,6 +24,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Pairing deep link: mixdog://pair?server=...&token=... (QR on
+                 the desktop's Remote Access window). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mixdog" android:host="pair" />
+            </intent-filter>
+
         </activity>
 
         <provider
