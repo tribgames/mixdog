@@ -109,6 +109,43 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
     }
   };
 
+  // State pushes ride the same identity-prefix items delta the desktop IPC
+  // uses (state-delta.ts): reassemble full snapshots here, and ask the
+  // desktop for a resync when a patch does not match our base revision
+  // (mid-stream join through the relay, missed frame).
+  let deltaItems: unknown[] = [];
+  let deltaRevision = -1;
+  const applyStatePayload = (payload: unknown): EngineSnapshot | null => {
+    if (!payload || typeof payload !== 'object') return payload as EngineSnapshot;
+    const record = payload as Record<string, unknown>;
+    const patch = record.__itemsPatch as
+      { base?: unknown; revision?: unknown; prefix?: unknown; append?: unknown } | undefined;
+    if (patch && typeof patch === 'object') {
+      if (patch.base !== deltaRevision) {
+        fire('stateResync', []);
+        return null;
+      }
+      const prefix = typeof patch.prefix === 'number' ? patch.prefix : 0;
+      const append = Array.isArray(patch.append) ? patch.append : [];
+      deltaItems = deltaItems.slice(0, prefix).concat(append);
+      deltaRevision = typeof patch.revision === 'number' ? patch.revision : deltaRevision + 1;
+      const clean: Record<string, unknown> = { ...record, items: deltaItems };
+      delete clean.__itemsPatch;
+      return clean as unknown as EngineSnapshot;
+    }
+    if (typeof record.__itemsRevision === 'number') {
+      deltaRevision = record.__itemsRevision;
+      deltaItems = Array.isArray(record.items) ? record.items as unknown[] : [];
+      const clean: Record<string, unknown> = { ...record };
+      delete clean.__itemsRevision;
+      return clean as unknown as EngineSnapshot;
+    }
+    // Legacy full snapshot without revision: future patches cannot verify
+    // their base against it, so force the next patch through a resync.
+    deltaRevision = -1;
+    return payload as EngineSnapshot;
+  };
+
   const handleMessage = (raw: unknown): void => {
     let message: Record<string, unknown>;
     try {
@@ -129,7 +166,8 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
       return;
     }
     if (message.event === 'state') {
-      dispatchState((message.payload ?? null) as EngineSnapshot);
+      const snapshot = applyStatePayload(message.payload ?? null);
+      if (snapshot !== null) dispatchState(snapshot);
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };
       const event = { id: String(payload.id || ''), data: String(payload.data ?? '') };
@@ -173,6 +211,9 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
       ws.onclose = () => {
         if (socket === ws) socket = null;
         openPromise = null;
+        // A new connection starts a fresh delta lane; a stale base revision
+        // must never accidentally match the new encoder's numbering.
+        deltaRevision = -1;
         const failure = new Error('mixdog remote bridge disconnected.');
         for (const entry of [...pending.values()]) entry.reject(failure);
         pending.clear();
@@ -220,6 +261,7 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
     removeProject: (projectPath) => call('removeProject', [projectPath]),
     listSessions: () => call('listSessions'),
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
+    setSessionArchived: (sessionId, archived) => call('setSessionArchived', [sessionId, archived]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
     resumeSession: (sessionId) => call('resumeSession', [sessionId]),
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>

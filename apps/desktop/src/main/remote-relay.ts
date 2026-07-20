@@ -16,6 +16,7 @@ import {
   executeRemoteFrame,
   type RemoteMethodDependencies,
 } from './remote-methods';
+import { createSnapshotDeltaEncoder, isStateResyncFrame } from './state-delta';
 
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 
@@ -72,11 +73,21 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   let closed = false;
   let retryMs = 1_000;
   let reconnectTimer: NodeJS.Timeout | null = null;
+  // The relay fans one broadcast lane out to every phone, so ONE shared
+  // encoder tracks the delta stream; any client join or resync request
+  // resets it, which downgrades the next push to a full snapshot for all.
+  const deltaEncoder = createSnapshotDeltaEncoder();
 
   const sendEnvelope = (payload: unknown): void => {
     if (socket && socket.readyState === WebSocket.OPEN) {
       try { socket.send(JSON.stringify(payload)); } catch { /* relay vanished */ }
     }
+  };
+  const broadcastState = (snapshot: unknown): void => {
+    sendEnvelope({
+      type: 'broadcast',
+      data: JSON.stringify({ event: 'state', payload: deltaEncoder.encode(snapshot) }),
+    });
   };
 
   const connect = (): void => {
@@ -86,11 +97,12 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     target.search = `device=${encodeURIComponent(deviceId)}&secret=${encodeURIComponent(deviceSecret)}`;
     const ws = new WebSocket(target.toString(), {
       maxPayload: MAX_WS_PAYLOAD_BYTES,
-      perMessageDeflate: false,
+      perMessageDeflate: true,
     });
     socket = ws;
     ws.on('open', () => {
       retryMs = 1_000;
+      deltaEncoder.reset();
       // Register the phone pairing token before any client leg can bind.
       sendEnvelope({ type: 'set-client-token', token });
     });
@@ -102,8 +114,21 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         } catch {
           return;
         }
+        if (envelope.type === 'client-open') {
+          // A phone joined mid-stream: restart the delta lane with one full
+          // snapshot so it has a base revision to patch against.
+          deltaEncoder.reset();
+          broadcastState(options.host.getSnapshot());
+          return;
+        }
         if (envelope.type !== 'frame' || typeof envelope.clientId !== 'string') return;
-        const response = await executeRemoteFrame(methods, String(envelope.data ?? ''));
+        const frame = String(envelope.data ?? '');
+        if (isStateResyncFrame(frame)) {
+          deltaEncoder.reset();
+          broadcastState(options.host.getSnapshot());
+          return;
+        }
+        const response = await executeRemoteFrame(methods, frame);
         if (response !== undefined) {
           sendEnvelope({ type: 'frame', clientId: envelope.clientId, data: JSON.stringify(response) });
         }
@@ -120,8 +145,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   };
   connect();
 
-  const unsubscribeState = options.host.subscribe((snapshot) =>
-    sendEnvelope({ type: 'broadcast', data: JSON.stringify({ event: 'state', payload: snapshot }) }));
+  const unsubscribeState = options.host.subscribe(broadcastState);
   const unsubscribeTerminals = options.subscribeTerminalData?.((event) =>
     sendEnvelope({ type: 'broadcast', data: JSON.stringify({ event: 'termData', payload: event }) })) ?? (() => {});
 

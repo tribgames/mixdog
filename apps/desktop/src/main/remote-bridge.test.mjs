@@ -115,6 +115,44 @@ test('broadcasts engine state pushes', async () => {
   }
 });
 
+test('state pushes ride the items delta after the first full snapshot', async () => {
+  const { host, bridge } = await startTestBridge();
+  const socket = await connectClient(bridge, bridge.token);
+  try {
+    const states = [];
+    const waitForState = (count) => new Promise((resolve) => {
+      const check = () => { if (states.length >= count) resolve(null); };
+      socket.on('message', (raw) => {
+        const message = JSON.parse(raw.toString());
+        if (message.event === 'state') { states.push(message.payload); check(); }
+      });
+      check();
+    });
+    const first = { kind: 'message', text: 'hello' };
+    host.emit({ items: [first], busy: true });
+    // Identity-shared prefix (same object reference) + one appended item.
+    host.emit({ items: [first, { kind: 'message', text: 'world' }], busy: false });
+    await waitForState(2);
+    assert.equal(states[0].__itemsRevision, 1);
+    assert.equal(states[0].items.length, 1);
+    assert.equal(states[1].items, undefined);
+    assert.deepEqual(states[1].__itemsPatch.base, 1);
+    assert.equal(states[1].__itemsPatch.prefix, 1);
+    assert.equal(states[1].__itemsPatch.append.length, 1);
+    assert.equal(states[1].__itemsPatch.append[0].text, 'world');
+    assert.equal(states[1].busy, false);
+    // A resync request downgrades the next push to a full snapshot.
+    socket.send(JSON.stringify({ method: 'stateResync', params: [] }));
+    await waitForState(3);
+    // Revisions stay monotonic across resets so stale bases can never match.
+    assert.equal(typeof states[2].__itemsRevision, 'number');
+    assert.deepEqual(states[2].items, []);
+  } finally {
+    socket.close();
+    await bridge.close();
+  }
+});
+
 test('blocks secret capabilities over the bridge', async () => {
   const { bridge } = await startTestBridge();
   const socket = await connectClient(bridge, bridge.token);

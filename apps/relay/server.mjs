@@ -151,7 +151,12 @@ export async function startRelay({ port = 9800, dataDir = './data', rendererDir 
   // deviceId -> { socket, clients: Map<clientId, phoneSocket> }
   const liveDesktops = new Map();
   const server = createServer((request, response) => serveStatic(rendererDir, request, response));
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES, perMessageDeflate: false });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_WS_PAYLOAD_BYTES,
+    // Relayed transcript pushes are repetitive text: deflate cuts them 5-10x.
+    perMessageDeflate: { threshold: 1024 },
+  });
 
   const sendJson = (socket, payload) => {
     if (socket && socket.readyState === socket.OPEN) {

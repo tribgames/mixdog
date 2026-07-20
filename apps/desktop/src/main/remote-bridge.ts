@@ -11,6 +11,7 @@ import { extname, join, resolve, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import { createRemoteMethods, executeRemoteFrame, type RemoteMethodDependencies } from './remote-methods';
+import { createSnapshotDeltaEncoder, isStateResyncFrame, type SnapshotDeltaEncoder } from './state-delta';
 
 export const DEFAULT_REMOTE_BRIDGE_PORT = 8791;
 // Headroom over the IPC surface's 28M-base64 attachment ceiling.
@@ -135,7 +136,8 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES,
-    perMessageDeflate: false,
+    // Transcript pushes are highly repetitive text: deflate cuts them 5-10x.
+    perMessageDeflate: { threshold: 1024 },
   });
 
   server.on('upgrade', (request, socket, head) => {
@@ -168,19 +170,38 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
       }
     }
   };
+  // State pushes ride a per-connection items delta (see state-delta.ts):
+  // each socket tracks its own shared prefix, so a fresh phone gets one full
+  // snapshot and then pays only for appended/changed items.
+  const deltaEncoders = new WeakMap<WebSocket, SnapshotDeltaEncoder>();
+  const broadcastState = (snapshot: unknown): void => {
+    for (const client of wss.clients) {
+      if (client.readyState !== client.OPEN) continue;
+      const encoder = deltaEncoders.get(client);
+      if (!encoder) continue;
+      send(client, { event: 'state', payload: encoder.encode(snapshot) });
+    }
+  };
 
   wss.on('connection', (client) => {
+    const encoder = createSnapshotDeltaEncoder();
+    deltaEncoders.set(client, encoder);
     client.on('error', () => { /* connection errors surface as close */ });
     client.on('message', (raw) => {
       void (async () => {
-        const response = await executeRemoteFrame(methods, String(raw));
+        const frame = String(raw);
+        if (isStateResyncFrame(frame)) {
+          encoder.reset();
+          send(client, { event: 'state', payload: encoder.encode(options.host.getSnapshot()) });
+          return;
+        }
+        const response = await executeRemoteFrame(methods, frame);
         if (response !== undefined) send(client, response);
       })();
     });
   });
 
-  const unsubscribeState = options.host.subscribe((snapshot) =>
-    broadcast({ event: 'state', payload: snapshot }));
+  const unsubscribeState = options.host.subscribe(broadcastState);
   const unsubscribeTerminals = options.subscribeTerminalData?.((event) =>
     broadcast({ event: 'termData', payload: event })) ?? (() => {});
 
