@@ -1260,6 +1260,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   letter-spacing: 0;
 }
 .message-body p { margin: 0 0 12px; }
+/* Turn rhythm: the LAST paragraph's bottom margin stacked on the thread's
+   16px row gap and read as a two-line hole between turns (user) — collapse
+   it so turn-to-turn spacing is the single 16px gap. */
+.message-body p:last-child { margin-bottom: 0; }
 .message.user .message-body { line-height: 23px; }
 .message { position: relative; }
 .message:focus-visible {
@@ -1359,6 +1363,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin-top: 6px;
   color: var(--oc-text-faint);
 }
+/* Turn rhythm (user): the copy/actions footer KEEPS its reserved row, but
+   that row IS the turn gap — the thread's extra 16px must not stack on top
+   of it. The negative margin cancels the flex gap after assistant messages;
+   virtualized rows ignore margins, where the footer row alone spaces turns. */
+.message.assistant { margin-bottom: -16px; }
+/* Same rule for user bubbles: their hover meta/actions line is the gap. */
+.message.user { margin-bottom: -16px; }
 .message-time { font-size: 12px; line-height: 18px; white-space: nowrap; }
 .message.assistant .response-footer .message-actions {
   position: static;
