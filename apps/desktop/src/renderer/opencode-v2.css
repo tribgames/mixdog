@@ -734,6 +734,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-row-delete:hover,
 .session-row-delete-confirm:hover { color: var(--oc-danger); }
 .session-row-action:disabled { opacity: 0.45; pointer-events: none; }
+/* Delete-only row action (rename menu removed): the trash glyph reads as a
+   destructive affordance, so it carries the danger tone at rest and full
+   danger on hover. */
+.session-row-action.session-row-delete { color: var(--oc-danger); opacity: 0; }
+.session-row:hover .session-row-action.session-row-delete,
+.session-row:focus-within .session-row-action.session-row-delete {
+  /* Full danger tone the moment the ROW is hovered — the generic action rule
+     above would otherwise keep it grey until the icon itself is hovered. */
+  color: var(--oc-danger);
+  opacity: 1;
+}
+.session-row-action.session-row-delete:hover { color: var(--oc-danger); opacity: 1; }
 .session-row-menu {
   position: absolute;
   z-index: 40;
@@ -769,6 +781,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: 100%;
   height: 24px;
   padding: 0 6px;
+  box-sizing: border-box;
   border: 0;
   border-radius: 4px;
   /* OpenCode inline-input-v2 focuses with a 1px border-focus ring. */
@@ -781,6 +794,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 20px;
 }
 .session-title-input[aria-invalid="true"] { outline-color: var(--oc-danger); }
+/* Selection reads through the pressed background alone — no blue focus ring
+   on click/keyboard for the rail rows (user decision). */
+.session-sidebar .session-row-main:focus-visible { outline: none; }
+/* Double-click rename: the editor replaces the row button, so the row itself
+   must center the 24px input inside its 36px height and keep the focus ring
+   clear of the rail edges. */
+.session-row.editing {
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 10px;
+}
 .session-sidebar .task-link,
 .session-sidebar .projects-link { font-size: 14px; font-weight: 500; line-height: 21px; cursor: pointer; }
 .session-sidebar .task-link:hover,

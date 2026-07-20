@@ -771,45 +771,18 @@ const SessionRow = React.memo(function SessionRow({
                 </button>
               </>
             ) : (
-              <div className="session-row-menu-wrap">
-                <button type="button" className="session-row-action session-row-more"
-                  ref={menuTrigger}
-                  aria-label={`More actions for ${sessionLabel(session)}`}
-                  aria-expanded={menuOpen}
-                  aria-haspopup="menu"
-                  data-tooltip="More"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onToggleMenu(session);
-                  }}>
-            <MoreHorizontal size={15} />
-                </button>
-                {menuOpen && <div className="session-row-menu" role="menu"
-                  data-session-menu-for={session.id}
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      onCloseMenu();
-                      queueMicrotask(() => menuTrigger.current?.focus());
-                      return;
-                    }
-                    cycleMenuFocus(event);
-                  }}>
-                  <button type="button" role="menuitem" className="session-row-menu-rename"
-                    onClick={() => {
-                      onCloseMenu();
-                      onStartRename(session);
-          }}><Pencil size={13} />Rename</button>
-                  <button type="button" role="menuitem" className="session-row-menu-delete danger"
-                    onClick={() => {
-                      onCloseMenu();
-                      onStartDelete(session);
-          }}><Trash2 size={13} />Delete</button>
-                </div>}
-              </div>
+              // Direct delete affordance (user decision): the "..." menu and its
+              // rename entry are gone — hover shows one trash icon, and the
+              // existing X/✓ inline confirm still guards the actual delete.
+              <button type="button" className="session-row-action session-row-delete danger"
+                aria-label={`Delete ${sessionLabel(session)}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onStartDelete(session);
+                }}>
+            <Trash2 size={13} />
+              </button>
             )}
           </div>
         </>

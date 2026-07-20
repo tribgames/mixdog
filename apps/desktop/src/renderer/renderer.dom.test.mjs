@@ -104,9 +104,16 @@ async function selectFirstProject() {
 
 async function chooseSessionAction(row, action) {
   await act(async () => {
-    row.querySelector(".session-row-more").click();
+    // Delete-only session actions: the "..." menu was replaced by a direct
+    // trash icon (rename UI removed by user decision).
+    row.querySelector(".session-row-delete").click();
     await Promise.resolve();
   });
+  void action;
+  return;
+}
+
+async function legacyChooseSessionAction(row, action) {
   const menu = document.querySelector(`[data-session-menu-for="${row.dataset.sessionId}"]`);
   assert.ok(menu, "session action menu should be present");
   await act(async () => {
@@ -1236,7 +1243,7 @@ test("sidebar keeps Project below New task and lists every session newest-first"
     ["Recent 6", "Recent 5", "Recent 4", "Recent 3", "Recent 2", "Recent 1"]);
   assert.equal(recent.querySelectorAll(".session-row-main").length, 6);
   assert.equal(shortcuts.every((row) => row.getAttribute('data-tooltip') === null), true);
-  assert.equal(recent.querySelectorAll('.session-row-actions .session-row-more').length, 6);
+  assert.equal(recent.querySelectorAll('.session-row-actions .session-row-delete').length, 6);
 
   assert.equal(document.querySelector('[aria-label="Search sessions"]'), null);
   assert.equal(recent.querySelectorAll(".session-row").length, 6);
@@ -1318,7 +1325,7 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
     "the virtual spacer should preserve access to the full transcript");
 });
 
-test("sidebar session titles rename inline with commit, cancel, validation, and rollback", async () => {
+test("sidebar session titles rename inline with commit, cancel, validation, and rollback", { skip: "rename UI removed - delete-only session actions" }, async () => {
   installDom();
   const sessions = [
     {
@@ -1368,7 +1375,7 @@ test("sidebar session titles rename inline with commit, cancel, validation, and 
   await act(async () => document.querySelector(".toolbar-sidebar").click());
 
   let title = document.querySelector(".recent-session-list .session-row-copy");
-  assert.equal(document.querySelector(".session-row-more")?.getAttribute("aria-label"), "More actions for Original title");
+  assert.equal(document.querySelector(".session-row-delete")?.getAttribute("aria-label"), "Delete Original title");
   await act(async () => {
     title.dispatchEvent(new window.MouseEvent("click", { bubbles: true, detail: 1 }));
     await Promise.resolve();
@@ -1589,7 +1596,7 @@ test("sidebar session deletion requires confirmation and replaces the active ses
   assert.match(document.querySelector(".session-header h1")?.textContent || "", /New task/);
 });
 
-test("a pending session rename survives an overlapping stale session refresh", async () => {
+test("a pending session rename survives an overlapping stale session refresh", { skip: "rename UI removed - delete-only session actions" }, async () => {
   installDom();
   const original = {
     id: "concurrent-rename",

@@ -241,9 +241,7 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   assert.match(styles, /\.send-button\.stop svg rect\s*\{[^}]*animation:\s*send-stop-pulse/s);
   assert.match(app, /className="session-header-status"[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>\s*<ContextUsageIndicator/);
   assert.equal((app.match(/<LiveWorkStatus\b/g) || []).length, 1);
-  assert.match(navigation, /aria-label=\{`More actions for \$\{sessionLabel\(session\)\}`\}/);
-  assert.match(navigation, /className="session-row-menu-rename"/);
-  assert.match(navigation, /className="session-row-menu-delete danger"/);
+  assert.match(navigation, /aria-label=\{`Delete \$\{sessionLabel\(session\)\}`\}/);
 });
 
 test('conversation uses native scrolling and silent session transitions', async () => {
