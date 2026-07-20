@@ -1226,7 +1226,7 @@ test("sidebar keeps Project below New task and lists every session newest-first"
   });
 
   assert.deepEqual(Array.from(document.querySelectorAll(".sidebar-primary-nav > button"),
-    (node) => node.textContent.trim()), ["New task", "Project", "Settings"]);
+    (node) => node.textContent.trim()), ["New task", "Project", "Schedules", "Settings"]);
   assert.equal(document.querySelector('[aria-label="Open projects"]')?.textContent.trim(), "Project");
   assert.equal(document.querySelector(".sidebar-recent-heading")?.textContent.trim(), "Recent");
   assert.equal(document.querySelector(".sidebar-section-toggle"), null);

@@ -103,7 +103,7 @@ directly with `src/tui/app/slash-commands.mjs` and `src/tui/app/settings-picker.
 | `/providers` | Provider settings | done |
 | `/channels` | Channel/runtime/voice surface | done |
 | `/remote` | Claim remote runtime for this session | done |
-| `/schedules` | Schedule status/toggles | done |
+| `/schedules` | Scheduled-tasks sidebar page (create, edit, delete, pause) | done |
 | `/webhooks` | Webhook status/toggles | done |
 | `/setting` | Settings root and aliases | done |
 | `/profile` | Profile settings | done |

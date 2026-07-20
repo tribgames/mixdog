@@ -196,7 +196,15 @@ export interface DesktopPromptImagePart {
   mimeType: string;
 }
 
-export type DesktopPromptContent = string | Array<DesktopPromptTextPart | DesktopPromptImagePart>;
+export interface DesktopPromptFilePart {
+  type: 'file';
+  data: string;
+  mimeType: string;
+  filename?: string;
+}
+
+export type DesktopPromptContent =
+  string | Array<DesktopPromptTextPart | DesktopPromptImagePart | DesktopPromptFilePart>;
 
 export type DesktopPromptPriority = 'now' | 'next' | 'later';
 
@@ -296,6 +304,7 @@ export const DESKTOP_CAPABILITIES = [
   'getTheme',
   'setTheme',
   'transcribeAudio',
+  'resizeImage',
   'setAgentRoute',
   'setDefaultProvider',
   'listProviders',
@@ -330,6 +339,7 @@ export const DESKTOP_CAPABILITIES = [
   'saveSchedule',
   'deleteSchedule',
   'setScheduleEnabled',
+  'runScheduleNow',
   'saveWebhook',
   'deleteWebhook',
   'setWebhookEnabled',

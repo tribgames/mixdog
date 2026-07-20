@@ -9,6 +9,7 @@ import React, {
 import { createPortal } from "react-dom";
 import {
   ArrowDown,
+  Clock,
   Folder,
   FolderPlus,
   LoaderCircle,
@@ -384,6 +385,7 @@ interface SessionSidebarProps {
   selection: NavigationSelection;
   onNewTask(): void;
   onOpenProjects(): void;
+  onOpenSchedules(): void;
   onOpenSettings(): void;
   onResumeSession(sessionId: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
@@ -397,6 +399,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   selection,
   onNewTask,
   onOpenProjects,
+  onOpenSchedules,
   onOpenSettings,
   onResumeSession,
   onRenameSession,
@@ -488,6 +491,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           aria-label="Open projects">
           <span className="sidebar-nav-icon"><Folder size={18} /></span>
           <span>Project</span>
+        </button>
+        {/* Scheduled tasks joins the primary nav (Claude-style 예약됨 page). */}
+        <button type="button" className="projects-link" onClick={onOpenSchedules}
+          aria-label="Open schedules">
+          <span className="sidebar-nav-icon"><Clock size={18} /></span>
+          <span>Schedules</span>
         </button>
         {/* Settings joins the primary nav (user: no bottom footer label). */}
         <button type="button" className="projects-link sidebar-settings-button" onClick={onOpenSettings}

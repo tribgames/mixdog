@@ -8,6 +8,7 @@ import { ensureNopluginDir } from "./executor.mjs";
 import { withFileLockSync } from "../../shared/atomic-file.mjs";
 import { makeAgentDispatch } from '../../agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 import { markFired, markDone, setDeferred, setSkippedUntil } from "../../shared/schedules-db.mjs";
+import { parseScheduleModelRef } from "../../shared/schedule-model-ref.mjs";
 
 const schedulerLlm = makeAgentDispatch({ taskType: 'scheduler-task', agent: 'scheduler-task', sourceType: 'scheduler' });
 const SCHEDULE_LOG = join(DATA_DIR, "schedule.log");
@@ -589,11 +590,19 @@ ${Scheduler.INSTANCE_UUID}`;
       logSchedule(`${schedule.name}: missing required "model" in schedule config — dispatch rejected\n`);
       return false;
     }
+    // Preset id/name (legacy) or "provider/model[@effort][+fast]" route —
+    // shared with the engine-side run-now dispatch.
+    const presetRef = parseScheduleModelRef(presetId);
     // Cron (recurring) keeps the fire-and-forget contract: return truthy now
     // and swallow async failures. A one-shot (awaitDispatch) instead awaits
     // the dispatch so a rejected schedulerLlm() propagates and the caller
     // leaves the entry pending for retry instead of retiring it.
-    const dispatch = schedulerLlm({ prompt, preset: presetId, sourceName: schedule.name })
+    const dispatch = schedulerLlm({
+      prompt,
+      preset: presetRef,
+      sourceName: schedule.name,
+      ...(schedule.cwd ? { cwd: schedule.cwd } : {}),
+    })
       .then((result) => {
         this.running.delete(schedule.name);
         if (result && this.sendFn) {

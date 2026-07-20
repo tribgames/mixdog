@@ -262,6 +262,9 @@ const CommandSurface = lazy(() => import("./CommandSurface")
   .then((module) => ({ default: module.CommandSurface })));
 const DiffView = lazy(() => import("./DiffView.lazy"));
 const TerminalPane = lazy(() => import("./TerminalPane"));
+// SchedulesPane loads statically: a lazy chunk suspends the whole main pane
+// on first entry, which flashes the New-task watermark before the page lands.
+import { SchedulesPane } from "./SchedulesView";
 
 function asRecord(value: unknown): RecordValue | null {
   return value !== null && typeof value === "object" ? value as RecordValue : null;
@@ -429,6 +432,16 @@ export function App() {
   // Review takes over the MAIN area (opencode session review-tab grammar):
   // a full-width pane, not a squeezed side dock. Resets per selection.
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Scheduled-tasks page (sidebar → Schedules): takes over the main pane the
+  // same way Review does, and closes on any navigation-selection change.
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
+  // Keep-mounted after first use (settings-dialog pattern): re-entry must not
+  // repay mount/load, and the hidden workspace keeps its transcript state.
+  const [schedulesMounted, setSchedulesMounted] = useState(false);
+  const openSchedules = useCallback(() => {
+    setSchedulesMounted(true);
+    setSchedulesOpen(true);
+  }, []);
   useEffect(() => {
     try {
       window.localStorage.setItem(DOCK_STATE_KEY, JSON.stringify({ open: dockOpen, tab: dockTab, width: dockWidth }));
@@ -444,7 +457,10 @@ export function App() {
   const [sessions, setSessions] = useState<DesktopSessionSummary[]>([]);
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [selection, setSelection] = useState<NavigationSelection>({ kind: "new" });
-  useEffect(() => { setReviewOpen(false); }, [selection]);
+  useEffect(() => {
+    setReviewOpen(false);
+    setSchedulesOpen(false);
+  }, [selection]);
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
     { key: "new:default", title: "New task", selection: { kind: "new" } },
   ]);
@@ -1282,6 +1298,7 @@ export function App() {
           selection={navigationSelection}
           onNewTask={startTask}
           onOpenProjects={() => setProjectPanelOpen(true)}
+          onOpenSchedules={openSchedules}
           onOpenSettings={() => openSettings()}
           onResumeSession={resumeSession}
           onRenameSession={renameSession}
@@ -1290,7 +1307,9 @@ export function App() {
         {sidebarOpen && <button className="sidebar-backdrop" onClick={() => setSidebarOpen(false)}
           aria-label="Close session sidebar" />}
         <main className="main-panel">
-          <div className={`workspace ${switchingSessionId ? "switching-session" : ""}`}>
+          {schedulesMounted && <SchedulesPane active={schedulesOpen} />}
+          <div className={`workspace ${switchingSessionId ? "switching-session" : ""}`}
+            style={schedulesOpen ? { display: "none" } : undefined}>
             <header className="session-header" aria-label="Current task">
               <div className="session-header-content">
                 <h1 data-tooltip={visibleSessionTitle}>
@@ -1370,6 +1389,10 @@ export function App() {
               onChooseProject={chooseNewTaskProject}
               onOpenCommandSurface={(surface) => {
                 setSettingsOpen(false);
+                if (surface === "schedules") {
+                  openSchedules();
+                  return;
+                }
                 setCommandSurface(surface);
               }} />}
             {switchingSessionId && <div className="session-switch-overlay" aria-hidden="true" />}
@@ -1402,7 +1425,12 @@ export function App() {
           }}
           onClose={() => setSettingsOpen(false)} />}
         {commandSurface && <CommandSurface surface={commandSurface}
-          onOpen={setCommandSurface} onClose={() => setCommandSurface(null)} />}
+          onOpen={(surface) => {
+            if (surface === "schedules") {
+              setCommandSurface(null);
+              openSchedules();
+            } else setCommandSurface(surface);
+          }} onClose={() => setCommandSurface(null)} />}
         {onboardingOpen && <OnboardingWizard api={window.mixdogDesktop} onDone={() => setOnboardingOpen(false)} />}
       </Suspense>
       <DesktopToastRegion
@@ -2369,6 +2397,15 @@ function messageMetadata(item: TranscriptItem) {
   };
 }
 
+// The transcript renders attached images as chips, so the raw composer token
+// ("[Image #N: name]") in the message text is redundant noise there.
+function stripImageTokens(text: string): string {
+  return text
+    .replace(/ ?\[Image #\d+(?::[^\]]*)?\] ?/g, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   completion,
@@ -2419,7 +2456,9 @@ export const TranscriptRow = memo(function TranscriptRow({
                 </span>;
               })}
             </div>}
-            <p>{item.text}</p>
+            <p>{Array.isArray(item.images) && item.images.length > 0
+              ? stripImageTokens(text)
+              : item.text}</p>
           </> : (
             <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
           )}
@@ -2791,17 +2830,20 @@ export function ApprovalCard({ approval, resolve }: {
 type ComposerAttachment = {
   id: number;
   name: string;
-  kind: 'image' | 'text';
+  kind: 'image' | 'text' | 'pdf';
   mimeType: string;
   data: string;
   token: string;
   source?: 'file' | 'paste';
+  metadataText?: string;
 };
 
 const MAX_COMPOSER_ATTACHMENTS = 8;
 const MAX_INLINE_FILE_BYTES = 750_000;
 const MAX_INLINE_TEXT_TOTAL = 850_000;
 const MAX_INLINE_IMAGE_BASE64_TOTAL = 30_000_000;
+// opencode parity: PDFs attach as provider document blocks, 20 MiB per file.
+const MAX_PDF_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_SUBMIT_TEXT_LENGTH = 950_000;
 const MAX_PERSISTED_PROMPT_HISTORY = 100;
 const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
@@ -2812,6 +2854,24 @@ const COMPOSER_PLACEHOLDERS = [
 
 function promptHistoryStorageKey(scope: string) {
   return `${PROMPT_HISTORY_STORAGE_PREFIX}${encodeURIComponent(scope || 'new-task')}`;
+}
+
+// opencode-parity text sniffing: accept any file whose first 4 KB contains no
+// NUL byte and a low control-character ratio, instead of trusting only the
+// extension whitelist (.env, .ini, extension-less logs, …).
+async function fileLooksLikeText(file: File): Promise<boolean> {
+  try {
+    const bytes = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+    if (bytes.length === 0) return true;
+    let control = 0;
+    for (const byte of bytes) {
+      if (byte === 0) return false;
+      if (byte < 9 || (byte > 13 && byte < 32)) control += 1;
+    }
+    return control / bytes.length <= 0.3;
+  } catch {
+    return false;
+  }
 }
 
 function readPromptHistory(scope: string) {
@@ -3709,10 +3769,10 @@ const Composer = memo(function Composer({
       return 'Inline text attachments are too large together. Keep the total under 850 KB.';
     }
     const imageTotal = currentAttachments.reduce((sum, item) =>
-      sum + (item.kind === 'image' ? item.data.length : 0), 0) +
-      (attachment.kind === 'image' ? attachment.data.length : 0);
+      sum + (item.kind === 'image' || item.kind === 'pdf' ? item.data.length : 0), 0) +
+      (attachment.kind === 'image' || attachment.kind === 'pdf' ? attachment.data.length : 0);
     if (imageTotal > MAX_INLINE_IMAGE_BASE64_TOTAL) {
-      return 'Attached images are too large together. Remove an image or use smaller files.';
+      return 'Attached images and PDFs are too large together. Remove one or use smaller files.';
     }
     return '';
   }, []);
@@ -3787,14 +3847,64 @@ const Composer = memo(function Composer({
           });
           if (transitioningRef.current) return;
           const data = dataUrl.slice(dataUrl.indexOf(',') + 1);
-          insertAttachment({ id, name: displayName, kind: 'image', mimeType: file.type, data,
+          // TUI parity: route the attachment through the engine's optional-
+          // sharp resize pipeline so desktop submits the same downscaled
+          // payload the terminal client would. Hosts without the capability
+          // (older engines, test stubs) keep the legacy raw attach.
+          let imageData = data;
+          let imageMime = file.type;
+          let metadataText = '';
+          const invokeResize = window.mixdogDesktop?.invokeCapability;
+          if (typeof invokeResize === 'function') {
+            try {
+              const result = await invokeResize<RecordValue>({
+                capability: 'resizeImage',
+                args: [{ data, mimeType: file.type, filename: displayName }],
+              });
+              const value = asRecord(result?.value);
+              if (typeof value?.data === 'string' && value.data) {
+                imageData = value.data;
+                imageMime = String(value.mimeType || file.type);
+                metadataText = String(value.metadataText || '');
+              }
+            } catch (reason) {
+              const message = reason instanceof Error ? reason.message : String(reason);
+              // Real resize failures (e.g. oversized image without sharp)
+              // block the attach exactly like the TUI paste path does.
+              if (!/does not support|capability is unavailable/i.test(message)) {
+                throw new Error(`${displayName}: ${message}`);
+              }
+            }
+          }
+          if (transitioningRef.current) return;
+          insertAttachment({ id, name: displayName, kind: 'image', mimeType: imageMime, data: imageData,
+            ...(metadataText ? { metadataText } : {}),
             token: `[Image #${id}: ${displayName}]` });
           continue;
         }
-        const textLike = file.type.startsWith('text/') ||
-          /\.(?:md|mdx|txt|json|jsonl|ya?ml|toml|xml|csv|tsv|[cm]?[jt]sx?|py|rb|rs|go|java|kt|swift|cs|cpp|c|h|hpp|sh|ps1|sql|css|scss|html|vue|svelte|log)$/i.test(displayName);
+        const mimeKind = (file.type || '').split(';', 1)[0].trim().toLowerCase();
+        if (mimeKind === 'application/pdf' || /\.pdf$/i.test(displayName)) {
+          if (file.size > MAX_PDF_FILE_BYTES) {
+            throw new Error(`${displayName}: PDFs must be under 20 MB.`);
+          }
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error(`${displayName}: could not read PDF.`));
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.readAsDataURL(file);
+          });
+          if (transitioningRef.current) return;
+          insertAttachment({ id, name: displayName, kind: 'pdf', mimeType: 'application/pdf',
+            data: dataUrl.slice(dataUrl.indexOf(',') + 1), token: `[PDF #${id}: ${displayName}]` });
+          continue;
+        }
+        const textLike = mimeKind.startsWith('text/') ||
+          /^application\/(?:json|ld\+json|toml|x-toml|yaml|x-yaml|xml)$/.test(mimeKind) ||
+          mimeKind.endsWith('+json') || mimeKind.endsWith('+xml') ||
+          /\.(?:md|mdx|txt|json|jsonl|ya?ml|toml|xml|csv|tsv|[cm]?[jt]sx?|py|rb|rs|go|java|kt|swift|cs|cpp|cc|c|h|hh|hpp|sh|zsh|ps1|bat|cmd|sql|css|scss|sass|html|htm|vue|svelte|log|env|ini|conf|cfg|gql|graphql)$/i.test(displayName) ||
+          await fileLooksLikeText(file);
         if (!textLike || file.size > MAX_INLINE_FILE_BYTES) {
-          throw new Error(`${displayName}: only text/code files under 750 KB can be attached inline.`);
+          throw new Error(`${displayName}: attach images, PDFs, or text files under 750 KB.`);
         }
         const text = await file.text();
         if (transitioningRef.current) return;
@@ -3925,7 +4035,10 @@ const Composer = memo(function Composer({
       const token = id === rawId ? sourceToken : sourceToken.replace(`#${rawId}`, `#${id}`);
       if (token !== sourceToken) textValue = textValue.replace(sourceToken, token);
       restored.push({ id, name, kind: 'image', mimeType: String(image.mediaType || 'image/png'),
-        data: image.content, token });
+        data: image.content, token,
+        ...(typeof image.metadataText === 'string' && image.metadataText
+          ? { metadataText: image.metadataText }
+          : {}) });
     }
     for (const [key, raw] of Object.entries(asRecord(value.pastedTexts) || {})) {
       const text = asRecord(raw);
@@ -4209,17 +4322,19 @@ const Composer = memo(function Composer({
             : `<file name="${safeName}">\n${attachment.data}\n</file>`;
           expandedText = expandedText.replaceAll(attachment.token, expanded);
           pastedTexts[String(attachment.id)] = { id: attachment.id, text: attachment.data };
-        } else {
+        } else if (attachment.kind === 'image') {
           pastedImages[String(attachment.id)] = {
             id: attachment.id,
             type: 'image',
             content: attachment.data,
             mediaType: attachment.mimeType,
             filename: attachment.name,
+            ...(attachment.metadataText ? { metadataText: attachment.metadataText } : {}),
           };
         }
       }
       const imageAttachments = used.filter((attachment) => attachment.kind === 'image');
+      const pdfAttachments = used.filter((attachment) => attachment.kind === 'pdf');
       // Register byte-free preview sources for the transcript chips this
       // submit will produce. The transcript item itself carries metadata only.
       for (const attachment of imageAttachments) {
@@ -4230,13 +4345,26 @@ const Composer = memo(function Composer({
         setAttachmentError('This prompt is too large to send. Remove or shorten an inline text attachment.');
         return;
       }
-      const content: DesktopPromptContent = imageAttachments.length
+      const content: DesktopPromptContent = imageAttachments.length || pdfAttachments.length
         ? [
           { type: 'text', text: expandedText },
-          ...imageAttachments.map((attachment) => ({
-            type: 'image' as const,
+          // TUI parity: each image carries its "[Image: WxH, displayed at …]"
+          // metadata text part directly before the image block.
+          ...imageAttachments.flatMap((attachment) => [
+            ...(attachment.metadataText
+              ? [{ type: 'text' as const, text: attachment.metadataText }]
+              : []),
+            {
+              type: 'image' as const,
+              data: attachment.data,
+              mimeType: attachment.mimeType,
+            },
+          ]),
+          ...pdfAttachments.map((attachment) => ({
+            type: 'file' as const,
             data: attachment.data,
             mimeType: attachment.mimeType,
+            filename: attachment.name,
           })),
         ]
         : expandedText;
@@ -4489,7 +4617,7 @@ const Composer = memo(function Composer({
           void attachFiles(itemFiles.length ? itemFiles : event.dataTransfer.files);
         }}>
       {draggingFiles && !transitioning && <div className="composer-drop-overlay" role="status">
-        <OcIcon name="photo" size={16} /><span>Drop images or text files</span>
+        <OcIcon name="photo" size={16} /><span>Drop images, PDFs, or text files</span>
       </div>}
       {slashOpen && (
         <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label="Slash commands">
@@ -4594,9 +4722,9 @@ const Composer = memo(function Composer({
         aria-label="Message Mixdog" />
       <div className="composer-footer">
         <input ref={fileInput} type="file" hidden multiple
-          accept="image/png,image/jpeg,image/gif,image/webp,text/*,.md,.json,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.ts,.tsx,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.c,.h,.hpp,.sh,.ps1,.sql,.css,.scss,.html,.vue,.svelte"
+          accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql"
           onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
-        <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images or text files" data-tooltip-side="top"
+        <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images, PDFs, or text files" data-tooltip-side="top"
         onClick={() => fileInput.current?.click()}><OcIcon name="plus" size={16} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
           modelDisabled={commandBusy || transitioning}

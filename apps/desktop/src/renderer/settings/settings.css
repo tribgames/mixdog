@@ -75,7 +75,7 @@
   .settings-domain-grid > label.wide { grid-column: 1 / -1; }
   .settings-domain-grid input:not([type="checkbox"]),
   .settings-domain-grid select, .settings-domain-grid textarea { width: 100%; min-width: 0; }
-  .settings-domain-form > footer { display: flex; justify-content: flex-end; }
+  .settings-domain-form > footer { display: flex; justify-content: flex-end; gap: 8px; }
   .settings-status-stack, .settings-sublist, .settings-alert-list,
   .core-memory-manager, .core-memory-add-card, .core-memory-add-card > header,
   .core-memory-add, .core-memory-list, .core-memory-row, .core-memory-edit { display: grid; }

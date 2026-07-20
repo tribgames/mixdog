@@ -75,6 +75,19 @@ function assertName(name, kind = 'name') {
   return value;
 }
 
+// Schedules are PG-keyed display names, not URL/file identifiers like
+// webhooks: allow Unicode letters/digits (e.g. Korean titles) plus space,
+// dot, underscore, and hyphen. The basename() guard plus the character set
+// keeps names path-safe for the legacy prompts-dir fallback.
+const SCHEDULE_NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,63}$/u;
+function assertScheduleName(name) {
+  const value = String(name || '').trim();
+  if (!SCHEDULE_NAME_RE.test(value) || value !== basename(value)) {
+    throw new Error('schedule name must be 1-64 letters, digits, spaces, dots, underscores, or hyphens');
+  }
+  return value;
+}
+
 function normalizeChannelsConfig(raw = {}) {
   return {
     ...DEFAULT_CHANNELS,
@@ -357,6 +370,7 @@ function scheduleToDisplay(s) {
     timezone: s.timezone || undefined,
     channel: s.channelId || undefined,
     model: s.model || undefined,
+    cwd: s.cwd || undefined,
     enabled: s.enabled !== false,
     instructions: s.prompt,
     route: s.target === 'channel' ? `channel:${s.channelId}` : 'session',
@@ -381,11 +395,12 @@ export async function saveSchedule({
   days,
   channel,
   model,
+  cwd,
   enabled,
   instructions,
   overwrite = false,
 } = {}) {
-  const id = assertName(name, 'schedule name');
+  const id = assertScheduleName(name);
   const body = String(instructions || '').trim();
   if (!body) throw new Error('schedule instructions are required');
   if (channel && !model) throw new Error('model is required when channel is set');
@@ -407,6 +422,7 @@ export async function saveSchedule({
     target: channel ? 'channel' : 'session',
     channelId: channel ? String(channel).trim() : null,
     model: model ? String(model).trim() : null,
+    cwd: cwd ? String(cwd).trim() : null,
     prompt: body,
     enabled: enabled !== false,
   });
@@ -414,13 +430,13 @@ export async function saveSchedule({
 }
 
 export async function deleteSchedule(name) {
-  const id = assertName(name, 'schedule name');
+  const id = assertScheduleName(name);
   await dbDeleteSchedule(id);
   return { name: id, deleted: true };
 }
 
 export async function setScheduleEnabled(name, enabled) {
-  const id = assertName(name, 'schedule name');
+  const id = assertScheduleName(name);
   const updated = await dbSetEnabled(id, enabled !== false);
   if (!updated) throw new Error(`schedule "${id}" does not exist`);
   return { name: id, enabled: enabled !== false };

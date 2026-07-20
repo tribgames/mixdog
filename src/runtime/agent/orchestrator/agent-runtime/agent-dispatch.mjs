@@ -285,7 +285,7 @@ export function makeAgentDispatch(opts = {}) {
     }
     const agent = opts.agent;
 
-    return async function agentDispatch({ prompt, preset: presetArg, sourceName: sourceNameArg, parentSignal: callParentSignal, idleTimeoutMs: callIdleTimeoutMs }) {
+    return async function agentDispatch({ prompt, preset: presetArg, sourceName: sourceNameArg, parentSignal: callParentSignal, idleTimeoutMs: callIdleTimeoutMs, cwd: callCwd }) {
         if (typeof prompt !== 'string' || !prompt) {
             throw new Error(`[agent-dispatch] prompt required for agent "${agent}"`);
         }
@@ -355,7 +355,9 @@ export function makeAgentDispatch(opts = {}) {
         // and the downstream skill-discovery path tolerates null. Combined
         // with the frozen agent skill meta-tools (collect.mjs) this keeps
         // every caller on the same provider cache shard.
-        const cwd = (typeof opts.cwd === 'string' && opts.cwd) ? opts.cwd : null;
+        const cwd = (typeof callCwd === 'string' && callCwd)
+            ? callCwd
+            : ((typeof opts.cwd === 'string' && opts.cwd) ? opts.cwd : null);
 
         // Unified dispatch: Pool B/C share bit-identical tools + system prompt
         // unless a hidden role declares a narrow toolSchemaProfile. Per-role

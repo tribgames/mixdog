@@ -1369,19 +1369,14 @@ function SecretForm({ title, status, disabled, onSave }: {
   </FormRow>;
 }
 
+// Schedules moved to the dedicated Scheduled-tasks page (sidebar → Schedules);
+// the settings Channels pane keeps webhook endpoint management only.
 function AutomationPanel({ data, pending, run }: PanelContext) {
   const setup = record(data.channelSetup);
-  const schedules = rows(setup.schedules);
   const webhooks = rows(setup.webhooks);
   const busy = Boolean(pending);
   const remoteEnabled = data.remote === true;
   return <>
-    <Group title="Schedules">{schedules.length ? schedules.map((schedule) => <ResourceRow key={String(schedule.name)} title={String(schedule.name)}
-      description={`${schedule.time || '(no cron)'} · ${schedule.route || ''}${schedule.model ? ` · ${schedule.model}` : ''}${remoteEnabled ? '' : ' · channel off'}`}
-      status={schedule.enabled === false ? 'Disabled' : 'Enabled'}
-      actions={<ActionButton disabled={busy || !remoteEnabled} onClick={() => void run('setScheduleEnabled', [schedule.name, schedule.enabled === false])}>
-        {schedule.enabled === false ? 'Enable' : 'Disable'}</ActionButton>} />) : <ListEmpty text="No schedules configured." />}
-    </Group>
     <Group title="Webhook endpoints">{webhooks.length ? webhooks.map((webhook) => <ResourceRow key={String(webhook.name)} title={String(webhook.name)}
       description={`${webhook.parser || 'github'} · ${webhook.route || ''} · secret:${webhook.secretSet ? 'set' : 'missing'}${remoteEnabled ? '' : ' · channel off'}`}
       status={webhook.enabled === false ? 'Disabled' : 'Enabled'}

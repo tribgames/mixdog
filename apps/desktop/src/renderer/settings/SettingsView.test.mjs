@@ -311,7 +311,7 @@ test('category panes expose TUI routes, automation, memory, voice, and doctor co
   for (const [category, expected] of [
     ['Models', /Main route.*Search route/s],
     ['Workflows', /Workflow packs.*Agent routes/s],
-    ['Channels', /Voice transcription.*Disable voice.*Schedules.*daily.*Webhook endpoints.*github/s],
+    ['Channels', /Voice transcription.*Disable voice.*Webhook endpoints.*github/s],
     ['Memory', /Core memories/],
     ['System', /Run doctor/],
   ]) {
@@ -824,7 +824,7 @@ test('empty resource collections use full list rows across settings categories',
   const expected = new Map([
     ['Workflows', ['No workflows found.', 'No agent routes found.']],
     ['Providers', ['No OAuth providers available.', 'No API-key providers available.', 'No local providers available.']],
-    ['Channels', ['No schedules configured.', 'No webhook endpoints configured.']],
+    ['Channels', ['No webhook endpoints configured.']],
     ['MCP', ['No MCP servers configured.']],
     ['Plugins', ['No plugins installed.']],
     ['Hooks', ['No hook rules configured.']],

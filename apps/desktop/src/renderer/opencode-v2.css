@@ -3183,6 +3183,218 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .settings-domain-grid > label { gap: 6px; color: var(--oc-text-muted); font-size: 11px; font-weight: 400; }
 .settings-domain-grid small { color: var(--oc-text-faint); font-size: 11px; line-height: 16px; }
 .settings-check, .settings-domain-grid .settings-check { color: var(--oc-text-muted); font-size: 11px; }
+/* Scheduled-tasks page (sidebar → Schedules): Claude-style main-pane list. */
+.schedules-pane { min-width: 0; min-height: 0; flex: 1; display: flex; overflow-y: auto; }
+.schedules-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 720px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 40px 32px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.schedules-page-header { display: flex; align-items: flex-start; gap: 16px; }
+.schedules-page-header > div { min-width: 0; flex: 1; }
+.schedules-page-header h1 { margin: 0 0 4px; color: var(--oc-text); font-size: 22px; font-weight: 600; letter-spacing: -.2px; }
+.schedules-page-header p { margin: 0; color: var(--oc-text-muted); font-size: 13px; }
+.schedules-new { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.schedules-search { position: relative; }
+.schedules-search svg {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  transform: translateY(-50%);
+  color: var(--oc-icon-muted);
+  pointer-events: none;
+}
+.schedules-search input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px 0 32px;
+  border: 0;
+  border-radius: 8px;
+  outline: 1px solid transparent;
+  color: var(--oc-text);
+  background: var(--oc-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+  font-size: 13px;
+}
+.schedules-search input:focus { box-shadow: inset 0 0 0 .5px var(--oc-border-strong); }
+.schedules-filters { display: flex; gap: 4px; }
+.schedules-filters button {
+  min-height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--oc-text-muted);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.schedules-filters button.active {
+  color: var(--oc-text);
+  background: var(--oc-pressed);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+}
+/* Schedules interact states stay flat (user: no hover wash, no blue focus). */
+.schedules-page .settings-action:hover { color: var(--oc-text); background: var(--oc-bg-base); }
+.schedules-dialog-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 940;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--oc-scrim);
+}
+.schedules-dialog {
+  box-sizing: border-box;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-radius: 14px;
+  color: var(--oc-text);
+  background: var(--oc-bg-layer-1);
+  box-shadow: var(--oc-floating);
+}
+.schedules-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 20px 0;
+}
+.schedules-dialog > header h2 { margin: 0; flex: 1; font-size: 15px; font-weight: 600; letter-spacing: -.1px; }
+.schedules-dialog > header button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--oc-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.schedules-dialog form { display: grid; gap: 16px; padding: 16px 20px 20px; }
+.schedules-field { display: grid; gap: 6px; color: var(--oc-text-muted); font-size: 12px; font-weight: 500; }
+.schedules-dialog input {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  outline: 1px solid transparent;
+  color: var(--oc-text);
+  background: var(--oc-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+}
+.schedules-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--oc-border-strong); }
+.schedules-composer {
+  display: grid;
+  border-radius: 12px;
+  background: var(--oc-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+}
+.schedules-composer:focus-within { box-shadow: inset 0 0 0 .5px var(--oc-border-strong); }
+.schedules-composer textarea {
+  min-height: 120px;
+  padding: 12px;
+  border: 0;
+  outline: none;
+  color: var(--oc-text);
+  background: transparent;
+  font: 400 13px/20px "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  resize: none;
+}
+.schedules-composer-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-top: .5px solid var(--oc-border-muted);
+}
+/* Chat-composer grammar: project chip left, model/effort/fast group right. */
+.schedules-composer-route { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+/* Composer chips stay flat like the model trigger: no box, no hover wash. */
+.schedules-composer-row .oc-select-trigger,
+.schedules-composer-row .oc-select-trigger:hover:not(:disabled),
+.schedules-composer-row .oc-select-trigger[aria-expanded="true"] {
+  background: transparent;
+  box-shadow: none;
+}
+.schedules-frequency { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.schedules-frequency .oc-select-trigger { height: 32px; border-radius: 8px; }
+.schedules-frequency input { flex: 1; min-width: 130px; }
+.schedules-frequency input[type="number"] { flex: 0 0 90px; min-width: 90px; }
+.schedules-frequency input[type="time"] { flex: 0 0 130px; min-width: 130px; }
+.schedules-model-trigger { max-width: 240px; }
+.schedules-form-error { margin: 0; color: var(--oc-danger); font-size: 12px; }
+.schedules-notice { margin: 0; color: var(--oc-text-muted); font-size: 12px; }
+.schedules-dialog footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+/* Save-time errors sit inline with Cancel/Save, pushing the buttons right. */
+.schedules-dialog footer .schedules-form-error { flex: 1; min-width: 0; text-align: left; }
+.schedules-dialog footer button {
+  min-height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--oc-text);
+  background: var(--oc-bg-base);
+  box-shadow: var(--oc-button);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.schedules-dialog footer button[type="submit"] { background: var(--oc-pressed); font-weight: 600; }
+.schedules-list { display: grid; gap: 8px; }
+.schedules-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--oc-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+}
+.schedules-row-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--oc-border-strong); }
+.schedules-row-dot.on { background: var(--oc-success); }
+.schedules-row-copy { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.schedules-row-copy b {
+  overflow: hidden;
+  color: var(--oc-text);
+  font-size: 13px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedules-row-copy small {
+  overflow: hidden;
+  color: var(--oc-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedules-row-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.schedules-empty {
+  flex: 1;
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  justify-items: center;
+  padding: 24px 0 48px;
+  color: var(--oc-text-muted);
+  font-size: 13px;
+}
+.schedules-empty svg { color: var(--oc-icon-muted); }
+.schedules-empty p { margin: 0; }
 .settings-metric-grid > div, .settings-action-result {
   border: 0;
   border-radius: 6px;
