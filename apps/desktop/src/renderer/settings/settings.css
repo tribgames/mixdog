@@ -1,32 +1,4 @@
 /* Lazy settings structure only. The unlayered OpenCode visual layer owns all
-/* Settings → Connection: phone pairing card. */
-.settings-connection-grid { display: flex; gap: 14px; }
-.settings-connection-card {
-  flex: 1;
-  margin: 0;
-  display: grid;
-  gap: 8px;
-  justify-items: center;
-  padding: 14px 10px;
-  border-radius: 10px;
-  background: var(--oc-bg-layer-1);
-}
-.settings-connection-card svg { width: 168px; height: 168px; border-radius: 8px; }
-.settings-connection-card figcaption { display: grid; gap: 2px; justify-items: center; }
-.settings-connection-card b { font-size: 13px; }
-.settings-connection-card small { color: var(--settings-muted); font-size: 11px; }
-.settings-connection-note { margin: 0; color: var(--settings-muted); font-size: 12.5px; line-height: 18px; }
-.settings-connection-links { display: grid; gap: 8px; }
-.settings-connection-links > div { display: grid; gap: 3px; }
-.settings-connection-links span { color: var(--settings-muted); font-size: 11.5px; }
-.settings-connection-links code {
-  padding: 7px 9px;
-  border-radius: 6px;
-  overflow-wrap: anywhere;
-  background: var(--oc-pressed);
-  font-size: 11px;
-  user-select: text;
-}
    color, typography, density, radii, states, and elevation. */
 @layer settings-base {
   .mixdog-settings { display: grid; overflow: hidden; }
@@ -413,4 +385,33 @@
   .mixdog-settings__rail { padding: 20px 10px 12px; }
   .mixdog-settings-v2 .mixdog-settings__header { padding-inline: 20px 12px; }
   .mixdog-settings-v2 .mixdog-settings__body { padding: 24px 20px 32px; }
+}
+
+/* Settings → Connection: phone pairing card. */
+.settings-connection-grid { display: flex; gap: 14px; }
+.settings-connection-card {
+  flex: 1;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 14px 10px;
+  border-radius: 10px;
+  background: var(--oc-bg-layer-1);
+}
+.settings-connection-card svg { width: 168px; height: 168px; border-radius: 8px; }
+.settings-connection-card figcaption { display: grid; gap: 2px; justify-items: center; }
+.settings-connection-card b { font-size: 13px; }
+.settings-connection-card small { color: var(--settings-muted); font-size: 11px; }
+.settings-connection-note { margin: 0; color: var(--settings-muted); font-size: 12.5px; line-height: 18px; }
+.settings-connection-links { display: grid; gap: 8px; }
+.settings-connection-links > div { display: grid; gap: 3px; }
+.settings-connection-links span { color: var(--settings-muted); font-size: 11.5px; }
+.settings-connection-links code {
+  padding: 7px 9px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  background: var(--oc-pressed);
+  font-size: 11px;
+  user-select: text;
 }
