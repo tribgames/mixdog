@@ -6,7 +6,8 @@
 import { getProvider } from '../../providers/registry.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { collectPromptSkillsCached, buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
-import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession } from '../store.mjs';
+import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession, readSessionHeartbeatMtime } from '../store.mjs';
+import { _getRuntimeEntry } from './runtime-liveness.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
 import { loadConfig } from '../../config.mjs';
@@ -481,8 +482,72 @@ export function updateSessionRoute(id, route = {}) {
 }
 
 // --- resume (reload tools for a stored session) ---
+// Fork-on-resume guard (claude-code/codex pattern): resuming a session that
+// another live process is ACTIVELY driving right now must not create a second
+// writer on the same file — that split-brain silently freezes one side's
+// transcript (generation ownership drops the loser's saves). Such a resume
+// opens a FORK: a full transcript copy under a fresh id, leaving the original
+// untouched for its live owner. Idle sessions keep the normal single-identity
+// handoff (terminal ↔ desktop continue-where-you-left-off).
+const ACTIVE_RESUME_FORK_MS = 2 * 60 * 1000; // heartbeat freshness window
+
+function _shouldForkActiveResume(session, sessionId) {
+    // This process already owns the runtime for the id — switching back to
+    // one of our own sessions (desktop tab switch, TUI /resume) never forks.
+    const entry = _getRuntimeEntry(sessionId);
+    if (entry && entry.closed !== true) return false;
+    // Heartbeats publish only while a turn is running (≤5s cadence) and the
+    // sidecar is deleted on detach/close, so freshness here means another
+    // process is mid-conversation on this session right now.
+    const lastHb = Math.max(
+        Number(readSessionHeartbeatMtime(sessionId)) || 0,
+        Number(session.lastHeartbeatAt) || 0,
+    );
+    return lastHb > 0 && Date.now() - lastHb <= ACTIVE_RESUME_FORK_MS;
+}
+
+function _forkSessionForActiveResume(session) {
+    const now = Date.now();
+    const fork = {
+        ...session,
+        id: mintSessionId(),
+        messages: Array.isArray(session.messages)
+            ? session.messages.map((m) => (m && typeof m === 'object' ? { ...m } : m))
+            : [],
+        closed: false,
+        status: 'idle',
+        generation: 0,
+        createdAt: now,
+        updatedAt: now,
+        lastUsedAt: now,
+        lastHeartbeatAt: null,
+        mcpPid: process.pid,
+        clientHostPid: null,
+        providerState: undefined,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCachedReadTokens: 0,
+        totalCacheWriteTokens: 0,
+        lastInputTokens: 0,
+        lastOutputTokens: 0,
+        lastCachedReadTokens: 0,
+        lastCacheWriteTokens: 0,
+        lastContextTokens: 0,
+        lastContextTokensUpdatedAt: now,
+        lastContextTokensStaleAfterCompact: false,
+        // Shell state must not alias the live owner's persistent shells.
+        implicitBashSessionId: null,
+        allBashSessionIds: [],
+        scopeKey: null,
+        forkedFrom: session.id,
+    };
+    delete fork.liveTurnMessages;
+    delete fork.toolApprovalHook;
+    return fork;
+}
+
 export async function resumeSession(sessionId, preset, options = {}) {
-    const session = loadSession(sessionId);
+    let session = loadSession(sessionId);
     if (!session)
         return null;
     // Resuming a closed session is a resurrection attempt — refuse. The guarded
@@ -505,6 +570,12 @@ export async function resumeSession(sessionId, preset, options = {}) {
         session.desktopSession = expectedDesktop;
     }
     if (!session.owner) session.owner = 'user';
+    if (_shouldForkActiveResume(session, sessionId)) {
+        session = _forkSessionForActiveResume(session);
+        if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
+            try { process.stderr.write(`[session] fork-on-resume: ${session.forkedFrom} is live elsewhere → forked as ${session.id}\n`); } catch { /* best-effort */ }
+        }
+    }
     const oldTools = session.tools || [];
     const ownerIsAgent = isAgentOwner(session);
     const skills = ownerIsAgent ? [] : collectPromptSkillsCached(session.cwd);
