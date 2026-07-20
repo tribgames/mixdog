@@ -169,8 +169,12 @@ function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number 
   if (item.kind === "assistant") {
     const text = String(item.text || "").trim();
     if (!text) return 28;
-    if (item.streaming) return Math.min(160, 28 + Math.ceil(text.length / 60) * 22);
-    return 160;
+    const estimate = 34 + Math.ceil(text.length / 70) * 22;
+    if (item.streaming) return Math.min(160, estimate);
+    // Fixed 160 under-estimated long answers by hundreds of px; every upward
+    // scroll re-measured and shifted the list (user: judder scrolling up).
+    // Length-proportional guesses keep corrections small in both directions.
+    return Math.min(680, estimate);
   }
   if (item.kind === "user") return 72;
   if (item.kind === "tool") return item.expanded ? 180 : 56;
