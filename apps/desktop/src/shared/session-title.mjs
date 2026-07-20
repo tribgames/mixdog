@@ -85,7 +85,9 @@ export function sessionSummaryTitle(session, fallback = DEFAULT_SESSION_TITLE) {
 export function promptTitle(prompt, displayText = '') {
   const imageFallback = Array.isArray(prompt) && prompt.some((part) => part?.type === 'image')
     ? '[Image]'
-    : '';
+    : Array.isArray(prompt) && prompt.some((part) => part?.type === 'file')
+      ? '[File]'
+      : '';
   if (displayText) return generatedSessionTitle(displayText, imageFallback);
   if (typeof prompt === 'string') return generatedSessionTitle(prompt, '');
   if (!Array.isArray(prompt)) return '';

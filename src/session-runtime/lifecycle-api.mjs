@@ -11,6 +11,7 @@ import {
 } from './session-text.mjs';
 import { toolSpecForMode, deferredSurfaceModeForLead } from './effort.mjs';
 import { unregisterLiveSession } from '../runtime/shared/staged-update.mjs';
+import { getStoreDir } from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
 
 export function resolveResumeCwd(session, currentCwd) {
   const desktop = session?.desktopSession;
@@ -59,6 +60,10 @@ export function createLifecycleApi(deps) {
     const leadish = agent === 'lead'
       || sourceType === 'lead'
       || (sourceType === 'cli')
+      // Schedule runs are their own visible type: they surface in desktop
+      // Recent / TUI resume next to lead sessions instead of hiding like
+      // agent dispatches.
+      || sourceType === 'schedule'
       || (!sourceType && !sourceName && !isAgentOwner(owner));
     if (!leadish) return null;
     const rawPreview = s.preview || '';
@@ -229,6 +234,11 @@ export function createLifecycleApi(deps) {
     },
     listSessions(options = {}) {
       return listLeadSessions(options);
+    },
+    // Desktop watcher hook: absolute path of the on-disk session store so the
+    // host can fs.watch it and push sidebar updates instead of polling.
+    sessionStoreDir() {
+      try { return getStoreDir(); } catch { return null; }
     },
     async deleteSession(id) {
       const sessionId = clean(id);

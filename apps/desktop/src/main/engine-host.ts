@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, watch, type FSWatcher } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -42,6 +42,7 @@ interface MixdogEngine {
   setRoute(options: DesktopModelSelection & { applyToCurrentSession?: boolean }): Promise<boolean>;
   setFast(value: boolean): Promise<boolean | null>;
   listSessions(options?: { refreshFromStorage?: boolean }): Array<Record<string, unknown>>;
+  sessionStoreDir?(): string | null;
   deleteSession(id: string): Promise<boolean>;
   switchContext?(options: {
     cwd: string;
@@ -124,6 +125,9 @@ const EMPTY_PROJECT_PREFERENCES: DesktopProjectPreferences = {
 
 const DESKTOP_CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const ENGINE_PUBLICATION_INTERVAL_MS = 50;
+// Sidebar push debounce: session-store fs events coalesce for this long before
+// one listSessions() refresh fans out to subscribers.
+const SESSIONS_CHANGED_DEBOUNCE_MS = 500;
 // Perf instrumentation (MIXDOG_DESKTOP_PERF=1): appends coarse stage timings
 // to <userData>/desktop-perf.log so slow session-switch/settings reports can
 // be diagnosed from a real run instead of guesses. Zero-cost when unset.
@@ -320,14 +324,26 @@ function sanitizeTranscriptItem(value: unknown): boolean {
   return true;
 }
 
-function sanitizeDesktopDisplaySnapshot(snapshot: Record<string, unknown>): Record<string, unknown> {
-  if (Array.isArray(snapshot.items)) {
-    snapshot.items = snapshot.items.filter(sanitizeTranscriptItem);
+// Transcript items are immutable BY IDENTITY (the engine replaces a changed
+// item object instead of mutating it), so each item needs exactly one
+// clone+sanitize. Re-cloning the whole transcript on every 50ms publication
+// made long sessions pay O(transcript) per frame; with this cache the steady-
+// state publication cost is O(changed items). Cached clones are shared across
+// snapshots and MUST stay read-only downstream (IPC serialization, remote
+// relay JSON, renderer deserialized copies) — none of those mutate them.
+const sanitizedItemClones = new WeakMap<object, { keep: boolean; clone: unknown }>();
+
+function sanitizedItemClone(item: unknown): { keep: boolean; clone: unknown } {
+  if (!item || typeof item !== 'object') {
+    const clone = structuredClone(item);
+    return { keep: sanitizeTranscriptItem(clone), clone };
   }
-  if (snapshot.streamingTail != null && !sanitizeTranscriptItem(snapshot.streamingTail)) {
-    snapshot.streamingTail = null;
-  }
-  return snapshot;
+  const cached = sanitizedItemClones.get(item);
+  if (cached) return cached;
+  const clone = structuredClone(item);
+  const entry = { keep: sanitizeTranscriptItem(clone), clone };
+  sanitizedItemClones.set(item, entry);
+  return entry;
 }
 
 function activeToolsFromSummary(value: unknown): DesktopEngineState['activeTools'] {
@@ -381,8 +397,22 @@ export function projectDesktopLiveWorkState(snapshot: Record<string, unknown>): 
 
 function copySnapshot(engine: MixdogEngine | null): EngineSnapshot {
   if (!engine) return null;
-  const displayCopy = structuredClone(engine.getState());
-  const snapshot = sanitizeDesktopDisplaySnapshot(displayCopy);
+  const state = engine.getState();
+  const shallow: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(state)) {
+    if (key !== 'items') shallow[key] = value;
+  }
+  const snapshot = structuredClone(shallow);
+  const items = Array.isArray(state.items) ? state.items : [];
+  const cloned: unknown[] = [];
+  for (const item of items) {
+    const entry = sanitizedItemClone(item);
+    if (entry.keep) cloned.push(entry.clone);
+  }
+  snapshot.items = cloned;
+  if (snapshot.streamingTail != null && !sanitizeTranscriptItem(snapshot.streamingTail)) {
+    snapshot.streamingTail = null;
+  }
   return projectDesktopLiveWorkState(snapshot);
 }
 
@@ -442,6 +472,10 @@ export class EngineHost {
   private recentProjects: string[] = [];
   private unsubscribeEngine: (() => void) | null = null;
   private readonly listeners = new Set<SnapshotListener>();
+  private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
+  private sessionsWatcher: FSWatcher | null = null;
+  private sessionsWatchedDir: string | null = null;
+  private sessionsChangedTimer: ReturnType<typeof setTimeout> | null = null;
   private transition: Promise<void> = Promise.resolve();
   private readonly userDataPath: string | null;
   private readonly getUserDataPath: (() => string) | null;
@@ -486,6 +520,66 @@ export class EngineHost {
   subscribe(listener: SnapshotListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void {
+    this.sessionListeners.add(listener);
+    this.ensureSessionsWatcher();
+    return () => { this.sessionListeners.delete(listener); };
+  }
+
+  // Sidebar freshness: watch the on-disk session store so activity from ANY
+  // mixdog process (channel workers, schedules, another window) pushes a fresh
+  // catalog instead of waiting out the renderer's safety-net poll.
+  private ensureSessionsWatcher(): void {
+    if (this.sessionListeners.size === 0) return;
+    const dir = String(this.engine?.sessionStoreDir?.() || '');
+    if (!dir || this.sessionsWatchedDir === dir) return;
+    this.stopSessionsWatcher();
+    try {
+      const watcher = watch(dir, { persistent: false }, (_event, filename) => {
+        // Heartbeat sidecars (.hb) churn constantly during turns — only the
+        // session JSONs themselves signal catalog-visible changes.
+        if (filename && !String(filename).endsWith('.json')) return;
+        this.scheduleSessionsChanged();
+      });
+      watcher.on('error', () => this.stopSessionsWatcher());
+      this.sessionsWatcher = watcher;
+      this.sessionsWatchedDir = dir;
+    } catch {
+      // The store directory may not exist until the first session save; the
+      // next ensure call (engine swap / listSessions) retries.
+    }
+  }
+
+  private stopSessionsWatcher(): void {
+    try { this.sessionsWatcher?.close(); } catch { /* already closed */ }
+    this.sessionsWatcher = null;
+    this.sessionsWatchedDir = null;
+    if (this.sessionsChangedTimer) {
+      clearTimeout(this.sessionsChangedTimer);
+      this.sessionsChangedTimer = null;
+    }
+  }
+
+  private scheduleSessionsChanged(): void {
+    if (this.sessionListeners.size === 0 || this.sessionsChangedTimer) return;
+    this.sessionsChangedTimer = setTimeout(() => {
+      this.sessionsChangedTimer = null;
+      void this.emitSessionsChanged();
+    }, SESSIONS_CHANGED_DEBOUNCE_MS);
+    this.sessionsChangedTimer.unref?.();
+  }
+
+  private async emitSessionsChanged(): Promise<void> {
+    try {
+      const rows = await this.listSessions();
+      for (const listener of [...this.sessionListeners]) {
+        try { listener(rows); } catch { /* subscriber fault must not break others */ }
+      }
+    } catch {
+      // Listing is best-effort here; the renderer poll remains the safety net.
+    }
   }
 
   getSnapshot(): EngineSnapshot {
@@ -685,8 +779,12 @@ export class EngineHost {
           projectPath: null,
         }, 'desktop-session-browser');
       }
-      summaries = this.sessionSummaries();
+      // The sidebar poll must see cross-process activity (channel-worker
+      // schedule runs, other Mixdog processes), so this read goes through
+      // the on-disk summary index instead of the in-process cache.
+      summaries = this.sessionSummaries(true);
     });
+    this.ensureSessionsWatcher();
     return summaries;
   }
 
@@ -1020,7 +1118,8 @@ export class EngineHost {
   async submit(prompt: DesktopPromptContent, options: DesktopSubmitOptions = {}): Promise<boolean> {
     const hasText = typeof prompt === 'string'
       ? Boolean(prompt.trim())
-      : prompt.some((part) => part.type === 'image' || Boolean(part.text?.trim()));
+      : prompt.some((part) => part.type === 'image' || part.type === 'file' ||
+        (part.type === 'text' && Boolean(part.text.trim())));
     if (!hasText) return false;
     let accepted = false;
     await this.exclusive(async () => {
@@ -1074,6 +1173,17 @@ export class EngineHost {
       const value = capability === 'beginOAuthProviderLogin'
         ? this.registerOAuthFlow(rawValue)
         : rawValue;
+      // A run-now schedule spawns a fresh visible session; name it after the
+      // schedule so Recent shows "daily-briefing" instead of a prompt slice.
+      if (capability === 'runScheduleNow') {
+        const run = rawValue as { sessionId?: unknown; name?: unknown } | null;
+        const scheduleSessionId = String(run?.sessionId || '');
+        const scheduleName = String(run?.name || '');
+        if (scheduleSessionId && scheduleName) {
+          await this.loadSessionTitles();
+          this.rememberSessionTitle(scheduleSessionId, scheduleName);
+        }
+      }
       result = { value: copyCapabilityValue(value) as T, snapshot: this.getSnapshot() };
       this.publish();
     });
@@ -1135,6 +1245,7 @@ export class EngineHost {
     this.stopShellJobsPolling();
     this.publish();
     this.listeners.clear();
+    this.sessionListeners.clear();
   }
 
   private requireEngine(): MixdogEngine {
@@ -1239,6 +1350,7 @@ export class EngineHost {
     const current = this.engine;
     this.engine = null;
     this.stopShellJobsPolling();
+    this.stopSessionsWatcher();
     this.shellJobs = { count: 0, elapsedLabel: '' };
     this.engineWorkspace = null;
     this.engineDesktopSession = null;
@@ -1527,6 +1639,7 @@ export class EngineHost {
     try {
       this.unsubscribeEngine = nextEngine.subscribe(() => this.handleEngineEvent());
       this.startShellJobsPolling();
+      this.ensureSessionsWatcher();
     } catch (error) {
       process.chdir(previousCwd);
       try {
@@ -1601,9 +1714,9 @@ export class EngineHost {
     this.shellJobsPollDelayMs = 0;
   }
 
-  private sessionSummaries(): DesktopSessionSummary[] {
+  private sessionSummaries(refreshFromStorage = false): DesktopSessionSummary[] {
     const currentId = String(this.engine?.getState()?.sessionId || '');
-    const rows = this.engine?.listSessions() || [];
+    const rows = this.engine?.listSessions(refreshFromStorage ? { refreshFromStorage: true } : undefined) || [];
     return desktopSessionSummaries(
       rows,
       currentId,

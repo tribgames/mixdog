@@ -26,6 +26,7 @@ import {
   type DesktopSubmitOptions,
   type DesktopSettingKey,
   type DesktopUpdaterState,
+  type EngineSnapshot,
   type ToolApprovalDecision,
 } from '../shared/contract';
 import type { EngineHost } from './engine-host';
@@ -51,6 +52,8 @@ import {
 
 const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_IMAGE_BASE64_LENGTH = 16_000_000;
+// opencode parity: 20 MiB of raw attachment bytes per submit (~28M base64).
+const MAX_FILE_BASE64_LENGTH = 28_000_000;
 const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
@@ -98,11 +101,12 @@ const CAPABILITY_ARITY = {
   setBackend: [1, 1], saveDiscordToken: [1, 1], forgetDiscordToken: [0, 0],
   saveTelegramToken: [1, 1], forgetTelegramToken: [0, 0], saveWebhookAuthtoken: [1, 1],
   forgetWebhookAuthtoken: [0, 0], setChannel: [1, 1], setWebhookConfig: [1, 1],
-  saveSchedule: [1, 1], deleteSchedule: [1, 1], setScheduleEnabled: [2, 2], saveWebhook: [1, 1],
+  saveSchedule: [1, 1], deleteSchedule: [1, 1], setScheduleEnabled: [2, 2], runScheduleNow: [1, 1], saveWebhook: [1, 1],
   deleteWebhook: [1, 1], setWebhookEnabled: [2, 2], clear: [0, 0], transcribeAudio: [1, 1],
+  resizeImage: [1, 1],
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
 
-function requiredString(value: unknown, name: string, maximum = 32_768): string {
+export function requiredString(value: unknown, name: string, maximum = 32_768): string {
   if (typeof value !== 'string') throw new TypeError(`${name} must be a string.`);
   const text = value.trim();
   if (!text || text.length > maximum) throw new TypeError(`${name} is invalid.`);
@@ -119,7 +123,7 @@ function requireAllowedKeys(
   }
 }
 
-function projectDisplayName(value: unknown): string {
+export function projectDisplayName(value: unknown): string {
   if (typeof value !== 'string') throw new TypeError('alias must be a string.');
   const text = value.trim();
   if (text.length > 120 || /[\u0000-\u001f\u007f]/.test(text)) {
@@ -128,7 +132,7 @@ function projectDisplayName(value: unknown): string {
   return text;
 }
 
-function sessionDisplayName(value: unknown): string {
+export function sessionDisplayName(value: unknown): string {
   if (typeof value !== 'string') throw new TypeError('title must be a string.');
   const text = value.trim();
   if (!text || text.length > 1_024 || /[\u0000-\u001f\u007f]/.test(text)) {
@@ -137,7 +141,7 @@ function sessionDisplayName(value: unknown): string {
   return text;
 }
 
-function requiredFileSearchLimit(value: unknown): number {
+export function requiredFileSearchLimit(value: unknown): number {
   if (value === undefined) return 50;
   if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 200) {
     throw new TypeError('limit is invalid.');
@@ -178,7 +182,7 @@ function validateStructuredValue(
   }
 }
 
-function requiredPromptContent(value: unknown): DesktopPromptContent {
+export function requiredPromptContent(value: unknown): DesktopPromptContent {
   if (typeof value === 'string') {
     if (!value.trim() || value.length > MAX_PROMPT_LENGTH) throw new TypeError('prompt is invalid.');
     return value;
@@ -189,6 +193,8 @@ function requiredPromptContent(value: unknown): DesktopPromptContent {
   let textLength = 0;
   let imageLength = 0;
   let imageCount = 0;
+  let fileLength = 0;
+  let fileCount = 0;
   let hasContent = false;
   const content = value.map((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
@@ -218,13 +224,30 @@ function requiredPromptContent(value: unknown): DesktopPromptContent {
       hasContent = true;
       return { type: 'image' as const, data: part.data, mimeType };
     }
+    if (part.type === 'file') {
+      fileCount += 1;
+      if (fileCount > 4) throw new TypeError('too many prompt files.');
+      const mimeType = requiredString(part.mimeType, 'file mime type', 64).toLowerCase();
+      if (mimeType !== 'application/pdf') {
+        throw new TypeError('file type is unsupported.');
+      }
+      if (typeof part.data !== 'string' || !part.data || part.data.length > MAX_FILE_BASE64_LENGTH ||
+        !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)) {
+        throw new TypeError('file data is invalid.');
+      }
+      fileLength += part.data.length;
+      if (fileLength > MAX_FILE_BASE64_LENGTH) throw new TypeError('prompt files are too large.');
+      hasContent = true;
+      const filename = typeof part.filename === 'string' ? part.filename.slice(0, 160) : '';
+      return { type: 'file' as const, data: part.data, mimeType, ...(filename ? { filename } : {}) };
+    }
     throw new TypeError('prompt part type is unsupported.');
   });
   if (!hasContent) throw new TypeError('prompt is empty.');
   return content;
 }
 
-function requiredSubmitOptions(value: unknown): DesktopSubmitOptions {
+export function requiredSubmitOptions(value: unknown): DesktopSubmitOptions {
   if (value === undefined) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('submit options are invalid.');
@@ -313,7 +336,7 @@ export function requiredDesktopCapabilityReadRequests(value: unknown): DesktopCa
   });
 }
 
-function requiredModelSelection(value: unknown): DesktopModelSelection {
+export function requiredModelSelection(value: unknown): DesktopModelSelection {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('model selection is invalid.');
   }
@@ -335,7 +358,7 @@ function requiredModelSelection(value: unknown): DesktopModelSelection {
   };
 }
 
-function requiredModelCatalogOptions(value: unknown): DesktopModelCatalogOptions {
+export function requiredModelCatalogOptions(value: unknown): DesktopModelCatalogOptions {
   if (value === undefined) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('model catalog options are invalid.');
@@ -347,6 +370,27 @@ function requiredModelCatalogOptions(value: unknown): DesktopModelCatalogOptions
     }
   }
   return input as DesktopModelCatalogOptions;
+}
+
+export function requiredToolApprovalDecision(value: unknown): ToolApprovalDecision {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+    typeof (value as ToolApprovalDecision).approved !== 'boolean') {
+    throw new TypeError('decision is invalid.');
+  }
+  requireAllowedKeys(value as Record<string, unknown>, TOOL_APPROVAL_KEYS, 'decision');
+  const decision = value as ToolApprovalDecision;
+  if (decision.reason !== undefined &&
+    (typeof decision.reason !== 'string' || decision.reason.length > 4_096)) {
+    throw new TypeError('decision.reason is invalid.');
+  }
+  return { approved: decision.approved, reason: decision.reason };
+}
+
+export function requiredGitPaths(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
+    throw new TypeError('git paths are invalid.');
+  }
+  return value.map((entry) => requiredString(entry, 'git path', 4_096));
 }
 
 interface DesktopIpcDependencies {
@@ -486,22 +530,11 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.submit, (_event, prompt, options) =>
     host.submit(requiredPromptContent(prompt), requiredSubmitOptions(options)));
   handle(DESKTOP_IPC.abort, () => host.abort());
-  handle(DESKTOP_IPC.resolveToolApproval, (_event, id, input) => {
-    if (!input || typeof input !== 'object' || Array.isArray(input) ||
-      typeof (input as ToolApprovalDecision).approved !== 'boolean') {
-      throw new TypeError('decision is invalid.');
-    }
-    requireAllowedKeys(input as Record<string, unknown>, TOOL_APPROVAL_KEYS, 'decision');
-    const decision = input as ToolApprovalDecision;
-    if (decision.reason !== undefined &&
-      (typeof decision.reason !== 'string' || decision.reason.length > 4_096)) {
-      throw new TypeError('decision.reason is invalid.');
-    }
-    return host.resolveToolApproval(requiredString(id, 'approval id', 1_024), {
-      approved: decision.approved,
-      reason: decision.reason,
-    });
-  });
+  handle(DESKTOP_IPC.resolveToolApproval, (_event, id, input) =>
+    host.resolveToolApproval(
+      requiredString(id, 'approval id', 1_024),
+      requiredToolApprovalDecision(input),
+    ));
   handle(DESKTOP_IPC.listProviderModels, (_event, options) =>
     host.listProviderModels(requiredModelCatalogOptions(options)));
   handle(DESKTOP_IPC.setModelRoute, (_event, selection) =>
@@ -562,11 +595,59 @@ export function registerDesktopIpc(
 
   // Background turn-finished OS toasts removed (user decision): state fanout
   // only. Restore behind a setting if notifications return.
-  const unsubscribeState = host.subscribe((snapshot) => {
-    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+  // Streaming state pushes ride an identity-prefix delta: copySnapshot reuses
+  // the SAME clone object for an unchanged transcript item, so the shared
+  // prefix is found by reference and only appended/changed items cross the
+  // IPC serializer. The preload bridge reassembles full snapshots; a resync
+  // request (window reload, missed event) restarts from a full send.
+  let sentItems: readonly unknown[] | null = null;
+  let sentRevision = 0;
+  const sendEngineState = (snapshot: EngineSnapshot): void => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    const record = snapshot as Record<string, unknown> | null;
+    const items = record && Array.isArray(record.items) ? record.items as unknown[] : null;
+    if (!items) {
+      sentItems = null;
       window.webContents.send(DESKTOP_IPC.state, snapshot);
+      return;
     }
-  });
+    sentRevision += 1;
+    if (sentItems) {
+      let prefix = 0;
+      const shared = Math.min(sentItems.length, items.length);
+      while (prefix < shared && sentItems[prefix] === items[prefix]) prefix += 1;
+      const wire: Record<string, unknown> = { ...record };
+      delete wire.items;
+      wire.__itemsPatch = {
+        base: sentRevision - 1,
+        revision: sentRevision,
+        prefix,
+        append: items.slice(prefix),
+      };
+      sentItems = items;
+      window.webContents.send(DESKTOP_IPC.state, wire);
+      return;
+    }
+    sentItems = items;
+    window.webContents.send(DESKTOP_IPC.state, { ...record, __itemsRevision: sentRevision });
+  };
+  const unsubscribeState = host.subscribe(sendEngineState);
+  const onStateResync = (event: Electron.IpcMainEvent): void => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) return;
+    sentItems = null;
+    sendEngineState(host.getSnapshot());
+  };
+  ipcMain.on(DESKTOP_IPC.stateResync, onStateResync);
+  // Sidebar push: the host watches the on-disk session store and fans out a
+  // fresh catalog; the renderer applies it without an extra list round-trip.
+  // Guarded: embedders/tests may hand a partial host without the watcher API.
+  const unsubscribeSessions = typeof host.subscribeSessions === 'function'
+    ? host.subscribeSessions((sessions) => {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC.sessionsChanged, sessions);
+      }
+    })
+    : () => {};
   const unsubscribeUpdater = updater?.subscribe((next) => {
     if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
       window.webContents.send(DESKTOP_IPC.updaterState, next);
@@ -589,12 +670,6 @@ export function registerDesktopIpc(
     ));
   }
   // Dock Git panel: plain git CLI scoped to an absolute project directory.
-  const requiredGitPaths = (value: unknown): string[] => {
-    if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
-      throw new TypeError('git paths are invalid.');
-    }
-    return value.map((entry) => requiredString(entry, 'git path', 4_096));
-  };
   handle(DESKTOP_IPC.gitStatus, (_event, cwd) => gitStatus(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.gitDiff, (_event, cwd, path, staged) =>
     gitDiff(requiredRepositoryCwd(cwd), requiredString(path, 'git path', 4_096), staged === true));
@@ -645,7 +720,8 @@ export function registerDesktopIpc(
     }
   }) ?? (() => {});
   const eventChannels = new Set<string>([
-    DESKTOP_IPC.state, DESKTOP_IPC.updaterState, DESKTOP_IPC.perfLog,
+    DESKTOP_IPC.state, DESKTOP_IPC.sessionsChanged, DESKTOP_IPC.stateResync,
+    DESKTOP_IPC.updaterState, DESKTOP_IPC.perfLog,
     DESKTOP_IPC.termWrite, DESKTOP_IPC.termResize, DESKTOP_IPC.termData,
   ]);
   const channels = Object.values(DESKTOP_IPC).filter((channel) => !eventChannels.has(channel));
@@ -655,9 +731,11 @@ export function registerDesktopIpc(
     if (removed) return;
     removed = true;
     unsubscribeState();
+    unsubscribeSessions();
     unsubscribeUpdater();
     unsubscribeTerminals();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
+    ipcMain.removeListener(DESKTOP_IPC.stateResync, onStateResync);
     ipcMain.removeListener(DESKTOP_IPC.termWrite, onTermWrite);
     ipcMain.removeListener(DESKTOP_IPC.termResize, onTermResize);
     for (const channel of channels) ipcMain.removeHandler(channel);

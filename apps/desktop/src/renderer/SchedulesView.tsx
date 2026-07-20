@@ -37,6 +37,17 @@ function rows(value: unknown): RecordValue[] {
   return Array.isArray(value) ? value.map(record) : [];
 }
 
+// Announce that background sessions may have changed (App refreshes Recent).
+// window.Event keeps the constructor tied to the ACTIVE window realm, so the
+// jsdom test harness accepts it too; failures stay best-effort.
+function notifySessionsRefresh(): void {
+  try {
+    window.dispatchEvent(new window.Event('mixdog:sessions-refresh'));
+  } catch {
+    // Sidebar refresh is a convenience; the 15s poll remains authoritative.
+  }
+}
+
 interface ScheduleDraft {
   name: string;
   description: string;
@@ -375,6 +386,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
     try {
       const result = await api.invokeCapability({ capability, args });
       await load();
+      notifySessionsRefresh();
       return result?.value ?? true;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -392,8 +404,9 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
     setError('');
     try {
       await api.invokeCapability({ capability: 'runScheduleNow', args: [name] });
-      setNotice(`"${name}" ran successfully.`);
+      setNotice(`"${name}" ran — the session is in Recent.`);
       void load();
+      notifySessionsRefresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {

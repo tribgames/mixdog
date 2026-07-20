@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { semanticCompactMessages, recallFastTrackCompactMessages, SUMMARY_PREFIX, COMPACT_TYPE_SEMANTIC, COMPACT_TYPE_RECALL_FASTTRACK, normalizeCompactType } from '../src/runtime/agent/orchestrator/session/compact.mjs';
 import { agentLoop } from '../src/runtime/agent/orchestrator/session/loop.mjs';
-import { estimateMessagesTokens, estimateToolSchemaTokens } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
+import { estimateMessagesTokens, estimateToolSchemaTokens, providerTokenCalibration } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
 import { runSessionCompaction } from '../src/runtime/agent/orchestrator/session/manager/compaction-runner.mjs';
 import { autoCompactWindowForRoute, summarizeGatewayUsage } from '../src/vendor/statusline/src/gateway/route-meta.mjs';
 
@@ -928,58 +929,53 @@ assert(!tinyCapUserContent.startsWith('[...'), 'tiny cap recall must not use a p
 // ---------------------------------------------------------------------------
 // Conservative Unicode-aware estimator (strict-fit hardening).
 //
-// The estimator is a SAFETY device, not exact tokenizer parity: it must never
-// undercount Korean/CJK/emoji/JSON the way the legacy chars/4 heuristic did, or
-// a transcript that "fits" locally can still overflow the real model window.
-// These probes prove the conservative estimate is meaningfully higher than a
-// chars/4 style count for non-ASCII heavy content while staying near chars/4
-// for plain ASCII.
-function chars4(text) {
-  return Math.ceil(String(text ?? '').length / 4);
+// The estimator now encodes the provider-visible projection with the real
+// o200k_base BPE (tiktoken), so local estimates equal actual tokenizer counts
+// for every script (Korean/CJK/emoji/ASCII alike). Provider-specific billing
+// deltas (e.g. Anthropic ~1.7x o200k) are applied separately via
+// providerTokenCalibration at the pressure/gauge aggregation boundary.
+const requireForTokenizer = createRequire(import.meta.url);
+const { Tiktoken: SmokeTiktoken } = requireForTokenizer('tiktoken/lite');
+const smokeO200k = requireForTokenizer('tiktoken/encoders/o200k_base.json');
+const smokeEncoder = new SmokeTiktoken(smokeO200k.bpe_ranks, smokeO200k.special_tokens, smokeO200k.pat_str);
+const bpeCount = (text) => smokeEncoder.encode(String(text), undefined, []).length;
+
+for (const [label, probe] of [
+  ['korean', '\uD55C\uAD6D\uC5B4 \uCEF4\uD329\uC158 \uACBD\uACC4 \uD14C\uC2A4\uD2B8 '.repeat(200)],
+  ['cjk', '上下文压缩边界测试令牌预算'.repeat(200)],
+  ['emoji', '😀🚀🔥✅'.repeat(200)],
+  ['ascii', 'plain ascii sentence with normal words. '.repeat(200)],
+]) {
+  const est = estimateMessagesTokens([{ role: 'user', content: probe }]);
+  const expected = bpeCount(probe) + 4;
+  assert(
+    est === expected,
+    `${label} message estimate must equal the real o200k count plus framing (est=${est}, expected=${expected})`,
+  );
 }
 
-const koHeavy = '\uD55C\uAD6D\uC5B4 \uCEF4\uD329\uC158 \uACBD\uACC4 \uD14C\uC2A4\uD2B8 '.repeat(200);
-const koEst = estimateMessagesTokens([{ role: 'user', content: koHeavy }]);
+// Provider calibration reconciles o200k counts with actual billing.
 assert(
-  koEst > chars4(koHeavy) * 2,
-  `Korean-heavy content must estimate well above chars/4 (est=${koEst}, chars/4=${chars4(koHeavy)})`,
+  providerTokenCalibration('anthropic-oauth') > 1.5 && providerTokenCalibration('anthropic-oauth') < 2,
+  'anthropic calibration must reflect the measured ~1.7x billed/o200k ratio',
 );
-
-const cjkHeavy = '上下文压缩边界测试令牌预算'.repeat(200);
-const cjkEst = estimateMessagesTokens([{ role: 'user', content: cjkHeavy }]);
-assert(
-  cjkEst > chars4(cjkHeavy) * 1.5,
-  `CJK-heavy content must estimate above chars/4 (est=${cjkEst}, chars/4=${chars4(cjkHeavy)})`,
-);
-
-const emojiHeavy = '😀🚀🔥✅'.repeat(200);
-const emojiEst = estimateMessagesTokens([{ role: 'user', content: emojiHeavy }]);
-assert(
-  emojiEst > chars4(emojiHeavy) * 2,
-  `Emoji-heavy content must estimate well above chars/4 (est=${emojiEst}, chars/4=${chars4(emojiHeavy)})`,
-);
-
-// Plain ASCII must stay close to the chars/4 floor (within the safety
-// multiplier band) — the estimator overcounts non-ASCII, not everything.
-const asciiPlain = 'plain ascii sentence with normal words. '.repeat(200);
-const asciiEst = estimateMessagesTokens([{ role: 'user', content: asciiPlain }]);
-assert(
-  asciiEst >= chars4(asciiPlain) && asciiEst <= chars4(asciiPlain) * 1.5,
-  `ASCII must stay near chars/4 (est=${asciiEst}, chars/4=${chars4(asciiPlain)})`,
-);
+assert(providerTokenCalibration('openai-oauth') === 1.0, 'openai calibration must stay neutral');
+assert(providerTokenCalibration(undefined) === 1.0, 'unknown provider calibration must stay neutral');
 
 // Tool schemas are serialized into the request body, so their estimate must
-// also use the conservative estimator (>= chars/4 of the serialized JSON).
+// track the real tokenizer over the wire-shape serialization.
 const toolSchema = [{
   name: 'apply_patch',
   description: '\uD328\uCE58\uB97C \uD30C\uC77C\uC5D0 \uC801\uC6A9 (\uD55C\uAD6D\uC5B4 \uC124\uBA85) — applies a patch',
   parameters: { type: 'object', properties: { patch: { type: 'string', description: '\uD328\uCE58 \uBCF8\uBB38 \uD14D\uC2A4\uD2B8' } } },
 }];
 const toolSchemaEst = estimateToolSchemaTokens(toolSchema);
+const toolWireJson = JSON.stringify(toolSchema.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })));
 assert(
-  toolSchemaEst >= chars4(JSON.stringify(toolSchema)),
-  `tool schema estimate must be >= chars/4 of serialized JSON (est=${toolSchemaEst})`,
+  toolSchemaEst === bpeCount(toolWireJson),
+  `tool schema estimate must equal the o200k count of the serialized wire JSON (est=${toolSchemaEst}, expected=${bpeCount(toolWireJson)})`,
 );
+smokeEncoder.free();
 
 // Strict-fit smoke: a Korean/CJK-heavy newest turn far larger than the preserve
 // budget must be summarized/truncated safely — never preserved verbatim — and

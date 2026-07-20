@@ -4,6 +4,9 @@ import { contextBridge, ipcRenderer } from 'electron';
 import {
   DESKTOP_IPC,
   type DesktopApi,
+  type DesktopSessionSummary,
+  type DesktopStateItemsPatch,
+  type DesktopStateWire,
   type EngineSnapshot,
   type DesktopUpdaterState,
 } from '../shared/contract';
@@ -23,6 +26,13 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.setProjectPinned, projectPath, pinned),
   removeProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.removeProject, projectPath),
   listSessions: () => ipcRenderer.invoke(DESKTOP_IPC.listSessions),
+  subscribeSessions: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, sessions: DesktopSessionSummary[]): void => {
+      listener(sessions);
+    };
+    ipcRenderer.on(DESKTOP_IPC.sessionsChanged, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.sessionsChanged, receive);
+  },
   renameSession: (sessionId, title) => ipcRenderer.invoke(DESKTOP_IPC.renameSession, sessionId, title),
   deleteSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.deleteSession, sessionId),
   resumeSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.resumeSession, sessionId),
@@ -30,8 +40,47 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.searchProjectFiles, projectIdOrWorkspaceId, query, limit),
   getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC.getSnapshot),
   subscribeState: (listener) => {
-    const receive = (_event: Electron.IpcRendererEvent, snapshot: EngineSnapshot): void => {
-      listener(snapshot);
+    // Reassemble transcript deltas (see DesktopStateWire): the host sends the
+    // full items array once, then identity-prefix patches. Renderers keep
+    // consuming complete EngineSnapshot objects; unchanged items retain their
+    // object identity across snapshots, so memoized rows skip re-rendering.
+    let items: unknown[] = [];
+    let revision: number | null = null;
+    const receive = (_event: Electron.IpcRendererEvent, wire: DesktopStateWire): void => {
+      if (!wire || typeof wire !== 'object') {
+        items = [];
+        revision = null;
+        listener(wire as EngineSnapshot);
+        return;
+      }
+      const record = wire as Record<string, unknown>;
+      const patch = record.__itemsPatch as DesktopStateItemsPatch | undefined;
+      if (!patch) {
+        const snapshot = { ...record };
+        delete snapshot.__itemsRevision;
+        if (Array.isArray(snapshot.items)) {
+          items = snapshot.items;
+          revision = typeof record.__itemsRevision === 'number' ? record.__itemsRevision : null;
+        } else {
+          items = [];
+          revision = null;
+        }
+        listener(snapshot as EngineSnapshot);
+        return;
+      }
+      if (revision === null || patch.base !== revision) {
+        // Lost sync (preload reload, missed event): drop the patch and ask the
+        // host to restart from a full snapshot.
+        revision = null;
+        try { ipcRenderer.send(DESKTOP_IPC.stateResync); } catch { /* next full send recovers */ }
+        return;
+      }
+      items = items.slice(0, patch.prefix).concat(patch.append);
+      revision = patch.revision;
+      const snapshot = { ...record };
+      delete snapshot.__itemsPatch;
+      snapshot.items = items;
+      listener(snapshot as EngineSnapshot);
     };
     ipcRenderer.on(DESKTOP_IPC.state, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.state, receive);

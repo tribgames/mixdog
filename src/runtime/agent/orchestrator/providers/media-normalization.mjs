@@ -27,6 +27,17 @@ function geminiInlineInfo(block) {
     return { data, mimeType: cleanMimeType(inline.mimeType || inline.mime_type || inline.mediaType || inline.media_type) };
 }
 
+// Inline document/file part ({ type: 'file', data, mimeType, filename? }) as
+// submitted by the desktop composer (PDF attachments). Providers receive it
+// as their native document shape; estimators must never serialize its base64.
+function fileInfo(block) {
+    if (!block || typeof block !== 'object' || block.type !== 'file') return null;
+    if (typeof block.data !== 'string' || !block.data) return null;
+    const mimeType = String(block.mimeType || block.mediaType || 'application/pdf').trim().toLowerCase() || 'application/pdf';
+    const filename = typeof block.filename === 'string' && block.filename ? block.filename : '';
+    return { data: block.data, mimeType, filename };
+}
+
 function imageUrlFromPart(block) {
     if (!block || typeof block !== 'object') return null;
     if (block.type === 'image_url') {
@@ -100,7 +111,8 @@ function contentParts(content) {
     }
     if (content && typeof content === 'object'
         && (imageUrlFromPart(content) || imageFileIdFromPart(content)
-            || imageFileUriFromPart(content) || geminiInlineInfo(content))) return [content];
+            || imageFileUriFromPart(content) || geminiInlineInfo(content)
+            || fileInfo(content))) return [content];
     return null;
 }
 
@@ -108,7 +120,7 @@ function jsonFallbackFromPart(block) {
     const text = textFromPart(block);
     if (text) return text;
     if (!block || typeof block !== 'object') return block == null ? '' : String(block);
-    if (imageUrlFromPart(block) || imageFileIdFromPart(block) || imageFileUriFromPart(block) || geminiInlineInfo(block)) return '';
+    if (imageUrlFromPart(block) || imageFileIdFromPart(block) || imageFileUriFromPart(block) || geminiInlineInfo(block) || fileInfo(block)) return '';
     return stringifyFallback(block);
 }
 
@@ -170,6 +182,17 @@ export function contentImageDescriptors(content) {
     return parts.map(imageDescriptor).filter(Boolean);
 }
 
+// Byte-free descriptors for inline file/document parts (context estimation).
+export function contentFileDescriptors(content) {
+    const parts = contentParts(content);
+    if (!parts) return [];
+    return parts.flatMap((part) => {
+        const file = fileInfo(part);
+        if (!file) return [];
+        return [{ mimeType: file.mimeType, sizeBytes: Math.floor((file.data.length * 3) / 4) }];
+    });
+}
+
 export function contentToText(content, fallback = '') {
     if (typeof content === 'string') return content;
     const parts = contentParts(content);
@@ -191,6 +214,10 @@ function sanitizePartForStoredHistory(part) {
     if (!part || typeof part !== 'object') return part;
     if (part.type === 'image' || part.type === 'image_url' || part.type === 'input_image' || imageUrlFromPart(part) || imageFileIdFromPart(part) || imageFileUriFromPart(part) || geminiInlineInfo(part)) {
         return { type: 'text', text: storedHistoryImagePlaceholder(part) };
+    }
+    const file = fileInfo(part);
+    if (file) {
+        return { type: 'text', text: `[File omitted from stored history: ${file.filename || file.mimeType}]` };
     }
     if (Array.isArray(part.content)) {
         const nextContent = sanitizeContentForStoredHistory(part.content);
@@ -217,6 +244,16 @@ export function normalizeContentForAnthropic(content) {
     const parts = contentParts(content);
     if (!parts) return content;
     return parts.map((part) => {
+        const file = fileInfo(part);
+        if (file) {
+            const out = {
+                type: 'document',
+                source: { type: 'base64', media_type: file.mimeType, data: file.data },
+                ...(file.filename ? { title: file.filename } : {}),
+            };
+            if (part.cache_control) out.cache_control = part.cache_control;
+            return out;
+        }
         const info = imageInfo(part);
         if (info) {
             const out = {
@@ -276,6 +313,14 @@ export function normalizeContentForOpenAIChat(content, { role = 'user' } = {}) {
     if (!parts) return content;
     const out = [];
     for (const part of parts) {
+        const file = fileInfo(part);
+        if (file) {
+            out.push({
+                type: 'file',
+                file: { filename: file.filename || 'document.pdf', file_data: `data:${file.mimeType};base64,${file.data}` },
+            });
+            continue;
+        }
         const fileId = imageFileIdFromPart(part);
         if (fileId) {
             out.push({ type: 'text', text: `[unsupported image file_id for OpenAI Chat-compatible request: ${fileId}]` });
@@ -308,6 +353,15 @@ export function normalizeContentForOpenAIResponses(content, { role = 'user' } = 
     }
     const out = [];
     for (const part of parts) {
+        const file = fileInfo(part);
+        if (file) {
+            out.push({
+                type: 'input_file',
+                filename: file.filename || 'document.pdf',
+                file_data: `data:${file.mimeType};base64,${file.data}`,
+            });
+            continue;
+        }
         const fileId = imageFileIdFromPart(part);
         if (fileId) {
             out.push({ type: 'input_image', file_id: fileId });
@@ -338,6 +392,11 @@ export function normalizeContentForGeminiParts(content) {
     }
     const out = [];
     for (const part of parts) {
+        const file = fileInfo(part);
+        if (file) {
+            out.push({ inlineData: { mimeType: file.mimeType, data: file.data } });
+            continue;
+        }
         const inlineInfo = geminiInlineInfo(part);
         if (inlineInfo) {
             out.push({ inlineData: { mimeType: inlineInfo.mimeType, data: inlineInfo.data } });

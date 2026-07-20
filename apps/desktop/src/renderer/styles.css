@@ -18,7 +18,7 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
 button, input, textarea, select { font: inherit; }
 button { color: inherit; }
 
-.app-shell { height: 100vh; display: flex; flex-direction: column; overflow: hidden; isolation: isolate; }
+.app-shell { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; isolation: isolate; }
 .topbar { display: flex; align-items: center; user-select: none; }
 .titlebar-leading, .workspace-tabs, .workspace-tab, .workspace-tab-main {
   display: flex;

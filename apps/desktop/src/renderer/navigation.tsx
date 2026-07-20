@@ -382,6 +382,7 @@ interface SessionSidebarProps {
   open: boolean;
   sessions: DesktopSessionSummary[];
   busySessionId?: string;
+  unreadSessionIds?: ReadonlySet<string>;
   selection: NavigationSelection;
   onNewTask(): void;
   onOpenProjects(): void;
@@ -396,6 +397,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   open,
   sessions,
   busySessionId = "",
+  unreadSessionIds,
   selection,
   onNewTask,
   onOpenProjects,
@@ -516,6 +518,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             {rows.map((session) => <SessionSidebarRow key={session.id}
               session={session} active={selection.kind === "session" && selection.id === session.id}
               working={session.id === busySessionId}
+              unread={unreadSessionIds?.has(session.id) === true}
               editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
               sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
               confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
@@ -561,6 +564,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   session,
   active,
   working,
+  unread,
   editingSessionId,
   sessionTitleDraft,
   sessionTitleInvalid,
@@ -581,6 +585,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   session: DesktopSessionSummary;
   active: boolean;
   working?: boolean;
+  unread?: boolean;
   editingSessionId: string;
   sessionTitleDraft: string;
   sessionTitleInvalid: boolean;
@@ -599,6 +604,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onDeleteSession(sessionId: string): Promise<void>;
 }) {
   return <SessionRow session={session} active={active} working={working}
+    unread={unread}
     editing={editingSessionId === session.id}
     titleDraft={sessionTitleDraft}
     titleInvalid={sessionTitleInvalid}
@@ -635,6 +641,7 @@ const SessionRow = React.memo(function SessionRow({
   session,
   active,
   working,
+  unread,
   editing,
   titleDraft,
   titleInvalid,
@@ -655,6 +662,7 @@ const SessionRow = React.memo(function SessionRow({
   session: DesktopSessionSummary;
   active: boolean;
   working?: boolean;
+  unread?: boolean;
   editing: boolean;
   titleDraft: string;
   titleInvalid: boolean;
@@ -733,6 +741,10 @@ const SessionRow = React.memo(function SessionRow({
               }}>
               <b>{sessionLabel(session)}</b>
             </span>
+            {/* Claude-style unread dot: the session advanced while it was not
+                the viewed conversation. The working spinner supersedes it. */}
+            {unread && !working && <span className="session-row-unread-dot" role="status"
+              aria-label={`${sessionLabel(session)} has new activity`} />}
           </button>
           <div className="session-row-actions">
             {confirmingDelete ? (

@@ -6,6 +6,7 @@ import {
     contextMessagesSignature,
     estimateMessagesTokens,
     estimateRequestReserveTokens,
+    providerTokenCalibration,
     resolveSessionCompactPolicy,
     toolSchemaSignature,
 } from '../context-utils.mjs';
@@ -170,13 +171,32 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         reserveTokens,
         requestReserveTokens: requestReserve,
         configuredReserveTokens: configuredReserve,
+        provider: sessionRef.provider || null,
+        tokenCalibration: providerTokenCalibration(sessionRef.provider),
         toolSchemaSignature: toolSchemaSignature(tools),
     };
 }
-/** Transcript + request reserve fallback used until an aligned provider baseline exists. */
+/**
+ * Transcript + request reserve fallback used until an aligned provider
+ * baseline exists. The transcript estimate and the serialized-tool-schema
+ * reserve are both text the provider tokenizes, so the per-provider billing
+ * calibration applies to them; a configured operator reserve is a raw token
+ * allowance and stays uncalibrated. With no calibration on the policy the
+ * result is the exact legacy sum (estimate + reserveTokens).
+ */
 function compactPressureTokens(messageTokensEst, policy) {
     if (messageTokensEst === null) return 0;
-    return Math.max(0, messageTokensEst + (policy?.reserveTokens || 0));
+    const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
+    const configured = Math.max(0, Number(policy?.configuredReserveTokens) || 0);
+    const totalReserve = Math.max(0, Number(policy?.reserveTokens) || 0);
+    // reserveTokens is the caller-facing override (tests/policies may zero it);
+    // the request-schema share can never exceed it.
+    const requestReserve = Math.min(
+        totalReserve,
+        Math.max(0, Number(policy?.requestReserveTokens ?? (totalReserve - configured)) || 0),
+    );
+    const otherReserve = Math.max(0, totalReserve - requestReserve);
+    return Math.max(0, Math.round((messageTokensEst + requestReserve) * calibration) + otherReserve);
 }
 
 function providerPressureTokens(sessionRef, usage) {
@@ -277,8 +297,11 @@ function providerBaselinePressureTokens(messages, sessionRef, policy) {
         }
     }
     try {
+        // Baseline tokens are authoritative provider billing; only the growth
+        // after the baseline is a local estimate and needs billing calibration.
+        const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
         const growth = count < messages.length
-            ? estimateMessagesTokens(messages.slice(count))
+            ? Math.round(estimateMessagesTokens(messages.slice(count)) * calibration)
             : 0;
         return Math.max(0, tokens + growth + Math.max(0, Number(policy?.configuredReserveTokens) || 0));
     } catch {

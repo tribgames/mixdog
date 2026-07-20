@@ -170,7 +170,11 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   // Control chrome (Settings, New task, pickers) runs medium weight for
   // hierarchy against 400 content rows.
   assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*500 14px\/20px/s);
-  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*width:\s*min\(var\(--session-sidebar-width,\s*260px\),\s*calc\(100vw - 32px\)\)/);
+  // Phone drawer: the sidebar overlays the thread instead of squeezing it
+  // out of a 390px viewport (user: "message pane not visible" on a phone).
+  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*\.sidebar\.session-sidebar,[\s\S]*?position:\s*fixed;[\s\S]*?transform:\s*translateX\(-100%\)/);
+  assert.match(styles, /\.sidebar-backdrop\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*\.sidebar\.session-sidebar\[data-state="open"\]\s*\{[^}]*transform:\s*none;/);
   assert.match(navigation, /aria-label="Session manager"/);
   assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);
   assert.match(navigation, /className="project-grid project-list"/);
@@ -263,12 +267,13 @@ test('authenticated keychain providers are immediately selectable without a seco
 });
 
 test('desktop UI keeps every public TUI command and core capability represented', async () => {
-  const [app, commandSurfaces, desktopCommands, settings, onboarding, contract, tuiCommands] = await Promise.all([
+  const [app, commandSurfaces, desktopCommands, settings, onboarding, schedules, contract, tuiCommands] = await Promise.all([
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./slash-commands.ts', import.meta.url), 'utf8'),
     readFile(new URL('./settings/CapabilitySettings.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./settings/OnboardingWizard.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./SchedulesView.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../../../src/tui/app/slash-commands.mjs', import.meta.url), 'utf8'),
   ]);
@@ -292,7 +297,7 @@ test('desktop UI keeps every public TUI command and core capability represented'
 
   const capabilityBlock = contract.match(/export const DESKTOP_CAPABILITIES = \[([\s\S]*?)\] as const/)?.[1] || '';
   const capabilities = [...capabilityBlock.matchAll(/'([^']+)'/g)].map((match) => match[1]);
-  const represented = `${app}\n${commandSurfaces}\n${settings}\n${onboarding}`;
+  const represented = `${app}\n${commandSurfaces}\n${settings}\n${onboarding}\n${schedules}`;
   const capabilitiesWithoutPublicTuiControls = new Set([
     'getOutputStyle',
     'loginOAuthProvider',
@@ -321,8 +326,8 @@ test('desktop UI keeps every public TUI command and core capability represented'
     'forgetDiscordToken',
     'forgetTelegramToken',
     'forgetWebhookAuthtoken',
-    'saveSchedule',
-    'deleteSchedule',
+    // saveSchedule/deleteSchedule graduated to the desktop Schedules page
+    // (SchedulesView.tsx) and are asserted as represented above.
     'saveWebhook',
     'deleteWebhook',
   ]);

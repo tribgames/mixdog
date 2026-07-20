@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import {
     estimateMessagesTokens,
     estimateRequestReserveTokens,
     estimateToolSchemaTokens,
     estimateTokens,
     IMAGE_VISUAL_TOKEN_ALLOWANCE,
+    providerTokenCalibration,
     summarizeContextMessages,
 } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
 import { createContextStatus } from '../src/session-runtime/context-status.mjs';
@@ -281,25 +283,32 @@ test('image payload bytes do not inflate live gauge or fallback compaction estim
         'estimating live context must not sanitize or remove image content');
 });
 
-test('dense ASCII, encoded, and minified payloads do not retain the prose chars/4 estimate', () => {
-    for (const text of [
-        'A1b2C3d4E5f6G7h8'.repeat(100),
-        '%7B%22path%22%3A%22very%2Flong%2Fencoded%2Fvalue%22%7D'.repeat(40),
-        JSON.stringify({ rows: Array.from({ length: 100 }, (_, i) => ({ id: i, value: `item_${i}_abcdef` })) }),
-    ]) {
-        // Claude Code parity: dense JSON/encoded payloads price at chars/2
-        // (bytesPerTokenForFileType), i.e. 2x the prose chars/4 estimate.
-        assert.ok(estimateTokens(text) >= Math.ceil(text.length * 0.5),
-            `dense ASCII estimate must be conservative (${estimateTokens(text)}/${text.length})`);
-        assert.ok(estimateTokens(text) > Math.ceil(text.length / 4),
-            `dense ASCII estimate must exceed the prose chars/4 rate (${estimateTokens(text)}/${text.length})`);
+test('token estimates match the real o200k BPE tokenizer at the default multiplier', () => {
+    const requireForTest = createRequire(import.meta.url);
+    const { Tiktoken } = requireForTest('tiktoken/lite');
+    const o200k = requireForTest('tiktoken/encoders/o200k_base.json');
+    const enc = new Tiktoken(o200k.bpe_ranks, o200k.special_tokens, o200k.pat_str);
+    try {
+        for (const text of [
+            'A1b2C3d4E5f6G7h8'.repeat(100),
+            '%7B%22path%22%3A%22very%2Flong%2Fencoded%2Fvalue%22%7D'.repeat(40),
+            JSON.stringify({ rows: Array.from({ length: 100 }, (_, i) => ({ id: i, value: `item_${i}_abcdef` })) }),
+            Array.from({ length: 200 }, (_, i) => `{"i":${i}}`).join('\n'),
+            'plain english prose with ordinary words that merge well. '.repeat(50),
+            '한국어 컨텍스트 추정 정확도 검증 문장입니다. '.repeat(30),
+            '😀🚀🔥✅'.repeat(50),
+        ]) {
+            assert.equal(estimateTokens(text), enc.encode(text, undefined, []).length,
+                'estimateTokens must equal the real o200k token count');
+        }
+        // Repeat call exercises the hash-keyed LRU for long strings — the
+        // cached count must be identical to the fresh encode.
+        const longText = 'cached long payload '.repeat(200);
+        assert.equal(estimateTokens(longText), estimateTokens(longText),
+            'cached long-string counts must be stable');
+    } finally {
+        enc.free();
     }
-    const shortJsonl = Array.from({ length: 200 }, (_, i) => `{"i":${i}}`).join('\n');
-    assert.ok(estimateTokens(shortJsonl) >= shortJsonl.replace(/\s/g, '').length * 0.5,
-        'short JSONL records must receive the structured multiline floor');
-    const spacedShortIdentifiers = 'A1b2C3d4E5 F6G7H8I9J0 '.repeat(100);
-    assert.ok(estimateTokens(spacedShortIdentifiers) >= spacedShortIdentifiers.length * 0.45,
-        'space-separated encoded identifiers below the long-run threshold must receive the dense floor');
 });
 
 test('assistantBlocks and reasoningItems count provider-visible data but not image bytes', () => {
@@ -513,7 +522,9 @@ test('provider baselines fingerprint actual sendTools and reject provider, model
         const policy = { ...resolveWorkerCompactPolicy(session, session.tools), reserveTokens: 0 };
         return {
             pressure: resolveCompactionPressureTokens(estimateMessagesTokens(messages), policy, { messages, sessionRef: session }),
-            fallback: estimateMessagesTokens(messages),
+            // The estimate fallback includes provider billing calibration, so
+            // compare against the same pressure computation without a baseline.
+            fallback: resolveCompactionPressureTokens(estimateMessagesTokens(messages), policy, { messages, sessionRef: null }),
         };
     };
     for (const mutate of [
@@ -596,7 +607,8 @@ test('provider callback usage counts assistant output once and estimates only la
     const wholeEstimate = estimateMessagesTokens(messages);
     assert.ok(wholeEstimate < policy.triggerTokens, 'fixture must reproduce local estimator undercount');
     const pressure = compactionTelemetryPressureTokens(wholeEstimate, policy, { messages, sessionRef: session });
-    const expectedPressure = 94_800 + estimateMessagesTokens([laterToolResult]);
+    const expectedPressure = 94_800
+        + Math.round(estimateMessagesTokens([laterToolResult]) * providerTokenCalibration('anthropic'));
     assert.equal(pressure, expectedPressure, 'assistant output/reasoning must stay in actual usage, not be estimated again');
     assert.ok(pressure >= 95_000, `actual usage plus later tool growth should cross trigger, got ${pressure}`);
     assert.equal(shouldCompactForSession(wholeEstimate, policy, {
@@ -624,7 +636,8 @@ test('thinking-only continuation without assistant replay excludes provider outp
 
     const wholeEstimate = estimateMessagesTokens(messages);
     const pressure = compactionTelemetryPressureTokens(wholeEstimate, policy, { messages, sessionRef: session });
-    const expectedPressure = 74_000 + estimateMessagesTokens([nudge]);
+    const expectedPressure = 74_000
+        + Math.round(estimateMessagesTokens([nudge]) * providerTokenCalibration('anthropic'));
     assert.equal(pressure, expectedPressure, 'unreplayed output must be removed while the later nudge is estimated');
     assert.equal(shouldCompactForSession(wholeEstimate, policy, {
         messages,

@@ -260,6 +260,7 @@ test("desktop session summaries prioritize manual names over generated titles an
     preview: "Fresh task",
     title: "Custom task name",
     updatedAt: 10,
+    messageCount: 0,
     cwd: "C:\\app\\workspace",
     classification: "task",
     projectPath: null,
@@ -302,7 +303,7 @@ test("desktop session summaries hide abandoned blank sessions but keep the activ
   assert.equal(summaries[1].title, "Kept by name");
 });
 
-test("host uses cached session summaries for routine listing", async () => {
+test("host refreshes session summaries from storage for sidebar listing", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-session-refresh-"));
   const originalCwd = process.cwd();
   const calls = [];
@@ -324,12 +325,12 @@ test("host uses cached session summaries for routine listing", async () => {
     listSessions: (options) => {
       calls.push(options);
       return options?.refreshFromStorage
-        ? []
-        : [
+        ? [
           newlySaved,
           { id: "cli_only", preview: "CLI", desktopSession: null },
           { id: "worker_only", preview: "Worker", desktopSession: { classification: "worker" } },
-        ];
+        ]
+        : [];
     },
     newSession: async () => true,
     resume: async () => true,
@@ -338,7 +339,9 @@ test("host uses cached session summaries for routine listing", async () => {
   const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
   try {
     assert.deepEqual((await host.listSessions()).map((row) => row.id), ["desktop_new", "cli_only"]);
-    assert.deepEqual(calls, [undefined]);
+    // Cross-process activity (channel-worker schedule runs) must be visible,
+    // so the sidebar listing reads through the on-disk summary index.
+    assert.deepEqual(calls, [{ refreshFromStorage: true }]);
   } finally {
     await host.dispose();
     process.chdir(originalCwd);
@@ -377,7 +380,9 @@ test("resume authorization reuses the cached catalog when the selected session i
     await host.listSessions();
     await host.resumeSession(row.id);
     await host.listSessions();
-    assert.deepEqual(calls, [undefined, undefined, undefined]);
+    // Sidebar listings refresh from storage; the resume authorization in the
+    // middle still reuses the cached catalog (no refresh flag).
+    assert.deepEqual(calls, [{ refreshFromStorage: true }, undefined, { refreshFromStorage: true }]);
   } finally {
     await host.dispose();
     process.chdir(originalCwd);
@@ -1090,6 +1095,7 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     removeProject: async (path) => { calls.push(["removeProject", path]); },
     dispose: async () => { disposeCalls += 1; },
     subscribe: () => () => { unsubscribed = true; },
+    subscribeSessions: () => () => {},
   };
   const remove = registerDesktopIpc(window, host, {
     app: { quit: () => { quitCalls += 1; } },
@@ -1276,8 +1282,60 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     Object.values(DESKTOP_IPC).filter((channel) =>
       channel !== DESKTOP_IPC.state && channel !== DESKTOP_IPC.updaterState
       && channel !== DESKTOP_IPC.perfLog && channel !== DESKTOP_IPC.termData
-      && channel !== DESKTOP_IPC.termWrite && channel !== DESKTOP_IPC.termResize),
+      && channel !== DESKTOP_IPC.termWrite && channel !== DESKTOP_IPC.termResize
+      && channel !== DESKTOP_IPC.sessionsChanged && channel !== DESKTOP_IPC.stateResync),
   ));
+});
+
+test("desktop IPC state pushes ride identity-prefix transcript deltas", () => {
+  const ipcMain = {
+    handle: () => {},
+    removeHandler: () => {},
+    on: () => {},
+    removeListener: () => {},
+  };
+  const sent = [];
+  const webContents = { mainFrame: {}, isDestroyed: () => false, send: (...args) => { sent.push(args); } };
+  const window = { webContents, isDestroyed: () => false };
+  let publish;
+  const host = {
+    subscribe: (listener) => { publish = listener; return () => {}; },
+    subscribeSessions: () => () => {},
+    getSnapshot: () => null,
+  };
+  const remove = registerDesktopIpc(window, host, {
+    app: { quit: () => {} },
+    ipcMain,
+    dialog: {},
+    shell: {},
+  });
+  try {
+    const itemA = { id: 1, kind: "user", text: "hello" };
+    const itemB = { id: 2, kind: "assistant", text: "hi" };
+    const itemB2 = { id: 2, kind: "assistant", text: "hi there" };
+    publish({ items: [itemA], busy: true });
+    publish({ items: [itemA, itemB], busy: true });
+    publish({ items: [itemA, itemB2], busy: false });
+    publish(null);
+    publish({ items: [itemA], busy: false });
+    const states = sent.filter(([channel]) => channel === DESKTOP_IPC.state).map(([, payload]) => payload);
+    assert.equal(states.length, 5);
+    // First send with items: full snapshot tagged with a revision.
+    assert.equal(states[0].__itemsRevision, 1);
+    assert.deepEqual(states[0].items, [itemA]);
+    // Append: shared identity prefix travels as an offset, not as data.
+    assert.equal(states[1].items, undefined);
+    assert.deepEqual(states[1].__itemsPatch, { base: 1, revision: 2, prefix: 1, append: [itemB] });
+    // In-place tail replacement (streaming): only the changed suffix is sent.
+    assert.deepEqual(states[2].__itemsPatch, { base: 2, revision: 3, prefix: 1, append: [itemB2] });
+    assert.equal(states[2].busy, false);
+    // A null/itemless snapshot resets the stream: the next send is full again.
+    assert.equal(states[3], null);
+    assert.equal(states[4].__itemsRevision, 4);
+    assert.deepEqual(states[4].items, [itemA]);
+  } finally {
+    remove();
+  }
 });
 
 test("desktop fast data follows core catalog capability and persisted preference semantics", () => {

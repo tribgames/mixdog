@@ -1,7 +1,8 @@
 import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { providerNativeToolPrefixCount } from '../../../../session-runtime/provider-request-tools.mjs';
-import { contentImageDescriptors, contentToText } from '../providers/media-normalization.mjs';
+import { contentFileDescriptors, contentImageDescriptors, contentToText } from '../providers/media-normalization.mjs';
 export {
     DEFAULT_COMPACTION_BUFFER_TOKENS,
     DEFAULT_COMPACTION_BUFFER_RATIO,
@@ -24,32 +25,88 @@ export {
 } from './context-compaction-policy.mjs';
 
 // ---------------------------------------------------------------------------
-// Conservative, Unicode-aware token estimator.
+// Token estimation: real o200k_base BPE (tiktoken) + per-provider calibration.
 //
-// This is a SAFETY estimator, NOT exact tokenizer parity. We cannot run the
-// provider's real BPE tokenizer here (no network, no bundled vocab), so the
-// goal is to never UNDERcount: a transcript the estimator says "fits" must
-// genuinely fit the model context once compaction has run. The legacy chars/4
-// heuristic badly undercounts Korean/CJK/kana/emoji and dense JSON/tool-call
-// payloads (which BPE often splits into >=1 token per character or per byte),
-// so a "fits" verdict was optimistic exactly where it mattered most.
+// estimateTokens() encodes the provider-visible text projection with the real
+// o200k_base BPE (tiktoken, same approach as Roo Code / goose / chatbox), so
+// estimates track actual billing instead of a weighted-chars heuristic that
+// diverged -25%..+60% depending on script and provider. The residual
+// provider-specific gap between an o200k count and billed prompt tokens is
+// reconciled by providerTokenCalibration(): measured on prefix-verified live
+// sessions, OpenAI billing matches o200k directly (median ratio 1.00) while
+// Anthropic bills the identical projection at ~1.7x o200k (Claude tokenizer +
+// wire framing, median 1.71). Calibration is applied at the provider-aware
+// aggregation boundary (compaction pressure / context gauge), never inside
+// the provider-agnostic per-message memo.
 //
-// Strategy: weight each code point by how expensive it tends to be under a
-// modern BPE tokenizer (cl100k/o200k-class), then take the MAX of that weighted
-// sum and the chars/4 ASCII lower bound, then apply a small safety multiplier.
-// Weights deliberately lean high (overcount) for CJK/Hangul/emoji.
+// The previous conservative Unicode-weight heuristic is retained verbatim as
+// legacyEstimateTokens(), used only when the tiktoken WASM cannot be loaded
+// (stripped installs / exotic platforms) so estimation degrades safely.
 //
-// MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER (default 1.0, clamped 1.0..2.0) lets
-// operators dial extra headroom without code changes. Claude Code applies no
-// multiplier to its rough estimates (chars/4, JSON chars/2); the actual-usage
-// baseline — not the estimate — is the primary pressure source, so parity
-// keeps the estimate-only fallback from compacting materially early.
+// MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER (default 1.0, clamped 1.0..2.0)
+// still lets operators dial extra headroom without code changes; the
+// provider-usage baseline remains the primary pressure source when aligned.
 function readSafetyMultiplier() {
     const raw = Number(process.env.MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
     if (Number.isFinite(raw)) return Math.min(2.0, Math.max(1.0, raw));
     return 1.0;
 }
 const TOKEN_ESTIMATE_SAFETY_MULTIPLIER = readSafetyMultiplier();
+
+// Lazy singleton o200k_base encoder. createRequire keeps the load dynamic for
+// bundlers (TUI esbuild) and lets a missing/broken WASM fall back cleanly.
+const _requireForTokenizer = createRequire(import.meta.url);
+let _bpeEncoder; // undefined = not attempted, null = unavailable
+function bpeEncoder() {
+    if (_bpeEncoder !== undefined) return _bpeEncoder;
+    try {
+        const { Tiktoken } = _requireForTokenizer('tiktoken/lite');
+        const o200k = _requireForTokenizer('tiktoken/encoders/o200k_base.json');
+        _bpeEncoder = new Tiktoken(o200k.bpe_ranks, o200k.special_tokens, o200k.pat_str);
+    } catch {
+        _bpeEncoder = null;
+    }
+    return _bpeEncoder;
+}
+
+// Compaction budget loops re-estimate overlapping transcript slices; identical
+// large strings (tool results, system blocks) would re-encode every pass.
+// Hash-keyed LRU (goose token_counter.rs pattern) absorbs the repeats.
+const TOKEN_COUNT_CACHE_MIN_CHARS = 512;
+const TOKEN_COUNT_CACHE_MAX_ENTRIES = 1_024;
+const tokenCountCache = new Map();
+function bpeTokenCount(enc, s) {
+    if (s.length < TOKEN_COUNT_CACHE_MIN_CHARS) return enc.encode(s, undefined, []).length;
+    const key = `${s.length}:${createHash('sha1').update(s).digest('base64')}`;
+    const hit = tokenCountCache.get(key);
+    if (hit !== undefined) {
+        tokenCountCache.delete(key);
+        tokenCountCache.set(key, hit);
+        return hit;
+    }
+    const count = enc.encode(s, undefined, []).length;
+    if (tokenCountCache.size >= TOKEN_COUNT_CACHE_MAX_ENTRIES) {
+        tokenCountCache.delete(tokenCountCache.keys().next().value);
+    }
+    tokenCountCache.set(key, count);
+    return count;
+}
+
+// Billed-prompt / o200k-estimate ratio per provider family, measured against
+// prefix-signature-verified provider baselines from real sessions (opaque
+// signature/encrypted payloads excluded from the projection — see
+// stripOpaquePayloads). Env overrides let a deployment recalibrate without a
+// code change; values are clamped to a plausible band.
+function calibrationEnv(name) {
+    const n = Number(process.env[name]);
+    return Number.isFinite(n) && n > 0 ? Math.min(3, Math.max(0.25, n)) : null;
+}
+export function providerTokenCalibration(provider) {
+    const p = String(provider || '').toLowerCase();
+    if (p.startsWith('anthropic')) return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_ANTHROPIC') ?? 1.7;
+    if (p.startsWith('gemini') || p.startsWith('google')) return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_GEMINI') ?? 1.15;
+    return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_DEFAULT') ?? 1.0;
+}
 // Claude Code parity (services/tokenEstimation.ts): images/documents count a
 // flat 2000 tokens when dimensions are unknown — the conservative constant CC
 // shares with microCompact's IMAGE_MAX_TOKEN_SIZE. Known dimensions may only
@@ -94,13 +151,23 @@ function codePointTokenWeight(cp) {
     return 0.8;
 }
 
-// Conservative Unicode-aware token estimate. Iterates by code point (so
-// surrogate-pair emoji are scored once, at the high emoji weight), takes the
-// max of the weighted sum and the chars/4 ASCII floor, then applies the safety
-// multiplier. Always overcounts relative to chars/4 for non-ASCII text.
+// Real-BPE token estimate with heuristic fallback. See module header.
 export function estimateTokens(text) {
     const s = String(text ?? '');
     if (s.length === 0) return 0;
+    const enc = bpeEncoder();
+    if (enc) {
+        try {
+            return Math.ceil(bpeTokenCount(enc, s) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
+        } catch { /* corrupt input — degrade to the heuristic below */ }
+    }
+    return legacyEstimateTokens(s);
+}
+
+// Legacy conservative Unicode-aware estimate (fallback only). Iterates by
+// code point, takes the max of the weighted sum and the chars/4 ASCII floor,
+// then applies the safety multiplier.
+function legacyEstimateTokens(s) {
     let weighted = 0;
     for (const ch of s) weighted += codePointTokenWeight(ch.codePointAt(0));
     // Encoded blobs, minified JSON and generated identifiers do not get the
@@ -139,6 +206,28 @@ export function estimateTokens(text) {
     return Math.ceil(Math.max(weighted, asciiFloor, denseAsciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
 }
 
+// Opaque replay payloads (Anthropic thinking signatures, OpenAI encrypted
+// reasoning blobs, redacted data) are long base64-ish strings that are NOT
+// billed proportionally to their serialized length — including them made
+// estimates swing wildly per turn. Replace them with a fixed marker before
+// token counting; calibration factors were measured against this projection.
+// Stripping is KEY-SCOPED: only fields that structurally carry opaque replay
+// material (signatures / encrypted / redacted / raw data blobs) are eligible,
+// so genuine long model text (e.g. Gemini thought text) keeps its real cost.
+const OPAQUE_PAYLOAD_KEY_RE = /signature|encrypted|redacted|^data$|^blob$/i;
+const OPAQUE_PAYLOAD_RE = /^[A-Za-z0-9+/_=-]{64,}$/;
+function stripOpaquePayloads(value, depth = 0, keyHint = '') {
+    if (typeof value === 'string') {
+        return OPAQUE_PAYLOAD_KEY_RE.test(keyHint) && value.length >= 64 && OPAQUE_PAYLOAD_RE.test(value)
+            ? '[opaque]'
+            : value;
+    }
+    if (depth >= 8 || !value || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map((v) => stripOpaquePayloads(v, depth + 1, keyHint));
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = stripOpaquePayloads(v, depth + 1, k);
+    return out;
+}
 function nativeBlocksEstimateText(value) {
     const list = Array.isArray(value) ? value : [value];
     return list.map((block) => {
@@ -148,7 +237,7 @@ function nativeBlocksEstimateText(value) {
                 type: 'image', width, height, detail,
             })));
         }
-        try { return JSON.stringify(block); }
+        try { return JSON.stringify(stripOpaquePayloads(block)); }
         catch { return String(block ?? ''); }
     }).join('\n');
 }
@@ -217,8 +306,21 @@ function messageImageAllowance(m) {
     if (!m || typeof m !== 'object') return 0;
     return messageImageDescriptors(m).reduce((sum, descriptor) => sum + imageDescriptorAllowance(descriptor), 0);
 }
+// Inline document (PDF) allowance: Anthropic bills ~1,500-3,000 tokens per
+// page and a typical PDF page is ~50-100KB, so ~bytes/16 with a floor and a
+// cap. The base64 payload itself is excluded from text estimates (see
+// jsonFallbackFromPart), so this allowance is the document's entire cost.
+const FILE_TOKEN_ALLOWANCE_FLOOR = 1_500;
+const FILE_MAX_TOKEN_ALLOWANCE = 300_000;
+function messageFileAllowance(m) {
+    if (!m || typeof m !== 'object') return 0;
+    return contentFileDescriptors(m.content).reduce((sum, descriptor) => sum + Math.min(
+        FILE_MAX_TOKEN_ALLOWANCE,
+        Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, Math.ceil((descriptor.sizeBytes || 0) / 16)),
+    ), 0);
+}
 export function estimateMessageTokens(m) {
-    return estimateTokens(messageEstimateText(m)) + messageImageAllowance(m) + 4;
+    return estimateTokens(messageEstimateText(m)) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
 }
 export function estimateMessagesTokens(messages) {
     return messages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
@@ -562,7 +664,7 @@ export function estimateRequestReserveTokens(tools) {
  *
  * @param {unknown[]} messages
  * @param {unknown[]|number} toolsOrReserve tool list or precomputed reserve tokens
- * @param {{ messageCount?: number, estimatedMessageTokens?: number }} [opts]
+ * @param {{ messageCount?: number, estimatedMessageTokens?: number, provider?: string }} [opts]
  */
 export function estimateTranscriptContextUsage(messages, toolsOrReserve, opts = {}) {
     const list = Array.isArray(messages) ? messages : [];
@@ -574,7 +676,9 @@ export function estimateTranscriptContextUsage(messages, toolsOrReserve, opts = 
     const reserve = typeof toolsOrReserve === 'number' && Number.isFinite(toolsOrReserve)
         ? Math.max(0, toolsOrReserve)
         : estimateRequestReserveTokens(toolsOrReserve);
-    return messageTokens + reserve;
+    // Provider-aware calibration reconciles the o200k estimate with actual
+    // billing (see providerTokenCalibration). No provider → neutral 1.0.
+    return Math.round((messageTokens + reserve) * providerTokenCalibration(opts.provider));
 }
 
 const TOOL_MISSING_STUB = '[Older tool result unavailable after context compaction]';

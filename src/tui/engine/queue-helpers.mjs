@@ -81,6 +81,7 @@ export function promptContentText(content) {
       if (typeof part === 'string') return part;
       if (part?.type === 'text') return part.text || '';
       if (part?.type === 'image') return '[Image]';
+      if (part?.type === 'file') return '[File]';
       return part?.text || '';
     }).filter(Boolean).join('\n');
   }

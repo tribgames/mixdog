@@ -248,6 +248,16 @@ export function readSessionLifecycleFromDisk(id) {
     }
 }
 
+/**
+ * Freshness of a session's `.hb` heartbeat sidecar (0 when absent). Used by
+ * the fork-on-resume guard: a fresh heartbeat published by another process
+ * means the session is actively being driven there RIGHT NOW.
+ */
+export function readSessionHeartbeatMtime(id) {
+    if (!id) return 0;
+    return _heartbeatMtime(id);
+}
+
 function _clearLiveSession(id) {
     if (id) _liveSessions.delete(id);
 }

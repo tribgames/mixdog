@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -10,6 +11,8 @@ import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
 import { TerminalManager } from './terminal-manager';
 import { desktopUpdater, startAutoUpdater } from './updater';
+import { resolveRemoteBridgePort, startRemoteBridge, type RemoteBridgeHandle } from './remote-bridge';
+import { startRemoteRelay, type RemoteRelayHandle } from './remote-relay';
 import {
   DESKTOP_WINDOW_OPTIONS,
   configureTitleBarThemePersistence,
@@ -47,6 +50,8 @@ let windowState: ReturnType<typeof persistWindowState> | null = null;
 let windowStateFlush: Promise<void> = Promise.resolve();
 let diagnostics: DesktopDiagnostics | null = null;
 let diagnosticsMemoryTimer: NodeJS.Timeout | null = null;
+let remoteBridge: RemoteBridgeHandle | null = null;
+let remoteRelay: RemoteRelayHandle | null = null;
 
 function currentProcessMemory() {
   try {
@@ -76,6 +81,8 @@ function disposeDesktopResources(): Promise<void> {
     windowStateFlush,
     windowState?.flush(),
     diagnostics?.flush(),
+    remoteBridge?.close(),
+    remoteRelay?.close(),
   ])
     .then(() => undefined)
     .catch((error: unknown) => {
@@ -112,6 +119,15 @@ function configuredDevelopmentUrl(candidate: string): URL {
 async function createWindow(): Promise<void> {
   const developmentUrl = process.env.ELECTRON_RENDERER_URL;
   const packagedRendererPath = join(__dirname, '../renderer/index.html');
+  // Packaged builds inherit the executable's embedded icon, but the dev and
+  // preview shells run node_modules/electron/dist/electron.exe, so every
+  // runtime surface (taskbar, Alt-Tab, window) showed the stock Electron icon
+  // instead of the Mixdog brand mark. Point the window at the build icon.
+  const brandIconPath = app.isPackaged
+    ? null
+    : ['mixdog.ico', 'mixdog.png']
+      .map((name) => join(app.getAppPath(), 'build', name))
+      .find((candidate) => existsSync(candidate)) ?? null;
   const rendererUrl = developmentUrl
     ? configuredDevelopmentUrl(developmentUrl)
     : new URL(pathToFileURL(packagedRendererPath).href);
@@ -133,6 +149,7 @@ async function createWindow(): Promise<void> {
     ...DESKTOP_WINDOW_OPTIONS,
     ...initialTitleBarWindowOverrides(),
     ...(savedState?.bounds ?? {}),
+    ...(brandIconPath ? { icon: brandIconPath } : {}),
     webPreferences: {
       ...DESKTOP_WINDOW_OPTIONS.webPreferences,
       preload: join(__dirname, '../preload/index.js'),
@@ -242,9 +259,15 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
-    // Windows toast/taskbar identity: without an explicit AppUserModelID the
-    // dev/preview shell reports "electron.app.Electron" as the app name.
-    if (process.platform === 'win32') app.setAppUserModelId('io.mixdog.desktop');
+    // Windows toast/taskbar identity. Packaged installs get a shortcut whose
+    // AppUserModelID matches, so the taskbar resolves the branded icon. In the
+    // dev/preview shell no such shortcut exists and an explicit AUMID makes
+    // Explorer fall back to electron.exe's stock icon for the taskbar button
+    // (user-reported missing Mixdog icon), so leave the default identity there
+    // and let the BrowserWindow icon brand the button instead.
+    if (process.platform === 'win32' && app.isPackaged) {
+      app.setAppUserModelId('io.mixdog.desktop');
+    }
     diagnostics = createDesktopDiagnostics(
       join(app.getPath('userData'), 'logs', 'desktop-diagnostics.jsonl'),
       { appVersion: app.getVersion(), packaged: app.isPackaged },
@@ -290,6 +313,52 @@ if (!app.requestSingleInstanceLock()) {
       callback(true);
     });
     await createWindow();
+    // LAN remote bridge (opt-in): serves the built renderer + a token-gated
+    // WebSocket DesktopApi so a phone browser can drive this desktop.
+    // Enable with MIXDOG_REMOTE_BRIDGE=1 or MIXDOG_REMOTE_BRIDGE_PORT=<port>.
+    const remoteBridgePort = resolveRemoteBridgePort(process.env);
+    if (remoteBridgePort !== null) {
+      try {
+        remoteBridge = await startRemoteBridge({
+          port: remoteBridgePort,
+          host,
+          settingsStore,
+          terminals: terminalManager,
+          subscribeTerminalData: (listener) => terminalManager.subscribe(listener),
+          userDataPath: app.getPath('userData'),
+          rendererDir: join(__dirname, '../renderer'),
+        });
+        diagnostics?.write('remote-bridge-started', { port: remoteBridge.port });
+        for (const url of remoteBridge.urls) {
+          console.info(`[mixdog] remote bridge ready: ${url}/?token=${remoteBridge.token}`);
+        }
+      } catch (error) {
+        diagnostics?.write('remote-bridge-failed', {
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+        console.error('Failed to start the Mixdog remote bridge:', error);
+      }
+    }
+    const relayUrl = (process.env.MIXDOG_RELAY_URL || '').trim();
+    if (relayUrl) {
+      try {
+        remoteRelay = await startRemoteRelay({
+          relayUrl,
+          host,
+          settingsStore,
+          terminals: terminalManager,
+          subscribeTerminalData: (listener) => terminalManager.subscribe(listener),
+          userDataPath: app.getPath('userData'),
+        });
+        diagnostics?.write('remote-relay-started', {});
+        console.info(`[mixdog] relay client URL: ${remoteRelay.clientUrl}`);
+      } catch (error) {
+        diagnostics?.write('remote-relay-failed', {
+          errorName: error instanceof Error ? error.name : typeof error,
+        });
+        console.error('Failed to start the Mixdog relay client:', error);
+      }
+    }
     // Keep the synchronous native-menu construction off the critical path to
     // the first renderer load. This matches the OpenCode startup ordering.
     installNativeMenu(Boolean(process.env.ELECTRON_RENDERER_URL), {

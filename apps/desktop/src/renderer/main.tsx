@@ -1,4 +1,8 @@
 import "./process-shim";
+// Browser-served remote sessions (phone via the remote bridge) install a
+// WebSocket-backed DesktopApi before any module reads window.mixdogDesktop;
+// inside Electron the preload bridge already exists and this is a no-op.
+import "./remote-shim";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";

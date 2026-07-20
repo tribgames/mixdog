@@ -50,7 +50,7 @@ export function recordStandaloneStatusTelemetry(session, result, durationMs) {
     // as afterTokens. This lights up summarizeGatewayUsage's estimate-based
     // contextUsedPct branch (provider input_tokens swing wildly / unbounded on
     // e.g. OpenAI gpt-5.5), and lets a genuine >100% pass through.
-    const _estTokens = estimateTranscriptContextUsage(session.messages, session.tools || []);
+    const _estTokens = estimateTranscriptContextUsage(session.messages, session.tools || [], { provider: session.provider });
     const _compactArg = { ...(result.compact && typeof result.compact === 'object' ? result.compact : {}), afterTokens: _estTokens };
     try {
         const summary = {

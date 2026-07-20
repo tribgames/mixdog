@@ -634,6 +634,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   pointer-events: none;
   box-shadow: none;
 }
+/* Phone drawer scrim: only the narrow-viewport media query displays it. */
+.sidebar-backdrop { display: none; }
 .session-sidebar .task-link,
 .session-sidebar .projects-link,
 .session-sidebar .session-row {
@@ -1019,6 +1021,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   letter-spacing: 0;
   text-overflow: clip;
   white-space: nowrap;
+  /* Claude-style fade-out: long titles dissolve at the row edge instead of
+     hard-clipping into the border (user request). */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+/* Unread activity dot (Claude-style): the session gained messages while it
+   was not the viewed conversation. */
+.session-row-unread-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin: 0 4px 0 6px;
+  border-radius: 50%;
+  background: var(--oc-accent);
 }
 
 /* Workspace header and thread rhythm. */
@@ -3728,15 +3744,62 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .onboarding-dialog button:disabled { opacity: .48; cursor: wait; }
 
 @media (max-width: 760px) {
+  /* Native shells draw edge-to-edge (Android 15 enforces it): pad the shell
+     below the system status bar or the tab-bar buttons sit under it. */
+  .app-shell { padding-top: env(safe-area-inset-top, 0px); }
   .desktop-body { padding-inline: 0; }
   .workspace { border-radius: 0; }
-  .sidebar.session-sidebar {
+  /* Phone: the sidebar leaves the flex row and becomes a left drawer over
+     the conversation — inline it left the thread ~130px on a 390px screen
+     (user: "message pane not visible"). data-state drives the slide; the
+     collapsed-rail width:0 rules must not zero the drawer, hence the
+     doubled selector strength. */
+  .sidebar.session-sidebar,
+  .sidebar-collapsed .sidebar.session-sidebar {
+    position: fixed;
+    z-index: 40;
+    /* Below the tab bar (user: the drawer overlapped the top header). */
+    top: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px));
+    bottom: 0;
+    left: 0;
     width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px));
-    flex-basis: min(var(--session-sidebar-width, 260px), calc(100vw - 32px));
+    flex: none;
+    margin: 0;
+    /* The shell already absorbs the status-bar inset; a second top inset
+       here left a dead band above "New task" (user: looks clumsy). */
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
+    background: var(--oc-window-band);
+    /* Define the drawer edge against the equally dark thread behind it. */
+    border-right: 1px solid var(--oc-border-muted);
+    border-radius: 0 12px 12px 0;
+    box-shadow: var(--oc-overlay);
+    transform: translateX(-100%);
+    visibility: hidden;
+    pointer-events: auto;
+    transition: transform 200ms ease, visibility 200ms ease;
+  }
+  .sidebar.session-sidebar[data-state="open"] {
+    transform: none;
+    visibility: visible;
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px)) 0 0;
+    z-index: 39;
+    border: 0;
+    padding: 0;
+    background: var(--oc-scrim);
   }
   .session-sidebar-resize { display: none; }
+  /* Phone top bar: one live tab, no close/new-tab chrome (desktop tab
+     grammar reads clumsy on a phone). */
+  .workspace-tab-close, .titlebar-new { display: none; }
+  .workspace-tab { border: 0; box-shadow: none; background: transparent; }
   .oc-toast-region { width: calc(100vw - 32px); }
   .composer-region { padding-inline: 16px; }
+  /* 16px input text stops the mobile-browser zoom-on-focus jump. */
+  .composer textarea { font-size: 16px; }
 }
 
 @media (max-width: 640px) {
@@ -4800,6 +4863,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--oc-workspace-sheet);
   box-shadow: var(--oc-raised);
   overflow: hidden;
+  /* Open/close mirrors the left sidebar's 180ms slide. Enter is a mount
+     keyframe (a width transition would rubber-band the resize drag). */
+  animation: utility-dock-in 180ms ease;
+}
+@keyframes utility-dock-in { from { width: 0; flex-basis: 0; min-width: 0; opacity: 0; } }
+.utility-dock.closing {
+  min-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: width 180ms ease, flex-basis 180ms ease, opacity 120ms ease;
 }
 .utility-dock-resize {
   position: absolute;
@@ -5147,8 +5220,31 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-terminal { min-height: 0; height: 100%; padding: 8px 6px 8px 12px; }
 .dock-terminal .xterm { height: 100%; }
 @media (max-width: 900px) {
-  .utility-dock { display: none; }
+  /* Narrow viewports: the dock (only rendered while open) floats as a right
+     sheet over the thread instead of vanishing (user: no right panel on the
+     phone). The inline width/flex-basis style must not win here. */
+  .utility-dock {
+    position: fixed;
+    z-index: 38;
+    top: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px));
+    right: 0;
+    bottom: 0;
+    width: min(92vw, 380px) !important;
+    flex-basis: auto !important;
+    max-width: none;
+    border-radius: 10px 0 0 10px;
+    box-shadow: var(--oc-overlay);
+  }
+  /* Fixed sheet mode ignores inline width, so slide via transform instead. */
+  .utility-dock { animation: utility-dock-sheet-in 200ms ease; }
+  .utility-dock.closing {
+    opacity: 1;
+    transform: translateX(calc(100% + 16px));
+    transition: transform 200ms ease;
+  }
+  .utility-dock-resize { display: none; }
 }
+@keyframes utility-dock-sheet-in { from { transform: translateX(calc(100% + 16px)); } }
 .turn-review-bar {
   width: min(100%, 800px);
   margin: 0 auto 6px;

@@ -43,13 +43,15 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",
     "@types/node": "^22.16.5",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.4",
     "electron": "^39.8.5",
     "electron-builder": "^26.8.1",

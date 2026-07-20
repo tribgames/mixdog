@@ -1,0 +1,211 @@
+// LAN remote bridge (stage 1 of the mobile companion): a plain HTTP server
+// that serves the built renderer to a phone browser, plus a token-gated
+// WebSocket that carries DesktopApi RPC frames and state/terminal pushes.
+// The relay-server stage reuses this exact message protocol.
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createReadStream, existsSync, statSync, promises as fsp } from 'node:fs';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { networkInterfaces } from 'node:os';
+import { extname, join, resolve, sep } from 'node:path';
+
+import { WebSocketServer, type WebSocket } from 'ws';
+
+import { createRemoteMethods, executeRemoteFrame, type RemoteMethodDependencies } from './remote-methods';
+
+export const DEFAULT_REMOTE_BRIDGE_PORT = 8791;
+// Headroom over the IPC surface's 28M-base64 attachment ceiling.
+const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.wasm': 'application/wasm',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+export interface RemoteBridgeOptions extends RemoteMethodDependencies {
+  port: number;
+  userDataPath: string;
+  rendererDir: string;
+  subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
+}
+
+export interface RemoteBridgeHandle {
+  port: number;
+  token: string;
+  urls: string[];
+  close(): Promise<void>;
+}
+
+/** Default ON (the phone app must survive however the desktop was launched):
+ *  MIXDOG_REMOTE_BRIDGE_PORT=<port> overrides, MIXDOG_REMOTE_BRIDGE=0/false/off
+ *  disables. The socket stays token-gated either way. */
+export function resolveRemoteBridgePort(env: NodeJS.ProcessEnv): number | null {
+  const raw = (env.MIXDOG_REMOTE_BRIDGE_PORT || '').trim();
+  if (raw) {
+    const port = Number(raw);
+    return Number.isInteger(port) && port >= 0 && port <= 65_535 ? port : null;
+  }
+  const flag = (env.MIXDOG_REMOTE_BRIDGE || '').trim().toLowerCase();
+  return flag === '0' || flag === 'false' || flag === 'off' ? null : DEFAULT_REMOTE_BRIDGE_PORT;
+}
+
+export async function loadOrCreateToken(userDataPath: string): Promise<string> {
+  const tokenPath = join(userDataPath, 'remote-bridge.token');
+  try {
+    const existing = (await fsp.readFile(tokenPath, 'utf8')).trim();
+    if (/^[0-9a-f]{32,128}$/.test(existing)) return existing;
+  } catch { /* first run */ }
+  const token = randomBytes(24).toString('hex');
+  await fsp.mkdir(userDataPath, { recursive: true });
+  await fsp.writeFile(tokenPath, token, 'utf8');
+  return token;
+}
+
+function tokenMatches(expected: string, candidate: string | null): boolean {
+  if (!candidate) return false;
+  // Hash both sides so timingSafeEqual gets equal-length buffers.
+  const a = createHash('sha256').update(expected).digest();
+  const b = createHash('sha256').update(candidate).digest();
+  return timingSafeEqual(a, b);
+}
+
+function lanUrls(port: number): string[] {
+  const urls: string[] = [];
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal) urls.push(`http://${entry.address}:${port}`);
+    }
+  }
+  return urls.length ? urls : [`http://127.0.0.1:${port}`];
+}
+
+function serveStatic(rendererDir: string, request: IncomingMessage, response: ServerResponse): void {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    response.writeHead(405).end();
+    return;
+  }
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(new URL(request.url || '/', 'http://localhost').pathname);
+  } catch {
+    response.writeHead(400).end();
+    return;
+  }
+  const root = resolve(rendererDir);
+  let target = resolve(root, `.${pathname}`);
+  if (target !== root && !target.startsWith(root + sep)) {
+    response.writeHead(403).end();
+    return;
+  }
+  try {
+    if (target === root || !statSync(target).isFile()) target = join(root, 'index.html');
+  } catch {
+    target = join(root, 'index.html');
+  }
+  if (!existsSync(target)) {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+      .end('Mixdog remote bridge: renderer build not found. Run `npm run build` in apps/desktop.');
+    return;
+  }
+  const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
+  const cache = target.endsWith('index.html') ? 'no-cache' : 'public, max-age=86400';
+  response.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache });
+  if (request.method === 'HEAD') {
+    response.end();
+    return;
+  }
+  createReadStream(target).on('error', () => response.destroy()).pipe(response);
+}
+
+export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<RemoteBridgeHandle> {
+  const token = await loadOrCreateToken(options.userDataPath);
+  const methods = createRemoteMethods(options);
+  const server = createServer((request, response) => serveStatic(options.rendererDir, request, response));
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_WS_PAYLOAD_BYTES,
+    perMessageDeflate: false,
+  });
+
+  server.on('upgrade', (request, socket, head) => {
+    let authorized = false;
+    try {
+      const url = new URL(request.url || '/', 'http://localhost');
+      authorized = url.pathname === '/ws' && tokenMatches(token, url.searchParams.get('token'));
+    } catch {
+      authorized = false;
+    }
+    if (!authorized) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (client) => wss.emit('connection', client, request));
+  });
+
+  const send = (client: WebSocket, payload: unknown): void => {
+    if (client.readyState === client.OPEN) {
+      try { client.send(JSON.stringify(payload)); } catch { /* client vanished mid-send */ }
+    }
+  };
+  const broadcast = (payload: unknown): void => {
+    if (wss.clients.size === 0) return;
+    const message = JSON.stringify(payload);
+    for (const client of wss.clients) {
+      if (client.readyState === client.OPEN) {
+        try { client.send(message); } catch { /* client vanished mid-send */ }
+      }
+    }
+  };
+
+  wss.on('connection', (client) => {
+    client.on('error', () => { /* connection errors surface as close */ });
+    client.on('message', (raw) => {
+      void (async () => {
+        const response = await executeRemoteFrame(methods, String(raw));
+        if (response !== undefined) send(client, response);
+      })();
+    });
+  });
+
+  const unsubscribeState = options.host.subscribe((snapshot) =>
+    broadcast({ event: 'state', payload: snapshot }));
+  const unsubscribeTerminals = options.subscribeTerminalData?.((event) =>
+    broadcast({ event: 'termData', payload: event })) ?? (() => {});
+
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once('error', rejectListen);
+    server.listen(options.port, '0.0.0.0', () => {
+      server.removeListener('error', rejectListen);
+      resolveListen();
+    });
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : options.port;
+
+  let closed = false;
+  const close = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    unsubscribeState();
+    unsubscribeTerminals();
+    for (const client of wss.clients) {
+      try { client.terminate(); } catch { /* already gone */ }
+    }
+    await new Promise<void>((resolveClose) => wss.close(() => resolveClose()));
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  };
+
+  return { port, token, urls: lanUrls(port), close };
+}

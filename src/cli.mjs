@@ -10,6 +10,12 @@ import { stagedChildExitCode } from './runtime/shared/staged-child-result.mjs';
 
 const argv = process.argv.slice(2);
 
+// React/ink resolve their build flavor from NODE_ENV at require time. Unset
+// NODE_ENV loads react-reconciler's DEVELOPMENT build, whose per-commit debug
+// bookkeeping consumed ~16% of TUI frame CPU under transcript load (cpuprofile
+// 2026-07-20). Default to production; an explicit NODE_ENV still wins.
+process.env.NODE_ENV ||= 'production';
+
 let swapped = false;
 const invocation = classifyCliInvocation(argv);
 const skipHostPrelude = invocation.kind === 'headless' || invocation.skipHostPrelude === true;

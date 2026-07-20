@@ -195,7 +195,25 @@ function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
 // formatToolSurface(name, args).args — parseToolArgs(args). The row estimate /
 // variant key must read the SAME parsed shape. parseToolArgs already guards
 // malformed input (returns {} / { value } without throwing).
+// Hot path: the rows helpers re-read args many times per item per index pass,
+// and parseToolArgs JSON.parses the same raw string each call (6.6% of frame
+// CPU in the 11k-item load bench). Raw-string-keyed memo; entries are treated
+// as READ-ONLY by every caller in this module.
+const parsedArgsByRaw = new Map(); // raw args string → parsed object
+const PARSED_ARGS_CACHE_MAX = 1024;
 function backgroundArgsForRows(rawArgs) {
+  if (typeof rawArgs === 'string' && rawArgs) {
+    let parsed = parsedArgsByRaw.get(rawArgs);
+    if (parsed === undefined) {
+      const raw = parseToolArgs(rawArgs);
+      parsed = raw && typeof raw === 'object' ? raw : {};
+      if (parsedArgsByRaw.size >= PARSED_ARGS_CACHE_MAX) {
+        parsedArgsByRaw.delete(parsedArgsByRaw.keys().next().value);
+      }
+      parsedArgsByRaw.set(rawArgs, parsed);
+    }
+    return parsed;
+  }
   const parsed = parseToolArgs(rawArgs);
   return parsed && typeof parsed === 'object' ? parsed : {};
 }
@@ -661,7 +679,7 @@ export function carryTranscriptMeasuredRowsCache(prevItem, nextItem) {
 
 export function measuredTranscriptRows(item, columns, toolOutputExpanded) {
   if (!TRANSCRIPT_MEASURED_ROWS || !item) return null;
-  if (shouldSuppressFullyFailedToolItem(item)) return 0;
+  if (shouldSuppressFullyFailedToolItemCached(item)) return 0;
   // Streaming height flows ONLY through estimateTranscriptItemRowsCached's
   // max(idStore, estimate) path — never straight from the WeakMap here, or
   // buildTranscriptRowIndex (which calls this first) and the sigPart (which
@@ -789,9 +807,23 @@ export function streamingTailMountedGrowth(items, columns, toolOutputExpanded) {
   return { tailRows: idEntry.rows, delta };
 }
 
+// Identity-keyed memo, same contract as transcriptVariantKeyCache: transcript
+// items are replaced (never mutated) when their content changes, so the
+// suppress decision — which re-parses tool args via isFullyFailedToolBatch —
+// is stable per object identity.
+const suppressFullyFailedCache = new WeakMap();
+function shouldSuppressFullyFailedToolItemCached(item) {
+  if (!item || typeof item !== 'object') return shouldSuppressFullyFailedToolItem(item);
+  const cached = suppressFullyFailedCache.get(item);
+  if (cached !== undefined) return cached;
+  const value = shouldSuppressFullyFailedToolItem(item);
+  suppressFullyFailedCache.set(item, value);
+  return value;
+}
+
 export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpanded, attachedTool = false) {
   if (!item) return Math.max(1, Math.ceil(estimateTranscriptItemRows(item, columns, toolOutputExpanded)));
-  if (shouldSuppressFullyFailedToolItem(item)) return 0;
+  if (shouldSuppressFullyFailedToolItemCached(item)) return 0;
   if (item.kind === 'assistant' && item.streaming) {
     const toolExpanded = toolOutputExpanded ? 1 : 0;
     const idEntry = streamingMeasuredRowsById.get(item.id);

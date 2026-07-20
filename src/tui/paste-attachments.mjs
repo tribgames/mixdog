@@ -145,7 +145,10 @@ export function splitPastedImagePathCandidates(text) {
   return out;
 }
 
-async function imageAttachmentFromBuffer(buffer, mimeType, { filename = 'Pasted image', sourcePath = '' } = {}) {
+// Exported for the desktop engine capability surface (resizeImage): the GUI
+// composer routes its attachments through this SAME pipeline so desktop and
+// TUI submit byte-identical image payloads.
+export async function imageAttachmentFromBuffer(buffer, mimeType, { filename = 'Pasted image', sourcePath = '' } = {}) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error('image is empty');
   const ext = (mimeType || 'image/png').split('/')[1] || 'png';
   const resized = await resizeImageBuffer(buffer, ext);

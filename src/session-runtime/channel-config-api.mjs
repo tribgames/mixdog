@@ -10,18 +10,7 @@ import {
   setWebhookConfigAsync,
 } from '../standalone/channel-admin.mjs';
 import { getSchedule } from '../runtime/shared/schedules-db.mjs';
-import { parseScheduleModelRef } from '../runtime/shared/schedule-model-ref.mjs';
-import { makeAgentDispatch } from '../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
-
-// Run-now shares the scheduler's dispatch identity (scheduler-task) but runs
-// in the engine process, so it works even while the channels worker is off.
-// The result returns to the caller (desktop Schedules page) instead of being
-// relayed to the channel.
-let _runNowDispatch = null;
-function runNowDispatch() {
-  _runNowDispatch ||= makeAgentDispatch({ taskType: 'scheduler-task', agent: 'scheduler-task', sourceType: 'scheduler' });
-  return _runNowDispatch;
-}
+import { runScheduleSession } from '../runtime/shared/schedule-session-run.mjs';
 
 // Channel/webhook/schedule config surface. Extracted verbatim from the runtime
 // API object; the mutating admin helpers are imported directly here and the
@@ -83,15 +72,10 @@ export function createChannelConfigApi({ flushBackendSave, channels, reloadChann
       const id = String(name || '').trim();
       const schedule = await getSchedule(id);
       if (!schedule) throw new Error(`schedule "${id}" does not exist`);
-      if (!schedule.prompt) throw new Error(`schedule "${id}" has no instructions`);
-      if (!schedule.model) throw new Error(`schedule "${id}" has no model configured — edit it and choose a model first`);
-      const result = await runNowDispatch()({
-        prompt: schedule.prompt,
-        preset: parseScheduleModelRef(schedule.model),
-        sourceName: schedule.name,
-        ...(schedule.cwd ? { cwd: schedule.cwd } : {}),
-      });
-      return { name: schedule.name, ok: true, result: String(result || '') };
+      // Runs in the engine process as a VISIBLE schedule session, so it works
+      // even while the channels worker is off and the run lands in Recent.
+      const { sessionId, result } = await runScheduleSession(schedule);
+      return { name: schedule.name, ok: true, sessionId, result };
     },
   };
 }

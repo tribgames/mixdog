@@ -32,6 +32,8 @@ export const DESKTOP_IPC = {
   dispose: 'mixdog:dispose',
   quit: 'mixdog:quit',
   state: 'mixdog:state',
+  sessionsChanged: 'mixdog:sessions-changed',
+  stateResync: 'mixdog:state-resync',
   perfLog: 'mixdog:perf-log',
   rendererReady: 'mixdog:renderer-ready',
   termEnsure: 'mixdog:term-ensure',
@@ -145,6 +147,23 @@ export interface DesktopEngineState extends Readonly<Record<string, unknown>> {
 // desktop status model. In particular, `thinking`/spinner modes describe live
 // work while statusdone/turndone items retain the core completion outcome.
 export type EngineSnapshot = Readonly<DesktopEngineState> | null;
+
+// Wire form of the `mixdog:state` push. Streaming publications replace the
+// full `items` array with an identity-prefix patch (settled transcript items
+// are immutable by identity in the host); the preload bridge reassembles the
+// full snapshot before listeners see it, so renderers keep consuming
+// EngineSnapshot. A `base` mismatch (window reload, missed event) triggers a
+// `mixdog:state-resync` request and the host restarts from a full snapshot.
+export interface DesktopStateItemsPatch {
+  base: number;
+  revision: number;
+  prefix: number;
+  append: DesktopTranscriptItem[];
+}
+export type DesktopStateWire = (DesktopEngineState & {
+  __itemsRevision?: number;
+  __itemsPatch?: DesktopStateItemsPatch;
+}) | null;
 
 export interface ToolApprovalDecision {
   approved: boolean;
@@ -419,6 +438,9 @@ export interface DesktopSessionSummary {
   preview: string;
   title: string;
   updatedAt: number;
+  /** User/assistant message count — the unread dot keys off GROWTH here, not
+   *  updatedAt, so housekeeping saves never re-dot an already-checked session. */
+  messageCount: number;
   cwd: string;
   classification: DesktopSessionClassification;
   projectPath: string | null;
@@ -444,6 +466,10 @@ export interface DesktopApi {
   setProjectPinned(projectPath: string, pinned: boolean): Promise<void>;
   removeProject(projectPath: string): Promise<void>;
   listSessions(): Promise<DesktopSessionSummary[]>;
+  /** Push channel: fires with a fresh catalog whenever the on-disk session
+   *  store changes (any mixdog process). Renderers fall back to their
+   *  safety-net poll when the host does not provide it (remote shim). */
+  subscribeSessions?(listener: (sessions: DesktopSessionSummary[]) => void): () => void;
   renameSession(sessionId: string, title: string): Promise<void>;
   deleteSession(sessionId: string): Promise<EngineSnapshot>;
   resumeSession(sessionId: string): Promise<EngineSnapshot>;

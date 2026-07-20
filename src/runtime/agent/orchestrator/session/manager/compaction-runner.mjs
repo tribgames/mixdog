@@ -270,7 +270,7 @@ export async function runSessionCompaction(session, opts = {}) {
     const targetBudgetTokens = alignedPolicy
         ? (compactTargetBudgetForPolicy({ ...alignedPolicy, force }) || boundary)
         : boundary;
-    const pressureTokens = estimateTranscriptContextUsage(messages, session.tools || []);
+    const pressureTokens = estimateTranscriptContextUsage(messages, session.tools || [], { provider: session.provider });
     const beforeTokens = pressureTokens;
     // Manual /compact may explicitly request the original semantic path:
     // summarize THIS session's transcript directly without hydrating/searching

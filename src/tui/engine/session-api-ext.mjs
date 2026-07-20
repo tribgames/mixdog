@@ -7,6 +7,8 @@ import { toolResultText } from './tool-result-text.mjs';
 import { parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
+import { aggregateToolCategoryEntry, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult } from '../../runtime/shared/tool-surface.mjs';
+import { aggregateBucketForCategory, aggregateRawResult, failureDetailText, shellCommandExitCode } from './tool-result-status.mjs';
 
 export function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
@@ -94,6 +96,108 @@ export function attachRestoredToolResult(message, pendingByCallId) {
   const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)) || '';
   target.result = text;
   if (/^\s*(?:error|\[error|failed\b)/i.test(text)) target.isError = true;
+}
+
+// Collapse a consecutive run (≥2) of restored per-call tool items into ONE
+// done aggregate item shaped exactly like the live turn's '__aggregate__'
+// card (turn.mjs completeAggregateVisual): merged category header counts,
+// per-call result summaries as the collapsed detail, raw bodies preserved
+// for expansion, failures/exits surfaced as 'N Ok · N Failed'/'Exit N'.
+function buildRestoredAggregateItem(members) {
+  const categories = new Map();
+  const categoryOrder = [];
+  const calls = [];
+  for (const { item, category } of members) {
+    const entry = aggregateToolCategoryEntry(item.name, item.args, category);
+    if (!categories.has(entry.key)) categoryOrder.push(entry.key);
+    const prev = categories.get(entry.key);
+    categories.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
+    const resultText = String(item.result ?? '');
+    // Mirror live outcome semantics: a plain non-zero shell exit is the
+    // neutral 'Exit N' state, not a red failure; only real call errors count.
+    const exitCode = shellCommandExitCode(resultText);
+    const isExitError = exitCode != null;
+    const isCallError = !isExitError && item.isError === true;
+    calls.push({
+      name: item.name,
+      args: item.args,
+      category,
+      isError: isCallError,
+      isCallError,
+      isExitError,
+      exitCode,
+      resultText,
+      resolved: true,
+      summary: !isCallError && resultText.trim()
+        ? summarizeToolResult(item.name, item.args, resultText, false)
+        : null,
+    });
+  }
+  const errors = calls.filter((r) => r.isError).length;
+  const callErrors = calls.filter((r) => r.isCallError).length;
+  const exitErrors = calls.filter((r) => r.isExitError).length;
+  const succeeded = Math.max(0, calls.length - errors - exitErrors);
+  const displayDetail = errors > 0 || exitErrors > 0
+    ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: calls.find((r) => r.isExitError)?.exitCode })
+    : formatAggregateDetail(calls.filter((r) => r.summary).map((r) => r.summary));
+  const rawResult = aggregateRawResult(calls);
+  const first = members[0].item;
+  const last = members[members.length - 1].item;
+  return {
+    kind: 'tool',
+    id: first.id,
+    name: '__aggregate__',
+    args: { categoryOrder },
+    aggregate: true,
+    categories: Object.fromEntries(categories),
+    doneCategories: aggregateDoneCategories(calls),
+    count: calls.length,
+    completedCount: calls.length,
+    isError: errors > 0,
+    errorCount: errors,
+    callErrorCount: callErrors,
+    exitErrorCount: exitErrors,
+    result: displayDetail,
+    text: displayDetail,
+    rawResult: rawResult || null,
+    expanded: false,
+    headerFinalized: true,
+    ...(first.at != null ? { at: first.at } : {}),
+    ...(first.startedAt != null ? { startedAt: first.startedAt } : {}),
+    ...(last.completedAt != null ? { completedAt: last.completedAt } : {}),
+  };
+}
+
+// Restored transcripts must mirror the live turn's category merging: the live
+// engine (turn.mjs) collapses consecutive same-bucket tool calls into one
+// aggregate card, but resume rebuilt one card per call, so a reopened session
+// un-merged every run (user bug). Walk the restored items and merge adjacent
+// tool cards whose aggregateBucketForCategory matches; any non-tool item
+// (user/assistant/turndone) is a block boundary, same as the live seal rule.
+// Runs of 1 keep the plain per-call card (its argument summary stays visible).
+// Agent cards never merge on restore: the live rule scopes Agent grouping to
+// a single provider batch, a boundary the stored history no longer carries.
+export function mergeRestoredToolItems(items) {
+  const merged = [];
+  let run = null; // { bucket, members: [{ item, category }] }
+  const flushRun = () => {
+    if (!run) return;
+    if (run.members.length >= 2) merged.push(buildRestoredAggregateItem(run.members));
+    else for (const member of run.members) merged.push(member.item);
+    run = null;
+  };
+  for (const item of items || []) {
+    const mergeable = item?.kind === 'tool' && item.aggregate !== true;
+    if (!mergeable) { flushRun(); merged.push(item); continue; }
+    const category = classifyToolCategory(item.name, item.args);
+    const bucket = category === 'Agent' ? '' : aggregateBucketForCategory(category);
+    if (!bucket) { flushRun(); merged.push(item); continue; }
+    if (run && run.bucket === bucket) { run.members.push({ item, category }); continue; }
+    flushRun();
+    run = { bucket, members: [{ item, category }] };
+  }
+  flushRun();
+  return merged;
 }
 
 export function createEngineApiB(bag) {
@@ -241,6 +345,26 @@ export function createEngineApiB(bag) {
       } finally {
         fsp.rm(audioPath, { force: true }).catch(() => undefined);
       }
+    },
+    // Desktop composer image attach: run the SAME optional-sharp resize
+    // pipeline the TUI paste path uses (<=2000x2000, 5MB-base64 token budget,
+    // identical no-sharp size errors) so both clients send identical image
+    // payloads to the provider.
+    resizeImage: async ({ data, mimeType = 'image/png', filename = '' } = {}) => {
+      const base64 = String(data || '');
+      if (!base64) throw new Error('resizeImage: image payload is required');
+      if (base64.length > 40_000_000) throw new Error('resizeImage: image too large');
+      const { imageAttachmentFromBuffer } = await import('../paste-attachments.mjs');
+      const attachment = await imageAttachmentFromBuffer(
+        Buffer.from(base64, 'base64'),
+        String(mimeType || 'image/png'),
+        { filename: String(filename || 'Pasted image') },
+      );
+      return {
+        data: attachment.content,
+        mimeType: attachment.mediaType,
+        metadataText: attachment.metadataText || '',
+      };
     },
     toggleVoice: async () => {
       const result = await toggleVoice({ pushNotice, setProgressHint });
@@ -425,6 +549,11 @@ export function createEngineApiB(bag) {
     setScheduleEnabled: async (name, enabled) => {
       const result = await runtime.setScheduleEnabled(name, enabled);
       pushNotice(`schedule ${enabled ? 'enabled' : 'disabled'}: ${name}`, 'info');
+      return result;
+    },
+    runScheduleNow: async (name) => {
+      const result = await runtime.runScheduleNow(name);
+      pushNotice(`schedule ran: ${name}`, 'info');
       return result;
     },
     saveWebhook: async (entry) => {
@@ -662,7 +791,9 @@ export function createEngineApiB(bag) {
           }
         }
         set({
-          items: replaceItems(items),
+          // Results above attach by mutating the per-call items in place, so
+          // the category-merge pass must run only now, after the full walk.
+          items: replaceItems(mergeRestoredToolItems(items)),
           toasts: [],
           queued: [],
           thinking: null,

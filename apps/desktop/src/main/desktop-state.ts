@@ -66,6 +66,7 @@ export function desktopSessionSummaries(
       preview,
       title: manualTitle || storedTitle || generatedSessionTitle(preview),
       updatedAt: Number(row.updatedAt) || 0,
+      messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
       cwd,
       classification,
       projectPath: classification === 'project' ? projectPath : null,

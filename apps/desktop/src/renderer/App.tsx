@@ -410,7 +410,12 @@ export function App() {
   // Layout persists across launches (user decision); a FRESH install opens
   // with the sidebar visible and the dock closed.
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-    try { return window.localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false"; }
+    try {
+      // Phone-width sessions (remote bridge in a mobile browser) start with
+      // the drawer closed so the conversation is the first thing on screen.
+      if (window.matchMedia?.("(max-width: 760px)").matches) return false;
+      return window.localStorage.getItem(SIDEBAR_OPEN_KEY) !== "false";
+    }
     catch { return true; }
   });
   useEffect(() => {
@@ -429,6 +434,14 @@ export function App() {
   const [dockOpen, setDockOpen] = useState<boolean>(() => readDockState().open);
   const [dockTab, setDockTab] = useState<UtilityDockTab>(() => readDockState().tab);
   const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
+  // Dock enter/exit animation (mirrors the left sidebar's 180ms slide): keep
+  // the panel mounted briefly after close so the width transition can play.
+  const [dockRender, setDockRender] = useState<boolean>(() => readDockState().open);
+  useEffect(() => {
+    if (dockOpen) { setDockRender(true); return undefined; }
+    const timer = window.setTimeout(() => setDockRender(false), 200);
+    return () => window.clearTimeout(timer);
+  }, [dockOpen]);
   // Review takes over the MAIN area (opencode session review-tab grammar):
   // a full-width pane, not a squeezed side dock. Resets per selection.
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -455,6 +468,9 @@ export function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
   const [sessions, setSessions] = useState<DesktopSessionSummary[]>([]);
+  // Recent-list unread dots: session ids whose stored updatedAt advanced while
+  // the session was not the viewed selection (Claude-style activity marker).
+  const [unreadSessionIds, setUnreadSessionIds] = useState<ReadonlySet<string>>(() => new Set());
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [selection, setSelection] = useState<NavigationSelection>({ kind: "new" });
   useEffect(() => {
@@ -638,6 +654,24 @@ export function App() {
     }
   }, [sidebarOpen]);
 
+  // Android hardware back (dispatched by remote-shim in the native shell):
+  // close the topmost mobile layer; unconsumed events minimize the app.
+  useEffect(() => {
+    const onHardwareBack = (event: Event) => {
+      if (sidebarOpen && window.innerWidth <= 760) {
+        setSidebarOpen(false);
+        event.preventDefault();
+        return;
+      }
+      if (dockOpen) {
+        setDockOpen(false);
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("mixdog:hardware-back", onHardwareBack);
+    return () => window.removeEventListener("mixdog:hardware-back", onHardwareBack);
+  }, [dockOpen, sidebarOpen]);
+
   const invoke = useCallback(async (action: () => unknown): Promise<void> => {
     setError("");
     try {
@@ -661,20 +695,93 @@ export function App() {
       setUpdaterState(next);
     });
   }, [invoke]);
-  const refreshSessions = useCallback(async () => {
-    const host = window.mixdogDesktop;
-    if (!host?.listSessions) return [];
-    const version = ++sessionRefreshVersion.current;
-    const next = await host.listSessions();
-    const rows = (Array.isArray(next) ? next : [])
+  const sessionLastSeen = useRef<Map<string, number> | null>(null);
+  // The session currently on screen (selection or in-flight switch target):
+  // reconcile must never dot it, and selectionRef lags behind a switch.
+  const viewedSessionRef = useRef("");
+  const loadSessionLastSeen = useCallback(() => {
+    if (sessionLastSeen.current) return sessionLastSeen.current;
+    const map = new Map<string, number>();
+    try {
+      // v2: values are SEEN MESSAGE COUNTS (not timestamps) — the legacy
+      // timestamp key is dropped so old values cannot masquerade as counts.
+      window.localStorage.removeItem("mixdog.desktop.session-last-seen");
+      const raw = window.localStorage.getItem("mixdog.desktop.session-seen-counts");
+      const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : null;
+      for (const [id, at] of Object.entries(parsed || {})) {
+        if (Number.isFinite(at)) map.set(id, Number(at));
+      }
+    } catch {
+      // Unread markers degrade to in-memory tracking without persistent storage.
+    }
+    sessionLastSeen.current = map;
+    return map;
+  }, []);
+  const persistSessionLastSeen = useCallback((map: Map<string, number>) => {
+    try {
+      window.localStorage.setItem(
+        "mixdog.desktop.session-seen-counts",
+        JSON.stringify(Object.fromEntries(map)),
+      );
+    } catch {
+      // Unread markers degrade to in-memory tracking without persistent storage.
+    }
+  }, []);
+  const reconcileUnreadSessions = useCallback((rows: DesktopSessionSummary[]) => {
+    const seen = loadSessionLastSeen();
+    const activeId = viewedSessionRef.current;
+    const liveIds = new Set(rows.map((row) => row.id));
+    let dirty = false;
+    for (const id of [...seen.keys()]) {
+      if (liveIds.has(id)) continue;
+      seen.delete(id);
+      dirty = true;
+    }
+    const unread = new Set<string>();
+    for (const row of rows) {
+      const count = Math.max(0, Number(row.messageCount) || 0);
+      const last = seen.get(row.id);
+      // First sighting (own new tasks included) and the viewed session are
+      // read by definition. Only MESSAGE GROWTH earns the dot afterwards —
+      // housekeeping saves (resume/switch/turn bookkeeping) bump updatedAt
+      // without new messages and must never re-dot a checked session.
+      if (last === undefined || row.id === activeId) {
+        if (last !== count) {
+          seen.set(row.id, count);
+          dirty = true;
+        }
+        continue;
+      }
+      if (count > last) unread.add(row.id);
+    }
+    if (dirty) persistSessionLastSeen(seen);
+    setUnreadSessionIds((current) => {
+      if (current.size === unread.size && [...unread].every((id) => current.has(id))) {
+        return current;
+      }
+      return unread;
+    });
+  }, [loadSessionLastSeen, persistSessionLastSeen]);
+  const projectSessionRows = useCallback((next: DesktopSessionSummary[] | null | undefined) => {
+    return (Array.isArray(next) ? next : [])
       .filter((session) => !pendingSessionDeletes.current.has(session.id))
       .map((session) => {
         const pending = pendingSessionRenames.current.get(session.id);
         return pending ? { ...session, title: pending.title } : session;
       });
-    if (version === sessionRefreshVersion.current) setSessions(rows);
-    return rows;
   }, []);
+  const refreshSessions = useCallback(async () => {
+    const host = window.mixdogDesktop;
+    if (!host?.listSessions) return [];
+    const version = ++sessionRefreshVersion.current;
+    const next = await host.listSessions();
+    const rows = projectSessionRows(next);
+    if (version === sessionRefreshVersion.current) {
+      setSessions(rows);
+      reconcileUnreadSessions(rows);
+    }
+    return rows;
+  }, [projectSessionRows, reconcileUnreadSessions]);
   const refreshProjects = useCallback(async () => {
     const host = window.mixdogDesktop;
     const listProjects = (host as {
@@ -690,6 +797,40 @@ export function App() {
       await Promise.all([refreshSessions(), refreshProjects()]);
     });
   }, [invoke, refreshProjects, refreshSessions]);
+  // Background sessions (channel/schedule runs) only surface through the
+  // cached session catalog. The push subscription below is the primary
+  // freshness path; this poll is a safety net (fast only when push is
+  // unavailable, e.g. the remote browser shim).
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshSessions().catch(() => undefined);
+    };
+    const pushCapable = typeof window.mixdogDesktop?.subscribeSessions === "function";
+    const timer = window.setInterval(refresh, pushCapable ? 60_000 : 15_000);
+    document.addEventListener("visibilitychange", refresh);
+    // Schedule surfaces (Run now / save) announce new background sessions
+    // immediately instead of waiting out the poll interval.
+    window.addEventListener("mixdog:sessions-refresh", refresh as EventListener);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("mixdog:sessions-refresh", refresh as EventListener);
+    };
+  }, [refreshSessions]);
+  // Instant sidebar: main watches the on-disk session store and pushes fresh
+  // catalogs (~0.5s debounce), so activity from any mixdog process lands here
+  // without waiting for a poll tick or an extra list round-trip.
+  useEffect(() => {
+    const host = window.mixdogDesktop;
+    if (typeof host?.subscribeSessions !== "function") return;
+    return host.subscribeSessions((next) => {
+      sessionRefreshVersion.current += 1; // in-flight polls must not overwrite
+      const rows = projectSessionRows(next);
+      setSessions(rows);
+      reconcileUnreadSessions(rows);
+    });
+  }, [projectSessionRows, reconcileUnreadSessions]);
   const refreshSessionsBestEffort = useCallback((
     selectCurrent = false,
   ) => {
@@ -1145,6 +1286,24 @@ export function App() {
     ? sessions.find((session) => session.id === navigationSelection.id)
     : undefined;
   const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
+  // Viewing a session consumes its unread marker.
+  const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";
+  useEffect(() => {
+    if (!viewedSessionId) return;
+    const seen = loadSessionLastSeen();
+    const row = sessions.find((session) => session.id === viewedSessionId);
+    const at = Math.max(row?.updatedAt || 0, seen.get(viewedSessionId) || 0);
+    if (at > 0 && seen.get(viewedSessionId) !== at) {
+      seen.set(viewedSessionId, at);
+      persistSessionLastSeen(seen);
+    }
+    setUnreadSessionIds((current) => {
+      if (!current.has(viewedSessionId)) return current;
+      const next = new Set(current);
+      next.delete(viewedSessionId);
+      return next;
+    });
+  }, [loadSessionLastSeen, persistSessionLastSeen, sessions, viewedSessionId]);
   const visibleSessionTitle = currentSessionTitle ||
     tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || "New task";
   const openHeaderTitleEditor = () => {
@@ -1295,6 +1454,7 @@ export function App() {
           open={sidebarOpen}
           sessions={sessions}
           busySessionId={isBusy ? String(snapshot.sessionId || "") : ""}
+          unreadSessionIds={unreadSessionIds}
           selection={navigationSelection}
           onNewTask={startTask}
           onOpenProjects={() => setProjectPanelOpen(true)}
@@ -1398,7 +1558,7 @@ export function App() {
             {switchingSessionId && <div className="session-switch-overlay" aria-hidden="true" />}
           </div>
         </main>
-        {dockOpen && <UtilityDock width={dockWidth} tab={dockTab}
+        {dockRender && <UtilityDock open={dockOpen} width={dockWidth} tab={dockTab}
           onTab={setDockTab} onResize={(value) => setDockWidth(clampDockWidth(value))}
           items={(visibleSnapshot.items || []) as TranscriptItem[]} snapshot={visibleSnapshot} />}
       </div>
@@ -3038,7 +3198,8 @@ function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
   return [...files.values()];
 }
 
-function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
+function UtilityDock({ open, width, tab, onTab, onResize, items, snapshot }: {
+  open: boolean;
   width: number;
   tab: UtilityDockTab;
   onTab(tab: UtilityDockTab): void;
@@ -3090,7 +3251,8 @@ function UtilityDock({ width, tab, onTab, onResize, items, snapshot }: {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
   };
-  return <aside className="utility-dock" style={{ width, flexBasis: width }} aria-label="Utility panel">
+  return <aside className={`utility-dock${open ? "" : " closing"}`}
+    style={{ width: open ? width : 0, flexBasis: open ? width : 0 }} aria-label="Utility panel">
     <div className="utility-dock-resize" role="separator" aria-orientation="vertical"
       aria-label="Resize utility panel" onPointerDown={startResize} />
     <nav className="utility-dock-tabs" aria-label="Utility panel tabs">

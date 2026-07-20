@@ -3,13 +3,13 @@
   "status": "PASS",
   "threshold": {
     "metric": "raw_p95_ms",
-    "max_ms": 48.653,
+    "max_ms": 47.112,
     "source": "checked-in baseline p95 * 1.5",
     "host_dependent": true,
     "baseline_path": "bench-results/tui-runtime-load-baseline.json",
-    "baseline_p95_ms": 32.435,
+    "baseline_p95_ms": 31.408,
     "baseline_regression_margin": 1.5,
-    "calibration_p95_ms": 20.599,
+    "calibration_p95_ms": 15.335,
     "calibration_role": "informational only"
   },
   "config": {
@@ -37,13 +37,13 @@
     "terminal_bytes": 382192
   },
   "frame_time": {
-    "p50_ms": 20.007,
-    "p95_ms": 31.408,
-    "max_ms": 33.45,
+    "p50_ms": 10.23,
+    "p95_ms": 12.327,
+    "max_ms": 20.585,
     "over_threshold_frames": 0
   },
-  "peak_rss_mb": 511.7,
-  "wall_ms": 2931.3,
+  "peak_rss_mb": 220.9,
+  "wall_ms": 1502.8,
   "runtime": {
     "node": "v22.20.0",
     "platform": "win32",

@@ -1,0 +1,17 @@
+{
+  "name": "@mixdog/relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mixdog remote relay: pairs phone clients with a desktop over outbound WebSockets.",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}

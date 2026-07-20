@@ -2,6 +2,7 @@ import {
   estimateRequestReserveTokens,
   estimateToolSchemaTokens,
   contextMessagesRevision,
+  providerTokenCalibration,
   resolveSessionCompactPolicy,
   summarizeContextMessages,
   toolSchemaSignature,
@@ -258,7 +259,10 @@ export function createContextStatus({
     const workerCompactPolicy = resolveWorkerCompactPolicy(session, requestTools);
     const compactPolicy = workerCompactPolicy?.boundaryTokens
       ? workerCompactPolicy
-      : resolveSessionCompactPolicy(session || {}, compactBoundaryTokens);
+      : {
+        ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
+        tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
+      };
     // Match the pre-provider-send auto-compact check exactly: the gauge uses
     // the same provider-baseline-or-estimate pressure, including request and
     // configured reserves, rather than a separate transcript-only estimate.

@@ -9,6 +9,11 @@ import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+// Match the production CLI (src/cli.mjs defaults NODE_ENV to production):
+// otherwise the bench measures react-reconciler's dev-build overhead that
+// real runs no longer pay.
+process.env.NODE_ENV ||= 'production';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const entry = join(ROOT, 'scripts', 'tui-runtime-load-bench-entry.jsx');
 const outfile = join(ROOT, 'scripts', '.tui-runtime-load-bench.tmp.mjs');

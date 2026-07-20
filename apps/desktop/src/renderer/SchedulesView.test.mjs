@@ -112,7 +112,9 @@ test('schedules pane lists schedules, gates pause on remote, and creates schedul
     name: 'weekly', description: '', time: '30 10 * * *', channel: '111', model: 'openai/gpt-test',
     instructions: 'Weekly digest.', enabled: true,
   });
-  assert.equal(document.querySelector('.schedules-dialog'), null,
+  // Boolean form: a failed equality against a DOM node would make the test
+  // reporter serialize the entire jsdom tree (observed as an OOM crash).
+  assert.equal(document.querySelector('.schedules-dialog') === null, true,
     'the editor should close after a successful save');
 });
 
