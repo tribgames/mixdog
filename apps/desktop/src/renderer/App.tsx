@@ -1926,6 +1926,17 @@ function Conversation({
     )}:${index}`,
     overscan: TRANSCRIPT_VIRTUAL_OVERSCAN,
     initialRect: { width: 800, height: 800 },
+    // Upward-wheel judder fix: when a row ABOVE the viewport measures larger
+    // than its estimate, compensate scrollTop by the delta so the visible
+    // content does not snap back while scrolling up. Rows below the viewport
+    // never need compensation.
+    // @ts-expect-error virtual-core 3.14 supports this option; the react
+    // adapter's PartialKeys type has not caught up.
+    shouldAdjustScrollPositionOnItemSizeChange: (
+      item: { start: number },
+      _delta: number,
+      instance: { scrollOffset: number | null },
+    ) => item.start < (instance.scrollOffset ?? 0),
   });
   const transcriptVirtualSize = transcriptVirtualizer.getTotalSize();
   const jumpToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
