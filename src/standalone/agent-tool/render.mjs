@@ -81,7 +81,11 @@ export function renderResult(value) {
       const isStartAck = value.status === 'running'
         && (value.type === 'spawn' || value.type === 'send');
       lines.push(`agent task: ${value.task_id}`);
-      lines.push(`status: ${value.status}`);
+      // Cancel/close acks can carry no status; never serialize a literal
+      // "status: undefined" into the envelope (the TUI card would titleize it).
+      if (value.status != null && String(value.status).trim() !== '') {
+        lines.push(`status: ${value.status}`);
+      }
       if (value.type) lines.push(`type: ${value.type}`);
       if (value.reused) lines.push('reused: true');
       if (value.respawned) lines.push('respawned: true');

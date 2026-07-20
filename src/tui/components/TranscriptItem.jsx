@@ -77,9 +77,10 @@ export const Item = React.memo(function Item({ item, prevKind, columns, toolOutp
         node = <ToolHookDenialCard item={item} columns={columns} />;
         break;
       }
-      // Consecutive tool cards stack without the blank separator row (user:
-      // list spacing read too airy); the first card after prose keeps it.
-      node = <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} callErrorCount={item.callErrorCount} exitErrorCount={item.exitErrorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={prevKind === 'tool'} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} doneCategories={item.doneCategories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} agentResponseAggregate={item.agentResponseAggregate} />;
+      // Every tool card keeps its one-row gap above (user reverted the earlier
+      // "stack consecutive cards flush" experiment: attached rows read broken).
+      // Keep transcript-window.mjs row estimation in sync (attachedTool=false).
+      node = <ToolExecution name={item.name} args={item.args} result={item.result} rawResult={item.rawResult} isError={item.isError} errorCount={item.errorCount} callErrorCount={item.callErrorCount} exitErrorCount={item.exitErrorCount} expanded={toolOutputExpanded || item.expanded} columns={columns} attached={false} count={item.count} completedCount={item.completedCount} startedAt={item.startedAt} completedAt={item.completedAt} aggregate={item.aggregate} categories={item.categories} doneCategories={item.doneCategories} headerFinalized={item.headerFinalized} deferredDisplayReady={item.deferredDisplayReady} agentResponseAggregate={item.agentResponseAggregate} />;
       break;
     }
     case 'notice':

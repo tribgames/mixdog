@@ -449,7 +449,10 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       // Agent/task result cards show only a one-liner; full report via ctrl+o.
       if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), AGENT_SURFACE_BRIEF_MAX);
       const task = /^agent task:\s*(\S+)/mi.exec(text);
-      const status = /^status:\s*([^\s(]+)/mi.exec(text);
+      const statusMatch = /^status:\s*([^\s(]+)/mi.exec(text);
+      // Defensive twin of the render-side guard: an envelope that still says
+      // "status: undefined"/"null" must not surface a titleized "Undefined".
+      const status = statusMatch && !/^(?:undefined|null)$/i.test(statusMatch[1]) ? statusMatch : null;
       const agent = /^agent:\s*(.+)$/mi.exec(text);
       const preset = /^preset:\s*(.+)$/mi.exec(text);
       const model = /^model:\s*(.+)$/mi.exec(text);

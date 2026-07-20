@@ -870,7 +870,7 @@ export function buildTranscriptRowIndex(items, {
     const item = streamingTailItem && i === allItems.length - 1
       ? streamingTailItem
       : allItems[i];
-    const attachedTool = item?.kind === 'tool' && allItems[i - 1]?.kind === 'tool';
+    const attachedTool = false; // gap restored: every tool card keeps marginTop 1 (see TranscriptItem)
     const measured = suppressMeasuredRowHeights
       ? null
       : measuredTranscriptRows(item, columns, toolOutputExpanded);
