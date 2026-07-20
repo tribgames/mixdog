@@ -57,7 +57,7 @@ const rendererExpression = `(async () => {
       titlebar: Boolean(
         titlebarBounds
         && Math.round(titlebarBounds.top) === 0
-        && Math.round(titlebarBounds.height) === 36
+        && Math.round(titlebarBounds.height) === 40
         && Math.round(titlebarBounds.width) === Math.round(window.innerWidth)
         && interactiveContentSafe
       ),

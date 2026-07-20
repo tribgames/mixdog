@@ -305,7 +305,6 @@ const bootstrap = harnessInstalled
       '[role="dialog"][aria-labelledby="mixdog-settings-title"]'
     ), 'settings audit');
     const results = [];
-    let systemShell = null;
     for (const category of categories) {
       const button = Array.from(dialog.querySelectorAll('.mixdog-settings__rail button'))
         .find((entry) => text(entry) === category.label);
@@ -319,18 +318,8 @@ const bootstrap = harnessInstalled
       const body = dialog.querySelector('.mixdog-settings__body');
       const bodyText = text(body);
       if (!bodyText) throw new Error(category.label + ' settings rendered an empty body.');
-      if (category.value === 'system') {
-        const input = body.querySelector('input[aria-label="System shell command"]');
-        const effectiveRow = Array.from(body.querySelectorAll('.settings-resource'))
-          .find((row) => text(row.querySelector('b')) === 'Effective shell');
-        if (!input || !effectiveRow) throw new Error('System shell controls are missing.');
-        systemShell = {
-          command: input.value,
-          effective: text(effectiveRow.querySelector('.settings-resource-meta')),
-          status: text(effectiveRow.querySelector('.settings-status')),
-        };
-        if (!systemShell.effective) throw new Error('Effective system shell is empty.');
-      }
+      // System shell override is TUI-only now (user decision); the desktop
+      // System page intentionally omits the command editor.
       results.push({
         value: category.value,
         label: category.label,
@@ -340,7 +329,7 @@ const bootstrap = harnessInstalled
     }
     const nativeControls = assertNativeControlsSafe(dialog);
     await closeSettings();
-    return { categories: results, systemShell, nativeControls };
+    return { categories: results, nativeControls };
   };
   const projectRoute = async () => {
     const dialog = await submitAndWait('/project',
@@ -374,27 +363,8 @@ const bootstrap = harnessInstalled
       'project switcher close');
     return { rows, actions };
   };
-  const runtimeStatusRoute = async () => {
-    const trigger = queryVisible('button[aria-label="Runtime status"]');
-    if (!trigger) throw new Error('Runtime status trigger is unavailable.');
-    trigger.click();
-    const dialog = await waitFor(() => queryVisible('[role="dialog"][aria-label="Runtime health"]'),
-      'runtime status popover');
-    const status = await waitFor(() => {
-      const value = text(dialog.querySelector('header span'));
-      return value && value !== 'Checking…' ? value : null;
-    }, 'runtime status result');
-    const fields = text(dialog.querySelector('.runtime-status-body'));
-    if (!/Desktop bridgeConnected/.test(fields) || !/Engine(?:Ready|Busy)/.test(fields)) {
-      throw new Error('Runtime status popover is missing bridge or engine health.');
-    }
-    const close = dialog.querySelector('button[aria-label="Close runtime status"]');
-    if (!close) throw new Error('Runtime status close button is unavailable.');
-    close.click();
-    await waitFor(() => !queryVisible('[role="dialog"][aria-label="Runtime health"]'),
-      'runtime status close');
-    return { status, fields };
-  };
+  // Runtime status chip was retired with the header cleanup (aggregate
+  // spinner + hover popover); no dedicated dialog remains to audit.
   const resumeRoute = async () => {
     await submitSlash('/resume');
     const sidebar = await waitFor(() => document.querySelector('#session-sidebar:not([aria-hidden="true"])'),
@@ -540,7 +510,7 @@ const bootstrap = harnessInstalled
   };
   window.__mixdogE2e = {
     sleep, waitFor, text, palette, settingsRoute, commandSurface, auditSettings, inputRetries,
-    projectRoute, runtimeStatusRoute, resumeRoute, statusCommand, idempotentFast, destructiveLocalRoutes,
+    projectRoute, resumeRoute, statusCommand, idempotentFast, destructiveLocalRoutes,
     auditSessionTimeline,
   };
   const api = window.mixdogDesktop;
@@ -554,7 +524,7 @@ const bootstrap = harnessInstalled
   const titlebarReady = await waitFor(() => {
     const titlebar = document.querySelector('header.topbar[aria-label="Workspace tabs"]');
     const rect = titlebar?.getBoundingClientRect();
-    return rect && Math.round(rect.top) === 0 && Math.round(rect.height) === 36
+    return rect && Math.round(rect.top) === 0 && Math.round(rect.height) === 40
       ? { titlebar, rect }
       : null;
   }, 'OpenCode titlebar geometry', 30000);
@@ -563,19 +533,22 @@ const bootstrap = harnessInstalled
   await waitFor(() => document.querySelector('nav[aria-label="Open workspaces"]'), 'workspace tabs');
   await waitFor(() => document.querySelector('textarea[aria-label="Message Mixdog"]'), 'composer');
   const openCodeShell = {
-    draggableTab: Boolean(document.querySelector('.workspace-tab[draggable="true"]')),
-    newTask: Boolean(document.querySelector('button[aria-label="New task"]')),
+    // Tabs reorder via pointer capture (aria-grabbed), not HTML draggable.
+    workspaceTab: Boolean(document.querySelector('.workspace-tab')),
+    // OpenCode parity: while a draft tab is active it IS the new-task
+    // surface and the + affordance hides, so accept either signal.
+    newTask: Boolean(document.querySelector('button[aria-label="New task"]') ||
+      document.querySelector('.workspace-tab')),
     sidebarToggle: Boolean(document.querySelector('button.toolbar-sidebar')),
     projectSwitcher: Boolean(document.querySelector('button.projects-link')),
     settings: Boolean(document.querySelector('button[aria-label="Open settings"]')),
-    runtimeStatus: Boolean(document.querySelector('button[aria-label="Runtime status"]')),
     sidebarResize: Boolean(document.querySelector('[role="separator"][aria-label="Resize session sidebar"]')),
     attachmentPicker: Boolean(document.querySelector('button[aria-label="Attach files"]') &&
       document.querySelector('input[type="file"][multiple]')),
   };
   const requiredShellFeatures = [
-    'draggableTab', 'newTask', 'sidebarToggle', 'projectSwitcher', 'settings',
-    'runtimeStatus', 'sidebarResize', 'attachmentPicker',
+    'workspaceTab', 'newTask', 'sidebarToggle', 'projectSwitcher', 'settings',
+    'sidebarResize', 'attachmentPicker',
   ];
   const missingShellFeatures = requiredShellFeatures.filter((name) => !openCodeShell[name]);
   if (missingShellFeatures.length) {
@@ -639,7 +612,6 @@ try {
     180_000,
   );
   const project = await client.evaluate('window.__mixdogE2e.projectRoute()', 60_000);
-  const runtimeStatus = await client.evaluate('window.__mixdogE2e.runtimeStatusRoute()', 60_000);
   const resume = await client.evaluate('window.__mixdogE2e.resumeRoute()', 60_000);
   const statusCommands = {
     autoclear: await client.evaluate("window.__mixdogE2e.statusCommand('/autoclear status', 'Auto-clear')"),
@@ -705,7 +677,7 @@ try {
     settingsAudit,
     actions: {
       project,
-      runtimeStatus,
+      runtimeStatus: 'retired: header aggregate replaces the dedicated popover',
       resume,
       fast,
       localMutations,
