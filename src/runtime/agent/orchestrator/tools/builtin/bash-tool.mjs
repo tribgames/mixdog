@@ -342,10 +342,11 @@ export async function executeBashTool(args, workDir, options = {}) {
     const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
     // Foreground blocking cap when timeout promotion is available. 600s let a
     // caller-supplied 10-15 min timeout hold the conversation synchronously
-    // for its whole span (user: sync calls hanging 10-20 minutes); 180s keeps
-    // real builds inline while anything longer detaches as a tracked job with
-    // the REMAINDER of the explicit timeout as its background deadline.
-    const MAX_BASH_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 180_000, DEFAULT_BASH_TIMEOUT_MS);
+    // for its whole span (user: sync calls hanging 10-20 minutes); 120s (the
+    // omitted-timeout default) keeps quick builds inline while anything longer
+    // detaches as a tracked job with the REMAINDER of the explicit timeout as
+    // its background deadline (user decision: 2 minutes).
+    const MAX_BASH_TIMEOUT_MS = Math.max(_envMaxTimeout > 0 ? _envMaxTimeout : 120_000, DEFAULT_BASH_TIMEOUT_MS);
     const defaultTimeoutMs = runInBackground
         ? DEFAULT_BACKGROUND_BASH_TIMEOUT_MS
         : DEFAULT_BASH_TIMEOUT_MS;
