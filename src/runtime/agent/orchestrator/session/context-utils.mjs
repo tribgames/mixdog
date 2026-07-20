@@ -75,8 +75,30 @@ function bpeEncoder() {
 const TOKEN_COUNT_CACHE_MIN_CHARS = 512;
 const TOKEN_COUNT_CACHE_MAX_ENTRIES = 1_024;
 const tokenCountCache = new Map();
+// BPE merge cost is quadratic in WORD length, not text length: a degenerate
+// single-word run ('p'.repeat(250k), base64/minified blobs) forms one giant
+// pat_str word and encode() spins for minutes while the event loop is blocked
+// (observed live via inspector: compact-smoke hung inside tiktoken encode).
+// Encoding fixed-size slices caps the worst-case word at the chunk size, so
+// cost stays linear; the only accuracy impact is ±1 token per boundary, well
+// inside the estimate's safety multiplier. Chunk edges avoid splitting a
+// surrogate pair so sliced emoji/CJK-ext code points still encode cleanly.
+const BPE_ENCODE_CHUNK_CHARS = 4_096;
+function bpeEncodeCount(enc, s) {
+    if (s.length <= BPE_ENCODE_CHUNK_CHARS) return enc.encode(s, undefined, []).length;
+    let total = 0;
+    let i = 0;
+    while (i < s.length) {
+        let end = Math.min(s.length, i + BPE_ENCODE_CHUNK_CHARS);
+        const last = s.charCodeAt(end - 1);
+        if (end < s.length && last >= 0xD800 && last <= 0xDBFF) end += 1;
+        total += enc.encode(s.slice(i, end), undefined, []).length;
+        i = end;
+    }
+    return total;
+}
 function bpeTokenCount(enc, s) {
-    if (s.length < TOKEN_COUNT_CACHE_MIN_CHARS) return enc.encode(s, undefined, []).length;
+    if (s.length < TOKEN_COUNT_CACHE_MIN_CHARS) return bpeEncodeCount(enc, s);
     const key = `${s.length}:${createHash('sha1').update(s).digest('base64')}`;
     const hit = tokenCountCache.get(key);
     if (hit !== undefined) {
@@ -84,7 +106,7 @@ function bpeTokenCount(enc, s) {
         tokenCountCache.set(key, hit);
         return hit;
     }
-    const count = enc.encode(s, undefined, []).length;
+    const count = bpeEncodeCount(enc, s);
     if (tokenCountCache.size >= TOKEN_COUNT_CACHE_MAX_ENTRIES) {
         tokenCountCache.delete(tokenCountCache.keys().next().value);
     }
