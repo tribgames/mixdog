@@ -159,7 +159,10 @@ function registerImagePreview(id: number, bytes: number, dataUrl: string) {
 // perceived lag is the renderer mounting every markdown/tool row at once.
 // Virtualize much earlier so long sessions paint a window, not the world.
 const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 32;
-const TRANSCRIPT_VIRTUAL_OVERSCAN = 12;
+// 20 rows: deeper premeasure above the viewport smooths upward scrolling
+// (rows arrive measured before they enter view) at ~1 extra frame of mount
+// cost on session open.
+const TRANSCRIPT_VIRTUAL_OVERSCAN = 20;
 
 function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number {
   if (!item) return 40;
@@ -2686,7 +2689,10 @@ export const TranscriptRow = memo(function TranscriptRow({
         {!user && !item.streaming && (text || completion) && <footer className="response-footer"
           aria-label="Response details">
           {completion && <CompletionStatus item={completion} />}
-          {metadata.shortTime && <time className="message-time">{metadata.shortTime}</time>}
+          {/* Timestamp marks the END of a turn: mid-turn assistant paragraphs
+              (tool calls still running) must not carry a clock (user). */}
+          {Boolean(completion) && metadata.shortTime &&
+            <time className="message-time">{metadata.shortTime}</time>}
           {text && <CopyControl value={text} label="Copy response"
             className="message-actions response-copy" />}
         </footer>}

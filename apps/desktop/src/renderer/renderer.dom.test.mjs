@@ -577,6 +577,9 @@ test("message metadata uses engine per-item fields and localized short timestamp
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "response-meta", kind: "assistant", text: "Done", at },
+    // Timestamps mark TURN END now: only the assistant row that carries the
+    // turn completion shows a clock.
+    completion: { id: "response-meta-done", kind: "turndone", at },
   })));
   assert.equal(document.querySelector(".response-footer .message-time")?.textContent, expected);
   assert.equal(document.querySelector(".response-footer [aria-label='Copy response']") != null, true);
@@ -1339,7 +1342,9 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
   assert.ok(virtualSpace, "long transcripts should use the virtual timeline");
   assert.ok(renderedRows.length > 0 && renderedRows.length < 80,
     `expected a bounded DOM window, rendered ${renderedRows.length} of ${items.length}`);
-  assert.ok(Number.parseFloat(virtualSpace.style.height) > 500_000,
+  // Length-proportional row estimates shrank the pre-measure spacer scale
+  // (short fixture rows estimate ~56px, not a fixed 160px).
+  assert.ok(Number.parseFloat(virtualSpace.style.height) > 250_000,
     "the virtual spacer should preserve access to the full transcript");
 });
 
