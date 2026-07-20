@@ -1597,6 +1597,11 @@ export function App() {
             {switchingSessionId && <div className="session-switch-overlay" aria-hidden="true" />}
           </div>
         </main>
+        {/* Phone: the dock floats over the thread, so give it the same
+            outside-tap dismiss scrim as the left drawer (CSS shows it only
+            on narrow viewports). */}
+        {dockOpen && <button className="dock-backdrop" onClick={() => setDockOpen(false)}
+          aria-label="Close utility panel" />}
         {dockRender && <UtilityDock open={dockOpen} width={dockWidth} tab={dockTab}
           onTab={setDockTab} onResize={(value) => setDockWidth(clampDockWidth(value))}
           items={(visibleSnapshot.items || []) as TranscriptItem[]} snapshot={visibleSnapshot} />}

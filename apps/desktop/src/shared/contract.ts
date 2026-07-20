@@ -11,6 +11,7 @@ export const DESKTOP_IPC = {
   removeProject: 'mixdog:remove-project',
   listSessions: 'mixdog:list-sessions',
   renameSession: 'mixdog:rename-session',
+  setSessionArchived: 'mixdog:set-session-archived',
   deleteSession: 'mixdog:delete-session',
   resumeSession: 'mixdog:resume-session',
   searchProjectFiles: 'mixdog:search-project-files',
@@ -445,6 +446,8 @@ export interface DesktopSessionSummary {
   classification: DesktopSessionClassification;
   projectPath: string | null;
   currentSession: boolean;
+  /** Codex-style archive: hidden from Recent, restorable; file stays on disk. */
+  archived?: boolean;
 }
 
 export interface DesktopProjectSummary {
@@ -471,6 +474,7 @@ export interface DesktopApi {
    *  safety-net poll when the host does not provide it (remote shim). */
   subscribeSessions?(listener: (sessions: DesktopSessionSummary[]) => void): () => void;
   renameSession(sessionId: string, title: string): Promise<void>;
+  setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   deleteSession(sessionId: string): Promise<EngineSnapshot>;
   resumeSession(sessionId: string): Promise<EngineSnapshot>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;

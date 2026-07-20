@@ -684,7 +684,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   position: absolute;
   z-index: 3;
   top: 2px;
-  right: 2px;
+  /* Mass-archive incident root cause: at right:2px the hover-revealed action
+     sat UNDER the list scrollbar, so scrollbar drags/misses clicked archive
+     row after row. Inset clear of the scrollbar band. */
+  right: 12px;
   height: 24px;
   padding-left: 12px;
   display: flex;
@@ -3770,9 +3773,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 @media (max-width: 760px) {
   /* Native shells draw edge-to-edge (Android 15 enforces it): pad the shell
      below the system status bar or the tab-bar buttons sit under it. */
-  .app-shell { padding-top: env(safe-area-inset-top, 0px); }
+  .app-shell {
+    padding-top: env(safe-area-inset-top, 0px);
+    /* ...and above the gesture bar, or the composer sits under it. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
   .desktop-body { padding-inline: 0; }
   .workspace { border-radius: 0; }
+  /* One slim header row: the 48px desktop session header doubles the 40px
+     tab bar on a phone; compress it and tighten its gutters. */
+  .session-header { flex-basis: 40px; min-height: 40px; }
+  .session-header-content { height: 40px; padding-inline: 12px; }
+  .thread { padding-inline: 12px; }
   /* Phone: the sidebar leaves the flex row and becomes a left drawer over
      the conversation — inline it left the thread ~130px on a 390px screen
      (user: "message pane not visible"). data-state drives the slide; the
@@ -3809,17 +3821,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .sidebar-backdrop {
     display: block;
     position: fixed;
-    inset: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px)) 0 0;
+    /* Whole-screen dim (user: a partial dim below the header read odd);
+       the PANEL still starts below the tab bar. */
+    inset: 0;
     z-index: 39;
     border: 0;
     padding: 0;
     background: var(--oc-scrim);
   }
   .session-sidebar-resize { display: none; }
-  /* Phone top bar: one live tab, no close/new-tab chrome (desktop tab
-     grammar reads clumsy on a phone). */
-  .workspace-tab-close, .titlebar-new { display: none; }
-  .workspace-tab { border: 0; box-shadow: none; background: transparent; }
+  /* Touch has no hover: tab close buttons must be always-on. */
+  .workspace-tab-close { opacity: 1; }
+  /* No OS caption buttons in a browser/native shell — the reserved strip
+     pushed the + affordance off a phone-width top bar. */
+  .titlebar-caption-space { display: none; }
   .oc-toast-region { width: calc(100vw - 32px); }
   .composer-region { padding-inline: 16px; }
   /* 16px input text stops the mobile-browser zoom-on-focus jump. */
@@ -5243,6 +5258,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .utility-dock-body[data-tab="terminal"] { padding: 0; overflow: hidden; background: #141312; }
 .dock-terminal { min-height: 0; height: 100%; padding: 8px 6px 8px 12px; }
 .dock-terminal .xterm { height: 100%; }
+/* Phone dock scrim: only the narrow-viewport media query displays it. */
+.dock-backdrop { display: none; }
 @media (max-width: 900px) {
   /* Narrow viewports: the dock (only rendered while open) floats as a right
      sheet over the thread instead of vanishing (user: no right panel on the
@@ -5253,11 +5270,23 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     top: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px));
     right: 0;
     bottom: 0;
-    width: min(92vw, 380px) !important;
+    /* Wider than the left drawer read as imbalance (user): cap at the
+       drawer's width so both sheets take the same bite of the screen. */
+    width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px)) !important;
     flex-basis: auto !important;
     max-width: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     border-radius: 10px 0 0 10px;
     box-shadow: var(--oc-overlay);
+  }
+  .dock-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 37;
+    border: 0;
+    padding: 0;
+    background: var(--oc-scrim);
   }
   /* Fixed sheet mode ignores inline width, so slide via transform instead. */
   .utility-dock { animation: utility-dock-sheet-in 200ms ease; }

@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  Archive,
   ArrowDown,
   Clock,
   Folder,
@@ -390,6 +391,8 @@ interface SessionSidebarProps {
   onOpenSettings(): void;
   onResumeSession(sessionId: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
+  /** Codex-style archive: the row leaves Recent but the session file stays. */
+  onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
   onDeleteSession(sessionId: string): Promise<void>;
 }
 
@@ -405,6 +408,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   onOpenSettings,
   onResumeSession,
   onRenameSession,
+  onArchiveSession,
   onDeleteSession,
 }: SessionSidebarProps) {
   const [editingSessionId, setEditingSessionId] = useState("");
@@ -430,7 +434,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   }, []);
   useEffect(() => () => document.body.classList.remove("session-sidebar-resizing"), []);
   const allRows = useMemo(() => sessions
-    .filter((session) => session.classification === "task" || session.classification === "project")
+    .filter((session) => (session.classification === "task" || session.classification === "project")
+      && session.archived !== true)
     .sort((left, right) =>
       right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)),
   [sessions]);
@@ -526,7 +531,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
               onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
               onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
-              onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession} />)}
+              onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
+              onArchiveSession={onArchiveSession} />)}
           </nav>
         </section>
       </div>
@@ -580,6 +586,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onSetMenu,
   onSetConfirming,
   onSetDeleting,
+  onArchiveSession,
   onDeleteSession,
 }: {
   session: DesktopSessionSummary;
@@ -601,6 +608,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onSetMenu: React.Dispatch<React.SetStateAction<string>>;
   onSetConfirming: React.Dispatch<React.SetStateAction<string>>;
   onSetDeleting: React.Dispatch<React.SetStateAction<string>>;
+  onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
   onDeleteSession(sessionId: string): Promise<void>;
 }) {
   return <SessionRow session={session} active={active} working={working}
@@ -608,6 +616,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
     editing={editingSessionId === session.id}
     titleDraft={sessionTitleDraft}
     titleInvalid={sessionTitleInvalid}
+    onArchiveSession={onArchiveSession}
     onTitleDraftChange={onTitleDraftChange}
     onStartRename={onStartRename}
     onCancelRename={onCancelRename}
@@ -658,6 +667,7 @@ const SessionRow = React.memo(function SessionRow({
   onStartDelete,
   onCancelDelete,
   onConfirmDelete,
+  onArchiveSession,
 }: {
   session: DesktopSessionSummary;
   active: boolean;
@@ -679,6 +689,7 @@ const SessionRow = React.memo(function SessionRow({
   onStartDelete(session: DesktopSessionSummary): void;
   onCancelDelete(): void;
   onConfirmDelete(session: DesktopSessionSummary): void;
+  onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
 }) {
   const resume = useCallback(() => onResumeSession(session.id), [onResumeSession, session.id]);
   const menuTrigger = useRef<HTMLButtonElement>(null);
@@ -771,18 +782,29 @@ const SessionRow = React.memo(function SessionRow({
                 </button>
               </>
             ) : (
-              // Direct delete affordance (user decision): the "..." menu and its
-              // rename entry are gone — hover shows one trash icon, and the
-              // existing X/✓ inline confirm still guards the actual delete.
-              <button type="button" className="session-row-action session-row-delete danger"
-                aria-label={`Delete ${sessionLabel(session)}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onStartDelete(session);
-                }}>
+              // Direct row actions (user decision, no "..." menu): archive
+              // hides the session from Recent (codex-style, restorable), the
+              // trash keeps its X/✓ inline confirm.
+              <>
+                <button type="button" className="session-row-action session-row-archive"
+                  aria-label={`Archive ${sessionLabel(session)}`} data-tooltip="Archive"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void onArchiveSession(session.id, true).catch(() => {});
+                  }}>
+            <Archive size={13} />
+                </button>
+                <button type="button" className="session-row-action session-row-delete danger"
+                  aria-label={`Delete ${sessionLabel(session)}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onStartDelete(session);
+                  }}>
             <Trash2 size={13} />
-              </button>
+                </button>
+              </>
             )}
           </div>
         </>

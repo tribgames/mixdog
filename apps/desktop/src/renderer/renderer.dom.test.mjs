@@ -3403,7 +3403,9 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(openCodeCss,
     /\.workspace-tab:not\(:first-child\):not\(\.active\)::before\s*\{[^}]*width:\s*1\.5px;[^}]*height:\s*12px;/s);
   assert.match(openCodeCss,
-    /\.session-row-actions\s*\{[^}]*position:\s*absolute;[^}]*right:\s*2px;[^}]*background:\s*transparent;/s);
+     // right:12px keeps the hover action clear of the list scrollbar band
+     // (mass-archive incident: drags landed on the action at right:2px).
+     /\.session-row-actions\s*\{[^}]*position:\s*absolute;[^}]*right:\s*12px;[^}]*background:\s*transparent;/s);
   assert.match(openCodeCss,
     /\.session-row:hover \.session-row-actions,[\s\S]*?\{[^}]*background:\s*linear-gradient\([\s\S]*?transparent 0,[\s\S]*?var\(--session-row-action-surface\) 10px,[\s\S]*?var\(--session-row-action-surface\) 100%[\s\S]*?\);[^}]*pointer-events:\s*auto;/s);
   // Selected rows must NOT pin the … actions open — they reveal on hover,

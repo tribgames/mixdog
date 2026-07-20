@@ -261,7 +261,8 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
     removeProject: (projectPath) => call('removeProject', [projectPath]),
     listSessions: () => call('listSessions'),
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
-    setSessionArchived: (sessionId, archived) => call('setSessionArchived', [sessionId, archived]),
+    setSessionArchived: (sessionId: string, archived: boolean) =>
+      call('setSessionArchived', [sessionId, archived]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
     resumeSession: (sessionId) => call('resumeSession', [sessionId]),
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
