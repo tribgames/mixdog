@@ -2,7 +2,7 @@
 // Periodic idle-session + tombstone sweep extracted verbatim from manager.mjs.
 // Drives sweepStaleSessions on an unref'd interval; closeSession is imported
 // from session-close.mjs (one-way dependency, no cycle).
-import { sweepStaleSessions } from '../store.mjs';
+import { sweepStaleSessions, evictIdleLiveSessions } from '../store.mjs';
 import { sweepOrphanedPendingMessages } from './pending-messages.mjs';
 import {
     _getRuntimeEntry,
@@ -149,6 +149,9 @@ export function _runCleanupCycle() {
     _sweepTerminalSessionRuntimes();
     sweepOrphanedPendingMessages();
     sweepIdleSessions({ includeTombstones: true });
+    // Reclaim same-process session snapshots whose state is durable on disk
+    // (memory-leak guard: _liveSessions used to grow for process lifetime).
+    try { evictIdleLiveSessions({ isSessionLive: _isSessionLive }); } catch { /* best-effort */ }
 }
 
 function _startCleanupInterval() {

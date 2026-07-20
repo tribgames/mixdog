@@ -178,3 +178,14 @@ export function sessionHasConversationMessages(activeSession) {
     return true;
   });
 }
+
+// Close-for-recreate tombstone gate. Tombstoned sessions are hard-deleted by
+// the 1h sweep, so any close that merely swaps the live session (tool-surface
+// refresh, MCP/skill/plugin change, mode switch, onboarding) must detach
+// (tombstone:false) whenever a real conversation exists — user history stays
+// permanent unless the user explicitly deletes it. liveTurnMessages covers an
+// in-flight first-turn prompt not yet committed to session.messages.
+export function tombstoneOnClose(activeSession) {
+  return !sessionHasConversationMessages(activeSession)
+    && !sessionHasConversationMessages({ messages: activeSession?.liveTurnMessages });
+}

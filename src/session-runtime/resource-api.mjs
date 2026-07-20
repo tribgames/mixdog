@@ -5,6 +5,7 @@ import {
   toolResponseText,
   isEmptyRecallText,
   currentSessionRecallRows,
+  tombstoneOnClose,
 } from './session-text.mjs';
 import {
   addPlugin as registryAddPlugin,
@@ -52,7 +53,7 @@ export function createResourceApi(deps) {
     }
     invalidatePreSessionToolSurface();
     const session = getSession();
-    if (session?.id) mgr.closeSession(session.id, 'cli-mcp-toggle');
+    if (session?.id) mgr.closeSession(session.id, 'cli-mcp-toggle', { tombstone: tombstoneOnClose(session) });
     // Recreate off the critical path (see removeMcpServer notes): the next
     // on-demand createCurrentSession dedupes onto this in-flight create.
     void recreateCurrentSessionIfReady().catch((err) => {
@@ -110,7 +111,7 @@ export function createResourceApi(deps) {
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-reconnect');
+      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-reconnect', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return status;
     },
@@ -125,7 +126,7 @@ export function createResourceApi(deps) {
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-add');
+      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-add', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return { name, status };
     },
@@ -156,7 +157,7 @@ export function createResourceApi(deps) {
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-remove');
+      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-remove', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return status;
     },
@@ -217,13 +218,13 @@ export function createResourceApi(deps) {
     async addSkill(input = {}) {
       const skill = addProjectSkill(input);
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-skill-add');
+      if (session?.id) mgr.closeSession(session.id, 'cli-skill-add', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return { skill, status: skillsStatus() };
     },
     async reloadSkills() {
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-skills-reload');
+      if (session?.id) mgr.closeSession(session.id, 'cli-skills-reload', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return skillsStatus();
     },
@@ -232,7 +233,7 @@ export function createResourceApi(deps) {
     },
     async reloadPlugins() {
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-plugins-reload');
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugins-reload', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return pluginsStatus();
     },
@@ -240,7 +241,7 @@ export function createResourceApi(deps) {
       const dataDir = cfgMod.getPluginData?.();
       const plugin = registryAddPlugin(source, { dataDir });
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-add');
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-add', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return { plugin, status: pluginsStatus() };
     },
@@ -249,7 +250,7 @@ export function createResourceApi(deps) {
       const dataDir = cfgMod.getPluginData?.();
       const updated = registryUpdatePlugin(key, { dataDir });
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-update');
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-update', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return { plugin: updated, status: pluginsStatus() };
     },
@@ -273,7 +274,7 @@ export function createResourceApi(deps) {
         invalidatePreSessionToolSurface();
       }
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-remove');
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-remove', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return { plugin: removed, status: pluginsStatus() };
     },
@@ -327,7 +328,7 @@ export function createResourceApi(deps) {
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-mcp-enable');
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-mcp-enable', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return { serverName, status };
     },

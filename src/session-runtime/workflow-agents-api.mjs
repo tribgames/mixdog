@@ -1,4 +1,4 @@
-import { clean, hasOwn, sessionHasConversationMessages } from './session-text.mjs';
+import { clean, hasOwn, sessionHasConversationMessages, tombstoneOnClose } from './session-text.mjs';
 import { isKnownProvider } from '../standalone/provider-admin.mjs';
 import {
   normalizeWorkflowRoute,
@@ -116,7 +116,7 @@ export function createWorkflowAgentsApi(deps) {
       if (defaultRoute) {
         setRouteState(resolveRoute(getConfig(), { provider: defaultRoute.provider, model: defaultRoute.model, effort: defaultRoute.effort }));
         const session = getSession();
-        if (session?.id) mgr.closeSession(session.id, 'cli-onboarding-complete');
+        if (session?.id) mgr.closeSession(session.id, 'cli-onboarding-complete', { tombstone: tombstoneOnClose(session) });
         await recreateCurrentSessionIfReady();
       }
       return this.getOnboardingStatus();

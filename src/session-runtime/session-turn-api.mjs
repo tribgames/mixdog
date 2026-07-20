@@ -1,4 +1,4 @@
-import { clean } from './session-text.mjs';
+import { clean, tombstoneOnClose } from './session-text.mjs';
 import { envFlag } from './env.mjs';
 import { normalizeToolMode } from './effort.mjs';
 import {
@@ -295,7 +295,7 @@ export function createSessionTurnApi(deps) {
       setMode(mode);
       invalidatePreSessionToolSurface();
       const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-mode-switch');
+      if (session?.id) mgr.closeSession(session.id, 'cli-mode-switch', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
       return mode;
     },

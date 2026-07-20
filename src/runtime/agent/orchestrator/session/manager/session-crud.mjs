@@ -2,7 +2,7 @@
 // Session read + mutate CRUD extracted verbatim from manager.mjs: lookup
 // (getSession/listSessions/findSessionByScopeKey), message clear (with
 // clear-fork), manual compaction, status update, and metric flush.
-import { loadSession, saveSessionAsync, setLiveSession, listStoredSessionSummaries } from '../store.mjs';
+import { loadSession, saveSessionAsync, setLiveSession, evictLiveSession, listStoredSessionSummaries } from '../store.mjs';
 import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE, SUMMARY_PREFIX } from '../compact.mjs';
 import { runSessionCompaction } from './compaction-runner.mjs';
@@ -125,8 +125,8 @@ export async function clearSessionMessages(sessionId, options = {}) {
         }
     }
     const afterMessageTokens = estimateMessagesTokens(keep);
-    const beforeTokens = estimateTranscriptContextUsage(messages, session.tools || []);
-    const afterTokens = estimateTranscriptContextUsage(keep, session.tools || []);
+    const beforeTokens = estimateTranscriptContextUsage(messages, session.tools || [], { provider: session.provider });
+    const afterTokens = estimateTranscriptContextUsage(keep, session.tools || [], { provider: session.provider });
     const now = Date.now();
     // --- Fork the outgoing transcript to a separate resumable session BEFORE
     // the wipe below. Runs for every clear path (plain /clear, auto-clear,
@@ -174,7 +174,14 @@ export async function clearSessionMessages(sessionId, options = {}) {
             };
             delete fork.liveTurnMessages;
             setLiveSession(fork);
-            void saveSessionAsync(fork).catch((err) => {
+            void saveSessionAsync(fork).then(() => {
+                // The fork is a cold snapshot kept for /resume. Once durable on
+                // disk it must not pin a full transcript copy (image bytes
+                // included) in the same-process cache for the rest of the
+                // process lifetime — this was the largest _liveSessions leak
+                // (one whole conversation retained per clear).
+                evictLiveSession(forkId);
+            }).catch((err) => {
                 try { process.stderr.write(`[session] clear-fork save failed (sess=${forkId}): ${err?.message || err}\n`); } catch { /* best-effort */ }
             });
         } catch (err) {

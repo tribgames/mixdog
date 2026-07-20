@@ -66,6 +66,7 @@ function _ensureSummaryCacheDataDir() {
     if (_summaryCacheDataDir === dataDir) return;
     _summaryCacheDataDir = dataDir;
     _summaryRowsCache = null;
+    _summaryScanCache.clear();
     _summaryCacheUpserts.clear();
     _summaryCacheRemovals.clear();
     _summaryCacheVersions.clear();
@@ -220,6 +221,72 @@ export function setLiveSession(session) {
 
 function _clearLiveSession(id) {
     if (id) _liveSessions.delete(id);
+}
+
+/** True while any pending/in-flight persistence still references this id. */
+function _hasPendingPersistence(id) {
+    if (_savePending.has(id) || _saveAsyncInflight.has(id) || _saveAsyncQueued.has(id)) return true;
+    for (const [, pending] of _deferredSessionSaves) {
+        if (pending?.session?.id === id) return true;
+    }
+    return false;
+}
+
+/**
+ * Drop one session's same-process snapshot once its state is durable on disk.
+ * No-op while any write for the id is still pending/in flight.
+ */
+export function evictLiveSession(id) {
+    if (!id || _hasPendingPersistence(id)) return false;
+    return _liveSessions.delete(id);
+}
+
+// Live snapshots that still carry raw media bytes (images are placeholder'd
+// in the persisted JSON) stay resident for this long after their last use so
+// multi-turn image recognition keeps working across an idle gap. Beyond the
+// TTL the memory cost wins and the snapshot is reclaimed like any other.
+const LIVE_MEDIA_RETENTION_MS = 60 * 60 * 1000; // 1h
+
+function _messagesCarryLiveMedia(messages) {
+    if (!Array.isArray(messages)) return false;
+    for (const m of messages) {
+        if (!m || typeof m !== 'object') continue;
+        if (sanitizeContentForStoredHistory(m.content) !== m.content) return true;
+    }
+    return false;
+}
+
+/**
+ * Idle sweep for the same-process snapshot cache. _liveSessions previously
+ * grew without bound — every clear-fork and every touched user session pinned
+ * its FULL message array (image bytes included) for process lifetime, the
+ * observed multi-GB RSS leak. Disk is the source of truth for anything not
+ * actively owned by this process, so an entry is dropped when it (a) has no
+ * live runtime owner, (b) has no pending persistence, and (c) already exists
+ * on disk — loadSession then falls back to the session file. Media-carrying
+ * snapshots get a grace TTL (see LIVE_MEDIA_RETENTION_MS) because eviction is
+ * lossy for them; text-only snapshots evict losslessly right away.
+ */
+export function evictIdleLiveSessions(options = {}) {
+    const isSessionLive = typeof options.isSessionLive === 'function' ? options.isSessionLive : null;
+    const now = Date.now();
+    let evicted = 0;
+    for (const [id, session] of [..._liveSessions.entries()]) {
+        if (isSessionLive && isSessionLive(id)) continue;
+        if (_hasPendingPersistence(id)) continue;
+        if (!existsSync(sessionPath(id))) continue;
+        if (_messagesCarryLiveMedia(session?.messages)) {
+            const lastActive = Math.max(session?.updatedAt || 0, session?.lastUsedAt || 0);
+            if (lastActive > 0 && now - lastActive <= LIVE_MEDIA_RETENTION_MS) continue;
+        }
+        _liveSessions.delete(id);
+        // With no pending persistence the rollback-race version counter for
+        // this id is dead weight — reclaim it too (it regrows from 1 on the
+        // next save, which is safe precisely because nothing is in flight).
+        _summaryCacheVersions.delete(id);
+        evicted++;
+    }
+    return evicted;
 }
 
 const _deleteHeartbeat = deleteHeartbeat;
@@ -977,7 +1044,21 @@ export function loadSession(id) {
         if (inMemory?.id === id) return _ensureLifecycleFields(inMemory);
     }
     const live = _liveSessions.get(id);
-    if (live?.id === id) return _ensureLifecycleFields(live);
+    if (live?.id === id) {
+        // Terminal ↔ desktop interop: `generation` only moves on close/detach
+        // (markSessionClosed / bumpSessionGeneration). A disk record with a
+        // HIGHER generation means another process took ownership of this
+        // session after our snapshot was cached — the local copy is stale and
+        // must not shadow the newer on-disk transcript (its late saves would
+        // be dropped by _shouldDrop's ownership rule anyway).
+        const liveGen = typeof live.generation === 'number' ? live.generation : 0;
+        const storedGen = stored && typeof stored.generation === 'number' ? stored.generation : 0;
+        if (stored && storedGen > liveGen) {
+            _liveSessions.delete(id);
+        } else {
+            return _ensureLifecycleFields(live);
+        }
+    }
     return stored ? _ensureLifecycleFields(stored) : null;
 }
 
@@ -1110,9 +1191,82 @@ function _withUnpersistedSessions(stored, invalidStorageIds = new Set()) {
     return [...sessionsById.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+// ── Incremental storage scan ────────────────────────────────────────────────
+// refreshFromStorage used to re-parse EVERY session JSON (full transcripts,
+// multi-MB files) on each desktop sidebar refresh. A summary only changes when
+// its file changes, so key a per-file row cache on (mtimeMs, size): unchanged
+// files reuse the cached row, changed/new files re-parse, vanished files drop
+// out. Storage stays the truth source — the sidecar index is never trusted.
+const _summaryScanCache = new Map(); // filename → { mtimeMs, size, row|null }
+
+function _scanStoredSessionSummaryRows() {
+    const dir = getStoreDir();
+    if (!existsSync(dir)) {
+        const changed = _summaryScanCache.size > 0;
+        _summaryScanCache.clear();
+        return { rows: [], invalidStorageIds: new Set(), changed };
+    }
+    const files = readdirSync(dir).filter(f => f.endsWith('.json'));
+    const present = new Set(files);
+    let changed = false;
+    for (const key of [..._summaryScanCache.keys()]) {
+        if (!present.has(key)) {
+            _summaryScanCache.delete(key);
+            changed = true;
+        }
+    }
+    const rows = [];
+    const invalidStorageIds = new Set();
+    const markInvalid = (filename) => {
+        const storageId = filename.slice(0, -5);
+        if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
+    };
+    for (const f of files) {
+        let fileStat = null;
+        try { fileStat = statSync(join(dir, f)); } catch { /* deleted mid-scan */ }
+        if (!fileStat) {
+            if (_summaryScanCache.delete(f)) changed = true;
+            continue;
+        }
+        const cached = _summaryScanCache.get(f);
+        if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) {
+            if (cached.row) rows.push(cached.row);
+            else markInvalid(f);
+            continue;
+        }
+        const session = _storedSessionFromFile(dir, f);
+        const row = session ? _sessionSummary(session) : null;
+        _summaryScanCache.set(f, { mtimeMs: fileStat.mtimeMs, size: fileStat.size, row });
+        changed = true;
+        if (row) rows.push(row);
+        else markInvalid(f);
+    }
+    rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return { rows, invalidStorageIds, changed };
+}
+
+// Summary-level twin of _withUnpersistedSessions: overlay queued/in-flight
+// saves that have no disk record yet (read-your-writes for brand-new sessions).
+function _overlayUnpersistedSummaryRows(rows, invalidStorageIds = new Set()) {
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const addIfUnpersisted = (id, session, opts) => {
+        if (!id || byId.has(id) || invalidStorageIds.has(id) || _isCancelledWrite(opts)) return;
+        if (session?.id !== id) return;
+        const row = _sessionSummary(_ensureLifecycleFields(session));
+        if (row) byId.set(id, row);
+    };
+    for (const [id, pending] of _savePending) {
+        const payload = pending.queued || pending.payload;
+        addIfUnpersisted(id, payload?.session, payload?.opts);
+    }
+    for (const [, pending] of _saveWorkerPending) addIfUnpersisted(pending.id, pending.session, pending.opts);
+    for (const [id, pending] of _saveAsyncQueued) addIfUnpersisted(id, pending.session, pending.opts);
+    return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+}
+
 export function rebuildSessionSummaryIndex() {
     _ensureSummaryCacheDataDir();
-    const rows = listStoredSessions().map(_sessionSummary).filter(Boolean);
+    const { rows } = _scanStoredSessionSummaryRows();
     return _setSummaryRowsCache(_writeSummaryIndex(rows));
 }
 
@@ -1124,11 +1278,14 @@ export function listStoredSessionSummaries(options = {}) {
     // authorization), so it must not trust either the cache or sidecar.
     if (options.refreshFromStorage === true) {
         try {
-            const invalidStorageIds = new Set();
-            const stored = listStoredSessions({ _invalidStorageIds: invalidStorageIds });
-            const persistedRows = stored.map(_sessionSummary).filter(Boolean);
-            const rows = _withUnpersistedSessions(stored, invalidStorageIds).map(_sessionSummary).filter(Boolean);
-            try { _writeSummaryIndex(persistedRows); } catch { /* sidecar remains best-effort */ }
+            const { rows: persistedRows, invalidStorageIds, changed } = _scanStoredSessionSummaryRows();
+            const rows = _overlayUnpersistedSummaryRows(persistedRows, invalidStorageIds);
+            // Unchanged scans skip the sidecar rewrite — refresh is called on
+            // every sidebar poll/push and must not grind a multi-MB atomic
+            // write when no session actually changed.
+            if (changed) {
+                try { _writeSummaryIndex(persistedRows); } catch { /* sidecar remains best-effort */ }
+            }
             // A direct scan settles deletion state too; retain only active
             // optimistic write overlays, never a stale local removal.
             _summaryCacheRemovals.clear();
