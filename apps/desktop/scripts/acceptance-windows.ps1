@@ -203,14 +203,32 @@ try {
     }
   } | Out-Null
 
+  # Base CDP port. A force-killed Electron can leave a ghost LISTEN socket
+  # (dead owner PID) that blocks bind() until reboot — probe upward for a
+  # port with no listener instead of failing on the fixed one.
   $port = 9337
+  while (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) { $port += 1 }
   $debugUserDataDir = Join-Path $distDir 'acceptance-cdp-user-data'
+  # A previous failed run can leave the packaged app alive holding the CDP
+  # port and the debug user-data single-instance lock; clear it first.
+  Get-Process Mixdog -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 1
   Remove-Item -LiteralPath $debugUserDataDir -Recurse -Force -ErrorAction SilentlyContinue
   $launchWatch = [Diagnostics.Stopwatch]::StartNew()
+  # Redirect the packaged app's console output: a GUI-subsystem Electron child
+  # otherwise inherits this console's handles and its updater/main logs bleed
+  # into the operator's terminal (over the TUI running in the same window).
   $appProcess = Start-Process -FilePath $installedExe -ArgumentList @(
     "--remote-debugging-port=$port", "--user-data-dir=$debugUserDataDir"
-  ) -PassThru
-  $deadline = [DateTime]::UtcNow.AddSeconds(30)
+  ) -PassThru -RedirectStandardOutput (Join-Path $distDir 'acceptance-app.stdout') `
+    -RedirectStandardError (Join-Path $distDir 'acceptance-app.stderr')
+  # Cache the process handle NOW: without it a process that exits before any
+  # WaitForExit call reports ExitCode $null (the app-exit step then read
+  # "exited with <empty>" and failed a healthy shutdown).
+  $null = $appProcess.Handle
+  # First launch of a freshly signed build gets a one-time Defender/SmartScreen
+  # scan of the 190MB package; allow well past the scan before failing.
+  $deadline = [DateTime]::UtcNow.AddSeconds(120)
   $target = $null
   do {
     Start-Sleep -Milliseconds 100
