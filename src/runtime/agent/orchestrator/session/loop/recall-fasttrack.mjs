@@ -213,6 +213,7 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
         recallText: digestText,
         query,
         querySha,
+        cwd: sessionRef?.cwd,
         // Ingest + search both succeeded above, so the memory DB genuinely holds
         // this transcript and the recall notice is truthful even when the digest
         // body is small. A failure would have aborted before reaching here.

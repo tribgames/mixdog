@@ -322,6 +322,7 @@ export async function runSessionCompaction(session, opts = {}) {
                 recallText: recallPayload.recallText,
                 query: recallPayload.query,
                 querySha: recallPayload.querySha,
+                cwd: session.cwd,
                 // Ingest just ran on the live transcript, so an empty recall dump
                 // means the memory pipeline is broken — do NOT erase history
                 // behind an empty summary shell. Empty recall now throws and is
@@ -358,6 +359,7 @@ export async function runSessionCompaction(session, opts = {}) {
                             reserveTokens,
                             providerName: session.provider || provider?.name || null,
                             sessionId: opts.sessionId || session.id || null,
+                            cwd: session.cwd,
                             signal: opts.signal || null,
                             promptCacheKey: session.promptCacheKey || null,
                             providerCacheKey: session.promptCacheKey || null,
@@ -402,6 +404,7 @@ export async function runSessionCompaction(session, opts = {}) {
                     reserveTokens,
                     providerName: session.provider || provider?.name || null,
                     sessionId: opts.sessionId || session.id || null,
+                    cwd: session.cwd,
                     signal: opts.signal || null,
                     promptCacheKey: session.promptCacheKey || null,
                     providerCacheKey: session.promptCacheKey || null,

@@ -323,6 +323,23 @@ export function createSessionTurnApi(deps) {
       if (getActiveTurnCount() > 0) return [];
       try { return mgr.drainForeignUserInjections?.(session.id) || []; } catch { return []; }
     },
+    // Interactive-presence beacon (engine share tick): mark the CURRENT
+    // session as held open by this live surface — idle time included — so a
+    // cross-open from another surface attaches as a viewer instead of
+    // splitting ownership into two writers. No-op while THIS surface is the
+    // viewer. Returns the held id so the caller can clear a previous
+    // session's beacon after a switch.
+    publishSessionPresence() {
+      const session = getSession();
+      if (!session?.id || session.remoteAttached) return null;
+      try { mgr.publishSessionPresence?.(session.id); } catch { /* best-effort */ }
+      return session.id;
+    },
+    clearSessionPresence(id) {
+      const target = id || getSession()?.id;
+      if (!target) return;
+      try { mgr.deleteSessionPresence?.(target); } catch { /* best-effort */ }
+    },
     agentControl(args = {}) {
       const session = getSession();
       const callerSessionId = session?.id || null;

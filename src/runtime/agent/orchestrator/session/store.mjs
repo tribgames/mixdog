@@ -15,7 +15,7 @@ import { sanitizeContentForStoredHistory } from '../providers/media-normalizatio
 import { scanTopLevelLifecycle } from './lifecycle-scan.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../../../../lib/mixdog-debug.cjs';
 import { resolveAgentTerminalReapMs } from '../../../../session-runtime/config-helpers.mjs';
-import { getStoreDir, sessionPath, publishHeartbeat, deleteHeartbeat } from './store/paths-heartbeat.mjs';
+import { getStoreDir, sessionPath, publishHeartbeat, deleteHeartbeat, deleteSessionPresence } from './store/paths-heartbeat.mjs';
 import {
     guardedSaveOptions as _guardedSaveOptions,
     cancelSessionWrites as _cancelSessionWrites,
@@ -46,7 +46,13 @@ export {
     _upsertSessionSummary,
     _removeSessionSummary,
 } from './store-summary-index.mjs';
-export { publishHeartbeat, deleteHeartbeat } from './store/paths-heartbeat.mjs';
+export {
+    publishHeartbeat,
+    deleteHeartbeat,
+    publishSessionPresence,
+    deleteSessionPresence,
+    readSessionPresenceMtime,
+} from './store/paths-heartbeat.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
 
@@ -465,16 +471,21 @@ function _getOrSpawnWorker() {
     if (_saveWorker) return _saveWorker;
     _saveWorker = new Worker(new URL('./save-session-worker.mjs', import.meta.url), {
         execArgv: [],
-        // Worker-thread stdout/stderr default to COPYING into the process's
-        // real fds, bypassing the TUI's process.stderr.write guard and
-        // printing over the terminal frame. Capture both and route through the
-        // parent's (guardable) stderr stream instead.
-        stdout: true,
-        stderr: true,
     });
-    _saveWorker.stdout?.on('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
-    _saveWorker.stderr?.on('data', (chunk) => { try { process.stderr.write(chunk); } catch { /* best-effort */ } });
-    _saveWorker.on('message', ({ ok, saved, error, reqId }) => {
+    // Worker logs arrive as `{ __log }` messages, NOT via piped stdio
+    // (stdout:true/stderr:true): once the parent starts reading a worker's
+    // piped stdio, the underlying MessagePort stays ref'd for the worker's
+    // lifetime regardless of worker.unref(), so every process that ever
+    // saved a session could no longer exit (test runners hung after
+    // completion). The worker overrides its own process.stdout/stderr.write
+    // to forward through this channel, which keeps stray prints off the TUI
+    // frame (routed through the parent's guardable stderr) without holding
+    // the event loop.
+    _saveWorker.on('message', ({ __log, ok, saved, error, reqId }) => {
+        if (__log !== undefined) {
+            try { process.stderr.write(String(__log)); } catch { /* best-effort */ }
+            return;
+        }
         const p = _saveWorkerPending.get(reqId);
         if (!p) return;
         _saveWorkerPending.delete(reqId);
@@ -1162,6 +1173,7 @@ export function deleteSession(id, options = {}) {
     }
     // Preserve a sidecar published strictly after the sweep's scan snapshot.
     _deleteHeartbeatUnlessNewer(id, options);
+    deleteSessionPresence(id);
     _clearLiveSession(id);
     if (removed || !existsSync(path)) clearSessionSaveError(id);
     // deferSummaryUpdate: bulk callers (tombstone sweep) remove thousands of
@@ -1757,14 +1769,14 @@ export function sweepStaleSessions(ttlMs, options = {}) {
             } catch { kept++; }
         }
     }
-    // Orphan .hb reap: a heartbeat sidecar whose .json no longer exists is dead
-    // weight once it is also stale (older than maxAge) — the session JSON was
-    // swept/closed but the .hb lingered (a pre-fix orphaned heartbeat). The
-    // staleness gate avoids nuking the .hb of a session mid-create whose .json
-    // write has not landed yet.
+    // Orphan .hb/.own reap: a heartbeat/presence sidecar whose .json no longer
+    // exists is dead weight once it is also stale (older than maxAge) — the
+    // session JSON was swept/closed but the sidecar lingered (crashed owner or
+    // pre-fix orphan). The staleness gate avoids nuking the sidecar of a
+    // session mid-create whose .json write has not landed yet.
     try {
-        for (const h of readdirSync(dir).filter(f => f.endsWith('.hb'))) {
-            if (existsSync(join(dir, h.replace(/\.hb$/, '.json')))) continue;
+        for (const h of readdirSync(dir).filter(f => f.endsWith('.hb') || f.endsWith('.own'))) {
+            if (existsSync(join(dir, h.replace(/\.(hb|own)$/, '.json')))) continue;
             let hbMtime = 0;
             try { hbMtime = statSync(join(dir, h)).mtimeMs; } catch { continue; }
             if (now - hbMtime > maxAge) {

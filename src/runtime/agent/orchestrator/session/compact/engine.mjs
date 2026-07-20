@@ -48,6 +48,37 @@ import {
     RECALL_TAIL_TRUNCATION_MARKER,
     RECALL_TAIL_SHORT_TRUNCATION_MARKER,
 } from './summary.mjs';
+import { buildPostCompactFileAttachment } from './file-reattach.mjs';
+
+// Post-compact file re-attachment (claude-code parity): re-inject fresh reads
+// of files the summarized-away head was working with, when they still fit the
+// budget. Applied identically by the semantic and recall-fasttrack paths.
+// Follows the `Reference files:` + assistant `.` ack convention from
+// session-lifecycle.mjs so provider turn alternation and ingest exclusion
+// both hold. Best-effort: on any failure the plain result stands.
+function withFileReattachment(result, finalTokens, budget, headMessages, tailMessages, cwd) {
+    try {
+        const attachment = buildPostCompactFileAttachment(
+            headMessages,
+            tailMessages,
+            budget - finalTokens,
+            { cwd },
+        );
+        if (!attachment) return { result, finalTokens, reattached: false };
+        const summaryIdx = result.length - tailMessages.length;
+        const augmented = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs([
+            ...result.slice(0, summaryIdx),
+            attachment,
+            { role: 'assistant', content: '.' },
+            ...result.slice(summaryIdx),
+        ])));
+        const augmentedTokens = estimateMessagesTokens(augmented);
+        if (augmentedTokens > budget) return { result, finalTokens, reattached: false };
+        return { result: augmented, finalTokens: augmentedTokens, reattached: true };
+    } catch {
+        return { result, finalTokens, reattached: false };
+    }
+}
 
 const DEFAULT_TAIL_TURNS = 2;
 const COMPACTION_PROMPT_HEADROOM = 0.85;
@@ -433,10 +464,15 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     // is both measured and emitted in redacted form.
     let result = sanitizeToolPairs([...selected.system, summaryMessage, ...selected.tail]);
     result = reconcileDedupStubs(dedupToolResultBodies(result));
-    const finalTokens = estimateMessagesTokens(result);
+    let finalTokens = estimateMessagesTokens(result);
     if (finalTokens > budget) {
         throw new Error(`semanticCompactMessages: compacted result exceeds budget=${budget} (result=${finalTokens})`);
     }
+    // Re-attach fresh reads of head files. Uses the RAW (pre-ingest-filter)
+    // head so tool_call read paths are visible even on the /compact path.
+    const reattach = withFileReattachment(result, finalTokens, budget, selectedRaw.head, selected.tail, opts.cwd);
+    result = reattach.result;
+    finalTokens = reattach.finalTokens;
     const diagnostics = {
         noOp: false,
         inputMessages: Array.isArray(messages) ? messages.length : 0,
@@ -471,6 +507,7 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
         summaryChars: String(summary || '').length,
         rawSummaryChars: String(rawSummary || '').length,
         summaryRepaired: enforced.repaired === true,
+        fileReattached: reattach.reattached,
         previousSummary: !!selected.previousSummary,
         durationMs: Date.now() - startedAt,
     };
@@ -767,10 +804,13 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
 
     let result = sanitizeToolPairs([...safeSystem, summaryMessage, ...recallTail]);
     result = reconcileDedupStubs(dedupToolResultBodies(result));
-    const finalTokens = estimateMessagesTokens(result);
+    let finalTokens = estimateMessagesTokens(result);
     if (finalTokens > budget) {
         throw new Error(`recallFastTrackCompactMessages: compacted result exceeds budget=${budget} (result=${finalTokens})`);
     }
+    const reattach = withFileReattachment(result, finalTokens, budget, recallHead, recallTail, opts.cwd);
+    result = reattach.result;
+    finalTokens = reattach.finalTokens;
     const summaryContent = String(summaryMessage?.content || '');
     const diagnostics = {
         noOp: false,
@@ -807,6 +847,7 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
         recallTruncatedInSummary: !!recallFit.recall && !summaryContent.includes(recallFit.recall),
         priorTruncatedInSummary: !!recallFit.prior && !summaryContent.includes(recallFit.prior),
         tailTruncated: recallTail.some((m) => messageContentHasMarker(m, RECALL_TAIL_TRUNCATION_MARKER) || messageContentHasMarker(m, RECALL_TAIL_SHORT_TRUNCATION_MARKER)),
+        fileReattached: reattach.reattached,
         tailOptions: recallTailOpts,
         previousSummary: !!previousSummary,
         durationMs: Date.now() - startedAt,

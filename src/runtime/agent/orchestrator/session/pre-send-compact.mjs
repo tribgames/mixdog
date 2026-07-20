@@ -184,6 +184,7 @@ export async function runPreSendCompactPass(state) {
                                     reserveTokens: compactPolicy.reserveTokens,
                                     providerName: sessionRef.provider || provider?.name || null,
                                     sessionId,
+                                    cwd: sessionRef?.cwd,
                                     signal,
                                     sendOpts: opts,
                                     promptCacheKey: opts.promptCacheKey || null,

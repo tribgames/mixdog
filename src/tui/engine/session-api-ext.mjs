@@ -735,9 +735,16 @@ export function createEngineApiB(bag) {
         set({ commandBusy: false });
       }
     },
-    resume: async (id) => {
+    resume: async (id, options = {}) => {
       if (getState().commandBusy) return false;
-      set({ commandBusy: true, commandStatus: { active: true, verb: 'Resuming conversation', startedAt: Date.now(), mode: 'resuming' } });
+      // quiet: viewer-follow refreshes (engine share tick) re-resume on every
+      // owner turn — they must not flash the "Resuming conversation" status.
+      set({
+        commandBusy: true,
+        ...(options.quiet === true
+          ? {}
+          : { commandStatus: { active: true, verb: 'Resuming conversation', startedAt: Date.now(), mode: 'resuming' } }),
+      });
       clearToastTimers();
       try {
         const r = await runtime.resume(id);
@@ -817,6 +824,10 @@ export function createEngineApiB(bag) {
       if (flags.disposed) return;
       disposeEmit?.();
       flags.disposed = true;
+      // Release the interactive-presence beacon so a cross-open after this
+      // surface exits takes normal ownership instead of viewer-attaching to a
+      // dead owner (crash paths fall back to the 2min staleness window).
+      try { runtime.clearSessionPresence?.(); } catch { /* best-effort */ }
       clearToastTimers();
       disposeTranscriptSpill?.();
       try { clearInterval(lifecycle.runtimePulseTimer); } catch {}

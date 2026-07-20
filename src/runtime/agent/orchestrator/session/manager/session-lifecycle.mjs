@@ -6,7 +6,7 @@
 import { getProvider } from '../../providers/registry.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { collectPromptSkillsCached, buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
-import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession, readSessionHeartbeatMtime } from '../store.mjs';
+import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession, readSessionHeartbeatMtime, readSessionPresenceMtime } from '../store.mjs';
 import { _getRuntimeEntry } from './runtime-liveness.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
@@ -500,10 +500,15 @@ function _isActivelyOwnedElsewhere(session, sessionId) {
     if (entry && entry.closed !== true) return false;
     // Heartbeats publish only while a turn is running (≤5s cadence) and the
     // sidecar is deleted on detach/close, so freshness here means another
-    // process is mid-conversation on this session right now.
+    // process is mid-conversation on this session right now. Presence (`.own`)
+    // covers the idle gaps between turns: a live interactive surface keeps
+    // refreshing it (~20s) for its CURRENT session, so cross-opening an
+    // idle-but-open session still attaches as a viewer instead of splitting
+    // ownership into two writers that clobber each other's saves.
     const lastHb = Math.max(
         Number(readSessionHeartbeatMtime(sessionId)) || 0,
         Number(session.lastHeartbeatAt) || 0,
+        Number(readSessionPresenceMtime(sessionId)) || 0,
     );
     return lastHb > 0 && Date.now() - lastHb <= ACTIVE_OWNER_HB_FRESH_MS;
 }

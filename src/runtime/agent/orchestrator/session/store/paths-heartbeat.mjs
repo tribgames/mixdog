@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import * as fsp from 'fs/promises';
 import { join } from 'path';
 import { getPluginData } from '../../config.mjs';
@@ -49,4 +49,50 @@ export function publishHeartbeat(id, ts) {
 export function deleteHeartbeat(id) {
     try { unlinkSync(_heartbeatPath(id)); } catch { /* ignore */ }
     _hbLastAt.delete(id);
+}
+
+// ── Interactive presence publish ──────────────────────────
+// `<id>.own` marks a live interactive surface (TUI/desktop engine) HOLDING
+// the session open — including idle time between turns. Kept separate from
+// `.hb` (turn-activity signal consumed by the status aggregator and deleted
+// at turn end) so idle presence never fakes a "running" badge. Consumed by
+// the attach-on-resume guard (_isActivelyOwnedElsewhere): fresh presence
+// means a cross-open must attach as a viewer instead of claiming a second
+// writer on the same session file (dual-writer last-save-wins clobbering).
+// Refreshed by the engine share tick (~3s call, throttled here) and cleared
+// on session switch/dispose; staleness covers crashes.
+const _PRESENCE_THROTTLE_MS = 20_000;
+const _presenceLastAt = new Map();
+
+function _presencePath(id) {
+    if (!id || typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id)) {
+        throw new Error(`[session-store] invalid session id: ${JSON.stringify(id)}`);
+    }
+    return join(getStoreDir(), `${id}.own`);
+}
+
+export function publishSessionPresence(id, ts) {
+    if (!id) return;
+    const now = ts || Date.now();
+    const last = _presenceLastAt.get(id) || 0;
+    if (now - last < _PRESENCE_THROTTLE_MS) return;
+    const target = _presencePath(id);
+    _presenceLastAt.set(id, now);
+    void fsp.writeFile(target, `${now}\n${process.pid}\n`, 'utf8').catch(() => {});
+}
+
+export function deleteSessionPresence(id) {
+    if (!id) return;
+    try { unlinkSync(_presencePath(id)); } catch { /* ignore */ }
+    _presenceLastAt.delete(id);
+}
+
+export function readSessionPresenceMtime(id) {
+    if (!id) return 0;
+    try {
+        const path = _presencePath(id);
+        return existsSync(path) ? (statSync(path).mtimeMs || 0) : 0;
+    } catch {
+        return 0;
+    }
 }

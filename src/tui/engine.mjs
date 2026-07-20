@@ -28,6 +28,7 @@ import {
 } from '../runtime/shared/tool-execution-contract.mjs';
 import { isLateToolAnnouncement } from '../session-runtime/session-text.mjs';
 import { presentErrorText } from '../runtime/shared/err-text.mjs';
+import { sessionPath } from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
 import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from './markdown/streaming-markdown.mjs';
 import { bootProfile } from './engine/boot-profile.mjs';
@@ -1255,15 +1256,46 @@ export async function createEngineSession({
   });
   Object.assign(bag, createSessionFlow(bag));
   bag.runTurn = createRunTurn(bag);
-  // Remote-attach injection poller: a viewer surface attached to OUR live
-  // session (terminal/desktop/mobile cross-open) delivers its user messages
-  // through the shared pending spool. When idle, drain foreign user entries
-  // and run them through the normal queue — full user bubble + streaming,
-  // exactly as if typed here. Cheap: one spool mtime stat per idle tick.
+  const api = createEngineApi(bag);
+  // Cross-surface share tick: one 3s timer covers all three legs of the
+  // shared-conversation model (desktop <-> terminal <-> mobile cross-open).
+  //  - presence: mark OUR current session as held open (idle included) so a
+  //    cross-open elsewhere attaches as a viewer instead of splitting
+  //    ownership; cleared on session switch here and on dispose
+  //    (session-api-ext), with sidecar staleness covering crashes.
+  //  - owner leg: drain foreign user injections from the shared spool and
+  //    run them through the normal queue — full user bubble + streaming,
+  //    exactly as if typed here. Cheap: one spool mtime stat per idle tick.
+  //  - viewer leg: while attached to a session another live process owns,
+  //    quiet re-resume when its on-disk JSON advances so the owner's turns
+  //    appear here; once the owner is gone the same re-resume promotes this
+  //    surface to real ownership.
+  let heldPresenceId = '';
+  let viewerStoreMtime = 0;
   const remoteAttachTimer = setInterval(() => {
     if (flags.disposed || flags.pendingSessionReset) return;
     try {
+      const heldId = runtime.publishSessionPresence?.() || '';
+      if (heldPresenceId && heldPresenceId !== heldId) runtime.clearSessionPresence?.(heldPresenceId);
+      heldPresenceId = heldId;
+    } catch { /* best-effort */ }
+    try {
       if (state.busy || state.commandBusy) return;
+      if (state.sessionRemoteAttached) {
+        const id = String(state.sessionId || '');
+        if (!id) return;
+        let mtime = 0;
+        try { mtime = statSync(sessionPath(id)).mtimeMs || 0; } catch { return; }
+        // First attached tick only baselines: the resume that attached this
+        // surface already loaded the current on-disk transcript.
+        if (!viewerStoreMtime) { viewerStoreMtime = mtime; return; }
+        if (mtime > viewerStoreMtime) {
+          viewerStoreMtime = mtime;
+          void Promise.resolve(api.resume(id, { quiet: true })).catch(() => { /* next tick retries */ });
+        }
+        return;
+      }
+      viewerStoreMtime = 0;
       const injected = runtime.takeRemoteInjections?.() || [];
       if (injected.length === 0) return;
       for (const text of injected) bag.enqueue(text);
@@ -1272,5 +1304,5 @@ export async function createEngineSession({
   }, 3000);
   remoteAttachTimer.unref?.();
   void bag.restoreLeadSteeringFromDisk();
-  return createEngineApi(bag);
+  return api;
 }
