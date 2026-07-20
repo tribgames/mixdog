@@ -1097,7 +1097,14 @@ export class EngineHost {
           throw new Error('Session could not be resumed.');
         }
         if (DESKTOP_PERF_ENABLED) stageNote += ` engine-resume=${(performance.now() - resumeStarted).toFixed(0)}ms`;
-        if (String(nextEngine.getState()?.sessionId || '') !== sessionId) {
+        // Fork-on-resume: resuming a session actively driven by another live
+        // process opens a transcript fork under a fresh id. The engine marks
+        // it via sessionForkedFrom — accept the fork as a successful resume of
+        // the clicked session; any other id mismatch remains a hard failure.
+        const resumedState = nextEngine.getState();
+        const resumedId = String(resumedState?.sessionId || '');
+        const resumedForkedFrom = String(resumedState?.sessionForkedFrom || '');
+        if (resumedId !== sessionId && resumedForkedFrom !== sessionId) {
           if (!sameManagedContext) await this.disposeCurrent('desktop-session-resume-mismatch');
           throw new Error('Session resume returned an unexpected session.');
         }

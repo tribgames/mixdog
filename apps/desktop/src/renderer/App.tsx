@@ -1142,18 +1142,22 @@ export function App() {
       try {
         const next = await window.mixdogDesktop?.resumeSession(sessionId);
         const resumedSessionId = String(asRecord(next)?.sessionId || "");
-        if (resumedSessionId && resumedSessionId !== sessionId) {
+        const resumedForkedFrom = String(asRecord(next)?.sessionForkedFrom || "");
+        // A fork-on-resume (live session opened as a copy) legitimately comes
+        // back under a fresh id whose sessionForkedFrom names the clicked row.
+        if (resumedSessionId && resumedSessionId !== sessionId && resumedForkedFrom !== sessionId) {
           throw new Error("Session switch returned an unexpected session.");
         }
+        const effectiveSessionId = resumedSessionId || sessionId;
         const resumedTitle = session
           ? sessionSummaryTitle(session)
           : String(asRecord(next)?.desktopSessionTitle || "").trim() || "Untitled session";
         applySnapshot(next);
-        activateSelection({ kind: "session", id: sessionId }, resumedTitle);
+        activateSelection({ kind: "session", id: effectiveSessionId }, resumedTitle);
         setSessions((current) => {
           let changed = false;
           const updated = current.map((item) => {
-            const currentSession = item.id === sessionId;
+            const currentSession = item.id === effectiveSessionId;
             if (item.currentSession === currentSession) return item;
             changed = true;
             return { ...item, currentSession };
@@ -1161,6 +1165,7 @@ export function App() {
           return changed ? updated : current;
         });
         setNewTaskActive(false);
+        if (resumedSessionId && resumedSessionId !== sessionId) refreshSessionsBestEffort();
         if (import.meta.env?.DEV) {
           window.requestAnimationFrame(() => {
             const timingEnd = `mixdog:session-switch:${sessionId}:painted`;

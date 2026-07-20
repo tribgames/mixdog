@@ -24,6 +24,10 @@ export function createContextState({ runtime, getState, updateState, getPendingS
   };
   const baseRouteState = () => ({
     sessionId: runtime.id,
+    // Fork-on-resume marker: when the engine opened a live session as a fork
+    // (fresh id, copied transcript), hosts validating "resume returned the
+    // requested session" must accept the fork by its origin id.
+    sessionForkedFrom: runtime.session?.forkedFrom || null,
     clientHostPid: runtime.clientHostPid || null,
     model: runtime.model,
     provider: runtime.provider,
