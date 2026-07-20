@@ -23,9 +23,13 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(builder, /oneClick:\s*true/);
   assert.match(builder, /perMachine:\s*false/);
   assert.match(builder, /createDesktopShortcut:\s*always/);
+  // Prebuilt natives are mirrored by prepare-runtime.mjs; a node-gyp rebuild
+  // against Electron headers is both unnecessary and toolchain-fragile.
+  assert.match(builder, /npmRebuild:\s*false/);
+  assert.match(builder, /nodeGypRebuild:\s*false/);
   assert.doesNotMatch(
     builder,
-    /(?:allowToChangeInstallationDirectory|runAfterFinish|shortcutName|uninstallDisplayName|createStartMenuShortcut|uninstallerIcon|npmRebuild|include):/,
+    /(?:allowToChangeInstallationDirectory|runAfterFinish|shortcutName|uninstallDisplayName|createStartMenuShortcut|uninstallerIcon|include):/,
   );
   assert.match(builder, /win:[\s\S]*icon:\s*build\/mixdog\.ico/);
   assert.match(builder, /installerIcon:\s*build\/mixdog\.ico/);
