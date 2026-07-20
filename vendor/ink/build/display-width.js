@@ -72,6 +72,20 @@ export function displayStringWidth(str) {
     return displayWidthWith(str, AMBIGUOUS_WIDE);
 }
 
+/**
+ * Extra terminal cells that must be emitted as literal spaces after a glyph.
+ * Windows Terminal paints the policy glyphs across two cells but advances its
+ * text cursor by the plain string-width value (one), so Ink's zero-byte wide
+ * placeholder alone does not separate the following glyph. Native wide glyphs
+ * (CJK/emoji) return zero because the terminal already advances two cells.
+ */
+export function syntheticWideCellPadding(str) {
+    const s = String(str ?? '');
+    if (!AMBIGUOUS_WIDE || !PROBLEM_RE.test(s))
+        return 0;
+    return Math.max(0, displayStringWidth(s) - stringWidth(s));
+}
+
 /** widest-line equivalent under the policy. */
 export function displayWidestLine(text) {
     let lineWidth = 0;

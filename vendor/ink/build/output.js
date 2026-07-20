@@ -4,7 +4,7 @@ import { sliceTextByDisplayWidth } from './wrap-text.js';
 // advance + width cache treat circled digits / arrows as 2 cells under Windows
 // Terminal, matching OUR wrap/row math. See display-width.js (kept in sync with
 // src/tui/display-width.mjs).
-import { displayStringWidth as stringWidth } from './display-width.js';
+import { displayStringWidth as stringWidth, syntheticWideCellPadding } from './display-width.js';
 const RGB_COLOR_RE = /^rgb\(\s*(\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\s*\)$/;
 const rgbStyle = (value, type, fallback) => {
     const match = RGB_COLOR_RE.exec(String(value || ''));
@@ -258,6 +258,14 @@ export default class Output {
                         currentLine[offsetX] = character;
                         // Determine printed width using string-width to align with measurement
                         const characterWidth = Math.max(1, this.caches.getStringWidth(character.value));
+                        // Policy-widened ambiguous glyphs need a REAL spacer in the
+                        // terminal byte stream: unlike native CJK/emoji, WT paints
+                        // their ink wide but advances only one cell. Keep the grid
+                        // placeholder empty for layout/selection; serialization
+                        // materializes only the synthetic tail cells as spaces.
+                        const syntheticPadding = characterWidth > 1
+                            ? syntheticWideCellPadding(character.value)
+                            : 0;
                         // For multi-column characters, clear following cells to avoid stray spaces/artifacts
                         if (characterWidth > 1) {
                             for (let index = 1; index < characterWidth; index++) {
@@ -266,6 +274,7 @@ export default class Output {
                                     value: '',
                                     fullWidth: false,
                                     styles: character.styles,
+                                    syntheticPad: syntheticPadding > 0 && index >= characterWidth - syntheticPadding,
                                 };
                             }
                         }
@@ -511,6 +520,13 @@ export default class Output {
             let usedWidth = 0;
             for (const item of line) {
                 if (item === undefined) {
+                    continue;
+                }
+                // A synthetic wide-cell placeholder is already included in
+                // the leading glyph's modeled width. Emit a literal blank so WT's
+                // cursor advances, but do not count that blank a second time.
+                if (item.syntheticPad) {
+                    lineWithinWidth.push({ ...item, value: ' ' });
                     continue;
                 }
                 const value = item.value ?? '';

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sliceAnsi from 'slice-ansi';
+import stringWidth from 'string-width';
 
 // Make the Windows Terminal policy deterministic on every test host. Dynamic
 // imports matter because both policy copies resolve the gate once at load.
@@ -30,6 +31,23 @@ test('Windows Terminal wide glyph wrapping keeps every transcript body line in b
   }
 });
 
+test('Output materializes the reserved cell after a policy-widened glyph', () => {
+  const text = '②{ M }';
+  assert.equal(stringWidth(text), 6, 'plain/native cursor advance is the broken 1-cell baseline');
+  assert.equal(displayStringWidth(text), 7, 'Ink layout reserves two cells for ②');
+
+  const output = new Output({ width: 20, height: 1 });
+  output.write(0, 0, text, { transformers: [] });
+  const rendered = output.get().output;
+
+  assert.equal(rendered, '② { M }', 'serialized bytes must advance over the reserved cell');
+  assert.equal(stringWidth(rendered), 7, 'emitted terminal cursor width matches the 7-cell layout');
+
+  const excluded = new Output({ width: 20, height: 1 });
+  excluded.write(0, 0, '└A ←B ↻C', { transformers: [] });
+  assert.equal(excluded.get().output, '└A ←B ↻C', 'box/figure glyphs must not gain padding');
+});
+
 test('horizontal output clipping uses the wide-glyph display columns', () => {
   const budget = 12;
   const output = new Output({ width: 40, height: 1 });
@@ -39,8 +57,8 @@ test('horizontal output clipping uses the wide-glyph display columns', () => {
 
   const rendered = output.get().output;
   assert.ok(
-    displayStringWidth(rendered) <= budget,
-    `${JSON.stringify(rendered)} escaped clip at ${displayStringWidth(rendered)} cells`,
+    stringWidth(rendered) <= budget,
+    `${JSON.stringify(rendered)} escaped clip at ${stringWidth(rendered)} emitted cells`,
   );
 });
 
@@ -52,7 +70,7 @@ test('left-edge clipping drops a glyph intersected by x1 and keeps mixed Korean 
 
   const rendered = output.get().output;
   assert.ok(rendered.startsWith('   나'), JSON.stringify(rendered));
-  assert.ok(displayStringWidth(rendered) <= 15);
+  assert.ok(stringWidth(rendered) <= 15);
 });
 
 test('one-cell clip drops a two-cell circled digit instead of crossing x2', () => {
