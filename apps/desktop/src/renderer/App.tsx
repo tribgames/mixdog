@@ -159,10 +159,10 @@ function registerImagePreview(id: number, bytes: number, dataUrl: string) {
 // perceived lag is the renderer mounting every markdown/tool row at once.
 // Virtualize much earlier so long sessions paint a window, not the world.
 const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 32;
-// 20 rows: deeper premeasure above the viewport smooths upward scrolling
-// (rows arrive measured before they enter view) at ~1 extra frame of mount
-// cost on session open.
-const TRANSCRIPT_VIRTUAL_OVERSCAN = 20;
+// 8 rows: 20 premeasured a whole extra screen of markdown on session open —
+// the dominant cost of the perceived open lag (main-process resume is
+// 55-250ms). 8 keeps a cushion for upward scrolling at ~40% of the mount bill.
+const TRANSCRIPT_VIRTUAL_OVERSCAN = 8;
 
 function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number {
   if (!item) return 40;
@@ -272,6 +272,18 @@ const TerminalPane = lazy(() => import("./TerminalPane"));
 // SchedulesPane loads statically: a lazy chunk suspends the whole main pane
 // on first entry, which flashes the New-task watermark before the page lands.
 import { SchedulesPane } from "./SchedulesView";
+
+// Warm transcript-critical lazy chunks right after boot. A cold MarkdownBody
+// chunk made a freshly opened session paint user bubbles (plain text) first
+// and then trickle the styled assistant/tool rows in as the chunk landed
+// (user: "유저 메세지 몇 개만 나왔다가 딸려서 나옴"). Idle-timed so it never
+// competes with the first frame.
+if (typeof window !== "undefined") {
+  window.setTimeout(() => {
+    void import("./MarkdownBody");
+    void import("./DiffView.lazy");
+  }, 250);
+}
 
 function asRecord(value: unknown): RecordValue | null {
   return value !== null && typeof value === "object" ? value as RecordValue : null;
@@ -492,6 +504,8 @@ export function App() {
   const [headerTitleInvalid, setHeaderTitleInvalid] = useState(false);
   const [newTaskActive, setNewTaskActive] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState("");
+  // Latest session clicked while another switch was still in flight.
+  const pendingResumeTarget = useRef("");
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const frozenSessionSnapshot = useRef<Snapshot | null>(null);
   const newTaskReady = useRef(false);
@@ -716,7 +730,11 @@ export function App() {
       const raw = window.localStorage.getItem("mixdog.desktop.session-seen-counts");
       const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : null;
       for (const [id, at] of Object.entries(parsed || {})) {
-        if (Number.isFinite(at)) map.set(id, Number(at));
+        // Sanitize poisoned v2 rows: a timestamp mistakenly stored as a seen
+        // COUNT (~1.7e12) suppresses unread dots forever. Counts are small;
+        // anything absurd is dropped and re-baselined on next sight.
+        const value = Number(at);
+        if (Number.isFinite(value) && value >= 0 && value < 1e7) map.set(id, value);
       }
     } catch {
       // Unread markers degrade to in-memory tracking without persistent storage.
@@ -833,6 +851,7 @@ export function App() {
   // so the owner's turns (including our injected messages) appear here.
   const remoteAttachedSessionRef = useRef("");
   const attachedRefreshAtRef = useRef(new Map<string, number>());
+  const attachedRefreshWallClockRef = useRef(0);
   useEffect(() => {
     const host = window.mixdogDesktop;
     if (typeof host?.subscribeSessions !== "function") return;
@@ -845,8 +864,13 @@ export function App() {
       if (attachedId) {
         const row = rows.find((item) => item.id === attachedId);
         const lastSeen = attachedRefreshAtRef.current.get(attachedId) || 0;
-        if (row && row.updatedAt > lastSeen) {
+        // ≥2s spacing: an active CLI turn saves often; re-resuming on every
+        // push kept the host's exclusive lane busy and made user clicks queue
+        // behind follow refreshes (felt as sluggish switching).
+        if (row && row.updatedAt > lastSeen
+          && Date.now() - attachedRefreshWallClockRef.current >= 2_000) {
           attachedRefreshAtRef.current.set(attachedId, row.updatedAt);
+          attachedRefreshWallClockRef.current = Date.now();
           void window.mixdogDesktop?.resumeSession(attachedId)
             .then((snap) => applySnapshot(snap))
             .catch(() => { /* next push retries */ });
@@ -1165,7 +1189,14 @@ export function App() {
     });
   };
   const resumeSession = (sessionId: string) => {
-    if ((selection.kind === "session" && selection.id === sessionId) || switchingSessionId) return;
+    if (selection.kind === "session" && selection.id === sessionId) return;
+    // A click DURING an in-flight switch used to be dropped silently — rapid
+    // session hopping read as "the app ignores me / slow". Remember the last
+    // requested target and chain it when the current switch settles.
+    if (switchingSessionId) {
+      if (sessionId !== switchingSessionId) pendingResumeTarget.current = sessionId;
+      return;
+    }
     closeSidebarForNavigation();
     const switchStartedAt = performance.now();
     const session = sessions.find((item) => item.id === sessionId);
@@ -1224,6 +1255,11 @@ export function App() {
             `session-switch-render id=${sessionId} paint=${(performance.now() - switchStartedAt).toFixed(0)}ms`,
           );
         }));
+        const pending = pendingResumeTarget.current;
+        pendingResumeTarget.current = "";
+        if (pending && pending !== sessionId) {
+          window.setTimeout(() => resumeSession(pending), 0);
+        }
       }
     });
   };
@@ -1334,9 +1370,12 @@ export function App() {
     if (!viewedSessionId) return;
     const seen = loadSessionLastSeen();
     const row = sessions.find((session) => session.id === viewedSessionId);
-    const at = Math.max(row?.updatedAt || 0, seen.get(viewedSessionId) || 0);
-    if (at > 0 && seen.get(viewedSessionId) !== at) {
-      seen.set(viewedSessionId, at);
+    // Seen map holds MESSAGE COUNTS (v2): viewing consumes growth by
+    // recording the current count — never updatedAt, whose epoch value would
+    // permanently outrank any future count and kill the dot for this session.
+    const count = Math.max(Number(row?.messageCount) || 0, seen.get(viewedSessionId) || 0);
+    if (count > 0 && seen.get(viewedSessionId) !== count) {
+      seen.set(viewedSessionId, count);
       persistSessionLastSeen(seen);
     }
     setUnreadSessionIds((current) => {
@@ -1873,6 +1912,43 @@ function Conversation({
   );
   const transcriptSessionKey = String(routeSnapshot.sessionId || 'new-task');
   const virtualizingTranscript = items.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD;
+  // Perf probe (MIXDOG_DESKTOP_PERF=1): main-process resume+first paint measure
+  // fast (60-250ms) while the user still reports multi-second lag — capture the
+  // POST-paint renderer story: main-thread long tasks and the transcript's
+  // measure/commit settle window after a session switch.
+  useEffect(() => {
+    if (typeof PerformanceObserver === "undefined") return undefined;
+    try {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry.duration >= 100) {
+            window.mixdogDesktop?.perfLog?.(`renderer-longtask ms=${Math.round(entry.duration)}`);
+          }
+        }
+      });
+      observer.observe({ entryTypes: ["longtask"] });
+      return () => observer.disconnect();
+    } catch { return undefined; }
+  }, []);
+  const settleProbe = useRef({ key: "", startedAt: 0, commits: 0, timer: 0 });
+  useEffect(() => {
+    const probe = settleProbe.current;
+    if (probe.key !== transcriptSessionKey) {
+      probe.key = transcriptSessionKey;
+      probe.startedAt = performance.now();
+      probe.commits = 0;
+    }
+    probe.commits += 1;
+    window.clearTimeout(probe.timer);
+    probe.timer = window.setTimeout(() => {
+      const settleMs = performance.now() - probe.startedAt - 600;
+      if (settleMs > 300) {
+        window.mixdogDesktop?.perfLog?.(
+          `transcript-settle key=${probe.key} ms=${Math.round(settleMs)} commits=${probe.commits}`,
+        );
+      }
+    }, 600);
+  });
   const failedTurns = useMemo(() => new Set(snapshot.failedTurnKeys || []), [snapshot.failedTurnKeys]);
   const turnMetadata = useMemo(() => {
     const current = mergeTranscript(snapshot.items, snapshot.streamingTail);
@@ -1930,13 +2006,17 @@ function Conversation({
     // than its estimate, compensate scrollTop by the delta so the visible
     // content does not snap back while scrolling up. Rows below the viewport
     // never need compensation.
+    // While FOLLOWING (pinned to the newest row — session open lands here),
+    // the bottom-pin ResizeObserver is the single scroll authority: letting
+    // this compensation fire too made the view bounce up/down while rows
+    // measured in (user: jumpy session open).
     // @ts-expect-error virtual-core 3.14 supports this option; the react
     // adapter's PartialKeys type has not caught up.
     shouldAdjustScrollPositionOnItemSizeChange: (
       item: { start: number },
       _delta: number,
       instance: { scrollOffset: number | null },
-    ) => item.start < (instance.scrollOffset ?? 0),
+    ) => !followOutput.current && item.start < (instance.scrollOffset ?? 0),
   });
   const transcriptVirtualSize = transcriptVirtualizer.getTotalSize();
   const jumpToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
@@ -2149,7 +2229,8 @@ function Conversation({
             style={{ height: `${transcriptVirtualSize}px` }}>
             {transcriptVirtualizer.getVirtualItems().map((virtualRow) => (
               <div className={`transcript-virtual-row ${transcriptItemHidden(virtualRow.index)
-                ? "transcript-virtual-row--empty" : ""}`} key={virtualRow.key}
+                ? "transcript-virtual-row--empty" : ""} ${virtualRow.index === items.length - 1
+                ? "transcript-virtual-row--tail" : ""}`} key={virtualRow.key}
                 data-index={virtualRow.index} ref={transcriptVirtualizer.measureElement}
                 style={{ transform: `translateY(${virtualRow.start}px)` }}>
                 {renderTranscriptItem(items[virtualRow.index], virtualRow.index)}
@@ -2257,6 +2338,19 @@ function ProjectContextSelector({ projects, activePath, activeLabel, disabled, o
 }
 
 const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
+
+// TUI parity (Spinner formatNumber): compact lowercase k/m token units.
+const compactTokenFormatter = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+  minimumFractionDigits: 0,
+});
+
+function formatTokenCount(value: number): string {
+  const tokens = Math.max(0, Number(value) || 0);
+  if (tokens >= 1000) return compactTokenFormatter.format(tokens).toLowerCase();
+  return String(Math.round(tokens));
+}
 
 function timeMs(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
@@ -2480,7 +2574,7 @@ function LiveActivity({ snapshot }: { snapshot: Snapshot }) {
     <div className="live-activity-status" role="status" aria-live="polite">
       <TextShimmer text={verb} />
       {(elapsed || outputTokens > 0) && <small>
-        {[elapsed, outputTokens > 0 ? `${outputTokens.toLocaleString()} tokens` : ""].filter(Boolean).join(" · ")}
+        {[elapsed, outputTokens > 0 ? `${formatTokenCount(outputTokens)} tokens` : ""].filter(Boolean).join(" · ")}
       </small>}
     </div>
     {reasoning && <details className="thinking-disclosure">
@@ -2632,6 +2726,64 @@ function stripImageTokens(text: string): string {
     .trim();
 }
 
+// TUI-side / stored-history image markers arrive as literal bracket lines in
+// the user text ("[Image #2]", "[Image: source: C:\shot.png, 1027x702,
+// displayed at 1027x702]", "[Image omitted from stored history: image/png]").
+// Desktop folds them into compact photo chips (icon + filename + dimensions)
+// instead of rendering the raw marker text.
+interface ImageMarkerChip { name: string; dims: string; title: string }
+function extractImageMarkers(text: string): { text: string; chips: ImageMarkerChip[] } {
+  const chips: ImageMarkerChip[] = [];
+  const kept: string[] = [];
+  let pendingRefs = 0;
+  let lastWasMeta = false;
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (/^\[Image #\d+(?::[^\]]*)?\]$/.test(line)) {
+      pendingRefs += 1;
+      lastWasMeta = false;
+      continue;
+    }
+    const meta = /^\[Image(?::| source:) ([^\]]+)\]$/.exec(line);
+    if (meta && !/^omitted\b/i.test(meta[1])) {
+      const parts = meta[1].split(/,\s*/);
+      const source = (parts.find((part) => part.startsWith("source: ")) || "").slice(8).trim()
+        || (line.startsWith("[Image source:") ? meta[1].trim() : "");
+      const dims = parts.find((part) => /^\d+x\d+$/.test(part)) || "";
+      const name = source ? (source.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Image") : "Image";
+      chips.push({ name, dims: dims.replace("x", "\u00D7"), title: source || line });
+      if (pendingRefs > 0) pendingRefs -= 1;
+      lastWasMeta = true;
+      continue;
+    }
+    if (/^\[Image omitted from stored history[^\]]*\]$/.test(line)) {
+      // Follows its metadata line in normal flow — already represented by the
+      // chip above. A lone omitted marker still deserves a generic chip.
+      if (!lastWasMeta) {
+        chips.push({ name: "Image", dims: "", title: line });
+        if (pendingRefs > 0) pendingRefs -= 1;
+      }
+      lastWasMeta = false;
+      continue;
+    }
+    lastWasMeta = false;
+    const inlineRefs = rawLine.match(/\[Image #\d+(?::[^\]]*)?\]/g);
+    if (inlineRefs && inlineRefs.length > 0) {
+      pendingRefs += inlineRefs.length;
+      const strippedLine = rawLine.replace(/ ?\[Image #\d+(?::[^\]]*)?\] ?/g, " ").replace(/ {2,}/g, " ").trim();
+      if (strippedLine) kept.push(strippedLine);
+      continue;
+    }
+    kept.push(rawLine);
+  }
+  // Refs that never got a metadata/omitted line (e.g. plain "[Image #N]" from
+  // an old history) still surface as generic chips so the count is honest.
+  for (let index = 0; index < pendingRefs; index += 1) {
+    chips.push({ name: "Image", dims: "", title: "Attached image" });
+  }
+  return { text: kept.join("\n").trim(), chips };
+}
+
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   completion,
@@ -2661,15 +2813,23 @@ export const TranscriptRow = memo(function TranscriptRow({
   const user = item.kind === "user";
   const text = String(item.text || "");
   const metadata = messageMetadata(item);
+  // User bubbles: fold literal image markers into chips; the composer-attached
+  // images (item.images) keep their thumbnail chips and win over marker chips.
+  const attachedImages = user && Array.isArray(item.images) ? item.images : [];
+  const imageMarkers = user ? extractImageMarkers(text) : { text, chips: [] };
+  const markerChips = attachedImages.length > 0 ? [] : imageMarkers.chips;
+  const userDisplayText = attachedImages.length > 0
+    ? stripImageTokens(imageMarkers.text)
+    : imageMarkers.text;
   return (
     <>
       <article className={`message ${user ? "user" : "assistant"} ${item.streaming ? "streaming" : "settled"} ${user && attachedUser ? "attached-user" : ""}`}
         aria-live={item.streaming || announceSettled ? "off" : undefined}>
         <div className="message-body">
           {user ? <>
-            {Array.isArray(item.images) && item.images.length > 0 && <div className="message-image-chips"
+            {(attachedImages.length > 0 || markerChips.length > 0) && <div className="message-image-chips"
               aria-label="Attached images">
-              {item.images.map((image, index) => {
+              {attachedImages.map((image, index) => {
                 const preview = imagePreviewCache.get(imagePreviewKey(image.id, image.bytes));
                 return <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`}
                   title={image.name || 'Attached image'}>
@@ -2681,10 +2841,17 @@ export const TranscriptRow = memo(function TranscriptRow({
                     </span>}
                 </span>;
               })}
+              {markerChips.map((chip, index) => (
+                <span className="message-image-chip" key={`marker-${index}`} title={chip.title}>
+                  <span className="message-image-fallback">
+                    <OcIcon name="photo" size={14} />
+                    <span>{chip.name}</span>
+                    {chip.dims ? <small>{chip.dims}</small> : null}
+                  </span>
+                </span>
+              ))}
             </div>}
-            <p>{Array.isArray(item.images) && item.images.length > 0
-              ? stripImageTokens(text)
-              : item.text}</p>
+            {userDisplayText ? <p>{userDisplayText}</p> : null}
           </> : (
             <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
           )}
@@ -2778,19 +2945,25 @@ function ToolCard({ item }: { item: TranscriptItem }) {
   const hasResult = typeof rawResult === "string" ? Boolean(rawResult.trim()) : rawResult != null;
   const hasDetails = hasInput || patch != null || hasResult || Boolean(shellCommand);
   const count = Math.max(1, Math.round(Number(item.count || 1)));
+  // TUI parity (toolStatusColor): some-but-not-all of a group failing is the
+  // amber partial state, not the red full-failure state.
+  const partialFailed = failed && count > 1
+    && (callFailedCount > 0 ? callFailedCount < count : failedCount > 0 && failedCount < count);
   const errorCard = (failed || denied) && hasResult;
   const exceptionalState = denied ? "Denied" : failed ? "Failed" : exited ? "Exit" : "";
   // Streamed tail from the running command (engine liveOutput plumbing).
   // Only meaningful pre-settlement; the settled result supersedes it.
   const liveOutput = !done && typeof item.liveOutput === "string" ? item.liveOutput : "";
   return (
-    <article className={`tool-card ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
+    <article className={`tool-card ${failed || denied ? "failed" : ""} ${partialFailed ? "partial-failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
       data-open={open ? "true" : "false"}>
       <button className="tool-header" disabled={!hasDetails}
         onClick={() => setOpen((value) => !value)} aria-expanded={hasDetails ? open : undefined}
         aria-controls={hasDetails ? contentId : undefined}>
-        <span className="tool-icon">{failed || denied ? <X size={15} /> : toolIcon(category)}</span>
+        {/* Keep the tool's own glyph on failure (user): danger color + blink
+            carries the signal; no X swap. */}
+        <span className="tool-icon">{toolIcon(category)}</span>
         <span className="tool-title">
           <b data-component={item.aggregate ? "tool-count-summary" : "tool-status-title"}
             data-active={!done ? "true" : "false"}>
@@ -2801,7 +2974,7 @@ function ToolCard({ item }: { item: TranscriptItem }) {
           {argumentSummary && <small className={monoSummary ? "tool-command-inline" : undefined}>{argumentSummary}</small>}
         </span>
         {exceptionalState && <span className={`tool-state ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""}`} role="status">
-          <X size={13} />{exceptionalState}
+          {exceptionalState}
         </span>}
         {elapsedLabel && !exceptionalState && <span className="tool-elapsed" role="timer">{elapsedLabel}</span>}
         {!done && !exceptionalState && <span className="sr-only" role="status">Running</span>}
@@ -2951,7 +3124,7 @@ function CodeDiff({ patch }: { patch: string }) {
                   {/* The library's parser requires the ---/+++ header in each
                       hunk entry; header-less @@ hunks parse as an EMPTY diff.
                       Feed the full per-file patch instead. */}
-                  <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.patch] }} />
+                  <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.renderPatch || file.patch] }} />
                 </Suspense>
               ) : <pre className="diff-fallback">{file.patch}</pre>}
             </div>;
@@ -3128,6 +3301,16 @@ function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: string }
   const [openFile, setOpenFile] = useState("");
   const [confirmFile, setConfirmFile] = useState("");
   const [reverted, setReverted] = useState<string[]>([]);
+  // Shares the Review pane's persisted diff-style preference (user request:
+  // the expanded bar renders real diffs, so it needs the same Unified/Split
+  // control).
+  const [diffStyle, setDiffStyle] = useState<"unified" | "split">(() => {
+    try { return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === "split" ? "split" : "unified"; }
+    catch { return "unified"; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle); } catch { /* persistence only */ }
+  }, [diffStyle]);
   const summary = useMemo(() => {
     let lastUser = -1;
     for (let index = items.length - 1; index >= 0; index--) {
@@ -3165,14 +3348,31 @@ function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: string }
   return (
     <section className="turn-review-bar" aria-label="Files changed this turn"
       data-expanded={expanded ? "true" : "false"}>
-      <button type="button" className="turn-review-summary" aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}>
-        <FileDiff size={14} aria-hidden="true" />
-        <strong>{summary.files.size} file{summary.files.size === 1 ? "" : "s"} changed</strong>
-        <span className="diff-stats"><i>+{summary.additions}</i><em>-{summary.deletions}</em></span>
-        <ChevronDown className="turn-review-chevron" size={14} aria-hidden="true" />
-      </button>
-      {expanded && <ul className="turn-review-files">
+      <div className="turn-review-head">
+        <button type="button" className="turn-review-summary" aria-expanded={expanded}
+          onClick={() => setExpanded((value) => {
+            const next = !value;
+            // Collapsing also closes any open inline diff/confirm so reopening
+            // starts from the tidy list, not a tall stale diff.
+            if (!next) { setOpenFile(""); setConfirmFile(""); }
+            return next;
+          })}>
+          <FileDiff size={14} aria-hidden="true" />
+          <strong>{summary.files.size} file{summary.files.size === 1 ? "" : "s"} changed</strong>
+          <span className="diff-stats"><i>+{summary.additions}</i><em>-{summary.deletions}</em></span>
+          <ChevronDown className="turn-review-chevron" size={14} aria-hidden="true" />
+        </button>
+        {expanded && <div className="review-style-toggle turn-review-style" role="radiogroup"
+          aria-label="Diff style">
+          <button type="button" aria-pressed={diffStyle === "unified"}
+            onClick={() => setDiffStyle("unified")}>Unified</button>
+          <button type="button" aria-pressed={diffStyle === "split"}
+            onClick={() => setDiffStyle("split")}>Split</button>
+        </div>}
+      </div>
+      <div className="turn-review-collapse" inert={!expanded} aria-hidden={!expanded}>
+        <div className="turn-review-collapse-inner">
+          <ul className="turn-review-files">
         {[...summary.files.entries()].map(([name, entry]) => {
           // Tool patches sometimes carry ABSOLUTE paths; display and revert
           // use the project-relative form (git confinement expects it).
@@ -3219,13 +3419,15 @@ function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: string }
             ))}
             {openFile === name && <div className="turn-review-diff">
               {entry.parts.map((file, index) => (
-                <GitDiffBody key={`${name}:${index}`} file={file} />
+                <GitDiffBody key={`${name}:${index}`} file={file} mode={diffStyle} />
               ))}
             </div>}
           </li>
           );
         })}
-      </ul>}
+          </ul>
+        </div>
+      </div>
     </section>
   );
 }
@@ -3457,7 +3659,7 @@ function GitDiffBody({ file, mode }: { file: ReturnType<typeof parseUnifiedDiff>
   if (!file.renderable) return fallback;
   return <DiffBoundary fallback={fallback}>
     <Suspense fallback={<div className="diff-loading" aria-hidden="true">Loading diff…</div>}>
-      <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.patch] }} mode={mode} />
+      <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.renderPatch || file.patch] }} mode={mode} />
     </Suspense>
   </DiffBoundary>;
 }

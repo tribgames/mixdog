@@ -499,6 +499,10 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.remoteAccessInfo, () => remoteAccessInfo?.() ?? null);
   handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
     host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)));
+  handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) => {
+    if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
+    return host.setSessionArchived(requiredSessionId(sessionId), archived);
+  });
   handle(DESKTOP_IPC.deleteSession, (_event, sessionId) =>
     host.deleteSession(requiredSessionId(sessionId)));
   handle(DESKTOP_IPC.resumeSession, (_event, sessionId) =>

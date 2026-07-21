@@ -750,6 +750,14 @@ export function createEngineApiB(bag) {
         const r = await runtime.resume(id);
         if (!r) return false;
         resetStatsAndSyncContext();
+        // Deterministic restore ids (session-scoped): the process-global
+        // nextId() reissued fresh ids on every resume, so attached viewers
+        // (desktop live-follow re-resume) and session re-entry changed every
+        // React key and remounted the whole transcript (user: messages
+        // visibly re-generate, slow entry). Position-derived ids are stable
+        // across resumes of the same stored history.
+        let restoredSeq = 0;
+        const restoredId = () => `hist_${id}_${++restoredSeq}`;
         const items = [];
         const pendingToolCalls = new Map();
         for (const m of r.messages || []) {
@@ -768,9 +776,10 @@ export function createEngineApiB(bag) {
               const synthetic = parseSyntheticAgentMessage(text);
               if (synthetic) {
                 const label = synthetic.label || 'notification';
+                const syntheticAt = Number(m?.meta?.transcript?.at);
                 items.push({
                   kind: 'tool',
-                  id: nextId(),
+                  id: restoredId(),
                   name: synthetic.name || 'agent',
                   args: synthetic.args || {
                     type: label,
@@ -783,16 +792,21 @@ export function createEngineApiB(bag) {
                   expanded: false,
                   count: 1,
                   completedCount: 1,
-                  startedAt: Date.now(),
-                  completedAt: Date.now(),
+                  // Stable timestamps: Date.now() changed the item signature
+                  // every resume and re-rendered settled cards for no reason.
+                  // Same convention as restoredToolCallItems: omit when the
+                  // stored history has no timestamp (completedCount marks done).
+                  ...(Number.isFinite(syntheticAt)
+                    ? { at: syntheticAt, startedAt: syntheticAt, completedAt: syntheticAt }
+                    : {}),
                 });
               } else {
-                items.push({ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(m) });
+                items.push({ kind: 'user', id: restoredId(), text, ...restoredTranscriptMetadata(m) });
               }
             }
           } else if (m.role === 'assistant') {
-            items.push(...restoredAssistantTranscriptItems(m, nextId));
-            items.push(...restoredToolCallItems(m, nextId, pendingToolCalls));
+            items.push(...restoredAssistantTranscriptItems(m, restoredId));
+            items.push(...restoredToolCallItems(m, restoredId, pendingToolCalls));
           } else if (m.role === 'tool') {
             attachRestoredToolResult(m, pendingToolCalls);
           }

@@ -34,6 +34,8 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener(DESKTOP_IPC.sessionsChanged, receive);
   },
   renameSession: (sessionId, title) => ipcRenderer.invoke(DESKTOP_IPC.renameSession, sessionId, title),
+  setSessionArchived: (sessionId, archived) =>
+    ipcRenderer.invoke(DESKTOP_IPC.setSessionArchived, sessionId, archived),
   deleteSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.deleteSession, sessionId),
   getRemoteAccessInfo: () => ipcRenderer.invoke(DESKTOP_IPC.remoteAccessInfo),
   resumeSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.resumeSession, sessionId),

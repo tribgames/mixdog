@@ -133,6 +133,10 @@
   letter-spacing: 0;
   font-synthesis: none;
   --titlebar-height: 40px;
+  /* Overlay height base: desktop = layout viewport; the mobile shell swaps
+     in the tracked visual viewport so the soft keyboard never clips
+     dialogs, menus, or sheets. */
+  --vvh: 100vh;
   --base: var(--oc-bg-deep);
   --sidebar: var(--oc-bg-base);
   --surface: var(--oc-bg-base);
@@ -1173,6 +1177,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
      column ~12px left of the composer/header axis (user-flagged). */
   scrollbar-gutter: stable both-edges;
   scrollbar-color: var(--oc-scrollbar-thumb) transparent;
+  /* The virtualizer owns scroll compensation; Chrome's native scroll
+     anchoring double-corrected against it and read as judder. */
+  overflow-anchor: none;
 }
 .transcript:focus-visible {
   outline: 2px solid var(--oc-focus);
@@ -1182,19 +1189,25 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    800px measure with a 24px gutter (12px hugged the sheet edges). */
 /* Messages sit 4px INSIDE the composer/header axis (Grok: the input field is
    the widest element of the column; prose tucks slightly in). */
-/* Extra bottom room so the settled turn's last line never kisses the
-   composer edge (user: content read as buried at turn end). */
-.thread { width: min(100%, 800px); padding: 20px 36px 28px; gap: 16px; }
+/* Uniform 20px rhythm: the thread's bottom pad matches the row gap so the
+   last turn sits one grid step above the composer (user: unify spacing). */
+.thread { width: min(100%, 800px); padding: 20px 36px 20px; gap: 20px; }
 .transcript-virtual-space { position: relative; width: 100%; flex: 0 0 auto; }
 .transcript-virtual-row {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
-  padding-bottom: 16px;
+  padding-bottom: 20px;
   box-sizing: border-box;
 }
 .transcript-virtual-row--empty { padding-bottom: 0; }
+/* Virtualized bottom seam: the last row's 20px padding PLUS the thread's 20px
+   flex gap doubled the space above the live spinner band (user). The --tail
+   class marks the TRUE last index row (JSX): a plain :last-child matched the
+   bottom overscan row, whose measurement then flip-flopped ±20px as it
+   entered/left last-child position and yanked the scroll ("툭" jump-back). */
+.transcript-virtual-row--tail { padding-bottom: 0; }
 .thread-welcome { width: min(100%, 800px); padding: 0 32px 120px; }
 /* OpenCode v2 new-session treatment: a large faded wordmark above the
    composer instead of a logo + headline. */
@@ -1266,15 +1279,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .message-body p:last-child { margin-bottom: 0; }
 .message.user .message-body { line-height: 23px; }
 .message { position: relative; }
+/* Hover meta overlays float over the 16px gap; lift the hovered message (and
+   its virtual row) above the next sibling so the actions stay clickable. */
+.message:hover, .message:focus-within { z-index: 1; }
+.transcript-virtual-row:hover, .transcript-virtual-row:focus-within { z-index: 1; }
 .message:focus-visible {
   border-radius: 6px;
   outline: 2px solid var(--oc-focus);
   outline-offset: 4px;
 }
-.message.assistant.settled, .tool-card.settled {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 88px;
-}
+/* No content-visibility on settled rows: the transcript is already
+   virtualized, and the 88px intrinsic placeholder made off-screen rows paint
+   late (ghost flash) then re-measure on entry (scroll jump). */
 .message-actions {
   position: absolute;
   z-index: 2;
@@ -1363,18 +1379,22 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin-top: 6px;
   color: var(--oc-text-faint);
 }
-/* Turn rhythm (user): the copy/actions footer KEEPS its reserved row, but
-   that row IS the turn gap — the thread's extra 16px must not stack on top
-   of it. The negative margin cancels the flex gap after assistant messages;
-   virtualized rows ignore margins, where the footer row alone spaces turns. */
-.message.assistant { margin-bottom: -16px; }
-/* TURN-FINAL assistant rows (the only ones carrying a clock now) keep one
-   extra blank line before the next turn — padding so the virtualizer's
-   measured height includes it (margins are ignored there). */
-.message.assistant:has(.message-time) { margin-bottom: 0; padding-bottom: 16px; }
-/* Same rule for user bubbles: their hover meta/actions line is the gap. */
-.message.user { margin-bottom: -16px; }
+/* Uniform 20px rhythm (user): footers with VISIBLE content (turn-status /
+   compaction divider) stay in flow — the 20px gap starts under them. Hover-
+   only footers leave the flow entirely (absolute overlay below) so every
+   message pair reads the same single 20px gap, virtualized or not. */
+.message.assistant .response-footer:not(:has(.turn-status)):not(:has(.compaction-divider)) {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  margin-top: 0;
+}
 .message-time { font-size: 12px; line-height: 18px; white-space: nowrap; }
+/* In-flow completion footer ("Checked for …"): min-height 24 around an 18px
+   line left ~6px of slack under the text, so the gap above the next user
+   bubble read larger than the gap below it (user). */
+.message.assistant .response-footer:has(.turn-status) { min-height: 18px; }
 .message.assistant .response-footer .message-actions {
   position: static;
   width: 24px;
@@ -1423,15 +1443,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .message.user .message-body p { margin: 0; }
 .message.user .message-meta-line {
-  position: static;
+  /* Overlay below the bubble: the hidden hover row must not reserve layout
+     space, or user→assistant spacing runs 28px against the 20px grid. */
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
   width: 100%;
   min-height: 24px;
+  margin-top: 0;
   padding-inline: 0;
   border-radius: 0;
   background: transparent;
 }
-.message.user.attached-user { margin-top: -12px; }
-.message.user + .message.assistant { margin-top: -16px; }
 .markdown pre, .detail-block pre {
   padding: 12px;
   border: 0;
@@ -1607,7 +1631,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .live-activity {
   height: auto;
   min-height: 20px;
-  margin-top: 12px;
+  /* Auto-scroll gap (user): the thread already contributes its 16px row gap
+     above this band — an extra margin pushed the spinner too far from the
+     last tool card. */
+  margin-top: 0;
   align-items: flex-start;
   flex-direction: column;
   overflow: visible;
@@ -1953,7 +1980,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .model-picker-dialog {
   width: min(calc(100vw - 16px), 640px);
-  height: min(calc(100vh - 16px), 512px);
+  height: min(calc(var(--vvh, 100vh) - 16px), 512px);
   max-height: 100%;
   min-height: 280px;
   border: 0;
@@ -2281,8 +2308,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 auto;
   display: block;
   color: currentColor;
-  /* Calm rotation — 1.1s read frantic next to the quiet header (user). */
-  animation: spin 2s linear infinite;
+  /* Calm rotation — user tuned: 3s still read fast; half speed again. */
+  animation: spin 6s linear infinite;
 }
 .composer-attachments {
   align-items: flex-start;
@@ -2402,7 +2429,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .project-switcher {
   width: min(640px, calc(100vw - 32px));
-  max-height: min(512px, calc(100vh - 32px));
+  max-height: min(512px, calc(var(--vvh, 100vh) - 32px));
   border-radius: 8px;
   color: var(--oc-text);
   background: var(--oc-bg-layer-1);
@@ -2575,7 +2602,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   z-index: 100;
   min-width: 160px;
   max-width: min(368px, calc(100vw - 16px));
-  max-height: min(240px, calc(100vh - 16px));
+  max-height: min(240px, calc(var(--vvh, 100vh) - 16px));
   padding: 4px;
   overflow: auto;
   border-radius: 6px;
@@ -2622,7 +2649,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: calc(100vh - 32px);
+  max-height: calc(var(--vvh, 100vh) - 32px);
   padding: 1px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -2818,7 +2845,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   z-index: 60;
   inset: 0;
   width: 100vw;
-  height: 100vh;
+  height: var(--vvh, 100vh);
   display: grid;
   place-items: center;
   padding: var(--settings-layer-safe-top) 16px var(--settings-layer-safe-bottom);
@@ -2836,7 +2863,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   inset: auto;
   z-index: auto;
   width: min(800px, calc(100vw - 32px));
-  height: min(560px, calc(100vh - 32px));
+  height: min(560px, calc(var(--vvh, 100vh) - 32px));
   max-width: 100%;
   max-height: 100%;
   margin: 0;
@@ -3357,7 +3384,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .schedules-dialog {
   box-sizing: border-box;
   width: min(560px, 100%);
-  max-height: calc(100vh - 48px);
+  max-height: calc(var(--vvh, 100vh) - 48px);
   overflow-y: auto;
   border-radius: 14px;
   color: var(--oc-text);
@@ -3619,7 +3646,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .onboarding-dialog {
   --settings-border: var(--oc-border);
   width: min(800px, calc(100vw - 32px));
-  height: min(560px, calc(100vh - 32px));
+  height: min(560px, calc(var(--vvh, 100vh) - 32px));
   max-height: none;
   display: grid;
   grid-template-rows: 64px 44px minmax(0, 1fr) 56px;
@@ -3853,20 +3880,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .sidebar-collapsed .sidebar.session-sidebar {
     position: fixed;
     z-index: 40;
-    /* Below the tab bar (user: the drawer overlapped the top header). */
-    top: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px));
+    /* Full-height drawer over the tab bar (standard mobile drawer grammar;
+       the old below-tab-bar top read as the sidebar invading the header). */
+    top: 0;
     bottom: 0;
     left: 0;
     width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px));
     flex: none;
     margin: 0;
-    /* The shell already absorbs the status-bar inset; a second top inset
-       here left a dead band above "New task" (user: looks clumsy). */
-    padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
+    padding: max(10px, env(safe-area-inset-top, 0px)) 8px
+      max(8px, env(safe-area-inset-bottom, 0px));
     background: var(--oc-window-band);
     /* Define the drawer edge against the equally dark thread behind it. */
     border-right: 1px solid var(--oc-border-muted);
-    border-radius: 0 12px 12px 0;
+    border-radius: 0 16px 16px 0;
     box-shadow: var(--oc-overlay);
     transform: translateX(-100%);
     visibility: hidden;
@@ -3880,8 +3907,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .sidebar-backdrop {
     display: block;
     position: fixed;
-    /* Whole-screen dim (user: a partial dim below the header read odd);
-       the PANEL still starts below the tab bar. */
+    /* One whole-screen dim for every mobile layer: drawer, dock, sheets. */
     inset: 0;
     z-index: 39;
     border: 0;
@@ -3894,16 +3920,54 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* No OS caption buttons in a browser/native shell — the reserved strip
      pushed the + affordance off a phone-width top bar. */
   .titlebar-caption-space { display: none; }
-  .oc-toast-region { width: calc(100vw - 32px); }
+  .oc-toast-region {
+    top: calc(54px + env(safe-area-inset-top, 0px));
+    width: calc(100vw - 32px);
+  }
   .composer-region { padding-inline: 16px; }
   /* 16px input text stops the mobile-browser zoom-on-focus jump. */
   .composer textarea { font-size: 16px; }
+  /* Pickers become bottom sheets (system grammar) instead of centered
+     desktop dialogs floating over a phone keyboard. */
+  @keyframes oc-sheet-up { from { transform: translateY(24px); opacity: 0; } }
+  .model-picker-layer {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0;
+  }
+  .model-picker-dialog {
+    width: 100vw;
+    height: min(480px, calc(var(--vvh, 100vh) - 56px));
+    min-height: 240px;
+    border-radius: 16px 16px 0 0;
+    animation: oc-sheet-up 200ms ease;
+  }
+  /* Phone tab strip: uniform 6px rhythm, no divider ticks, tabs scroll
+     horizontally and only the ACTIVE tab carries a close button (Chrome
+     mobile grammar) — three desktop tabs collapsed into a broken jumble. */
+  .topbar { column-gap: 6px; padding-inline: 8px; }
+  .workspace-tabs-shell { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+  .workspace-tabs {
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .workspace-tabs::-webkit-scrollbar { display: none; }
+  .workspace-tab {
+    min-width: 104px;
+    max-width: 144px;
+    flex: 0 0 auto;
+  }
+  .workspace-tab:not(:first-child):not(.active)::before { display: none; }
+  .workspace-tab:not(.active) .workspace-tab-close { display: none; }
 }
 
 @media (max-width: 640px) {
   .mixdog-settings__body { padding: 32px 20px; }
   .onboarding-layer { padding: 0; }
-  .onboarding-dialog { width: 100vw; height: 100vh; border-radius: 0; }
+  .onboarding-dialog { width: 100vw; height: var(--vvh, 100vh); border-radius: 0; }
   .onboarding-body { padding-inline: 20px; }
   .onboarding-model-grid .oc-select-root { width: 100%; max-width: none; }
   .onboarding-choice-grid { grid-template-columns: 1fr; }
@@ -3971,8 +4035,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin: 0;
   overflow-x: auto;
   box-shadow: none;
-  white-space: pre;
-  overflow-wrap: normal;
+  /* Wrap long script lines instead of hiding them behind a horizontal
+     scroll (user: commands in the transcript kept getting buried). */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 .tool-state.exited { color: var(--oc-warning); }
 .diff-collapsed {
@@ -4285,6 +4352,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 16px;
 }
 .message-image-fallback svg { color: var(--oc-icon); }
+.message-image-fallback small { color: var(--oc-text-faint); font-size: 11px; }
 .markdown a {
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
@@ -4387,7 +4455,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* OpenCode parity: animated status text, compact message navigation, context,
    count-aware tools, and a dedicated critical tool-error surface. */
 [data-component="text-shimmer"] {
-  --text-shimmer-duration: 1200ms;
+  /* User tuned: 2000ms still read rushed; half speed again. Applies to the
+     status verb and running tool-title glow alike. */
+  --text-shimmer-duration: 4000ms;
   display: inline-flex;
   align-items: baseline;
   font: inherit;
@@ -4437,18 +4507,27 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 11px;
   font-weight: 400;
 }
-.tool-card[data-kind="tool-error-card"] {
-  border: 0;
-  color: var(--oc-danger);
-  background: var(--oc-danger-bg);
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--oc-danger) 34%, transparent);
-}
-.tool-card[data-kind="tool-error-card"] .tool-icon,
-.tool-card[data-kind="tool-error-card"] .tool-title b,
-.tool-card[data-kind="tool-error-card"] .tool-state { color: var(--oc-danger); }
-.tool-card[data-kind="tool-error-card"] .tool-content {
-  border-top-color: color-mix(in srgb, var(--oc-danger) 22%, transparent);
-  background: color-mix(in srgb, var(--oc-danger-bg) 80%, var(--oc-bg-deep));
+/* Failed tools stay visually quiet (TUI parity, user): no red band or card
+   tint — only the icon and the small state chip carry danger color, with a
+   brief settle blink instead of a persistent highlight. */
+.tool-card.failed .tool-icon,
+.tool-state.failed { color: var(--oc-danger); }
+.tool-card.failed .tool-icon svg { animation: tool-failed-blink 700ms ease-in-out 2; }
+@keyframes tool-failed-blink { 50% { opacity: .25; } }
+/* TUI toolStatusColor parity: running blinks (500ms on/off), success green,
+   partial group failure amber, full failure red (above), exit-only amber.
+   Order matters: state rules below override the settled-success green. */
+.tool-card.settled .tool-icon { color: var(--oc-success); }
+.tool-card:not(.settled) .tool-icon { animation: tool-running-blink 1s step-end infinite; }
+@keyframes tool-running-blink { 50% { opacity: 0; } }
+/* Re-assert failure red AFTER the settled-success green (equal specificity —
+   source order decides), then the amber states override red for their cases. */
+.tool-card.failed .tool-icon { color: var(--oc-danger); }
+.tool-card.exited .tool-icon { color: var(--oc-warning); }
+.tool-card.failed.partial-failed .tool-icon { color: var(--oc-warning); }
+@media (prefers-reduced-motion: reduce) {
+  .tool-card.failed .tool-icon svg,
+  .tool-card:not(.settled) .tool-icon { animation: none; }
 }
 .tool-error-summary {
   min-width: 0;
@@ -4643,7 +4722,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 .slash-palette {
   box-sizing: border-box;
-  max-height: min(344px, calc(100vh - 32px));
+  max-height: min(344px, calc(var(--vvh, 100vh) - 32px));
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -4694,7 +4773,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .command-surface { outline: 0; }
 .command-surface[data-surface="context"] {
   height: auto;
-  max-height: min(560px, calc(100vh - 32px));
+  max-height: min(560px, calc(var(--vvh, 100vh) - 32px));
 }
 .command-surface[data-surface="context"] .mixdog-settings__panel { max-height: 100%; }
 .command-surface[data-surface="context"] .mixdog-settings__body { flex: 0 1 auto; }
@@ -5326,7 +5405,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .utility-dock {
     position: fixed;
     z-index: 38;
-    top: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px));
+    /* Full-height right sheet, mirroring the left drawer. */
+    top: 0;
     right: 0;
     bottom: 0;
     /* Wider than the left drawer read as imbalance (user): cap at the
@@ -5334,8 +5414,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px)) !important;
     flex-basis: auto !important;
     max-width: none;
+    padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    border-radius: 10px 0 0 10px;
+    border-radius: 16px 0 0 16px;
     box-shadow: var(--oc-overlay);
   }
   .dock-backdrop {
@@ -5383,15 +5464,37 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .turn-review-summary svg { color: var(--oc-icon-muted); }
 .turn-review-summary strong { font-weight: 500; }
 .turn-review-summary .diff-stats { margin-left: auto; }
-.turn-review-chevron { transition: transform 100ms ease-out; }
+/* Expanded header row: summary button + Unified/Split toggle side by side. */
+.turn-review-head { display: flex; align-items: center; }
+.turn-review-head .turn-review-summary { width: auto; flex: 1; min-width: 0; }
+.turn-review-style { flex: 0 0 auto; margin-right: 8px; }
+.turn-review-chevron { flex: 0 0 auto; margin: 0 2px; transition: transform 160ms ease; }
 .turn-review-bar[data-expanded="true"] .turn-review-chevron { transform: rotate(180deg); }
+/* Numeric delta columns share one tabular grid so the header total and every
+   file row line up vertically (+N / -M read as two aligned columns). */
+.turn-review-bar .diff-stats { font-variant-numeric: tabular-nums; }
+.turn-review-bar .diff-stats i,
+.turn-review-bar .diff-stats em { min-width: 30px; text-align: right; }
+/* Smooth open/close: grid-rows 0fr→1fr animates the upward expansion AND the
+   collapse (the list used to pop in/out instantly above the composer). */
+.turn-review-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 160ms ease;
+}
+.turn-review-bar[data-expanded="true"] .turn-review-collapse { grid-template-rows: 1fr; }
+.turn-review-collapse-inner { min-height: 0; overflow: hidden; }
 .turn-review-files {
-  max-height: 132px;
+  /* Tall upward expansion (user request): the open panel claims up to ~60%
+     of the viewport instead of a 132px sliver, and stays the ONLY scroller
+     (the inline diff below has no height cap of its own). */
+  max-height: min(60vh, 720px);
   margin: 0;
-  padding: 2px 10px 8px;
+  padding: 4px 10px 8px;
   overflow-y: auto;
   scrollbar-width: thin;
   list-style: none;
+  border-top: .5px solid var(--oc-border-muted);
 }
 .turn-review-files li {
   min-height: 22px;
@@ -5399,7 +5502,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: center;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   font-size: 12px;
   line-height: 18px;
 }
@@ -5422,18 +5525,22 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .turn-review-file .diff-stats { margin-left: auto; }
 .turn-review-file:hover code { color: var(--oc-text); }
 .turn-review-revert {
-  flex: 0 0 auto;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: var(--oc-text-muted);
-  padding: 2px;
   cursor: pointer;
 }
-.turn-review-revert:hover { color: var(--oc-danger); }
+.turn-review-revert:hover { color: var(--oc-danger); background: var(--oc-hover); }
 .turn-review-revert:disabled { opacity: 0.4; cursor: default; }
 .turn-review-diff {
   flex: 1 0 100%;
-  max-height: 320px;
   overflow: auto;
   margin: 4px 0 6px;
   padding: 4px;
@@ -5715,6 +5822,8 @@ html[data-mixdog-mobile] {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Overlays measure against the tracked visual viewport, never 100vh. */
+  --vvh: var(--mixdog-vvh, 100dvh);
 }
 html[data-mixdog-mobile] body {
   position: fixed;
@@ -5759,6 +5868,16 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   .session-sidebar .task-link,
   .session-sidebar .projects-link,
   .session-sidebar .session-row { height: 44px; min-height: 44px; }
+  /* Hover-revealed controls do not exist under a finger: keep the session
+     row actions and message action bars always on. */
+  .session-row-action { opacity: 1; pointer-events: auto; }
+  .session-row .session-row-actions {
+    pointer-events: auto;
+    background: linear-gradient(to right, transparent 0,
+      var(--session-row-action-surface) 10px, var(--session-row-action-surface) 100%);
+  }
+  .message-actions,
+  .message.user .message-meta-line .message-actions { opacity: 1; }
 }
 
 /* Settings -> Connection: platform tabs (Browser / Android / iOS). */

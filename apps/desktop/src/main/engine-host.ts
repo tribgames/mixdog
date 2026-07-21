@@ -95,6 +95,8 @@ interface DesktopSessionMetadataFile {
   version: 2;
   titles: Record<string, string>;
   names: Record<string, string>;
+  /** Codex-style archive: id → archivedAt ms. Present only when non-empty. */
+  archived?: Record<string, number>;
 }
 
 type DesktopSessionScope = { classification: 'task' | 'project'; projectPath: string | null };
@@ -487,6 +489,7 @@ export class EngineHost {
   private projectPreferences: DesktopProjectPreferences | null = null;
   private sessionTitles: Record<string, string> | null = null;
   private sessionNames: Record<string, string> | null = null;
+  private sessionArchived: Record<string, number> | null = null;
   private sessionTitleWrite: Promise<void> = Promise.resolve();
   private engineWorkspace: string | null = null;
   private engineDesktopSession: DesktopSessionScope | null = null;
@@ -810,6 +813,28 @@ export class EngineHost {
     });
   }
 
+  // Codex-style archive: hide from Recent without touching the on-disk
+  // session file. Persisted in desktop-session-metadata.json — the optimistic
+  // renderer flip previously had NO backend, so the next catalog push
+  // resurrected every archived row (user bug).
+  async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
+    let changed = false;
+    await this.exclusive(async () => {
+      await this.loadSessionTitles();
+      const map = this.sessionArchived
+        ?? (this.sessionArchived = Object.create(null) as Record<string, number>);
+      const has = Object.prototype.hasOwnProperty.call(map, sessionId);
+      if (archived === has) return;
+      if (archived) map[sessionId] = Date.now();
+      else delete map[sessionId];
+      changed = true;
+      await this.queueSessionTitleWrite();
+    });
+    // Reconcile every window through the normal catalog push channel.
+    if (changed) this.scheduleSessionsChanged();
+  }
+
   async deleteSession(sessionId: string): Promise<EngineSnapshot> {
     if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
     let result: EngineSnapshot = null;
@@ -849,9 +874,11 @@ export class EngineHost {
           throw new Error('Session could not be deleted.');
         }
         const hadMetadata = Object.prototype.hasOwnProperty.call(this.sessionTitles, sessionId)
-          || Object.prototype.hasOwnProperty.call(this.sessionNames, sessionId);
+          || Object.prototype.hasOwnProperty.call(this.sessionNames, sessionId)
+          || Object.prototype.hasOwnProperty.call(this.sessionArchived || {}, sessionId);
         delete this.sessionTitles![sessionId];
         delete this.sessionNames![sessionId];
+        if (this.sessionArchived) delete this.sessionArchived[sessionId];
         if (hadMetadata) await this.queueSessionTitleWrite();
         result = this.getSnapshot();
         this.publish();
@@ -1724,16 +1751,21 @@ export class EngineHost {
   private sessionSummaries(refreshFromStorage = false): DesktopSessionSummary[] {
     const currentId = String(this.engine?.getState()?.sessionId || '');
     const rows = this.engine?.listSessions(refreshFromStorage ? { refreshFromStorage: true } : undefined) || [];
-    return desktopSessionSummaries(
+    const summaries = desktopSessionSummaries(
       rows,
       currentId,
       this.sessionTitles || {},
       this.sessionNames || {},
     );
+    const archived = this.sessionArchived;
+    if (!archived) return summaries;
+    return summaries.map((row) => (
+      Object.prototype.hasOwnProperty.call(archived, row.id) ? { ...row, archived: true } : row
+    ));
   }
 
   private async loadSessionTitles(): Promise<Record<string, string>> {
-    if (this.sessionTitles && this.sessionNames) return this.sessionTitles;
+    if (this.sessionTitles && this.sessionNames && this.sessionArchived) return this.sessionTitles;
     let parsed: Record<string, unknown> = {};
     try {
       const value: unknown = JSON.parse(
@@ -1767,6 +1799,16 @@ export class EngineHost {
       ? Object.create(null) as Record<string, string>
       : normalizedMap(parsed.titles, true);
     this.sessionNames = normalizedMap(legacy ? parsed.titles : parsed.names);
+    const archivedMap = Object.create(null) as Record<string, number>;
+    const archivedRaw = legacy ? null : parsed.archived;
+    if (archivedRaw && typeof archivedRaw === 'object' && !Array.isArray(archivedRaw)) {
+      for (const [id, value] of Object.entries(archivedRaw as Record<string, unknown>)) {
+        if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
+        const at = Number(value);
+        if (Number.isFinite(at) && at > 0) archivedMap[id] = at;
+      }
+    }
+    this.sessionArchived = archivedMap;
     if (!legacy && generatedMetadataChanged) await this.queueSessionTitleWrite();
     return this.sessionTitles;
   }
@@ -1801,6 +1843,7 @@ export class EngineHost {
   private queueSessionTitleWrite(): Promise<void> {
     const titles = Object.fromEntries(Object.entries(this.sessionTitles || {}));
     const names = Object.fromEntries(Object.entries(this.sessionNames || {}));
+    const archived = Object.fromEntries(Object.entries(this.sessionArchived || {}));
     this.sessionTitleWrite = this.sessionTitleWrite.then(async () => {
       const root = this.userDataRoot();
       await mkdir(root, { recursive: true });
@@ -1811,6 +1854,9 @@ export class EngineHost {
           version: 2,
           titles,
           names,
+          // Only when non-empty: keeps the no-archive file shape (and its
+          // exact-match tests) unchanged.
+          ...(Object.keys(archived).length ? { archived } : {}),
         };
         await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
         await rename(temporary, target);

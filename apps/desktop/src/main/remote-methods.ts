@@ -93,6 +93,10 @@ export function createRemoteMethods(
     listSessions: () => host.listSessions(),
     renameSession: ([sessionId, title]) =>
       host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)),
+    setSessionArchived: ([sessionId, archived]) => {
+      if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
+      return host.setSessionArchived(requiredSessionId(sessionId), archived);
+    },
     deleteSession: ([sessionId]) => host.deleteSession(requiredSessionId(sessionId)),
     resumeSession: ([sessionId]) => host.resumeSession(requiredSessionId(sessionId)),
     searchProjectFiles: ([projectIdOrWorkspaceId, query, limit]) => {
