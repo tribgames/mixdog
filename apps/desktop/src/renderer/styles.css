@@ -18,7 +18,7 @@ body { margin: 0; min-width: 320px; overflow: hidden; }
 button, input, textarea, select { font: inherit; }
 button { color: inherit; }
 
-.app-shell { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; isolation: isolate; }
+.app-shell { height: var(--vvh, 100vh); height: 100dvh; display: flex; flex-direction: column; overflow: hidden; isolation: isolate; }
 .topbar { display: flex; align-items: center; user-select: none; }
 .titlebar-leading, .workspace-tabs, .workspace-tab, .workspace-tab-main {
   display: flex;
@@ -178,7 +178,7 @@ button { color: inherit; }
 }
 .model-picker-dialog {
   width: min(calc(100vw - 16px), 640px);
-  height: min(calc(100vh - 16px), 512px);
+  height: min(calc(var(--vvh, 100vh) - 16px), 512px);
   max-height: 100%;
   min-height: 280px;
   display: flex;

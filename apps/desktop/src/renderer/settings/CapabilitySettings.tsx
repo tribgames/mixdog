@@ -795,6 +795,18 @@ function ConnectionPanel() {
     return <Group title="Phone remote"><p className="settings-connection-note">Loading…</p></Group>;
   }
   if (info === null) {
+    // Remote surface (phone/browser): the desktop API is absent by design —
+    // report where this device is connected instead of desktop-only pairing.
+    const remoteServer = (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer;
+    if (remoteServer) {
+      return <Group title="Phone remote">
+        <p className="settings-connection-note">
+          This device is paired and connected through <code>{remoteServer}</code>.
+          Pairing QR codes for other devices live in the desktop app under
+          Settings → Connection.
+        </p>
+      </Group>;
+    }
     return <Group title="Phone remote">
       <p className="settings-connection-note">
         Remote access is unavailable in this session. On the desktop it is on by

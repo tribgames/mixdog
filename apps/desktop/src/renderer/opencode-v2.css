@@ -3866,6 +3866,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
   .desktop-body { padding-inline: 0; }
   .workspace { border-radius: 0; }
+  /* Dedicated tab zone (user: give the tab strip its own space like the
+     Settings chip row). A taller bar with a bottom hairline reads as a fixed
+     header; every mobile layer (drawer/dock/dim) opens BELOW it and never
+     invades it. */
+  .app-shell { --titlebar-height: 48px; }
+  .topbar { border-bottom: .5px solid var(--oc-border-muted); }
   /* One slim header row: the 48px desktop session header doubles the 40px
      tab bar on a phone; compress it and tighten its gutters. */
   .session-header { flex-basis: 40px; min-height: 40px; }
@@ -3880,20 +3886,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .sidebar-collapsed .sidebar.session-sidebar {
     position: fixed;
     z-index: 40;
-    /* Full-height drawer over the tab bar (standard mobile drawer grammar;
-       the old below-tab-bar top read as the sidebar invading the header). */
-    top: 0;
+    /* The drawer respects the dedicated tab zone: it opens flush under the
+       bar (user: covering the tabs read as the sidebar invading them). */
+    top: calc(var(--titlebar-height, 48px) + env(safe-area-inset-top, 0px));
     bottom: 0;
     left: 0;
     width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px));
     flex: none;
     margin: 0;
-    padding: max(10px, env(safe-area-inset-top, 0px)) 8px
-      max(8px, env(safe-area-inset-bottom, 0px));
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
     background: var(--oc-window-band);
     /* Define the drawer edge against the equally dark thread behind it. */
     border-right: 1px solid var(--oc-border-muted);
-    border-radius: 0 16px 16px 0;
+    border-radius: 0 0 16px 0;
     box-shadow: var(--oc-overlay);
     transform: translateX(-100%);
     visibility: hidden;
@@ -3907,8 +3912,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .sidebar-backdrop {
     display: block;
     position: fixed;
-    /* One whole-screen dim for every mobile layer: drawer, dock, sheets. */
-    inset: 0;
+    /* Dim everything BELOW the tab zone; the bar stays crisp above layers. */
+    inset: calc(var(--titlebar-height, 48px) + env(safe-area-inset-top, 0px)) 0 0 0;
     z-index: 39;
     border: 0;
     padding: 0;
@@ -5405,8 +5410,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .utility-dock {
     position: fixed;
     z-index: 38;
-    /* Full-height right sheet, mirroring the left drawer. */
-    top: 0;
+    /* Below the dedicated top bar zone, mirroring the left drawer. */
+    top: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px));
     right: 0;
     bottom: 0;
     /* Wider than the left drawer read as imbalance (user): cap at the
@@ -5414,7 +5419,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px)) !important;
     flex-basis: auto !important;
     max-width: none;
-    padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
     border-radius: 16px 0 0 16px;
     box-shadow: var(--oc-overlay);
@@ -5422,7 +5426,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .dock-backdrop {
     display: block;
     position: fixed;
-    inset: 0;
+    /* Dim only below the top bar zone, matching the drawer scrim. */
+    inset: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px)) 0 0 0;
     z-index: 37;
     border: 0;
     padding: 0;

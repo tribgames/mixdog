@@ -65,39 +65,241 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
     return `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;
   };
 
-  // Pairing screen (native shell): one field takes the full bridge URL the
-  // desktop prints (http://<ip>:8791/?token=...); origin and token are split
-  // out and persisted. Vanilla DOM so it works before React mounts and even
-  // when the socket cannot open.
+  // Pairing screen (native shell): scanner-first — the in-app camera reads
+  // either QR from the desktop's Remote Access window / Settings →
+  // Connection (mixdog://pair?server=&token= or the browser URL with
+  // ?token=). Manual address entry hides behind a toggle so the default
+  // screen is just the viewfinder. Vanilla DOM so it works before React
+  // mounts and even when the socket cannot open.
+  let stopPairingCamera: (() => void) | null = null;
+
+  const persistPairing = (raw: string): boolean => {
+    try {
+      const link = new URL(raw.trim());
+      const pairToken = link.searchParams.get('token');
+      let origin = '';
+      if (link.protocol === 'mixdog:') {
+        const server = link.searchParams.get('server');
+        if (!server) return false;
+        origin = new URL(server).origin;
+      } else if (link.protocol === 'http:' || link.protocol === 'https:') {
+        origin = link.origin;
+      } else {
+        return false;
+      }
+      localStorage.setItem(SERVER_STORAGE_KEY, origin);
+      if (pairToken) localStorage.setItem(TOKEN_STORAGE_KEY, pairToken);
+      return true;
+    } catch { return false; }
+  };
+
+  // Visible confirmation between "QR read" and the reload that dials the
+  // desktop — green brackets, check badge and a haptic tick, the way system
+  // scanners settle. Without it the screen just blinks and the scan feels
+  // ignored.
+  const completePairing = (layer: HTMLElement): void => {
+    stopPairingCamera?.();
+    layer.classList.add('mrp-ok');
+    layer.querySelector('.mrp-success')?.removeAttribute('hidden');
+    try { navigator.vibrate?.([30, 60, 30]); } catch { /* no haptics */ }
+    // Long enough for the lock pulse + check draw + caption to play out.
+    window.setTimeout(() => location.reload(), 1250);
+  };
+
+  const startPairingScanner = async (
+    video: HTMLVideoElement,
+    onPaired: () => void,
+    onUnavailable: (reason: string) => void,
+  ): Promise<void> => {
+    stopPairingCamera?.(); // toggling modes must never stack two streams
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+    } catch {
+      onUnavailable('Camera unavailable — paste the address below instead.');
+      return;
+    }
+    let live = true;
+    stopPairingCamera = () => {
+      live = false;
+      stopPairingCamera = null;
+      for (const track of stream.getTracks()) track.stop();
+    };
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    // Only reveal the element once frames actually flow — before that the
+    // WebView paints its own oversized (and stretched) play glyph over the
+    // empty video surface.
+    video.classList.add('live');
+    const { default: jsQR } = await import('jsqr');
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    const tick = (): void => {
+      if (!live) return;
+      if (context && video.videoWidth > 0) {
+        // Downscale before decoding: jsQR walks every pixel and ~500px is
+        // plenty of resolution for a phone-sized QR.
+        const scale = Math.min(1, 500 / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const image = context.getImageData(0, 0, canvas.width, canvas.height);
+        const hit = jsQR(image.data, image.width, image.height);
+        if (hit?.data && persistPairing(hit.data)) {
+          onPaired();
+          return;
+        }
+      }
+      window.setTimeout(tick, 250);
+    };
+    tick();
+  };
+
+  // Full-screen scanner in the system-camera grammar (WhatsApp/Discord/the
+  // Android system scanner): edge-to-edge preview, a dimmed mask with a clear
+  // center aperture marked by four corner brackets, instructions in a top
+  // scrim, and manual entry demoted to a bottom-sheet behind a pill button.
   const showPairingScreen = (message: string): void => {
     if (document.getElementById('mixdog-remote-pairing')) return;
     const mount = () => {
       const layer = document.createElement('div');
       layer.id = 'mixdog-remote-pairing';
-      layer.style.cssText = 'position:fixed;inset:0;z-index:9999;display:grid;place-items:center;'
-        + 'padding:24px;background:#201e1c;color:#f4f2ee;font:400 15px/22px system-ui,sans-serif;';
-      layer.innerHTML = '<form style="width:min(420px,100%);display:grid;gap:12px;">'
-        + '<b style="font-size:18px;">Connect to your Mixdog desktop</b>'
-        + `<span style="color:#b3ada3;">${message}</span>`
+      layer.innerHTML = '<style>'
+        + '#mixdog-remote-pairing{position:fixed;inset:0;z-index:9999;overflow:hidden;background:#0e0d0c;'
+        + 'color:#f4f2ee;font:400 15px/22px system-ui,sans-serif;--mrp-ap:min(68vw,280px);}'
+        + '#mixdog-remote-pairing *{box-sizing:border-box;margin:0;}'
+        + '#mixdog-remote-pairing [hidden]{display:none!important;}'
+        + '#mixdog-remote-pairing .mrp-cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;'
+        + 'opacity:0;transition:opacity 200ms ease;}'
+        + '#mixdog-remote-pairing .mrp-cam.live{opacity:1;}'
+        + '#mixdog-remote-pairing .mrp-cam::-webkit-media-controls,'
+        + '#mixdog-remote-pairing .mrp-cam::-webkit-media-controls-overlay-play-button,'
+        + '#mixdog-remote-pairing .mrp-cam::-webkit-media-controls-start-playback-button'
+        + '{display:none!important;-webkit-appearance:none;}'
+        + '#mixdog-remote-pairing .mrp-hole{position:absolute;left:50%;top:44%;width:var(--mrp-ap);'
+        + 'height:var(--mrp-ap);transform:translate(-50%,-50%);border-radius:24px;'
+        + 'box-shadow:0 0 0 200vmax rgba(14,13,12,.55);}'
+        + '#mixdog-remote-pairing .mrp-ap{position:absolute;left:50%;top:44%;width:var(--mrp-ap);'
+        + 'height:var(--mrp-ap);transform:translate(-50%,-50%);pointer-events:none;}'
+        + '@keyframes mrp-breathe{0%,100%{opacity:1}50%{opacity:.55}}'
+        + '#mixdog-remote-pairing .mrp-ap span{position:absolute;width:34px;height:34px;'
+        + 'border:0 solid rgba(255,255,255,.95);transition:border-color 200ms;'
+        + 'animation:mrp-breathe 2.4s ease-in-out infinite;}'
+        + '#mixdog-remote-pairing .mrp-ap .tl{top:-3px;left:-3px;border-top-width:4px;border-left-width:4px;border-top-left-radius:20px;}'
+        + '#mixdog-remote-pairing .mrp-ap .tr{top:-3px;right:-3px;border-top-width:4px;border-right-width:4px;border-top-right-radius:20px;}'
+        + '#mixdog-remote-pairing .mrp-ap .bl{bottom:-3px;left:-3px;border-bottom-width:4px;border-left-width:4px;border-bottom-left-radius:20px;}'
+        + '#mixdog-remote-pairing .mrp-ap .br{bottom:-3px;right:-3px;border-bottom-width:4px;border-right-width:4px;border-bottom-right-radius:20px;}'
+        + '#mixdog-remote-pairing.mrp-ok .mrp-ap span{border-color:#4ac885;animation:none;opacity:1;}'
+        + '@keyframes mrp-lock{0%{transform:translate(-50%,-50%) scale(1)}'
+        + '45%{transform:translate(-50%,-50%) scale(.92)}100%{transform:translate(-50%,-50%) scale(1)}}'
+        + '#mixdog-remote-pairing.mrp-ok .mrp-ap{animation:mrp-lock 320ms cubic-bezier(.34,1.56,.64,1);}'
+        + '#mixdog-remote-pairing .mrp-hole{transition:box-shadow 420ms ease;}'
+        + '#mixdog-remote-pairing.mrp-ok .mrp-hole{box-shadow:0 0 0 200vmax rgba(14,13,12,.8);}'
+        + '#mixdog-remote-pairing .mrp-top{position:absolute;left:0;right:0;top:0;display:grid;gap:6px;'
+        + 'padding:calc(30px + env(safe-area-inset-top)) 28px 44px;text-align:center;'
+        + 'background:linear-gradient(rgba(14,13,12,.78),rgba(14,13,12,0));}'
+        + '#mixdog-remote-pairing .mrp-top b{font-size:18px;line-height:24px;text-shadow:0 1px 8px rgba(0,0,0,.55);}'
+        + '#mixdog-remote-pairing .mrp-top span{color:rgba(244,242,238,.75);font-size:13px;line-height:18px;'
+        + 'text-shadow:0 1px 6px rgba(0,0,0,.55);}'
+        + '#mixdog-remote-pairing .mrp-bottom{position:absolute;left:0;right:0;bottom:0;display:grid;'
+        + 'place-items:center;padding:36px 24px calc(30px + env(safe-area-inset-bottom));'
+        + 'background:linear-gradient(rgba(14,13,12,0),rgba(14,13,12,.78));}'
+        + '#mixdog-remote-pairing .mrp-manual{padding:12px 22px;border:1px solid rgba(255,255,255,.16);'
+        + 'border-radius:999px;background:rgba(32,30,28,.72);color:#f4f2ee;'
+        + 'font:500 14px/20px system-ui,sans-serif;cursor:pointer;'
+        + '-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);}'
+        + '#mixdog-remote-pairing .mrp-sheet{position:absolute;inset:0;z-index:2;}'
+        + '#mixdog-remote-pairing .mrp-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.5);}'
+        + '#mixdog-remote-pairing form{position:absolute;left:0;right:0;bottom:0;display:grid;gap:12px;'
+        + 'padding:22px 20px calc(22px + env(safe-area-inset-bottom));border-radius:20px 20px 0 0;'
+        + 'background:#201e1c;}'
+        + '#mixdog-remote-pairing form b{font-size:16px;line-height:22px;}'
+        + '#mixdog-remote-pairing form small{color:#b3ada3;font-size:12.5px;line-height:17px;}'
+        + '#mixdog-remote-pairing form small[data-role="err"]{color:#e5484d;}'
+        + '#mixdog-remote-pairing input{width:100%;padding:12px;border-radius:10px;border:1px solid #4a463f;'
+        + 'background:#282623;color:inherit;font-size:16px;}'
+        + '#mixdog-remote-pairing .mrp-connect{padding:13px;border:0;border-radius:12px;background:#f4f2ee;'
+        + 'color:#201e1c;font-weight:600;font-size:15px;cursor:pointer;}'
+        + '#mixdog-remote-pairing .mrp-back{justify-self:center;padding:6px 10px;border:0;background:none;'
+        + 'color:#b3ada3;font:500 13.5px/18px system-ui,sans-serif;cursor:pointer;}'
+        + '@keyframes mrp-fade{from{opacity:0}to{opacity:1}}'
+        + '@keyframes mrp-pop{0%{transform:scale(.35);opacity:0}55%{transform:scale(1.12);opacity:1}'
+        + '100%{transform:scale(1);opacity:1}}'
+        + '@keyframes mrp-draw{to{stroke-dashoffset:0}}'
+        + '@keyframes mrp-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}'
+        + '#mixdog-remote-pairing .mrp-success{position:absolute;inset:0;z-index:3;display:grid;'
+        + 'place-content:center;justify-items:center;gap:14px;background:rgba(14,13,12,.82);'
+        + 'animation:mrp-fade 240ms ease both;}'
+        + '#mixdog-remote-pairing .mrp-success svg{width:72px;height:72px;'
+        + 'animation:mrp-pop 420ms 120ms cubic-bezier(.34,1.56,.64,1) both;}'
+        + '#mixdog-remote-pairing .mrp-success circle{fill:#2f6b46;}'
+        + '#mixdog-remote-pairing .mrp-success path{fill:none;stroke:#f4f2ee;stroke-width:5;'
+        + 'stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:44;stroke-dashoffset:44;'
+        + 'animation:mrp-draw 340ms 380ms ease-out forwards;}'
+        + '#mixdog-remote-pairing .mrp-success span{font-size:15px;font-weight:600;'
+        + 'animation:mrp-rise 300ms 480ms ease-out both;}'
+        + '#mixdog-remote-pairing.mrp-nocam .mrp-cam,#mixdog-remote-pairing.mrp-nocam .mrp-hole,'
+        + '#mixdog-remote-pairing.mrp-nocam .mrp-ap,#mixdog-remote-pairing.mrp-nocam .mrp-bottom,'
+        + '#mixdog-remote-pairing.mrp-nocam .mrp-backdrop,#mixdog-remote-pairing.mrp-nocam .mrp-back'
+        + '{display:none!important;}'
+        + '</style>'
+        + '<video class="mrp-cam" playsinline muted autoplay></video>'
+        + '<div class="mrp-hole"></div>'
+        + '<div class="mrp-ap"><span class="tl"></span><span class="tr"></span>'
+        + '<span class="bl"></span><span class="br"></span></div>'
+        + '<header class="mrp-top"><b>Connect to your Mixdog desktop</b>'
+        + `<span data-role="note">${message}</span></header>`
+        + '<footer class="mrp-bottom">'
+        + '<button type="button" class="mrp-manual">Enter address manually</button></footer>'
+        + '<div class="mrp-sheet" hidden>'
+        + '<div class="mrp-backdrop" data-role="close"></div>'
+        + '<form><b>Connect with an address</b>'
+        + '<small>Copy the browser link from Settings → Connection on your desktop and paste it here.</small>'
         + '<input name="address" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"'
-        + ' placeholder="http://192.168.0.10:8791/?token=..."'
-        + ' style="padding:12px;border-radius:10px;border:1px solid #4a463f;background:#282623;color:inherit;font-size:16px;" />'
-        + '<button type="submit" style="padding:12px;border:0;border-radius:10px;background:#f4f2ee;'
-        + 'color:#201e1c;font-weight:600;font-size:15px;">Connect</button></form>';
+        + ' placeholder="https://… link with ?token=…" />'
+        + '<small data-role="err" hidden>That does not look like a Mixdog link — paste the full address including ?token=…</small>'
+        + '<button type="submit" class="mrp-connect">Connect</button>'
+        + '<button type="button" class="mrp-back" data-role="close">Scan the QR instead</button></form></div>'
+        + '<div class="mrp-success" hidden>'
+        + '<svg viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="34"/>'
+        + '<path d="M22 38l10 10 19-21"/></svg>'
+        + '<span>Paired — connecting…</span></div>';
+      const note = layer.querySelector<HTMLSpanElement>('[data-role="note"]');
+      const video = layer.querySelector<HTMLVideoElement>('.mrp-cam');
+      const sheet = layer.querySelector<HTMLDivElement>('.mrp-sheet');
       const form = layer.querySelector('form');
       const input = layer.querySelector('input');
+      const error = layer.querySelector<HTMLElement>('[data-role="err"]');
       if (input && serverBase) input.value = serverBase;
+      layer.querySelector('.mrp-manual')?.addEventListener('click', () => {
+        sheet?.removeAttribute('hidden');
+        input?.focus();
+      });
+      for (const closer of layer.querySelectorAll('[data-role="close"]')) {
+        closer.addEventListener('click', () => sheet?.setAttribute('hidden', ''));
+      }
       form?.addEventListener('submit', (event) => {
         event.preventDefault();
-        try {
-          const parsed = new URL(String(input?.value || '').trim());
-          const pastedToken = parsed.searchParams.get('token');
-          localStorage.setItem(SERVER_STORAGE_KEY, parsed.origin);
-          if (pastedToken) localStorage.setItem(TOKEN_STORAGE_KEY, pastedToken);
-          location.reload();
-        } catch { if (input) input.style.borderColor = '#e5484d'; }
+        if (persistPairing(String(input?.value || ''))) {
+          completePairing(layer);
+        } else {
+          if (input) input.style.borderColor = '#e5484d';
+          error?.removeAttribute('hidden');
+        }
       });
       document.body.appendChild(layer);
+      if (video) {
+        // The camera keeps running behind the manual sheet (system-scanner
+        // behavior); it only stops on pairing or when it never opened.
+        void startPairingScanner(video, () => completePairing(layer), (reason) => {
+          layer.classList.add('mrp-nocam');
+          if (note) note.textContent = reason;
+          sheet?.removeAttribute('hidden');
+        });
+      }
     };
     if (document.body) mount();
     else window.addEventListener('DOMContentLoaded', mount, { once: true });
@@ -199,6 +401,7 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
         socket = ws;
         retryMs = 500;
         failedAttempts = 0;
+        stopPairingCamera?.();
         document.getElementById('mixdog-remote-pairing')?.remove();
         if (everConnected) {
           // Re-sync after a drop: state pushes sent while offline are gone.
@@ -319,6 +522,10 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
   };
 
   w.mixdogDesktop = Object.freeze(api);
+  // Settings → Connection on a remote surface: expose where this session is
+  // connected so the panel shows live status instead of desktop-only pairing.
+  (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer =
+    serverBase || location.origin;
   // Android hardware back: close the topmost mobile layer (drawer/dock —
   // App.tsx consumes the event via preventDefault); with nothing open the
   // app minimizes instead of quitting mid-session.
@@ -352,7 +559,7 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
     });
   }
   if (isNativeShell && !serverBase) {
-    showPairingScreen('Paste the remote bridge URL shown by your desktop (Settings → Remote, or the startup log).');
+    showPairingScreen('Point the camera at the pairing QR — Settings → Connection on your desktop.');
   } else {
     void connect().catch(() => { /* the retry loop keeps running */ });
   }

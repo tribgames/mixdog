@@ -140,7 +140,7 @@
 /* Settings v2 ownership block: two-pane dialog shell, category rail, and flat pane flow. */
 .mixdog-settings-v2 {
   width: min(980px, calc(100vw - 32px));
-  height: min(650px, calc(100vh - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  height: min(650px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
   grid-template-columns: 240px minmax(0, 1fr);
 }
 .mixdog-settings__rail {
@@ -371,6 +371,8 @@
   padding: 12px 0;
 }
 
+/* Narrow DESKTOP window: keep the compact two-pane dialog (capture-ui pins
+   this geometry); only touch devices get the phone layout below. */
 @media (max-width: 760px) {
   .mixdog-settings-layer {
     --settings-layer-safe-top: max(8px, calc(env(titlebar-area-height, 0px) + 8px));
@@ -379,13 +381,77 @@
   }
   .mixdog-settings-v2 {
     width: calc(100vw - 16px);
-    height: calc(100vh - var(--settings-layer-safe-top, 8px) - var(--settings-layer-safe-bottom, 8px));
+    height: calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 8px) - var(--settings-layer-safe-bottom, 8px));
     grid-template-columns: 200px minmax(0, 1fr);
   }
   .mixdog-settings__rail { padding: 20px 10px 12px; }
   .mixdog-settings-v2 .mixdog-settings__header { padding-inline: 20px 12px; }
   .mixdog-settings-v2 .mixdog-settings__body { padding: 24px 20px 32px; }
 }
+
+/* Phone: full-screen settings, ONE pane. The 200px side rail left ~170px of
+   content on a 390px screen; it flattens into a horizontally scrolling chip
+   row instead (user: settings were unusable on the phone). Keyed off the
+   html[data-mixdog-mobile] tag (mobile-shell.ts: coarse pointer OR Capacitor)
+   rather than a pointer media query — some WebViews misreport coarseness,
+   which left the chips shrinkable and the text overflowing the pill. */
+html[data-mixdog-mobile] .mixdog-settings-layer {
+  --settings-layer-safe-top: 0px;
+  --settings-layer-safe-bottom: 0px;
+  padding: 0;
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 {
+  width: 100vw;
+  height: var(--vvh, 100vh);
+  max-height: none;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  border-radius: 0;
+}
+html[data-mixdog-mobile] .mixdog-settings__rail {
+  flex-direction: row;
+  align-items: center;
+  padding: max(10px, env(safe-area-inset-top, 0px)) 12px 10px;
+  border-right: 0;
+  border-bottom: .5px solid var(--oc-border);
+}
+html[data-mixdog-mobile] .mixdog-settings__rail nav {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+html[data-mixdog-mobile] .mixdog-settings__rail nav::-webkit-scrollbar { display: none; }
+html[data-mixdog-mobile] .mixdog-settings__rail-group { display: contents; }
+html[data-mixdog-mobile] .mixdog-settings__rail-group h2 { display: none; }
+html[data-mixdog-mobile] .mixdog-settings__rail-group button {
+  /* Chips NEVER shrink below their label: the pill must wrap its text. */
+  width: max-content;
+  min-width: max-content;
+  height: 34px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+html[data-mixdog-mobile] .mixdog-settings__rail footer { display: none; }
+html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__header {
+  height: 52px;
+  min-height: 52px;
+  flex-basis: 52px;
+  padding-inline: 16px 8px;
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__body {
+  gap: 24px;
+  padding: 20px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+}
+/* Pairing cards stack instead of squeezing two 168px QRs side by side. */
+html[data-mixdog-mobile] .settings-connection-grid { flex-wrap: wrap; }
 
 /* Settings → Connection: phone pairing card. */
 .settings-connection-grid { display: flex; gap: 14px; }

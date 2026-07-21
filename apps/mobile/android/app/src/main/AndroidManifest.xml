@@ -49,4 +49,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- In-app pairing QR scanner (remote-shim.ts getUserMedia); Capacitor's
+         WebChromeClient forwards the WebView capture request to this runtime
+         permission. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 </manifest>
