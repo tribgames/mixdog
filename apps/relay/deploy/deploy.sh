@@ -19,6 +19,12 @@ fi
 id -u mixdog-relay >/dev/null 2>&1 || useradd --system --home /var/lib/mixdog-relay --shell /usr/sbin/nologin mixdog-relay
 mkdir -p /opt/mixdog-relay /var/lib/mixdog-relay
 cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" /opt/mixdog-relay/
+# Optional web app + APK: stage a renderer build (plus mixdog.apk) next to
+# server.mjs before running this script and the relay serves it over https.
+if [[ -d "$SRC_DIR/renderer" ]]; then
+  rm -rf /opt/mixdog-relay/renderer
+  cp -r "$SRC_DIR/renderer" /opt/mixdog-relay/renderer
+fi
 cd /opt/mixdog-relay && npm install --omit=dev --no-audit --no-fund
 chown -R mixdog-relay:mixdog-relay /var/lib/mixdog-relay
 

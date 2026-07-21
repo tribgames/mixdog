@@ -20,6 +20,18 @@ import { createSnapshotDeltaEncoder, isStateResyncFrame } from './state-delta';
 
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 
+/** Packaged default: every install dials this relay so phone pairing works
+ *  out of the box, with no VPS/env setup on the user side.
+ *  MIXDOG_RELAY_URL=<wss url> overrides; 0/false/off disables. */
+export const DEFAULT_RELAY_URL = 'wss://192-255-139-161.sslip.io';
+
+export function resolveRelayUrl(env: NodeJS.ProcessEnv): string | null {
+  const raw = (env.MIXDOG_RELAY_URL || '').trim();
+  const flag = raw.toLowerCase();
+  if (flag === '0' || flag === 'false' || flag === 'off') return null;
+  return raw || DEFAULT_RELAY_URL;
+}
+
 export interface RemoteRelayOptions extends RemoteMethodDependencies {
   /** ws(s)://relay-host[:port] */
   relayUrl: string;

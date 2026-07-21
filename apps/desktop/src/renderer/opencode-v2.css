@@ -5703,3 +5703,74 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   outline: 0;
 }
 .review-context-menu button[data-danger] { color: var(--oc-danger); }
+
+/* ------------------------------------------------------------------ */
+/* Mobile app shell. mobile-shell.ts tags <html data-mixdog-mobile> on  */
+/* touch sessions and tracks the VISUAL viewport in --mixdog-vvh so the */
+/* soft keyboard resizes the app instead of panning the header away.    */
+html[data-mixdog-mobile] {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+html[data-mixdog-mobile] body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  /* Native feel: chrome does not select like a web page. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+html[data-mixdog-mobile] .app-shell { height: var(--mixdog-vvh, 100dvh); }
+/* Prose, code and form fields stay selectable/copyable. */
+html[data-mixdog-mobile] .message-body,
+html[data-mixdog-mobile] .markdown,
+html[data-mixdog-mobile] pre,
+html[data-mixdog-mobile] code,
+html[data-mixdog-mobile] input,
+html[data-mixdog-mobile] textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* No double-tap zoom delay on controls. */
+html[data-mixdog-mobile] button,
+html[data-mixdog-mobile] a,
+html[data-mixdog-mobile] label { touch-action: manipulation; }
+/* Scrollers never chain into a page bounce. */
+html[data-mixdog-mobile] .transcript,
+html[data-mixdog-mobile] .session-sidebar-scroll,
+html[data-mixdog-mobile] .utility-dock-body,
+html[data-mixdog-mobile] .mixdog-settings__body { overscroll-behavior: contain; }
+/* 16px form text stops the zoom-on-focus jump everywhere, not just the
+   composer. */
+html[data-mixdog-mobile] input,
+html[data-mixdog-mobile] textarea,
+html[data-mixdog-mobile] select { font-size: 16px; }
+/* Finger-sized targets: 36px header glyphs, 44px sidebar rows. */
+@media (pointer: coarse) {
+  .session-dock-toggle, .session-header .icon-button, .titlebar-new,
+  .toolbar-sidebar { width: 36px; height: 36px; }
+  .session-sidebar .task-link,
+  .session-sidebar .projects-link,
+  .session-sidebar .session-row { height: 44px; min-height: 44px; }
+}
+
+/* Settings -> Connection: platform tabs (Browser / Android / iOS). */
+.settings-connection-tabs { display: flex; justify-content: center; gap: 6px; margin-bottom: 14px; }
+.settings-connection-tabs button {
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--oc-text-muted);
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-connection-tabs button:hover { color: var(--oc-text); background: var(--oc-hover); }
+.settings-connection-tabs button.active { color: var(--oc-text); background: var(--oc-bg-layer-2); }

@@ -445,6 +445,15 @@ export interface DesktopRemoteAccessInfo {
   apkUrl: string;
   browserQrSvg: string;
   appQrSvg: string;
+  /** QR of the preferred APK download URL (relay when connected, else LAN). */
+  apkQrSvg?: string;
+  /** Relay pairing (set while the desktop is connected to a public relay):
+   *  these work from anywhere, not just the LAN. */
+  relayBrowserUrl?: string;
+  relayAppLink?: string;
+  relayApkUrl?: string;
+  relayBrowserQrSvg?: string;
+  relayAppQrSvg?: string;
 }
 
 export interface DesktopSessionSummary {

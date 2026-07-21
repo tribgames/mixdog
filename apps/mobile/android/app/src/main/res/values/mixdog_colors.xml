@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mixdog window band (CSS oc-window-band): system bars, splash and the
+         pre-paint window all match the app chrome so nothing flashes white. -->
+    <color name="mixdogBand">#201E1C</color>
+</resources>

@@ -778,6 +778,7 @@ function ShortcutsPanel() {
 // the remote shim omits the API, so a phone session shows the fallback note.
 function ConnectionPanel() {
   const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(undefined);
+  const [tab, setTab] = useState<'browser' | 'android'>('browser');
   useEffect(() => {
     let live = true;
     const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
@@ -801,33 +802,42 @@ function ConnectionPanel() {
       </p>
     </Group>;
   }
-  return <>
-    <Group title="Phone remote"
-      description="Same Wi-Fi as this PC. Scan with the phone camera.">
-      <div className="settings-connection-grid">
-        <figure className="settings-connection-card">
-          <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: info.browserQrSvg }} />
-          <figcaption><b>Browser</b><small>Opens the web app directly</small></figcaption>
-        </figure>
-        <figure className="settings-connection-card">
-          <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: info.appQrSvg }} />
-          <figcaption><b>Mixdog app</b><small>Pairs the installed Android app</small></figcaption>
-        </figure>
-      </div>
-    </Group>
-    <Group title="Links" description={`Bridge listening on port ${info.port}.`}>
-      <div className="settings-connection-links">
-        {([['Android app (APK)', info.apkUrl], ['Browser URL', info.browserUrl]] as const)
-          .map(([label, value]) => <div key={label}>
-            <span>{label}</span>
-            <code>{value}</code>
-            <ActionButton onClick={() => { void navigator.clipboard?.writeText(value).catch(() => {}); }}>
-              Copy
-            </ActionButton>
-          </div>)}
-      </div>
-    </Group>
-  </>;
+  // Relay-only pairing (user decision: Anywhere only, no LAN fallback) — the
+  // LAN bridge stays a transport detail and never surfaces here.
+  const browserQrSvg = info.relayBrowserQrSvg;
+  const appQrSvg = info.relayAppQrSvg;
+  if (!browserQrSvg || !appQrSvg) {
+    return <Group title="Phone remote">
+      <p className="settings-connection-note">
+        Connecting to the Mixdog relay… reopen this page in a moment. If this
+        persists, check this PC&apos;s internet connection.
+      </p>
+    </Group>;
+  }
+  return <Group title="Phone remote"
+    description="Works on any network. Scan with the phone camera.">
+    <nav className="settings-connection-tabs" aria-label="Platform">
+      {([['browser', 'Browser'], ['android', 'Android']] as const)
+        .map(([id, name]) => <button key={id} type="button"
+          className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{name}</button>)}
+    </nav>
+    {tab === 'browser' && <div className="settings-connection-grid">
+      <figure className="settings-connection-card">
+        <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: browserQrSvg }} />
+        <figcaption><b>Open the web app</b><small>Works on iPhone and Android — nothing to install</small></figcaption>
+      </figure>
+    </div>}
+    {tab === 'android' && <div className="settings-connection-grid">
+      {info.apkQrSvg && <figure className="settings-connection-card">
+        <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: info.apkQrSvg }} />
+        <figcaption><b>1 · Install</b><small>Downloads the Android app (APK)</small></figcaption>
+      </figure>}
+      <figure className="settings-connection-card">
+        <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: appQrSvg }} />
+        <figcaption><b>2 · Pair</b><small>Connects the installed app to this PC</small></figcaption>
+      </figure>
+    </div>}
+  </Group>;
 }
 
 function ChoicePanel({ title, values, active, pending, emptyText, onChoose }: {

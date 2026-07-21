@@ -12,7 +12,7 @@ import { DesktopSettingsStore } from './settings-store';
 import { TerminalManager } from './terminal-manager';
 import { desktopUpdater, startAutoUpdater } from './updater';
 import { resolveRemoteBridgePort, startRemoteBridge, type RemoteBridgeHandle } from './remote-bridge';
-import { startRemoteRelay, type RemoteRelayHandle } from './remote-relay';
+import { resolveRelayUrl, startRemoteRelay, type RemoteRelayHandle } from './remote-relay';
 import {
   DESKTOP_WINDOW_OPTIONS,
   configureTitleBarThemePersistence,
@@ -180,7 +180,7 @@ async function createWindow(): Promise<void> {
     remoteAccessInfo: async () => {
       if (!remoteBridge) return null;
       const { buildRemoteAccessInfo } = await import('./remote-access-window');
-      return buildRemoteAccessInfo(remoteBridge);
+      return buildRemoteAccessInfo(remoteBridge, remoteRelay);
     },
   });
   diagnostics?.write('window-created');
@@ -344,7 +344,7 @@ if (!app.requestSingleInstanceLock()) {
         console.error('Failed to start the Mixdog remote bridge:', error);
       }
     }
-    const relayUrl = (process.env.MIXDOG_RELAY_URL || '').trim();
+    const relayUrl = resolveRelayUrl(process.env);
     if (relayUrl) {
       try {
         remoteRelay = await startRemoteRelay({
@@ -376,7 +376,7 @@ if (!app.requestSingleInstanceLock()) {
           const bridge = remoteBridge;
           if (!bridge) return;
           void import('./remote-access-window').then(({ showRemoteAccessWindow }) =>
-            showRemoteAccessWindow(bridge, mainWindow)).catch((error: unknown) => {
+            showRemoteAccessWindow(bridge, remoteRelay, mainWindow)).catch((error: unknown) => {
             console.error('Failed to open the remote access window:', error);
           });
         }

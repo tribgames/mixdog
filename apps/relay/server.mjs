@@ -24,6 +24,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, createReadStream, writeF
 import { createServer } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
 import { extname, join, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { WebSocketServer } from 'ws';
 
@@ -44,6 +45,7 @@ const MIME_TYPES = {
   '.ttf': 'font/ttf',
   '.wasm': 'application/wasm',
   '.txt': 'text/plain; charset=utf-8',
+  '.apk': 'application/vnd.android.package-archive',
 };
 
 function sha256(value) {
@@ -129,8 +131,17 @@ function serveStatic(rendererDir, request, response) {
     response.writeHead(403).end();
     return;
   }
-  if (target === root || !existsSync(target) || !statSync(target).isFile()) {
+  try {
+    if (target === root || !statSync(target).isFile()) target = join(root, 'index.html');
+  } catch {
     target = join(root, 'index.html');
+  }
+  // SPA fallback belongs to extension-less routes only: a missing FILE must
+  // 404 instead of masquerading as the web app (an .apk download would
+  // otherwise save index.html as the installer).
+  if (target === join(root, 'index.html') && extname(pathname) && pathname !== '/index.html') {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
+    return;
   }
   if (!existsSync(target)) {
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -139,7 +150,15 @@ function serveStatic(rendererDir, request, response) {
   }
   const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
   const cache = target.endsWith('index.html') ? 'no-cache' : 'public, max-age=86400';
-  response.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache });
+  const headers = { 'Content-Type': type, 'Content-Length': statSync(target).size, 'Cache-Control': cache };
+  if (extname(target).toLowerCase() === '.apk') {
+    // Mirror the desktop bridge: never cache the installer (a stale cached
+    // copy re-installs an old/broken package) and force a download even in
+    // in-app browsers that would try to render it.
+    headers['Cache-Control'] = 'no-store';
+    headers['Content-Disposition'] = 'attachment; filename="mixdog.apk"';
+  }
+  response.writeHead(200, headers);
   if (request.method === 'HEAD') {
     response.end();
     return;
@@ -256,8 +275,8 @@ async function finishRelayStart({ server, wss, store, liveDesktops, port, sendJs
   return { port: boundPort, store, close };
 }
 
-const invokedDirectly = process.argv[1]
-  && import.meta.url === new URL(`file:///${process.argv[1].replace(/\\/g, '/')}`).href;
+const invokedDirectly = Boolean(process.argv[1])
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
   const port = Number(process.env.PORT || 9800);
   const dataDir = process.env.DATA_DIR || './data';

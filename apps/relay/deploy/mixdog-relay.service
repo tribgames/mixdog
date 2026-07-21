@@ -11,6 +11,7 @@ User=mixdog-relay
 WorkingDirectory=/opt/mixdog-relay
 Environment=PORT=443
 Environment=DATA_DIR=/var/lib/mixdog-relay
+Environment=RENDERER_DIR=/opt/mixdog-relay/renderer
 Environment=TLS_CERT=/etc/letsencrypt/live/RELAY_DOMAIN/fullchain.pem
 Environment=TLS_KEY=/etc/letsencrypt/live/RELAY_DOMAIN/privkey.pem
 ExecStart=/usr/bin/node /opt/mixdog-relay/server.mjs

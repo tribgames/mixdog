@@ -18,6 +18,8 @@ import "pretendard/dist/web/variable/pretendardvariable.css";
 import "./styles.css";
 import "./opencode-v2.css";
 import "./webview-zoom";
+// Phone/tablet only: visual-viewport pinning + app-like touch behavior.
+import "./mobile-shell";
 
 if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");
 
