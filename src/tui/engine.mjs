@@ -11,10 +11,10 @@
  * This file keeps the stateful createEngineSession store + notification plan.
  */
 import { performance } from 'node:perf_hooks';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import {
   aggregateToolCategoryEntry,
@@ -105,6 +105,7 @@ import { createSessionFlow } from './engine/session-flow.mjs';
 import { createRunTurn } from './engine/turn.mjs';
 import { createEngineApi } from './engine/session-api.mjs';
 import { createFrameBatchedStorePublisher } from './engine/frame-batched-store.mjs';
+import { createLiveShare, liveSharePipePath } from './engine/live-share.mjs';
 import { displayModelName } from '../ui/model-display.mjs';
 
 // Source tests resolve from src/tui/engine.mjs; the built bundle resolves from
@@ -1257,33 +1258,150 @@ export async function createEngineSession({
   Object.assign(bag, createSessionFlow(bag));
   bag.runTurn = createRunTurn(bag);
   const api = createEngineApi(bag);
-  // Cross-surface share tick: one 3s timer covers all three legs of the
-  // shared-conversation model (desktop <-> terminal <-> mobile cross-open).
+  // Cross-surface share: presence + the durable pending spool remain the
+  // ownership/base layer; a local pipe layer (live-share) streams frame
+  // deltas so co-open surfaces mirror each other in real time.
   //  - presence: mark OUR current session as held open (idle included) so a
   //    cross-open elsewhere attaches as a viewer instead of splitting
   //    ownership; cleared on session switch here and on dispose
   //    (session-api-ext), with sidecar staleness covering crashes.
-  //  - owner leg: drain foreign user injections from the shared spool and
-  //    run them through the normal queue — full user bubble + streaming,
-  //    exactly as if typed here. Cheap: one spool mtime stat per idle tick.
-  //  - viewer leg: while attached to a session another live process owns,
-  //    quiet re-resume when its on-disk JSON advances so the owner's turns
-  //    appear here; once the owner is gone the same re-resume promotes this
+  //  - owner leg: host the live pipe, push transcript/tail/spinner deltas,
+  //    and run foreign submits through the normal queue — full user bubble +
+  //    streaming on every surface. The spool drain stays as the fallback
+  //    intake (instant via fs.watch, 3s tick as safety net).
+  //  - viewer leg: connect to the owner's pipe and mirror its live state.
+  //    While the pipe is up the disk-mtime re-resume is skipped (no turn-end
+  //    flicker); when the owner disappears the quiet re-resume promotes this
   //    surface to real ownership.
   let heldPresenceId = '';
   let viewerStoreMtime = 0;
+  const drainRemoteInjections = () => {
+    const injected = runtime.takeRemoteInjections?.() || [];
+    if (injected.length === 0) return;
+    for (const text of injected) bag.enqueue(text);
+    void bag.drain();
+  };
+  const liveShare = createLiveShare({
+    ownerSessionId: () => (flags.disposed || flags.pendingSessionReset || state.sessionRemoteAttached
+      ? '' : String(state.sessionId || '')),
+    viewerSessionId: () => (flags.disposed || !state.sessionRemoteAttached
+      ? '' : String(state.sessionId || '')),
+    socketPathFor: (id) => liveSharePipePath(id, sessionPath(id)),
+    getPublishedState: () => publishedState,
+    listeners,
+    onRemoteSubmit: (text) => {
+      if (flags.disposed || state.sessionRemoteAttached) return;
+      bag.enqueue(text);
+      void bag.drain();
+    },
+    onOwnerClosed: (id) => {
+      // Owner left (clean close or crash): promote via the normal quiet
+      // re-resume once its final save/presence-clear has landed.
+      const timer = setTimeout(() => {
+        if (flags.disposed || !state.sessionRemoteAttached) return;
+        if (String(state.sessionId || '') !== id) return;
+        void Promise.resolve(api.resume(id, { quiet: true })).catch(() => { /* tick retries */ });
+      }, 1500);
+      timer.unref?.();
+    },
+    viewerApply: {
+      getState: () => state,
+      set,
+      replaceItems: (...args) => bag.replaceItems(...args),
+      patchItem: (...args) => bag.patchItem(...args),
+      appendItems: (...args) => bag.appendItems(...args),
+      updateStreamingTail: (...args) => bag.updateStreamingTail(...args),
+      clearStreamingTail: (...args) => bag.clearStreamingTail(...args),
+    },
+  });
+  // Live viewer submits ride the owner's pipe (instant user bubble + shared
+  // streaming); the durable spool path below remains the fallback.
+  if (typeof api.submit === 'function') {
+    const baseSubmit = api.submit;
+    api.submit = (prompt, options = {}) => {
+      if (state.sessionRemoteAttached && liveShare.viewerConnected()) {
+        const text = String(promptDisplayText(prompt, options) || '').trim();
+        if (text && liveShare.sendSubmit(text)) return true;
+      }
+      return baseSubmit(prompt, options);
+    };
+  }
+  // Attach-time pipe fast-path: session entry (resume) reconciles the live
+  // pipe IMMEDIATELY instead of waiting for the 3s share tick. The attach
+  // render comes from the last disk save WITHOUT the in-flight turn, so that
+  // tick-wide window is exactly when a running tool call / mid-turn
+  // conversation looks missing and then pops in late (user report). The
+  // owner leg benefits equally: its pipe server starts the moment the
+  // session opens, so cross-surface viewers can connect at once.
+  const reconcileLiveShareNow = () => { try { liveShare.ensure(); } catch { /* tick retries */ } };
+  for (const method of ['resume', 'newSession', 'switchContext']) {
+    if (typeof api[method] !== 'function') continue;
+    const base = api[method].bind(api);
+    api[method] = async (...args) => {
+      const result = await base(...args);
+      reconcileLiveShareNow();
+      return result;
+    };
+  }
+  // Instant input pickup: watch the shared pending spool so an attached
+  // surface's fallback submit reaches this owner immediately instead of on
+  // the 3s tick. Best-effort — the tick below remains the safety net.
+  let spoolWatcher = null;
+  let spoolDebounce = null;
+  try {
+    const spoolPath = String(runtime.pendingSpoolPath?.() || '');
+    if (spoolPath) {
+      const spoolFile = basename(spoolPath);
+      spoolWatcher = watch(dirname(spoolPath), { persistent: false }, (_event, filename) => {
+        if (filename && String(filename) !== spoolFile) return;
+        if (flags.disposed || spoolDebounce) return;
+        spoolDebounce = setTimeout(() => {
+          spoolDebounce = null;
+          if (flags.disposed || flags.pendingSessionReset) return;
+          if (state.busy || state.commandBusy || state.sessionRemoteAttached) return;
+          try { drainRemoteInjections(); } catch { /* tick fallback */ }
+        }, 120);
+        spoolDebounce.unref?.();
+      });
+      spoolWatcher.on?.('error', () => {
+        try { spoolWatcher.close(); } catch { /* already closed */ }
+        spoolWatcher = null;
+      });
+    }
+  } catch { /* spool watch is an optimization; the 3s tick remains */ }
   const remoteAttachTimer = setInterval(() => {
-    if (flags.disposed || flags.pendingSessionReset) return;
+    if (flags.disposed) {
+      clearInterval(remoteAttachTimer);
+      try { liveShare.dispose(); } catch { /* best-effort */ }
+      try { spoolWatcher?.close(); } catch { /* already closed */ }
+      if (spoolDebounce) { clearTimeout(spoolDebounce); spoolDebounce = null; }
+      return;
+    }
+    if (flags.pendingSessionReset) return;
     try {
       const heldId = runtime.publishSessionPresence?.() || '';
       if (heldPresenceId && heldPresenceId !== heldId) runtime.clearSessionPresence?.(heldPresenceId);
       heldPresenceId = heldId;
     } catch { /* best-effort */ }
+    try { liveShare.ensure(); } catch { /* next tick retries */ }
     try {
       if (state.busy || state.commandBusy) return;
       if (state.sessionRemoteAttached) {
         const id = String(state.sessionId || '');
         if (!id) return;
+        // Pipe-connected viewers follow the owner live; the disk-mtime
+        // re-resume would only reload mid-stream state and flicker.
+        if (liveShare.viewerConnected()) { viewerStoreMtime = 0; return; }
+        // Self-heal: a force-killed owner never announces onOwnerClosed and
+        // its final save never bumps the store mtime, so without this probe
+        // the surface stays a viewer forever, spooling messages to nobody.
+        // When the resume guard says the owner is gone, promote via the same
+        // quiet re-resume (it drains the pending spool on the next tick).
+        if (runtime.sessionOwnerGone?.(id) === true) {
+          viewerStoreMtime = 0;
+          void Promise.resolve(api.resume(id, { quiet: true })).catch(() => { /* next tick retries */ });
+          return;
+        }
         let mtime = 0;
         try { mtime = statSync(sessionPath(id)).mtimeMs || 0; } catch { return; }
         // First attached tick only baselines: the resume that attached this
@@ -1296,10 +1414,7 @@ export async function createEngineSession({
         return;
       }
       viewerStoreMtime = 0;
-      const injected = runtime.takeRemoteInjections?.() || [];
-      if (injected.length === 0) return;
-      for (const text of injected) bag.enqueue(text);
-      void bag.drain();
+      drainRemoteInjections();
     } catch { /* best-effort */ }
   }, 3000);
   remoteAttachTimer.unref?.();

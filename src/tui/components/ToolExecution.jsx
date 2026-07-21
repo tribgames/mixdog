@@ -143,10 +143,9 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const exitFailedCount = clampFailureCount(exitErrorCount, groupCount, false);
   const displayGroupCount = groupCount;
   const displayCategories = normalizeCountMap(categories || {});
-  // In the DONE state, count only successful calls: error-terminated calls are
-  // excluded from the category totals via the engine-supplied doneCategories
-  // map (failures still surface in the 'N Ok · N Failed' detail). The pending/
-  // in-flight header keeps using the raw call-time counts unchanged.
+  // In the DONE state the engine-supplied doneCategories map counts ATTEMPTS
+  // (failures included) so the header total matches the 'N Ok · N Failed'
+  // detail. The pending/in-flight header keeps the raw call-time counts.
   const normalizedDoneCategories = doneCategories ? normalizeCountMap(doneCategories) : displayCategories;
   // All-failed aggregate collapses doneCategories to zero counts, which would
   // render a blank header. Fall back to the raw call-time counts so the done

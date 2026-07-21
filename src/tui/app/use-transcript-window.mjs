@@ -32,6 +32,29 @@ import {
 } from './transcript-window.mjs';
 import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.mjs';
 
+// ── Harvest circuit breaker ────────────────────────────────────────────────
+// The measured-height harvest is a deps-less layout effect: every
+// setMeasuredRowsVersion bump re-renders SYNCHRONOUSLY and re-runs the
+// harvest in the same task. If a measurement fails to converge (Yoga height
+// oscillating with the window/offset it just changed), `changed` stays true
+// on every pass and React kills the process at >50 nested sync updates
+// (minified error #185, Maximum update depth exceeded). Cap consecutive
+// same-task bumps well above the normal 1-2-frame settle; past the cap, skip
+// the bump (the caches keep the latest heights, the next external render
+// consumes them) and trace the culprits for diagnosis.
+const HARVEST_BUMP_STREAK_LIMIT = 10;
+const TUI_DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_DEBUG || ''));
+let harvestBreakerLogged = false;
+function traceHarvestBreaker(changedKeys) {
+  // Always report the FIRST trip per process (one stderr line beats a crash);
+  // repeat trips only under MIXDOG_TUI_DEBUG=1 to avoid tearing the screen.
+  if (harvestBreakerLogged && !TUI_DEBUG) return;
+  harvestBreakerLogged = true;
+  try {
+    process.stderr.write(`[tui] measured-rows harvest breaker tripped (oscillating heights): ${changedKeys.slice(0, 8).join(' ')}\n`);
+  } catch {}
+}
+
 export function useTranscriptWindow({
   items: settledItems,
   structureRevision,
@@ -63,6 +86,10 @@ export function useTranscriptWindow({
   setMeasuredRowsVersion,
 }) {
   const transcriptTotalRowsRef = useRef(0);
+  // Consecutive same-task harvest bumps (see HARVEST_BUMP_STREAK_LIMIT). The
+  // reset is a 0ms macrotask: it can never fire inside the synchronous
+  // layout-effect cascade, so the count is a faithful cascade depth.
+  const harvestBumpStreakRef = useRef({ count: 0, timer: null });
   // Pessimistic "committed" max-scroll for the IMMEDIATE wheel/keyboard clamp.
   // transcriptWindow.maxScrollRows is derived from the row index, which uses
   // ESTIMATED heights for rows in the mounted slice. On the frame a scroll-up
@@ -514,12 +541,13 @@ export function useTranscriptWindow({
     const liveItems = transcriptMeasureItemsRef.current;
     const toolExpandedFlag = toolOutputExpanded ? 1 : 0;
     let changed = false;
+    const changedKeys = [];
     for (const [key, el] of els.entries()) {
       const item = liveItems.get(key);
       const yoga = el?.yogaNode;
       if (!item || !yoga) continue;
       if (shouldSuppressFullyFailedToolItem(item)) {
-        if (transcriptMeasuredRowsCache.delete(item)) changed = true;
+        if (transcriptMeasuredRowsCache.delete(item)) { changed = true; changedKeys.push(`${key}=del`); }
         continue;
       }
       // Streaming assistant rows are now harvested too: their height churns
@@ -535,7 +563,7 @@ export function useTranscriptWindow({
       if (typeof yoga.getComputedWidth === 'function' && yoga.getComputedWidth() <= 0) continue;
       const rawMeasured = Math.round(Number(yoga.getComputedHeight?.()) || 0);
       if (rawMeasured <= 0) {
-        if (transcriptMeasuredRowsCache.delete(item)) changed = true;
+        if (transcriptMeasuredRowsCache.delete(item)) { changed = true; changedKeys.push(`${key}=del`); }
         continue;
       }
       const isStreamingAssistant = item.kind === 'assistant' && !!item.streaming;
@@ -573,6 +601,7 @@ export function useTranscriptWindow({
           // stream settles — invisible growth for anything reading rowIndex
           // (windowing, maxScrollRows, an anchor captured mid-stream).
           changed = true;
+          changedKeys.push(`${key}=${measured}s`);
         } else {
           idPrev.estimateRows = estimateAtMeasure;
         }
@@ -602,17 +631,32 @@ export function useTranscriptWindow({
         const estimateRows = prev
           ? -1
           : estimateTranscriptItemRowsCached(item, frameColumns, toolOutputExpanded);
-        if (prev || measured !== estimateRows) changed = true;
+        if (prev || measured !== estimateRows) { changed = true; changedKeys.push(`${key}=${measured}`); }
       }
     }
     if (changed) {
       // `changed` only flips true when a height actually differs from the
-      // last-seen value, so a re-harvest of the same rows is a no-op and this
-      // cannot loop. Pinned (bottom-follow / near-bottom) renders must also
-      // consume new measurements, or streaming re-slice growth never reaches
-      // the row-index/window memos while following — which is exactly the
-      // newline-jump bug.
-      setMeasuredRowsVersion((v) => (v + 1) % 1000000);
+      // last-seen value, so a re-harvest of IDENTICAL rows is a no-op. But a
+      // measurement that OSCILLATES with the geometry this bump itself changes
+      // never settles, and the sync cascade would crash with React #185 — the
+      // streak breaker caps that. Pinned (bottom-follow / near-bottom) renders
+      // must still consume new measurements, or streaming re-slice growth
+      // never reaches the row-index/window memos while following — which is
+      // exactly the newline-jump bug.
+      const streak = harvestBumpStreakRef.current;
+      if (streak.count >= HARVEST_BUMP_STREAK_LIMIT) {
+        traceHarvestBreaker(changedKeys);
+      } else {
+        streak.count += 1;
+        if (!streak.timer) {
+          streak.timer = setTimeout(() => {
+            streak.timer = null;
+            streak.count = 0;
+          }, 0);
+          if (typeof streak.timer?.unref === 'function') streak.timer.unref();
+        }
+        setMeasuredRowsVersion((v) => (v + 1) % 1000000);
+      }
     }
     // Prune the id→item / id→callback maps to the currently-mounted set so they
     // do not grow unbounded over a long session. `els` is the live mounted set
