@@ -11,8 +11,8 @@ import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
 import { TerminalManager } from './terminal-manager';
 import { desktopUpdater, startAutoUpdater } from './updater';
-import { resolveRemoteBridgePort, startRemoteBridge, type RemoteBridgeHandle } from './remote-bridge';
-import { resolveRelayUrl, startRemoteRelay, type RemoteRelayHandle } from './remote-relay';
+import type { RemoteBridgeHandle } from './remote-bridge';
+import type { RemoteRelayHandle } from './remote-relay';
 import {
   DESKTOP_WINDOW_OPTIONS,
   configureTitleBarThemePersistence,
@@ -28,6 +28,40 @@ const acceptanceDebugPort = process.argv
 if (acceptanceDebugPort && /^\d+$/.test(acceptanceDebugPort)) {
   app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
   app.commandLine.appendSwitch('remote-debugging-port', acceptanceDebugPort);
+}
+
+// Perf triage (MIXDOG_DESKTOP_PERF=1): any synchronous child process spawned on
+// the MAIN thread freezes the event loop (timers, IPC, transitions) for its
+// full runtime while showing near-zero CPU. Attribute every long sync spawn.
+if (process.env.MIXDOG_DESKTOP_PERF === '1') {
+  void (async () => {
+    const cp = await import('node:child_process');
+    const { appendFileSync } = await import('node:fs');
+    const wrap = <K extends 'spawnSync' | 'execSync' | 'execFileSync'>(name: K) => {
+      const original = (cp as Record<K, (...values: unknown[]) => unknown>)[name];
+      (cp as Record<K, (...values: unknown[]) => unknown>)[name] = (...values: unknown[]) => {
+        const started = Date.now();
+        try {
+          return original(...values);
+        } finally {
+          const ms = Date.now() - started;
+          if (ms >= 150) {
+            try {
+              const caller = (new Error().stack || '').split('\n').slice(2, 5)
+                .map((line) => line.trim()).join(' <- ');
+              appendFileSync(
+                join(app.getPath('userData'), 'desktop-perf.log'),
+                `${new Date().toISOString()} main-sync-spawn ${name} ms=${ms} cmd=${String(values[0] ?? '')} by=${caller}\n`,
+              );
+            } catch { /* diagnostics only */ }
+          }
+        }
+      };
+    };
+    wrap('spawnSync');
+    wrap('execSync');
+    wrap('execFileSync');
+  })();
 }
 
 const host = new EngineHost({
@@ -52,6 +86,8 @@ let diagnostics: DesktopDiagnostics | null = null;
 let diagnosticsMemoryTimer: NodeJS.Timeout | null = null;
 let remoteBridge: RemoteBridgeHandle | null = null;
 let remoteRelay: RemoteRelayHandle | null = null;
+let deferredServicesPromise: Promise<void> | null = null;
+let deferredServicesScheduled = false;
 
 function currentProcessMemory() {
   try {
@@ -67,6 +103,97 @@ function currentProcessMemory() {
   } catch {
     return [];
   }
+}
+
+function installDesktopMenu(): void {
+  installNativeMenu(Boolean(process.env.ELECTRON_RENDERER_URL), {
+    reset: () => { void setPersistentZoom(1); },
+    zoomIn: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) + 0.2); },
+    zoomOut: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) - 0.2); },
+  }, {
+    showRemoteAccess: remoteBridge
+      ? () => {
+        const bridge = remoteBridge;
+        if (!bridge) return;
+        void import('./remote-access-window').then(({ showRemoteAccessWindow }) =>
+          showRemoteAccessWindow(bridge, remoteRelay, mainWindow)).catch((error: unknown) => {
+          console.error('Failed to open the remote access window:', error);
+        });
+      }
+      : undefined,
+  });
+}
+
+function startDeferredDesktopServices(): Promise<void> {
+  deferredServicesPromise ??= (async () => {
+    startAutoUpdater(async () => {
+      await disposeDesktopResources();
+      quitAfterDispose = true;
+    });
+    try {
+      const { resolveRemoteBridgePort, startRemoteBridge } = await import('./remote-bridge');
+      const remoteBridgePort = resolveRemoteBridgePort(process.env);
+      if (remoteBridgePort !== null) {
+        remoteBridge = await startRemoteBridge({
+          port: remoteBridgePort,
+          host,
+          settingsStore,
+          terminals: terminalManager,
+          subscribeTerminalData: (listener) => terminalManager.subscribe(listener),
+          userDataPath: app.getPath('userData'),
+          rendererDir: join(__dirname, '../renderer'),
+        });
+        diagnostics?.write('remote-bridge-started', { port: remoteBridge.port });
+        for (const url of remoteBridge.urls) {
+          console.info(`[mixdog] remote bridge ready: ${url}/?token=${remoteBridge.token}`);
+        }
+      }
+    } catch (error) {
+      diagnostics?.write('remote-bridge-failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+      console.error('Failed to start the Mixdog remote bridge:', error);
+    }
+    try {
+      const { resolveRelayUrl, startRemoteRelay } = await import('./remote-relay');
+      const relayUrl = resolveRelayUrl(process.env);
+      if (relayUrl) {
+        remoteRelay = await startRemoteRelay({
+          relayUrl,
+          host,
+          settingsStore,
+          terminals: terminalManager,
+          subscribeTerminalData: (listener) => terminalManager.subscribe(listener),
+          userDataPath: app.getPath('userData'),
+        });
+        diagnostics?.write('remote-relay-started', {});
+        console.info(`[mixdog] relay client URL: ${remoteRelay.clientUrl}`);
+      }
+    } catch (error) {
+      diagnostics?.write('remote-relay-failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+      console.error('Failed to start the Mixdog relay client:', error);
+    }
+    installDesktopMenu();
+  })();
+  return deferredServicesPromise;
+}
+
+function scheduleDeferredDesktopServices(window: BrowserWindow): void {
+  if (deferredServicesScheduled || deferredServicesPromise) return;
+  deferredServicesScheduled = true;
+  let fallback: NodeJS.Timeout | null = null;
+  const start = () => {
+    window.webContents.removeListener('before-input-event', start);
+    if (fallback) clearTimeout(fallback);
+    fallback = null;
+    const timer = setTimeout(() => { void startDeferredDesktopServices(); }, 250);
+    timer.unref();
+  };
+  window.webContents.once('before-input-event', start);
+  fallback = setTimeout(start, 4_000);
+  fallback.unref();
 }
 
 function disposeDesktopResources(): Promise<void> {
@@ -178,6 +305,7 @@ async function createWindow(): Promise<void> {
     updater: desktopUpdater,
     terminals: terminalManager,
     remoteAccessInfo: async () => {
+      await startDeferredDesktopServices();
       if (!remoteBridge) return null;
       const { buildRemoteAccessInfo } = await import('./remote-access-window');
       return buildRemoteAccessInfo(remoteBridge, remoteRelay);
@@ -218,15 +346,12 @@ async function createWindow(): Promise<void> {
     if (!force && !(readyToShow && rendererCommitted)) return;
     shown = true;
     window.show();
-    startAutoUpdater(async () => {
-      await disposeDesktopResources();
-      quitAfterDispose = true;
-    });
   };
   ipcMain.on(DESKTOP_IPC.rendererReady, (event) => {
     if (event.sender !== window.webContents) return;
     rendererCommitted = true;
     showWhenComposed();
+    scheduleDeferredDesktopServices(window);
   });
   window.once('ready-to-show', () => {
     readyToShow = true;
@@ -318,70 +443,7 @@ if (!app.requestSingleInstanceLock()) {
       callback(true);
     });
     await createWindow();
-    // LAN remote bridge (opt-in): serves the built renderer + a token-gated
-    // WebSocket DesktopApi so a phone browser can drive this desktop.
-    // Enable with MIXDOG_REMOTE_BRIDGE=1 or MIXDOG_REMOTE_BRIDGE_PORT=<port>.
-    const remoteBridgePort = resolveRemoteBridgePort(process.env);
-    if (remoteBridgePort !== null) {
-      try {
-        remoteBridge = await startRemoteBridge({
-          port: remoteBridgePort,
-          host,
-          settingsStore,
-          terminals: terminalManager,
-          subscribeTerminalData: (listener) => terminalManager.subscribe(listener),
-          userDataPath: app.getPath('userData'),
-          rendererDir: join(__dirname, '../renderer'),
-        });
-        diagnostics?.write('remote-bridge-started', { port: remoteBridge.port });
-        for (const url of remoteBridge.urls) {
-          console.info(`[mixdog] remote bridge ready: ${url}/?token=${remoteBridge.token}`);
-        }
-      } catch (error) {
-        diagnostics?.write('remote-bridge-failed', {
-          errorName: error instanceof Error ? error.name : typeof error,
-        });
-        console.error('Failed to start the Mixdog remote bridge:', error);
-      }
-    }
-    const relayUrl = resolveRelayUrl(process.env);
-    if (relayUrl) {
-      try {
-        remoteRelay = await startRemoteRelay({
-          relayUrl,
-          host,
-          settingsStore,
-          terminals: terminalManager,
-          subscribeTerminalData: (listener) => terminalManager.subscribe(listener),
-          userDataPath: app.getPath('userData'),
-        });
-        diagnostics?.write('remote-relay-started', {});
-        console.info(`[mixdog] relay client URL: ${remoteRelay.clientUrl}`);
-      } catch (error) {
-        diagnostics?.write('remote-relay-failed', {
-          errorName: error instanceof Error ? error.name : typeof error,
-        });
-        console.error('Failed to start the Mixdog relay client:', error);
-      }
-    }
-    // Keep the synchronous native-menu construction off the critical path to
-    // the first renderer load. This matches the OpenCode startup ordering.
-    installNativeMenu(Boolean(process.env.ELECTRON_RENDERER_URL), {
-      reset: () => { void setPersistentZoom(1); },
-      zoomIn: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) + 0.2); },
-      zoomOut: () => { void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) - 0.2); },
-    }, {
-      showRemoteAccess: remoteBridge
-        ? () => {
-          const bridge = remoteBridge;
-          if (!bridge) return;
-          void import('./remote-access-window').then(({ showRemoteAccessWindow }) =>
-            showRemoteAccessWindow(bridge, remoteRelay, mainWindow)).catch((error: unknown) => {
-            console.error('Failed to open the remote access window:', error);
-          });
-        }
-        : undefined,
-    });
+    installDesktopMenu();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         void createWindow().catch((error: unknown) => {

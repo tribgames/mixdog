@@ -102,6 +102,9 @@ export function TooltipLayer() {
       setTooltip(null);
     };
     const reveal = (target: HTMLElement, delay: number) => {
+      // Touch shells have no hover: a tap would pin the tooltip through the
+      // focusin path until the next tap elsewhere (user: sticky bubbles).
+      if (document.documentElement.dataset.mixdogMobile) return;
       if (active.current === target) return;
       if (timer.current !== null) window.clearTimeout(timer.current);
       active.current = target;
@@ -147,7 +150,11 @@ export function TooltipLayer() {
     };
     const onFocusIn = (event: FocusEvent) => {
       const target = tooltipTarget(event.target);
-      if (target) reveal(target, 150);
+      // Pointer clicks move focus and re-summoned the tooltip right after the
+      // pointerdown dismissal, leaving it floating once the button moved or
+      // re-rendered (user: lingering description bubbles). Only keyboard
+      // focus reveals tooltips.
+      if (target && target.matches(':focus-visible')) reveal(target, 150);
     };
     const onFocusOut = (event: FocusEvent) => {
       if (tooltipTarget(event.target)) cancel();
@@ -166,17 +173,25 @@ export function TooltipLayer() {
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     document.addEventListener('pointerdown', cancel, true);
+    // Activation dismisses outright, and a hovered target that re-renders or
+    // unmounts (busy-state swaps) never fires pointerout — reap it.
+    document.addEventListener('click', cancel, true);
+    const watchdog = window.setInterval(() => {
+      if (active.current && !active.current.isConnected) cancel();
+    }, 500);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('scroll', cancel, true);
     window.addEventListener('resize', cancel);
     window.addEventListener('blur', cancel);
     return () => {
       cancel();
+      window.clearInterval(watchdog);
       document.removeEventListener('pointerover', onPointerOver);
       document.removeEventListener('pointerout', onPointerOut);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
       document.removeEventListener('pointerdown', cancel, true);
+      document.removeEventListener('click', cancel, true);
       document.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('scroll', cancel, true);
       window.removeEventListener('resize', cancel);

@@ -234,6 +234,14 @@
   min-width: 0;
   overflow: visible;
 }
+/* Resource tags (Providers, Skills, MCP…) sit UNDER the name on every
+   platform (user decision) — long names never squeeze the badge inline. */
+.mixdog-settings-v2 .settings-resource-title {
+  flex-direction: column;
+  align-items: flex-start;
+  row-gap: 4px;
+}
+.mixdog-settings-v2 .settings-resource-title b { max-width: 100%; }
 .settings-row-control > .settings-model-trigger {
   width: 100%;
   min-width: 0;
@@ -272,6 +280,7 @@
 .mixdog-settings-v2 .settings-resource.settings-agent-route { align-items: start; }
 .mixdog-settings-v2 .settings-agent-route > div:first-child { padding-top: 7px; }
 .settings-agent-route .settings-resource-control,
+.settings-agent-route .settings-resource-actions,
 .settings-agent-route .settings-route-editor.compact,
 .settings-agent-route .settings-route-controls { width: 100%; }
 .settings-agent-route .settings-route-controls {
@@ -389,12 +398,11 @@
   .mixdog-settings-v2 .mixdog-settings__body { padding: 24px 20px 32px; }
 }
 
-/* Phone: full-screen settings, ONE pane. The 200px side rail left ~170px of
-   content on a 390px screen; it flattens into a horizontally scrolling chip
-   row instead (user: settings were unusable on the phone). Keyed off the
-   html[data-mixdog-mobile] tag (mobile-shell.ts: coarse pointer OR Capacitor)
-   rather than a pointer media query — some WebViews misreport coarseness,
-   which left the chips shrinkable and the text overflowing the pill. */
+/* Phone: full-screen settings — a THIN icon-only rail on the LEFT (user
+   decision, replacing the chip row) with the category title + X living in
+   the panel header. Keyed off html[data-mixdog-mobile] (mobile-shell.ts:
+   coarse pointer OR Capacitor) rather than a pointer media query — some
+   WebViews misreport coarseness. */
 html[data-mixdog-mobile] .mixdog-settings-layer {
   --settings-layer-safe-top: 0px;
   --settings-layer-safe-bottom: 0px;
@@ -404,47 +412,53 @@ html[data-mixdog-mobile] .mixdog-settings-v2 {
   width: 100vw;
   height: var(--vvh, 100vh);
   max-height: none;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   border-radius: 0;
 }
 html[data-mixdog-mobile] .mixdog-settings__rail {
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  padding: max(10px, env(safe-area-inset-top, 0px)) 12px 10px;
-  border-right: 0;
-  border-bottom: .5px solid var(--oc-border);
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 6px 8px;
+  border-right: .5px solid var(--oc-border);
 }
 html[data-mixdog-mobile] .mixdog-settings__rail nav {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex: 1;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   scrollbar-width: none;
 }
 html[data-mixdog-mobile] .mixdog-settings__rail nav::-webkit-scrollbar { display: none; }
 html[data-mixdog-mobile] .mixdog-settings__rail-group { display: contents; }
 html[data-mixdog-mobile] .mixdog-settings__rail-group h2 { display: none; }
 html[data-mixdog-mobile] .mixdog-settings__rail-group button {
-  /* Chips NEVER shrink below their label: the pill must wrap its text. */
-  width: max-content;
-  min-width: max-content;
-  height: 34px;
+  /* Icon-only 40px squares; the label lives in the panel header instead. */
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
   flex: 0 0 auto;
   margin: 0;
-  padding: 0 14px;
-  border-radius: 999px;
-  white-space: nowrap;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+  border-radius: 10px;
+}
+html[data-mixdog-mobile] .mixdog-settings__rail-group button span { display: none; }
+html[data-mixdog-mobile] .mixdog-settings__rail-group button svg {
+  width: 18px;
+  height: 18px;
 }
 html[data-mixdog-mobile] .mixdog-settings__rail footer { display: none; }
 html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__header {
   height: 52px;
   min-height: 52px;
   flex-basis: 52px;
-  padding-inline: 16px 8px;
+  padding: calc(env(safe-area-inset-top, 0px)) 8px 0 16px;
+  box-sizing: content-box;
 }
 html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__body {
   gap: 24px;
@@ -452,6 +466,158 @@ html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__body {
 }
 /* Pairing cards stack instead of squeezing two 168px QRs side by side. */
 html[data-mixdog-mobile] .settings-connection-grid { flex-wrap: wrap; }
+/* Phone settings keep the desktop grammar: one label column, one shared value
+   column, and a common right edge. Narrow-only exceptions stack controls
+   inside that value column instead of moving the column itself. */
+html[data-mixdog-mobile] .mixdog-settings-v2 {
+  --settings-phone-value-column: minmax(0, 45%);
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 .settings-group-body {
+  padding-inline: 14px;
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__close {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__row,
+html[data-mixdog-mobile] .mixdog-settings-v2 .settings-form-row,
+html[data-mixdog-mobile] .mixdog-settings-v2 .settings-resource {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--settings-phone-value-column);
+  align-items: center;
+  column-gap: 12px;
+}
+html[data-mixdog-mobile] .mixdog-settings__row-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-mixdog-mobile] .mixdog-settings__copy,
+html[data-mixdog-mobile] .settings-form-row > div:first-child,
+html[data-mixdog-mobile] .settings-resource > div:first-child {
+  width: 100%;
+  min-width: 0;
+  justify-self: start;
+}
+/* Resource rows (Providers, Skills, MCP, Plugins…): the status tag sits on
+   its own line UNDER the name (user decision) — long names never squeeze
+   the badge inline. */
+html[data-mixdog-mobile] .settings-resource-title {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  row-gap: 4px;
+  white-space: normal;
+}
+html[data-mixdog-mobile] .settings-resource-title b { max-width: 100%; }
+html[data-mixdog-mobile] .settings-resource-title b,
+html[data-mixdog-mobile] .settings-form-row > div:first-child b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-mixdog-mobile] .settings-resource-title .settings-status {
+  flex: 0 0 auto;
+}
+html[data-mixdog-mobile] .settings-row-control,
+html[data-mixdog-mobile] .settings-form-controls,
+html[data-mixdog-mobile] .settings-resource-control {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  justify-self: stretch;
+  justify-content: flex-end;
+}
+html[data-mixdog-mobile] .settings-form-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+html[data-mixdog-mobile] .settings-form-controls > input:not([type="checkbox"]),
+html[data-mixdog-mobile] .settings-provider-secret input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  flex: none;
+}
+html[data-mixdog-mobile] .settings-form-controls > button,
+html[data-mixdog-mobile] .settings-form-controls > .settings-action {
+  justify-self: end;
+}
+html[data-mixdog-mobile] .settings-resource-actions {
+  width: 100%;
+  max-width: 100%;
+  justify-content: flex-end;
+}
+html[data-mixdog-mobile] .settings-provider-secret {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+}
+html[data-mixdog-mobile] .settings-provider-secret button { justify-self: end; }
+html[data-mixdog-mobile] .settings-row-control > .settings-select.oc-select-root,
+html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
+html[data-mixdog-mobile] .settings-row-control > .effort-control,
+html[data-mixdog-mobile] .settings-row-control > .fast-control,
+html[data-mixdog-mobile] .settings-row-control > .effort-control .oc-select-root,
+html[data-mixdog-mobile] .settings-row-control > .fast-control .oc-select-root,
+html[data-mixdog-mobile] .settings-row-control > .effort-control .oc-select-trigger,
+html[data-mixdog-mobile] .settings-row-control > .fast-control .oc-select-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: 0;
+}
+html[data-mixdog-mobile] .settings-row-control .oc-select-value,
+html[data-mixdog-mobile] .settings-model-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-mixdog-mobile] .settings-row-control .effort-control,
+html[data-mixdog-mobile] .settings-row-control .fast-control {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
+html[data-mixdog-mobile] .settings-row-control .oc-select-trigger,
+html[data-mixdog-mobile] .settings-agent-route .settings-model-trigger,
+html[data-mixdog-mobile] .settings-agent-route .oc-select-trigger {
+  justify-content: flex-end;
+  text-align: right;
+}
+html[data-mixdog-mobile] .settings-row-control .oc-select-value,
+html[data-mixdog-mobile] .settings-row-control .settings-model-trigger > span,
+html[data-mixdog-mobile] .settings-agent-route .oc-select-value,
+html[data-mixdog-mobile] .settings-agent-route .settings-model-trigger > span {
+  flex: 0 1 auto;
+  text-align: right;
+}
+html[data-mixdog-mobile] .settings-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--settings-phone-value-column);
+  align-items: center;
+  column-gap: 12px;
+}
+html[data-mixdog-mobile] .settings-shortcut-row kbd {
+  max-width: 100%;
+  justify-self: end;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: right;
+}
+html[data-mixdog-mobile] .core-memory-add-card,
+html[data-mixdog-mobile] .core-memory-list {
+  padding-inline: 14px;
+}
 
 /* Settings → Connection: phone pairing card. */
 .settings-connection-grid { display: flex; gap: 14px; }

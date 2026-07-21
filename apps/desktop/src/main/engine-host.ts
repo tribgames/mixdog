@@ -62,6 +62,7 @@ interface EngineHostOptions {
   getUserDataPath?: () => string;
   createEngine?: EngineFactory;
   loadProjects?: () => Promise<MixdogProjectsModule>;
+  loadSessionStore?: () => Promise<MixdogSessionStoreModule>;
   packaged?: boolean;
   resourcesPath?: string;
   appPath?: string;
@@ -118,6 +119,13 @@ interface StatuslineSegmentsModule {
   shellJobsStatus(options?: { clientHostPid?: number }): { count?: number; elapsedLabel?: string };
 }
 
+interface MixdogSessionStoreModule {
+  listStoredSessionSummaries(options?: {
+    rebuildIfMissing?: boolean;
+    refreshFromStorage?: boolean;
+  }): Array<Record<string, unknown>>;
+}
+
 const EMPTY_PROJECT_PREFERENCES: DesktopProjectPreferences = {
   version: 2,
   aliases: {},
@@ -134,6 +142,11 @@ const SESSIONS_CHANGED_DEBOUNCE_MS = 500;
 // to <userData>/desktop-perf.log so slow session-switch/settings reports can
 // be diagnosed from a real run instead of guesses. Zero-cost when unset.
 const DESKTOP_PERF_ENABLED = process.env.MIXDOG_DESKTOP_PERF === '1';
+// Cold-start prewarm: the lightweight sidebar listing intentionally skips the
+// full runtime, which used to defer the ENTIRE engine boot to the first
+// session click. Boot the task engine shortly after the list is on screen so
+// that first click only pays session resume.
+const ENGINE_PREWARM_DELAY_MS = 300;
 // shellJobsStatus itself is cache-only and refreshes its disk-backed cache
 // asynchronously. Polling at the cache's 1s cadence keeps disk work out of the
 // engine's 50ms publication path.
@@ -210,6 +223,19 @@ export function projectsModuleUrl(
     ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'standalone', 'projects.mjs')
     : resolve(requiredApplicationPath(appPath), '../../src/standalone/projects.mjs');
   return pathToFileURL(projectsPath).href;
+}
+
+export function sessionStoreModuleUrl(
+  packaged = false,
+  resourcesPath = process.resourcesPath,
+  appPath?: string,
+): string {
+  const modulePath = packaged
+    ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'runtime',
+      'agent', 'orchestrator', 'session', 'store-summary-reader.mjs')
+    : resolve(requiredApplicationPath(appPath),
+      '../../src/runtime/agent/orchestrator/session/store-summary-reader.mjs');
+  return pathToFileURL(modulePath).href;
 }
 
 export function statuslineSegmentsModuleUrl(
@@ -483,6 +509,8 @@ export class EngineHost {
   private readonly getUserDataPath: (() => string) | null;
   private readonly createEngineOverride: EngineFactory | null;
   private readonly loadProjectsModule: () => Promise<MixdogProjectsModule>;
+  private readonly loadSessionStoreOverride: (() => Promise<MixdogSessionStoreModule>) | null;
+  private sessionStoreModule: Promise<MixdogSessionStoreModule> | null = null;
   private readonly packaged: boolean;
   private readonly resourcesPath: string;
   private readonly appPath: string | undefined;
@@ -498,12 +526,14 @@ export class EngineHost {
   private publicationPending = false;
   private publicationPendingSnapshot: EngineSnapshot | undefined;
   private publicationTimer: NodeJS.Timeout | null = null;
+  private engineWarmupTimer: NodeJS.Timeout | null = null;
   private shellJobsTimer: NodeJS.Timeout | null = null;
   private shellJobsPollDelayMs = 0;
   private shellJobsModule: Promise<StatuslineSegmentsModule> | null = null;
   private shellJobs = { count: 0, elapsedLabel: '' };
   private readonly oauthFlows = new Map<string, DesktopOAuthFlow>();
   private oauthFlowSequence = 0;
+  private engineModulePreloaded = false;
   private readonly searchProjectDirectory: typeof searchProjectDirectory;
 
   constructor(options: EngineHostOptions = {}) {
@@ -514,10 +544,14 @@ export class EngineHost {
     this.resourcesPath = options.resourcesPath ?? process.resourcesPath;
     this.appPath = options.appPath;
     this.searchProjectDirectory = options.searchProjectDirectory ?? searchProjectDirectory;
+    this.loadSessionStoreOverride = options.loadSessionStore ?? null;
     this.loadProjectsModule = options.loadProjects ?? (async () => import(
       /* @vite-ignore */ projectsModuleUrl(this.packaged, this.resourcesPath, this.appPath)
     ) as Promise<MixdogProjectsModule>);
     if (!this.packaged && !this.createEngineOverride) requiredApplicationPath(this.appPath);
+    // Start compiling the runtime graph while Chromium is still bringing the
+    // window up: the first engine boot then starts from a warm module cache.
+    setTimeout(() => this.preloadEngineModule(), 0)?.unref?.();
   }
 
   subscribe(listener: SnapshotListener): () => void {
@@ -654,15 +688,31 @@ export class EngineHost {
     const requestedPath = projectPath.trim();
     if (!requestedPath) throw new TypeError('A project folder is required.');
     let result: EngineSnapshot = null;
+    const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+    let stageNote = '';
+    const stage = (label: string, from: number) => {
+      if (DESKTOP_PERF_ENABLED) stageNote += ` ${label}=${(performance.now() - from).toFixed(0)}ms`;
+    };
     await this.exclusive(async () => {
+      let stageStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
       await this.loadSessionTitles();
+      stage('titles', stageStarted);
+      stageStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
       const projectStore = await this.loadProjectsModule();
+      stage('projects-module', stageStarted);
+      stageStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
       const registered = this.knownProject(projectStore, requestedPath);
+      stage('known-project', stageStarted);
+      stageStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
       const canonicalPath = await this.canonicalDirectory(registered.path);
+      stage('canonical', stageStarted);
+      stageStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
       await this.replaceEngine(canonicalPath, {
         classification: 'project',
         projectPath: canonicalPath,
       }, 'desktop-new-project-task');
+      stage('replace-engine', stageStarted);
+      stageStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
       this.currentProject = canonicalPath;
       projectStore.touchProjectSelected(registered.path);
       this.recentProjects = this.registeredProjects(projectStore)
@@ -670,7 +720,11 @@ export class EngineHost {
         .slice(0, 12);
       result = this.getSnapshot();
       this.publish();
+      stage('finalize', stageStarted);
     });
+    if (DESKTOP_PERF_ENABLED) {
+      this.perfLog(`start-project-task total=${(performance.now() - started).toFixed(0)}ms${stageNote}`);
+    }
     return result;
   }
 
@@ -772,6 +826,27 @@ export class EngineHost {
   }
 
   async listSessions(): Promise<DesktopSessionSummary[]> {
+    // Cold sidebar listing must not construct the full runtime — and must not
+    // QUEUE behind one either. Startup model-catalog hydration can hold the
+    // transition lock for a multi-second engine boot, so the engine-free
+    // sidecar read runs OUTSIDE `exclusive` and paints the session list
+    // immediately (user: session list is dead slow on first boot). Explicit
+    // test engines retain the historical path unless they also provide a
+    // store override.
+    if (!this.engine && (this.loadSessionStoreOverride || !this.createEngineOverride)) {
+      try {
+        await this.loadSessionTitles();
+        const store = await this.loadSessionStoreModule();
+        const rows = store.listStoredSessionSummaries({ rebuildIfMissing: true });
+        const summaries = this.sessionSummaries(false, rows);
+        this.scheduleEngineWarmup();
+        this.ensureSessionsWatcher();
+        return summaries;
+      } catch {
+        // A missing/corrupt lightweight module falls back to the authoritative
+        // engine path instead of leaving the session browser empty.
+      }
+    }
     let summaries: DesktopSessionSummary[] = [];
     await this.exclusive(async () => {
       await this.loadSessionTitles();
@@ -782,13 +857,41 @@ export class EngineHost {
           projectPath: null,
         }, 'desktop-session-browser');
       }
-      // The sidebar poll must see cross-process activity (channel-worker
-      // schedule runs, other Mixdog processes), so this read goes through
-      // the on-disk summary index instead of the in-process cache.
+      // Once warm, refresh authoritatively so cross-process activity remains
+      // visible through the existing engine/store ownership boundary.
       summaries = this.sessionSummaries(true);
     });
     this.ensureSessionsWatcher();
     return summaries;
+  }
+
+  private scheduleEngineWarmup(): void {
+    if (this.engine || this.engineWarmupTimer) return;
+    if (DESKTOP_PERF_ENABLED) this.perfLog('engine-prewarm scheduled');
+    this.engineWarmupTimer = setTimeout(() => {
+      this.engineWarmupTimer = null;
+      void this.exclusive(async () => {
+        if (this.engine) {
+          if (DESKTOP_PERF_ENABLED) this.perfLog('engine-prewarm skipped=engine-already-live');
+          return;
+        }
+        const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+        const workspace = await this.taskWorkspace();
+        await this.replaceEngine(workspace, {
+          classification: 'task',
+          projectPath: null,
+        }, 'desktop-engine-prewarm');
+        if (DESKTOP_PERF_ENABLED) {
+          this.perfLog(`engine-prewarm total=${(performance.now() - started).toFixed(0)}ms`);
+        }
+      }).catch((error: unknown) => {
+        // Prewarm is opportunistic; the first resume retains the cold path.
+        if (DESKTOP_PERF_ENABLED) {
+          this.perfLog(`engine-prewarm failed=${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+    }, ENGINE_PREWARM_DELAY_MS);
+    this.engineWarmupTimer.unref?.();
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {
@@ -919,7 +1022,7 @@ export class EngineHost {
   }
 
   async listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
-    let models: DesktopModelOption[] = [];
+    const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
     await this.exclusive(async () => {
       if (!this.engine) {
         const workspace = await this.taskWorkspace();
@@ -928,16 +1031,27 @@ export class EngineHost {
           projectPath: null,
         }, 'desktop-model-selector');
       }
+    });
+    const engine = this.requireEngine();
+    if (DESKTOP_PERF_ENABLED) {
+      this.perfLog(`model-catalog engine-ready ms=${(performance.now() - started).toFixed(0)}`);
+    }
+    // Catalog reads run OUTSIDE the host transition lock. The secrets-aware
+    // full load is network-bound and used to hold `exclusive` for its entire
+    // duration, so a session clicked during startup hydration queued behind it
+    // (user: the first session open takes far too long). The engine reference
+    // is captured under the lock; the core joins/caches concurrent catalog
+    // reads, and a catalog rejection after a context switch surfaces through
+    // the picker's inline failure path instead of blocking navigation.
+    let models: DesktopModelOption[] = [];
+    {
       const refresh = options.force === true || options.refresh === true;
-      const engine = this.requireEngine();
       if (refresh) {
         models = normalizedProviderModels(await engine.listProviderModels({ force: true, quick: false }));
       } else if (options.quick === true) {
         // Match the TUI picker: seed the authoritative secrets-aware request
-        // before reading quick route rows. Starting these in separate renderer
-        // IPC calls would serialize at EngineHost.exclusive and make the quick
-        // response wait for the network catalog, so the ordering belongs here.
-        // The following full desktop read joins this core promise.
+        // before reading quick route rows so the following full desktop read
+        // joins this core promise instead of starting a second network load.
         try {
           void Promise.resolve(engine.listProviderModels({ quick: false })).catch((error: unknown) => {
             console.warn('Desktop model catalog background refresh failed:', error);
@@ -959,7 +1073,10 @@ export class EngineHost {
         await engine.listProviderModels({ quick: false });
         models = normalizedProviderModels(await engine.listProviderModels({ quick: false }));
       }
-    });
+    }
+    if (DESKTOP_PERF_ENABLED) {
+      this.perfLog(`model-catalog total ms=${(performance.now() - started).toFixed(0)} quick=${options.quick === true}`);
+    }
     return models;
   }
 
@@ -1189,6 +1306,34 @@ export class EngineHost {
       capability === 'completeOAuthProviderLogin' || capability === 'cancelOAuthProviderLogin') {
       return this.invokeOAuthCapability<T>(capability, args);
     }
+    // Read-only provider/status probes must not hold the transition lock for
+    // their network round-trips. Startup hydration fires getProviderSetup the
+    // moment the window is up and it held `exclusive` for ~5s, so the user's
+    // first session click queued behind it (user: first open takes forever).
+    // The engine lease is still acquired under the lock; the probe itself
+    // neither mutates session state nor needs a publication (readCapabilities
+    // follows the same read-only rationale).
+    if (capability === 'getProviderSetup' || capability === 'getUsageDashboard') {
+      await this.exclusive(async () => {
+        if (this.engine) return;
+        const workspace = await this.taskWorkspace();
+        await this.replaceEngine(workspace, {
+          classification: 'task',
+          projectPath: null,
+        }, `desktop-capability-${capability}`);
+      });
+      const engine = this.requireEngine();
+      const method = engine[capability];
+      if (typeof method !== 'function') {
+        throw new Error(`The active Mixdog engine does not support ${capability}.`);
+      }
+      const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+      const rawValue = await (method as (...values: unknown[]) => unknown).apply(engine, args);
+      if (DESKTOP_PERF_ENABLED) {
+        this.perfLog(`capability-unlocked ${capability} ms=${(performance.now() - started).toFixed(0)}`);
+      }
+      return { value: copyCapabilityValue(rawValue) as T, snapshot: this.getSnapshot() };
+    }
     let result: DesktopCapabilityResult<T> = { value: undefined as T, snapshot: null };
     await this.exclusive(async () => {
       if (!this.engine) {
@@ -1227,7 +1372,6 @@ export class EngineHost {
   async readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,
   ): Promise<DesktopCapabilityReadResult[]> {
-    let results: DesktopCapabilityReadResult[] = [];
     await this.exclusive(async () => {
       if (!this.engine) {
         const workspace = await this.taskWorkspace();
@@ -1236,31 +1380,40 @@ export class EngineHost {
           projectPath: null,
         }, 'desktop-capability-read');
       }
-      const engine = this.requireEngine();
-      results = [];
-      // Keep reads ordered inside one engine lease. Some getters lazily warm
-      // shared caches, so parallel execution would turn a UI optimization into
-      // a new backend concurrency contract.
-      for (const request of requests) {
-        try {
-          const method = engine[request.capability];
-          if (typeof method !== 'function') {
-            throw new Error(`The active Mixdog engine does not support ${request.capability}.`);
-          }
-          const rawValue = await (method as (...values: unknown[]) => unknown)
-            .apply(engine, request.args || []);
-          results.push({ ok: true, value: copyCapabilityValue(rawValue) });
-        } catch (reason) {
-          results.push({
-            ok: false,
-            error: reason instanceof Error ? reason.message : String(reason),
-          });
-        }
-      }
-      // Read-only settings inspection neither mutates visible engine state nor
-      // publishes it. This avoids cloning and serializing a long transcript
-      // twice for every row in a settings section.
     });
+    const engine = this.requireEngine();
+    const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+    const results: DesktopCapabilityReadResult[] = [];
+    // The batch runs OUTSIDE the transition lock: startup settings hydration
+    // held `exclusive` for its entire multi-second read sweep, so the first
+    // session click queued behind it (user: first open takes far too long).
+    // Reads stay ordered in one sequential sweep — some getters lazily warm
+    // shared caches, so parallel execution would turn a UI optimization into
+    // a new backend concurrency contract. If a context switch lands mid-sweep,
+    // the affected getters surface per-request errors instead of blocking
+    // navigation.
+    for (const request of requests) {
+      try {
+        const method = engine[request.capability];
+        if (typeof method !== 'function') {
+          throw new Error(`The active Mixdog engine does not support ${request.capability}.`);
+        }
+        const rawValue = await (method as (...values: unknown[]) => unknown)
+          .apply(engine, request.args || []);
+        results.push({ ok: true, value: copyCapabilityValue(rawValue) });
+      } catch (reason) {
+        results.push({
+          ok: false,
+          error: reason instanceof Error ? reason.message : String(reason),
+        });
+      }
+    }
+    if (DESKTOP_PERF_ENABLED) {
+      this.perfLog(`capability-read batch=${requests.length} ms=${(performance.now() - started).toFixed(0)}`);
+    }
+    // Read-only settings inspection neither mutates visible engine state nor
+    // publishes it. This avoids cloning and serializing a long transcript
+    // twice for every row in a settings section.
     return results;
   }
 
@@ -1273,6 +1426,10 @@ export class EngineHost {
   }
 
   async dispose(): Promise<void> {
+    if (this.engineWarmupTimer) {
+      clearTimeout(this.engineWarmupTimer);
+      this.engineWarmupTimer = null;
+    }
     await this.exclusive(async () => this.disposeCurrent('desktop-dispose'));
     await this.sessionTitleWrite;
     this.cancelScheduledPublication();
@@ -1611,6 +1768,7 @@ export class EngineHost {
 
   private async loadEngine(options: Record<string, unknown>): Promise<MixdogEngine> {
     if (this.createEngineOverride) return this.createEngineOverride(options);
+    const importStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
     // Keep the engine external to the desktop bundle. Production resolves the
     // curated runtime resource; development resolves the same source tree.
     const engineModule = (await import(
@@ -1618,7 +1776,45 @@ export class EngineHost {
     )) as {
       createEngineSession(options?: Record<string, unknown>): Promise<MixdogEngine>;
     };
-    return engineModule.createEngineSession(options);
+    const createStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+    const engine = await engineModule.createEngineSession(options);
+    if (DESKTOP_PERF_ENABLED) {
+      this.perfLog(`engine-load import=${(createStarted - importStarted).toFixed(0)}ms create=${(performance.now() - createStarted).toFixed(0)}ms`);
+    }
+    return engine;
+  }
+
+  // The engine module graph (the whole TUI runtime) dominates a cold boot.
+  // Importing it ahead of the first real boot is side-effect free (no engine
+  // state, no cwd change) and turns the later load into a module-cache hit.
+  private preloadEngineModule(): void {
+    if (this.createEngineOverride || this.engineModulePreloaded) return;
+    this.engineModulePreloaded = true;
+    const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+    try {
+      void import(
+        /* @vite-ignore */ engineModuleUrl(this.packaged, this.resourcesPath, this.appPath)
+      ).then(() => {
+        if (DESKTOP_PERF_ENABLED) {
+          this.perfLog(`engine-module-preload ms=${(performance.now() - started).toFixed(0)}`);
+        }
+      }).catch(() => {
+        // The authoritative boot path reports real load failures.
+        this.engineModulePreloaded = false;
+      });
+    } catch {
+      // URL resolution failures surface on the authoritative boot path.
+      this.engineModulePreloaded = false;
+    }
+  }
+
+  private loadSessionStoreModule(): Promise<MixdogSessionStoreModule> {
+    this.sessionStoreModule ??= this.loadSessionStoreOverride
+      ? this.loadSessionStoreOverride()
+      : import(
+        /* @vite-ignore */ sessionStoreModuleUrl(this.packaged, this.resourcesPath, this.appPath)
+      ) as Promise<MixdogSessionStoreModule>;
+    return this.sessionStoreModule;
   }
 
   private async replaceEngine(
@@ -1633,8 +1829,12 @@ export class EngineHost {
       this.cancelOAuthFlows();
       process.chdir(cwd);
       try {
+        const switchStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
         if (await current.switchContext({ cwd, desktopSession }) !== true) {
           throw new Error('Engine context switch was rejected.');
+        }
+        if (DESKTOP_PERF_ENABLED) {
+          this.perfLog(`engine-switch-context ms=${(performance.now() - switchStarted).toFixed(0)} cwd=${cwd}`);
         }
         this.engineWorkspace = cwd;
         this.engineDesktopSession = desktopSession;
@@ -1748,9 +1948,14 @@ export class EngineHost {
     this.shellJobsPollDelayMs = 0;
   }
 
-  private sessionSummaries(refreshFromStorage = false): DesktopSessionSummary[] {
+  private sessionSummaries(
+    refreshFromStorage = false,
+    rowsOverride?: Array<Record<string, unknown>>,
+  ): DesktopSessionSummary[] {
     const currentId = String(this.engine?.getState()?.sessionId || '');
-    const rows = this.engine?.listSessions(refreshFromStorage ? { refreshFromStorage: true } : undefined) || [];
+    const rows = rowsOverride
+      ?? this.engine?.listSessions(refreshFromStorage ? { refreshFromStorage: true } : undefined)
+      ?? [];
     const summaries = desktopSessionSummaries(
       rows,
       currentId,
@@ -1871,7 +2076,24 @@ export class EngineHost {
   }
 
   private async exclusive(action: () => Promise<void>): Promise<void> {
-    const run = this.transition.then(action, action);
+    // Perf triage (MIXDOG_DESKTOP_PERF=1): any action holding the transition
+    // lock long enough to delay a session click gets attributed by caller.
+    const instrumented = DESKTOP_PERF_ENABLED
+      ? (() => {
+        const caller = (new Error().stack || '').split('\n')
+          .slice(2, 4).map((line) => line.trim()).join(' <- ');
+        return async () => {
+          const started = performance.now();
+          try {
+            await action();
+          } finally {
+            const ms = performance.now() - started;
+            if (ms >= 300) this.perfLog(`exclusive-hold ms=${ms.toFixed(0)} by=${caller}`);
+          }
+        };
+      })()
+      : action;
+    const run = this.transition.then(instrumented, instrumented);
     this.transition = run.catch(() => undefined);
     await run;
   }

@@ -27,10 +27,13 @@ if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");
 // made the first paint render fallback glyphs and then swap (user: the
 // composer hint "pops" right after entry). Local assets resolve in a few ms,
 // so starting them here lands the real faces by first paint.
+let criticalFontsReady: Promise<unknown> = Promise.resolve();
 try {
-  void document.fonts.load('400 15px "Pretendard Variable"');
-  void document.fonts.load('500 13px "Geist Variable"');
-  void document.fonts.load('400 13px "JetBrains Mono Variable"');
+  criticalFontsReady = Promise.allSettled([
+    document.fonts.load('400 15px "Pretendard Variable"'),
+    document.fonts.load('500 13px "Geist Variable"'),
+    document.fonts.load('400 13px "JetBrains Mono Variable"'),
+  ]);
 } catch { /* font swap stays a cosmetic fallback */ }
 
 createRoot(document.getElementById("root")!).render(
@@ -45,7 +48,16 @@ createRoot(document.getElementById("root")!).render(
 // The reveal ALSO waits for the last-project restore decision (capped) so the
 // welcome block and tabs never jump after the window is visible.
 requestAnimationFrame(() => requestAnimationFrame(() => {
-  const signal = () => window.mixdogDesktop?.rendererReady?.();
+  // Every face declares font-display:swap, so a reveal that beats the font
+  // parse paints fallback glyphs and then REFLOWS the whole window when
+  // Pretendard (~2MB variable) lands — the user-visible "폰트 튐" + hitch at
+  // entry. Hold the reveal for the critical faces, capped so a broken font
+  // fetch can never stall the launch.
+  const fontsSettled = Promise.race([
+    criticalFontsReady,
+    new Promise((resolve) => window.setTimeout(resolve, 800)),
+  ]);
+  const signal = () => { void fontsSettled.then(() => window.mixdogDesktop?.rendererReady?.()); };
   if ((window as { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled) {
     signal();
     return;

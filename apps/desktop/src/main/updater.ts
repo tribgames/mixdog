@@ -1,17 +1,13 @@
 import { app } from 'electron';
-// electron-updater is a CommonJS module; named imports fail in the packaged
-// ESM main bundle (SyntaxError at startup). Use the default export instead.
-import electronUpdater from 'electron-updater';
 
 import { createUpdaterController } from './updater-controller';
 import type { DesktopUpdaterState } from '../shared/contract';
-
-const { autoUpdater } = electronUpdater;
 
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let controller: ReturnType<typeof createUpdaterController> | undefined;
 let checkInterval: NodeJS.Timeout | undefined;
+let startPromise: Promise<void> | undefined;
 let state: DesktopUpdaterState = { status: 'disabled' };
 const listeners = new Set<(state: DesktopUpdaterState) => void>();
 
@@ -37,7 +33,7 @@ export const desktopUpdater = {
 };
 
 export function startAutoUpdater(stop: () => Promise<void> = async () => {}): void {
-  if (controller || checkInterval) return;
+  if (controller || checkInterval || startPromise) return;
   if (!app.isPackaged || process.env.ELECTRON_RENDERER_URL) {
     // Dev/unpackaged builds silently disable updates; the state is already
     // published to the Settings UI. A console.info here leaks into whatever
@@ -46,7 +42,11 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}): vo
     return;
   }
 
-  try {
+  startPromise = (async () => {
+    // electron-updater is a large CommonJS tree. Import it only after the first
+    // renderer interaction instead of evaluating it before the first window.
+    const electronUpdater = (await import('electron-updater')).default;
+    const { autoUpdater } = electronUpdater;
     autoUpdater.channel = 'latest';
     autoUpdater.allowPrerelease = false;
     autoUpdater.autoDownload = false;
@@ -60,20 +60,19 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}): vo
         console.info(`Mixdog ${message}`, data ?? '');
       },
     });
-    controller.subscribe((state) => {
-      console.info('Mixdog updater status:', state);
-      publish(state);
+    controller.subscribe((next) => {
+      console.info('Mixdog updater status:', next);
+      publish(next);
     });
-
     void controller.start();
     checkInterval = setInterval(() => {
       void controller?.check();
     }, UPDATE_CHECK_INTERVAL_MS);
     checkInterval.unref();
-  } catch (error) {
+  })().catch((error) => {
     // Missing or unreachable publish metadata must never delay application startup.
     console.warn('Mixdog auto-update initialization skipped:', error);
-  }
+  });
 }
 
 export async function quitAndInstallUpdate(): Promise<void> {

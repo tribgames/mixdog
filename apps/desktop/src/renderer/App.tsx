@@ -30,6 +30,7 @@ import {
   LoaderCircle,
   Mic,
   ArrowUp,
+  PanelLeft,
   PanelRight,
   Plus,
   RotateCcw,
@@ -41,7 +42,7 @@ import {
 import { OcIcon } from "./OcIcon";
 import { ContextBody } from "./CommandSurface";
 import { createPortal } from "react-dom";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { elementScroll, useVirtualizer } from "@tanstack/react-virtual";
 import type {
   DesktopCapability,
   DesktopModelOption,
@@ -65,6 +66,7 @@ import {
   parseUnifiedDiff,
   reconcileTurnFailures,
   shouldNavigatePromptHistory,
+  toolInputRows,
   transcriptTurnKeys,
 } from "./renderer-logic.mjs";
 import type { TurnFailureModel } from "./renderer-logic.mjs";
@@ -236,6 +238,7 @@ type Snapshot = RecordValue & {
 };
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
+const SESSION_SNAPSHOT_CACHE_LIMIT = 6;
 const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
 const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
 const LAST_PROJECT_KEY = 'mixdog.desktop-last-project.v1';
@@ -273,16 +276,97 @@ const TerminalPane = lazy(() => import("./TerminalPane"));
 // on first entry, which flashes the New-task watermark before the page lands.
 import { SchedulesPane } from "./SchedulesView";
 
-// Warm transcript-critical lazy chunks right after boot. A cold MarkdownBody
+function schedulePostInteractionIdle(
+  task: () => void,
+  fallbackMs = 5_000,
+  idleTimeout = 1_500,
+): () => void {
+  let stopped = false;
+  let armed = false;
+  let fallback: number | undefined;
+  let startupFallback: number | undefined;
+  let idleHandle: number | undefined;
+  const host = window as typeof window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (handle: number) => void;
+    __mixdogStartupSettled?: boolean;
+  };
+  const removeInteractionListeners = () => {
+    window.removeEventListener("pointerdown", queueIdle);
+    window.removeEventListener("keydown", queueIdle);
+  };
+  const run = () => {
+    if (!stopped) task();
+  };
+  const queueIdle = () => {
+    removeInteractionListeners();
+    window.clearTimeout(fallback);
+    fallback = undefined;
+    if (typeof host.requestIdleCallback === "function") {
+      idleHandle = host.requestIdleCallback(run, { timeout: idleTimeout });
+    } else {
+      idleHandle = window.setTimeout(run, Math.min(idleTimeout, 250));
+    }
+  };
+  const arm = () => {
+    if (stopped || armed) return;
+    armed = true;
+    window.clearTimeout(startupFallback);
+    window.addEventListener("pointerdown", queueIdle, { once: true });
+    window.addEventListener("keydown", queueIdle, { once: true });
+    fallback = window.setTimeout(queueIdle, fallbackMs);
+  };
+  if (host.__mixdogStartupSettled) arm();
+  else {
+    window.addEventListener("mixdog:startup-settled", arm, { once: true });
+    startupFallback = window.setTimeout(arm, 1_200);
+  }
+  return () => {
+    stopped = true;
+    removeInteractionListeners();
+    window.removeEventListener("mixdog:startup-settled", arm);
+    window.clearTimeout(fallback);
+    window.clearTimeout(startupFallback);
+    if (idleHandle !== undefined) {
+      if (typeof host.cancelIdleCallback === "function") host.cancelIdleCallback(idleHandle);
+      else window.clearTimeout(idleHandle);
+    }
+  };
+}
+
+// Warm Markdown immediately after the first usable frame: delaying this until
+// the first session click made assistant strings appear row-by-row while the
+// virtualizer was already correcting their heights. The much heavier diff
+// surface remains behind post-interaction idle.
 // chunk made a freshly opened session paint user bubbles (plain text) first
 // and then trickle the styled assistant/tool rows in as the chunk landed
-// (user: "유저 메세지 몇 개만 나왔다가 딸려서 나옴"). Idle-timed so it never
-// competes with the first frame.
+// (user: "유저 메세지 몇 개만 나왔다가 딸려서 나옴"). The old fixed 250ms
+// timer often landed the eval INSIDE the reveal window — the Shiki diff
+// chunk alone is ~1.7MB of main-thread eval and read as a launch hitch
+// (user: "프리징 유사하게 로딩"). Stage both AFTER startup settles, on idle:
+// markdown promptly (first session open needs it), the diff chunk well clear
+// of the reveal (only an expanded diff needs it).
 if (typeof window !== "undefined") {
-  window.setTimeout(() => {
-    void import("./MarkdownBody");
-    void import("./DiffView.lazy");
-  }, 250);
+  const warmMarkdown = () => {
+    const host = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      __mixdogStartupSettled?: boolean;
+    };
+    if (typeof host.requestIdleCallback === "function") {
+      host.requestIdleCallback(() => { void preloadMarkdownBody(); }, { timeout: 600 });
+    } else {
+      window.setTimeout(() => { void preloadMarkdownBody(); }, 120);
+    }
+  };
+  const host = window as typeof window & { __mixdogStartupSettled?: boolean };
+  if (host.__mixdogStartupSettled) warmMarkdown();
+  else {
+    window.addEventListener("mixdog:startup-settled", warmMarkdown, { once: true });
+    window.setTimeout(warmMarkdown, 1_200);
+  }
+  schedulePostInteractionIdle(() => {
+    window.setTimeout(() => void import("./DiffView.lazy"), 2_500);
+  });
 }
 
 function asRecord(value: unknown): RecordValue | null {
@@ -504,11 +588,43 @@ export function App() {
   const [headerTitleInvalid, setHeaderTitleInvalid] = useState(false);
   const [newTaskActive, setNewTaskActive] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState("");
+  const transitionSessionId = switchingSessionId;
   // Latest session clicked while another switch was still in flight.
   const pendingResumeTarget = useRef("");
+  const activeResumeTarget = useRef("");
+  const resumeSessionRef = useRef<(sessionId: string, force?: boolean) => void>(() => {});
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const frozenSessionSnapshot = useRef<Snapshot | null>(null);
+  const sessionSnapshotCache = useRef(new Map<string, Snapshot>());
+  const rememberSessionSnapshot = useCallback((next: EngineSnapshot | Snapshot | null | undefined) => {
+    const value = next && typeof next === "object" ? next as Snapshot : null;
+    if (!value) return;
+    const sessionId = String(value?.sessionId || "");
+    if (!sessionId) return;
+    const cache = sessionSnapshotCache.current;
+    cache.delete(sessionId);
+    cache.set(sessionId, value);
+    while (cache.size > SESSION_SNAPSHOT_CACHE_LIMIT) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }, []);
+  const cachedSessionSnapshot = useCallback((sessionId: string): Snapshot | null => {
+    const cache = sessionSnapshotCache.current;
+    const cached = cache.get(sessionId) || null;
+    if (cached) {
+      cache.delete(sessionId);
+      cache.set(sessionId, cached);
+    }
+    return cached;
+  }, []);
+  useEffect(() => rememberSessionSnapshot(snapshot), [rememberSessionSnapshot, snapshot]);
   const newTaskReady = useRef(false);
+  const newTaskSetup = useRef<{
+    key: string;
+    promise: Promise<EngineSnapshot>;
+  } | null>(null);
   // Callback-safe view of the active selection for tab-promotion decisions.
   const selectionRef = useRef<NavigationSelection>({ kind: "new" });
   const sessionRefresh = useRef({
@@ -535,18 +651,12 @@ export function App() {
     console.info(`[perf] desktop startup first commit: ${duration?.toFixed(1) ?? "?"}ms`);
   }, []);
   useEffect(() => {
-    const api = window.mixdogDesktop;
-    if (!api?.readCapabilities) return;
-    let live = true;
-    const timer = window.setTimeout(() => {
-      void loadSettingsViewModule()
-        .then((module) => live ? module.preloadSettings(api) : undefined)
-        .catch(() => {});
-    }, 0);
-    return () => {
-      live = false;
-      window.clearTimeout(timer);
-    };
+    // Warm only the renderer chunk. Hydrating capability/model/memory data in
+    // the background occupied EngineHost.exclusive for seconds and made a
+    // foreground session click wait behind settings work.
+    return schedulePostInteractionIdle(() => {
+      void loadSettingsViewModule().catch(() => {});
+    });
   }, []);
   useEffect(() => {
     const host = window.mixdogDesktop;
@@ -692,6 +802,23 @@ export function App() {
     window.addEventListener("mixdog:hardware-back", onHardwareBack);
     return () => window.removeEventListener("mixdog:hardware-back", onHardwareBack);
   }, [dockOpen, sidebarOpen]);
+
+  // Mobile WEB: Chrome's back / left-edge swipe navigated the SPA away and
+  // reloaded it (user: opening the drawer "showed a refresh"). A sentinel
+  // history entry absorbs the gesture and routes it through the same
+  // hardware-back path, so it closes the topmost layer instead.
+  useEffect(() => {
+    if (!document.documentElement.dataset.mixdogMobile) return;
+    // The native shell owns hardware back via the Capacitor App plugin.
+    if ((window as unknown as { Capacitor?: unknown }).Capacitor) return;
+    try { window.history.pushState({ mixdogShell: true }, ""); } catch { return; }
+    const onPopState = () => {
+      try { window.history.pushState({ mixdogShell: true }, ""); } catch { /* keep the app alive regardless */ }
+      window.dispatchEvent(new CustomEvent("mixdog:hardware-back", { cancelable: true }));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const invoke = useCallback(async (action: () => unknown): Promise<void> => {
     setError("");
@@ -846,12 +973,12 @@ export function App() {
   // Instant sidebar: main watches the on-disk session store and pushes fresh
   // catalogs (~0.5s debounce), so activity from any mixdog process lands here
   // without waiting for a poll tick or an extra list round-trip.
-  // Remote-attach live follow: when the current session is a viewer on a
-  // session owned by another process, re-resume it whenever its row advances
-  // so the owner's turns (including our injected messages) appear here.
-  const remoteAttachedSessionRef = useRef("");
-  const attachedRefreshAtRef = useRef(new Map<string, number>());
-  const attachedRefreshWallClockRef = useRef(0);
+  // NOTE: the old renderer-driven attached re-resume loop is gone. The engine
+  // now owns viewer sync (live-share pipe when up, store-mtime re-resume when
+  // down, owner-gone promotion). Re-resuming from HERE on every store push
+  // swapped the transcript to the DISK state (in-flight turn missing) and the
+  // pipe frame swapped it back — a ~2s tall/short oscillation the user saw as
+  // violent up-down shaking when entering a session mid-turn.
   useEffect(() => {
     const host = window.mixdogDesktop;
     if (typeof host?.subscribeSessions !== "function") return;
@@ -860,24 +987,8 @@ export function App() {
       const rows = projectSessionRows(next);
       setSessions(rows);
       reconcileUnreadSessions(rows);
-      const attachedId = remoteAttachedSessionRef.current;
-      if (attachedId) {
-        const row = rows.find((item) => item.id === attachedId);
-        const lastSeen = attachedRefreshAtRef.current.get(attachedId) || 0;
-        // ≥2s spacing: an active CLI turn saves often; re-resuming on every
-        // push kept the host's exclusive lane busy and made user clicks queue
-        // behind follow refreshes (felt as sluggish switching).
-        if (row && row.updatedAt > lastSeen
-          && Date.now() - attachedRefreshWallClockRef.current >= 2_000) {
-          attachedRefreshAtRef.current.set(attachedId, row.updatedAt);
-          attachedRefreshWallClockRef.current = Date.now();
-          void window.mixdogDesktop?.resumeSession(attachedId)
-            .then((snap) => applySnapshot(snap))
-            .catch(() => { /* next push retries */ });
-        }
-      }
     });
-  }, [projectSessionRows, reconcileUnreadSessions, applySnapshot]);
+  }, [projectSessionRows, reconcileUnreadSessions]);
   const refreshSessionsBestEffort = useCallback((
     selectCurrent = false,
   ) => {
@@ -1156,6 +1267,10 @@ export function App() {
       newTaskReady.current = true;
       setNewTaskActive(true);
       setSwitchingSessionId("");
+      activeResumeTarget.current = "";
+      frozenSessionSnapshot.current = null;
+      pendingResumeTarget.current = "";
+      sessionSnapshotCache.current.delete(sessionId);
     }
     try {
       await refreshSessions();
@@ -1165,44 +1280,74 @@ export function App() {
       pendingSessionDeletes.current.delete(sessionId);
     }
   }, [activateSelection, applySnapshot, refreshSessions, selection, sessions, setError, snapshot.sessionId]);
+  const drainPendingResume = (completedSessionId: string) => {
+    const pending = pendingResumeTarget.current;
+    pendingResumeTarget.current = "";
+    if (pending && pending !== completedSessionId) {
+      window.setTimeout(() => resumeSessionRef.current(pending, true), 0);
+    }
+  };
   const startTask = (draft?: NavigationSelection) => {
     closeSidebarForNavigation();
+    const nextSelection = draft?.kind === "new" ? draft : newDraftSelection();
+    const nextKey = navigationKey(nextSelection);
+    // A blank task is a renderer draft until the first submit. Show its tab,
+    // welcome surface, and composer immediately while the cold engine/context
+    // setup continues in the background.
+    activateSelection(nextSelection, "New task");
+    newTaskReady.current = false;
+    setNewTaskActive(false);
+    setComposerFocusRequest((value) => value + 1);
+    const lastProject = String(snapshot.currentProject || snapshot.project ||
+      (Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects[0] : "") || "");
+    const setupPromise = (async (): Promise<EngineSnapshot> => (
+      lastProject
+        ? window.mixdogDesktop.startProjectTask(lastProject)
+        : window.mixdogDesktop.startTask()
+    ))();
+    const pendingSetup = { key: nextKey, promise: setupPromise };
+    newTaskSetup.current = pendingSetup;
     void invoke(async () => {
       try {
-        // Fresh tasks keep the LAST project preselected (user decision):
-        // current project first, then the most recent one.
-        const lastProject = String(snapshot.currentProject || snapshot.project ||
-          (Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects[0] : "") || "");
-        const next = lastProject
-          ? await window.mixdogDesktop.startProjectTask(lastProject)
-          : await window.mixdogDesktop?.startTask();
+        const next = await setupPromise;
+        if (newTaskSetup.current !== pendingSetup ||
+          navigationKey(selectionRef.current) !== nextKey) return;
         applySnapshot(next);
-        activateSelection(draft?.kind === "new" ? draft : newDraftSelection(), "New task");
         newTaskReady.current = true;
         setNewTaskActive(true);
-        setComposerFocusRequest((value) => value + 1);
         refreshSessionsBestEffort();
       } catch (reason) {
-        await synchronizeActualHost();
+        if (navigationKey(selectionRef.current) === nextKey) await synchronizeActualHost();
         throw reason;
+      } finally {
+        if (newTaskSetup.current === pendingSetup) newTaskSetup.current = null;
       }
     });
   };
-  const resumeSession = (sessionId: string) => {
-    if (selection.kind === "session" && selection.id === sessionId) return;
-    // A click DURING an in-flight switch used to be dropped silently — rapid
-    // session hopping read as "the app ignores me / slow". Remember the last
-    // requested target and chain it when the current switch settles.
-    if (switchingSessionId) {
-      if (sessionId !== switchingSessionId) pendingResumeTarget.current = sessionId;
+  const resumeSession = (sessionId: string, force = false) => {
+    const inFlight = activeResumeTarget.current;
+    if (inFlight) {
+      // Last target wins. A cached target is painted immediately while the
+      // unavoidable in-flight host transition finishes in the background.
+      if (sessionId !== inFlight) {
+        pendingResumeTarget.current = sessionId;
+        frozenSessionSnapshot.current = cachedSessionSnapshot(sessionId)
+          || frozenSessionSnapshot.current;
+        setSwitchingSessionId(sessionId);
+      }
       return;
     }
+    if (!force && selection.kind === "session" && selection.id === sessionId
+      && String(snapshot.sessionId || "") === sessionId) return;
+    // Start the shared Markdown chunk before the cached target is mounted.
+    // The transcript reveal below waits for this promise or a short deadline.
+    void preloadMarkdownBody().catch(() => {});
     closeSidebarForNavigation();
     const switchStartedAt = performance.now();
     const session = sessions.find((item) => item.id === sessionId);
-    frozenSessionSnapshot.current = selection.kind === "new" && !newTaskActive
-      ? EMPTY_SNAPSHOT
-      : snapshot;
+    frozenSessionSnapshot.current = cachedSessionSnapshot(sessionId)
+      || (selection.kind === "new" && !newTaskActive ? EMPTY_SNAPSHOT : snapshot);
+    activeResumeTarget.current = sessionId;
     setSwitchingSessionId(sessionId);
     const timingStart = `mixdog:session-switch:${sessionId}:start`;
     if (import.meta.env?.DEV) performance.mark(timingStart);
@@ -1220,20 +1365,27 @@ export function App() {
         const resumedTitle = session
           ? sessionSummaryTitle(session)
           : String(asRecord(next)?.desktopSessionTitle || "").trim() || "Untitled session";
-        applySnapshot(next);
-        activateSelection({ kind: "session", id: effectiveSessionId }, resumedTitle);
-        setSessions((current) => {
-          let changed = false;
-          const updated = current.map((item) => {
-            const currentSession = item.id === effectiveSessionId;
-            if (item.currentSession === currentSession) return item;
-            changed = true;
-            return { ...item, currentSession };
+        rememberSessionSnapshot(next);
+        const superseded = Boolean(
+          pendingResumeTarget.current && pendingResumeTarget.current !== effectiveSessionId,
+        );
+        if (!superseded) {
+          frozenSessionSnapshot.current = null;
+          applySnapshot(next);
+          activateSelection({ kind: "session", id: effectiveSessionId }, resumedTitle);
+          setSessions((current) => {
+            let changed = false;
+            const updated = current.map((item) => {
+              const currentSession = item.id === effectiveSessionId;
+              if (item.currentSession === currentSession) return item;
+              changed = true;
+              return { ...item, currentSession };
+            });
+            return changed ? updated : current;
           });
-          return changed ? updated : current;
-        });
-        setNewTaskActive(false);
-        if (resumedSessionId && resumedSessionId !== sessionId) refreshSessionsBestEffort();
+          setNewTaskActive(false);
+          if (resumedSessionId && resumedSessionId !== sessionId) refreshSessionsBestEffort();
+        }
         if (import.meta.env?.DEV) {
           window.requestAnimationFrame(() => {
             const timingEnd = `mixdog:session-switch:${sessionId}:painted`;
@@ -1245,24 +1397,29 @@ export function App() {
           });
         }
       } catch (reason) {
-        await synchronizeActualHost();
+        if (!pendingResumeTarget.current) await synchronizeActualHost();
         throw reason;
       } finally {
-        setSwitchingSessionId("");
-        frozenSessionSnapshot.current = null;
+        activeResumeTarget.current = "";
+        const pending = pendingResumeTarget.current;
+        if (pending && pending !== sessionId) {
+          frozenSessionSnapshot.current = cachedSessionSnapshot(pending)
+            || frozenSessionSnapshot.current;
+          setSwitchingSessionId(pending);
+        } else {
+          frozenSessionSnapshot.current = null;
+          setSwitchingSessionId("");
+        }
+        drainPendingResume(sessionId);
         window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
           window.mixdogDesktop?.perfLog?.(
             `session-switch-render id=${sessionId} paint=${(performance.now() - switchStartedAt).toFixed(0)}ms`,
           );
         }));
-        const pending = pendingResumeTarget.current;
-        pendingResumeTarget.current = "";
-        if (pending && pending !== sessionId) {
-          window.setTimeout(() => resumeSession(pending), 0);
-        }
       }
     });
   };
+  resumeSessionRef.current = resumeSession;
   const openSettings = useCallback((section: SettingsSection | null = null) => {
     // Perf diagnostics: SettingsView's mount effect reports the request→paint
     // delta through the perf-log channel (no-op unless MIXDOG_DESKTOP_PERF=1).
@@ -1271,11 +1428,6 @@ export function App() {
     setSettingsSection(section);
     setSettingsMounted(true);
     setSettingsOpen(true);
-  }, []);
-  useEffect(() => {
-    // Early enough that even a hasty first open lands on the prewarmed tree.
-    const timer = window.setTimeout(() => setSettingsMounted(true), 600);
-    return () => window.clearTimeout(timer);
   }, []);
   // Launch-jolt diagnostics (MIXDOG_DESKTOP_PERF=1): the top tab reportedly
   // pops once right after start. Sample the first tab's rect over the boot
@@ -1305,7 +1457,11 @@ export function App() {
     if (!host) return false;
     let startedSessionId = "";
     if (selection.kind === "new" && !newTaskReady.current) {
-      const started = await host.startTask();
+      const activeKey = navigationKey(selectionRef.current);
+      const pendingSetup = newTaskSetup.current?.key === activeKey
+        ? newTaskSetup.current.promise
+        : null;
+      const started = pendingSetup ? await pendingSetup : await host.startTask();
       startedSessionId = String(asRecord(started)?.sessionId || "");
       newTaskReady.current = true;
       setNewTaskActive(true);
@@ -1357,8 +1513,8 @@ export function App() {
   const visibleSnapshot = selection.kind === "new" && !newTaskActive
     ? EMPTY_SNAPSHOT
     : selectedSnapshot;
-  const navigationSelection: NavigationSelection = switchingSessionId
-    ? { kind: "session", id: switchingSessionId }
+  const navigationSelection: NavigationSelection = transitionSessionId
+    ? { kind: "session", id: transitionSessionId }
     : selection;
   const selectedSession = navigationSelection.kind === "session"
     ? sessions.find((session) => session.id === navigationSelection.id)
@@ -1411,9 +1567,6 @@ export function App() {
   };
   const snapshotProjectPath = String(asRecord(visibleSnapshot)?.currentProject ||
     asRecord(visibleSnapshot)?.project || "");
-  remoteAttachedSessionRef.current = asRecord(visibleSnapshot)?.sessionRemoteAttached
-    ? String(asRecord(visibleSnapshot)?.sessionId || "")
-    : "";
   const activeProjectPath = navigationSelection.kind === "session"
     ? String(selectedSession?.projectPath || snapshotProjectPath)
     : navigationSelection.kind === "project" ? navigationSelection.path : snapshotProjectPath;
@@ -1540,11 +1693,11 @@ export function App() {
           busySessionId={isBusy ? String(snapshot.sessionId || "") : ""}
           unreadSessionIds={unreadSessionIds}
           selection={navigationSelection}
-          onNewTask={startTask}
-          onOpenProjects={() => setProjectPanelOpen(true)}
-          onOpenSchedules={openSchedules}
-          onOpenSettings={() => openSettings()}
-          onResumeSession={resumeSession}
+          onNewTask={(draft?: NavigationSelection) => { closeSidebarForNavigation(); startTask(draft); }}
+          onOpenProjects={() => { closeSidebarForNavigation(); setProjectPanelOpen(true); }}
+          onOpenSchedules={() => { closeSidebarForNavigation(); openSchedules(); }}
+          onOpenSettings={() => { closeSidebarForNavigation(); openSettings(); }}
+          onResumeSession={(sessionId: string) => { closeSidebarForNavigation(); resumeSession(sessionId); }}
           onRenameSession={renameSession}
           onArchiveSession={archiveSession}
           onDeleteSession={deleteSession}
@@ -1553,10 +1706,15 @@ export function App() {
           aria-label="Close session sidebar" />}
         <main className="main-panel">
           {schedulesMounted && <SchedulesPane active={schedulesOpen} />}
-          <div className={`workspace ${switchingSessionId ? "switching-session" : ""}`}
-            style={schedulesOpen ? { display: "none" } : undefined}>
+          <div className={`workspace ${transitionSessionId ? "switching-session" : ""}`
+            + (schedulesOpen ? " schedules-open" : "")}>
             <header className="session-header" aria-label="Current task">
               <div className="session-header-content">
+                <button type="button" className="toolbar-sidebar session-header-menu"
+                  aria-label="Toggle session list" aria-expanded={sidebarOpen}
+                  onClick={() => setSidebarOpen((open) => !open)}>
+                  <PanelLeft className="sidebar-toggle-icon" size={18} aria-hidden="true" />
+                </button>
                 <h1 data-tooltip={visibleSessionTitle}>
                   {selectedSession && headerTitleEditingSessionId === selectedSession.id ? <input
                     className="session-header-title-input"
@@ -1618,7 +1776,7 @@ export function App() {
               ? <ReviewPane cwd={String(visibleSnapshot.currentProject || visibleSnapshot.project || "") || null} />
               : <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot} invoke={invoke} invokeResult={invokeResult}
               errors={errors} submit={submit} applySnapshot={applySnapshot}
-              transitioning={Boolean(switchingSessionId)}
+              transitioning={Boolean(transitionSessionId)}
               composerFocusRequest={composerFocusRequest}
               onNewTask={startTask}
               onStartProject={startProject}
@@ -1640,7 +1798,6 @@ export function App() {
                 }
                 setCommandSurface(surface);
               }} />}
-            {switchingSessionId && <div className="session-switch-overlay" aria-hidden="true" />}
           </div>
         </main>
         {/* Phone: the dock floats over the thread, so give it the same
@@ -1698,7 +1855,13 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
   toasts: Toast[];
   onDismissBridgeError: () => void;
 }) {
-  const [placement, setPlacement] = useState({
+  const [placement, setPlacement] = useState<{
+    right: number;
+    top: number | 'auto';
+    bottom?: number;
+    width: number;
+    maxHeight: number;
+  }>({
     right: 16,
     top: 54,
     width: 320,
@@ -1784,11 +1947,25 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
       const margin = 16;
       const width = Math.min(320, Math.max(0, sheet.width - margin * 2));
       const right = Math.max(margin, window.innerWidth - sheet.right + margin);
-      // User request: toasts anchor to the sheet's TOP-right and stack downward.
+      // User request: toasts anchor to the sheet's TOP-right and stack
+      // downward. Phones instead anchor ABOVE the composer as a snackbar
+      // (user: top toasts covered the chat) so the header and transcript
+      // stay readable while one is up.
+      const phone = window.innerWidth <= 760;
+      if (phone) {
+        const composerTop = document.querySelector('.composer-region')
+          ?.getBoundingClientRect().top || sheet.bottom;
+        const bottom = Math.max(margin, window.innerHeight - composerTop + 8);
+        const maxHeight = Math.max(0, composerTop - 8 - sheet.top - margin);
+        setPlacement((current) => current.right === right && current.top === 'auto'
+          && current.bottom === bottom && current.width === width && current.maxHeight === maxHeight
+          ? current : { right, top: 'auto', bottom, width, maxHeight });
+        return;
+      }
       const top = Math.max(margin, sheet.top + margin);
       const maxHeight = Math.max(0, sheet.bottom - top - margin);
       setPlacement((current) => current.right === right && current.top === top
-        && current.width === width && current.maxHeight === maxHeight
+        && current.bottom === undefined && current.width === width && current.maxHeight === maxHeight
         ? current : { right, top, width, maxHeight });
     };
     measure();
@@ -1796,6 +1973,10 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     const workspace = document.querySelector('.workspace');
     if (resizeObserver && workspace instanceof HTMLElement) resizeObserver.observe(workspace);
+    // The phone anchor tracks the composer edge (it grows with drafts and
+    // the soft keyboard), not just the workspace sheet.
+    const composer = document.querySelector('.composer-region');
+    if (resizeObserver && composer instanceof HTMLElement) resizeObserver.observe(composer);
     return () => {
       window.removeEventListener('resize', measure);
       resizeObserver?.disconnect();
@@ -1808,20 +1989,24 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
       const title = entry.tone === 'error' ? 'Something went wrong'
         : entry.tone === 'success' ? 'Completed'
           : entry.tone === 'warn' || entry.tone === 'warning' ? 'Attention' : 'Mixdog';
+      const dismissEntry = () => {
+        if (entry.tone === 'error' && !entry.bridge) {
+          setRetainedErrors((current) => current.filter((retained) => retained.signature !== entry.signature));
+          setDismissedErrorSignatures((current) => new Set(current).add(entry.signature));
+        } else {
+          setDismissed((current) => new Set(current).add(entry.key));
+        }
+        if (entry.bridge) onDismissBridgeError();
+      };
+      // Tapping anywhere on the toast dismisses it — the 16px X is a poor
+      // touch target and stuck toasts read as "won't go away" on phones.
       return <article className="oc-toast" data-tone={entry.tone} key={entry.key}
-        role={entry.tone === 'error' ? 'alert' : 'status'}>
+        role={entry.tone === 'error' ? 'alert' : 'status'} onClick={dismissEntry}>
         {entry.tone === 'error' ? <ShieldAlert size={16} />
           : entry.tone === 'success' ? <Check size={16} /> : <Sparkles size={16} />}
         <span className="oc-toast-copy"><b>{title}</b><span>{entry.text}</span></span>
-        <button type="button" className="oc-toast-close" aria-label="Dismiss notification" onClick={() => {
-          if (entry.tone === 'error' && !entry.bridge) {
-            setRetainedErrors((current) => current.filter((retained) => retained.signature !== entry.signature));
-            setDismissedErrorSignatures((current) => new Set(current).add(entry.signature));
-          } else {
-            setDismissed((current) => new Set(current).add(entry.key));
-          }
-          if (entry.bridge) onDismissBridgeError();
-        }}><X size={16} /></button>
+        <button type="button" className="oc-toast-close" aria-label="Dismiss notification"
+          onClick={dismissEntry}><X size={16} /></button>
       </article>;
     })}
   </section>, document.body);
@@ -1890,12 +2075,14 @@ function Conversation({
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const virtualContent = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const programmaticScroll = useRef(false);
   const scrollTimer = useRef<number | undefined>(undefined);
-  const scrollFrame = useRef<number | undefined>(undefined);
+  const stickyBottomFrame = useRef<number | undefined>(undefined);
+  const stickyBottomBehavior = useRef<ScrollBehavior>("auto");
   const sessionScrollPositions = useRef(new Map<string, { top: number; atEnd: boolean }>());
-  const skipNextFollowFrame = useRef(false);
   const [starter, setStarter] = useState<{ id: number; text: string } | null>(null);
   const [following, setFollowing] = useState(true);
   const composerActions = useRef({
@@ -1930,28 +2117,11 @@ function Conversation({
       return () => observer.disconnect();
     } catch { return undefined; }
   }, []);
-  const settleProbe = useRef({ key: "", startedAt: 0, commits: 0, timer: 0 });
-  useEffect(() => {
-    const probe = settleProbe.current;
-    if (probe.key !== transcriptSessionKey) {
-      probe.key = transcriptSessionKey;
-      probe.startedAt = performance.now();
-      probe.commits = 0;
-    }
-    probe.commits += 1;
-    window.clearTimeout(probe.timer);
-    probe.timer = window.setTimeout(() => {
-      const settleMs = performance.now() - probe.startedAt - 600;
-      if (settleMs > 300) {
-        window.mixdogDesktop?.perfLog?.(
-          `transcript-settle key=${probe.key} ms=${Math.round(settleMs)} commits=${probe.commits}`,
-        );
-      }
-    }, 600);
-  });
   const failedTurns = useMemo(() => new Set(snapshot.failedTurnKeys || []), [snapshot.failedTurnKeys]);
   const turnMetadata = useMemo(() => {
-    const current = mergeTranscript(snapshot.items, snapshot.streamingTail);
+    // `items` already contains the merged streaming tail. Reusing it avoids a
+    // second full-array copy on every session load and streaming publication.
+    const current = items;
     const turnKeys = transcriptTurnKeys(current);
     const lastItemByTurn = new Map<string, number>();
     const lastCompletionByTurn = new Map<string, number>();
@@ -1972,18 +2142,7 @@ function Conversation({
       attachedCompletionIndexes.add(index);
     });
     return { turnKeys, lastItemByTurn, lastCompletionByTurn, completionByAssistant, attachedCompletionIndexes };
-  }, [
-    snapshot.items,
-    snapshot.streamingTail?.id,
-    snapshot.streamingTail?.kind,
-    snapshot.streamingTail?.status,
-    snapshot.streamingTail?.label,
-    snapshot.streamingTail?.tone,
-    snapshot.streamingTail?.verb,
-    snapshot.streamingTail?.elapsedMs,
-    snapshot.streamingTail?.id == null ? snapshot.streamingTail?.text : "",
-    failedTurns,
-  ]);
+  }, [items, failedTurns]);
   const { turnKeys, lastItemByTurn, lastCompletionByTurn, completionByAssistant, attachedCompletionIndexes } = turnMetadata;
   const transcriptItemHidden = (index: number) => {
     if (attachedCompletionIndexes.has(index)) return true;
@@ -1992,24 +2151,40 @@ function Conversation({
     const turnKey = turnKeys[index];
     return Boolean(completion && failedTurns.has(turnKey) && index !== lastCompletionByTurn.get(turnKey));
   };
+  const transcriptItemKey = useCallback((index: number) => `${transcriptSessionKey}:${String(
+    items[index]?.id ?? `${items[index]?.kind || "row"}-${index}`,
+  )}:${index}`, [items, transcriptSessionKey]);
   const transcriptVirtualizer = useVirtualizer({
     count: virtualizingTranscript ? items.length : 0,
     enabled: virtualizingTranscript,
     getScrollElement: () => viewport.current,
-    estimateSize: (index) => transcriptItemHidden(index) ? 0 : estimatedTranscriptRowHeight(items[index]),
-    getItemKey: (index) => `${String(routeSnapshot.sessionId || "new-task")}:${String(
-      items[index]?.id ?? `${items[index]?.kind || "row"}-${index}`,
-    )}:${index}`,
+    estimateSize: (index) => {
+      if (transcriptItemHidden(index)) return 0;
+      return estimatedTranscriptRowHeight(items[index]);
+    },
+    getItemKey: transcriptItemKey,
     overscan: TRANSCRIPT_VIRTUAL_OVERSCAN,
     initialRect: { width: 800, height: 800 },
+    // The virtualizer is the only bottom-scroll authority. Grow the spacer
+    // before it writes scrollTop so Chrome cannot clamp an end-anchor
+    // correction against the previous height, then let the virtualizer retain
+    // the end across appends and streaming row measurements.
+    scrollToFn: (offset, options, instance) => {
+      if (virtualContent.current) {
+        virtualContent.current.style.height = `${instance.getTotalSize()}px`;
+      }
+      elementScroll(offset, options, instance);
+    },
+    anchorTo: "end",
+    followOnAppend: true,
+    scrollEndThreshold: 80,
     // Upward-wheel judder fix: when a row ABOVE the viewport measures larger
     // than its estimate, compensate scrollTop by the delta so the visible
     // content does not snap back while scrolling up. Rows below the viewport
     // never need compensation.
-    // While FOLLOWING (pinned to the newest row — session open lands here),
-    // the bottom-pin ResizeObserver is the single scroll authority: letting
-    // this compensation fire too made the view bounce up/down while rows
-    // measured in (user: jumpy session open).
+    // While following, one content ResizeObserver owns the bottom position.
+    // Off-bottom reading retains virtualizer compensation for rows measured
+    // above the viewport.
     // @ts-expect-error virtual-core 3.14 supports this option; the react
     // adapter's PartialKeys type has not caught up.
     shouldAdjustScrollPositionOnItemSizeChange: (
@@ -2019,16 +2194,50 @@ function Conversation({
     ) => !followOutput.current && item.start < (instance.scrollOffset ?? 0),
   });
   const transcriptVirtualSize = transcriptVirtualizer.getTotalSize();
+  const scrollToBottom = useCallback((
+    element: HTMLDivElement,
+    behavior: ScrollBehavior = "auto",
+  ) => {
+    if (!followOutput.current) return;
+    programmaticScroll.current = true;
+    if (virtualizingTranscript) transcriptVirtualizer.scrollToEnd({ behavior });
+    else element.scrollTo({ top: element.scrollHeight, behavior });
+    window.clearTimeout(scrollTimer.current);
+    scrollTimer.current = window.setTimeout(() => {
+      programmaticScroll.current = false;
+    }, behavior === "smooth" ? 500 : 80);
+  }, [transcriptVirtualizer, virtualizingTranscript]);
+  const scheduleStickyBottom = useCallback((
+    element: HTMLDivElement,
+    behavior: ScrollBehavior = "auto",
+  ) => {
+    if (!followOutput.current) return;
+    // Pre-paint pin: deferring the "auto" pin to the next animation frame let
+    // every row measurement during a session open paint one UNPINNED frame
+    // before the correction landed (user: transcript shakes up/down while
+    // loading). ResizeObserver callbacks and layout effects both run before
+    // paint, so an immediate pin anchors the bottom within the same frame. A
+    // pending smooth glide keeps ownership of the scroll position.
+    if (behavior === "auto") {
+      if (stickyBottomFrame.current === undefined) scrollToBottom(element, "auto");
+      return;
+    }
+    stickyBottomBehavior.current = behavior;
+    if (stickyBottomFrame.current !== undefined) return;
+    stickyBottomFrame.current = window.requestAnimationFrame(() => {
+      stickyBottomFrame.current = undefined;
+      const pendingBehavior = stickyBottomBehavior.current;
+      stickyBottomBehavior.current = "auto";
+      scrollToBottom(element, pendingBehavior);
+    });
+  }, [scrollToBottom]);
   const jumpToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
     followOutput.current = true;
     setFollowing(true);
     const element = viewport.current;
     if (!element) return;
-    programmaticScroll.current = true;
-    element.scrollTo({ top: element.scrollHeight, behavior });
-    window.clearTimeout(scrollTimer.current);
-    scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
-  }, []);
+    scheduleStickyBottom(element, behavior);
+  }, [scheduleStickyBottom]);
   const composerSubmit = useCallback(async (
     content: DesktopPromptContent,
     options?: DesktopSubmitOptions,
@@ -2071,7 +2280,6 @@ function Conversation({
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!element) return;
-    skipNextFollowFrame.current = true;
     const saved = sessionScrollPositions.current.get(transcriptSessionKey);
     const atEnd = saved?.atEnd ?? true;
     followOutput.current = atEnd;
@@ -2081,13 +2289,12 @@ function Conversation({
     if (saved && !saved.atEnd) {
       if (virtualizingTranscript) transcriptVirtualizer.scrollToOffset(saved.top, { behavior: 'auto' });
       else element.scrollTo({ top: saved.top, behavior: 'auto' });
-    } else if (virtualizingTranscript && items.length > 0) {
-      transcriptVirtualizer.scrollToIndex(items.length - 1, { align: "end", behavior: "auto" });
     } else {
-      element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
+      scheduleStickyBottom(element);
     }
     window.clearTimeout(scrollTimer.current);
     scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
+    return undefined;
   }, [transcriptSessionKey]);
   useLayoutEffect(() => {
     if (!transitioning) return;
@@ -2098,51 +2305,28 @@ function Conversation({
       atEnd: element.scrollHeight - element.scrollTop - element.clientHeight < 48,
     });
   }, [transitioning, transcriptSessionKey]);
-  useEffect(() => {
-    if (skipNextFollowFrame.current) {
-      skipNextFollowFrame.current = false;
-      return;
-    }
-    if (followOutput.current && scrollFrame.current === undefined) {
-      const element = viewport.current;
-      if (!element) return;
-      const schedule = window.requestAnimationFrame?.bind(window)
-        || ((callback: FrameRequestCallback) => window.setTimeout(callback, 0));
-      scrollFrame.current = schedule(() => {
-        scrollFrame.current = undefined;
-        if (!followOutput.current) return;
-        programmaticScroll.current = true;
-        window.clearTimeout(scrollTimer.current);
-        element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
-        scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
-      });
-    }
-  }, [items.length, snapshot.streamingTail?.text]);
   useEffect(() => () => {
     window.clearTimeout(scrollTimer.current);
-    if (scrollFrame.current !== undefined) {
-      if (window.cancelAnimationFrame) window.cancelAnimationFrame(scrollFrame.current);
-      else window.clearTimeout(scrollFrame.current);
+    if (stickyBottomFrame.current !== undefined) {
+      window.cancelAnimationFrame(stickyBottomFrame.current);
     }
   }, []);
-  // Bottom-follow across RESIZES (user): the queue tray mounting/composer
-  // growth shrinks the viewport, and async markdown chunks GROW the content
-  // after the turn settles — both must re-pin the reader who is at the
-  // bottom. Off-bottom readers keep their position untouched.
+  // One scroll authority for streaming Markdown, tools, approvals, and queue
+  // growth. Resize bursts coalesce to one frame; explicit upward input disarms
+  // following before the next observer callback.
   useEffect(() => {
     const element = viewport.current;
-    if (!element || typeof ResizeObserver === "undefined") return undefined;
-    const observer = new ResizeObserver(() => {
-      if (!followOutput.current) return;
-      programmaticScroll.current = true;
-      window.clearTimeout(scrollTimer.current);
-      element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
-      scrollTimer.current = window.setTimeout(() => { programmaticScroll.current = false; }, 80);
-    });
-    observer.observe(element);
-    for (const child of element.children) observer.observe(child);
+    const contentElement = content.current;
+    if (!element || !contentElement || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => scheduleStickyBottom(element));
+    observer.observe(contentElement);
     return () => observer.disconnect();
-  }, []);
+  }, [scheduleStickyBottom, transcriptSessionKey]);
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver !== "undefined") return;
+    const element = viewport.current;
+    if (element) scheduleStickyBottom(element);
+  }, [items.length, scheduleStickyBottom, snapshot.streamingTail?.text]);
 
   const renderTranscriptItem = (item: TranscriptItem, index: number) => {
     const turnKey = turnKeys[index];
@@ -2186,30 +2370,49 @@ function Conversation({
 
   return (
     <section className="conversation">
+      <div className="transcript-shell">
       <div className="transcript" ref={viewport} role="log" aria-label="Conversation transcript"
         aria-live="polite" aria-relevant="additions" aria-atomic="false"
         aria-busy={Boolean(snapshot.busy || snapshot.commandBusy)} tabIndex={0}
         onScroll={(event) => {
+        const currentFollowing = followOutput.current;
         const nextFollowing = followAfterScroll(
-          followOutput.current,
+          currentFollowing,
           programmaticScroll.current,
           event.currentTarget,
         );
-        followOutput.current = nextFollowing;
-        setFollowing(nextFollowing);
+        if (nextFollowing !== currentFollowing) {
+          followOutput.current = nextFollowing;
+          setFollowing(nextFollowing);
+        }
         sessionScrollPositions.current.set(transcriptSessionKey, {
           top: event.currentTarget.scrollTop,
           atEnd: nextFollowing,
         });
-      }} onWheel={() => { programmaticScroll.current = false; }}
+      }} onWheel={(event) => {
+          programmaticScroll.current = false;
+          // An upward wheel is an explicit read-back intent: break follow
+          // IMMEDIATELY. Waiting for the 80px shouldAutoFollow threshold let
+          // the pre-paint pin yank the view back to bottom between the first
+          // small wheel ticks (user: first scroll rattles and barely moves).
+          if (event.deltaY < 0 && followOutput.current) {
+            followOutput.current = false;
+            setFollowing(false);
+          }
+        }}
         onPointerDown={() => { programmaticScroll.current = false; }}
         onTouchStart={() => { programmaticScroll.current = false; }}
         onKeyDown={(event) => {
           if (isScrollIntentKey(event.key)) {
             programmaticScroll.current = false;
+            if ((event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home")
+              && followOutput.current) {
+              followOutput.current = false;
+              setFollowing(false);
+            }
           }
         }}>
-        <div className="thread">
+        <div className="thread" ref={content}>
           {items.length === 0 && !snapshot.busy && !snapshot.commandBusy && !snapshot.thinking
             && !snapshot.spinner && !snapshot.commandStatus && !snapshot.toolApproval && (
             <div className="thread-welcome">
@@ -2226,12 +2429,13 @@ function Conversation({
             </div>
           )}
           {virtualizingTranscript ? <div className="transcript-virtual-space" data-virtualized="true"
-            style={{ height: `${transcriptVirtualSize}px` }}>
+            ref={virtualContent} style={{ height: `${transcriptVirtualSize}px` }}>
             {transcriptVirtualizer.getVirtualItems().map((virtualRow) => (
               <div className={`transcript-virtual-row ${transcriptItemHidden(virtualRow.index)
                 ? "transcript-virtual-row--empty" : ""} ${virtualRow.index === items.length - 1
                 ? "transcript-virtual-row--tail" : ""}`} key={virtualRow.key}
-                data-index={virtualRow.index} ref={transcriptVirtualizer.measureElement}
+                data-index={virtualRow.index}
+                ref={transcriptVirtualizer.measureElement}
                 style={{ transform: `translateY(${virtualRow.start}px)` }}>
                 {renderTranscriptItem(items[virtualRow.index], virtualRow.index)}
               </div>
@@ -2251,6 +2455,7 @@ function Conversation({
         aria-label="Jump to latest message">
         <ArrowDown size={14} />Jump to latest
       </button>}
+      </div>
       <div className="composer-region">
         {Boolean(asRecord(snapshot.progressHint)?.text) && <div className="runtime-progress" role="status">
           {String(asRecord(snapshot.progressHint)?.text)}
@@ -2655,7 +2860,19 @@ function CopyControl({ value, label, className, tooltipSide = "top" }: {
   </button>;
 }
 
-const MarkdownBody = lazy(() => import("./MarkdownBody"));
+let markdownBodyReady = false;
+let markdownBodyPromise: Promise<typeof import("./MarkdownBody")> | null = null;
+function preloadMarkdownBody() {
+  markdownBodyPromise ||= import("./MarkdownBody").then((module) => {
+    markdownBodyReady = true;
+    return module;
+  }).catch((error) => {
+    markdownBodyPromise = null;
+    throw error;
+  });
+  return markdownBodyPromise;
+}
+const MarkdownBody = lazy(preloadMarkdownBody);
 
 const MarkdownResponse = React.memo(function MarkdownResponse({ text, streaming }: {
   text: string;
@@ -2989,7 +3206,9 @@ function ToolCard({ item }: { item: TranscriptItem }) {
         <div className="tool-content" id={contentId}>
           {/* A rendered diff already communicates the edit; raw args JSON on
               top of it is noise no reference client shows. */}
-          {hasInput && patch == null && <DetailBlock label="Input" value={surface.args} />}
+          {hasInput && patch == null && (parsedArgs
+            ? <ToolInputBlock name={String(surface.normalizedName || item.name || "")} args={parsedArgs} />
+            : <DetailBlock label="Input" value={surface.args} />)}
           {patch ? <CodeDiff patch={patch} /> :
             category === "Shell"
               ? <ToolOutput value={rawResult} command={shellCommand} copyLabel="Copy command output" />
@@ -3033,6 +3252,29 @@ function DetailBlock({ label, value, copyLabel }: { label: string; value: unknow
       {copyLabel && text && <CopyControl value={text} label={copyLabel} className="tool-detail-copy" />}
     </div>
     <pre>{text}</pre>
+  </div>;
+}
+
+// Structured Input block: per-tool key/value rows (opencode's share-page
+// tool-args grammar) instead of a raw args JSON dump. Long values (prompts,
+// briefs) drop into a wrapped block in the value column.
+function ToolInputBlock({ name, args }: { name: string; args: RecordValue }) {
+  const rows = useMemo(() => toolInputRows(name, args) as Array<{
+    key: string; value: string; block: boolean;
+  }>, [name, args]);
+  if (!rows.length) return null;
+  return <div className="detail-block tool-input-block">
+    <div className="detail-block-heading"><span>Input</span></div>
+    <div className="tool-args">
+      {rows.map((row, index) => (
+        <div className="tool-arg" key={`${row.key}:${index}`}>
+          <span data-slot="key">{row.key}</span>
+          {row.block
+            ? <pre data-slot="value">{row.value}</pre>
+            : <span data-slot="value">{row.value}</span>}
+        </div>
+      ))}
+    </div>
   </div>;
 }
 
@@ -3084,13 +3326,31 @@ function toolIcon(category: unknown) {
   return <Layers3 size={16} />;
 }
 
+const normalizedPatchCache = new Map<string, string>();
+const PATCH_CACHE_LIMIT = 24;
+
 function findPatch(item: TranscriptItem) {
   const args = asRecord(item.args);
   const result = asRecord(item.result);
   const candidates = [args?.patch, args?.diff, result?.patch, result?.diff, item.result, item.rawResult];
-  const candidate = candidates.find((value) => typeof value === "string" &&
-    (/^@@/m.test(value) || /^diff --git/m.test(value) || /^\*\*\* (?:Begin Patch|Add File:|Delete File:)/m.test(value)));
-  return typeof candidate === "string" ? normalizeApplyPatch(candidate) : undefined;
+  for (const value of candidates) {
+    if (typeof value !== "string") continue;
+    const cached = normalizedPatchCache.get(value);
+    if (cached !== undefined) {
+      normalizedPatchCache.delete(value);
+      normalizedPatchCache.set(value, cached);
+      return cached;
+    }
+    if (!(/^@@/m.test(value) || /^diff --git/m.test(value)
+      || /^\*\*\* (?:Begin Patch|Add File:|Delete File:)/m.test(value))) continue;
+    const normalized = normalizeApplyPatch(value);
+    normalizedPatchCache.set(value, normalized);
+    if (normalizedPatchCache.size > PATCH_CACHE_LIMIT) {
+      normalizedPatchCache.delete(normalizedPatchCache.keys().next().value as string);
+    }
+    return normalized;
+  }
+  return undefined;
 }
 
 class DiffBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
@@ -3296,6 +3556,39 @@ function queuedFollowupPreview(entry: unknown) {
 // item AFTER the last user message whose args/result carry a unified diff
 // (apply_patch/edit payloads) is parsed and aggregated per file. Rows expand
 // to the actual diff and carry a guarded working-tree revert.
+type TurnReviewPatchPart = ReturnType<typeof parseUnifiedDiff>[number];
+const turnReviewPatchCache = new Map<string, Array<{
+  name: string;
+  additions: number;
+  deletions: number;
+  part: TurnReviewPatchPart;
+}>>();
+
+function analyzeTurnReviewPatch(patch: string) {
+  const cached = turnReviewPatchCache.get(patch);
+  if (cached) {
+    turnReviewPatchCache.delete(patch);
+    turnReviewPatchCache.set(patch, cached);
+    return cached;
+  }
+  const analyzed = parseUnifiedDiff(patch).flatMap((part) => {
+    const name = String(part.newFile?.fileName || "");
+    if (!name) return [];
+    let additions = 0;
+    let deletions = 0;
+    for (const line of part.hunks.join("\n").split("\n")) {
+      if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+      else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+    }
+    return [{ name, additions, deletions, part }];
+  });
+  turnReviewPatchCache.set(patch, analyzed);
+  if (turnReviewPatchCache.size > PATCH_CACHE_LIMIT) {
+    turnReviewPatchCache.delete(turnReviewPatchCache.keys().next().value as string);
+  }
+  return analyzed;
+}
+
 function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: string }) {
   const [expanded, setExpanded] = useState(false);
   const [openFile, setOpenFile] = useState("");
@@ -3327,15 +3620,12 @@ function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: string }
       const patch = findPatch(item);
       if (typeof patch !== "string" || !patch) continue;
       try {
-        for (const file of parseUnifiedDiff(patch)) {
-          const name = String(file.newFile?.fileName || "");
-          if (!name) continue;
-          const body = file.hunks.join("\n").split("\n");
-          const entry = files.get(name) || { additions: 0, deletions: 0, parts: [] };
-          entry.additions += body.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
-          entry.deletions += body.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
-          entry.parts.push(file);
-          files.set(name, entry);
+        for (const analyzed of analyzeTurnReviewPatch(patch)) {
+          const entry = files.get(analyzed.name) || { additions: 0, deletions: 0, parts: [] };
+          entry.additions += analyzed.additions;
+          entry.deletions += analyzed.deletions;
+          entry.parts.push(analyzed.part);
+          files.set(analyzed.name, entry);
         }
       } catch { /* non-diff payload — skip */ }
     }

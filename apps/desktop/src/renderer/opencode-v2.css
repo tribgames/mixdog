@@ -565,6 +565,9 @@ button:focus-visible { outline-offset: 2.5px; }
    sheet gap (user: panels fused when the sidebar was minimized). */
 .sidebar-collapsed .desktop-body > .utility-dock { margin-left: 8px; }
 .main-panel { background: transparent; }
+/* Schedules replaces the workspace on desktop (was an inline display:none);
+   the phone block below keeps the workspace HEADER row alive instead. */
+.workspace.schedules-open { display: none; }
 .workspace {
   position: relative;
   margin: 0;
@@ -572,16 +575,6 @@ button:focus-visible { outline-offset: 2.5px; }
   border-radius: 10px;
   background: var(--oc-workspace-sheet);
   box-shadow: var(--oc-raised);
-}
-
-/* Session changes keep the current frame in place while the engine resumes. */
-.session-switch-overlay {
-  position: absolute;
-  z-index: 12;
-  inset: 48px 0 0;
-  border-radius: 0 0 8px 8px;
-  background: transparent;
-  cursor: progress;
 }
 
 /* Session-only sidebar, using OpenCode list density and states. */
@@ -688,10 +681,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   position: absolute;
   z-index: 3;
   top: 2px;
-  /* Mass-archive incident root cause: at right:2px the hover-revealed action
-     sat UNDER the list scrollbar, so scrollbar drags/misses clicked archive
-     row after row. Inset clear of the scrollbar band. */
-  right: 12px;
+  /* Sits exactly where the unread dot lives (user: same spot — the dot
+     hides on hover and the archive button takes its place). right:3px puts
+     the 24px button's center on the dot center (~13.5px from the edge).
+     NOTE the earlier mass-archive incident (right:2px under the scrollbar):
+     the 1px-wider inset plus the dot-swap behavior keeps the button off the
+     scrollbar's live band — watch for accidental archives regardless. */
+  right: 3px;
   height: 24px;
   padding-left: 12px;
   display: flex;
@@ -1109,6 +1105,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 50%;
   background: var(--oc-accent);
 }
+/* Hovered rows swap the dot for the action cluster: the archive button
+   rises exactly where the dot sat, so the two never fight for the edge. */
+.session-row:hover .session-row-unread-dot,
+.session-row:focus-within .session-row-unread-dot { visibility: hidden; }
 
 /* Workspace header and thread rhythm. */
 .session-header { flex-basis: 48px; min-height: 48px; border-bottom: 0; background: var(--oc-workspace-sheet); }
@@ -1540,6 +1540,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .detail-block > span { color: var(--oc-text-faint); font-size: 11px; font-weight: 500; line-height: 12px; letter-spacing: .05px; text-transform: none; }
 .detail-block-heading { min-height: 24px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .detail-block-heading > span { color: var(--oc-text-faint); font-size: 11px; font-weight: 500; line-height: 12px; }
+/* Structured Input grid (opencode share tool-args grammar): faint key column,
+   mono value column — replaces the raw args JSON dump. */
+.tool-args { grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px; }
+.tool-args [data-slot="key"] { color: var(--oc-text-faint); font-size: 11px; font-weight: 500; line-height: 20px; white-space: nowrap; }
+.tool-args [data-slot="value"] {
+  min-width: 0;
+  font-family: var(--oc-font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--oc-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-args pre[data-slot="value"] { line-height: 18px; }
 .tool-detail-copy {
   width: 24px;
   height: 24px;
@@ -3856,6 +3870,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .onboarding-error { color: var(--oc-danger); font-size: 11px; }
 .onboarding-dialog button:disabled { opacity: .48; cursor: wait; }
 
+/* Mobile-only drawer toggle inside the session header (phones drop the
+   workspace-tab strip; desktop keeps the topbar toggle). */
+.session-header-menu { display: none; }
+
 @media (max-width: 760px) {
   /* Native shells draw edge-to-edge (Android 15 enforces it): pad the shell
      below the system status bar or the tab-bar buttons sit under it. */
@@ -3866,17 +3884,47 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
   .desktop-body { padding-inline: 0; }
   .workspace { border-radius: 0; }
-  /* Dedicated tab zone (user: give the tab strip its own space like the
-     Settings chip row). A taller bar with a bottom hairline reads as a fixed
-     header; every mobile layer (drawer/dock/dim) opens BELOW it and never
-     invades it. */
-  .app-shell { --titlebar-height: 48px; }
-  .topbar { border-bottom: .5px solid var(--oc-border-muted); }
-  /* One slim header row: the 48px desktop session header doubles the 40px
-     tab bar on a phone; compress it and tighten its gutters. */
-  .session-header { flex-basis: 40px; min-height: 40px; }
-  .session-header-content { height: 40px; padding-inline: 12px; }
+  /* Phones drop the workspace-tab strip entirely (user decision): ONE top
+     row — the session header — with the drawer toggle on the left and the
+     context/review/dock cluster on the right. Every mobile layer opens
+     below that row. */
+  /* Roomier phone header (user: too cramped): a two-line grid — title on
+     the first line, the project badge UNDER it — with the drawer toggle
+     and status cluster centered on the full height. */
+  .app-shell { --titlebar-height: 56px; }
+  .topbar { display: none; }
+  .session-header {
+    flex-basis: 56px;
+    min-height: 56px;
+    border-bottom: .5px solid var(--oc-border-muted);
+  }
+  .session-header-menu { display: grid; place-items: center; margin-right: 2px; }
+  .session-header-content {
+    height: 56px;
+    padding-inline: 12px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    align-content: center;
+    column-gap: 8px;
+    row-gap: 2px;
+  }
+  .session-header-menu { grid-row: 1; grid-column: 1; }
+  .session-header-content h1 { grid-row: 1; grid-column: 2; }
+  .session-title-regenerate { grid-row: 1; grid-column: 3; }
+  .session-header-status { grid-row: 1; grid-column: 4; }
+  .session-project-badge {
+    grid-row: 2;
+    grid-column: 2;
+    justify-self: start;
+    max-width: 100%;
+  }
   .thread { padding-inline: 12px; }
+  /* Entering Schedules (or any main-pane menu) keeps the top header row:
+     the workspace collapses to its header and the pane fills below it. */
+  .main-panel { flex-direction: column; }
+  .workspace.schedules-open { display: flex; flex: 0 0 auto; order: -1; }
+  .workspace.schedules-open > :not(.session-header) { display: none !important; }
   /* Phone: the sidebar leaves the flex row and becomes a left drawer over
      the conversation — inline it left the thread ~130px on a 390px screen
      (user: "message pane not visible"). data-state drives the slide; the
@@ -3930,8 +3978,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     width: calc(100vw - 32px);
   }
   .composer-region { padding-inline: 16px; }
-  /* 16px input text stops the mobile-browser zoom-on-focus jump. */
-  .composer textarea { font-size: 16px; }
+  /* 16px input text stops the mobile-browser zoom-on-focus jump; a taller
+     field gives the thumb a real target (user: too small to tap). */
+  .composer { min-height: 108px; }
+  .composer textarea {
+    min-height: 72px;
+    padding: 14px 16px 10px;
+    font-size: 16px;
+  }
+  .composer-footer { height: 48px; }
   /* Pickers become bottom sheets (system grammar) instead of centered
      desktop dialogs floating over a phone keyboard. */
   @keyframes oc-sheet-up { from { transform: translateY(24px); opacity: 0; } }
@@ -3967,6 +4022,33 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
   .workspace-tab:not(:first-child):not(.active)::before { display: none; }
   .workspace-tab:not(.active) .workspace-tab-close { display: none; }
+  /* Composer pills must WRAP their text: when the footer row crowds, the
+     model trigger shrinks with an ellipsis inside the shape instead of the
+     label painting past the pill edge (user: "Claude F" spilling out). */
+  .model-trigger { min-width: 0; max-width: 38vw; overflow: hidden; }
+  .model-trigger > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Model / effort / fast stay LEFT-PACKED as one cluster: fixed 64px fast
+     and capped route width let the row overflow-clip mid-pill on a phone,
+     which read as broken alignment. Everything shrinks in place instead. */
+  .route-controls {
+    max-width: none;
+    flex: 1 1 auto;
+    justify-content: flex-start;
+  }
+  .effort-control .oc-select-root { min-width: 0; }
+  .effort-control .oc-select-trigger { min-width: 0; }
+  .fast-control .oc-select-trigger,
+  .route-controls > .fast-control {
+    width: auto;
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+  }
 }
 
 @media (max-width: 640px) {
@@ -3989,10 +4071,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .oc-menu, .oc-toast, .model-picker-dialog, .slash-palette,
-  .session-switch-overlay .spin, .live-activity span, .stream-cursor { animation: none; }
+  .live-activity span, .stream-cursor { animation: none; }
   .message-actions { transition: none; }
   .workspace-tab-status { animation: none; }
-  .session-switch-overlay { backdrop-filter: none; }
 }
 
 /* Transcript audit additions. Kept append-only so the consolidated v2 rules above remain stable. */
@@ -4067,7 +4148,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   position: absolute;
   z-index: 9;
   left: 50%;
-  bottom: 116px;
+  /* Anchored to .transcript-shell (the scroller's bottom edge): a fixed
+     116/140px guess overlapped the composer whenever it grew (user). */
+  bottom: 12px;
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -4091,7 +4174,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-width: 0;
   flex: 1 1 0;
   align-self: center;
-  timeline-scope: --workspace-tabs-scroll;
   -webkit-app-region: drag;
   /* The + new-task button lives INSIDE the shell so it hugs the last tab
      (opencode places + right after the tab strip, not at the window edge). */
@@ -4103,12 +4185,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: auto;
   max-width: 100%;
   flex: 0 1 auto;
-  scroll-timeline: --workspace-tabs-scroll x;
 }
 /* Reserve room for the + only while it is actually rendered (it hides when a
    draft tab is active, matching OpenCode). */
 .workspace-tabs-shell:has(.titlebar-new) .workspace-tabs { max-width: calc(100% - 34px); }
-.workspace-tabs-shell:has(.titlebar-new) .workspace-tabs-fade-right { right: 34px; }
 /* OpenCode v2 new-session button: icon-button-v2 size "large" (28×28). */
 .workspace-tabs-shell .titlebar-new {
   width: 28px;
@@ -4120,42 +4200,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .workspace-tabs-shell .titlebar-new:focus-visible { color: var(--oc-text); }
 .topbar nav.workspace-tabs { -webkit-app-region: drag; }
 .workspace-tabs .workspace-tab { -webkit-app-region: no-drag; }
-.workspace-tabs-fade {
-  position: absolute;
-  z-index: 1;
-  inset-block: 0;
-  width: 24px;
-  pointer-events: none;
-  visibility: hidden;
-}
-.workspace-tabs-fade-left {
-  left: 0;
-  background: linear-gradient(to right, var(--oc-window-band), transparent);
-}
-.workspace-tabs-fade-right {
-  right: 0;
-  background: linear-gradient(to left, var(--oc-window-band), transparent);
-}
-@supports (animation-timeline: scroll()) {
-  .workspace-tabs-fade-left {
-    animation: workspace-tabs-fade-left linear both;
-    animation-timeline: --workspace-tabs-scroll;
-    animation-range: 0 0.1px;
-  }
-  .workspace-tabs-fade-right {
-    animation: workspace-tabs-fade-right linear both;
-    animation-timeline: --workspace-tabs-scroll;
-    animation-range: calc(100% - 1.1px) calc(100% - 1px);
-  }
-}
-@keyframes workspace-tabs-fade-left {
-  from { visibility: hidden; }
-  to { visibility: visible; }
-}
-@keyframes workspace-tabs-fade-right {
-  from { visibility: visible; }
-  to { visibility: hidden; }
-}
 @media (max-width: 760px) {
   .workspace-tabs-shell { width: auto; }
 }
@@ -5876,11 +5920,9 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   /* Hover-revealed controls do not exist under a finger: keep the session
      row actions and message action bars always on. */
   .session-row-action { opacity: 1; pointer-events: auto; }
-  .session-row .session-row-actions {
-    pointer-events: auto;
-    background: linear-gradient(to right, transparent 0,
-      var(--session-row-action-surface) 10px, var(--session-row-action-surface) 100%);
-  }
+  /* Session rows stay CLEAN on touch (user decision): no always-on archive
+     cluster — row management happens from the desktop. */
+  .session-row .session-row-actions { display: none; }
   .message-actions,
   .message.user .message-meta-line .message-actions { opacity: 1; }
 }

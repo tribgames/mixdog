@@ -40,6 +40,7 @@ function installDom() {
     File: dom.window.File,
     FileReader: dom.window.FileReader,
     MutationObserver: dom.window.MutationObserver,
+    ResizeObserver: dom.window.ResizeObserver,
   });
   // Layout persistence baseline: legacy assertions were written against the
   // collapsed-sidebar launch; a FRESH install now opens the sidebar, so the
@@ -755,6 +756,87 @@ test("conversation attaches only successful turn completion to the final assista
   assert.equal(failedRow?.querySelector(".turn-retry")?.getAttribute("aria-label"), "Retry failed turn");
 });
 
+test("new task opens immediately and its first submit reuses the pending cold setup", async () => {
+  installDom();
+  let finishSetup;
+  let startCalls = 0;
+  let submitCalls = 0;
+  const setup = new Promise((resolve) => {
+    finishSetup = () => resolve({ sessionId: "", items: [], queued: [] });
+  });
+  const source = {
+    id: "source-before-new",
+    title: "Source before new",
+    preview: "Source before new",
+    updatedAt: 1,
+    currentSession: false,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [source],
+    resumeSession: async () => ({
+      sessionId: source.id,
+      items: [{ id: "source-row", kind: "user", text: "Source transcript" }],
+      queued: [],
+    }),
+    startTask: async () => {
+      startCalls += 1;
+      return setup;
+    },
+    submit: async () => {
+      submitCalls += 1;
+      return true;
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(`[data-session-id="${source.id}"]`).click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.match(document.querySelector(".transcript")?.textContent || "", /Source transcript/);
+
+  await act(async () => {
+    document.querySelector(".task-link").click();
+    await Promise.resolve();
+  });
+  assert.equal(startCalls, 1);
+  assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Source transcript/);
+  assert.ok(document.querySelector('textarea[aria-label="Message Mixdog"]'),
+    "the cold draft composer should render before engine setup resolves");
+
+  const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  await act(async () => {
+    setValue.call(textarea, "Submit while warming");
+    textarea.dispatchEvent(new window.InputEvent("input", { bubbles: true, data: "Submit while warming" }));
+  });
+  await act(async () => {
+    document.querySelector(".send-button").click();
+    await Promise.resolve();
+  });
+  assert.equal(startCalls, 1, "submit must not start a duplicate cold engine");
+  assert.equal(submitCalls, 0, "submit should wait for the shared setup promise");
+
+  await act(async () => {
+    finishSetup();
+    await setup;
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(startCalls, 1);
+  assert.equal(submitCalls, 1);
+});
+
 test("tool cards use the shared TUI surface and expose copy for shell and diff output", async () => {
   installDom();
   await act(async () => root.render(React.createElement(TranscriptRow, {
@@ -816,6 +898,31 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   assert.equal(aggregate?.querySelector(".detail-block-heading") === null, true,
     "selector .detail-block-heading should be absent from aggregate tools");
   assert.equal(aggregate?.textContent?.includes("Input"), false);
+});
+
+test("expanded tool cards render structured per-tool input rows instead of raw JSON", async () => {
+  installDom();
+  await act(async () => root.render(React.createElement(TranscriptRow, {
+    key: "structured-grep",
+    item: {
+      id: "structured-grep",
+      kind: "tool",
+      name: "grep",
+      args: { glob: "*.mjs", pattern: "needle", path: "src" },
+      result: "3 matches",
+      completedAt: 2,
+    },
+  })));
+  const card = document.querySelector(".tool-card");
+  await act(async () => card?.querySelector(".tool-header")?.click());
+  assert.equal(card?.querySelector(".detail-block-heading span")?.textContent, "Input");
+  const rows = [...(card?.querySelectorAll(".tool-args .tool-arg") ?? [])];
+  assert.deepEqual(rows.map((row) => row.querySelector('[data-slot="key"]')?.textContent),
+    ["pattern", "path", "glob"]);
+  assert.deepEqual(rows.map((row) => row.querySelector('[data-slot="value"]')?.textContent),
+    ["needle", "src", "*.mjs"]);
+  assert.equal(card?.querySelector(".detail-block > pre") === null, true,
+    "raw JSON pre dump must not render for parsed tool args");
 });
 
 test("running tool cards tick a live elapsed readout; settled cards stay quiet", async () => {
@@ -1113,7 +1220,7 @@ test("session switching keeps the target title while its correlated snapshot is 
   });
   assert.equal(document.querySelector(`[data-session-id="${target.id}"]`)?.classList.contains("selected"), true);
   assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), target.title);
-  assert.ok(document.querySelector(".session-switch-overlay"));
+  assert.equal(document.querySelector(".session-switch-overlay"), null);
   assert.ok(document.querySelector(".titlebar-new"));
 
   await act(async () => {
@@ -1129,13 +1236,13 @@ test("session switching keeps the target title while its correlated snapshot is 
     ?.textContent.includes(target.title), true);
 });
 
-test("session switching freezes the previous transcript until the target snapshot is complete", async () => {
+test("re-entering a visited session paints its cached transcript before resume completes", async () => {
   installDom();
-  let publish;
-  let finishTarget;
-  const targetResume = new Promise((resolve) => {
-    finishTarget = () => resolve({
-      sessionId: "target", items: [{ id: "target-row", kind: "user", text: "Target transcript" }], queued: [],
+  let sourceResumes = 0;
+  let finishSourceReentry;
+  const sourceReentry = new Promise((resolve) => {
+    finishSourceReentry = () => resolve({
+      sessionId: "source", items: [{ id: "source-row", kind: "user", text: "Source transcript" }], queued: [],
     });
   });
   const sessions = [
@@ -1146,11 +1253,18 @@ test("session switching freezes the previous transcript until the target snapsho
   ];
   window.mixdogDesktop = {
     getSnapshot: async () => ({ items: [], queued: [] }),
-    subscribeState: (listener) => { publish = listener; return () => {}; },
+    subscribeState: () => () => {},
     listSessions: async () => sessions,
-    resumeSession: async (id) => id === "source"
-      ? { sessionId: "source", items: [{ id: "source-row", kind: "user", text: "Source transcript" }], queued: [] }
-      : targetResume,
+    resumeSession: async (id) => {
+      if (id === "target") {
+        return { sessionId: "target", items: [{ id: "target-row", kind: "user", text: "Target transcript" }], queued: [] };
+      }
+      sourceResumes += 1;
+      if (sourceResumes === 1) {
+        return { sessionId: "source", items: [{ id: "source-row", kind: "user", text: "Source transcript" }], queued: [] };
+      }
+      return sourceReentry;
+    },
   };
   await act(async () => {
     root.render(React.createElement(App));
@@ -1166,18 +1280,253 @@ test("session switching freezes the previous transcript until the target snapsho
   await act(async () => {
     document.querySelector('[data-session-id="target"]').click();
     await Promise.resolve();
-    publish({ sessionId: "target", items: [], queued: [] });
+    await Promise.resolve();
+  });
+  assert.match(document.querySelector('.transcript')?.textContent || '', /Target transcript/);
+  await act(async () => {
+    document.querySelector('[data-session-id="source"]').click();
     await Promise.resolve();
   });
   assert.match(document.querySelector('.transcript')?.textContent || '', /Source transcript/);
   assert.doesNotMatch(document.querySelector('.transcript')?.textContent || '', /Target transcript/);
   await act(async () => {
-    finishTarget();
-    await targetResume;
+    finishSourceReentry();
+    await sourceReentry;
     await Promise.resolve();
   });
-  assert.match(document.querySelector('.transcript')?.textContent || '', /Target transcript/);
-  assert.doesNotMatch(document.querySelector('.transcript')?.textContent || '', /Source transcript/);
+  assert.match(document.querySelector('.transcript')?.textContent || '', /Source transcript/);
+});
+
+test("rapid session switching runs only the in-flight and latest requested targets", async () => {
+  installDom();
+  const calls = [];
+  let finishFirst;
+  const firstResume = new Promise((resolve) => {
+    finishFirst = () => resolve({
+      sessionId: "first",
+      items: [{ id: "first-row", kind: "user", text: "First transcript" }],
+      queued: [],
+    });
+  });
+  const sessions = ["first", "middle", "latest"].map((id, index) => ({
+    id,
+    title: id,
+    preview: id,
+    updatedAt: 3 - index,
+    currentSession: false,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+  }));
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listSessions: async () => sessions,
+    resumeSession: async (id) => {
+      calls.push(id);
+      if (id === "first") return firstResume;
+      return { sessionId: id, items: [{ id: `${id}-row`, kind: "user", text: `${id} transcript` }], queued: [] };
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector('[data-session-id="first"]').click();
+    document.querySelector('[data-session-id="middle"]').click();
+    document.querySelector('[data-session-id="latest"]').click();
+    await Promise.resolve();
+  });
+  assert.deepEqual(calls, ["first"]);
+  assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "latest");
+  await act(async () => {
+    finishFirst();
+    await firstResume;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await Promise.resolve();
+  });
+  assert.deepEqual(calls, ["first", "latest"]);
+  assert.match(document.querySelector(".transcript")?.textContent || "", /latest transcript/);
+});
+
+test("virtualized session switching renders immediately and uses one sticky resize path", async () => {
+  installDom();
+  let publish;
+  let nextFrameId = 1;
+  const pendingFrames = new Map();
+  const resizeObservers = [];
+  class TestResizeObserver {
+    constructor(callback) {
+      this.callback = callback;
+      this.active = true;
+      resizeObservers.push(this);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() { this.active = false; }
+  }
+  globalThis.ResizeObserver = TestResizeObserver;
+  Object.defineProperties(window, {
+    requestAnimationFrame: {
+      value(callback) {
+        const id = nextFrameId++;
+        pendingFrames.set(id, callback);
+        return id;
+      },
+      configurable: true,
+    },
+    cancelAnimationFrame: {
+      value(id) { pendingFrames.delete(id); },
+      configurable: true,
+    },
+  });
+  const targetItems = Array.from({ length: 64 }, (_, index) => ({
+    id: `target-row-${index}`,
+    kind: index % 2 === 0 ? "user" : "assistant",
+    text: `Target transcript row ${index}`,
+  }));
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: (listener) => { publish = listener; return () => {}; },
+    listProjects: async () => [],
+    listSessions: async () => [{
+      id: "measured-target",
+      title: "Measured target",
+      preview: "Measured target",
+      updatedAt: 1,
+      currentSession: false,
+      cwd: "C:\\work",
+      classification: "task",
+      projectPath: null,
+    }],
+    resumeSession: async () => ({
+      sessionId: "measured-target",
+      items: targetItems,
+      queued: [],
+    }),
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const transcript = document.querySelector(".transcript");
+  let transcriptHeight = 480;
+  const transcriptClientHeight = 320;
+  const scrollTargets = [];
+  Object.defineProperties(transcript, {
+    scrollHeight: { get: () => transcriptHeight, configurable: true },
+    clientHeight: { value: transcriptClientHeight, configurable: true },
+    scrollTo: {
+      value(options) { scrollTargets.push(Number(options?.top || 0)); },
+      configurable: true,
+    },
+  });
+  await act(async () => {
+    document.querySelector('[data-session-id="measured-target"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const advanceFrame = async (at) => {
+    await act(async () => {
+      const callbacks = [...pendingFrames.values()];
+      pendingFrames.clear();
+      for (const callback of callbacks) callback(at);
+      await Promise.resolve();
+    });
+  };
+  assert.equal(document.querySelector(".session-switch-overlay"), null);
+  assert.equal(document.querySelector(".thread")?.hasAttribute("data-settling"), false);
+  assert.equal(document.querySelector(".thread")?.hasAttribute("data-staging"), false);
+  assert.ok(document.querySelector(".transcript-virtual-space"));
+
+  for (const at of [0, 16, 32, 48]) await advanceFrame(at);
+  assert.ok(scrollTargets.length > 0, "initial session placement should reach the latest row");
+  assert.equal(new Set(scrollTargets).size, 1,
+    "session entry must have one virtualizer-owned end target");
+  assert.equal(scrollTargets.includes(transcriptHeight), false,
+    "session entry must not mix in a raw scrollHeight target");
+  const initialScrollCount = scrollTargets.length;
+  transcriptHeight = 1_040;
+  await act(async () => {
+    for (let pass = 0; pass < 3; pass += 1) {
+      for (const observer of resizeObservers) {
+        if (observer.active) observer.callback([]);
+      }
+    }
+    await Promise.resolve();
+  });
+  // Pre-paint pin: every ResizeObserver delivery (browsers deliver at most one
+  // per observer per frame) pins the bottom synchronously so no unpinned frame
+  // can paint. The old rAF coalescing applied the pin one frame late, which
+  // painted the transcript visibly shaking during session-open measurement.
+  const pinnedScrollCount = scrollTargets.length;
+  assert.equal(pinnedScrollCount, initialScrollCount + 3,
+    "each resize delivery should pin the bottom before paint");
+  const resizeTargets = scrollTargets.slice(initialScrollCount);
+  assert.equal(new Set(resizeTargets).size, 1,
+    "resize pinning must retain one virtualizer-owned target");
+  assert.equal(resizeTargets.includes(transcriptHeight), false,
+    "resize pinning must not mix in a raw scrollHeight target");
+  await advanceFrame(64);
+  assert.equal(scrollTargets.length, pinnedScrollCount,
+    "the synchronous pin must not queue an extra animation-frame update");
+
+  const settledItems = targetItems.slice(0, -1);
+  let script = "```powershell\n";
+  for (const [height, chunk] of [
+    [1_280, "Get-ChildItem -Recurse\n"],
+    [1_560, "npm run typecheck\n"],
+    [1_840, "npm run test\n```"],
+  ]) {
+    transcriptHeight = height;
+    script += chunk;
+    const phaseStart = scrollTargets.length;
+    await act(async () => {
+      publish({
+        sessionId: "measured-target",
+        items: settledItems,
+        streamingTail: {
+          ...targetItems.at(-1),
+          text: script,
+          streaming: true,
+        },
+        busy: true,
+        spinner: { active: true, mode: "responding", startedAt: Date.now() },
+        queued: [],
+      });
+      await Promise.resolve();
+      for (const observer of resizeObservers) {
+        if (observer.active) observer.callback([]);
+      }
+      await Promise.resolve();
+    });
+    await advanceFrame(height);
+    const phaseTargets = scrollTargets.slice(phaseStart);
+    assert.ok(phaseTargets.length > 0, "streaming growth should keep the transcript pinned");
+    assert.equal(new Set(phaseTargets).size, 1,
+      "streaming script growth must not alternate between competing scroll targets");
+    assert.equal(phaseTargets.includes(transcriptHeight), false,
+      "streaming script growth must not reintroduce a raw scrollHeight target");
+  }
+
+  const wheel = new window.Event("wheel", { bubbles: true });
+  Object.defineProperty(wheel, "deltaY", { value: -1 });
+  await act(async () => transcript.dispatchEvent(wheel));
+  const disarmedScrollCount = scrollTargets.length;
+  await act(async () => {
+    for (const observer of resizeObservers) {
+      if (observer.active) observer.callback([]);
+    }
+    await Promise.resolve();
+  });
+  await advanceFrame(80);
+  assert.equal(scrollTargets.length, disarmedScrollCount,
+    "explicit upward scrolling should disarm resize following immediately");
 });
 
 test("sidebar footer keeps settings while the titlebar exposes the OpenCode-style update control", async () => {
@@ -3454,7 +3803,8 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     /\.titlebar-update:hover, \.titlebar-update:focus-visible\s*\{[^}]*width:\s*68px;/s);
   assert.match(openCodeCss,
     /\.titlebar-update-label\s*\{[^}]*max-width:\s*0;[^}]*opacity:\s*0;/s);
-  assert.match(openCodeCss, /\.workspace-tabs-fade-left\s*\{[^}]*animation-timeline:\s*--workspace-tabs-scroll;/s);
+  assert.doesNotMatch(openCodeCss, /\.workspace-tabs-fade/,
+    "tab-strip fades must not cover the leading or trailing tab content");
 
   installDom();
   window.mixdogDesktop = {
@@ -3536,6 +3886,8 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
     onNewTask() { newTasks += 1; },
   };
   await act(async () => root.render(React.createElement(DesktopTitlebar, props)));
+  assert.equal(document.querySelector(".workspace-tabs-fade"), null,
+    "workspace tabs render without edge masks that clip tab content");
   await act(async () => root.render(React.createElement(DesktopTitlebar, {
     ...props,
     activeKey: "two",

@@ -1,7 +1,8 @@
 // Dock terminal backend (aider-desk terminal-manager pattern): PTYs live in
 // the MAIN process, the renderer runs a thin xterm view over IPC. Prebuilt
-// node-pty avoids an electron-rebuild step on Windows.
-import { spawn, type IPty } from '@homebridge/node-pty-prebuilt-multiarch';
+// node-pty avoids an electron-rebuild step on Windows. Keep the native module
+// behind first terminal use so cold desktop startup never loads its bindings.
+import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch';
 
 const REPLAY_BUFFER_LIMIT = 200_000;
 
@@ -20,6 +21,8 @@ export class TerminalManager {
   private readonly terminals = new Map<string, ManagedTerminal>();
   private readonly listeners = new Set<(event: TerminalDataEvent) => void>();
   private sequence = 0;
+  private ptyModule: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> | null = null;
+  private disposed = false;
 
   subscribe(listener: (event: TerminalDataEvent) => void): () => void {
     this.listeners.add(listener);
@@ -27,11 +30,14 @@ export class TerminalManager {
   }
 
   /** Create (or reuse) a PTY; returns id + replay buffer for reattach. */
-  ensure(id: string | null, cwd: string | null): { id: string; replay: string } {
+  async ensure(id: string | null, cwd: string | null): Promise<{ id: string; replay: string }> {
+    if (this.disposed) throw new Error('Terminal manager is disposed.');
     if (id) {
       const existing = this.terminals.get(id);
       if (existing && !existing.disposed) return { id, replay: existing.buffer };
     }
+    const { spawn } = await (this.ptyModule ??= import('@homebridge/node-pty-prebuilt-multiarch'));
+    if (this.disposed) throw new Error('Terminal manager is disposed.');
     const nextId = `term_${process.pid}_${++this.sequence}`;
     const shell = process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || 'bash';
     const pty = spawn(shell, [], {
@@ -71,6 +77,7 @@ export class TerminalManager {
   }
 
   disposeAll(): void {
+    this.disposed = true;
     for (const entry of this.terminals.values()) {
       entry.disposed = true;
       try { entry.pty.kill(); } catch { /* already gone */ }

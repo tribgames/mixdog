@@ -84,6 +84,10 @@ export function shouldAutoFollow({ scrollTop = 0, clientHeight = 0, scrollHeight
   return scrollHeight - scrollTop - clientHeight <= threshold;
 }
 
+export function needsBottomPin({ scrollTop = 0, clientHeight = 0, scrollHeight = 0 }, epsilon = 1) {
+  return scrollHeight - scrollTop - clientHeight > epsilon;
+}
+
 export function followAfterScroll(current, programmatic, viewport) {
   return programmatic ? current : shouldAutoFollow(viewport);
 }
@@ -182,6 +186,45 @@ export function normalizeApplyPatch(value) {
   return sections.length ? sections.join('\n') : input;
 }
 
+const RANGED_HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
+
+// V4A apply_patch hunks carry bare `@@` (or `@@ <context>`) headers with no
+// line ranges. The Shiki diff renderer rejects rangeless headers, so every
+// consumer fell back to the raw <pre> patch text. renderPatch rewrites those
+// headers with synthetic ranges (counts are accurate, positions approximate)
+// for RENDERING ONLY; `patch` stays byte-faithful for copy actions.
+function renderablePatch(section, hunks) {
+  if (hunks.length === 0 || hunks.every((hunk) => RANGED_HUNK_HEADER.test(hunk))) return section;
+  const headerEnd = section.search(/^@@/m);
+  const header = headerEnd > 0 ? section.slice(0, headerEnd) : '';
+  let oldStart = 1;
+  let newStart = 1;
+  const rebuilt = hunks.map((hunk) => {
+    const [head, ...rest] = hunk.split('\n');
+    while (rest.length && rest.at(-1) === '') rest.pop();
+    // Blank context lines must carry the leading space a valid diff requires.
+    const body = rest.map((line) => (line === '' ? ' ' : line));
+    const counted = body.filter((line) => !line.startsWith('\\'));
+    const oldCount = counted.filter((line) => !line.startsWith('+')).length;
+    const newCount = counted.filter((line) => !line.startsWith('-')).length;
+    const declared = head.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    if (declared) {
+      oldStart = Number(declared[1]) + Number(declared[2] ?? 1);
+      newStart = Number(declared[3]) + Number(declared[4] ?? 1);
+      return hunk;
+    }
+    const context = head.replace(/^@@+\s*/, '').replace(/\s*@@\s*$/, '').trim();
+    const rewritten = [
+      `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${context ? ` ${context}` : ''}`,
+      ...body,
+    ].join('\n');
+    oldStart += oldCount;
+    newStart += newCount;
+    return rewritten;
+  });
+  return `${header}${rebuilt.join('\n')}\n`;
+}
+
 function namesFor(section) {
   const gitNames = section.match(/^diff --git "?(?:a\/)?(.+?)"? "?(?:b\/)?(.+?)"?$/m);
   const oldName = section.match(/^---\s+"?(?:a\/)?(.+?)"?(?:\t.*)?$/m)?.[1];
@@ -211,6 +254,7 @@ function parseFileSection(section) {
     newFile: { fileName: newName, content: '' },
     hunks,
     patch: section,
+    renderPatch: renderablePatch(section, hunks),
     renderable: hunks.length > 0,
   };
 }
@@ -239,4 +283,105 @@ export function parseUnifiedDiff(patch) {
       ...starts.map((start, index) => normalized.slice(start, starts[index + 1] ?? normalized.length)),
     ];
   return sections.map(parseFileSection);
+}
+
+// ── Structured tool-input rows ───────────────────────────────────
+// The expanded tool card renders Input as a key/value grid (opencode's
+// share-page tool-args grammar), never a raw JSON dump. Keys listed here
+// render first, in this order; unlisted keys follow in natural order.
+const TOOL_INPUT_PRIORITY = new Map();
+function registerInputPriority(names, keys) {
+  for (const name of names) TOOL_INPUT_PRIORITY.set(name, keys);
+}
+registerInputPriority(['read'], ['path', 'file_path', 'offset', 'limit']);
+registerInputPriority(['view_image'], ['path', 'file_path']);
+registerInputPriority(['apply_patch'], ['base_path', 'dry_run', 'format', 'fuzzy', 'reject_partial']);
+registerInputPriority(['grep'], ['pattern', 'query', 'path', 'glob', 'output_mode', '-C', 'head_limit', 'offset']);
+registerInputPriority(['glob'], ['pattern', 'glob', 'path', 'head_limit', 'offset']);
+registerInputPriority(['find'], ['query', 'fuzzy', 'path', 'head_limit']);
+registerInputPriority(['list', 'ls'], ['path', 'dir', 'head_limit', 'offset']);
+registerInputPriority(['explore'], ['query', 'cwd']);
+registerInputPriority(['search', 'search_query', 'web_search', 'image_query'],
+  ['query', 'site', 'type', 'maxResults', 'contextSize', 'locale']);
+registerInputPriority(['web_fetch'], ['url', 'uri', 'maxLength', 'startIndex']);
+registerInputPriority(['fetch'], ['url', 'uri', 'channel', 'limit']);
+registerInputPriority(['code_graph'], ['mode', 'symbols', 'files', 'depth', 'limit', 'page', 'body']);
+registerInputPriority(['agent', 'bridge'],
+  ['type', 'agent', 'tag', 'task_id', 'sessionId', 'cwd', 'message', 'prompt', 'context', 'file']);
+registerInputPriority(['task'], ['action', 'task_id', 'timeout_ms']);
+registerInputPriority(['recall', 'search_memories'],
+  ['query', 'period', 'category', 'limit', 'projectScope', 'sort', 'id']);
+registerInputPriority(['memory', 'remember', 'save_memory', 'update_memory'],
+  ['action', 'op', 'query', 'text', 'value']);
+registerInputPriority(['load_tool'], ['names', 'select']);
+registerInputPriority(['skill', 'use_skill', 'skill_execute', 'skill_view'], ['name', 'skill', 'skill_name']);
+registerInputPriority(['reply'], ['channel', 'channelId', 'text', 'files']);
+registerInputPriority(['cwd'], ['action', 'path']);
+
+// Fields whose bulk payload is rendered elsewhere (the diff view) or is
+// pure noise in a key/value grid.
+const TOOL_INPUT_HIDDEN = new Map([
+  ['apply_patch', ['patch']],
+]);
+
+const TOOL_INPUT_LONG_VALUE = 96;
+const TOOL_INPUT_MAX_ROWS = 32;
+
+function isInputScalar(value) {
+  return value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+}
+
+function toolInputRow(key, value) {
+  const text = String(value);
+  return { key, value: text, block: text.includes('\n') || text.length > TOOL_INPUT_LONG_VALUE };
+}
+
+// Small objects (e.g. read regions {path,offset,limit}) join as one-liners;
+// anything nested falls back to compact JSON.
+function compactObjectValue(value) {
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined && v !== null && v !== '');
+  if (entries.length > 0 && entries.every(([, v]) => isInputScalar(v))) {
+    return entries.map(([k, v]) => `${k}: ${v}`).join(' · ');
+  }
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
+export function toolInputRows(name, args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return [];
+  const normalized = String(name || '').toLowerCase();
+  const hidden = new Set(TOOL_INPUT_HIDDEN.get(normalized) || []);
+  const priority = TOOL_INPUT_PRIORITY.get(normalized) || [];
+  const keys = [
+    ...priority.filter((key) => key in args),
+    ...Object.keys(args).filter((key) => !priority.includes(key)),
+  ];
+  const rows = [];
+  for (const key of keys) {
+    if (hidden.has(key)) continue;
+    const value = args[key];
+    if (value === undefined || value === null || value === '') continue;
+    if (isInputScalar(value)) {
+      rows.push(toolInputRow(key, value));
+    } else if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      if (value.length === 1) {
+        const only = value[0];
+        rows.push(toolInputRow(key, isInputScalar(only) ? only : compactObjectValue(only)));
+        continue;
+      }
+      value.forEach((item, index) => {
+        rows.push(toolInputRow(`${key}[${index}]`, isInputScalar(item) ? item : compactObjectValue(item)));
+      });
+    } else {
+      rows.push(toolInputRow(key, compactObjectValue(value)));
+    }
+  }
+  if (rows.length > TOOL_INPUT_MAX_ROWS) {
+    const extra = rows.length - TOOL_INPUT_MAX_ROWS;
+    return [
+      ...rows.slice(0, TOOL_INPUT_MAX_ROWS),
+      { key: '…', value: `${extra} more ${extra === 1 ? 'field' : 'fields'}`, block: false },
+    ];
+  }
+  return rows;
 }

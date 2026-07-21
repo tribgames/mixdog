@@ -11,11 +11,13 @@ import {
   isScrollIntentKey,
   mergeModelCatalog,
   mergeTranscript,
+  needsBottomPin,
   normalizeApplyPatch,
   parseUnifiedDiff,
   reconcileTurnFailures,
   shouldAutoFollow,
   shouldNavigatePromptHistory,
+  toolInputRows,
   transcriptTurnKeys,
 } from './renderer-logic.mjs';
 import {
@@ -82,7 +84,14 @@ test('session scrolling restores once before paint and preserves per-session pos
   assert.match(renderer, /sessionScrollPositions\.current\.get\(transcriptSessionKey\)/);
   assert.match(renderer, /sessionScrollPositions\.current\.set\(transcriptSessionKey/);
   assert.match(renderer, /transcriptVirtualizer\.scrollToOffset\(saved\.top/);
-  assert.match(renderer, /skipNextFollowFrame\.current = true/);
+  assert.match(renderer, /scheduleStickyBottom\(element\)/);
+  assert.match(renderer, /anchorTo:\s*"end"/);
+  assert.match(renderer, /followOnAppend:\s*true/);
+  assert.match(renderer, /scrollEndThreshold:\s*80/);
+  assert.match(renderer, /virtualContent\.current\.style\.height\s*=\s*`\$\{instance\.getTotalSize\(\)\}px`/);
+  assert.match(renderer, /transcriptVirtualizer\.scrollToEnd\(\{ behavior \}\)/);
+  assert.doesNotMatch(renderer, /transcriptVirtualizer\.scrollToIndex/);
+  assert.doesNotMatch(renderer, /skipNextFollowFrame|bottomPinForced|measurementCaptureFrame/);
   assert.doesNotMatch(renderer, /restoringSessionTail|sessionTailRestoreTimer/);
 });
 
@@ -96,12 +105,21 @@ test('settings dialog reserves the native window-controls safe area', async () =
   assert.match(styles,
     /\.mixdog-settings-layer\s*\{[^}]*padding:\s*var\(--settings-layer-safe-top\) 16px var\(--settings-layer-safe-bottom\);/s);
   assert.match(settings,
-    /\.mixdog-settings-v2\s*\{[^}]*height:\s*min\(650px,\s*calc\(100vh - var\(--settings-layer-safe-top, 16px\) - var\(--settings-layer-safe-bottom, 16px\)\)\);/s);
+    /\.mixdog-settings-v2\s*\{[^}]*height:\s*min\(650px,\s*calc\(var\(--vvh,\s*100vh\) - var\(--settings-layer-safe-top, 16px\) - var\(--settings-layer-safe-bottom, 16px\)\)\);/s);
   assert.match(settings,
     /@media \(max-width:\s*760px\)[\s\S]*--settings-layer-safe-top:\s*max\(8px,\s*calc\(env\(titlebar-area-height,\s*0px\) \+ 8px\)\);/);
   assert.match(settings,
     /\.settings-resource-title,\s*\.settings-form-row > div\.settings-resource-title\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;[^}]*flex-wrap:\s*wrap;/s,
     'form status badges must remain inline with their titles');
+  assert.match(settings,
+    /html\[data-mixdog-mobile\] \.mixdog-settings-v2\s*\{[^}]*--settings-phone-value-column:\s*minmax\(0,\s*45%\);/s,
+    'mobile options must define one shared value-column width');
+  assert.match(settings,
+    /html\[data-mixdog-mobile\] \.mixdog-settings-v2 \.mixdog-settings__row,\s*html\[data-mixdog-mobile\] \.mixdog-settings-v2 \.settings-form-row,\s*html\[data-mixdog-mobile\] \.mixdog-settings-v2 \.settings-resource\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) var\(--settings-phone-value-column\);[^}]*align-items:\s*center;/s,
+    'every mobile option row must share one left-title and right-control grid');
+  assert.match(settings,
+    /html\[data-mixdog-mobile\] \.settings-row-control,\s*html\[data-mixdog-mobile\] \.settings-form-controls,\s*html\[data-mixdog-mobile\] \.settings-resource-control\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*justify-self:\s*stretch;[^}]*justify-content:\s*flex-end;/s,
+    'every mobile option control must align against the shared right edge');
   assert.match(settings,
     /\.settings-agent-route \.settings-route-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);[^}]*gap:\s*4px;/s);
   assert.match(settings,
@@ -112,6 +130,18 @@ test('settings dialog reserves the native window-controls safe area', async () =
   assert.match(settings,
     /\.settings-row-control > \.effort-control,[\s\S]*?\.settings-row-control > \.fast-control\s*\{[^}]*width:\s*100%;[^}]*flex:\s*0 0 100%;/s,
     'model, effort, and fast controls must use one shared settings value column');
+  assert.match(settings,
+    /html\[data-mixdog-mobile\] \.settings-row-control > \.settings-model-trigger,\s*html\[data-mixdog-mobile\] \.settings-row-control \.oc-select-trigger,[\s\S]*?\.settings-agent-route \.oc-select-trigger\s*\{[^}]*justify-content:\s*flex-end;[^}]*text-align:\s*right;/s,
+    'mobile route values must anchor to the shared right edge');
+  assert.match(settings,
+    /html\[data-mixdog-mobile\] \.settings-row-control \.oc-select-value,[\s\S]*?\.settings-agent-route \.settings-model-trigger > span\s*\{[^}]*flex:\s*0 1 auto;[^}]*text-align:\s*right;/s,
+    'mobile route text must hug the right edge beside its chevron');
+  assert.doesNotMatch(settings,
+    /html\[data-mixdog-mobile\] \.settings-row-control:has\(/,
+    'no mobile left-align exception may override the shared right anchor');
+  assert.match(settings,
+    /\.mixdog-settings-v2 \.settings-resource-title\s*\{[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s,
+    'resource status tags must stack under their names');
   assert.match(settings,
     /\.settings-row-control > \.settings-model-trigger > svg,[\s\S]*?\.settings-agent-route \.fast-control \.oc-select-trigger > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*color:\s*var\(--oc-icon-muted\);[^}]*opacity:\s*1;/s,
     'every route picker must use the same visible down-chevron geometry and color');
@@ -193,6 +223,20 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   assert.doesNotMatch(navigation, /LayoutGrid|titlebar-home|topbar-settings/);
 });
 
+test('workspace tabs keep labels fully visible while retaining horizontal scrolling', async () => {
+  const [layout, theme, navigation] = await Promise.all([
+    readFile(new URL('./styles.css', import.meta.url), 'utf8'),
+    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(layout, /\.workspace-tabs\s*\{[^}]*overflow-x:\s*auto;/s);
+  assert.doesNotMatch(theme, /workspace-tabs-fade|workspace-tabs-scroll/,
+    'tab-strip CSS must not mask either edge of a visible tab');
+  assert.doesNotMatch(navigation, /workspace-tabs-fade/,
+    'titlebar markup must not render overlays above tab labels');
+});
+
 test('copy hover changes only icon color while keyboard focus keeps its frame', async () => {
   const styles = await readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8');
   assert.match(styles, /\.message-actions:hover\s*\{[^}]*color:\s*var\(--oc-icon\);[^}]*background:\s*transparent;[^}]*outline:\s*0;/s);
@@ -249,7 +293,12 @@ test('conversation uses native scrolling and silent session transitions', async 
   assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message|message-navigation|navigateMessage/);
   assert.doesNotMatch(renderer, /Opening session|Resuming conversation/);
   assert.match(renderer, /if \(mode === "resuming"\) \{/);
-  assert.match(renderer, /<div className="session-switch-overlay" aria-hidden="true" \/>/);
+  assert.doesNotMatch(renderer, /session-switch-overlay|data-settling|data-staging|threadStaging/);
+  assert.doesNotMatch(renderer, /useCachedMeasurements:\s*true/);
+  assert.doesNotMatch(renderer, /sessionRowMeasurements|revealedTranscriptKey|data-measurement-key/);
+  assert.match(renderer, /observer\.observe\(contentElement\)/);
+  assert.match(renderer, /scheduleStickyBottom\(element\)/);
+  assert.match(renderer, /pendingResumeTarget/);
 });
 
 test('authenticated keychain providers are immediately selectable without a second enabled flag', () => {
@@ -523,6 +572,8 @@ test('an explicit transcript error marks only its unfinished turn', () => {
 test('auto-follow remains enabled only near the bottom', () => {
   assert.equal(shouldAutoFollow({ scrollTop: 910, clientHeight: 100, scrollHeight: 1000 }), true);
   assert.equal(shouldAutoFollow({ scrollTop: 500, clientHeight: 100, scrollHeight: 1000 }), false);
+  assert.equal(needsBottomPin({ scrollTop: 900, clientHeight: 100, scrollHeight: 1000 }), false);
+  assert.equal(needsBottomPin({ scrollTop: 898, clientHeight: 100, scrollHeight: 1000 }), true);
   assert.equal(followAfterScroll(true, true, { scrollTop: 100, clientHeight: 100, scrollHeight: 1000 }), true);
   assert.equal(followAfterScroll(true, false, { scrollTop: 100, clientHeight: 100, scrollHeight: 1000 }), false);
   assert.equal(isScrollIntentKey('PageUp'), true);
@@ -662,8 +713,62 @@ test('apply-patch add and delete envelopes normalize into visible file diffs', (
   assert.equal(files[1].renderable, false);
 });
 
+test('rangeless apply-patch hunks gain synthetic ranges for rendering only', () => {
+  const files = parseUnifiedDiff(`diff --git a/one.css b/one.css
+--- a/one.css
++++ b/one.css
+@@
+ .a {
+-old
++new
++more
+`);
+  assert.equal(files.length, 1);
+  assert.equal(files[0].renderable, true);
+  assert.match(files[0].renderPatch, /^@@ -1,2 \+1,3 @@$/m);
+  assert.match(files[0].patch, /^@@$/m);
+
+  const ranged = parseUnifiedDiff(`--- a/two.ts
++++ b/two.ts
+@@ -3,2 +3,2 @@ context
+-before
++after
+ tail`);
+  assert.equal(ranged[0].renderPatch, ranged[0].patch);
+});
+
 test('only Escape dismisses an approval from the keyboard', () => {
   assert.equal(isApprovalDismissKey('Escape'), true);
   assert.equal(isApprovalDismissKey('Enter'), false);
   assert.equal(isApprovalDismissKey(' '), false);
+});
+
+test('toolInputRows curates per-tool key order, explodes arrays, and flags long values', () => {
+  const grep = toolInputRows('grep', { glob: '*.mjs', '-C': 3, pattern: 'needle', path: 'src' });
+  assert.deepEqual(grep.map((row) => row.key), ['pattern', 'path', 'glob', '-C']);
+  assert.deepEqual(grep.map((row) => row.value), ['needle', 'src', '*.mjs', '3']);
+  assert.equal(grep.every((row) => row.block === false), true);
+
+  const read = toolInputRows('read', { path: ['a.mjs', { path: 'b.mjs', offset: 10, limit: 40 }] });
+  assert.deepEqual(read.map((row) => [row.key, row.value]), [
+    ['path[0]', 'a.mjs'],
+    ['path[1]', 'path: b.mjs · offset: 10 · limit: 40'],
+  ]);
+
+  // Single-element arrays collapse to the bare key; empty values are dropped.
+  assert.deepEqual(toolInputRows('explore', { query: ['auth flow'], cwd: '' }),
+    [{ key: 'query', value: 'auth flow', block: false }]);
+
+  const agent = toolInputRows('agent', { prompt: 'x'.repeat(200), tag: 'writer' });
+  assert.deepEqual(agent.map((row) => row.key), ['tag', 'prompt']);
+  assert.equal(agent[0].block, false);
+  assert.equal(agent[1].block, true);
+
+  // The patch body renders as a diff elsewhere; only patch options surface.
+  assert.deepEqual(toolInputRows('apply_patch', { patch: '*** Update File: a', dry_run: true }),
+    [{ key: 'dry_run', value: 'true', block: false }]);
+
+  // Non-object args (unparsed strings) yield no rows so the caller can fall
+  // back to the plain text block.
+  assert.deepEqual(toolInputRows('unknown_tool', 'raw-string'), []);
 });

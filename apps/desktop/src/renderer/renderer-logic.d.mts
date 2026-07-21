@@ -3,6 +3,7 @@ export type DiffData = {
   newFile: { fileName: string; content: string };
   hunks: string[];
   patch: string;
+  renderPatch: string;
   renderable: boolean;
 };
 export type TurnFailureModel = {
@@ -32,6 +33,10 @@ export function reconcileTurnFailures<T extends {
 export function shouldAutoFollow(
   viewport: { scrollTop?: number; clientHeight?: number; scrollHeight?: number },
   threshold?: number,
+): boolean;
+export function needsBottomPin(
+  viewport: { scrollTop?: number; clientHeight?: number; scrollHeight?: number },
+  epsilon?: number,
 ): boolean;
 export function followAfterScroll(
   current: boolean,
@@ -68,3 +73,5 @@ export function attemptApproval(
 ): Promise<boolean>;
 export function normalizeApplyPatch(value: unknown): string;
 export function parseUnifiedDiff(patch: string): DiffData[];
+export type ToolInputRow = { key: string; value: string; block: boolean };
+export function toolInputRows(name: string, args: unknown): ToolInputRow[];

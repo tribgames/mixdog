@@ -271,8 +271,6 @@ export function DesktopTitlebar({
             );
           })}
         </nav>
-        <span className="workspace-tabs-fade workspace-tabs-fade-left" aria-hidden="true" />
-        <span className="workspace-tabs-fade workspace-tabs-fade-right" aria-hidden="true" />
         {/* OpenCode parity (titlebar.tsx `Show when={!(creating() && params.dir)}`):
             while a draft tab is active the draft IS the new-session surface, so
             the + affordance hides; it returns once a real tab is active. */}

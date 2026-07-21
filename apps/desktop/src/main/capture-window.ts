@@ -184,6 +184,7 @@ interface LiveCaptureAssertions {
   settings: {
     large: SettingsPlacementAssertions;
     compact: SettingsPlacementAssertions;
+    phone: SettingsPhoneAssertions;
   };
   lightTheme: LightThemeAssertions;
   modalStack: ModalStackAssertions;
@@ -206,6 +207,37 @@ interface SettingsPlacementAssertions {
   backdropVisible: boolean;
   populatedRowCount: number;
   twoPane: boolean;
+}
+
+interface SettingsPhoneCategoryAssertions {
+  label: string;
+  rowCount: number;
+  overflowFree: boolean;
+  controlsContained: boolean;
+  controlsRightAligned: boolean;
+  labelsSeparated: boolean;
+}
+
+interface SettingsPhoneAssertions {
+  viewport: { width: number; height: number };
+  layer: RectMeasurement;
+  dialog: RectMeasurement;
+  rail: RectMeasurement;
+  pane: RectMeasurement;
+  fullScreen: boolean;
+  railConnected: boolean;
+  railButtonCount: number;
+  railButtonsAccessible: boolean;
+  closeTouchTarget: boolean;
+  rowCount: number;
+  filledValueControlCount: number;
+  sharedValueAxis: boolean;
+  controlsContained: boolean;
+  controlsRightAligned: boolean;
+  labelsSeparated: boolean;
+  valuesFillColumn: boolean;
+  overflowFree: boolean;
+  categories: SettingsPhoneCategoryAssertions[];
 }
 
 interface LightThemeAssertions {
@@ -369,6 +401,140 @@ async function readSettingsPlacement(window: BrowserWindow): Promise<SettingsPla
         && railRect.width >= 190 && paneRect.width > railRect.width,
     };
   })()`) as Promise<SettingsPlacementAssertions>;
+}
+
+async function readPhoneSettingsAssertions(window: BrowserWindow): Promise<SettingsPhoneAssertions> {
+  return window.webContents.executeJavaScript(`(async () => {
+    const layer = document.querySelector('.mixdog-settings-layer');
+    const dialog = layer?.querySelector('.mixdog-settings');
+    const rail = dialog?.querySelector('.mixdog-settings__rail');
+    const pane = dialog?.querySelector('.mixdog-settings__panel');
+    const body = dialog?.querySelector('.mixdog-settings__body');
+    const close = dialog?.querySelector('.mixdog-settings__close');
+    if (!(layer instanceof HTMLElement) || !(dialog instanceof HTMLElement)
+      || !(rail instanceof HTMLElement) || !(pane instanceof HTMLElement)
+      || !(body instanceof HTMLElement) || !(close instanceof HTMLElement)) {
+      throw new Error('Phone settings surface is missing from the capture renderer.');
+    }
+    const rect = (element) => {
+      const value = element.getBoundingClientRect();
+      return {
+        left: value.left, top: value.top, right: value.right, bottom: value.bottom,
+        width: value.width, height: value.height,
+      };
+    };
+    const visible = (element) => {
+      const style = getComputedStyle(element);
+      const value = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden'
+        && Number(style.opacity) !== 0 && value.width > 0 && value.height > 0;
+    };
+    const overflowFree = (element) => element.scrollWidth <= element.clientWidth + 1;
+    const buttons = Array.from(rail.querySelectorAll('button'));
+    const controlLefts = [];
+    let rowCount = 0;
+    let filledValueControlCount = 0;
+    let controlsContained = true;
+    let controlsRightAligned = true;
+    let labelsSeparated = true;
+    let valuesFillColumn = true;
+    let allOverflowFree = overflowFree(dialog) && overflowFree(pane) && overflowFree(body);
+    const categories = [];
+    for (const button of buttons) {
+      button.click();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const rows = Array.from(body.querySelectorAll(
+        '.mixdog-settings__row, .settings-form-row, .settings-resource',
+      )).filter((element) => element instanceof HTMLElement && visible(element));
+      let categoryControlsContained = true;
+      let categoryControlsRightAligned = true;
+      let categoryLabelsSeparated = true;
+      let categoryOverflowFree = [
+        body,
+        ...body.querySelectorAll(
+          '.settings-group, .settings-group-body, .core-memory-manager, .core-memory-add-card, '
+          + '.core-memory-list, .settings-shortcut-list, .settings-connection-grid',
+        ),
+      ].every((element) => element instanceof HTMLElement && overflowFree(element));
+      for (const row of rows) {
+        rowCount += 1;
+        categoryOverflowFree = categoryOverflowFree && overflowFree(row);
+        const control = Array.from(row.children).find((element) =>
+          element instanceof HTMLElement && element.matches(
+            '.settings-row-control, .settings-form-controls, .settings-resource-control',
+          ));
+        if (!(control instanceof HTMLElement)) continue;
+        const rowRect = rect(row);
+        const controlRect = rect(control);
+        const first = row.firstElementChild;
+        controlLefts.push(controlRect.left);
+        categoryControlsContained = categoryControlsContained
+          && controlRect.left >= rowRect.left - 1 && controlRect.right <= rowRect.right + 1;
+        categoryControlsRightAligned = categoryControlsRightAligned
+          && Math.abs(controlRect.right - rowRect.right) <= 1;
+        categoryLabelsSeparated = categoryLabelsSeparated
+          && (!(first instanceof HTMLElement) || rect(first).right <= controlRect.left + 1);
+        const fillTargets = Array.from(control.querySelectorAll(
+          '.settings-select.oc-select-root, .settings-model-trigger, .effort-control, '
+          + '.fast-control, input:not([type="checkbox"])',
+        )).filter((element) => element instanceof HTMLElement && visible(element));
+        for (const target of fillTargets) {
+          const targetRect = rect(target);
+          filledValueControlCount += 1;
+          valuesFillColumn = valuesFillColumn
+            && Math.abs(targetRect.left - controlRect.left) <= 1
+            && Math.abs(targetRect.right - controlRect.right) <= 1;
+        }
+      }
+      controlsContained = controlsContained && categoryControlsContained;
+      controlsRightAligned = controlsRightAligned && categoryControlsRightAligned;
+      labelsSeparated = labelsSeparated && categoryLabelsSeparated;
+      allOverflowFree = allOverflowFree && categoryOverflowFree;
+      categories.push({
+        label: button.getAttribute('aria-label') || (button.textContent || '').trim(),
+        rowCount: rows.length,
+        overflowFree: categoryOverflowFree,
+        controlsContained: categoryControlsContained,
+        controlsRightAligned: categoryControlsRightAligned,
+        labelsSeparated: categoryLabelsSeparated,
+      });
+    }
+    const layerRect = rect(layer);
+    const dialogRect = rect(dialog);
+    const railRect = rect(rail);
+    const paneRect = rect(pane);
+    const tolerance = 1;
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      layer: layerRect,
+      dialog: dialogRect,
+      rail: railRect,
+      pane: paneRect,
+      fullScreen: Math.abs(layerRect.left) <= tolerance && Math.abs(layerRect.top) <= tolerance
+        && Math.abs(layerRect.right - innerWidth) <= tolerance
+        && Math.abs(layerRect.bottom - innerHeight) <= tolerance
+        && Math.abs(dialogRect.left) <= tolerance && Math.abs(dialogRect.top) <= tolerance
+        && Math.abs(dialogRect.right - innerWidth) <= tolerance
+        && Math.abs(dialogRect.bottom - innerHeight) <= tolerance,
+      railConnected: Math.abs(railRect.left - dialogRect.left) <= tolerance
+        && Math.abs(railRect.right - paneRect.left) <= tolerance
+        && Math.abs(paneRect.right - dialogRect.right) <= tolerance,
+      railButtonCount: buttons.length,
+      railButtonsAccessible: buttons.every((button) =>
+        Boolean((button.getAttribute('aria-label') || '').trim())),
+      closeTouchTarget: rect(close).width >= 40 && rect(close).height >= 40,
+      rowCount,
+      filledValueControlCount,
+      sharedValueAxis: controlLefts.length > 0
+        && Math.max(...controlLefts) - Math.min(...controlLefts) <= tolerance,
+      controlsContained,
+      controlsRightAligned,
+      labelsSeparated,
+      valuesFillColumn,
+      overflowFree: allOverflowFree,
+      categories,
+    };
+  })()`) as Promise<SettingsPhoneAssertions>;
 }
 
 async function readLightThemeAssertions(window: BrowserWindow): Promise<LightThemeAssertions> {
@@ -583,6 +749,97 @@ function validateAndDestroyRenderer(
 // EngineHost.listSessions() lazily starts the runtime engine. The isolated
 // capture profile cannot contain sessions, so avoid provider/runtime startup
 // while retaining the exact production host and secure IPC handler shape.
+const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
+  getProfile: {
+    title: 'Capture',
+    language: 'system',
+    languages: [{ id: 'system', label: 'System' }],
+  },
+  getAutoClear: { enabled: true, idleMs: 3_600_000, providerDefaults: [] },
+  getCompactionSettings: { auto: true },
+  getMemorySettings: { enabled: true },
+  getChannelSettings: { enabled: true },
+  isRemoteEnabled: false,
+  getChannelWorkerStatus: { running: false },
+  getChannelSetup: {
+    backend: 'discord',
+    discord: { authenticated: false, status: 'Not connected' },
+    telegram: { authenticated: false, status: 'Not connected' },
+    webhook: { status: 'Not configured' },
+    channel: {},
+    webhooks: [],
+  },
+  getVoiceStatus: {
+    installed: false,
+    enabled: false,
+    components: { whisper: false, model: false, ffmpeg: false },
+  },
+  listWorkflows: [{ id: 'solo', name: 'Solo', active: true }],
+  listOutputStyles: {
+    configured: 'default',
+    current: { id: 'default', label: 'Default' },
+    styles: [{ id: 'default', label: 'Default' }, { id: 'minimal', label: 'Minimal' }],
+  },
+  getSearchRoute: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
+  listSearchModels: [{
+    provider: 'openai',
+    model: 'gpt-capture',
+    display: 'Capture',
+    effortOptions: [{ value: 'high', label: 'High' }],
+    fastCapable: true,
+    fastPreferred: true,
+  }],
+  getProviderSetup: {
+    api: [
+      { id: 'openai', name: 'OpenAI', authenticated: true, stored: true, status: 'Connected' },
+      { id: 'anthropic', name: 'Anthropic', authenticated: false, status: 'Not connected' },
+    ],
+    oauth: [{ id: 'openai-oauth', name: 'OpenAI OAuth', authenticated: true, status: 'Connected' }],
+    local: [{
+      id: 'ollama',
+      name: 'Ollama',
+      detected: true,
+      enabled: true,
+      status: 'Enabled',
+      baseURL: 'http://127.0.0.1:11434/v1',
+    }],
+  },
+  mcpStatus: {
+    connectedCount: 1,
+    configuredCount: 1,
+    failedCount: 0,
+    servers: [{ name: 'capture-docs', status: 'connected', toolCount: 3, enabled: true }],
+  },
+  pluginsStatus: {
+    count: 1,
+    plugins: [{
+      id: 'capture-plugin',
+      name: 'Capture plugin',
+      version: '1.0.0',
+      root: 'C:\\capture\\plugin',
+      mcpScript: 'scripts/mcp.mjs',
+      mcpServerName: 'capture-plugin-mcp',
+      mcpEnabled: true,
+    }],
+  },
+  hooksStatus: {
+    ruleCount: 1,
+    rules: [{ index: 0, tool: 'shell', action: 'ask', enabled: true }],
+  },
+  skillsStatus: {
+    count: 1,
+    skills: [{ name: 'capture-skill', description: 'Capture layout skill', source: 'built-in' }],
+  },
+  getDisabledSkills: { disabled: [] },
+  listAgents: [{
+    id: 'lead',
+    name: 'Lead',
+    route: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
+  }],
+  getUpdateSettings: { currentVersion: 'capture', latestVersion: 'capture', autoUpdate: false },
+  getUpdateStatus: { phase: 'idle' },
+};
+
 class CaptureEngineHost extends EngineHost {
   private captureTheme = 'basic';
 
@@ -590,13 +847,17 @@ class CaptureEngineHost extends EngineHost {
     return [];
   }
 
-  // The renderer's model selector warmup would lazily start the runtime
-  // engine. In the isolated capture profile every provider is disabled, so
-  // engine startup fails and strands the snapshot in commandBusy=true, which
-  // relabels the send button and breaks capture selectors. Captures always
-  // see an empty catalog.
+  // Keep model-route rows fully populated without starting the isolated
+  // runtime engine, so phone alignment covers model, effort, and fast controls.
   override async listProviderModels(): Promise<DesktopModelOption[]> {
-    return [];
+    return [{
+      provider: 'openai',
+      model: 'gpt-capture',
+      display: 'Capture',
+      effortOptions: [{ value: 'high', label: 'High' }],
+      fastCapable: true,
+      fastPreferred: true,
+    }];
   }
 
   // New-task activation without booting the disabled engine: App renders
@@ -627,6 +888,9 @@ class CaptureEngineHost extends EngineHost {
         };
       }
       if (request.capability === 'getTheme') return { ok: true, value: this.captureTheme };
+      if (Object.prototype.hasOwnProperty.call(CAPTURE_SETTINGS_VALUES, request.capability)) {
+        return { ok: true, value: CAPTURE_SETTINGS_VALUES[request.capability] };
+      }
       return { ok: false, error: `${request.capability} is unavailable in UI capture.` };
     });
   }
@@ -651,6 +915,24 @@ class CaptureEngineHost extends EngineHost {
     }
     if (capability === 'getUpdateSettings') {
       return { value: { currentVersion: 'capture', autoUpdate: false } as T, snapshot: this.getSnapshot() };
+    }
+    if (capability === 'memoryControl') {
+      return { value: '' as T, snapshot: this.getSnapshot() };
+    }
+    if (capability === 'checkForUpdate') {
+      return {
+        value: CAPTURE_SETTINGS_VALUES.getUpdateSettings as T,
+        snapshot: this.getSnapshot(),
+      };
+    }
+    if (capability === 'getTheme') {
+      return { value: this.captureTheme as T, snapshot: this.getSnapshot() };
+    }
+    if (Object.prototype.hasOwnProperty.call(CAPTURE_SETTINGS_VALUES, capability)) {
+      return {
+        value: CAPTURE_SETTINGS_VALUES[capability] as T,
+        snapshot: this.getSnapshot(),
+      };
     }
     // The capture profile runs against an isolated MIXDOG_HOME, where a fresh
     // config reports onboarding as incomplete; the wizard would cover the UI
@@ -1001,7 +1283,15 @@ async function captureWindow(): Promise<void> {
     window.setSize(720, 650);
     await new Promise((resolve) => setTimeout(resolve, 250));
     const compactSettings = await readSettingsPlacement(window);
-    const liveSettings = { large: largeSettings, compact: compactSettings };
+    window.setSize(390, 740);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await window.webContents.executeJavaScript(`(() => {
+      document.documentElement.dataset.mixdogMobile = '1';
+      document.documentElement.style.setProperty('--mixdog-vvh', innerHeight + 'px');
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const phoneSettings = await readPhoneSettingsAssertions(window);
+    const liveSettings = { large: largeSettings, compact: compactSettings, phone: phoneSettings };
     if (largeSettings.viewport.width !== 1_280 || largeSettings.viewport.height !== 820
       || !largeSettings.centered || !largeSettings.layerCoversViewport
       || !largeSettings.dialogClearsWindowControls
@@ -1012,6 +1302,16 @@ async function captureWindow(): Promise<void> {
       || !compactSettings.dialogFitsViewport || !compactSettings.backdropVisible || !compactSettings.twoPane
       || compactSettings.viewport.width !== 720 || compactSettings.viewport.height !== 650
       || compactSettings.dialog.width !== 704 || compactSettings.rail.width !== 200
+      || phoneSettings.viewport.width > 430 || phoneSettings.viewport.width < 320
+      || !phoneSettings.fullScreen || !phoneSettings.railConnected || phoneSettings.rail.width !== 52
+      || phoneSettings.railButtonCount !== 14 || !phoneSettings.railButtonsAccessible
+      || !phoneSettings.closeTouchTarget || phoneSettings.rowCount < 1
+      || phoneSettings.filledValueControlCount < 1 || !phoneSettings.sharedValueAxis
+      || !phoneSettings.controlsContained || !phoneSettings.controlsRightAligned
+      || !phoneSettings.labelsSeparated || !phoneSettings.valuesFillColumn
+      || !phoneSettings.overflowFree || phoneSettings.categories.some((category) =>
+        !category.overflowFree || !category.controlsContained
+        || !category.controlsRightAligned || !category.labelsSeparated)
       || lightTheme.theme !== 'light' || lightTheme.colorScheme !== 'light'
       || !lightTheme.titlebarIconMatchesToken || !lightTheme.activeTabMatchesToken
       || !modalStack.toastParentIsBody || !modalStack.toastVisible
@@ -1026,6 +1326,10 @@ async function captureWindow(): Promise<void> {
       "document.querySelector('.mixdog-settings__close')?.click()",
     );
     await new Promise((resolve) => setTimeout(resolve, 150));
+    await window.webContents.executeJavaScript(`(() => {
+      delete document.documentElement.dataset.mixdogMobile;
+      document.documentElement.style.removeProperty('--mixdog-vvh');
+    })()`);
     window.setMinimumSize(DESKTOP_WINDOW_OPTIONS.minWidth, DESKTOP_WINDOW_OPTIONS.minHeight);
     window.setSize(targetSize.width, targetSize.height);
     await window.webContents.executeJavaScript(

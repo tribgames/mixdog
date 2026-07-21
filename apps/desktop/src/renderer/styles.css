@@ -105,6 +105,9 @@ button { color: inherit; }
 .session-header-content { width: 100%; display: flex; align-items: center; }
 .session-header h1 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Jump-to-latest anchors to the transcript's REAL bottom edge, so it floats
+   just above the composer no matter how tall the composer grows. */
+.transcript-shell { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .transcript { flex: 1; min-height: 0; overflow-y: auto; }
 .thread { min-height: 100%; margin: auto; display: flex; flex-direction: column; }
 .thread-welcome { margin: auto; text-align: center; }
@@ -132,6 +135,9 @@ button { color: inherit; }
 .tool-content { margin: 0; display: grid; }
 .detail-block > span { display: block; }
 .detail-block pre { margin: 0; overflow: auto; }
+.tool-args { display: grid; }
+.tool-arg { display: contents; }
+.tool-args pre { margin: 0; overflow-x: auto; white-space: pre-wrap; }
 .turn-status, .live-activity { display: flex; align-items: center; }
 
 .composer-region { margin: 0 auto; }

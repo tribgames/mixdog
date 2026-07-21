@@ -225,10 +225,19 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
   wss.on('connection', (client) => {
     const encoder = createSnapshotDeltaEncoder();
     deltaEncoders.set(client, encoder);
+    const live = client as WebSocket & { isAlive?: boolean };
+    live.isAlive = true;
+    client.on('pong', () => { live.isAlive = true; });
     client.on('error', () => { /* connection errors surface as close */ });
     client.on('message', (raw) => {
+      live.isAlive = true;
       void (async () => {
         const frame = String(raw);
+        // Phone-side liveness probe: answer locally without engine work.
+        if (frame.startsWith('{"ping"')) {
+          send(client, { pong: 1 });
+          return;
+        }
         if (isStateResyncFrame(frame)) {
           encoder.reset();
           send(client, { event: 'state', payload: encoder.encode(options.host.getSnapshot()) });
@@ -239,6 +248,21 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
       })();
     });
   });
+
+  // Reap half-dead phone sockets (screen-off, NAT idle timeout): ping every
+  // 25s; a client that missed the previous ping is gone.
+  const heartbeat = setInterval(() => {
+    for (const client of wss.clients) {
+      const live = client as WebSocket & { isAlive?: boolean };
+      if (live.isAlive === false) {
+        try { client.terminate(); } catch { /* already gone */ }
+        continue;
+      }
+      live.isAlive = false;
+      try { client.ping(); } catch { /* surfaces as close */ }
+    }
+  }, 25_000);
+  heartbeat.unref?.();
 
   const unsubscribeState = options.host.subscribe(broadcastState);
   const unsubscribeTerminals = options.subscribeTerminalData?.((event) =>
@@ -258,6 +282,7 @@ export async function startRemoteBridge(options: RemoteBridgeOptions): Promise<R
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
+    clearInterval(heartbeat);
     unsubscribeState();
     unsubscribeTerminals();
     for (const client of wss.clients) {

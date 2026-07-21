@@ -409,7 +409,8 @@ interface DesktopIpcDependencies {
     install(): Promise<void>;
   };
   terminals?: {
-    ensure(id: string | null, cwd: string | null): { id: string; replay: string };
+    ensure(id: string | null, cwd: string | null):
+      { id: string; replay: string } | Promise<{ id: string; replay: string }>;
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number): void;
     subscribe(listener: (event: { id: string; data: string }) => void): () => void;

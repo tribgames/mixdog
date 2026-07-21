@@ -112,6 +112,21 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       perMessageDeflate: true,
     });
     socket = ws;
+    // Idle NAT paths silently kill this leg; protocol pings keep it warm and
+    // detect a half-dead socket so the reconnect loop restores it long
+    // before a phone RPC would hang on it.
+    let alive = true;
+    ws.on('pong', () => { alive = true; });
+    const heartbeat = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      if (!alive) {
+        try { ws.terminate(); } catch { /* close handler reconnects */ }
+        return;
+      }
+      alive = false;
+      try { ws.ping(); } catch { /* close handler reconnects */ }
+    }, 25_000);
+    heartbeat.unref?.();
     ws.on('open', () => {
       retryMs = 1_000;
       deltaEncoder.reset();
@@ -119,6 +134,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       sendEnvelope({ type: 'set-client-token', token });
     });
     ws.on('message', (raw) => {
+      alive = true;
       void (async () => {
         let envelope: { type?: unknown; clientId?: unknown; data?: unknown };
         try {
@@ -148,6 +164,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     });
     ws.on('error', () => { /* connection errors surface as close */ });
     ws.on('close', () => {
+      clearInterval(heartbeat);
       if (socket === ws) socket = null;
       if (closed) return;
       reconnectTimer = setTimeout(connect, retryMs);

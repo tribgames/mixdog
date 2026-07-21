@@ -11,6 +11,9 @@ import {
   _normalizeSummaryIndex,
   _sessionSummary,
 } from '../src/runtime/agent/orchestrator/session/store-summary-index.mjs';
+import {
+  listStoredSessionSummaries as listLightweightSessionSummaries,
+} from '../src/runtime/agent/orchestrator/session/store-summary-reader.mjs';
 import { createLifecycleApi, resolveResumeCwd } from '../src/session-runtime/lifecycle-api.mjs';
 import { createCwdPlugins } from '../src/session-runtime/cwd-plugins.mjs';
 import {
@@ -98,6 +101,58 @@ test('desktop classification is optional and round-trips through the existing su
   assert.deepEqual(project.desktopSession, { classification: 'project', projectPath: '/project' });
   assert.equal(legacy.desktopSession, null);
   assert.equal(malformed.desktopSession, null);
+});
+
+test('cold summary reader loads the sidecar without importing the full store', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-cold-summary-reader-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    writeFileSync(join(root, 'session-summaries.json'), JSON.stringify({
+      version: SESSION_SUMMARY_INDEX_VERSION,
+      rows: [{
+        id: 'cold_reader',
+        updatedAt: 10,
+        cwd: '/workspace',
+        preview: 'Cold reader session',
+        desktopSession: { classification: 'task', projectPath: null },
+      }],
+    }));
+    assert.deepEqual(listLightweightSessionSummaries().map((row) => row.id), ['cold_reader']);
+  } finally {
+    if (previousDataDir == null) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('loadSession reuses a parsed session until the atomic file identity changes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-session-load-cache-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const sessions = join(root, 'sessions');
+    mkdirSync(sessions, { recursive: true });
+    const target = join(sessions, 'cached_parse.json');
+    writeFileSync(target, JSON.stringify({
+      id: 'cached_parse',
+      messages: [{ role: 'user', content: 'first version' }],
+    }));
+    const first = loadSession('cached_parse');
+    const second = loadSession('cached_parse');
+    assert.equal(second, first);
+    writeFileSync(target, JSON.stringify({
+      id: 'cached_parse',
+      messages: [{ role: 'user', content: 'changed version with a different size' }],
+    }));
+    const changed = loadSession('cached_parse');
+    assert.notEqual(changed, first);
+    assert.equal(changed.messages[0].content, 'changed version with a different size');
+  } finally {
+    if (previousDataDir == null) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('session summaries use the first real user request and remove injected display blocks', () => {
@@ -689,11 +744,14 @@ test('desktop context switches retain runtime resources while durably closing th
     cancelBackgroundTasks: (options) => cleanup.push(['background', options]),
     agentTool: { closeAll: (reason) => cleanup.push(['agents', reason]) },
     statusRoutes: { clearGatewaySessionRoute: (id) => cleanup.push(['route', id]) },
-    applyResolvedCwd: async (value, options) => {
+    applyResolvedCwd: (value, options) => {
+      // Mirror the real contract: the cwd applies in place immediately while
+      // the project MCP reset continues in the background; the switch must not
+      // block on it.
       cleanup.push(['cwd:start', value, options]);
-      await mcpReset;
       cwd = value;
-      cleanup.push(['cwd:ready', value]);
+      void mcpReset.then(() => cleanup.push(['mcp:ready', value]));
+      return value;
     },
     invalidateContextStatusCache: () => {},
     invalidatePreSessionToolSurface: () => {},
@@ -709,8 +767,10 @@ test('desktop context switches retain runtime resources while durably closing th
     desktopSession: { classification: 'project', projectPath: '/project' },
   });
   switching.then(() => { settled = true; });
-  await Promise.resolve();
-  assert.equal(settled, false);
+  // Non-blocking switch: it settles WITHOUT the MCP reset resolving. The
+  // reconnect gate moved to the ask path (bounded awaitInitialMcpConnect).
+  await switching;
+  assert.equal(settled, true);
   assert.deepEqual(cleanup.slice(0, 4), [
     ['background', {
       reason: 'desktop-context-switch',
@@ -719,10 +779,10 @@ test('desktop context switches retain runtime resources while durably closing th
     }],
     ['agents', 'desktop-context-switch'],
     ['route', 'old'],
-    ['cwd:start', '/project', { markRefresh: false, waitForMcpReset: true }],
+    ['cwd:start', '/project', { markRefresh: false }],
   ]);
   releaseMcp();
-  await switching;
+  await mcpReset;
 
   assert.deepEqual(closed, [['old', 'desktop-context-switch', { tombstone: false }]]);
   assert.equal(current, null);

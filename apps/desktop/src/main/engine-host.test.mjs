@@ -10,6 +10,7 @@ import {
   engineModuleUrl,
   projectDesktopLiveWorkState,
   projectsModuleUrl,
+  sessionStoreModuleUrl,
   shellJobsPollDelay,
 } from "./engine-host.ts";
 import { searchProjectDirectory } from "./project-file-search.ts";
@@ -129,6 +130,21 @@ test("project registration resolves to the shared TUI store in source and packag
       "standalone",
       "projects.mjs",
     ),
+  );
+});
+
+test("session summary module resolves beside the shared runtime in source and packaged builds", () => {
+  const repositoryRoot = join(tmpdir(), "mixdog-session-store");
+  const appRoot = join(repositoryRoot, "apps", "desktop");
+  const resourcesPath = join(repositoryRoot, "resources");
+  assert.equal(
+    fileURLToPath(sessionStoreModuleUrl(false, resourcesPath, appRoot)),
+    join(repositoryRoot, "src", "runtime", "agent", "orchestrator", "session", "store-summary-reader.mjs"),
+  );
+  assert.equal(
+    fileURLToPath(sessionStoreModuleUrl(true, resourcesPath, appRoot)),
+    join(resourcesPath, "runtime.asar", "node_modules", "mixdog", "src", "runtime",
+      "agent", "orchestrator", "session", "store-summary-reader.mjs"),
   );
 });
 
@@ -342,6 +358,53 @@ test("host refreshes session summaries from storage for sidebar listing", async 
     // Cross-process activity (channel-worker schedule runs) must be visible,
     // so the sidebar listing reads through the on-disk summary index.
     assert.deepEqual(calls, [{ refreshFromStorage: true }]);
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("cold session listing never starts the runtime before a foreground action", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-cold-session-list-"));
+  const originalCwd = process.cwd();
+  const workspace = join(root, "workspace", "unclassified");
+  await mkdir(workspace, { recursive: true });
+  let engineCreates = 0;
+  const storeCalls = [];
+  const engine = {
+    getState: () => ({ sessionId: null, items: [] }),
+    subscribe: () => () => {},
+    listSessions: () => [],
+    dispose: async () => {},
+  };
+  const host = new EngineHost({
+    userDataPath: root,
+    createEngine: async () => {
+      engineCreates += 1;
+      return engine;
+    },
+    loadSessionStore: async () => ({
+      listStoredSessionSummaries(options) {
+        storeCalls.push(options);
+        return [{
+          id: "cold_indexed",
+          preview: "Cold indexed session",
+          updatedAt: 1,
+          cwd: workspace,
+          desktopSession: { classification: "task", projectPath: null },
+        }];
+      },
+    }),
+  });
+  try {
+    assert.deepEqual((await host.listSessions()).map((row) => row.id), ["cold_indexed"]);
+    assert.equal(engineCreates, 0, "session list response must win the first paint");
+    assert.deepEqual(storeCalls, [{ rebuildIfMissing: true }]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(engineCreates, 0, "background work must not compete with a user session choice");
+    await host.startTask();
+    assert.equal(engineCreates, 1, "the user-selected task should own the first runtime load");
   } finally {
     await host.dispose();
     process.chdir(originalCwd);

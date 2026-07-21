@@ -191,6 +191,10 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
     SETTINGS_CATEGORIES.map((item) => item.label),
   );
   assert.deepEqual(
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'), (node) => node.getAttribute('aria-label')),
+    SETTINGS_CATEGORIES.map((item) => item.label),
+  );
+  assert.deepEqual(
     Array.from(document.querySelectorAll('.mixdog-settings__rail-group > h2'), (node) => node.textContent),
     ['Integrations', 'Support'],
   );

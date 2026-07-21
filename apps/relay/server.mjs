@@ -256,12 +256,27 @@ async function finishRelayStart({ server, wss, store, liveDesktops, port, sendJs
       resolveListen();
     });
   });
+  // NAT/middleboxes drop idle WebSockets silently; sweep every 25s so dead
+  // desktop legs release their registration (phones otherwise blackhole)
+  // and dead phone legs stop holding broadcast fan-out slots.
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) {
+        try { ws.terminate(); } catch { /* already gone */ }
+        continue;
+      }
+      ws.isAlive = false;
+      try { ws.ping(); } catch { /* surfaced as close */ }
+    }
+  }, 25_000);
+  heartbeat.unref?.();
   const address = server.address();
   const boundPort = typeof address === 'object' && address ? address.port : port;
   let closed = false;
   const close = async () => {
     if (closed) return;
     closed = true;
+    clearInterval(heartbeat);
     for (const entry of liveDesktops.values()) {
       try { entry.socket.terminate(); } catch { /* already gone */ }
       for (const phone of entry.clients.values()) {
@@ -295,8 +310,11 @@ if (invokedDirectly) {
 function runDesktopLeg(context, deviceId, socket) {
   const { store, sendJson, attachDesktop, liveDesktops } = context;
   const entry = attachDesktop(deviceId, socket);
+  socket.isAlive = true;
+  socket.on('pong', () => { socket.isAlive = true; });
   socket.on('error', () => { /* surfaced as close */ });
   socket.on('message', (raw) => {
+    socket.isAlive = true;
     let message;
     try { message = JSON.parse(raw.toString()); } catch { return; }
     if (message.type === 'set-client-token' && typeof message.token === 'string' && message.token.length >= 16) {
@@ -332,9 +350,19 @@ function runClientLeg(entry, sendJson, socket) {
   const clientId = randomUUID();
   entry.clients.set(clientId, socket);
   sendJson(entry.socket, { type: 'client-open', clientId });
+  socket.isAlive = true;
+  socket.on('pong', () => { socket.isAlive = true; });
   socket.on('error', () => { /* surfaced as close */ });
   socket.on('message', (raw) => {
-    sendJson(entry.socket, { type: 'frame', clientId, data: raw.toString() });
+    socket.isAlive = true;
+    const text = raw.toString();
+    // Phone liveness probe: answered at the relay — reaching this hop is the
+    // question being asked (a dead desktop closes this leg outright).
+    if (text.startsWith('{"ping"')) {
+      try { socket.send('{"pong":1}'); } catch { /* surfaced as close */ }
+      return;
+    }
+    sendJson(entry.socket, { type: 'frame', clientId, data: text });
   });
   socket.on('close', () => {
     entry.clients.delete(clientId);

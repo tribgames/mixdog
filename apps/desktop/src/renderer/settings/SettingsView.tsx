@@ -63,6 +63,11 @@ const CATEGORY_ICONS = {
   shortcuts: Keyboard,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
+// Phone shell (data-mixdog-mobile, set by mobile-shell.ts before mount):
+// Connection is desktop-only — it exists to pair a phone, and the phone IS
+// the paired device, so the category is hidden there (user decision).
+const isMobileShell = () => document.documentElement.dataset.mixdogMobile === '1';
+
 export interface SettingsTriggerProps {
   onOpen(): void;
   className?: string;
@@ -93,6 +98,7 @@ export function SettingsView({
   const [category, setCategory] = useState<SettingsCategory>(
     initialSection ? categoryForSettingsItem(initialSection) : 'general',
   );
+  const mobile = isMobileShell();
   const [version, setVersion] = useState('');
   const dialogRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -232,10 +238,12 @@ export function SettingsView({
           {(['Mixdog', 'Integrations', 'Support'] as const).map((group) => <div
             className="mixdog-settings__rail-group" key={group}>
             {group !== 'Mixdog' && <h2>{group}</h2>}
-            {SETTINGS_CATEGORIES.filter((item) => item.group === group).map((item) => {
+            {SETTINGS_CATEGORIES.filter((item) => item.group === group
+              && !(mobile && item.value === 'connection')).map((item) => {
               const Icon = CATEGORY_ICONS[item.value];
               return <button type="button" key={item.value}
                 className={category === item.value ? 'active' : ''}
+                aria-label={item.label}
                 aria-current={category === item.value ? 'page' : undefined}
                 onClick={() => setCategory(item.value)}>
                 <Icon aria-hidden="true" size={16} /><span>{item.label}</span>

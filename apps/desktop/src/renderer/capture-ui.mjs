@@ -241,7 +241,10 @@ try {
   assert.deepEqual(metadata.liveAssertions.settings.compact.viewport, { width: 720, height: 650 });
   assert.equal(metadata.liveAssertions.settings.compact.dialog.width, 704);
   assert.equal(metadata.liveAssertions.settings.compact.rail.width, 200);
-  for (const placement of Object.values(metadata.liveAssertions.settings)) {
+  for (const placement of [
+    metadata.liveAssertions.settings.large,
+    metadata.liveAssertions.settings.compact,
+  ]) {
     assert.equal(placement.centered, true);
     assert.ok(placement.centerDelta.x <= 1);
     assert.ok(placement.centerDelta.y <= 1);
@@ -252,6 +255,32 @@ try {
     assert.equal(placement.backdropVisible, true);
     assert.equal(placement.twoPane, true);
     assert.equal(placement.rail.right, placement.pane.left);
+  }
+  const phoneSettings = metadata.liveAssertions.settings.phone;
+  assert.ok(phoneSettings.viewport.width >= 320 && phoneSettings.viewport.width <= 430);
+  assert.equal(phoneSettings.fullScreen, true);
+  assert.equal(phoneSettings.railConnected, true);
+  assert.equal(phoneSettings.rail.width, 52);
+  assert.equal(phoneSettings.railButtonCount, 14);
+  assert.equal(phoneSettings.railButtonsAccessible, true);
+  assert.equal(phoneSettings.closeTouchTarget, true);
+  assert.ok(phoneSettings.rowCount > 0);
+  assert.ok(phoneSettings.filledValueControlCount > 0);
+  assert.equal(phoneSettings.sharedValueAxis, true);
+  assert.equal(phoneSettings.controlsContained, true);
+  assert.equal(phoneSettings.controlsRightAligned, true);
+  assert.equal(phoneSettings.labelsSeparated, true);
+  assert.equal(phoneSettings.valuesFillColumn, true);
+  assert.equal(phoneSettings.overflowFree, true);
+  assert.deepEqual(phoneSettings.categories.map((category) => category.label), [
+    'General', 'Models', 'Workflows', 'Output style', 'Providers', 'Channels',
+    'Connection', 'MCP', 'Plugins', 'Hooks', 'Skills', 'Memory', 'System', 'Shortcuts',
+  ]);
+  for (const category of phoneSettings.categories) {
+    assert.equal(category.overflowFree, true, `${category.label} phone settings must not overflow`);
+    assert.equal(category.controlsContained, true, `${category.label} controls must stay inside rows`);
+    assert.equal(category.controlsRightAligned, true, `${category.label} controls must share the row edge`);
+    assert.equal(category.labelsSeparated, true, `${category.label} labels must not overlap controls`);
   }
   assert.equal(
     metadata.imageMeasuredSidebar.method,

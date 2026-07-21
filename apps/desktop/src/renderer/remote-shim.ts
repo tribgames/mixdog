@@ -230,8 +230,12 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
         + '100%{transform:scale(1);opacity:1}}'
         + '@keyframes mrp-draw{to{stroke-dashoffset:0}}'
         + '@keyframes mrp-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}'
-        + '#mixdog-remote-pairing .mrp-success{position:absolute;inset:0;z-index:3;display:grid;'
-        + 'place-content:center;justify-items:center;gap:14px;background:rgba(14,13,12,.82);'
+        // Success settles INSIDE the aperture (user: the check belongs at the
+        // camera window's center): the scan box itself seals with the badge.
+        + '#mixdog-remote-pairing .mrp-success{position:absolute;left:50%;top:44%;'
+        + 'width:var(--mrp-ap);height:var(--mrp-ap);transform:translate(-50%,-50%);'
+        + 'z-index:3;display:grid;place-content:center;justify-items:center;gap:12px;'
+        + 'border-radius:24px;background:rgba(14,13,12,.66);'
         + 'animation:mrp-fade 240ms ease both;}'
         + '#mixdog-remote-pairing .mrp-success svg{width:72px;height:72px;'
         + 'animation:mrp-pop 420ms 120ms cubic-bezier(.34,1.56,.64,1) both;}'
@@ -355,6 +359,10 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
       if (!parsed || typeof parsed !== 'object') return;
       message = parsed as Record<string, unknown>;
     } catch { return; }
+    // Any inbound frame proves the socket is alive; pong frames carry
+    // nothing else.
+    awaitingPong = false;
+    if ('pong' in message) return;
     if (typeof message.id === 'number') {
       const entry = pending.get(message.id);
       if (!entry) return;
@@ -378,6 +386,47 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
       }
     }
   };
+
+  // NAT/carrier middleboxes silently drop idle WebSockets; the browser
+  // cannot send protocol pings, so an app-level ping/pong detects the
+  // half-dead socket and recycles it, and a foreground/online wake probe
+  // reconnects immediately instead of on the next (hanging) tap.
+  let heartbeatSentAt = 0;
+  let awaitingPong = false;
+  window.setInterval(() => {
+    const ws = socket;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      awaitingPong = false;
+      return;
+    }
+    if (awaitingPong) {
+      if (Date.now() - heartbeatSentAt >= 10_000) {
+        awaitingPong = false;
+        try { ws.close(); } catch { /* reconnect loop takes over */ }
+      }
+      return;
+    }
+    if (Date.now() - heartbeatSentAt >= 25_000) {
+      heartbeatSentAt = Date.now();
+      awaitingPong = true;
+      try { ws.send('{"ping":1}'); } catch { /* surfaces as close */ }
+    }
+  }, 5_000);
+  const wakeProbe = (): void => {
+    if (document.visibilityState === 'hidden') return;
+    const ws = socket;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      retryMs = 500;
+      void connect().catch(() => { /* the retry loop keeps running */ });
+      return;
+    }
+    heartbeatSentAt = Date.now();
+    awaitingPong = true;
+    try { ws.send('{"ping":1}'); } catch { /* surfaces as close */ }
+  };
+  document.addEventListener('visibilitychange', wakeProbe);
+  window.addEventListener('online', wakeProbe);
+  window.addEventListener('focus', wakeProbe);
 
   const scheduleReconnect = (): void => {
     failedAttempts += 1;
@@ -432,7 +481,23 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
     const ws = await connect();
     return await new Promise<T>((resolve, reject) => {
       const id = nextId++;
-      pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
+      // A NAT-killed socket accepts sends and never answers: cap every RPC
+      // so the UI fails fast and the socket recycles instead of hanging.
+      const deadline = window.setTimeout(() => {
+        if (!pending.delete(id)) return;
+        reject(new Error('mixdog remote call timed out.'));
+        try { ws.close(); } catch { /* reconnect loop takes over */ }
+      }, 20_000);
+      pending.set(id, {
+        resolve: (value: unknown) => {
+          window.clearTimeout(deadline);
+          (resolve as (value: unknown) => void)(value);
+        },
+        reject: (reason: Error) => {
+          window.clearTimeout(deadline);
+          reject(reason);
+        },
+      });
       try {
         ws.send(JSON.stringify({ id, method, params }));
       } catch (error) {
