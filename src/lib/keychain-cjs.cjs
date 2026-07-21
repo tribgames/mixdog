@@ -128,7 +128,14 @@ function powershell(script) {
     // secret encryption/decryption. (pwsh/PS7 is intentionally not used: it does
     // not auto-load the ProtectedData assembly, so DPAPI silently fails there.)
     const exe = resolvePowershellExe();
+    const profiled = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
+    const startedAt = profiled ? Date.now() : 0;
     const r = run(exe, ['-NonInteractive', '-NoProfile', '-Command', script], { timeout: POWERSHELL_TIMEOUT_MS });
+    if (profiled) {
+        const caller = (new Error().stack || '').split('\n').slice(2, 5)
+            .map((line) => line.trim().replace(/\s+/g, '_')).join('<-');
+        try { process.stderr.write(`[mixdog-boot] keychain:sync-powershell ms=${Date.now() - startedAt} by=${caller}\n`); } catch {}
+    }
     if (r.error && r.error.code === 'ETIMEDOUT') {
         throw new Error(`[keychain] PowerShell DPAPI command timed out after ${POWERSHELL_TIMEOUT_MS}ms (host: ${exe})`);
     }
@@ -138,7 +145,7 @@ function powershell(script) {
     return r;
 }
 
-function powershellAsync(script) {
+function powershellAsync(script, input = null) {
     return new Promise((resolve) => {
         let child;
         try {
@@ -149,7 +156,7 @@ function powershellAsync(script) {
                     env: powershellEnv(),
                     shell: false,
                     windowsHide: true,
-                    stdio: ['ignore', 'pipe', 'pipe'],
+                    stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
                     timeout: POWERSHELL_TIMEOUT_MS,
                 },
             );
@@ -172,6 +179,10 @@ function powershellAsync(script) {
         };
         child.once('error', (error) => finish(null, error));
         child.once('close', (status) => finish(status));
+        if (input != null) {
+            child.stdin.on('error', () => { /* child exited early — close() reports it */ });
+            child.stdin.end(input);
+        }
     });
 }
 
@@ -348,30 +359,69 @@ function win32Get(account) {
     return out;
 }
 
+// Batch DPAPI decrypt used by prewarmSecrets: ONE PowerShell host decrypts
+// every ciphertext. Windows CreateProcess for powershell.exe is a SYNCHRONOUS
+// multi-hundred-ms operation on the calling thread (AV scanning), so the old
+// per-secret spawn fan-out froze the caller's event loop for N x spawn cost —
+// observed as a ~5s desktop boot stall with near-zero CPU. Accounts and
+// ciphertexts travel via stdin (never interpolated into the script); decrypted
+// values return base64-wrapped so arbitrary secret bytes survive the pipe.
+const PS_UNPROTECT_BATCH = [
+    'Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue;',
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
+    '$scope = [System.Security.Cryptography.DataProtectionScope]::CurrentUser;',
+    'while (($line = [Console]::In.ReadLine()) -ne $null) {',
+    '  $parts = $line.Split("|", 2);',
+    '  if ($parts.Count -lt 2) { continue }',
+    '  try {',
+    '    $enc = [Convert]::FromBase64String($parts[1]);',
+    '    $dec = [System.Security.Cryptography.ProtectedData]::Unprotect($enc, $null, $scope);',
+    '    [Console]::Out.WriteLine($parts[0] + "|" + [Convert]::ToBase64String($dec));',
+    '  } catch {}',
+    '}',
+].join(' ');
+
 async function prewarmSecrets() {
     try {
         if (platform() !== 'win32' || KEYCHAIN_CACHE_TTL_MS === 0) return;
         const dir = secretsDir();
         const entries = await fs.promises.readdir(dir, { withFileTypes: true });
         const epoch = _cacheEpoch;
-        await Promise.all(entries
-            .filter((entry) => entry.isFile() && entry.name.endsWith('.dpapi'))
-            .map(async (entry) => {
-                const account = entry.name.slice(0, -'.dpapi'.length);
-                const generation = _cacheGenerations.get(account) || 0;
-                try {
-                    const b64 = (await fs.promises.readFile(path.join(dir, entry.name), 'utf8')).trim();
-                    if (!b64) return;
-                    const r = await powershellAsync(`& { ${PS_UNPROTECT} } '${b64}'`);
-                    const value = (r.stdout || '').trim();
-                    if (r.error || r.status !== 0 || !value) return;
-                    if (_cacheEpoch !== epoch || (_cacheGenerations.get(account) || 0) !== generation) return;
-                    _cacheSet(account, value);
-                } catch {
-                    // Individual corrupt, deleted, or undecryptable entries must
-                    // not prevent the remaining secrets from warming.
-                }
-            }));
+        const rows = [];
+        for (const entry of entries) {
+            if (!entry.isFile() || !entry.name.endsWith('.dpapi')) continue;
+            const account = entry.name.slice(0, -'.dpapi'.length);
+            try {
+                const b64 = (await fs.promises.readFile(path.join(dir, entry.name), 'utf8')).trim();
+                // Account names are filenames (no '|' on Windows) and ciphertexts
+                // are base64 — the line protocol below stays unambiguous.
+                if (b64) rows.push({ account, generation: _cacheGenerations.get(account) || 0, b64 });
+            } catch {
+                // Individual corrupt or deleted entries must not prevent the
+                // remaining secrets from warming.
+            }
+        }
+        if (rows.length === 0) return;
+        const r = await powershellAsync(
+            PS_UNPROTECT_BATCH,
+            rows.map((row) => `${row.account}|${row.b64}`).join('\n') + '\n',
+        );
+        if (r.error || r.status !== 0) return;
+        const generations = new Map(rows.map((row) => [row.account, row.generation]));
+        for (const line of String(r.stdout || '').split(/\r?\n/)) {
+            const separator = line.indexOf('|');
+            if (separator <= 0) continue;
+            const account = line.slice(0, separator);
+            if (!generations.has(account)) continue;
+            try {
+                const value = Buffer.from(line.slice(separator + 1), 'base64').toString('utf8');
+                if (!value) continue;
+                if (_cacheEpoch !== epoch || (_cacheGenerations.get(account) || 0) !== generations.get(account)) continue;
+                _cacheSet(account, value);
+            } catch {
+                // An undecodable row must not prevent the remaining secrets from warming.
+            }
+        }
     } catch {
         // Prewarming is an optional startup optimization and must never fail boot.
     }

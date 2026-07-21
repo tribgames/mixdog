@@ -90,6 +90,13 @@ export function createSessionTurnApi(deps) {
           // Flush a rebind deferred before the session/writer existed ('acquired'
           // in lazy mode). One-shot: no-op unless a push was actually deferred.
           flushPendingTranscriptRebind?.();
+          // Record the user prompt in the transcript so the memory watcher
+          // ingests both sides of the conversation (the forwarder ignores
+          // plain user text rows, so nothing echoes back to the channel).
+          if (getTranscriptWriter()) {
+            try { getTranscriptWriter().appendUser(prompt); }
+            catch (error) { process.stderr.write(`mixdog: transcript-writer: appendUser failed: ${error?.message || error}\n`); }
+          }
           if (getTwKey() && getTwKey() !== prevKey && channelsEnabled() && !envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
             void invokeChannelStart()
               .then(() => {
@@ -126,6 +133,14 @@ export function createSessionTurnApi(deps) {
           // available deferred tool names via ONE appended, persistent
           // system-reminder (append-only — never rewrites BP1 or touches the
           // active tool surface, so the prompt-cache prefix stays intact).
+          // Context-switch gate: a desktop project switch (and any cwd change)
+          // now starts its MCP reset in the background instead of blocking the
+          // switch. When such a reconnect is still in flight, give it the same
+          // bounded startup budget BEFORE folding the catalog so this turn's
+          // tool surface reflects the new project's registry. No reconnect in
+          // flight → immediate no-op.
+          try { await awaitInitialMcpConnect?.(); }
+          catch { /* gate must never break the turn */ }
           try {
             reconcileDeferredMcpToolCatalog(session0, getMcpTools(), {
               // Deliver the late-tool announcement through the pending-message
@@ -323,6 +338,12 @@ export function createSessionTurnApi(deps) {
       if (getActiveTurnCount() > 0) return [];
       try { return mgr.drainForeignUserInjections?.(session.id) || []; } catch { return []; }
     },
+    // Absolute path of the shared pending spool file. Live-share owners
+    // fs.watch it for instant cross-surface input pickup; empty string when
+    // the store is unavailable (callers fall back to the poll tick).
+    pendingSpoolPath() {
+      try { return mgr.pendingMessagesSpoolPath?.() || ''; } catch { return ''; }
+    },
     // Interactive-presence beacon (engine share tick): mark the CURRENT
     // session as held open by this live surface — idle time included — so a
     // cross-open from another surface attaches as a viewer instead of
@@ -339,6 +360,14 @@ export function createSessionTurnApi(deps) {
       const target = id || getSession()?.id;
       if (!target) return;
       try { mgr.deleteSessionPresence?.(target); } catch { /* best-effort */ }
+    },
+    // Live-owner liveness probe for the viewer self-heal tick: true when a
+    // re-resume would no longer attach (owner pid dead or every liveness
+    // signal stale) — i.e. nobody is draining this session's spool anymore.
+    sessionOwnerGone(id) {
+      const target = id || getSession()?.id;
+      if (!target) return false;
+      try { return mgr.isSessionOwnerGone?.(target) === true; } catch { return false; }
     },
     agentControl(args = {}) {
       const session = getSession();

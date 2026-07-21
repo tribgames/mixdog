@@ -21,6 +21,26 @@ import {
 } from './embedding-model-config.mjs'
 
 const MODEL_ID = getConfiguredEmbeddingModelId()
+
+// Reroute ALL worker-thread stdio through parentPort. Without stdout:true/
+// stderr:true the worker's stream writes are copied straight into the
+// process's REAL fds, bypassing the TUI stderr guard and painting over the
+// alternate-screen frame (third-party noise: transformers.js progress,
+// ORT JS warnings, stray console.*). Piped stdio (stdout:true) is NOT an
+// option here — reading a worker's piped stdio refs the MessagePort for the
+// worker's lifetime and blocks process exit (see save-session-worker.mjs,
+// same pattern). __mixdogMemoryLog above intentionally keeps the raw bound
+// writer: it is already gated by MIXDOG_QUIET_MEMORY_LOG in TUI runs.
+const __forwardWorkerWrite = (chunk, encoding, callback) => {
+  const done = typeof encoding === 'function' ? encoding : callback
+  try {
+    parentPort?.postMessage({ type: 'log', chunk: typeof chunk === 'string' ? chunk : String(chunk ?? '') })
+  } catch { /* drop — logging must never break embedding */ }
+  if (typeof done === 'function') { try { done() } catch { /* ignore */ } }
+  return true
+}
+process.stdout.write = __forwardWorkerWrite
+process.stderr.write = __forwardWorkerWrite
 const DEFAULT_DEVICE = getDefaultEmbeddingDevice(MODEL_ID)
 const DEFAULT_DTYPE = getDefaultEmbeddingDtype(MODEL_ID)
 const MODEL_LOAD_OPTIONS = getEmbeddingModelLoadOptions(MODEL_ID)

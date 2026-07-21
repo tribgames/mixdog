@@ -74,6 +74,13 @@ function ensureWorker() {
   const execArgv = process.execArgv.filter((arg) => !String(arg).startsWith('--input-type'))
   worker = new Worker(WORKER_PATH, { env: { ...process.env }, execArgv })
   worker.on('message', (msg) => {
+    if (msg.type === 'log') {
+      // Worker-thread stdio forwarded via IPC (see embedding-worker.mjs
+      // header): route through the parent's guardable stderr so TUI runs
+      // file it instead of tearing the terminal frame.
+      try { process.stderr.write(String(msg.chunk ?? '')) } catch { /* best-effort */ }
+      return
+    }
     if (msg.type === 'profile') {
       writeProfilePoint(msg.record)
       return

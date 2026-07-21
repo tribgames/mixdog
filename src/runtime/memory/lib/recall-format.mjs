@@ -149,7 +149,7 @@ export function interleaveRawRows(hybridRows, rawRows) {
   return out
 }
 
-export function renderEntryLines(rows, { recencyOrder = false } = {}) {
+export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = true } = {}) {
   if (!rows || rows.length === 0) return '(no results)'
   // Each emitted line is tracked as a { ts, text } unit so the recencyOrder
   // path can sort the WHOLE stream (roots + their members, plus leaf/raw rows)
@@ -202,7 +202,7 @@ export function renderEntryLines(rows, { recencyOrder = false } = {}) {
         : cleanMemoryText(String(r.content ?? '')).slice(0, 8000)
       // Unchunked raw leaf (cycle1 hasn't classified it yet): mark it so
       // callers can tell fresh-but-unprocessed rows from chunked memory.
-      const pendingMark = (r.is_root === 0 && r.chunk_root == null) ? ' [pending]' : ''
+      const pendingMark = pendingMarks && (r.is_root === 0 && r.chunk_root == null) ? ' [pending]' : ''
       units.push({ ts: Number(r.ts) || 0, text: `[${ts}] ${rolePrefix}${body.slice(0, 8000)}${pendingMark} #${r.id}` })
     }
   }
@@ -238,6 +238,37 @@ function normalizedRowText(r) {
     ? `${element} ${summary}`
     : cleanMemoryText(String(r?.content ?? ''))
   return String(body).toLowerCase()
+}
+
+function exactDuplicateKey(r) {
+  if (Array.isArray(r?.members) && r.members.length > 0) {
+    return JSON.stringify(['members', r.members.map((m) => [
+      m?.role ?? '',
+      cleanMemoryText(String(m?.content ?? '')),
+    ])])
+  }
+  const element = r?.element ?? ''
+  const summary = r?.summary ?? ''
+  const body = (element || summary)
+    ? `${element}${summary ? ' — ' + summary : ''}`
+    : cleanMemoryText(String(r?.content ?? ''))
+  return JSON.stringify([r?.role ?? '', body])
+}
+
+// Legacy object-identity-only ingest could mint duplicate rows on JSON reload.
+// Keep the newest/highest-ranked exact body once, including short acknowledgments
+// that shingle dedupe intentionally ignores.
+export function collapseExactDuplicateRows(rows) {
+  if (!Array.isArray(rows) || rows.length < 2) return rows
+  const seen = new Set()
+  const out = []
+  for (const row of rows) {
+    const key = exactDuplicateKey(row)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+  return out
 }
 
 export function collapseNearDuplicateRows(rows, {
@@ -288,6 +319,16 @@ export function collapseNearDuplicateRows(rows, {
     out.push(r)
   }
   return out
+}
+
+// Compact handoffs are authoritative state, not browsable search output.
+// Remove exact and near-duplicate bodies completely (no id stubs) so polluted
+// legacy rows cannot crowd distinct recent work out of the digest.
+export function compactDigestRows(rows, limit = 30) {
+  const cap = Math.max(1, Math.floor(Number(limit) || 30))
+  return collapseNearDuplicateRows(collapseExactDuplicateRows(rows))
+    .filter((row) => !row?._dupStub)
+    .slice(0, cap)
 }
 
 // Compact session label for group headers: keep short ids verbatim, shorten

@@ -12,8 +12,9 @@ import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve as resolvePath } from 'node:path';
 import { estimateTokens } from '../context-utils.mjs';
 
-export const MAX_REATTACH_FILES = 5;
+export const MAX_REATTACH_FILES = 3;
 export const REATTACH_MAX_TOKENS_PER_FILE = 5_000;
+export const REATTACH_MAX_TOTAL_TOKENS = 8_000;
 const REATTACH_MIN_ROOM_TOKENS = 1_024;
 const REATTACH_MAX_FILE_BYTES = 512 * 1024;
 
@@ -73,7 +74,7 @@ function truncateToTokenCap(content, cap) {
  */
 export function buildPostCompactFileAttachment(headMessages, tailMessages, roomTokens, { cwd } = {}) {
     if (reattachDisabled()) return null;
-    const room = Math.min(Number(roomTokens) || 0, 50_000);
+    const room = Math.min(Number(roomTokens) || 0, REATTACH_MAX_TOTAL_TOKENS);
     if (room < REATTACH_MIN_ROOM_TOKENS) return null;
     const headPaths = collectReadToolPaths(headMessages);
     if (headPaths.length === 0) return null;
@@ -89,7 +90,7 @@ export function buildPostCompactFileAttachment(headMessages, tailMessages, roomT
     }
     if (selected.length === 0) return null;
     const sections = [];
-    let usedTokens = 0;
+    const prefix = 'Reference files:\n\nRe-attached after compaction (fresh reads of files the summarized history was working with):\n\n';
     for (const p of selected) {
         try {
             const abs = isAbsolute(p) ? p : (cwd ? resolvePath(cwd, p) : null);
@@ -98,15 +99,14 @@ export function buildPostCompactFileAttachment(headMessages, tailMessages, roomT
             if (!stat.isFile() || stat.size > REATTACH_MAX_FILE_BYTES) continue;
             const body = truncateToTokenCap(readFileSync(abs, 'utf8'), REATTACH_MAX_TOKENS_PER_FILE);
             const section = `### ${p}\n\`\`\`\n${body}\n\`\`\``;
-            const cost = estimateTokens(section);
-            if (usedTokens + cost > room) continue;
-            usedTokens += cost;
+            const candidate = `${prefix}${[...sections, section].join('\n\n')}`;
+            if (estimateTokens(candidate) > room) continue;
             sections.push(section);
         } catch { /* unreadable/missing file — skip, never fail the compact */ }
     }
     if (sections.length === 0) return null;
     return {
         role: 'user',
-        content: `Reference files:\n\nRe-attached after compaction (fresh reads of files the summarized history was working with):\n\n${sections.join('\n\n')}`,
+        content: `${prefix}${sections.join('\n\n')}`,
     };
 }

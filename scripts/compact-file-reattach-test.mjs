@@ -3,13 +3,22 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recallFastTrackCompactMessages, semanticCompactMessages } from '../src/runtime/agent/orchestrator/session/compact.mjs';
-import { buildPostCompactFileAttachment } from '../src/runtime/agent/orchestrator/session/compact/file-reattach.mjs';
-import { sanitizeToolPairs } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
+import {
+  buildPostCompactFileAttachment,
+  MAX_REATTACH_FILES,
+  REATTACH_MAX_TOTAL_TOKENS,
+} from '../src/runtime/agent/orchestrator/session/compact/file-reattach.mjs';
+import { estimateTokens, sanitizeToolPairs } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
 
 const dir = mkdtempSync(join(tmpdir(), 'reattach-'));
 const fileA = join(dir, 'a.mjs'); writeFileSync(fileA, 'export const A = 1;\n'.repeat(50));
 const fileB = join(dir, 'b.mjs'); writeFileSync(fileB, 'export const B = 2;\n'.repeat(50));
 const fileHuge = join(dir, 'huge.txt'); writeFileSync(fileHuge, 'h'.repeat(600 * 1024)); // > 512KB cap
+const budgetFiles = Array.from({ length: 5 }, (_, i) => {
+  const p = join(dir, `budget-${i}.mjs`);
+  writeFileSync(p, `export const budget${i} = "${'token payload '.repeat(4000)}";\n`);
+  return p;
+});
 
 const readCall = (id, p) => ({ role: 'assistant', content: '', toolCalls: [{ id, name: 'read', arguments: JSON.stringify({ path: p }) }] });
 const toolRes = (id) => ({ role: 'tool', toolCallId: id, content: 'old cached body '.repeat(100) });
@@ -65,6 +74,14 @@ function transcript() {
   const off = buildPostCompactFileAttachment([readCall('x', fileA)], [], 10000, { cwd: dir });
   assert.equal(off, null, 'env kill-switch disables reattach');
   delete process.env.MIXDOG_COMPACT_FILE_REATTACH;
+}
+// 5) generous context room is still bounded by the compact re-attach envelope
+{
+  const calls = budgetFiles.map((p, i) => readCall(`budget-${i}`, p));
+  const ref = buildPostCompactFileAttachment(calls, [], 50_000, { cwd: dir });
+  assert.ok(ref, 'bounded attachment should include at least one recent file');
+  assert.ok((ref.content.match(/^### /gm) || []).length <= MAX_REATTACH_FILES, 'attachment file count must stay capped');
+  assert.ok(estimateTokens(ref.content) <= REATTACH_MAX_TOTAL_TOKENS, 'attachment total tokens must stay capped');
 }
 rmSync(dir, { recursive: true, force: true });
 console.log('compact file-reattach test passed \u2713');

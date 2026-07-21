@@ -461,7 +461,7 @@ export class AnthropicOAuthProvider {
             const fresh = loadCredentials();
             if (fresh?.accessToken) {
                 this.credentials = fresh;
-                process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk (mtime change)\n`);
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk (mtime change)\n`);
             }
         }
 
@@ -493,7 +493,7 @@ export class AnthropicOAuthProvider {
         if (disk?.accessToken && disk.accessToken !== currentToken
             && (!disk.expiresAt || disk.expiresAt >= validAfter)) {
             this.credentials = disk;
-            process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk\n`);
+            if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk\n`);
             return disk;
         }
         if (!this.credentials && disk) this.credentials = disk;
@@ -510,13 +510,13 @@ export class AnthropicOAuthProvider {
             const latestValidAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
             if (latest?.accessToken && latest.accessToken !== currentToken
                 && (!latest.expiresAt || latest.expiresAt >= latestValidAfter)) {
-                process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk\n`);
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk\n`);
                 return latest;
             }
 
             if (!latest?.refreshToken) {
                 if (!force && latest?.accessToken && (!latest.expiresAt || latest.expiresAt > Date.now())) {
-                    process.stderr.write(`[anthropic-oauth] WARNING: token expiring but no refresh token; using current token until expiry\n`);
+                    if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] WARNING: token expiring but no refresh token; using current token until expiry\n`);
                     return latest;
                 }
                 throw new Error('Anthropic OAuth refresh token not available. Open /providers in mixdog to sign in again.');
@@ -525,12 +525,12 @@ export class AnthropicOAuthProvider {
             try {
                 if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Token ${reason}, refreshing...\n`);
                 const refreshed = await refreshOAuthCredentials(latest);
-                process.stderr.write(`[anthropic-oauth] Token refreshed, expires in ${Math.round(((refreshed.expiresAt || Date.now()) - Date.now()) / 1000)}s\n`);
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Token refreshed, expires in ${Math.round(((refreshed.expiresAt || Date.now()) - Date.now()) / 1000)}s\n`);
                 return refreshed;
             } catch (err) {
                 if (!force && latest?.accessToken && (!latest.expiresAt || latest.expiresAt > Date.now())) {
                     const msg = err instanceof Error ? err.message : String(err);
-                    process.stderr.write(`[anthropic-oauth] Refresh failed (${msg}); using still-valid current token\n`);
+                    if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Refresh failed (${msg}); using still-valid current token\n`);
                     return latest;
                 }
                 throw err;

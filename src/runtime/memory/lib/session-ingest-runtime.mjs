@@ -85,7 +85,7 @@ export function createSessionIngestRuntime({
       _sessionIngestOrdinalState.set(sessionId, existing)
       return existing
     }
-    const st = { occNext: new Map(), seeded: false }
+    const st = { occNext: new Map(), seeded: false, snapshot: [] }
     _sessionIngestOrdinalState.set(sessionId, st)
     while (_sessionIngestOrdinalState.size > _ORDINAL_STATE_MAX_SESSIONS) {
       const oldest = _sessionIngestOrdinalState.keys().next().value
@@ -95,14 +95,10 @@ export function createSessionIngestRuntime({
     return st
   }
   // Ordinal assigned to a given session-message OBJECT at first sight, reused on
-  // every later hydrate so its source_ref stays stable and ON CONFLICT dedupes
-  // it. This is the survivor-vs-new-append signal — VERIFIED valid in
-  // production: ingest_session runs IN-PROCESS (runtime-core executor →
-  // memoryMod.handleToolCall(args), session-runtime/runtime-core.mjs), NOT over
-  // an HTTP/JSON boundary, so the SAME message objects arrive across calls for a
-  // live session. WeakMap: entries vanish when a message is GC'd (compaction
-  // drops it from the array). Across a process restart (or LRU eviction) the
-  // signal is gone; the walk then falls back to positional ordinals.
+  // later hydrates while the live array survives. Resume/reopen JSON-parses a new
+  // object graph even when this memory runtime remains warm, so object identity
+  // is only the fast/strong signal; the ordered snapshot fallback below handles
+  // cloned transcript replays.
   const _ingestedMessageOrdinal = new WeakMap()
   // Assign/reuse the occurrence ordinal for message `m` under identity `occKey`.
   // A re-presented object reuses its recorded ordinal AND advances the session
@@ -123,17 +119,22 @@ export function createSessionIngestRuntime({
     _ingestedMessageOrdinal.set(m, ord)
     return ord
   }
+  // Reuse an occurrence recovered from the previous ingest's content/order
+  // snapshot. Session resume/reopen JSON-parses the transcript, so every row is
+  // a fresh object even while the long-lived memory runtime (and its WeakMaps)
+  // stays warm. Object identity alone therefore misclassified a cloned replay
+  // as newly appended history and minted a new source_ref for every old turn.
+  function _reuseOccurrence(occNext, occKey, m, occurrence) {
+    const ord = Math.max(0, Math.floor(Number(occurrence) || 0))
+    if (ord + 1 > (occNext.get(occKey) ?? 0)) occNext.set(occKey, ord + 1)
+    _ingestedMessageOrdinal.set(m, ord)
+    return ord
+  }
   // Cache of (role, cleaned content) per session message OBJECT, keyed by
   // identity (WeakMap — entries vanish once the message is GC'd, e.g. after
-  // compaction drops the array). The subset-reingest ordinal fix below must
-  // replay cleanMemoryText/shouldExcludeIngestMessage over messages[0, start)
-  // on every call; without caching that turned an O(limit)-bounded ingest into
-  // an O(full transcript) regex pass on every hydrate. Message objects are
-  // immutable transcript entries reused by reference across calls (recall-
-  // fasttrack re-ingests the same in-memory array as the session grows), so
-  // once a message's identity fields are computed they never change — caching
-  // makes every call after the first pay only for genuinely NEW messages,
-  // restoring the limit-bounded cost in steady state.
+  // compaction or JSON reload replaces the array). Live-array steady-state calls
+  // reuse the cache; cloned replays recompute once and then reconcile against the
+  // ordered snapshot.
   const _ingestIdentityFieldsCache = new WeakMap()
   // Return { role, content } for a session message's dedup identity, or null if
   // the message would be skipped by ingest (no role / excluded / empty content
@@ -257,61 +258,72 @@ export function createSessionIngestRuntime({
       } catch { /* absent/corrupt state file → in-memory only (invariant 2 safe) */ }
       ordinalState.durableLoaded = true
     }
-    if (!ordinalState.seeded) {
-      // Replay identity/exclude logic over messages[0, start) so occNext reflects
-      // full-array position (and any surviving recorded ordinals) even when this
-      // call ingests only a later window. Runs once per fresh/evicted state; a
-      // warm state already carries the counts, so re-seeding would double-count.
-      for (let i = 0; i < start; i += 1) {
-        const m = messages[i]
-        if (!m || typeof m !== 'object') continue
-        // Cached (WeakMap-keyed) so a repeated hydrate over the SAME prefix
-        // objects only pays the clean/normalize cost once per message.
-        const fields = _ingestIdentityFields(m)
-        if (!fields) continue
-        _assignOccurrence(occNext, `${fields.role}\u0000${fields.content}`, m)
-      }
-      ordinalState.seeded = true
+    // Content/order fallback for JSON-cloned transcript replays. The previous
+    // eligible sequence is indexed by a stable base source key; a greedy
+    // forward subsequence match recognizes unchanged prefixes, compacted
+    // survivors, and appended suffixes in O(n). Same-object rows keep the
+    // stronger WeakMap occurrence and advance the cursor to that exact prior
+    // occurrence. Unmatched rows alone consume the historical high-water, so a
+    // genuine append remains distinct while a reopen/reload stays idempotent.
+    const priorSnapshot = Array.isArray(ordinalState.snapshot) ? ordinalState.snapshot : []
+    const priorByKey = new Map()
+    for (let i = 0; i < priorSnapshot.length; i += 1) {
+      const item = priorSnapshot[i]
+      if (!item?.key) continue
+      if (!priorByKey.has(item.key)) priorByKey.set(item.key, [])
+      priorByKey.get(item.key).push({ index: i, occurrence: item.occurrence })
     }
-    for (let i = start; i < messages.length; i += 1) {
+    const priorPointers = new Map()
+    let priorCursor = 0
+    const takePrior = (key, wantedOccurrence = null) => {
+      const list = priorByKey.get(key)
+      if (!list?.length) return null
+      let p = priorPointers.get(key) ?? 0
+      while (p < list.length && list[p].index < priorCursor) p += 1
+      if (wantedOccurrence != null) {
+        while (p < list.length
+          && list[p].index >= priorCursor
+          && Number(list[p].occurrence) !== Number(wantedOccurrence)) p += 1
+      }
+      if (p >= list.length) {
+        priorPointers.set(key, p)
+        return null
+      }
+      const match = list[p]
+      priorPointers.set(key, p + 1)
+      priorCursor = match.index + 1
+      return match
+    }
+    const currentSnapshot = []
+    const prepared = []
+    for (let i = 0; i < messages.length; i += 1) {
       const m = messages[i]
       if (!m || typeof m !== 'object') continue
-      const role = normalizeIngestRole(m.role)
-      // ingest_session persists user/assistant only; system/developer/tool rows
-      // are dropped so recall-fasttrack summaries stay conversation-focused and
-      // do not re-inject content already in the protected system prefix.
-      if (!role) continue
-      // Exclude synthetic / non-conversation rows entirely (reference-files
-      // injections, compaction summaries, protected-context `.` acks, internal
-      // runtime nudges). These are mechanical noise, not conversation.
-      if (shouldExcludeIngestMessage(m)) continue
-      // Pure-conversation shaping: only the human/model prose text. The ingest
-      // shaper NEVER inlines tool_call / tool_result traces and strips the
-      // deterministic manager.mjs user-turn prefix envelopes (# Session /
-      // # Additional context / # Prefetch / # Task) so only the real human
-      // prompt remains. cleanMemoryText then removes the <system-reminder> block
-      // and residual transcript noise.
-      const content = cleanMemoryText(sessionMessageContentForIngest(m))
-      if (!content || !content.trim()) continue
-      considered += 1
-      const tsMs = parseTsToMs(m.ts ?? m.timestamp ?? (Date.now() - (messages.length - i)))
-      // Assign the next monotonic turn BEFORE building the source_ref so identical
-      // untimestamped repeats get distinct identities (peekNext is stable until a
-      // row is actually inserted → next()).
-      const assignedTurn = turnAllocator.peekNext()
-      // Stable occurrence index for this identity (pre-hash; role+content is a
-      // sufficient discriminator for the duplicate case the ordinal disambiguates).
-      // See the distinction-rule comment above and _assignOccurrence. For an
-      // UNTIMESTAMPED turn a WARM first-seen assignment is floored by the durable
-      // per-identity high-water so a genuine post-restart/eviction append lands
-      // above every persisted copy; the durable high-water is then advanced.
+      const fields = _ingestIdentityFields(m)
+      if (!fields) continue
+      const { role, content } = fields
       const occKey = `${role}\u0000${content}`
       const rawTs = m.ts ?? m.timestamp
       const untimestamped = !((typeof rawTs === 'number' && Number.isFinite(rawTs))
         || (typeof rawTs === 'string' && rawTs.trim()))
       const idHash = untimestamped ? _identityHash(occKey) : null
-      const floor = (warmCall && untimestamped) ? (ordinalState.durable.get(idHash) ?? 0) : 0
-      const occurrence = _assignOccurrence(occNext, occKey, m, floor)
+      // occurrence=0 makes a stable match key: timestamp/tool ids remain part
+      // of the key, while repeated untimestamped text shares a key and is
+      // disambiguated by ordered snapshot occurrences.
+      const snapshotKey = stableSessionSourceRef(sessionId, m, role, content, 0)
+      let occurrence
+      if (_ingestedMessageOrdinal.has(m)) {
+        occurrence = _assignOccurrence(occNext, occKey, m)
+        takePrior(snapshotKey, occurrence)
+      } else {
+        const prior = takePrior(snapshotKey)
+        if (prior) {
+          occurrence = _reuseOccurrence(occNext, occKey, m, prior.occurrence)
+        } else {
+          const floor = (warmCall && untimestamped) ? (ordinalState.durable.get(idHash) ?? 0) : 0
+          occurrence = _assignOccurrence(occNext, occKey, m, floor)
+        }
+      }
       if (untimestamped && occurrence >= 1) {
         // Duplicate untimestamped identity (occurrence>0): record/raise its durable
         // next-ordinal (write-behind persisted below). Monotonic — never regresses
@@ -319,6 +331,20 @@ export function createSessionIngestRuntime({
         const cur = ordinalState.durable.get(idHash) ?? 0
         if (occurrence + 1 > cur) { ordinalState.durable.set(idHash, occurrence + 1); ordinalState.dirty = true }
       }
+      currentSnapshot.push({ key: snapshotKey, occurrence })
+      if (i >= start) {
+        considered += 1
+        prepared.push({ m, role, content, occurrence, index: i })
+      }
+    }
+    ordinalState.snapshot = currentSnapshot
+    ordinalState.seeded = true
+    for (const { m, role, content, occurrence, index } of prepared) {
+      const tsMs = parseTsToMs(m.ts ?? m.timestamp ?? (Date.now() - (messages.length - index)))
+      // Assign the next monotonic turn BEFORE building the source_ref so identical
+      // untimestamped repeats get distinct identities (peekNext is stable until a
+      // row is actually inserted → next()).
+      const assignedTurn = turnAllocator.peekNext()
       // Stable per-message identity. The previous `session:${id}#${i+1}` key was
       // positional, so after compaction shrinks/reindexes session.messages a
       // later turn could reuse an old index and be silently skipped by

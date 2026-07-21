@@ -167,6 +167,22 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     });
   }
 
+  // User prompt row. The channel forwarder ignores plain user text rows
+  // (output-forwarder extractNewText only surfaces assistant rows and
+  // user rows carrying tool_result), so this never echoes back to the
+  // channel — it exists so the memory transcript watcher ingests BOTH
+  // sides of the conversation (user rows were previously never written,
+  // leaving recall unable to reconstruct recent sessions).
+  function appendUser(text) {
+    const value = typeof text === 'string' ? text : (text == null ? '' : String(text));
+    if (!value.trim()) return;
+    appendLine({
+      type: 'user',
+      sessionId,
+      message: { content: [{ type: 'text', text: value }] },
+    });
+  }
+
   function appendToolUse(name, input) {
     if (!name) return;
     appendLine({
@@ -217,6 +233,7 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     ensureTranscriptFile,
     refresh,
     appendAssistant,
+    appendUser,
     appendToolUse,
     appendToolResult,
   };

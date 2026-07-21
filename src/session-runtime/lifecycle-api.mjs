@@ -92,6 +92,36 @@ export function createLifecycleApi(deps) {
       desktopSession: s.desktopSession || null,
     };
   }).filter(Boolean);
+  // Persist a closing session's conversation into the memory DB. Sessions
+  // that never compacted had NO session-sourced rows (ingest_session
+  // previously ran only inside compaction), so recall could not reconstruct
+  // the most recent conversations. Best-effort and deadline-capped: the row
+  // inserts are fast and committed even if the bounded wait elapses during
+  // the trailing embedding flush (the raw-embedding backlog sweep embeds
+  // them later). Never loads the memory runtime just for this — a null
+  // module promise means memory was never used this run, so skip.
+  async function ingestSessionIntoMemory(session) {
+    try {
+      const messages = Array.isArray(session?.messages) ? session.messages : [];
+      if (!session?.id || messages.length === 0) return;
+      const modPromise = getMemoryModPromise();
+      if (!modPromise) return;
+      await withTeardownDeadline(
+        Promise.resolve(modPromise)
+          .then((mod) => (typeof mod?.handleToolCall === 'function'
+            ? mod.handleToolCall('memory', {
+              action: 'ingest_session',
+              sessionId: session.id,
+              cwd: session.cwd || getCurrentCwd(),
+              messages,
+            })
+            : null))
+          .catch(() => {}),
+        2500,
+        undefined,
+      );
+    } catch { /* best-effort: memory ingest must never break lifecycle paths */ }
+  }
   return {
     async close(reason = 'cli-exit', options = {}) {
       const detach = options?.detach === true || options?.wait === false || options?.waitForExit === false;
@@ -122,6 +152,9 @@ export function createLifecycleApi(deps) {
           );
         }
       } catch { /* best-effort: SessionEnd hook must never wedge teardown */ }
+      // Ingest the final conversation BEFORE the memory runtime stop below is
+      // kicked off, so the write happens against a live module/daemon.
+      try { await ingestSessionIntoMemory(getSession()); } catch { /* best-effort */ }
       // Teardown stays async end-to-end across every writer sharing the config
       // lock. Never start a synchronous lock wait while an in-process async
       // holder still needs the event loop to finish and release it.
@@ -274,6 +307,9 @@ export function createLifecycleApi(deps) {
       const session = getSession();
       if (session?.id) {
         const cleanupReason = 'desktop-context-switch';
+        // Fire-and-forget: context switch is user-facing latency; the memory
+        // runtime outlives the closed session so the write completes safely.
+        void ingestSessionIntoMemory(session);
         try {
           cancelBackgroundTasksForLifecycle({
             reason: cleanupReason,
@@ -291,7 +327,12 @@ export function createLifecycleApi(deps) {
       setDesktopSession(nextDesktopSession && typeof nextDesktopSession === 'object'
         ? nextDesktopSession
         : null);
-      await applyResolvedCwd(cwd, { markRefresh: false, waitForMcpReset: true });
+      // Do NOT block the switch on the project MCP reconnect (observed 5s+ per
+      // project entry on desktop). The reset still STARTS here synchronously
+      // (generation bump + in-flight registration inside applyResolvedCwd), so
+      // stale servers cannot be re-adopted, and the ask path gates boundedly on
+      // the in-flight connect before the next turn's tool surface is built.
+      await applyResolvedCwd(cwd, { markRefresh: false });
       // Resuming a historical session temporarily routes the runtime through
       // that session's provider/model. A fresh desktop task or project must
       // return to the configured Lead route instead of inheriting the route
@@ -308,6 +349,7 @@ export function createLifecycleApi(deps) {
     async newSession() {
       const session = getSession();
       if (session?.id) {
+        void ingestSessionIntoMemory(session);
         const tombstone = !hasUserConversationMessage(session.messages)
           && !hasUserConversationMessage(session.liveTurnMessages);
         mgr.closeSession(session.id, 'cli-new', { tombstone });
@@ -339,6 +381,7 @@ export function createLifecycleApi(deps) {
       if (!resumed) return null;
       if (previousId && previousId !== resumed.id) {
         statusRoutes?.clearGatewaySessionRoute?.(previousId);
+        void ingestSessionIntoMemory(prev);
         const tombstone = !hasUserConversationMessage(previousMessages)
           && !hasUserConversationMessage(previousLive);
         mgr.closeSession(previousId, 'cli-resume', { tombstone });

@@ -97,6 +97,12 @@ function pendingMessagesPath() {
     return join(resolvePluginData(), PENDING_MESSAGES_FILE);
 }
 
+// Exposed for live-share owners: they fs.watch this file for instant pickup
+// of cross-surface submits (the 3s drain tick remains the safety net).
+export function pendingMessagesSpoolPath() {
+    return pendingMessagesPath();
+}
+
 function isValidPendingSessionId(sessionId) {
     return typeof sessionId === 'string' && /^[A-Za-z0-9_-]+$/.test(sessionId);
 }

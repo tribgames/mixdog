@@ -6,7 +6,7 @@
 import { getProvider } from '../../providers/registry.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { collectPromptSkillsCached, buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
-import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession, readSessionHeartbeatMtime, readSessionPresenceMtime } from '../store.mjs';
+import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession, readSessionHeartbeatMtime, readSessionPresenceMtime, isSessionPresenceOwnerDead, deleteSessionPresence } from '../store.mjs';
 import { _getRuntimeEntry } from './runtime-liveness.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
@@ -498,6 +498,14 @@ function _isActivelyOwnedElsewhere(session, sessionId) {
     // one of our own sessions (desktop tab switch, TUI /resume) never attaches.
     const entry = _getRuntimeEntry(sessionId);
     if (entry && entry.closed !== true) return false;
+    // A FORCE-KILLED owner leaves its `.own` sidecar behind looking fresh.
+    // The recorded pid is authoritative: when it no longer exists, the owner
+    // is gone — clear the stale sidecar and resume with normal ownership
+    // instead of viewer-attaching into a spool nobody drains.
+    if (isSessionPresenceOwnerDead(sessionId)) {
+        deleteSessionPresence(sessionId);
+        return false;
+    }
     // Heartbeats publish only while a turn is running (≤5s cadence) and the
     // sidecar is deleted on detach/close, so freshness here means another
     // process is mid-conversation on this session right now. Presence (`.own`)
@@ -511,6 +519,17 @@ function _isActivelyOwnedElsewhere(session, sessionId) {
         Number(readSessionPresenceMtime(sessionId)) || 0,
     );
     return lastHb > 0 && Date.now() - lastHb <= ACTIVE_OWNER_HB_FRESH_MS;
+}
+
+// Viewer self-heal probe: true when a re-resume of this session would NO
+// LONGER attach (owner dead or every liveness signal stale). Attached
+// surfaces poll this so a dead owner promotes the viewer instead of leaving
+// it spooling messages to nobody. Single source of truth: the same guard
+// the resume path uses.
+export function isSessionOwnerGone(sessionId) {
+    const session = loadSession(sessionId);
+    if (!session) return false;
+    return !_isActivelyOwnedElsewhere(session, sessionId);
 }
 
 export async function resumeSession(sessionId, preset, options = {}) {

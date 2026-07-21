@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'fs';
 import * as fsp from 'fs/promises';
 import { join } from 'path';
 import { getPluginData } from '../../config.mjs';
@@ -94,5 +94,29 @@ export function readSessionPresenceMtime(id) {
         return existsSync(path) ? (statSync(path).mtimeMs || 0) : 0;
     } catch {
         return 0;
+    }
+}
+
+// A force-killed owner never clears its presence sidecar, so bare mtime
+// freshness would lock every resume inside the window into viewer mode with
+// nobody draining the shared spool. The `.own` payload records the holder's
+// pid; a recorded-but-dead pid is authoritative proof the owner is gone.
+export function isSessionPresenceOwnerDead(id) {
+    if (!id) return false;
+    let pid = 0;
+    try {
+        const path = _presencePath(id);
+        if (!existsSync(path)) return false;
+        pid = Number(String(readFileSync(path, 'utf8')).split('\n')[1]) || 0;
+    } catch {
+        return false;
+    }
+    if (!pid) return false;
+    try {
+        process.kill(pid, 0);
+        return false;
+    } catch (error) {
+        // ESRCH: no such process. EPERM means the pid exists (alive).
+        return error?.code === 'ESRCH';
     }
 }

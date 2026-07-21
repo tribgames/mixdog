@@ -161,6 +161,7 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
             limit: positiveTokenInt(sessionRef?.compaction?.recallDigestLimit) || 30,
             includeMembers: true,
             includeRaw: true,
+            compactDigest: true,
         }, callerCtx);
         digestBody = typeof browsed === 'string' ? browsed : String(browsed?.text ?? browsed ?? '');
     } catch (err) {

@@ -52,9 +52,57 @@ export {
     publishSessionPresence,
     deleteSessionPresence,
     readSessionPresenceMtime,
+    isSessionPresenceOwnerDead,
 } from './store/paths-heartbeat.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
+
+// Recent full-session reads are much hotter than writes while a user hops
+// between conversations. Verify the file identity on every access, but reuse
+// the parsed object while the atomic file has not changed.
+const SESSION_LOAD_CACHE_LIMIT = 8;
+const _sessionLoadCache = new Map(); // path → { signature, session }
+let _sessionLoadCacheDataDir = null;
+
+function _readStoredSessionCached(id, path) {
+    const dataDir = getPluginData();
+    if (_sessionLoadCacheDataDir !== dataDir) {
+        _sessionLoadCacheDataDir = dataDir;
+        _sessionLoadCache.clear();
+    }
+    let signature;
+    try {
+        const info = statSync(path, { bigint: true });
+        signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}`;
+    } catch {
+        _sessionLoadCache.delete(path);
+        return { exists: existsSync(path), session: null };
+    }
+    const cached = _sessionLoadCache.get(path);
+    if (cached?.signature === signature) {
+        _sessionLoadCache.delete(path);
+        _sessionLoadCache.set(path, cached);
+        return { exists: true, session: cached.session };
+    }
+    try {
+        const stored = JSON.parse(readFileSync(path, 'utf-8'));
+        if (stored?.id !== id) {
+            _sessionLoadCache.delete(path);
+            return { exists: true, session: null };
+        }
+        _sessionLoadCache.delete(path);
+        _sessionLoadCache.set(path, { signature, session: stored });
+        while (_sessionLoadCache.size > SESSION_LOAD_CACHE_LIMIT) {
+            const oldest = _sessionLoadCache.keys().next().value;
+            if (oldest === undefined) break;
+            _sessionLoadCache.delete(oldest);
+        }
+        return { exists: true, session: stored };
+    } catch {
+        _sessionLoadCache.delete(path);
+        return { exists: true, session: null };
+    }
+}
 
 // Listing is much hotter than writing, especially while the desktop session
 // browser is open. Keep the compact sidecar in memory after the first read;
@@ -1095,17 +1143,12 @@ export function bumpSessionGeneration(id, reason = 'detach') {
 
 export function loadSession(id) {
     const path = sessionPath(id);
-    let stored = null;
-    if (existsSync(path)) {
-        try {
-            stored = JSON.parse(readFileSync(path, 'utf-8'));
-            // An existing file owns this identity. Its contents must validate
-            // before fresher in-memory state is allowed to shadow it.
-            if (stored?.id !== id) return null;
-        } catch {
-            return null;
-        }
-    }
+    // An existing file owns this identity. Its contents must validate before
+    // fresher in-memory state is allowed to shadow it. Unchanged atomic files
+    // reuse their recent parsed object instead of reparsing the full transcript.
+    const disk = _readStoredSessionCached(id, path);
+    if (disk.exists && !disk.session) return null;
+    const stored = disk.session;
     // Read-your-writes: if a save is pending (debouncing, scheduled, or queued
     // behind an in-flight write) return that payload instead of stale disk state.
     // The most-recently-queued slot is checked first (queued > payload).

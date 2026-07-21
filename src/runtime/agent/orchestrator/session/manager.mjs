@@ -68,6 +68,7 @@ export {
     drainPendingMessages,
     markCompletionEntry,
     COMPLETION_NOTIFICATION_KIND,
+    pendingMessagesSpoolPath,
 } from './manager/pending-messages.mjs';
 // Interactive-presence sidecar (idle-open ownership signal for the
 // attach-on-resume guard) — resolved through the manager facade so the
@@ -111,7 +112,7 @@ export const _preserveBufferConfigFields = preserveBufferConfigFields;
 // ── Session lifecycle / ask / crud / close / cleanup ──────────────────────
 export { SessionClosedError } from './manager/session-errors.mjs';
 export { setAgentRuntime } from './manager/agent-runtime-singleton.mjs';
-export { createSession, updateSessionRoute, resumeSession } from './manager/session-lifecycle.mjs';
+export { createSession, updateSessionRoute, resumeSession, isSessionOwnerGone } from './manager/session-lifecycle.mjs';
 export { askSession, _api_call_with_interrupt } from './manager/ask-session.mjs';
 export {
     _sessionMessagesAdvancedBeyondCompactedOutgoing,

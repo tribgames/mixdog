@@ -200,6 +200,7 @@ async function runRecallFastTrackForSession(session, messages, opts = {}) {
             limit: positiveContextWindow(session?.compaction?.recallDigestLimit) || 30,
             includeMembers: true,
             includeRaw: true,
+            compactDigest: true,
         }, callerCtx, memoryTimeoutMs);
         recallText = typeof browsed === 'string' ? browsed : String(browsed?.text ?? browsed ?? '');
     } catch (err) {

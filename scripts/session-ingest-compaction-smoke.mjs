@@ -238,4 +238,42 @@ function refsFor(messages, opts) {
   assert(rdb.rows.length === rowsBefore, 'RESTART+drop: no duplicate rows created')
 }
 
+// ── WARM runtime + JSON-cloned replay (desktop/session resume) ───────────────
+// The memory daemon can outlive a surface that reloads the same session JSON.
+// Every transcript message is then a new object while the ingest runtime's
+// WeakMaps remain warm. The replay must reuse prior source_refs, and only a
+// genuinely appended suffix may insert.
+{
+  const rdb = createFakeDb()
+  const S = 'warm-json-clone-sess'
+  const rt = makeRuntime(rdb)
+  const original = [
+    mk('user', 'optimize session switching'),
+    mk('assistant', 'I will inspect the transition path'),
+    mk('user', 'go ahead'),
+    mk('assistant', 'working'),
+  ]
+  await rt.ingestSessionMessages({ sessionId: S, messages: original, limit: 5000 })
+  const beforeReplay = rdb.rows.length
+
+  const clonedReplay = JSON.parse(JSON.stringify(original))
+  await rt.ingestSessionMessages({ sessionId: S, messages: clonedReplay, limit: 5000 })
+  assert(
+    rdb.rows.length === beforeReplay,
+    `WARM CLONE: JSON-reloaded transcript must insert 0 duplicates (before=${beforeReplay} after=${rdb.rows.length})`,
+  )
+
+  // Reload the whole array again and append text identical to an older row.
+  // Snapshot reconciliation reuses the cloned prefix while the suffix consumes
+  // the historical occurrence high-water.
+  const clonedWithAppend = JSON.parse(JSON.stringify(original))
+  clonedWithAppend.push(mk('assistant', 'working'))
+  await rt.ingestSessionMessages({ sessionId: S, messages: clonedWithAppend, limit: 5000 })
+  assert(rdb.rows.length === beforeReplay + 1, 'WARM CLONE: exactly one genuinely appended row must insert')
+
+  const clonedAgain = JSON.parse(JSON.stringify(clonedWithAppend))
+  await rt.ingestSessionMessages({ sessionId: S, messages: clonedAgain, limit: 5000 })
+  assert(rdb.rows.length === beforeReplay + 1, 'WARM CLONE: replay after append must remain idempotent')
+}
+
 process.stdout.write('session ingest compaction-append smoke passed \u2713\n')
