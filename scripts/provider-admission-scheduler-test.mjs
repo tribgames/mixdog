@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import {
     PROVIDER_ACCOUNT_CONCURRENCY,
     PROVIDER_ACCOUNT_MAX_QUEUE,
+    PROVIDER_COOLDOWN_FAIL_FAST_MS,
     ProviderAdmissionScheduler,
     notifyCurrentAnthropicRateLimit,
     providerAdmissionKey,
@@ -578,4 +579,103 @@ test('first-byte deadlines remain 60 seconds', () => {
     assert.equal(PROVIDER_FIRST_BYTE_TIMEOUT_MS, 60_000);
     assert.equal(PROVIDER_WS_FIRST_MEANINGFUL_TIMEOUT_MS, 60_000);
     assert.equal(WS_PRE_RESPONSE_CREATED_MS, 60_000);
+});
+
+test('long quota cooldown fails fast with a visible error and reset unblocks the lane', async () => {
+    assert.equal(PROVIDER_COOLDOWN_FAIL_FAST_MS, 60_000);
+    let now = 50_000;
+    const timers = new Set();
+    const scheduler = new ProviderAdmissionScheduler({
+        concurrency: 2,
+        now: () => now,
+        setTimer(fn, delay) {
+            const timer = { fn, at: now + delay };
+            timers.add(timer);
+            return timer;
+        },
+        clearTimer(timer) { timers.delete(timer); },
+    });
+
+    const gate = deferred();
+    const trigger = deferred();
+    let queuedRan = false;
+    const running = scheduler.run('anthropic-oauth:acct', async () => {
+        await gate.promise;
+        return 'running-done';
+    });
+    // Second slot reports the quota-window 429 mid-flight once `trigger` fires,
+    // while the third request is already parked in the queue.
+    const second = scheduler.run('anthropic-oauth:acct', async () => {
+        await trigger.promise;
+        notifyCurrentAnthropicRateLimit(
+            Object.assign(new Error('quota window'), { httpStatus: 429, retryAfterMs: 3_600_000 }),
+        );
+        await gate.promise;
+        return 'second-done';
+    });
+    const queued = scheduler.run('anthropic-oauth:acct', async () => { queuedRan = true; });
+    await new Promise((r) => setImmediate(r));
+
+    // Quota-window 429 (hours-long Retry-After) lands mid-flight: the queued
+    // request must be rejected visibly, never parked until the window resets.
+    trigger.resolve();
+    await assert.rejects(queued, (error) => error?.code === 'EPROVIDERCOOLDOWN'
+        && /cooldown/i.test(error?.message)
+        && /retryAfter=(?:1h|59m|60m)/.test(error?.message));
+    assert.equal(queuedRan, false);
+
+    // New submissions fail fast while the long cooldown is active.
+    await assert.rejects(
+        scheduler.run('anthropic-oauth:acct', async () => 'blocked'),
+        (error) => error?.code === 'EPROVIDERCOOLDOWN' && error?.httpStatus === 429,
+    );
+
+    // Re-login / account switch resets the cooldown and restores the lane.
+    assert.equal(scheduler.resetCooldowns('anthropic-oauth'), 1);
+    const lane = scheduler.lanes.get('anthropic-oauth:acct');
+    assert.equal(lane.cooldownUntil, 0);
+    assert.equal(lane.limit, 2);
+
+    gate.resolve();
+    assert.equal(await running, 'running-done');
+    assert.equal(await second, 'second-done');
+    assert.equal(await scheduler.run('anthropic-oauth:acct', async () => 'unblocked'), 'unblocked');
+});
+
+test('short burst cooldown still parks the queue without failing turns', async () => {
+    let now = 10_000;
+    const timers = new Set();
+    const scheduler = new ProviderAdmissionScheduler({
+        concurrency: 1,
+        now: () => now,
+        setTimer(fn, delay) {
+            const timer = { fn, at: now + delay };
+            timers.add(timer);
+            return timer;
+        },
+        clearTimer(timer) { timers.delete(timer); },
+    });
+    const advance = async (ms) => {
+        now += ms;
+        for (const timer of [...timers]) {
+            if (timer.at <= now) {
+                timers.delete(timer);
+                timer.fn();
+            }
+        }
+        await new Promise((resolve) => setImmediate(resolve));
+    };
+
+    await scheduler.run('anthropic-oauth:acct', async () => {
+        notifyCurrentAnthropicRateLimit(
+            Object.assign(new Error('burst'), { httpStatus: 429, retryAfterMs: 5_000 }),
+        );
+        return 'reporter';
+    }).catch(() => {});
+    let ran = false;
+    const parked = scheduler.run('anthropic-oauth:acct', async () => { ran = true; return 'parked-ok'; });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(ran, false);
+    await advance(5_000);
+    assert.equal(await parked, 'parked-ok');
 });

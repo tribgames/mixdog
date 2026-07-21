@@ -3,6 +3,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 export const PROVIDER_ACCOUNT_CONCURRENCY = 64;
 export const PROVIDER_ACCOUNT_MAX_QUEUE = 1024;
+// A cooldown longer than this is a quota-window block (subscription limit),
+// not a transient burst: parking requests silently for it would look like a
+// dead chat. Longer cooldowns fail fast with a visible error instead.
+export const PROVIDER_COOLDOWN_FAIL_FAST_MS = 60_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const currentAdmission = new AsyncLocalStorage();
 
@@ -21,6 +25,27 @@ function configuredQueueBound(value) {
 function isAnthropicLane(key) {
     const provider = String(key).split(':', 1)[0].toLowerCase();
     return provider === 'anthropic' || provider === 'anthropic-oauth';
+}
+
+function providerLabelForLane(key) {
+    const prefix = String(key).split(':', 1)[0];
+    const lower = prefix.toLowerCase();
+    if (lower === 'anthropic-oauth') return 'Anthropic OAuth';
+    if (lower === 'anthropic') return 'Anthropic';
+    return prefix;
+}
+
+// Compact duration without spaces/colons so err-text's `retryAfter=([^\s:]+)`
+// capture keeps the full value (e.g. 1h42m, 3m20s, 45s).
+function formatCooldownMs(ms) {
+    const totalSec = Math.max(1, Math.ceil((Number(ms) || 0) / 1000));
+    if (totalSec < 60) return `${totalSec}s`;
+    const totalMin = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    if (totalMin < 60) return sec ? `${totalMin}m${sec}s` : `${totalMin}m`;
+    const hr = Math.floor(totalMin / 60);
+    const min = totalMin % 60;
+    return min ? `${hr}h${min}m` : `${hr}h`;
 }
 
 function retryAfterMs(error, now) {
@@ -44,6 +69,28 @@ export class ProviderAdmissionQueueOverflowError extends Error {
         this.code = 'EPROVIDERQUEUEFULL';
         this.laneKey = key;
         this.maxQueue = maxQueue;
+    }
+}
+
+/**
+ * Deterministic refusal while a long rate-limit cooldown is active. Surfaced
+ * to the caller immediately (turn fails with a visible error) instead of
+ * silently parking the request until the quota window resets. httpStatus 429
+ * routes it through the existing quota/rate-limit error presentation.
+ */
+export class ProviderCooldownError extends Error {
+    constructor(key, cooldownUntil, now) {
+        const remaining = Math.max(0, Number(cooldownUntil) - Number(now));
+        super(
+            `${providerLabelForLane(key)} rate-limit cooldown active; retryAfter=${formatCooldownMs(remaining)} — `
+            + 'wait for the quota window reset, or re-login / switch the provider account to continue now.',
+        );
+        this.name = 'ProviderCooldownError';
+        this.code = 'EPROVIDERCOOLDOWN';
+        this.httpStatus = 429;
+        this.laneKey = key;
+        this.cooldownUntil = cooldownUntil;
+        this.retryAfterMs = remaining;
     }
 }
 
@@ -95,6 +142,12 @@ export class ProviderAdmissionScheduler {
             cooldownTimer: null,
         };
         this.lanes.set(laneKey, lane);
+        // Long cooldown = quota window. Fail fast with a visible error; short
+        // cooldowns (bursts) keep the silent park-and-drain smoothing below.
+        if (lane.adaptive && lane.cooldownUntil - this.now() > PROVIDER_COOLDOWN_FAIL_FAST_MS) {
+            this._scheduleCooldown(laneKey, lane);
+            return Promise.reject(new ProviderCooldownError(laneKey, lane.cooldownUntil, this.now()));
+        }
         if (lane.queue.length >= this.maxQueue) {
             return Promise.reject(new ProviderAdmissionQueueOverflowError(laneKey, this.maxQueue));
         }
@@ -120,6 +173,9 @@ export class ProviderAdmissionScheduler {
 
     _drain(key, lane) {
         if (lane.adaptive && lane.cooldownUntil > this.now()) {
+            if (lane.cooldownUntil - this.now() > PROVIDER_COOLDOWN_FAIL_FAST_MS) {
+                this._rejectQueueForCooldown(key, lane);
+            }
             this._scheduleCooldown(key, lane);
             return;
         }
@@ -187,7 +243,53 @@ export class ProviderAdmissionScheduler {
             Math.min(Number.MAX_SAFE_INTEGER, now + retryAfterMs(error, now)),
         );
         this._scheduleCooldown(key, lane);
+        // A quota-window cooldown must not leave already-queued requests
+        // hanging silently for hours — reject them with the same visible error
+        // the fail-fast admission path raises.
+        if (lane.cooldownUntil - now > PROVIDER_COOLDOWN_FAIL_FAST_MS) {
+            this._rejectQueueForCooldown(key, lane);
+        }
         return true;
+    }
+
+    _rejectQueueForCooldown(key, lane) {
+        if (!lane.queue.length) return;
+        for (const item of lane.queue.splice(0)) {
+            if (item.canceled) {
+                this._detach(item);
+                continue;
+            }
+            item.canceled = true;
+            this._detach(item);
+            item.task = null;
+            item.reject(new ProviderCooldownError(key, lane.cooldownUntil, this.now()));
+        }
+    }
+
+    /**
+     * Clear rate-limit cooldowns (optionally for one provider). Called when
+     * provider credentials change — a re-login / account switch invalidates
+     * the old account's quota window, so requests must flow again immediately.
+     * Returns the number of lanes reset.
+     */
+    resetCooldowns(providerName = null) {
+        const wanted = providerName ? String(providerName).toLowerCase() : null;
+        let resetCount = 0;
+        for (const [key, lane] of [...this.lanes]) {
+            if (!lane.adaptive) continue;
+            if (wanted && String(key).split(':', 1)[0].toLowerCase() !== wanted) continue;
+            if (lane.cooldownUntil <= this.now() && lane.limit >= this.concurrency) continue;
+            lane.cooldownUntil = 0;
+            lane.limit = this.concurrency;
+            lane.recoverySuccesses = 0;
+            if (lane.cooldownTimer) {
+                this.clearTimer(lane.cooldownTimer);
+                lane.cooldownTimer = null;
+            }
+            resetCount += 1;
+            this._drain(key, lane);
+        }
+        return resetCount;
     }
 
     _recordSuccess(lane) {
@@ -303,6 +405,15 @@ export function providerAdmissionKey(providerName, provider) {
 
 export const providerAdmissionScheduler = new ProviderAdmissionScheduler();
 const WRAPPED = Symbol.for('mixdog.providerAdmissionWrapped');
+
+/**
+ * Process-wide cooldown reset on the shared scheduler. Wired to provider auth
+ * mutations (login / API-key save / forget) so switching accounts resumes
+ * chat without a process restart.
+ */
+export function resetProviderAdmissionCooldowns(providerName = null) {
+    return providerAdmissionScheduler.resetCooldowns(providerName);
+}
 
 export function wrapProviderAdmission(provider, providerName, scheduler = providerAdmissionScheduler) {
     if (!provider || typeof provider.send !== 'function' || provider[WRAPPED]) return provider;

@@ -10,6 +10,7 @@ import {
   saveProviderApiKey,
   setLocalProvider,
 } from '../standalone/provider-admin.mjs';
+import { resetProviderAdmissionCooldowns } from '../runtime/agent/orchestrator/providers/admission-scheduler.mjs';
 import { clean } from './session-text.mjs';
 
 // Provider auth / catalog / preset surface. Extracted verbatim from the runtime
@@ -42,6 +43,14 @@ export function createProviderAuthApi({
     } catch { /* best-effort */ }
   }
 
+  // Auth mutation = the user changed credentials (re-login / account switch /
+  // new key). Any admission-lane rate-limit cooldown belongs to the OLD
+  // credentials, so release it immediately — otherwise a quota cooldown from
+  // the previous account silently blocks the fresh account until restart.
+  function releaseAdmissionCooldowns() {
+    try { resetProviderAdmissionCooldowns(); } catch { /* best-effort */ }
+  }
+
   return {
     listProviders() {
       return renderProviderStatus(displayConfig());
@@ -62,6 +71,7 @@ export function createProviderAuthApi({
         : await loginOAuthProvider(cfgMod, providerId);
       reloadFullConfig();
       invalidateProviderCaches();
+      releaseAdmissionCooldowns();
       refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
@@ -71,6 +81,7 @@ export function createProviderAuthApi({
       const result = await loginOAuthProvider(cfgMod, providerId);
       reloadFullConfig();
       invalidateProviderCaches();
+      releaseAdmissionCooldowns();
       refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
@@ -86,6 +97,7 @@ export function createProviderAuthApi({
           reloadFullConfig();
           if (completed) {
             invalidateProviderCaches();
+            releaseAdmissionCooldowns();
             refreshProviderCatalogsSoon();
             warmProviderModelCache();
           }
@@ -96,6 +108,7 @@ export function createProviderAuthApi({
           await awaitKeychainPrewarm();
           reloadFullConfig();
           invalidateProviderCaches();
+          releaseAdmissionCooldowns();
           refreshProviderCatalogsSoon();
           warmProviderModelCache();
           return completed;
@@ -106,6 +119,7 @@ export function createProviderAuthApi({
       const result = saveProviderApiKey(cfgMod, providerId, secret);
       reloadFullConfig();
       invalidateProviderCaches();
+      releaseAdmissionCooldowns();
       refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
@@ -133,6 +147,7 @@ export function createProviderAuthApi({
       const result = setLocalProvider(cfgMod, providerId, opts);
       reloadFullConfig();
       invalidateProviderCaches();
+      releaseAdmissionCooldowns();
       refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;
@@ -141,6 +156,7 @@ export function createProviderAuthApi({
       const result = forgetProviderAuth(cfgMod, providerId);
       reloadFullConfig();
       invalidateProviderCaches();
+      releaseAdmissionCooldowns();
       refreshProviderCatalogsSoon();
       warmProviderModelCache();
       return result;

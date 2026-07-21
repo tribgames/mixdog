@@ -152,7 +152,10 @@ export function presentErrorText(error, options = {}) {
   const quotaRetry = /retryAfter=([^\s:]+)/i.exec(text);
   if (/\b429\b|rate[_ -]?limit|quota|too many requests|resource exhausted|insufficient_quota|quota_exceeded/i.test(text)) {
     const provider = /Anthropic OAuth/i.test(text) ? 'Anthropic' : 'Provider';
-    return `${provider} quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${quotaRetry[1]}` : ''}.`;
+    // Cooldown refusals are recoverable right now by switching accounts —
+    // surface that path instead of leaving only the wait option.
+    const hint = /cooldown/i.test(text) ? ' Re-login or switch the provider account to continue now.' : '';
+    return `${provider} quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${quotaRetry[1]}` : ''}.${hint}`;
   }
 
   const firstResponse = /(?:agent\s+)?first response stale\s*\((\d+)ms\)/i.exec(text);
