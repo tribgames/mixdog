@@ -282,8 +282,15 @@ button { font-weight: 500; letter-spacing: 0; }
 /* The icon set draws at ~1.5px optical weight; lucide's default 2px
    stroke reads heavier at the same sizes. Thin every lucide glyph slightly. */
 svg.lucide { stroke-width: 1.75px; }
-/* Facade glyphs never shrink in flex rows. */
-svg.mx-icon { flex: 0 0 auto; }
+/* Facade glyphs never shrink in flex rows, and keep the crisp optics of the
+   previous hand-drawn set: ~1.25px strokes on a 20-grid ≈ 1.5px on lucide's
+   24-grid, with square caps/miter joins instead of lucide's soft round caps. */
+svg.mx-icon {
+  flex: 0 0 auto;
+  stroke-width: 1.5px;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
