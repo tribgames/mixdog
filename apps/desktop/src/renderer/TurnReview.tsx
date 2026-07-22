@@ -48,11 +48,78 @@ function analyzeTurnReviewPatch(patch: string) {
   return analyzed;
 }
 
+// Single-quoted so the capability-inventory source scan counts this surface.
+const TURN_REVIEW_CAPABILITY = 'getTurnReviewDiff';
+
 export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: string }) {
   const [expanded, setExpanded] = useState(false);
   const [openFile, setOpenFile] = useState("");
   const [confirmFile, setConfirmFile] = useState("");
   const [reverted, setReverted] = useState<string[]>([]);
+  // Preferred source: the engine's shadow-snapshot diff (getTurnReviewDiff).
+  // It covers EVERYTHING the turn changed on disk — subagent and background
+  // job edits included — while the transcript parse below only sees patches
+  // the Lead itself applied. The transcript summary stays as the fallback for
+  // surfaces without the capability (remote/web shim) or when snapshots are
+  // disabled/unsupported.
+  const [snapshotReview, setSnapshotReview] = useState<{
+    files: Array<{ name: string; additions: number; deletions: number }>;
+    patch: string;
+  } | null>(null);
+  const snapshotFailures = useRef(0);
+  // Only probe once the transcript shows turn activity: a fresh/empty session
+  // has no base to diff, and passive mounts must not fire capability calls
+  // (test call-order recordings and real engine leases both stay quiet).
+  const hasTurnActivity = useMemo(() => {
+    for (let index = items.length - 1; index >= 0; index--) {
+      if (items[index]?.kind === "user") return false;
+      if (items[index]) return true;
+    }
+    return false;
+  }, [items]);
+  const refreshSnapshotReview = useCallback(async () => {
+    const api = window.mixdogDesktop as {
+      invokeCapability?: (request: { capability: string; args: unknown[] }) => Promise<{ value?: unknown }>;
+    } | undefined;
+    if (!api?.invokeCapability || snapshotFailures.current >= 3) return;
+    try {
+      const result = await api.invokeCapability({ capability: TURN_REVIEW_CAPABILITY, args: [] });
+      const value = (result?.value ?? null) as {
+        supported?: boolean;
+        files?: Array<{ name?: unknown; additions?: unknown; deletions?: unknown }>;
+        patch?: unknown;
+      } | null;
+      if (!value || value.supported === false) {
+        snapshotFailures.current += 1;
+        return;
+      }
+      snapshotFailures.current = 0;
+      setSnapshotReview({
+        files: (Array.isArray(value.files) ? value.files : []).flatMap((file) => {
+          const name = String(file?.name || "");
+          if (!name) return [];
+          return [{
+            name,
+            additions: Math.max(0, Number(file?.additions) || 0),
+            deletions: Math.max(0, Number(file?.deletions) || 0),
+          }];
+        }),
+        patch: typeof value.patch === "string" ? value.patch : "",
+      });
+    } catch {
+      snapshotFailures.current += 1;
+    }
+  }, []);
+  // Refresh on transcript movement (turn events) and on a slow idle poll so
+  // background work that lands while the Lead is idle still surfaces.
+  useEffect(() => {
+    if (hasTurnActivity) void refreshSnapshotReview();
+  }, [refreshSnapshotReview, hasTurnActivity, items]);
+  useEffect(() => {
+    if (!hasTurnActivity && !snapshotReview) return undefined;
+    const timer = window.setInterval(() => { void refreshSnapshotReview(); }, 6_000);
+    return () => window.clearInterval(timer);
+  }, [refreshSnapshotReview, hasTurnActivity, snapshotReview]);
   // Shares the Review pane's persisted diff-style preference (user request:
   // the expanded bar renders real diffs, so it needs the same Unified/Split
   // control).
@@ -63,7 +130,7 @@ export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: s
   useEffect(() => {
     try { window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle); } catch { /* persistence only */ }
   }, [diffStyle]);
-  const summary = useMemo(() => {
+  const transcriptSummary = useMemo(() => {
     let lastUser = -1;
     for (let index = items.length - 1; index >= 0; index--) {
       if (items[index]?.kind === "user") { lastUser = index; break; }
@@ -93,6 +160,36 @@ export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: s
     for (const entry of files.values()) { additions += entry.additions; deletions += entry.deletions; }
     return { files, additions, deletions };
   }, [items]);
+  const summary = useMemo(() => {
+    if (!snapshotReview || snapshotReview.files.length === 0) return transcriptSummary;
+    const partsByName = new Map<string, ReturnType<typeof parseUnifiedDiff>>();
+    if (snapshotReview.patch) {
+      try {
+        for (const analyzed of analyzeTurnReviewPatch(snapshotReview.patch)) {
+          const bucket = partsByName.get(analyzed.name) || [];
+          bucket.push(analyzed.part);
+          partsByName.set(analyzed.name, bucket);
+        }
+      } catch { /* counts still render without expandable hunks */ }
+    }
+    const files = new Map<string, {
+      additions: number;
+      deletions: number;
+      parts: ReturnType<typeof parseUnifiedDiff>;
+    }>();
+    let additions = 0;
+    let deletions = 0;
+    for (const file of snapshotReview.files) {
+      files.set(file.name, {
+        additions: file.additions,
+        deletions: file.deletions,
+        parts: partsByName.get(file.name) || [],
+      });
+      additions += file.additions;
+      deletions += file.deletions;
+    }
+    return { files, additions, deletions };
+  }, [snapshotReview, transcriptSummary]);
   if (summary.files.size === 0) return null;
   return (
     <section className="turn-review-bar" aria-label="Files changed this turn"

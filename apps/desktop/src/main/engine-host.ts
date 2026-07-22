@@ -878,7 +878,8 @@ export class EngineHost {
     // The engine lease is still acquired under the lock; the probe itself
     // neither mutates session state nor needs a publication (readCapabilities
     // follows the same read-only rationale).
-    if (capability === 'getProviderSetup' || capability === 'getUsageDashboard') {
+    if (capability === 'getProviderSetup' || capability === 'getUsageDashboard'
+      || capability === 'getTurnReviewDiff') {
       await this.exclusive(async () => {
         if (this.engine) return;
         const workspace = await this.taskWorkspace();

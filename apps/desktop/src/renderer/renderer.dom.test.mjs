@@ -20,6 +20,7 @@ const { ContextBody } = await import("./CommandSurface.tsx");
 const { DesktopTitlebar } = await import("./navigation.tsx");
 const { OpenSelect } = await import("./OpenSelect.tsx");
 const { TooltipLayer } = await import("./TooltipLayer.tsx");
+const { TurnReviewBar } = await import("./TurnReview.tsx");
 const { acquireModalLayer } = await import("./modal-layer.ts");
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -687,6 +688,46 @@ test("failed tools expose a failed status instead of a successful completion", a
     "failed tools should retain their own icon");
   assert.equal(document.querySelector(".lucide-x"), null,
     "failed tools should not replace their own icon with an X");
+});
+
+test("turn review bar prefers the shadow-snapshot diff so background edits surface", async () => {
+  installDom();
+  const capabilityCalls = [];
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => {
+      capabilityCalls.push(request.capability);
+      return {
+        value: {
+          supported: true,
+          files: [{ name: "src/app.mjs", additions: 3, deletions: 1 }],
+          patch: [
+            "diff --git a/src/app.mjs b/src/app.mjs",
+            "--- a/src/app.mjs",
+            "+++ b/src/app.mjs",
+            "@@ -1,1 +1,3 @@",
+            "-old",
+            "+new",
+            "+more",
+            "+lines",
+            "",
+          ].join("\n"),
+        },
+      };
+    },
+  };
+  await act(async () => root.render(React.createElement(TurnReviewBar, {
+    items: [
+      { id: 1, kind: "user", text: "go" },
+      { id: 2, kind: "assistant", text: "background job finished" },
+    ],
+    cwd: "C:/proj",
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert.ok(capabilityCalls.includes("getTurnReviewDiff"),
+    "the bar must read the engine shadow-snapshot diff");
+  assert.match(document.querySelector(".turn-review-summary")?.textContent || "", /1 file changed/);
+  assert.match(document.querySelector(".turn-review-summary .diff-stats")?.textContent || "", /\+3/);
+  assert.match(document.querySelector(".turn-review-file code")?.textContent || "", /src\/app\.mjs/);
 });
 
 test("tool counters and hook-denial visibility mirror the TUI", async () => {

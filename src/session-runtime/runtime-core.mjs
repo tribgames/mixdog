@@ -231,6 +231,7 @@ import { attachSessionHooks } from './session-hooks.mjs';
 import { createQuickModelRows } from './quick-model-rows.mjs';
 import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
+import { getTurnReviewDiff as getTurnSnapshotReviewDiff } from '../runtime/shared/turn-snapshot.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createCwdPlugins } from './cwd-plugins.mjs';
 import { createSettingsApi } from './settings-api.mjs';
@@ -2303,6 +2304,9 @@ export async function createMixdogSessionRuntime({
     ...settingsApi,
     ...channelConfigApi,
     ...providerAuthApi,
+    // Turn-scoped worktree diff (shadow snapshot): everything changed since
+    // the current turn's base tree, regardless of which agent/process wrote it.
+    getTurnReviewDiff: () => getTurnSnapshotReviewDiff(currentCwd, session?.id),
     get id() {
       return session?.id || null;
     },

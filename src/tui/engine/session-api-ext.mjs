@@ -515,6 +515,9 @@ export function createEngineApiB(bag) {
     getUsageDashboard: async (options = {}) => {
       return await runtime.getUsageDashboard?.(options);
     },
+    getTurnReviewDiff: async () => {
+      return (await runtime.getTurnReviewDiff?.()) ?? { supported: false, files: [], patch: '' };
+    },
     getOnboardingStatus: () => {
       return runtime.getOnboardingStatus?.() || { completed: true, workflowRoutes: {} };
     },

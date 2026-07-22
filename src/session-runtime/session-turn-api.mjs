@@ -10,6 +10,7 @@ import {
   refreshInitialDeferredMcpSurface,
 } from './tool-catalog.mjs';
 import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
+import { beginTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
 
 export function splitToolStatusCounts(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -107,6 +108,12 @@ export function createSessionTurnApi(deps) {
           }
         }
         const session0 = getSession();
+        // Turn-review base: capture the pre-turn worktree tree in the shadow
+        // snapshot repo so the desktop review bar can diff EVERYTHING this
+        // turn changes — subagent and background-job edits included. The wait
+        // is capped so a cold first snapshot never stalls the turn; a late
+        // base still lands through the shared promise.
+        try { await beginTurnSnapshot(getCurrentCwd(), session0?.id); } catch { /* never blocks a turn */ }
         if (session0.deferredInitialRefreshPending) {
           // FIRST TURN of a FRESH session (session-local gate, NOT the
           // process-wide firstTurnCompleted): an MCP server may have finished its

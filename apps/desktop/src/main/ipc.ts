@@ -93,7 +93,7 @@ const CAPABILITY_ARITY = {
   setWorkflow: [1, 1], toggleRemote: [0, 0], claimRemote: [0, 0], isRemoteEnabled: [0, 0],
   listThemes: [0, 0], getTheme: [0, 0], setTheme: [1, 2], setAgentRoute: [2, 2],
   setDefaultProvider: [1, 1], listProviders: [0, 0], getProviderSetup: [0, 1],
-  getUsageDashboard: [0, 1], getOnboardingStatus: [0, 0], skipOnboarding: [0, 0],
+  getUsageDashboard: [0, 1], getTurnReviewDiff: [0, 0], getOnboardingStatus: [0, 0], skipOnboarding: [0, 0],
   completeOnboarding: [0, 1], loginOAuthProvider: [1, 1], beginOAuthProviderLogin: [1, 1],
   getOAuthProviderLoginStatus: [1, 1], completeOAuthProviderLogin: [2, 2], cancelOAuthProviderLogin: [1, 1],
   saveProviderApiKey: [2, 2], saveOpenCodeGoUsageAuth: [1, 1], loginOpenCodeGoUsage: [0, 0],
