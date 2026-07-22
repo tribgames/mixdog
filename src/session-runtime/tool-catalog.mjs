@@ -876,7 +876,7 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
 }
 
 /**
- * Turn-boundary reconciliation (Codex-style snapshot + CC-style delta).
+ * Turn-boundary reconciliation (full snapshot + delta).
  * Merge currently-connected MCP tools into session.deferredLateToolCatalog (a
  * SEPARATE pool from the boot-frozen session.deferredToolCatalog) so tools from
  * servers that finished their handshake AFTER this session was created become

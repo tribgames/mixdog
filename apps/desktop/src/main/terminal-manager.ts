@@ -1,4 +1,4 @@
-// Dock terminal backend (aider-desk terminal-manager pattern): PTYs live in
+// Dock terminal backend: PTYs live in
 // the MAIN process, the renderer runs a thin xterm view over IPC. Prebuilt
 // node-pty avoids an electron-rebuild step on Windows. Keep the native module
 // behind first terminal use so cold desktop startup never loads its bindings.

@@ -59,20 +59,20 @@ function cssVariables(palette: ThemePalette): Record<string, string> {
   };
 }
 
-// Interaction/chrome tokens are owned by opencode-v2.css and must never be
+// Interaction/chrome tokens are owned by desktop.css and must never be
 // remapped from TUI palettes: palette.suggestion (amber) and palette.claude
 // (brown) produced orange focus rings and off-brand accents in the desktop UI.
 const INTERACTION_TOKENS = ['--oc-focus', '--focus', '--oc-text-accent', '--accent'] as const;
 
-// The default dark theme is fully defined by opencode-v2.css. Other palettes,
+// The default dark theme is fully defined by desktop.css. Other palettes,
 // including light, must inject their semantic surface tokens.
-function opencodeNative(resolved: string): boolean {
+function builtinTheme(resolved: string): boolean {
   return resolved === DEFAULT_THEME_ID || resolved === 'dark' || resolved === 'light';
 }
 
 function desktopThemeBackground(resolved: string): string {
   if (resolved === 'light') return '#f1efec';
-  if (opencodeNative(resolved)) return '#201e1c';
+  if (builtinTheme(resolved)) return '#201e1c';
   return registry[resolved].palette.background;
 }
 
@@ -138,7 +138,7 @@ export function applyDesktopTheme(value: unknown): string {
   // css-native theme cannot leave stale palette values behind.
   for (const name of Object.keys(variables)) root.style.removeProperty(name);
   for (const name of INTERACTION_TOKENS) root.style.removeProperty(name);
-  if (!opencodeNative(resolved)) {
+  if (!builtinTheme(resolved)) {
     for (const [name, color] of Object.entries(variables)) {
       if ((INTERACTION_TOKENS as readonly string[]).includes(name)) continue;
       root.style.setProperty(name, color);

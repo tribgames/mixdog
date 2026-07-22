@@ -108,7 +108,7 @@ export function usePromptHandlers({
     });
     };
 
-    // Ctrl+V / Meta+V: opencode clipboard.read() model. Prefer OS-clipboard TEXT
+    // Ctrl+V / Meta+V: clipboard.read() model. Prefer OS-clipboard TEXT
     // (routed through the SAME fold pipeline as bracketed paste); when the
     // clipboard holds no text, fall back to the image-attachment path. The async
     // read result is applied by handleExternalPaste under its pasteGeneration

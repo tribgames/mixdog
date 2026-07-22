@@ -3,14 +3,20 @@
 // executePatchTool entry point + replay capture. Moved verbatim from
 // patch.mjs; control flow and output are unchanged.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { resolve as pathResolve, isAbsolute, join as pathJoin } from 'node:path';
+import { chmodSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, statSync } from 'node:fs';
+import { dirname as pathDirname, resolve as pathResolve, isAbsolute, join as pathJoin } from 'node:path';
 import { parsePatch } from 'diff';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
-import { withBuiltinPathLocks } from '../builtin.mjs';
+import {
+  clearReadSnapshotForPath,
+  invalidateBuiltinResultCache,
+  normalizeOutputPath,
+  withBuiltinPathLocks,
+} from '../builtin.mjs';
 import { withAdvisoryLocks } from '../builtin/advisory-lock.mjs';
 import { wrapMutationRouteOutput } from '../mutation-planner.mjs';
 import { getPluginData } from '../../config.mjs';
+import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
 import { prepareInput, isV4APatchInput, hasUnifiedBareV4AHunk, canFallbackCountedUnified, parseV4APatch, parseUnifiedBareV4APatch, parseUnifiedCountedAsV4APatch, isCompactedPlaceholderPatch, salvageV4AOpening } from './parsing.mjs';
 import {
   resolveBasePath,
@@ -27,7 +33,6 @@ import {
 import { ensureNativePatchBinaryAvailable } from './native-server.mjs';
 import { assertPathReachable } from '../builtin/fs-reachability.mjs';
 import { dispatchNativePatch, dispatchJsPatchEntries } from './dispatch.mjs';
-import { normalizeOutputPath } from '../builtin.mjs';
 import {
   planV4ARenameSections,
   applyV4ARenameSections,
@@ -40,6 +45,42 @@ import {
 
 function isPatchErrorText(text) {
   return /^Error:/i.test(String(text ?? '').trimStart());
+}
+
+function capturePatchRollbackState(paths) {
+  return paths.map((fullPath) => {
+    if (!existsSync(fullPath)) return { fullPath, existed: false, content: null, mode: null };
+    const stat = statSync(fullPath);
+    if (!stat.isFile()) throw new Error(`apply_patch: rollback snapshot target is not a regular file: ${normalizeOutputPath(fullPath)}`);
+    return {
+      fullPath,
+      existed: true,
+      content: readFileSync(fullPath),
+      mode: stat.mode,
+    };
+  });
+}
+
+function restorePatchRollbackState(snapshots, readStateScope) {
+  const errors = [];
+  const paths = snapshots.map((snapshot) => snapshot.fullPath);
+  for (const snapshot of snapshots) {
+    try {
+      if (snapshot.existed) {
+        mkdirSync(pathDirname(snapshot.fullPath), { recursive: true });
+        writeFileSync(snapshot.fullPath, snapshot.content);
+        if (snapshot.mode != null) chmodSync(snapshot.fullPath, snapshot.mode);
+      } else if (existsSync(snapshot.fullPath)) {
+        rmSync(snapshot.fullPath, { force: true });
+      }
+    } catch (err) {
+      errors.push(`${normalizeOutputPath(snapshot.fullPath)} — ${err?.message || String(err)}`);
+    }
+  }
+  invalidateBuiltinResultCache(paths);
+  markCodeGraphDirtyPaths(paths);
+  for (const fullPath of paths) clearReadSnapshotForPath(fullPath, readStateScope);
+  return errors;
 }
 
 // Apply one "wave" (a set of unique-target parsed entries) via the native
@@ -99,7 +140,7 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
 async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
   const {
     v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
-    readStateScope, abortSignal, mutationPlan,
+    readStateScope, abortSignal, mutationPlan, rollbackOnFailure,
   } = ctx;
 
   // Build the ordered section "units". Each unit resolves its own parsed
@@ -206,6 +247,14 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
 
   return withBuiltinPathLocks(lockPaths, () =>
     withAdvisoryLocks(lockPaths, async () => {
+      let rollbackSnapshots = [];
+      if (!dryRun && rollbackOnFailure) {
+        try {
+          rollbackSnapshots = capturePatchRollbackState(lockPaths);
+        } catch (err) {
+          return `Error: ${err?.message || String(err)}`;
+        }
+      }
       const applied = [];
       const skipped = [];
       let failed = null;
@@ -275,17 +324,27 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         return wrapPatchMutationOutput(body, mutationPlan, { backend });
       }
       const failMsg = failed.error.replace(/^Error:\s*/, '');
+      const rollbackErrors = (!dryRun && rollbackOnFailure)
+        ? restorePatchRollbackState(rollbackSnapshots, readStateScope)
+        : [];
       const committedPhrase = dryRun
         ? `${applied.length} earlier section(s) were validated`
-        : `${applied.length} earlier section(s) were applied to disk (committed) and left in place`;
+        : (rollbackOnFailure
+          ? (rollbackErrors.length === 0
+            ? `${applied.length} earlier section(s) were applied, then all touched paths were rolled back to their pre-patch state`
+            : `${applied.length} earlier section(s) were applied, but rollback was incomplete`)
+          : `${applied.length} earlier section(s) were applied to disk (committed) and left in place`);
       const lines = [
         `Error: apply_patch sequence stopped at section ${failedIndex + 1}/${units.length} (${failed.displayPath}); `
           + `${committedPhrase}; ${skipped.length} later section(s) were skipped (not attempted).`,
       ];
       if (appliedTexts) {
-        lines.push(`--- ${dryRun ? 'validated' : 'applied (committed to disk)'} ---`, appliedTexts);
+        lines.push(`--- ${dryRun ? 'validated' : (rollbackOnFailure ? 'applied before rollback' : 'applied (committed to disk)')} ---`, appliedTexts);
       }
       lines.push(`--- failed section: ${failed.displayPath} ---`, failMsg);
+      if (rollbackErrors.length > 0) {
+        lines.push('--- rollback incomplete ---', ...rollbackErrors);
+      }
       if (skipped.length > 0) {
         lines.push(`--- skipped (not attempted): ${skipped.join(', ')} ---`);
       }
@@ -397,14 +456,18 @@ async function apply_patch(args, cwd, options = {}) {
   const rejectedV4AHunks = [];
   const v4aConvertOpts = { rejectPartial, rejectedHunks: rejectedV4AHunks, fuzzy, dryRun, readStateScope };
   // Default internal ordered mode: apply sections in listed order, stop at the
-  // first failure, and report applied/failed/skipped with true disk state.
+  // first failure, and roll every touched path back to its pre-patch state.
+  // mode:"partial" retains the old committed-prefix behavior for internal
+  // callers that explicitly need it.
   // The legacy bulk/atomic path remains available as an explicit escape hatch.
+  const patchMode = String(args?.mode || '').toLowerCase();
   const legacyBulkMode = args?.sequence === false
-    || ['atomic', 'bulk'].includes(String(args?.mode || '').toLowerCase());
+    || ['atomic', 'bulk'].includes(patchMode);
   if (!legacyBulkMode) {
     return applyPatchSequence(patchStr, requestedFormat, basePath, {
       v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
       readStateScope, abortSignal, mutationPlan,
+      rollbackOnFailure: patchMode !== 'partial',
     });
   }
   let v4aRenamePlan = null;

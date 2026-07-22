@@ -16,7 +16,7 @@ import "@fontsource-variable/jetbrains-mono";
 // Inter-metric-compatible Korean companion face.
 import "pretendard/dist/web/variable/pretendardvariable.css";
 import "./styles.css";
-import "./opencode-v2.css";
+import "./desktop.css";
 import "./webview-zoom";
 // Phone/tablet only: visual-viewport pinning + app-like touch behavior.
 import "./mobile-shell";

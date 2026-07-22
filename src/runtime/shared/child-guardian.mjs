@@ -43,7 +43,7 @@ let killing = false;
 let orphanedAt = 0;
 const timer = setInterval(() => {
   if (!alive(childPid)) process.exit(0);
-  // Orphaned when the parent PID dies. Matches Claude Code / pi: no console
+  // Orphaned when the parent PID dies. Matches mainstream CLIs: no console
   // probe — a hidden shell spawn (windowsHide) plus tree-kill on cleanup, so
   // orphan detection is pure parent-liveness.
   if (alive(parentPid)) {

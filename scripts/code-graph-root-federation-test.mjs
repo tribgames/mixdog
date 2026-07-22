@@ -192,6 +192,33 @@ test('root federation labels repositories, includes registered non-Git projects,
   ]);
 });
 
+test('broad cwd files dot federates registered child projects', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'mixdog-federated-parent-'));
+  const first = join(parent, 'first');
+  const second = join(parent, 'second');
+  await Promise.all([mkdir(first), mkdir(second)]);
+  await writeFile(join(first, 'package.json'), '{}');
+  await writeFile(join(second, 'package.json'), '{}');
+  await writeFile(join(first, 'first.mjs'), 'export function parentFederationNeedle() { return 1; }\n');
+  await writeFile(join(second, 'second.mjs'), 'export const secondProject = true;\n');
+  await writeFile(join(home, 'projects.json'), JSON.stringify({
+    projects: [
+      { name: 'first', path: first, addedAt: 2 },
+      { name: 'second', path: second, addedAt: 1 },
+    ],
+  }));
+  const { executeCodeGraphTool } = await import('../src/runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
+  const result = await executeCodeGraphTool('code_graph', {
+    mode: 'symbol_search',
+    files: ['.'],
+    symbols: ['parentFederationNeedle'],
+  }, parse(parent).root);
+  assert.match(result, new RegExp(`# project .+ \\[${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`));
+  assert.match(result, /parentFederationNeedle/);
+  assert.match(result, new RegExp(`# project .+ \\[${second.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`));
+  await rm(parent, { recursive: true, force: true });
+});
+
 test('trusted file and relationship anchors route to owners; missing and untrusted anchors stop at root', async () => {
   const project = await mkdtemp(join(tmpdir(), 'mixdog-file-route-'));
   const untrusted = await mkdtemp(join(tmpdir(), 'mixdog-untrusted-route-'));

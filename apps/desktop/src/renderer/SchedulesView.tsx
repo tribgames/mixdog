@@ -90,7 +90,7 @@ function frequencyFromCron(cron: string): {
   return fallback;
 }
 
-// Human schedule line for list rows (Codex-style "Weekdays at 08:00").
+// Human schedule line for list rows (e.g. "Weekdays at 08:00").
 function describeSchedule(schedule: RecordValue): string {
   if (schedule.whenAt) {
     const at = new Date(String(schedule.whenAt));

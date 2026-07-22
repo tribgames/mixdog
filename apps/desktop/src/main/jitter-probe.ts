@@ -103,12 +103,15 @@ export async function runJitterProbe({
       if (el) {
         const box = el.getBoundingClientRect();
         const tail = el.querySelector('.transcript-virtual-row--tail');
+        const tailBody = tail?.querySelector('.message-body');
         const thread = el.querySelector('.thread');
         w.__jitter.samples.push({
           t: Math.round(performance.now()),
           st: Math.round(el.scrollTop),
           dist: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
           tailTop: tail ? Math.round(tail.getBoundingClientRect().bottom - box.bottom) : null,
+          tailIndex: tail ? Number(tail.getAttribute('data-index')) : null,
+          tailBodyBottom: tailBody ? Math.round(tailBody.getBoundingClientRect().bottom - box.bottom) : null,
           th: thread ? Math.round(thread.getBoundingClientRect().height) : 0,
           partialVisible: (document.body.textContent || '').includes('probe persisted last user')
             && !tail,
@@ -180,6 +183,35 @@ export async function runJitterProbe({
     send(sessionB());
   }
 
+  // Phase 3: settle the streaming assistant and attach the successful
+  // completion footer. The completion keeps a hidden zero-height transcript
+  // item; the visible assistant must remain the tail anchor throughout.
+  const finishStart = await window.webContents.executeJavaScript(
+    'window.__jitter.samples.length',
+  ) as number;
+  const completedVisibleTailIndex = items.length;
+  send({
+    ...sessionB(),
+    // Keep the capture-only route alive while measuring. Removing spinner and
+    // streamingTail produces the same visible completion geometry; busy only
+    // prevents the synthetic host from cleaning up its task tab mid-sample.
+    busy: true,
+    spinner: null,
+    items: [
+      ...items,
+      { ...tail(), streaming: false },
+      {
+        id: 'probe-turn-done',
+        kind: 'turndone',
+        status: 'done',
+        verb: 'Completed',
+        elapsedMs: Date.now() - startedAt,
+      },
+    ],
+    streamingTail: null,
+  });
+  await sleep(700);
+
   const report = await window.webContents.executeJavaScript(`(() => {
     const w = window;
     cancelAnimationFrame(w.__jitter.raf);
@@ -189,19 +221,24 @@ export async function runJitterProbe({
     st: number;
     dist: number;
     tailTop: number | null;
+    tailIndex: number | null;
+    tailBodyBottom: number | null;
     th: number;
     partialVisible: boolean;
   }>;
 
   // Metrics over the streaming window (skip the first 5 frames of entry).
-  const active = report.slice(5);
+  const active = report.slice(5, finishStart);
   let reversals = 0;
   let maxSwing = 0;
   let lastDelta = 0;
   for (let i = 1; i < active.length; i++) {
     const prev = active[i - 1];
     const next = active[i];
-    if (prev.tailTop == null || next.tailTop == null) continue;
+    if (prev.tailTop == null || next.tailTop == null) {
+      lastDelta = 0;
+      continue;
+    }
     const delta = next.tailTop - prev.tailTop;
     if (Math.abs(delta) > 3 && Math.abs(lastDelta) > 3 && Math.sign(delta) !== Math.sign(lastDelta)) {
       reversals += 1;
@@ -210,6 +247,19 @@ export async function runJitterProbe({
     if (Math.abs(delta) > 3) lastDelta = delta;
   }
   const distances = active.map((sample) => sample.dist);
+  const finish = report.slice(finishStart);
+  const finishTailTops = finish
+    .map((sample) => sample.tailTop)
+    .filter((value): value is number => value != null);
+  const finishBodyBottoms = finish
+    .map((sample) => sample.tailBodyBottom)
+    .filter((value): value is number => value != null);
+  const finishMaxTailShift = finishTailTops.length > 0
+    ? Math.max(...finishTailTops) - Math.min(...finishTailTops)
+    : Number.MAX_SAFE_INTEGER;
+  const finishMaxBodyShift = finishBodyBottoms.length > 0
+    ? Math.max(...finishBodyBottoms) - Math.min(...finishBodyBottoms)
+    : Number.MAX_SAFE_INTEGER;
   const summary = {
     frames: active.length,
     reversals,
@@ -218,6 +268,14 @@ export async function runJitterProbe({
     meanDistance: Math.round(distances.reduce((a, b) => a + b, 0) / Math.max(1, distances.length)),
     offBottomFrames: distances.filter((d) => d > 8).length,
     partialFrames: report.filter((sample) => sample.partialVisible).length,
+    finishFrames: finish.length,
+    finishMaxTailShift,
+    finishMaxBodyShift,
+    finishOffBottomFrames: finish.filter((sample) => sample.dist > 8).length,
+    finishMissingTailFrames: finish.filter((sample) => sample.tailIndex == null).length,
+    finishWrongTailFrames: finish.filter(
+      (sample) => sample.tailIndex != null && sample.tailIndex !== completedVisibleTailIndex,
+    ).length,
   };
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify({ summary, samples: report }, null, 1));

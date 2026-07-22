@@ -274,7 +274,7 @@ export function DesktopTitlebar({
             );
           })}
         </nav>
-        {/* OpenCode parity (titlebar.tsx `Show when={!(creating() && params.dir)}`):
+        {/* New-session affordance:
             while a draft tab is active the draft IS the new-session surface, so
             the + affordance hides; it returns once a real tab is active. */}
         {!tabs.some((tab) => tab.key === activeKey && tab.selection.kind === "new") && (
@@ -353,7 +353,7 @@ function projectIdentity(path: string | null | undefined) {
 
 const LEGACY_DEFAULT_SIDEBAR_WIDTH = 286;
 const DEFAULT_SIDEBAR_WIDTH = 260;
-// OpenCode project-avatar palette: deterministic per-project colour chips.
+// Project-avatar palette: deterministic per-project colour chips.
 const AVATAR_VARIANTS = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple"] as const;
 function avatarVariantFor(seed: string): string {
   let hash = 0;
@@ -396,7 +396,7 @@ interface SessionSidebarProps {
   onPrefetchSession?(sessionId: string): Promise<boolean>;
   onResumeSession(sessionId: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
-  /** Codex-style archive: the row leaves Recent but the session file stays. */
+  /** Archive: the row leaves Recent but the session file stays. */
   onArchiveSession(sessionId: string, archived: boolean): Promise<void>;
   onDeleteSession(sessionId: string): Promise<void>;
 }
@@ -516,8 +516,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         setMenuSessionId("");
       }}
     >
-      {/* Sidebar glyphs use the rounded lucide set (Claude-style): the ported
-          OpenCode square-cap glyphs read flat/washed at list sizes. */}
+      {/* Sidebar glyphs use the rounded lucide set: the ported
+          square-cap glyphs read flat/washed at list sizes. */}
       <nav className="sidebar-primary-nav" aria-label="Workspace">
         <button type="button" className="task-link" onClick={onNewTask}>
           <span className="sidebar-nav-icon sidebar-nav-icon--new"><Plus size={18} /></span>
@@ -854,7 +854,7 @@ const SessionRow = React.memo(function SessionRow({
                 </button>
               </>
             ) : (
-              // Codex-style split (user decision, no "..." menu): Recent rows
+              // Split actions (user decision, no "..." menu): Recent rows
               // only ARCHIVE (instant, restorable — the file stays on disk);
               // destructive delete lives on ARCHIVED rows with the X/✓ confirm.
               session.archived === true ? (

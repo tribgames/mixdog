@@ -12,6 +12,7 @@ const {
   ApprovalCard,
   ContextUsageIndicator,
   DesktopUpdateDialog,
+  lastVisibleTranscriptItemIndex,
   LiveWorkStatus,
   TranscriptRow,
 } = await import("./App.tsx");
@@ -408,7 +409,7 @@ test("header context usage floors percent and dismisses focus popover without re
     "the compact context trigger should not render secondary text");
   const popoverText = indicator.querySelector('[role="tooltip"]')?.textContent || "";
   assert.match(popoverText, /Usage79%Tokens796 \/ 1,000/);
-  // Roo/cline task-header parity: session cost surfaces in the same popover.
+  // Session cost surfaces in the same popover.
   assert.match(popoverText, /Cost\$12\.50/);
   await act(async () => {
     document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
@@ -911,7 +912,7 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   assert.equal(shell?.dataset.category, "Shell");
   assert.equal(shell?.querySelector(".tool-title b")?.textContent, "Shell");
   // Description-less shell cards surface the bare command in the header so a
-  // collapsed card still identifies what ran (cline/zed command-row grammar).
+  // collapsed card still identifies what ran (command-row grammar).
   assert.equal(shell?.querySelector(".tool-title small")?.textContent, "npm test");
   assert.equal(shell?.querySelector(".tool-title small")?.classList.contains("tool-command-inline"), true,
     "bare command subtitle must use the mono treatment");
@@ -1682,7 +1683,13 @@ test("virtualized session switching renders immediately and uses one sticky resi
     "explicit upward scrolling should disarm resize following immediately");
 });
 
-test("sidebar footer keeps settings while the titlebar exposes the OpenCode-style update control", async () => {
+test("virtual tail selection skips trailing hidden completion metadata", () => {
+  assert.equal(lastVisibleTranscriptItemIndex(65, (index) => index === 64), 63);
+  assert.equal(lastVisibleTranscriptItemIndex(66, (index) => index >= 64), 63);
+  assert.equal(lastVisibleTranscriptItemIndex(1, () => true), -1);
+});
+
+test("sidebar footer keeps settings while the titlebar exposes the titlebar update control", async () => {
   installDom();
   let updateOpens = 0;
   let updaterSubscriptions = 0;
@@ -2258,7 +2265,7 @@ test("a pending session rename survives an overlapping stale session refresh", {
   assert.equal(storedTitle, "Authoritative title");
 });
 
-test("OpenCode tooltip placement stays inside the viewport and flips away from a clipped edge", async () => {
+test("Tooltip placement stays inside the viewport and flips away from a clipped edge", async () => {
   installDom();
   window.mixdogDesktop = {
     getSnapshot: async () => ({ items: [], queued: [] }),
@@ -2315,7 +2322,7 @@ test("OpenCode tooltip placement stays inside the viewport and flips away from a
   window.setTimeout = originalTimeout;
 });
 
-test("snapshot notifications render and dismiss through the OpenCode toast surface", async () => {
+test("snapshot notifications render and dismiss through the desktop toast surface", async () => {
   installDom();
   window.mixdogDesktop = {
     getSnapshot: async () => ({
@@ -3559,9 +3566,9 @@ test("model selector never presents an unknown persisted route as a selectable m
 });
 
 test("model control styles keep the reference compact geometry and bounded list", async () => {
-  const [css, openCodeCss] = await Promise.all([
+  const [css, themeCss] = await Promise.all([
     readFile(new URL("./styles.css", import.meta.url), "utf8"),
-    readFile(new URL("./opencode-v2.css", import.meta.url), "utf8"),
+    readFile(new URL("./desktop.css", import.meta.url), "utf8"),
   ]);
   assert.match(css, /\.model-picker-layer\s*\{[^}]*place-items:\s*center;/s);
   assert.match(css, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(var\(--vvh, 100vh\) - 16px\), 512px\);/s);
@@ -3571,52 +3578,52 @@ test("model control styles keep the reference compact geometry and bounded list"
   for (const selector of [".model-trigger", ".effort-control select", ".fast-control"]) {
     assert.match(css, new RegExp(`\\${selector}\\s*\\{[^}]*height:\\s*28px;`, "s"));
   }
-  assert.match(openCodeCss, /\.route-controls > \.fast-control\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*40px;/s,
+  assert.match(themeCss, /\.route-controls > \.fast-control\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*40px;/s,
     "the Fast toggle must keep its compact click target");
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.route-controls > \.fast-control:hover:not\(:disabled\),[\s\S]*?\{[^}]*color:\s*var\(--oc-text\);[^}]*background:\s*var\(--oc-hover\);/s,
     "the Fast toggle must expose hover feedback");
-  assert.match(openCodeCss, /\.route-controls > \.fast-control\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--oc-text\);/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss, /\.route-controls > \.fast-control\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--oc-text\);/s);
+  assert.match(themeCss,
     /\.model-trigger,\s*\.effort-control \.oc-select-trigger\s*\{[^}]*color:\s*var\(--oc-text\);/s,
     "model and effort labels should share the active Fast tone");
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.model-trigger\s*\{[^}]*width:\s*auto;[^}]*max-width:\s*min\(220px,\s*100%\);[^}]*flex:\s*0 1 auto;/s,
     "the model trigger should end at its visible label instead of reserving an empty fixed slot");
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.effort-control\s*\{[^}]*width:\s*auto;[^}]*flex:\s*0 0 auto;/s,
     "the effort picker should use its full intrinsic label width beside the model");
-  assert.doesNotMatch(openCodeCss, /\.effort-control \.oc-select-trigger\s*\{\s*width:\s*100%;/s);
-  assert.match(openCodeCss,
+  assert.doesNotMatch(themeCss, /\.effort-control \.oc-select-trigger\s*\{\s*width:\s*100%;/s);
+  assert.match(themeCss,
     /\.oc-menu\[aria-label="Project context"\] \.oc-menu-item\s*\{[^}]*line-height:\s*20px;/s,
     "project labels need enough line height for descenders");
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.effort-control \.oc-select-trigger\s*\{[^}]*height:\s*28px;[^}]*padding:\s*0 5px 0 8px;[^}]*line-height:\s*20px;/s,
     "the effort trigger needs a full text line box inside its fixed control height");
-  assert.match(openCodeCss, /\.effort-control \.oc-select-value\s*\{[^}]*line-height:\s*20px;/s);
-  assert.match(openCodeCss, /\.model-picker-layer\s*\{[^}]*background:[^}]*backdrop-filter:\s*blur\(2px\);/s);
-  assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*background:\s*transparent;/s);
-  assert.match(openCodeCss, /\.model-picker-header\s*\{[^}]*padding:\s*16px 12px 16px 20px;/s);
-  assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*margin-left:\s*auto;/s);
-  assert.match(openCodeCss, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(var\(--vvh, 100vh\) - 16px\), 512px\);/s,
+  assert.match(themeCss, /\.effort-control \.oc-select-value\s*\{[^}]*line-height:\s*20px;/s);
+  assert.match(themeCss, /\.model-picker-layer\s*\{[^}]*background:[^}]*backdrop-filter:\s*blur\(2px\);/s);
+  assert.match(themeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*background:\s*transparent;/s);
+  assert.match(themeCss, /\.model-picker-header\s*\{[^}]*padding:\s*16px 12px 16px 20px;/s);
+  assert.match(themeCss, /\.model-provider-add\s*\{[^}]*margin-left:\s*auto;/s);
+  assert.match(themeCss, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(var\(--vvh, 100vh\) - 16px\), 512px\);/s,
     "the centered dialog should use the reference dialog container geometry");
-  assert.match(openCodeCss, /\.model-picker-dialog\s*\{[^}]*border-radius:\s*10px;/s,
+  assert.match(themeCss, /\.model-picker-dialog\s*\{[^}]*border-radius:\s*10px;/s,
     "the model dialog should use the reference --radius-xl value");
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.model-option-row\s*\{[^}]*min-height:\s*48px;[^}]*padding:\s*6px 8px;/s,
     "model rows should leave room for stable secondary metadata");
-  assert.match(openCodeCss, /\.model-row-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s);
-  assert.match(openCodeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--oc-text-faint\);[^}]*font-size:\s*11px;/s);
-  assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
-  assert.doesNotMatch(openCodeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
-  assert.match(openCodeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/s);
-  assert.doesNotMatch(openCodeCss, /\.model-tag\s*\{/);
-  assert.match(openCodeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
-  assert.match(openCodeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
-  assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s,
+  assert.match(themeCss, /\.model-row-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s);
+  assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--oc-text-faint\);[^}]*font-size:\s*11px;/s);
+  assert.match(themeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
+  assert.doesNotMatch(themeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
+  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/s);
+  assert.doesNotMatch(themeCss, /\.model-tag\s*\{/);
+  assert.match(themeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
+  assert.match(themeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
+  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s,
     "the composer should sit close to the workspace bottom edge");
-  assert.match(openCodeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--oc-bg-base\);[^}]*box-shadow:\s*var\(--oc-raised\);/s,
-    "the composer should use the solid OpenCode v2 base and its subtle raised elevation");
+  assert.match(themeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--oc-bg-base\);[^}]*box-shadow:\s*var\(--oc-raised\);/s,
+    "the composer should use the solid desktop base and its subtle raised elevation");
 });
 
 test("model selection applies the secure route result, hides unrelated effort, and recovers from errors", async () => {
@@ -3960,68 +3967,68 @@ test("live engine activity and completion or compaction rows preserve runtime st
 });
 
 test("desktop session sidebar resizes accessibly, releases its rail when collapsed, and restores it", async () => {
-  const [baseCss, openCodeCss] = await Promise.all([
+  const [baseCss, themeCss] = await Promise.all([
     readFile(new URL("./styles.css", import.meta.url), "utf8"),
-    readFile(new URL("./opencode-v2.css", import.meta.url), "utf8"),
+    readFile(new URL("./desktop.css", import.meta.url), "utf8"),
   ]);
   assert.match(baseCss,
     /\.sidebar-collapsed \.sidebar\s*\{[^}]*width:\s*0;[^}]*flex-basis:\s*0;[^}]*padding-inline:\s*0;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*padding:\s*8px;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.sidebar-collapsed \.sidebar\.session-sidebar\s*\{[^}]*width:\s*0;[^}]*flex:\s*0 0 0px;[^}]*flex-basis:\s*0px;/s);
-  assert.match(openCodeCss, /\.titlebar-leading\s*\{[^}]*height:\s*28px;[^}]*gap:\s*6px;[^}]*margin-right:\s*0;/s);
-  assert.match(openCodeCss, /\.topbar\s*\{[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 13px;/s);
-  assert.match(openCodeCss, /\.workspace-tabs\s*\{[^}]*height:\s*28px;[^}]*gap:\s*13\.5px;[^}]*padding:\s*0;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss, /\.titlebar-leading\s*\{[^}]*height:\s*28px;[^}]*gap:\s*6px;[^}]*margin-right:\s*0;/s);
+  assert.match(themeCss, /\.topbar\s*\{[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 13px;/s);
+  assert.match(themeCss, /\.workspace-tabs\s*\{[^}]*height:\s*28px;[^}]*gap:\s*13\.5px;[^}]*padding:\s*0;/s);
+  assert.match(themeCss,
     /\.workspace-tab\s*\{[^}]*width:\s*224px;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.workspace-tab-main > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*flex:\s*0 0 14px;/s);
-  assert.match(openCodeCss, /\.transcript\s*\{[^}]*scrollbar-gutter:\s*stable both-edges;/s);
-  assert.match(openCodeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*0 8px 8px;/s);
-  assert.match(openCodeCss, /\.sidebar-collapsed \.desktop-body\s*\{[^}]*gap:\s*0;/s);
-  assert.match(openCodeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
-  assert.match(openCodeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 36px;/s);
+  assert.match(themeCss, /\.transcript\s*\{[^}]*scrollbar-gutter:\s*stable both-edges;/s);
+  assert.match(themeCss, /\.desktop-body\s*\{[^}]*gap:\s*8px;[^}]*padding:\s*0 8px 8px;/s);
+  assert.match(themeCss, /\.sidebar-collapsed \.desktop-body\s*\{[^}]*gap:\s*0;/s);
+  assert.match(themeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
+  assert.match(themeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 36px;/s);
   // Conversation title runs one step above tab chrome (user: important info
   // read underweighted at 14px/500).
-  assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*15px;[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);
-  assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 36px 20px;[^}]*gap:\s*20px;/s);
-  assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s);
-  assert.match(openCodeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
-  assert.match(openCodeCss, /\.session-sidebar-footer button\s*\{[^}]*height:\s*36px;/s);
-  assert.doesNotMatch(openCodeCss, /\.workspace-tab-divider\s*\{/);
-  assert.match(openCodeCss,
+  assert.match(themeCss, /\.session-header h1\s*\{[^}]*font-size:\s*15px;[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);
+  assert.match(themeCss, /\.thread\s*\{[^}]*padding:\s*20px 36px 20px;[^}]*gap:\s*20px;/s);
+  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s);
+  assert.match(themeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
+  assert.match(themeCss, /\.session-sidebar-footer button\s*\{[^}]*height:\s*36px;/s);
+  assert.doesNotMatch(themeCss, /\.workspace-tab-divider\s*\{/);
+  assert.match(themeCss,
     /\.workspace-tab:not\(:first-child\):not\(\.active\)::before\s*\{[^}]*width:\s*1\.5px;[^}]*height:\s*12px;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     // The action replaces the unread dot in place while remaining one pixel
     // farther from the scrollbar than the unsafe right:2px position.
     /\.session-row-actions\s*\{[^}]*position:\s*absolute;[^}]*right:\s*3px;[^}]*background:\s*transparent;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.session-row:hover \.session-row-actions,[\s\S]*?\{[^}]*background:\s*linear-gradient\([\s\S]*?transparent 0,[\s\S]*?var\(--session-row-action-surface\) 10px,[\s\S]*?var\(--session-row-action-surface\) 100%[\s\S]*?\);[^}]*pointer-events:\s*auto;/s);
   // Selected rows must NOT pin the … actions open — they reveal on hover,
   // keyboard focus, or an open menu only (user-flagged persistent ellipsis).
-  assert.doesNotMatch(openCodeCss, /\.session-row\.selected \.session-row-action,/s);
-  assert.doesNotMatch(openCodeCss, /\.session-row\.selected \.session-row-actions,/s);
-  assert.match(openCodeCss,
+  assert.doesNotMatch(themeCss, /\.session-row\.selected \.session-row-action,/s);
+  assert.doesNotMatch(themeCss, /\.session-row\.selected \.session-row-actions,/s);
+  assert.match(themeCss,
     /\.session-sidebar \.session-row:hover\s*\{[^}]*--session-row-action-surface:\s*var\(--oc-bg-layer-1\);/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.session-sidebar \.session-row\.selected\s*\{[^}]*--session-row-action-surface:\s*var\(--oc-bg-layer-2\);/s);
-  assert.doesNotMatch(openCodeCss, /\.session-row-actions::before/);
-  assert.match(openCodeCss,
+  assert.doesNotMatch(themeCss, /\.session-row-actions::before/);
+  assert.match(themeCss,
     /\.session-row-action\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s);
   // Grok-web recent rows are plain text — the per-row icon rule is gone.
-  assert.doesNotMatch(openCodeCss, /\.session-row-icon\s*\{/);
-  assert.match(openCodeCss,
+  assert.doesNotMatch(themeCss, /\.session-row-icon\s*\{/);
+  assert.match(themeCss,
     /\.workspace-tabs-shell\s*\{[^}]*width:\s*auto;[^}]*max-width:\s*none;[^}]*flex:\s*1 1 0;[^}]*-webkit-app-region:\s*drag;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.workspace-tab\s*\{[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.titlebar-update-shell\s*\{[^}]*width:\s*20px;[^}]*flex:\s*0 0 20px;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.titlebar-update:hover, \.titlebar-update:focus-visible\s*\{[^}]*width:\s*68px;/s);
-  assert.match(openCodeCss,
+  assert.match(themeCss,
     /\.titlebar-update-label\s*\{[^}]*max-width:\s*0;[^}]*opacity:\s*0;/s);
-  assert.doesNotMatch(openCodeCss, /\.workspace-tabs-fade/,
+  assert.doesNotMatch(themeCss, /\.workspace-tabs-fade/,
     "tab-strip fades must not cover the leading or trailing tab content");
 
   installDom();
@@ -4166,7 +4173,7 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   assert.deepEqual(closed, ["two"]);
   assert.deepEqual(selected, ["one", "two", "one", "two"]);
   assert.deepEqual(reordered, [["one", "two"]]);
-  // OpenCode parity (titlebar.tsx `Show when={!(creating())}`): with the
+  // New-session affordance: with the
   // session tab active the + is available; switching to a draft tab hides it
   // because the draft itself is the new-session surface.
   assert.equal(document.querySelector(".titlebar-new") === null, true,

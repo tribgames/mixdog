@@ -1,4 +1,4 @@
-// Dock terminal view (claudecodeui shell pattern): a module-shared xterm
+// Dock terminal view: a module-shared xterm
 // instance over the main-process PTY. The xterm DOM is re-appended on
 // remount so tab switches keep scrollback; the PTY survives regardless.
 import React, { useEffect, useRef } from 'react';

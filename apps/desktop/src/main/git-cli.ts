@@ -1,4 +1,4 @@
-// Dock Git panel backend (claudecodeui git-panel pattern): plain `git` CLI
+// Dock Git panel backend: plain `git` CLI
 // calls from the main process, scoped to the active project directory.
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
@@ -73,7 +73,7 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
     // -z rename/copy records append the OLD path as the next NUL field.
     if (index === 'R' || index === 'C') i += 1;
   }
-  // aider-desk grammar: rows carry +/− stats. Numstat covers tracked files
+  // Rows carry +/− stats. Numstat covers tracked files
   // (worktree vs HEAD); untracked files stay at 0/0.
   const stats = new Map<string, { additions: number; deletions: number }>();
   try {
@@ -103,7 +103,7 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
 }
 
 export function gitDiff(cwd: string, path: string, staged: boolean): Promise<string> {
-  // Commit-all model (aider-desk): the working diff is always vs HEAD so
+  // Commit-all model: the working diff is always vs HEAD so
   // staged and unstaged edits read as one change.
   return run(cwd, ['diff', ...(staged ? ['--cached'] : ['HEAD']), '--', path]);
 }
@@ -119,7 +119,7 @@ export async function gitUnstage(cwd: string, paths: string[]): Promise<void> {
 export async function gitCommit(cwd: string, message: string): Promise<string> {
   const trimmed = message.trim();
   if (!trimmed) throw new TypeError('A commit message is required.');
-  // Commit-all model (aider-desk/agent workflow): no staging surface in the
+  // Commit-all model: no staging surface in the
   // panel; a commit takes the whole working tree.
   await run(cwd, ['add', '-A']);
   return run(cwd, ['commit', '-m', trimmed]);
@@ -154,10 +154,10 @@ export function requiredCommitHash(value: unknown): string {
   return hash;
 }
 
-// ── Review surface (opencode project/vcs grammar) ─────────────────────────
+// ── Review surface ─────────────────────────
 // The review diff is cumulative: merge-base(origin default branch, HEAD)
 // vs the WORKING TREE — committed, uncommitted and untracked work read as
-// one change set (Codex review-pane semantics).
+// one change set.
 export interface GitReviewFile {
   path: string;
   status: string; // A | M | D (U rendered from untracked)
@@ -216,7 +216,7 @@ export interface GitLogEntry {
   pushed: boolean;
 }
 
-// History view (claudecodeui HistoryView grammar): recent commits with an
+// History view: recent commits with an
 // unpushed marker so "committed but not pushed" is visible at a glance.
 export async function gitLog(cwd: string): Promise<GitLogEntry[]> {
   let raw = '';
@@ -304,7 +304,7 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
 
 export async function gitReviewDiff(cwd: string, path: string, untracked: boolean): Promise<string> {
   if (untracked) {
-    // Synthesized all-added patch (opencode patchUntracked semantics without
+    // Synthesized all-added patch (without
     // relying on /dev/null, which Windows git handles inconsistently).
     try {
       const text = await readFile(join(cwd, path), 'utf8');

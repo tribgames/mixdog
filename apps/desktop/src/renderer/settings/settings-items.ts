@@ -127,7 +127,7 @@ export const SETTINGS_CATEGORIES = [
     items: ['remote-runtime', 'update'],
   },
   // Desktop-only surface (no TUI settings-item counterpart): a read-only
-  // OpenCode-style keybind reference for the workspace shortcuts.
+  // keybind reference for the workspace shortcuts.
   {
     value: 'shortcuts',
     label: 'Shortcuts',

@@ -287,8 +287,8 @@ export function parseUnifiedDiff(patch) {
 }
 
 // ── Structured tool-input rows ───────────────────────────────────
-// The expanded tool card renders Input as a key/value grid (opencode's
-// share-page tool-args grammar), never a raw JSON dump. Keys listed here
+// The expanded tool card renders Input as a key/value grid,
+// never a raw JSON dump. Keys listed here
 // render first, in this order; unlisted keys follow in natural order.
 const TOOL_INPUT_PRIORITY = new Map();
 function registerInputPriority(names, keys) {

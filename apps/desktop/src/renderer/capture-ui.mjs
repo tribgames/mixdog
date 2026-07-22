@@ -113,6 +113,16 @@ try {
     assert.ok(Number(summary.maxDistance) <= 8, "followed transcript drifted away from the bottom.");
     assert.equal(summary.partialFrames, 0,
       "remote resume must never paint the persisted last-user-only transcript.");
+    assert.ok(Number(summary.finishFrames) > 0,
+      "completion settlement must produce measured frames.");
+    assert.equal(summary.finishMissingTailFrames, 0,
+      "the visible completion tail must remain mounted throughout settlement.");
+    assert.equal(summary.finishWrongTailFrames, 0,
+      "hidden completion metadata must never replace the final visible tail anchor.");
+    assert.equal(summary.finishOffBottomFrames, 0,
+      "completion settlement must remain pinned to the bottom.");
+    assert.ok(Number(summary.finishMaxBodyShift) <= 1,
+      "completion settlement must not move the final response body.");
     console.log(`JITTER_PROBE_JSON=${jitterProbeOutput}`);
     console.log(`JITTER_PROBE_SUMMARY=${JSON.stringify(summary)}`);
   } else {

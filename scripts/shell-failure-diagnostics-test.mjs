@@ -41,6 +41,10 @@ test('shell trace classification uses only the leading status marker', () => {
     '⚠️ destructive command warning\nError: [shell-run-failed] [signal: SIGKILL]',
     'shell',
   ), 'process/signal');
+  assert.equal(classifyToolFailure(
+    'Error: [tool-input-validation] apply_patch received a compacted-history placeholder',
+    'apply_patch',
+  ), 'schema/args');
 });
 
 test('shell failure rendering preserves actual signals and runtime kill causes', () => {

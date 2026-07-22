@@ -52,7 +52,7 @@ import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 
 globalThis.__mixdogBashSessionRuntimeLoaded = true;
 
-// Claude Code parity (refs/claude-code src/utils/timeouts.ts): default 120 s
+// Official-client parity: default 120 s
 // (2 min), max 600 s (10 min), BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS
 // env overrides (max floored at default). Matches the one-shot bash tool
 // (builtin/bash-tool.mjs): an omitted `timeout` uses the 120 s default bounded

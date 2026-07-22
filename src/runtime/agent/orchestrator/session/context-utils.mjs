@@ -28,7 +28,7 @@ export {
 // Token estimation: real o200k_base BPE (tiktoken) + per-provider calibration.
 //
 // estimateTokens() encodes the provider-visible text projection with the real
-// o200k_base BPE (tiktoken, same approach as Roo Code / goose / chatbox), so
+// o200k_base BPE (tiktoken, same approach as mainstream agent UIs), so
 // estimates track actual billing instead of a weighted-chars heuristic that
 // diverged -25%..+60% depending on script and provider. The residual
 // provider-specific gap between an o200k count and billed prompt tokens is
@@ -71,7 +71,7 @@ function bpeEncoder() {
 
 // Compaction budget loops re-estimate overlapping transcript slices; identical
 // large strings (tool results, system blocks) would re-encode every pass.
-// Hash-keyed LRU (goose token_counter.rs pattern) absorbs the repeats.
+// Hash-keyed LRU absorbs the repeats.
 const TOKEN_COUNT_CACHE_MIN_CHARS = 512;
 const TOKEN_COUNT_CACHE_MAX_ENTRIES = 1_024;
 const tokenCountCache = new Map();

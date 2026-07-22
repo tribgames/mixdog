@@ -609,10 +609,18 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
   let effectiveCwd = baseCwd;
   const baseProjectRoot = _findDirProjectRoot(baseCwd);
   const filesystemRootCwd = !baseProjectRoot && _isFilesystemRootPath(baseCwd);
-  if (filesystemRootCwd) {
+  const aggregateFilesAtBase = _collectGraphFileList(args, { cap: false });
+  const rawModeAtBase = String(args?.mode || '').trim();
+  const exactDotFederation = aggregateFilesAtBase.length === 1
+    && aggregateFilesAtBase[0] === '.'
+    && ROOT_FEDERATED_MODES.has(rawModeAtBase);
+  const parentDotFederation = !baseProjectRoot
+    && !filesystemRootCwd
+    && exactDotFederation;
+  if (filesystemRootCwd || parentDotFederation) {
     const trustedRoots = collectTrustedCodeGraphRoots(baseCwd);
-    const files = _collectGraphFileList(args, { cap: false });
-    const rawMode = String(args?.mode || '').trim();
+    const files = exactDotFederation ? [] : aggregateFilesAtBase;
+    const rawMode = rawModeAtBase;
     const canFederate = files.length > 0 || ROOT_FEDERATED_MODES.has(rawMode);
     if (files.length) {
       if (files.some((file) => _AGGREGATE_FILE_WILDCARD_RE.test(file))) {
@@ -664,6 +672,10 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
     if (trustedRoots.length && canFederate) {
       const projectArgs = { ...args };
       delete projectArgs.cwd;
+      if (exactDotFederation) {
+        delete projectArgs.file;
+        delete projectArgs.files;
+      }
       const runOne = async (root, nextArgs) => executeCodeGraphTool(
         name,
         nextArgs,

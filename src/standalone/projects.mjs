@@ -1,7 +1,7 @@
 /**
  * standalone/projects.mjs — user-registered project (cwd) store.
  *
- * Projects are working directories the user explicitly registers (Codex-style).
+ * Projects are working directories the user explicitly registers.
  * There is NO git scanning and NO recent-history auto-import; only entries the
  * user creates appear here. Persisted as JSON at <MIXDOG_HOME>/projects.json.
  *

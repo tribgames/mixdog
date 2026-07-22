@@ -1,7 +1,8 @@
 // Stored tool-call argument compaction/restoration, extracted from loop.mjs.
 // Long body/command args are truncated with a sha256-tagged head/tail preview
-// when persisted into assistant history; the FULL body of a single call can be
-// restored on retry (e.g. a failed edit) so the model sees the original patch.
+// when persisted into assistant history. Failed command/script calls may
+// restore their full text, but mutation bodies stay compacted so stale patches
+// cannot be replayed from history.
 import { createHash } from 'crypto';
 
 const STORED_TOOL_ARG_BODY_KEY_RE = /^(?:content|old_string|new_string|patch|rewrite)$/i;
@@ -23,8 +24,8 @@ function compactStoredToolArgString(value, key = '') {
     // apply_patch / edit inputs. Keeping a head/tail preview leaves real patch
     // fragments (a "*** Begin Patch" opening, diff lines) inside a SUCCESSFUL
     // history entry that the model can copy back verbatim as new tool input.
-    // Emit the marker ALONE for these keys so nothing copyable survives; a
-    // FAILED call still restores the full original via restoreToolCallBodyForId.
+    // Emit the marker ALONE for these keys so nothing copyable survives,
+    // including after a failed call.
     if (isBody) return marker;
     const head = value.slice(0, STORED_TOOL_ARG_PREVIEW_HEAD).replace(/\r\n/g, '\n');
     const tail = value.slice(-STORED_TOOL_ARG_PREVIEW_TAIL).replace(/\r\n/g, '\n');
@@ -57,21 +58,15 @@ export function compactToolCallsForHistory(calls) {
     });
 }
 
-// Restore the FULL body of ONE tool call inside a history assistant message
-// whose toolCalls were compacted at push time. Used for a failed edit call so
-// the model sees the original patch/old_string on retry instead of a
-// `[mixdog compacted …]` placeholder it cannot act on. Must run BEFORE the
-// message is first transmitted so it never mutates an already-cached prefix
-// (the prompt cache is content-prefix matched).
+// Restore retry-safe long command/script text for ONE failed tool call inside a
+// history assistant message whose toolCalls were compacted at push time.
+// Mutation bodies (patch, old_string, new_string, content, rewrite) deliberately
+// remain compacted: replaying their stale pre-failure text can repeat partial
+// writes or overwrite newer state. Must run BEFORE the message is first
+// transmitted so it never mutates an already-cached prefix.
 //
-// Only the compactable body/long keys (patch, old_string, new_string, content,
-// rewrite, command, script) are restored, and at ANY depth — compaction is
-// recursive (compactStoredToolArgValue), so batch shapes like edits[].old_string
-// or writes[].content carry nested compacted bodies too. Every other field
-// (e.g. `path`, which a tool may mutate in place during execution) is taken from
-// the compacted snapshot captured at push time, before any mutation. The
-// compacted args tree is built fresh by compactToolCallsForHistory and is not
-// shared with originalCalls, so rebuilding it here is safe.
+// Only command/script keys are restored, at ANY depth. Every body key and every
+// other field is taken from the compacted snapshot captured at push time.
 export function restoreToolCallBodyForId(assistantMsg, originalCalls, callId) {
     if (!assistantMsg || !Array.isArray(assistantMsg.toolCalls) || !callId) return;
     if (!Array.isArray(originalCalls)) return;
@@ -83,15 +78,12 @@ export function restoreToolCallBodyForId(assistantMsg, originalCalls, callId) {
     tc.arguments = _restoreCompactedBodies(tc.arguments, orig.arguments, '');
 }
 
-// Recursively rebuild a compacted args tree: replace ONLY compactable body/long
-// string fields (matched by key at any depth) with their full originals, and
-// keep every other field from the compacted snapshot. tcVal and origVal share
-// the same structure (compaction only shortens body strings), so the walk
-// descends them in parallel; a missing or non-object origVal falls back to the
-// compacted value rather than throwing.
+// Recursively rebuild a compacted args tree: replace ONLY retry-safe long
+// command/script fields with their full originals and keep mutation bodies plus
+// every other field from the compacted snapshot.
 function _restoreCompactedBodies(tcVal, origVal, key) {
-    if ((STORED_TOOL_ARG_BODY_KEY_RE.test(key) || STORED_TOOL_ARG_LONG_KEY_RE.test(key))
-        && typeof origVal === 'string') {
+    if (STORED_TOOL_ARG_BODY_KEY_RE.test(key)) return tcVal;
+    if (STORED_TOOL_ARG_LONG_KEY_RE.test(key) && typeof origVal === 'string') {
         return origVal;
     }
     if (Array.isArray(tcVal) && Array.isArray(origVal)) {

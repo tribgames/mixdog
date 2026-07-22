@@ -48,5 +48,5 @@ try {
   }
 } catch (error) {
   const message = (error instanceof Error ? error.message : String(error)).trim();
-  parentPort.postMessage(message ? { ok: false, error: message } : { ok: false });
+  parentPort.postMessage(message ? { ok: false, error: `${message} (cwd=${cwd})` } : { ok: false });
 }

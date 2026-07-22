@@ -7,8 +7,7 @@ export const TOOL_DEFS = [
     inputSchema: {
       type: "object",
       properties: {
-        chat_id: { type: "string", description: "Target channel/chat id." },
-        text: { type: "string", description: "Message text." },
+        message: { type: "string", description: "Message text for the configured channel." },
         reply_to: { type: "string", description: "Reply message id." },
         files: {
           type: "array",
@@ -26,7 +25,7 @@ export const TOOL_DEFS = [
           description: "Discord components."
         }
       },
-      required: ["chat_id", "text"]
+      required: ["message"]
     }
   },
   {

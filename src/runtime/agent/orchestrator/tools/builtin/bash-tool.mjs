@@ -328,7 +328,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     }
     // Keep foreground commands on a long tool-owned timeout. The MCP dispatch
     // layer must not add a shorter fallback ceiling when timeout is omitted.
-    // Reference-CLI parity (opencode/codex/claude-code): sync-first, no hard
+    // Reference-CLI parity: sync-first, no hard
     // upper ceiling on a caller-provided total timeout. Default 120 s (2 min)
     // when omitted; BASH_DEFAULT_TIMEOUT_MS / BASH_MAX_TIMEOUT_MS env overrides
     // bound the blocking window when timeout promotion is available.

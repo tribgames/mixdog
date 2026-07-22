@@ -441,7 +441,7 @@ if (!app.requestSingleInstanceLock()) {
       });
     });
     // Push-to-talk dictation records via getUserMedia. Grant `media`
-    // deterministically (goose desktop `main.ts` sets the same handler) and
+    // deterministically and
     // log any other permission request so future surfaces fail loudly instead
     // of depending on Electron's default-allow behavior.
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {

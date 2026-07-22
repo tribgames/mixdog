@@ -1,7 +1,7 @@
 /*
- * OpenCode v2 visual layer.
- * Geometry and interaction values follow the local MIT-licensed OpenCode
- * reference in C:/Project/refs/opencode/packages/ui/src/v2.
+ * Desktop visual layer.
+ * Geometry and interaction values for the desktop UI chrome,
+ * shared by every renderer surface.
  */
 :root {
   --oc-grey-50: #fff;
@@ -27,7 +27,7 @@
   --oc-alpha-light-40: #ffffff66;
   --oc-avatar-gloss: #ffffff29;
   --oc-avatar-shadow: #00000066;
-  /* OpenCode v2 project-avatar palette (dark set: muted fill, vivid border). */
+  /* Project-avatar palette (dark set: muted fill, vivid border). */
   --oc-avatar-fg: #ffffff;
   --oc-avatar-bg-orange: #723d22; --oc-avatar-border-orange: #ff8648;
   --oc-avatar-bg-yellow: #68552b; --oc-avatar-border-yellow: #e7af36;
@@ -77,23 +77,23 @@
   --oc-border-muted: rgba(244, 238, 228, .078);
   --oc-border: rgba(244, 238, 228, .102);
   --oc-border-strong: rgba(244, 238, 228, .20);
-  /* OpenCode surface-base: translucent 3.1% plate used by chat bubbles. */
+  /* Surface-base: translucent 3.1% plate used by chat bubbles. */
   --oc-surface-plate: rgba(244, 238, 228, .031);
-  /* Inline tool-approval highlight (goose border-amber-500/50). */
+  /* Inline tool-approval highlight (amber warning border). */
   --oc-approval-ring: rgba(245, 158, 11, .5);
-  /* OpenCode v2 border-focus: blue-500 in both themes. */
+  /* Border-focus: blue-500 in both themes. */
   --oc-focus: var(--oc-blue-500);
   --oc-hover: rgba(244, 238, 228, .059);
   --oc-pressed: rgba(244, 238, 228, .102);
   /* The v2 token sheet says alpha-light-30 for the dark scrim, but the
-     shipping OpenCode desktop dims dialogs DARK; a white haze over a dark
+     the desktop shell dims dialogs DARK; a white haze over a dark
      shell reads as washed out. Dim with black in both themes. */
   --oc-scrim: rgba(0, 0, 0, .5);
-  /* OpenCode v2 accent surface (bg-accent: blue-600 in both themes) and the
+  /* Accent surface (bg-accent: blue-600 in both themes) and the
      contrast-button hover overlay (dark: alpha-dark-24, light: alpha-light-12). */
   --oc-accent-bg: var(--oc-blue-600);
   --oc-contrast-hover: var(--oc-alpha-dark-24);
-  /* OpenCode v2 switch elevations (dark values). */
+  /* Switch elevations (dark values). */
   --oc-switch-off:
     inset 0 -.5px 0 var(--oc-alpha-light-10),
     inset 0 0 0 .5px var(--oc-alpha-light-16);
@@ -152,7 +152,7 @@
 }
 
 :root[data-mixdog-theme="light"] {
-  /* Grok-web warm neutrals (user preference): the cool grey opencode set is
+  /* Grok-web warm neutrals (user preference): the cool grey default set is
      re-tinted toward paper — same lightness steps, warm hue. Dark theme is
      untouched. */
   --oc-bg-base: #fffefc;
@@ -167,7 +167,7 @@
      tables, composer field) float on it. */
   --oc-workspace-sheet: #faf8f5;
   --oc-shell-border: rgba(62, 50, 35, .08);
-  /* Claude-depth ink: main prose reads a step deeper than Grok's; softness
+  /* Deep ink: main prose reads a step deeper than Grok's; softness
      stays in the warm canvas, never in grey text (user-flagged twice). */
   --oc-text: #1b1a17;
   --oc-text-muted: #635f57;
@@ -175,7 +175,7 @@
   --oc-text-accent: var(--oc-blue-600);
   --oc-accent: var(--oc-text-accent);
   --oc-icon: #45413a;
-  /* #808080 washed out on the white sheet (user-flagged vs Claude's ~#666
+  /* #808080 washed out on the white sheet (user-flagged vs typical ~#666
      sidebar glyphs); one step darker keeps the muted role but stays legible. */
   --oc-icon-muted: #7a746b;
   --oc-border-muted: rgba(62, 50, 35, .08);
@@ -200,7 +200,7 @@
     inset 0 2px 2px rgba(0, 0, 0, .102), inset 0 1px 1px rgba(0, 0, 0, .102),
     inset 0 0 0 .5px rgba(0, 0, 0, .20);
   --oc-switch-thumb-shadow: 0 .5px .5px rgba(0, 0, 0, .40);
-  /* OpenCode v2 project-avatar palette (light set: vivid fill, darker border). */
+  /* Project-avatar palette (light set: vivid fill, darker border). */
   --oc-avatar-fg: #ffffff;
   --oc-avatar-bg-orange: #ee7330; --oc-avatar-border-orange: #d16427;
   --oc-avatar-bg-yellow: #e7af36; --oc-avatar-border-yellow: #cb9f34;
@@ -273,30 +273,29 @@ body, button, input, textarea, select { font-family: inherit; }
 html, body { background: var(--oc-window-band); }
 body { color: var(--oc-text); font-size: 13px; font-weight: 400; line-height: 20px; letter-spacing: 0; }
 button, input, textarea, select { color: inherit; }
-/* OpenCode v2 keeps the native caret (text-colored); only invalid fields recolor it. */
+/* Keep the native caret (text-colored); only invalid fields recolor it. */
 input, textarea { caret-color: var(--oc-text); }
 input::placeholder, textarea::placeholder { color: var(--oc-text-faint); opacity: 1; }
-/* OpenCode v2 defines no custom ::selection; native color-scheme selection applies. */
+/* No custom ::selection; native color-scheme selection applies. */
 code, pre, kbd { font-family: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace; }
 button { font-weight: 500; letter-spacing: 0; }
-/* OpenCode's icon set draws at ~1.5px optical weight; lucide's default 2px
+/* The icon set draws at ~1.5px optical weight; lucide's default 2px
    stroke reads heavier at the same sizes. Thin every lucide glyph slightly. */
 svg.lucide { stroke-width: 1.75px; }
-/* Ported OpenCode v2 glyphs keep their intrinsic strokes and never shrink in
-   flex rows. */
+/* Facade glyphs never shrink in flex rows. */
 svg.oc-icon { flex: 0 0 auto; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible {
   outline: 2px solid var(--oc-focus);
   outline-offset: 2px;
 }
-/* OpenCode v2 buttons float the focus ring slightly further out. */
+/* Buttons float the focus ring slightly further out. */
 button:focus-visible { outline-offset: 2.5px; }
-/* OpenCode v2 dialog titles tighten 15px headings to -0.13px. */
+/* Dialog titles tighten 15px headings to -0.13px. */
 .model-picker-header h2, .project-switcher h1, .settings-confirm-dialog > header h3,
 .onboarding-dialog h1, .approval-heading b, .settings-section-heading h2,
 .settings-group > header h3, .onboarding-step-heading h2 { letter-spacing: -.13px; }
 
-/* OpenCode shell geometry */
+/* Shell geometry */
 .app-shell { background: var(--oc-window-band); }
 .topbar {
   position: relative;
@@ -362,7 +361,7 @@ button:focus-visible { outline-offset: 2.5px; }
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
-  /* Claude Code's rail toggle is a THIN outline panel; the global 1.75px
+  /* The rail toggle is a THIN outline panel; the global 1.75px
      lucide stroke read chunky at this size. */
   stroke-width: 1.25px;
 }
@@ -592,7 +591,7 @@ button:focus-visible { outline-offset: 2.5px; }
   box-shadow: var(--oc-raised);
 }
 
-/* Session-only sidebar, using OpenCode list density and states. */
+/* Session-only sidebar, using compact list density and states. */
 .sidebar.session-sidebar {
   position: relative;
   width: var(--session-sidebar-width, 260px);
@@ -654,7 +653,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   --session-row-action-surface: var(--oc-window-band);
   position: relative;
   /* Grok-web rail rhythm: 36px rows breathe like grok.com's nav; the old
-     32px OpenCode density read packed next to it. */
+     32px row density read packed next to it. */
   height: 36px;
   min-height: 36px;
   gap: 8px;
@@ -675,7 +674,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: inherit;
 }
 /* The + previously sat in a grey circle chip; every other nav glyph is bare,
-   so the lone chip read as a blob (user feedback). Bare glyph like Claude. */
+   so the lone chip read as a blob (user feedback). Bare glyph instead. */
 .sidebar-nav-icon--new { border-radius: 0; background: transparent; }
 .session-row-main {
   min-width: 0;
@@ -812,7 +811,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-sizing: border-box;
   border: 0;
   border-radius: 4px;
-  /* OpenCode inline-input-v2 focuses with a 1px border-focus ring. */
+  /* Inline inputs focus with a 1px border-focus ring. */
   outline: 1px solid var(--oc-focus);
   outline-offset: 0;
   color: var(--oc-text);
@@ -1105,12 +1104,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   letter-spacing: 0;
   text-overflow: clip;
   white-space: nowrap;
-  /* Claude-style fade-out: long titles dissolve at the row edge instead of
+  /* Fade-out: long titles dissolve at the row edge instead of
      hard-clipping into the border (user request). */
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
-/* Unread activity dot (Claude-style): the session gained messages while it
+/* Unread activity dot: the session gained messages while it
    was not the viewed conversation. */
 .session-row-unread-dot {
   flex: 0 0 auto;
@@ -1216,15 +1215,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding-bottom: 20px;
   box-sizing: border-box;
 }
-.transcript-virtual-row--empty { padding-bottom: 0; }
-/* Virtualized bottom seam: the last row's 20px padding PLUS the thread's 20px
+.transcript-virtual-row--empty {
+  min-height: 1px;
+  padding-bottom: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* Virtualized bottom seam: the last visible row's 20px padding PLUS the thread's 20px
    flex gap doubled the space above the live spinner band (user). The --tail
-   class marks the TRUE last index row (JSX): a plain :last-child matched the
+   class marks the TRUE last visible row (JSX): a plain :last-child matched the
    bottom overscan row, whose measurement then flip-flopped ±20px as it
    entered/left last-child position and yanked the scroll ("툭" jump-back). */
 .transcript-virtual-row--tail { padding-bottom: 0; }
 .thread-welcome { width: min(100%, 800px); padding: 0 32px 120px; }
-/* OpenCode v2 new-session treatment: a large faded wordmark above the
+/* New-session treatment: a large faded wordmark above the
    composer instead of a logo + headline. */
 .welcome-wordmark {
   display: block;
@@ -1257,7 +1261,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 28px;
   letter-spacing: -.15px;
 }
-/* Reference empty states (crystal EmptyState, goose welcome) pair the mark
+/* Empty states pair the mark
    with a one-line muted hint instead of a bare watermark. */
 .thread-welcome p {
   margin: 16px auto 0;
@@ -1267,12 +1271,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   line-height: 21px;
 }
 .starter-grid { display: none; }
-/* Reading scale, Korean-first: OpenCode's 14px base is an English terminal
-   metric and reads small against Claude desktop (~15-16px prose). Chrome
+/* Reading scale, Korean-first: the 14px base is an English terminal
+   metric and reads small against modern chat prose (~15-16px). Chrome
    (tabs/sidebar/labels) stays on the 13px small scale; READING surfaces run
    15px with >=1.53 leading. */
 /* 450 optical weight: variable Geist/Pretendard fill Hangul strokes the way
-   Claude's reading face does — 400 read thin next to it. */
+   heavier chat faces do — 400 read thin next to it. */
 /* Reading surface runs Pretendard-first for BOTH scripts: with Geist leading,
    Latin words inside Korean prose rendered in a different face and read a
    visible half-tone lighter (user: "폰트가 균일하게 잘 안보여"). One face for
@@ -1406,10 +1410,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin-top: 0;
 }
 .message-time { font-size: 12px; line-height: 18px; white-space: nowrap; }
-/* In-flow completion footer ("Checked for …"): min-height 24 around an 18px
-   line left ~6px of slack under the text, so the gap above the next user
-   bubble read larger than the gap below it (user). */
-.message.assistant .response-footer:has(.turn-status) { min-height: 18px; }
+/* Completion replaces a 20px live-activity row plus its 20px thread gap.
+   The 24px footer controls therefore need a 16px lead-in: both states occupy
+   exactly 40px below the response body, so settlement cannot nudge the row. */
+.message.assistant .response-footer:has(.turn-status) { min-height: 24px; margin-top: 16px; }
 .message.assistant .response-footer .message-actions {
   position: static;
   width: 24px;
@@ -1418,7 +1422,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--oc-icon-muted);
   background: transparent;
   box-shadow: none;
-  /* OpenCode text-part copy: hidden at rest, revealed on hover/focus. */
+  /* Text-part copy: hidden at rest, revealed on hover/focus. */
   opacity: 0;
   pointer-events: none;
 }
@@ -1445,15 +1449,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .message.user .message-body {
   width: fit-content;
-  /* OpenCode caps the user bubble measure at 64ch — full-width lines were a
+  /* The user bubble measure caps at 64ch — full-width lines were a
      major readability drag for long prompts. */
   max-width: min(100%, 64ch);
   padding: 8px 12px;
   border: 1px solid var(--oc-border-muted);
   /* Grok-web user pill: a softer, rounder bubble. */
   border-radius: 10px;
-  /* User bubble reads too faint at the 3–4% plate (user feedback, Codex
-     reference): use the deeper pressed tint so the pill is clearly a block. */
+  /* User bubble reads too faint at the 3–4% plate (user feedback):
+     use the deeper pressed tint so the pill is clearly a block. */
   background: var(--oc-pressed);
 }
 .message.user .message-body p { margin: 0; }
@@ -1478,7 +1482,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
      code blocks, shell output, diffs, and tables all read as quiet cards. */
   border-radius: 8px;
   color: var(--oc-text);
-  /* OpenCode code blocks sit on the sheet tone with a hairline border and
+  /* Code blocks sit on the sheet tone with a hairline border and
      run at 13px mono — not a darker inset well. */
   background: var(--oc-bg-base);
   box-shadow: 0 0 0 .5px var(--oc-border-muted);
@@ -1512,7 +1516,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   outline: 2px solid var(--oc-focus);
   outline-offset: 2px;
 }
-.tool-header:hover:not(:disabled) .tool-icon,
 .tool-header:hover:not(:disabled) .tool-chevron,
 .tool-header:focus-visible .tool-icon,
 .tool-header:focus-visible .tool-chevron { color: var(--oc-icon); }
@@ -1524,7 +1527,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-title b { font-weight: 500; }
 .tool-title b { flex: 0 0 auto; }
 .tool-title small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* OpenCode basic-tool-v2 subtitles read as muted, not faint. */
+/* Tool-card subtitles read as muted, not faint. */
 .tool-title small { color: var(--oc-text-muted); }
 /* Bare command subtitles (no human description) read in mono like the
    reference clients' command rows. */
@@ -1555,7 +1558,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .detail-block > span { color: var(--oc-text-faint); font-size: 11px; font-weight: 500; line-height: 12px; letter-spacing: .05px; text-transform: none; }
 .detail-block-heading { min-height: 24px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .detail-block-heading > span { color: var(--oc-text-faint); font-size: 11px; font-weight: 500; line-height: 12px; }
-/* Structured Input grid (opencode share tool-args grammar): faint key column,
+/* Structured Input grid: faint key column,
    mono value column — replaces the raw args JSON dump. */
 .tool-args { grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px; }
 .tool-args [data-slot="key"] { color: var(--oc-text-faint); font-size: 11px; font-weight: 500; line-height: 20px; white-space: nowrap; }
@@ -1691,7 +1694,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow: auto;
   border-radius: 0;
   color: var(--oc-text-muted);
-  /* OpenCode reasoning-part: quiet muted prose, no boxed plate. */
+  /* Reasoning part: quiet muted prose, no boxed plate. */
   background: transparent;
   box-shadow: none;
   white-space: pre-wrap;
@@ -1736,7 +1739,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: center;
   gap: 12px;
   padding: 10px 0;
-  /* OpenCode compaction-part label: 12px regular, muted. */
+  /* Compaction label: 12px regular, muted. */
   color: var(--oc-text-muted);
   font-size: 12px;
   font-weight: 400;
@@ -1761,7 +1764,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 12px;
   font-weight: 400;
 }
-/* Inline approval (goose/cline pattern): the request renders in the transcript
+/* Inline approval: the request renders in the transcript
    flow with a warning ring instead of a blocking overlay. */
 .approval-card {
   width: 100%;
@@ -1790,7 +1793,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .code-diff { border-radius: 8px; box-shadow: 0 0 0 .5px var(--oc-border); }
 .diff-file > header { height: 32px; border-bottom-color: var(--oc-border-muted); background: var(--oc-bg-layer-1); font-size: 11px; }
 
-/* OpenCode prompt input: 96px raised surface and 28px controls. */
+/* Prompt input: 96px raised surface and 28px controls. */
 .composer-region { width: min(100%, 800px); padding: 0 32px 8px; }
 .composer-context-bar { min-height: 28px; gap: 6px; margin-bottom: 6px; }
 /* Project pill: one boxed chip. The container owns the plate, ring, and the
@@ -2522,7 +2525,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   display: grid;
   place-items: center;
   border-radius: 5px;
-  /* OpenCode project-avatar-v2: fixed palette chip with a top gloss, inset
+  /* Project avatar: fixed palette chip with a top gloss, inset
      border, and etched white initials. Falls back to the gray variant. */
   color: var(--oc-avatar-fg);
   background:
@@ -2668,7 +2671,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .oc-menu-item[disabled] { opacity: .5; }
 .oc-menu-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* OpenCode toast v2. */
+/* Toasts. */
 .oc-toast-region {
   position: fixed;
   z-index: 1000;
@@ -2696,7 +2699,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 8px;
   color: var(--oc-text);
   background: var(--oc-bg-layer-1);
-  /* OpenCode toast-v2 carries only the floating elevation — no inset ring. */
+  /* Toasts carry only the floating elevation — no inset ring. */
   box-shadow: var(--oc-floating);
   pointer-events: auto;
   animation: oc-toast-in 140ms ease-out;
@@ -2712,7 +2715,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .oc-toast-close:hover { color: var(--oc-icon); background: var(--oc-hover); }
 .oc-toast-close { cursor: pointer; }
 
-/* OpenCode tooltip v2. */
+/* Tooltips. */
 .oc-tooltip {
   position: fixed;
   z-index: 1200;
@@ -2759,7 +2762,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 2px;
   color: var(--oc-text-muted);
   background: var(--oc-bg-layer-3);
-  /* OpenCode keybind-v2: flat 14px chips on layer-03 — no ring, no drop. */
+  /* Keybind chips: flat 14px chips on layer-03 — no ring, no drop. */
   font: 500 11px/1 "Geist Variable", "Inter Variable", Inter, sans-serif;
   letter-spacing: .05px;
   text-transform: uppercase;
@@ -2866,7 +2869,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .model-trigger,
 .effort-control .oc-select-trigger { color: var(--oc-text); }
 
-/* OpenCode settings v2: compact modal frame with an independently scrolling capability surface. */
+/* Settings dialog: compact modal frame with an independently scrolling capability surface. */
 .mixdog-settings-layer {
   --settings-layer-safe-top: max(16px, calc(env(titlebar-area-height, 0px) + 8px));
   --settings-layer-safe-bottom: 16px;
@@ -3311,8 +3314,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .core-memory-actions { grid-column: 2; }
 }
 .settings-route-controls { gap: 8px; }
-/* Shortcuts reference rows: label left, keybind chip right (OpenCode
-   keybind-v2 chip language). */
+/* Shortcuts reference rows: label left, keybind chip right (matching
+   the keybind chip language). */
 .settings-shortcut-list { display: grid; }
 .settings-shortcut-row {
   min-height: 36px;
@@ -3341,7 +3344,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .settings-domain-grid > label { gap: 6px; color: var(--oc-text-muted); font-size: 11px; font-weight: 400; }
 .settings-domain-grid small { color: var(--oc-text-faint); font-size: 11px; line-height: 16px; }
 .settings-check, .settings-domain-grid .settings-check { color: var(--oc-text-muted); font-size: 11px; }
-/* Scheduled-tasks page (sidebar → Schedules): Claude-style main-pane list. */
+/* Scheduled-tasks page (sidebar → Schedules): full main-pane list. */
 .schedules-pane { min-width: 0; min-height: 0; flex: 1; display: flex; overflow-y: auto; }
 .schedules-page {
   box-sizing: border-box;
@@ -3650,7 +3653,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--oc-grey-100);
   background: linear-gradient(180deg, var(--oc-alpha-light-20), transparent), var(--oc-bg-contrast);
   box-shadow: var(--oc-button-contrast);
-  /* OpenCode contrast buttons etch their label (text-shadow 0 .5px .5px). */
+  /* Contrast buttons etch their label (text-shadow 0 .5px .5px). */
   text-shadow: 0 .5px .5px rgba(0, 0, 0, .3);
 }
 .settings-confirm-dialog > footer button.danger {
@@ -4193,7 +4196,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Hover lightens one layer; --oc-bg-contrast is #242424 in LIGHT mode and
    turned the pill black on hover. */
 .jump-to-latest:hover, .jump-to-latest:focus-visible { background: var(--oc-bg-layer-3); }
-/* Workspace tabs follow the OpenCode scroll affordance without consuming titlebar space. */
+/* Workspace tabs keep the scroll affordance without consuming titlebar space. */
 .workspace-tabs-shell {
   position: relative;
   width: auto;
@@ -4203,7 +4206,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-self: center;
   -webkit-app-region: drag;
   /* The + new-task button lives INSIDE the shell so it hugs the last tab
-     (opencode places + right after the tab strip, not at the window edge). */
+     (the + sits right after the tab strip, not at the window edge). */
   display: flex;
   align-items: center;
   gap: 6px;
@@ -4214,9 +4217,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 1 auto;
 }
 /* Reserve room for the + only while it is actually rendered (it hides when a
-   draft tab is active, matching OpenCode). */
+   draft tab is active). */
 .workspace-tabs-shell:has(.titlebar-new) .workspace-tabs { max-width: calc(100% - 34px); }
-/* OpenCode v2 new-session button: icon-button-v2 size "large" (28×28). */
+/* New-session button: icon-button size "large" (28×28). */
 .workspace-tabs-shell .titlebar-new {
   width: 28px;
   height: 28px;
@@ -4234,7 +4237,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .workspace-tabs-shell { width: auto; }
 }
 
-/* Phase 3 final surface pass: current OpenCode v2 list, markdown, control, and
+/* Final surface pass: list, markdown, control, and
    settings-dialog idioms applied to Mixdog-only capability surfaces. */
 .command-surface .mixdog-settings__body { gap: 36px; }
 .command-surface .settings-group-body {
@@ -4265,7 +4268,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   margin: 0;
   border: 1px solid var(--oc-border-strong);
   border-radius: 4px;
-  /* OpenCode checkbox-v2 checked fill is bg-accent (blue-600). */
+  /* Checkbox checked fill is bg-accent (blue-600). */
   accent-color: var(--oc-accent-bg);
 }
 .command-surface-select-row .oc-select-root { width: min(220px, 100%); margin-left: auto; }
@@ -4336,8 +4339,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--oc-text);
   font-weight: 700;
 }
-/* Reference heading scale (jan markdown.css, goose heading tokens, cherry
-   typography.css): real size steps so AI-response structure reads at a
+/* Heading scale:
+   real size steps so AI-response structure reads at a
    glance. Korean-friendly line heights (>=1.4). */
 .markdown h1 { font-size: 21px; line-height: 29px; }
 .markdown h2 { font-size: 18px; line-height: 26px; }
@@ -4528,7 +4531,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .approval-card dd + dt { margin-top: 6px; }
 }
 
-/* OpenCode parity: animated status text, compact message navigation, context,
+/* Composer cluster: animated status text, compact message navigation, context,
    count-aware tools, and a dedicated critical tool-error surface. */
 [data-component="text-shimmer"] {
   /* User tuned: 2000ms still read rushed; half speed again. Applies to the
@@ -4632,7 +4635,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 
 /* Finished composer and command surfaces. These rules intentionally stay
-   scoped to Mixdog-owned controls while following OpenCode's dock/menu rhythm. */
+   scoped to Mixdog-owned controls while keeping the dock/menu rhythm. */
 .composer {
   overflow: visible;
   isolation: isolate;
@@ -4702,7 +4705,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 64px;
 }
 .send-button { flex: 0 0 28px; margin-left: auto; }
-/* OpenCode stop affordance: the filled square breathes while a turn runs
+/* Stop affordance: the filled square breathes while a turn runs
    (icon-button.css stop-pulse) — a static square read as a frozen glyph. */
 .send-button.stop svg rect {
   transform-origin: center;
@@ -5100,7 +5103,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .context-mix-grid { grid-template-columns: 1fr; }
 }
 
-/* Round-2 reference parity (zed/roo-code): review bar, queue remove, popover
+/* Round-2 polish: review bar, queue remove, popover
    compact action, title regenerate. */
 /* ── Right utility dock (Cursor-style side panel) ── */
 .utility-dock {
@@ -5180,7 +5183,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .dock-change summary .diff-stats { margin-left: auto; }
 .dock-change[open] { padding-bottom: 10px; }
-/* Agents tab: opcode AgentRunsList grammar — status dot, name+detail, right
+/* Agents tab: status dot, name+detail, right
    elapsed/status. */
 .dock-agent-list { display: grid; }
 .dock-agent-row {
@@ -5208,7 +5211,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-agent-row { border: 0; background: transparent; text-align: left; cursor: pointer; }
 .dock-agent-row:hover:not(:disabled) { background: var(--oc-hover); border-radius: 6px; }
 .dock-agent-row:disabled { cursor: default; }
-/* Agent output viewer (opcode AgentRunOutputViewer grammar). */
+/* Agent output viewer. */
 .dock-agent-view { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .dock-agent-view header { display: flex; align-items: center; gap: 8px; }
 .dock-agent-view header b { font-size: 13px; font-weight: 500; }
@@ -5242,7 +5245,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow-wrap: anywhere;
 }
 /* Terminal tab: always-dark surface (Cursor grammar) so ANSI palettes read. */
-/* Dock Git panel (claudecodeui git-panel grammar). */
+/* Dock Git panel. */
 .dock-git { display: flex; flex-direction: column; gap: 10px; }
 .dock-git-header { display: flex; align-items: center; gap: 8px; }
 .dock-git-header b { font-size: 13px; font-weight: 600; }
@@ -5272,7 +5275,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .dock-git-refresh:hover { color: var(--oc-icon); background: var(--oc-hover); }
-/* Group headers: claudecodeui band grammar — muted band, uppercase label,
+/* Group headers: muted band, uppercase label,
    count, right-aligned bulk action. */
 .dock-git section h4 {
   min-height: 26px;
@@ -5324,7 +5327,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-git-path:hover:not(:disabled) { background: var(--oc-hover); }
 .dock-git-path:disabled { cursor: default; }
 .dock-git-path code { flex: 0 0 auto; color: var(--oc-text-faint); font-size: 11px; }
-/* VSCode/claudecodeui status-letter colors (functional signals). */
+/* Git status-letter colors (functional signals). */
 .dock-git-path code[data-code="A"], .dock-git-path code[data-code="U"] { color: var(--oc-success); }
 .dock-git-path code[data-code="M"] { color: var(--oc-warning); }
 .dock-git-path code[data-code="D"] { color: var(--oc-danger); }
@@ -5364,7 +5367,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .dock-git-inline-diff .utility-dock-empty { padding: 6px 0; text-align: left; }
 .dock-git-commit { display: grid; gap: 6px; }
-/* Changes/Commits sub-tabs (claudecodeui GitViewTabs grammar). */
+/* Changes/Commits sub-tabs. */
 .dock-git-views { display: flex; border-bottom: .5px solid var(--oc-border-muted); }
 .dock-git-views > button {
   flex: 1;
@@ -5391,7 +5394,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 10px;
   line-height: 16px;
 }
-/* History list (claudecodeui HistoryView grammar). */
+/* History list. */
 .dock-git-log { display: grid; }
 .dock-git-commit-row {
   width: 100%;
@@ -5699,7 +5702,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 
 
-/* ── Main-area Review pane (opencode session-review grammar) ─────────── */
+/* ── Main-area Review pane ─────────── */
 /* Diff surface theming: @git-diff-view ships a GitHub palette (blue hunk
    bands, saturated pastel add/del). Override its custom properties with our
    warm tokens — var()-based, so light AND dark themes both resolve. The
@@ -5857,7 +5860,7 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   font-weight: 500;
   cursor: pointer;
 }
-/* Review file context menu (Codex grammar): open / reveal / copy / discard. */
+/* Review file context menu: open / reveal / copy / discard. */
 .review-context-menu {
   position: fixed;
   z-index: 100;

@@ -736,7 +736,7 @@ function CategoryPanel({ category, context }: {
   return <GeneralPanel {...context} />;
 }
 
-// OpenCode-style keybind reference (read-only). Bindings live in App.tsx's
+// Keybind reference (read-only). Bindings live in App.tsx's
 // global keydown handler and the composer key map; keep this list in sync.
 const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
   ['Workspace', [

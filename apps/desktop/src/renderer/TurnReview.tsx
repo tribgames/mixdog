@@ -1,0 +1,183 @@
+import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Code2, Command, FileDiff, Folder, GitCompare, Layers3, LoaderCircle, Mic, PanelLeft, PanelRight, Plus, RotateCcw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
+import { OcIcon } from "./OcIcon";
+import { type RecordValue, type Project, type TranscriptItem, type Approval, type Toast, type Snapshot, EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "./desktop-types";
+import { asRecord, displayProject, navigationKey, newDraftSelection, textOf, publicThinkingSummary, oneLine, queueText, formatElapsed, formatIdleDuration, TURN_LOCKED_SLASH_COMMANDS, copyTextToClipboard } from "./text-format";
+import { approvalInstanceKey, draftAfterSubmission, followAfterScroll, isApprovalDismissKey, isScrollIntentKey, mergeTranscript, normalizeApplyPatch, parseUnifiedDiff, reconcileTurnFailures, shouldNavigatePromptHistory, toolInputRows, transcriptTurnKeys } from "./renderer-logic.mjs";
+import { DiffView, TerminalPane } from "./lazy-widgets";
+import { findPatch, PATCH_CACHE_LIMIT } from "./TranscriptView";
+import { GitDiffBody } from "./ReviewPane";
+import { REVIEW_DIFF_STYLE_KEY } from "./desktop-types";
+
+
+// "Review Changes": an accordion above the composer summarizing the
+// files the current turn edited (count + line delta). Scope rule: every tool
+// item AFTER the last user message whose args/result carry a unified diff
+// (apply_patch/edit payloads) is parsed and aggregated per file. Rows expand
+// to the actual diff and carry a guarded working-tree revert.
+export type TurnReviewPatchPart = ReturnType<typeof parseUnifiedDiff>[number];
+export const turnReviewPatchCache = new Map<string, Array<{
+  name: string;
+  additions: number;
+  deletions: number;
+  part: TurnReviewPatchPart;
+}>>();
+
+export function analyzeTurnReviewPatch(patch: string) {
+  const cached = turnReviewPatchCache.get(patch);
+  if (cached) {
+    turnReviewPatchCache.delete(patch);
+    turnReviewPatchCache.set(patch, cached);
+    return cached;
+  }
+  const analyzed = parseUnifiedDiff(patch).flatMap((part) => {
+    const name = String(part.newFile?.fileName || "");
+    if (!name) return [];
+    let additions = 0;
+    let deletions = 0;
+    for (const line of part.hunks.join("\n").split("\n")) {
+      if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+      else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+    }
+    return [{ name, additions, deletions, part }];
+  });
+  turnReviewPatchCache.set(patch, analyzed);
+  if (turnReviewPatchCache.size > PATCH_CACHE_LIMIT) {
+    turnReviewPatchCache.delete(turnReviewPatchCache.keys().next().value as string);
+  }
+  return analyzed;
+}
+
+export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [openFile, setOpenFile] = useState("");
+  const [confirmFile, setConfirmFile] = useState("");
+  const [reverted, setReverted] = useState<string[]>([]);
+  // Shares the Review pane's persisted diff-style preference (user request:
+  // the expanded bar renders real diffs, so it needs the same Unified/Split
+  // control).
+  const [diffStyle, setDiffStyle] = useState<"unified" | "split">(() => {
+    try { return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === "split" ? "split" : "unified"; }
+    catch { return "unified"; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle); } catch { /* persistence only */ }
+  }, [diffStyle]);
+  const summary = useMemo(() => {
+    let lastUser = -1;
+    for (let index = items.length - 1; index >= 0; index--) {
+      if (items[index]?.kind === "user") { lastUser = index; break; }
+    }
+    const files = new Map<string, {
+      additions: number;
+      deletions: number;
+      parts: ReturnType<typeof parseUnifiedDiff>;
+    }>();
+    for (let index = lastUser + 1; index < items.length; index++) {
+      const item = items[index];
+      if (!item || item.kind !== "tool") continue;
+      const patch = findPatch(item);
+      if (typeof patch !== "string" || !patch) continue;
+      try {
+        for (const analyzed of analyzeTurnReviewPatch(patch)) {
+          const entry = files.get(analyzed.name) || { additions: 0, deletions: 0, parts: [] };
+          entry.additions += analyzed.additions;
+          entry.deletions += analyzed.deletions;
+          entry.parts.push(analyzed.part);
+          files.set(analyzed.name, entry);
+        }
+      } catch { /* non-diff payload — skip */ }
+    }
+    let additions = 0;
+    let deletions = 0;
+    for (const entry of files.values()) { additions += entry.additions; deletions += entry.deletions; }
+    return { files, additions, deletions };
+  }, [items]);
+  if (summary.files.size === 0) return null;
+  return (
+    <section className="turn-review-bar" aria-label="Files changed this turn"
+      data-expanded={expanded ? "true" : "false"}>
+      <div className="turn-review-head">
+        <button type="button" className="turn-review-summary" aria-expanded={expanded}
+          onClick={() => setExpanded((value) => {
+            const next = !value;
+            // Collapsing also closes any open inline diff/confirm so reopening
+            // starts from the tidy list, not a tall stale diff.
+            if (!next) { setOpenFile(""); setConfirmFile(""); }
+            return next;
+          })}>
+          <FileDiff size={14} aria-hidden="true" />
+          <strong>{summary.files.size} file{summary.files.size === 1 ? "" : "s"} changed</strong>
+          <span className="diff-stats"><i>+{summary.additions}</i><em>-{summary.deletions}</em></span>
+          <ChevronDown className="turn-review-chevron" size={14} aria-hidden="true" />
+        </button>
+        {expanded && <div className="review-style-toggle turn-review-style" role="radiogroup"
+          aria-label="Diff style">
+          <button type="button" aria-pressed={diffStyle === "unified"}
+            onClick={() => setDiffStyle("unified")}>Unified</button>
+          <button type="button" aria-pressed={diffStyle === "split"}
+            onClick={() => setDiffStyle("split")}>Split</button>
+        </div>}
+      </div>
+      <div className="turn-review-collapse" inert={!expanded} aria-hidden={!expanded}>
+        <div className="turn-review-collapse-inner">
+          <ul className="turn-review-files">
+        {[...summary.files.entries()].map(([name, entry]) => {
+          // Tool patches sometimes carry ABSOLUTE paths; display and revert
+          // use the project-relative form (git confinement expects it).
+          const normalizedCwd = String(cwd || "").replace(/\\/g, "/").replace(/\/+$/, "");
+          const normalizedName = name.replace(/\\/g, "/");
+          const rel = normalizedCwd && normalizedName.toLowerCase().startsWith(`${normalizedCwd.toLowerCase()}/`)
+            ? normalizedName.slice(normalizedCwd.length + 1)
+            : normalizedName;
+          const isReverted = reverted.includes(name);
+          const confirming = confirmFile === name;
+          return (
+          <li key={name} data-open={openFile === name ? "true" : "false"}
+            data-reverted={isReverted ? "true" : "false"}>
+            <button type="button" className="turn-review-file" aria-expanded={openFile === name}
+              onClick={() => setOpenFile((current) => current === name ? "" : name)}>
+              <code>{rel}</code>
+              <span className="diff-stats"><i>+{entry.additions}</i><em>-{entry.deletions}</em></span>
+            </button>
+            {Boolean(cwd) && !isReverted && (confirming ? (
+              <span className="turn-review-confirm" role="group"
+                aria-label={`Confirm reverting ${rel} (discards ALL working-tree changes in the file)`}>
+                <button type="button" className="turn-review-revert"
+                  aria-label="Cancel revert" data-tooltip="Cancel"
+                  onClick={() => setConfirmFile("")}>
+                  <X size={12} />
+                </button>
+                <button type="button" className="turn-review-revert danger"
+                  aria-label={`Confirm revert of ${rel}`} data-tooltip="Revert to HEAD"
+                  onClick={() => {
+                    setConfirmFile("");
+                    void window.mixdogDesktop.gitRevert?.(cwd as string, rel, false)
+                      .then(() => setReverted((current) => [...current, name]))
+                      .catch(() => {});
+                  }}>
+                  <Check size={12} />
+                </button>
+              </span>
+            ) : (
+              <button type="button" className="turn-review-revert"
+                aria-label={`Revert ${rel}`} data-tooltip="Revert file (working tree → HEAD)"
+                onClick={() => setConfirmFile(name)}>
+                <RotateCcw size={12} />
+              </button>
+            ))}
+            {openFile === name && <div className="turn-review-diff">
+              {entry.parts.map((file, index) => (
+                <GitDiffBody key={`${name}:${index}`} file={file} mode={diffStyle} />
+              ))}
+            </div>}
+          </li>
+          );
+        })}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+

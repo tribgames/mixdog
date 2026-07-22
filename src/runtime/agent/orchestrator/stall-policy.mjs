@@ -187,7 +187,7 @@ export const PROVIDER_WS_ACQUIRE_TIMEOUT_MS = resolveTimeoutMs(
 // silently blackholes response.create frames until a downstream timeout. An
 // idle pooled socket is pinged on this cadence; a reused socket that has been
 // quiet longer than the stale window is ping-probed before hand-out.
-// Gated OFF by default for codex/opencode parity — neither pings model
+// Gated OFF by default for reference-CLI parity — they do not ping model
 // sockets. Enable with MIXDOG_PROVIDER_WS_PING_ENABLED=1. When disabled, no
 // liveness interval is armed and the acquire-reuse ping probe is skipped (the
 // non-OPEN eviction scan still runs); lastAliveAt stamping is harmless.

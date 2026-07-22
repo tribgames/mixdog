@@ -1021,7 +1021,7 @@ function measureSidebarGeometry(image: NativeImage): ImageMeasuredSidebar {
   const pixel = imageReader(image);
   // Stay above the footer controls so icon pixels cannot split the interior run.
   const scanlineY = 600;
-  // The OpenCode v2 renderer uses the active theme's bg-base token for the sidebar.
+  // The renderer uses the active theme's bg-base token for the sidebar.
   const sidebarColor = '#201e1c';
   let longestInterior = { start: -1, end: -1 };
   let runStart = -1;

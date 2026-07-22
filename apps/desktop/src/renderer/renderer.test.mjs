@@ -31,6 +31,13 @@ import {
 import { filterConfiguredModels } from './ModelPicker.tsx';
 import { formatContextWindow, modelContextWindow, modelDetailTooltip } from './provider-display.tsx';
 
+const APP_MODULE_FILES = ['./App.tsx', './Composer.tsx', './TranscriptView.tsx', './UtilityDock.tsx', './ReviewPane.tsx', './TurnReview.tsx', './ApprovalCard.tsx', './transcript-metrics.ts', './desktop-types.ts', './text-format.ts', './lazy-widgets.ts'];
+// The former App.tsx monolith now spans focused renderer modules; source-shape
+// assertions read them as one concatenated surface.
+async function readAppModules() {
+  const parts = await Promise.all(APP_MODULE_FILES.map((path) => readFile(new URL(path, import.meta.url), 'utf8')));
+  return parts.join('\n');
+}
 test('explicit provider context metadata wins over model-family fallbacks', () => {
   const explicitClaude = {
     provider: 'anthropic-oauth',
@@ -65,7 +72,7 @@ test('model detail tooltip reports only available catalog metadata', () => {
 test('renderer uses the preload bridge name', async () => {
   const [preload, renderer] = await Promise.all([
     readFile(new URL('../preload/index.ts', import.meta.url), 'utf8'),
-    readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+    readAppModules(),
   ]);
   const bridgeName = preload.match(/exposeInMainWorld\('([^']+)'/)?.[1];
   assert.equal(bridgeName, 'mixdogDesktop');
@@ -73,13 +80,13 @@ test('renderer uses the preload bridge name', async () => {
 });
 
 test('the stable composer placeholder does not schedule idle rerenders', async () => {
-  const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
+  const renderer = await readAppModules();
   assert.doesNotMatch(renderer, /placeholderIndex|setPlaceholderIndex/);
   assert.doesNotMatch(renderer, /setInterval\(\(\) => setPlaceholder/);
 });
 
 test('session scrolling restores once before paint and preserves per-session positions', async () => {
-  const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
+  const renderer = await readAppModules();
   assert.match(renderer, /const transcriptVirtualSize = transcriptVirtualizer\.getTotalSize\(\)/);
   assert.match(renderer, /sessionScrollPositions\.current\.get\(transcriptSessionKey\)/);
   assert.match(renderer, /sessionScrollPositions\.current\.set\(transcriptSessionKey/);
@@ -99,7 +106,7 @@ test('session scrolling restores once before paint and preserves per-session pos
 
 test('settings dialog reserves the native window-controls safe area', async () => {
   const [styles, settings] = await Promise.all([
-    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
     readFile(new URL('./settings/settings.css', import.meta.url), 'utf8'),
   ]);
   assert.match(styles,
@@ -152,9 +159,9 @@ test('settings dialog reserves the native window-controls safe area', async () =
     'model and select chevrons must share the same expanded direction');
 });
 
-test('every renderer stylesheet resolves through the shared OpenCode v2 theme contract', async () => {
+test('every renderer stylesheet resolves through the shared desktop theme contract', async () => {
   const [theme, layout, settings] = await Promise.all([
-    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
     readFile(new URL('./styles.css', import.meta.url), 'utf8'),
     readFile(new URL('./settings/settings.css', import.meta.url), 'utf8'),
   ]);
@@ -177,9 +184,9 @@ test('every renderer stylesheet resolves through the shared OpenCode v2 theme co
     'light overlays must use the shared elevation scale without a private override');
 });
 
-test('OpenCode desktop shell keeps Project and flat recent sessions inside the sidebar rail', async () => {
+test('Desktop shell keeps Project and flat recent sessions inside the sidebar rail', async () => {
   const [styles, navigation] = await Promise.all([
-    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
     readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
   ]);
   assert.match(styles, /--titlebar-height:\s*40px/);
@@ -234,7 +241,7 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
 test('workspace tabs keep labels fully visible while retaining horizontal scrolling', async () => {
   const [layout, theme, navigation] = await Promise.all([
     readFile(new URL('./styles.css', import.meta.url), 'utf8'),
-    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
     readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
   ]);
 
@@ -246,7 +253,7 @@ test('workspace tabs keep labels fully visible while retaining horizontal scroll
 });
 
 test('copy hover changes only icon color while keyboard focus keeps its frame', async () => {
-  const styles = await readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
   assert.match(styles, /\.message-actions:hover\s*\{[^}]*color:\s*var\(--oc-icon\);[^}]*background:\s*transparent;[^}]*outline:\s*0;/s);
   assert.match(styles, /\.message-actions:focus-visible\s*\{[^}]*background:\s*transparent;[^}]*outline:\s*2px solid var\(--oc-focus\);/s);
   assert.match(styles, /\.markdown-code-copy:hover\s*\{[^}]*color:\s*var\(--oc-icon\);[^}]*background:\s*transparent;/s);
@@ -257,18 +264,26 @@ test('copy hover changes only icon color while keyboard focus keeps its frame', 
   assert.doesNotMatch(styles, /\.message\.assistant\.streaming \.markdown > :nth-last-child/,
     'streamed response prose must remain readable; shimmer belongs to compact status text only');
   assert.match(styles,
-    /\.tool-header:hover:not\(:disabled\) \.tool-icon,[\s\S]*\.tool-header:focus-visible \.tool-chevron\s*\{[^}]*color:\s*var\(--oc-icon\);/s,
-    'tool disclosures should expose quiet icon and chevron feedback on hover and keyboard focus');
+    /\.message\.assistant \.response-footer:has\(\.turn-status\)\s*\{[^}]*min-height:\s*24px;[^}]*margin-top:\s*16px;/s,
+    'completion footer geometry must replace the live activity lane without moving the response body');
+  assert.match(styles,
+    /\.transcript-virtual-row--empty\s*\{[^}]*min-height:\s*1px;[^}]*visibility:\s*hidden;[^}]*pointer-events:\s*none;/s,
+    'hidden completion metadata must keep an invisible virtual measurement anchor');
+  assert.doesNotMatch(styles, /\.tool-header:hover:not\(:disabled\) \.tool-icon/,
+    'tool icons should retain their status color on hover');
+  assert.match(styles,
+    /\.tool-header:hover:not\(:disabled\) \.tool-chevron,[\s\S]*\.tool-header:focus-visible \.tool-icon,[\s\S]*\.tool-header:focus-visible \.tool-chevron\s*\{[^}]*color:\s*var\(--oc-icon\);/s,
+    'tool disclosures should keep chevron hover feedback and keyboard focus feedback');
   assert.match(styles,
     /\.composer-attachments > div:hover,\s*\.composer-attachments > div:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--oc-border-strong\);/s,
     'composer attachments should expose the same hover/focus boundary as the reference UI');
 });
 
-test('session title actions, message hover rows, and tool disclosures keep OpenCode rhythm', async () => {
+test('session title actions, message hover rows, and tool disclosures keep the desktop rhythm', async () => {
   const [styles, navigation, app] = await Promise.all([
-    readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8'),
+    readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
     readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
-    readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+    readAppModules(),
   ]);
   assert.match(styles, /\.session-row-menu-wrap\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
   assert.match(styles, /\.session-row-copy b\s*\{[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
@@ -290,7 +305,7 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   assert.match(styles, /\.session-header-status\s*\{[^}]*margin-left:\s*auto;/s);
   assert.match(styles, /\.live-work-status\s*\{[^}]*margin-left:\s*0;/s);
   // The stop state shares the send-button surface; its only override is the
-  // OpenCode stop-pulse breathing on the glyph (icon-button.css parity).
+  // Stop-pulse breathing on the glyph.
   assert.match(styles, /\.send-button\.stop svg rect\s*\{[^}]*animation:\s*send-stop-pulse/s);
   assert.match(app, /className="session-header-status"[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>\s*<ContextUsageIndicator/);
   assert.equal((app.match(/<LiveWorkStatus\b/g) || []).length, 1);
@@ -298,7 +313,7 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
 });
 
 test('phone header uses the roomier mobile scale', async () => {
-  const styles = await readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
   assert.match(styles, /\.app-shell\s*\{\s*--titlebar-height:\s*64px;/);
   assert.match(styles, /\.session-header\s*\{[^}]*flex-basis:\s*64px;[^}]*min-height:\s*64px;/s);
   assert.match(styles, /\.session-header-content\s*\{[^}]*height:\s*64px;[^}]*grid-template-columns:/s);
@@ -309,7 +324,7 @@ test('phone header uses the roomier mobile scale', async () => {
 });
 
 test('conversation uses native scrolling and silent session transitions', async () => {
-  const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
+  const renderer = await readAppModules();
   assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message|message-navigation|navigateMessage/);
   assert.doesNotMatch(renderer, /Opening session|Resuming conversation/);
   assert.match(renderer, /if \(mode === "resuming"\) \{/);
@@ -335,7 +350,7 @@ test('authenticated keychain providers are immediately selectable without a seco
 
 test('desktop UI keeps every public TUI command and core capability represented', async () => {
   const [app, commandSurfaces, desktopCommands, settings, onboarding, schedules, contract, tuiCommands] = await Promise.all([
-    readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+    readAppModules(),
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./slash-commands.ts', import.meta.url), 'utf8'),
     readFile(new URL('./settings/CapabilitySettings.tsx', import.meta.url), 'utf8'),
@@ -414,7 +429,7 @@ test('desktop UI keeps every public TUI command and core capability represented'
 
 test('dedicated command surfaces preserve TUI actions without exposing automation editors', async () => {
   const [app, surfaces] = await Promise.all([
-    readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+    readAppModules(),
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
   ]);
   assert.match(surfaces, /listProviderModels\?\.\(\{ quick: false \}\)/);

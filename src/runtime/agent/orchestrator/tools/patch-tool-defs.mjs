@@ -26,7 +26,7 @@ export const PATCH_TOOL_DEFS = [
     name: 'apply_patch',
     title: 'Mixdog Apply Patch',
     annotations: { title: 'Mixdog Apply Patch', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-    description: 'Apply known file edits in one patch; sections run in listed order. Do not split a dependent edit across turns.',
+    description: 'Apply known file edits in one atomic patch; sections run in listed order and all touched paths roll back if any section fails. Do not split a dependent edit across turns.',
     freeformDescription: APPLY_PATCH_FREEFORM_DESCRIPTION,
     freeform: {
       type: 'grammar',
@@ -36,7 +36,7 @@ export const PATCH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        patch: { type: 'string', description: 'Patch text. V4A preferred; use one file block per target file with exact current context; include all known edits in listed order.' },
+        patch: { type: 'string', description: 'Patch text. V4A preferred; use one file block per target file with exact current context; include all known edits in listed order. On failure, the tool rolls all earlier writes back.' },
         format: { type: 'string', enum: ['unified', 'v4a'], description: 'Auto-detected.' },
         base_path: { type: 'string', description: 'Repo root.' },
         dry_run: { type: 'boolean', description: 'Default false. true = validate only, no write.' },

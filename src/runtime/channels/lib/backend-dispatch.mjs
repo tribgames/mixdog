@@ -5,16 +5,31 @@ import { recordFetchedMessages } from "./status-snapshot.mjs";
 // reloads keep the original file-level reference semantics.
 function createBackendDispatch({ getConfig, getBackend, scheduler }) {
   async function dispatchReply(args) {
+    const config = getConfig();
+    const channelId = String(args?.chat_id || args?.channel_id || args?.channel || config.channelId || '').trim();
+    const message = args?.message ?? args?.text;
+    if (!channelId) throw new Error('reply requires a configured channel id');
+    if (typeof message !== 'string' || !message.trim()) throw new Error('reply requires message text');
+    let files = args?.files ?? [];
+    if (typeof files === 'string') {
+      try {
+        const parsed = JSON.parse(files);
+        files = Array.isArray(parsed) ? parsed : [files];
+      } catch {
+        files = [files];
+      }
+    }
+    if (!Array.isArray(files)) files = [files];
     const sendOpts = {
-      replyTo: args.reply_to,
-      files: args.files ?? [],
-      embeds: args.embeds ?? [],
-      components: args.components ?? []
+      replyTo: args?.reply_to ?? args?.replyTo,
+      files,
+      embeds: args?.embeds ?? [],
+      components: args?.components ?? []
     };
     let ids;
     // Pre-send activity bump keeps idle gating consistent during the await.
     scheduler.noteActivity();
-    const sendResult = await getBackend().sendMessage(args.chat_id, args.text, sendOpts);
+    const sendResult = await getBackend().sendMessage(channelId, message, sendOpts);
     scheduler.noteActivity();
     ids = sendResult.sentIds;
     const text = ids.length === 1 ? `sent (id: ${ids[0]})` : `sent ${ids.length} parts (ids: ${ids.join(", ")})`;

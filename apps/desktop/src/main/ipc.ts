@@ -1,5 +1,5 @@
-// Explicit handler/preload shape adapted from AiderDesk ipc-handlers.ts under
-// Apache-2.0; arbitrary renderer-selected method execution is intentionally absent.
+// Explicit handler/preload registration:
+// arbitrary renderer-selected method execution is intentionally absent.
 import type {
   App,
   BrowserWindow,
@@ -53,7 +53,7 @@ import {
 
 const MAX_PROMPT_LENGTH = 1_000_000;
 const MAX_IMAGE_BASE64_LENGTH = 16_000_000;
-// opencode parity: 20 MiB of raw attachment bytes per submit (~28M base64).
+// 20 MiB of raw attachment bytes per submit (~28M base64).
 const MAX_FILE_BASE64_LENGTH = 28_000_000;
 const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);

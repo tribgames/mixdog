@@ -43,6 +43,7 @@ import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.m
 import { mergeSessionRowsIntoGlobal } from '../src/runtime/memory/lib/memory-session-merge.mjs';
 import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
+import { createBackendDispatch } from '../src/runtime/channels/lib/backend-dispatch.mjs';
 import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
 import { recursiveWrapperToolNameForPublicAgent } from '../src/runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
 import {
@@ -124,7 +125,12 @@ function assertOk(name, result, pattern = null) {
   enqueuePendingMessage(sid, 'persisted pending text');
   await new Promise((resolve) => setImmediate(resolve));
   const drained = drainPendingMessages(sid);
-  assert(drained.length === 1 && drained[0] === 'persisted pending text', `async pending mirror should persist fallback text: ${JSON.stringify(drained)}`);
+  assert(
+    drained.length === 1
+      && drained[0]?.text === 'persisted pending text'
+      && drained[0]?.content === 'persisted pending text',
+    `async pending mirror should persist fallback text: ${JSON.stringify(drained)}`,
+  );
 }
 
 {
@@ -819,7 +825,7 @@ const shellFailOutPromise = executeBuiltinTool('shell', {
 }, root);
 
 const shellTimeoutOutPromise = executeBuiltinTool('shell', {
-  command: 'Start-Sleep -Seconds 2; Write-Output tool-smoke-timeout-missed',
+  command: 'Start-Sleep -Milliseconds 1500; Write-Output tool-smoke-timeout-missed',
   cwd: root,
   timeout: 500,
   shell: 'powershell',
@@ -863,7 +869,7 @@ process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '800';
 let shellAutoPromoteOut;
 try {
   shellAutoPromoteOut = await executeBuiltinTool('shell', {
-    command: 'Start-Sleep -Seconds 6; Write-Output tool-smoke-autopromote-done',
+    command: 'node -e "setTimeout(() => console.log(\'tool-smoke-autopromote-done\'), 6000)"',
     cwd: root,
     timeout: 30_000,
     shell: 'powershell',
@@ -1692,8 +1698,8 @@ setInternalToolsProvider({
 }
 const patchTool = PATCH_TOOL_DEFS[0];
 const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
-if (!/V4A/i.test(patchDescription) || !/one (?:file )?block per target file/i.test(patchDescription) || !/exact current context/i.test(patchDescription)) {
-  throw new Error('apply_patch JSON fallback schema must keep V4A, per-target block, and exact-context guidance');
+if (!/V4A/i.test(patchDescription) || !/one (?:file )?block per target file/i.test(patchDescription) || !/exact current context/i.test(patchDescription) || !/rolls? .*back/i.test(patchDescription)) {
+  throw new Error('apply_patch JSON fallback schema must keep V4A, per-target block, exact-context, and rollback guidance');
 }
 if (!/FREEFORM tool/i.test(patchTool?.freeformDescription || '') || patchTool?.freeform?.type !== 'grammar' || patchTool?.freeform?.syntax !== 'lark') {
   throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
@@ -2296,6 +2302,35 @@ if (bp1ManifestSession.deferredToolBp1Applied !== true) {
 const replyTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'reply');
 if (!/configured channel/i.test(replyTool?.description || '') || !/local .*paths/i.test(replyTool?.inputSchema?.properties?.files?.description || '')) {
   throw new Error('channel reply schema must describe target channel and attachment paths');
+}
+if (!replyTool?.inputSchema?.required?.includes('message') || replyTool?.inputSchema?.required?.includes('chat_id')) {
+  throw new Error('channel reply schema must accept message for the configured channel without requiring chat_id');
+}
+{
+  const sent = [];
+  let activity = 0;
+  const { dispatchReply } = createBackendDispatch({
+    getConfig: () => ({ channelId: 'configured-channel' }),
+    getBackend: () => ({
+      sendMessage: async (...args) => {
+        sent.push(args);
+        return { sentIds: ['sent-1'] };
+      },
+    }),
+    scheduler: { noteActivity: () => { activity += 1; } },
+  });
+  const replyResult = await dispatchReply({
+    message: 'hello',
+    files: ['C:\\tmp\\attachment.txt'],
+  });
+  if (sent.length !== 1
+      || sent[0][0] !== 'configured-channel'
+      || sent[0][1] !== 'hello'
+      || sent[0][2]?.files?.[0] !== 'C:\\tmp\\attachment.txt'
+      || activity !== 2
+      || !/sent \(id: sent-1\)/.test(replyResult?.content?.[0]?.text || '')) {
+    throw new Error(`channel reply public args must normalize into backend dispatch: ${JSON.stringify({ sent, activity, replyResult })}`);
+  }
 }
 const fetchTool = CHANNEL_TOOL_DEFS.find((tool) => tool.name === 'fetch');
 if (!/NOT for URLs/i.test(fetchTool?.description || '') || !/web_fetch/i.test(fetchTool?.description || '')) {

@@ -76,3 +76,8 @@ native/mixdog-patch/target/
 native/mixdog-graph/target/
 
 .tmp-voice/
+
+# Local bench/smoke artifacts
+bench-results/
+.mixdog-smoke-data-empty/
+__pycache__/

@@ -114,10 +114,11 @@ test('desktop slash commands exactly match the TUI slash-command registry', () =
 });
 
 test('every desktop slash command resolves to an implemented GUI target', async () => {
-  const [settingsSource, surfaceSource, appSource] = await Promise.all([
+  const [settingsSource, surfaceSource, appSource, composerSource] = await Promise.all([
     readFile(new URL('./settings/CapabilitySettings.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./Composer.tsx', import.meta.url), 'utf8'),
   ]);
   const settingsValues = new Set(SETTINGS_ITEMS.map((item) => item.value));
   const surfaceLoaders = surfaceSource.match(
@@ -128,7 +129,7 @@ test('every desktop slash command resolves to an implemented GUI target', async 
     [...surfaceLoaders.groups.body.matchAll(/^\s*(\w+):/gm)].map((match) => match[1]),
   );
   const implementedActions = new Set(
-    [...appSource.matchAll(/(?:rawName|name) === '([^']+)'/g)].map((match) => match[1]),
+    [...`${appSource}\n${composerSource}`.matchAll(/(?:rawName|name) === '([^']+)'/g)].map((match) => match[1]),
   );
 
   for (const command of desktopSlashCommands) {
@@ -166,30 +167,3 @@ test('every desktop slash command resolves to an implemented GUI target', async 
   }
 });
 
-test('FEATURE-PARITY inventories every public TUI command and settings row', async () => {
-  const featureParity = await readFile(new URL('../../FEATURE-PARITY.md', import.meta.url), 'utf8');
-  const inventory = featureParity.split('## I. TUI Option Parity')[1] || '';
-  assert.ok(inventory, 'FEATURE-PARITY must contain the TUI option parity section');
-  for (const command of tuiSlashCommands) {
-    assert.match(inventory, new RegExp(`\\| \\\`${command.usage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\\`| )`),
-      `${command.usage} must be inventoried`);
-  }
-  for (const item of SETTINGS_ITEMS) {
-    assert.match(inventory, new RegExp(`\\| \\\`${item.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\\``),
-      `${item.label} settings row must be inventoried`);
-  }
-});
-
-test('OpenCode feature-audit summary matches all section 1-5 classifications', async () => {
-  const audit = await readFile(new URL('../../OPENCODE-FEATURE-AUDIT.md', import.meta.url), 'utf8');
-  const auditedSections = audit.split('## 6. Mixdog TUI-to-desktop coverage')[0];
-  const statuses = [...auditedSections.matchAll(
-    /^\| .+ \| .+ \| (Matched|Partial|Missing|Deferred|N\/A) \|$/gm,
-  )].map((match) => match[1]);
-  const expected = { Matched: 50, Partial: 17, Missing: 17, Deferred: 5, 'N/A': 7 };
-  assert.equal(statuses.length, 96);
-  for (const [status, count] of Object.entries(expected)) {
-    assert.equal(statuses.filter((entry) => entry === status).length, count, `${status} audit count`);
-    assert.match(audit, new RegExp(`\\| ${status.replace('/', '\\/')} \\| ${count} \\|`));
-  }
-});

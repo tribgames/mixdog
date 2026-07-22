@@ -1,5 +1,0 @@
-snapshot: C:/Project/bench-arm-a
-TASK 1 DEBUG      pass 18/18
-TASK 2 FEATURE    pass 50/50
-TASK 3 REFACTOR   invariants 4/4   structure 8/8
-SUMMARY {"snapshot":"C:/Project/bench-arm-a","debug":{"pass":18,"total":18},"feature":{"pass":50,"total":50},"refactor":{"invariants":{"pass":4,"total":4},"structure":{"pass":8,"total":8}}}

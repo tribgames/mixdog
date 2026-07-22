@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
@@ -64,6 +64,37 @@ try {
     else throw err;
   }
   assert(deleteMissing, 'apply_patch delete left created.txt on disk');
+
+  writeFileSync(join(tmp, 'rollback-blocker.txt'), 'present\n', 'utf8');
+  const rollbackResult = await executePatchTool('apply_patch', {
+    base_path: tmp,
+    patch: `*** Begin Patch
+*** Update File: target.txt
+@@
+ alpha
+-bravo
++temporary
+ gamma
+*** Add File: rollback-created.txt
++must not survive
+*** Update File: rollback-blocker.txt
+@@
+-missing
++replacement
+*** End Patch
+`,
+  }, tmp, {});
+  assert(/^Error[\s:]/.test(String(rollbackResult)), `rollback precondition patch unexpectedly passed:\n${rollbackResult}`);
+  assert(/rolled back to their pre-patch state/i.test(String(rollbackResult)), `rollback result did not report atomic recovery:\n${rollbackResult}`);
+  assert(
+    readFileSync(join(tmp, 'target.txt'), 'utf8') === 'alpha\nbravo\ngamma\n',
+    'apply_patch failure left an earlier update committed',
+  );
+  assert(!existsSync(join(tmp, 'rollback-created.txt')), 'apply_patch failure left an earlier added file committed');
+  assert(
+    readFileSync(join(tmp, 'rollback-blocker.txt'), 'utf8') === 'present\n',
+    'apply_patch failure changed the failing target',
+  );
 
   process.stdout.write('apply_patch edit smoke passed\n');
 } finally {

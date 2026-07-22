@@ -27,6 +27,20 @@ const WORKER_DENIED_TOOLS = new Set([
 ]);
 
 const IMAGE_PATH_RE = /\.(?:png|jpe?g|gif|webp)(?:$|[?#])/i;
+const COMPACTED_PATCH_LINE_RE = /^\s*\[mixdog compacted\b[^\]\n]*\]/;
+
+function hasCompactedPatchPlaceholder(call) {
+    if (call?.name !== 'apply_patch') return false;
+    const value = typeof call?.arguments === 'string'
+        ? call.arguments
+        : call?.arguments?.patch;
+    if (typeof value !== 'string') return false;
+    for (const line of value.split(/\r?\n/)) {
+        if (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ')) continue;
+        if (COMPACTED_PATCH_LINE_RE.test(line)) return true;
+    }
+    return false;
+}
 
 function callUrls(call) {
     const value = call?.arguments?.url;
@@ -67,6 +81,9 @@ export function routeWebFetchCall(call) {
 function _preDispatchDeny(call, toolKind, sessionRef) {
     const name = call?.name;
     if (typeof name !== 'string' || !name) return null;
+    if (hasCompactedPatchPlaceholder(call)) {
+        return 'Error: [tool-input-validation] apply_patch received a compacted-history placeholder, not executable patch content. Re-read the current target files and submit a fresh full patch; do not replay or reconstruct the stored marker.';
+    }
     const _agentOwned = sessionRef?.scope?.startsWith?.('agent:')
         || isAgentOwner(sessionRef);
     const _controlPlaneTool = WORKER_DENIED_TOOLS.has(name);

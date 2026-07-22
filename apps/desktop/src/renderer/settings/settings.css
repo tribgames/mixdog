@@ -1,4 +1,4 @@
-/* Lazy settings structure only. The unlayered OpenCode visual layer owns all
+/* Lazy settings structure only. The unlayered desktop visual layer owns all
    color, typography, density, radii, states, and elevation. */
 @layer settings-base {
   .mixdog-settings { display: grid; overflow: hidden; }

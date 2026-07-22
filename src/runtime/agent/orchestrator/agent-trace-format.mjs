@@ -281,6 +281,7 @@ function classifyToolFailure(resultText, toolName) {
         if (/\[signal:\s*[^\]]+/i.test(leading)) return 'process/signal';
         return 'command-exit';
     }
+    if (/\[tool-input-validation\]|compacted-history placeholder/.test(text)) return 'schema/args';
     if (/requires either|invalid arguments|unknown parameter|must be|schema|expected|required|old_string is .*>=/.test(text)) return 'schema/args';
     if (/not in allow-list|not allowed/.test(text)) return 'permission';
     if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(raw)) return 'command-exit';

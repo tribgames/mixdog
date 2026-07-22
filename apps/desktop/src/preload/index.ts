@@ -1,4 +1,4 @@
-// Bridge structure adapted from AiderDesk src/preload/index.ts under Apache-2.0.
+// Typed IPC bridge: explicit method allow-list, no arbitrary invoke.
 import { contextBridge, ipcRenderer } from 'electron';
 
 import {
