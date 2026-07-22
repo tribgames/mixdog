@@ -28,6 +28,13 @@
     "scripts/",
     "!scripts/bench/",
     "!scripts/recall-bench-*.txt",
+    "!scripts/*-test.mjs",
+    "!scripts/*-smoke.mjs",
+    "!scripts/smoke-loop*.mjs",
+    "!scripts/*-bench.mjs",
+    "!scripts/*bench-*.mjs",
+    "!scripts/*.ps1",
+    "!scripts/*.jsx",
     "src/",
     "!src/tui/dev",
     "vendor/"

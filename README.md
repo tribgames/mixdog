@@ -219,6 +219,9 @@ src/
 vendor/
 ```
 
+Test, smoke, and bench scripts are excluded from the tarball; they live in the
+repository only.
+
 `docs/` is not included in the published package unless `package.json#files` is
 changed.
 
