@@ -54,231 +54,21 @@ export {
     readSessionPresenceMtime,
     isSessionPresenceOwnerDead,
 } from './store/paths-heartbeat.mjs';
+import { _readStoredSessionCached } from './store/load-cache.mjs';
+import { _sessionForDisk, _renameWithRetrySync, _ensureLifecycleFields, _storedSessionFromFile } from './store/serialize.mjs';
+import { _ensureSummaryCacheDataDir, _cachedSummaryRows, _setSummaryRowsCache, _cacheSessionSummary, _uncacheSessionSummary, _rollbackCachedSessionSummary, _queueSessionSummaryUpsert, _queueSessionSummaryRemoval, _queueSummaryIndexPrune, _scanStoredSessionSummaryRows, _summaryCacheVersions, _summaryCacheRemovals, _summaryRowsCache } from './store/summary-cache.mjs';
+import { _lastSaveError, _liveSessions, _droppedSaveIds, setLiveSession, _clearLiveSession, LIVE_MEDIA_RETENTION_MS, _messagesCarryLiveMedia, getSessionSaveError, clearSessionSaveError } from './store/live-state.mjs';
+import { _saveWorkerPending, _saveAsyncQueued, _saveAsyncInflight, _deferredSessionSaves, saveSessionAsync, saveSessionAsyncDeferred, _resetSaveWorkerBookkeeping } from './store/save-worker.mjs';
+export { setLiveSession, getSessionSaveError, clearSessionSaveError } from './store/live-state.mjs';
+export { saveSessionAsync, saveSessionAsyncDeferred } from './store/save-worker.mjs';
 
-const _lastSaveError = new Map(); // id -> { message, at }
 
-// Recent full-session reads are much hotter than writes while a user hops
-// between conversations. Verify the file identity on every access, but reuse
-// the parsed object while the atomic file has not changed.
-const SESSION_LOAD_CACHE_LIMIT = 8;
-const _sessionLoadCache = new Map(); // path → { signature, session }
-let _sessionLoadCacheDataDir = null;
 
-function _readStoredSessionCached(id, path) {
-    const dataDir = getPluginData();
-    if (_sessionLoadCacheDataDir !== dataDir) {
-        _sessionLoadCacheDataDir = dataDir;
-        _sessionLoadCache.clear();
-    }
-    let signature;
-    try {
-        const info = statSync(path, { bigint: true });
-        signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}`;
-    } catch {
-        _sessionLoadCache.delete(path);
-        return { exists: existsSync(path), session: null };
-    }
-    const cached = _sessionLoadCache.get(path);
-    if (cached?.signature === signature) {
-        _sessionLoadCache.delete(path);
-        _sessionLoadCache.set(path, cached);
-        return { exists: true, session: cached.session };
-    }
-    try {
-        const stored = JSON.parse(readFileSync(path, 'utf-8'));
-        if (stored?.id !== id) {
-            _sessionLoadCache.delete(path);
-            return { exists: true, session: null };
-        }
-        _sessionLoadCache.delete(path);
-        _sessionLoadCache.set(path, { signature, session: stored });
-        while (_sessionLoadCache.size > SESSION_LOAD_CACHE_LIMIT) {
-            const oldest = _sessionLoadCache.keys().next().value;
-            if (oldest === undefined) break;
-            _sessionLoadCache.delete(oldest);
-        }
-        return { exists: true, session: stored };
-    } catch {
-        _sessionLoadCache.delete(path);
-        return { exists: true, session: null };
-    }
-}
 
-// Listing is much hotter than writing, especially while the desktop session
-// browser is open. Keep the compact sidecar in memory after the first read;
-// local durability mutations update this cache synchronously, while an
-// explicit refresh remains the authoritative cross-process/disk reconciliation
-// path. Pending overlays cover a write that lands before the first listing.
-let _summaryRowsCache = null;
-const _summaryCacheUpserts = new Map();
-const _summaryCacheRemovals = new Set();
-const _summaryCacheVersions = new Map();
-let _summaryCacheDataDir = null;
-
-function _ensureSummaryCacheDataDir() {
-    const dataDir = getPluginData();
-    if (_summaryCacheDataDir === dataDir) return;
-    _summaryCacheDataDir = dataDir;
-    _summaryRowsCache = null;
-    _summaryScanCache.clear();
-    _summaryCacheUpserts.clear();
-    _summaryCacheRemovals.clear();
-    _summaryCacheVersions.clear();
-}
-
-function _summaryRowsWithLocalMutations(rows, { discardLocalMutations = false } = {}) {
-    if (discardLocalMutations) {
-        _summaryCacheUpserts.clear();
-        _summaryCacheRemovals.clear();
-    }
-    const byId = new Map(_normalizeSummaryIndex({ rows }).rows.map((row) => [row.id, row]));
-    for (const id of _summaryCacheRemovals) byId.delete(id);
-    for (const [id, row] of _summaryCacheUpserts) byId.set(id, row);
-    return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-}
-
-function _setSummaryRowsCache(rows, options) {
-    if (options?.discardLocalMutations === true) {
-        _summaryCacheUpserts.clear();
-        _summaryCacheRemovals.clear();
-    }
-    _summaryRowsCache = _normalizeSummaryIndex({ rows }).rows;
-    return _summaryRowsWithLocalMutations(_summaryRowsCache);
-}
-
-function _cachedSummaryRows() {
-    return _summaryRowsCache === null ? null : _summaryRowsWithLocalMutations(_summaryRowsCache);
-}
-
-function _setCachedBaseSummary(row) {
-    if (!row || _summaryRowsCache === null) return;
-    const byId = new Map(_summaryRowsCache.map((existing) => [existing.id, existing]));
-    byId.set(row.id, row);
-    _summaryRowsCache = [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-}
-
-function _removeCachedBaseSummary(id) {
-    if (_summaryRowsCache === null) return;
-    _summaryRowsCache = _summaryRowsCache.filter((row) => row.id !== id);
-}
-
-function _cacheSessionSummary(session) {
-    _ensureSummaryCacheDataDir();
-    const row = _sessionSummary(session);
-    if (!row) return;
-    _summaryCacheVersions.set(row.id, (_summaryCacheVersions.get(row.id) || 0) + 1);
-    _summaryCacheRemovals.delete(row.id);
-    _summaryCacheUpserts.set(row.id, row);
-    return _summaryCacheVersions.get(row.id);
-}
-
-function _uncacheSessionSummary(id) {
-    _ensureSummaryCacheDataDir();
-    if (!id) return;
-    _summaryCacheVersions.set(id, (_summaryCacheVersions.get(id) || 0) + 1);
-    _summaryCacheUpserts.delete(id);
-    _summaryCacheRemovals.add(id);
-    _removeCachedBaseSummary(id);
-}
-
-function _rollbackCachedSessionSummary(id, version) {
-    if ((_summaryCacheVersions.get(id) || 0) !== version) return;
-    _summaryCacheUpserts.delete(id);
-}
-
-function _queueSessionSummaryUpsert(session, version = null) {
-    const row = _sessionSummary(session);
-    if (!row) return;
-    _setCachedBaseSummary(row);
-    if (version === null || (_summaryCacheVersions.get(row.id) || 0) === version) {
-        _summaryCacheUpserts.delete(row.id);
-        _summaryCacheRemovals.delete(row.id);
-    }
-    _upsertSessionSummary(session);
-}
-
-function _queueSessionSummaryRemoval(id) {
-    _uncacheSessionSummary(id);
-    _removeSessionSummary(id);
-}
-
-function _queueSummaryIndexPrune(ids) {
-    for (const id of ids) _uncacheSessionSummary(id);
-    _pruneSummaryIndexIds(ids);
-}
-
-// The live in-memory session (and every model request)
-// retains attached image bytes across turns so multi-turn recognition works.
-// The persisted session JSON, however, replaces image content with a short
-// text placeholder at serialization time — keeping session files small without
-// starving the model of the image mid-conversation. Returns the same object
-// reference when nothing changed (no-image sessions pay only a shallow scan).
-function _sessionForDisk(session) {
-    // Strip transient in-flight aliases askSession sets for the turn duration:
-    //  - liveTurnMessages: live working transcript (so contextStatus() can
-    //    estimate live context growth) — a duplicate of the working transcript
-    //    that must never be serialized (mid-turn saves would bloat the file and
-    //    persist a non-canonical message array).
-    //  - toolApprovalHook: the askOpts.onToolApproval callback wired for the
-    //    turn — a function that must never be serialized.
-    const hasTransient = session && typeof session === 'object'
-        && (Object.prototype.hasOwnProperty.call(session, 'liveTurnMessages')
-            || Object.prototype.hasOwnProperty.call(session, 'toolApprovalHook'));
-    const messages = Array.isArray(session?.messages) ? session.messages : null;
-    if (!messages || messages.length === 0) {
-        if (!hasTransient) return session;
-        const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
-        return rest;
-    }
-    let changed = false;
-    const out = messages.map((m) => {
-        if (!m || typeof m !== 'object') return m;
-        const content = sanitizeContentForStoredHistory(m.content);
-        if (content !== m.content) { changed = true; return { ...m, content }; }
-        return m;
-    });
-    if (!changed) {
-        if (!hasTransient) return session;
-        const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
-        return rest;
-    }
-    const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
-    return { ...rest, messages: out };
-}
-
-function _renameWithRetrySync(tmp, target) {
-    return renameWithRetrySync(tmp, target);
-}
-
-/**
- * Ensure generation/closed defaults on every session object.
- * Older persisted sessions predate these fields; we normalise at load and save.
- */
-function _ensureLifecycleFields(session) {
-    if (typeof session.generation !== 'number') session.generation = 0;
-    if (typeof session.closed !== 'boolean') session.closed = false;
-    if (!Array.isArray(session.messages)) session.messages = [];
-    if (!Array.isArray(session.tools)) session.tools = [];
-    return session;
-}
 
 /** Module-level map tracking in-flight saves per session ID to prevent concurrent write corruption. */
 const _savePending = new Map();
 
-/** Same-process authoritative session snapshots (createSession → loadSession / askSession). */
-const _liveSessions = new Map();
-
-// Session ids whose most recent save attempt was DROPPED by the ownership
-// guard (_shouldDrop: disk generation moved past the caller's expected
-// generation) or failed outright. For these ids the local live snapshot is
-// AHEAD of disk — the on-disk transcript froze at the last landed save — so
-// it must not be evicted (data loss) nor shadowed by the stale disk copy.
-const _droppedSaveIds = new Set();
-
-export function setLiveSession(session) {
-    if (!session?.id) return;
-    _liveSessions.set(session.id, session);
-}
 
 /**
  * Cheap authoritative lifecycle read straight from disk (no live/pending
@@ -312,9 +102,6 @@ export function readSessionHeartbeatMtime(id) {
     return _heartbeatMtime(id);
 }
 
-function _clearLiveSession(id) {
-    if (id) _liveSessions.delete(id);
-}
 
 /** True while any pending/in-flight persistence still references this id. */
 function _hasPendingPersistence(id) {
@@ -334,20 +121,6 @@ export function evictLiveSession(id) {
     return _liveSessions.delete(id);
 }
 
-// Live snapshots that still carry raw media bytes (images are placeholder'd
-// in the persisted JSON) stay resident for this long after their last use so
-// multi-turn image recognition keeps working across an idle gap. Beyond the
-// TTL the memory cost wins and the snapshot is reclaimed like any other.
-const LIVE_MEDIA_RETENTION_MS = 60 * 60 * 1000; // 1h
-
-function _messagesCarryLiveMedia(messages) {
-    if (!Array.isArray(messages)) return false;
-    for (const m of messages) {
-        if (!m || typeof m !== 'object') continue;
-        if (sanitizeContentForStoredHistory(m.content) !== m.content) return true;
-    }
-    return false;
-}
 
 /**
  * Idle sweep for the same-process snapshot cache. _liveSessions previously
@@ -496,253 +269,6 @@ function _flushScheduled(id) {
     });
 }
 
-// ── Worker-thread async save ──────────────────────────────────────────────────
-// Single long-lived Worker serializes all saveSessionAsync calls.
-// The worker's message queue preserves generation-race ordering.
-let _saveWorker = null;
-// In-flight writes, keyed by reqId. Value: { id, session, opts, waiters:[{resolve,reject}] }.
-// At most ONE entry per session id at a time (single-in-flight-per-id).
-let _saveWorkerPending = new Map();
-// Latest-wins queued payload per session, keyed by id. Value: { session, opts, waiters:[] }.
-// At most ONE queued write per id: a newer saveSessionAsync while a write is in
-// flight overwrites session/opts here and appends its resolver to waiters, so
-// every superseded caller resolves when this single queued write finally lands.
-let _saveAsyncQueued = new Map();
-// id → reqId of the in-flight write for that id (enforces one-in-flight-per-id).
-let _saveAsyncInflight = new Map();
-let _saveWorkerReqId = 0;
-let _saveWorkerRefCount = 0;
-let _deferredSaveReqId = 0;
-const _deferredSessionSaves = new Map();
-
-function _getOrSpawnWorker() {
-    if (_saveWorker) return _saveWorker;
-    _saveWorker = new Worker(new URL('./save-session-worker.mjs', import.meta.url), {
-        execArgv: [],
-    });
-    // Worker logs arrive as `{ __log }` messages, NOT via piped stdio
-    // (stdout:true/stderr:true): once the parent starts reading a worker's
-    // piped stdio, the underlying MessagePort stays ref'd for the worker's
-    // lifetime regardless of worker.unref(), so every process that ever
-    // saved a session could no longer exit (test runners hung after
-    // completion). The worker overrides its own process.stdout/stderr.write
-    // to forward through this channel, which keeps stray prints off the TUI
-    // frame (routed through the parent's guardable stderr) without holding
-    // the event loop.
-    _saveWorker.on('message', ({ __log, ok, saved, error, reqId }) => {
-        if (__log !== undefined) {
-            try { process.stderr.write(String(__log)); } catch { /* best-effort */ }
-            return;
-        }
-        const p = _saveWorkerPending.get(reqId);
-        if (!p) return;
-        _saveWorkerPending.delete(reqId);
-        // Drop the ref AFTER pending was registered ref-up'd so the worker
-        // becomes unref'd again once all in-flight writes settle. _saveWorker
-        // null-check covers the error/exit race where the worker died first.
-        if (--_saveWorkerRefCount === 0 && _saveWorker) _saveWorker.unref();
-        const { id, session, summaryVersion, waiters } = p;
-        _saveAsyncInflight.delete(id);
-        // Resolve/reject every caller whose payload this write represents
-        // (the originating call plus any that coalesced onto it before it was
-        // posted). A supersede never lands here as a rejection — only a real
-        // worker failure does.
-        if (ok) {
-            // A close/delete may have completed while the worker was writing.
-            // Do not let this older completion put an open row back in the
-            // process-local cache after its tombstone/removal.
-            if (saved) {
-                _queueSessionSummaryUpsert(session, summaryVersion);
-                _droppedSaveIds.delete(id);
-            } else {
-                // The worker's _shouldDrop declined the write: disk ownership
-                // moved past this snapshot — flag the split-brain so eviction
-                // and disk-over-live arbitration keep the richer local copy.
-                _rollbackCachedSessionSummary(id, summaryVersion);
-                _droppedSaveIds.add(id);
-            }
-            clearSessionSaveError(id);
-            for (const w of waiters) w.resolve();
-        }
-        else {
-            const e = new Error(`[session-store] worker save failed: ${error}`);
-            for (const w of waiters) w.reject(e);
-        }
-        // Promote the latest-wins queued payload (if any) into the now-free
-        // in-flight slot for this id. Runs regardless of ok: the queued write
-        // is a newer, independent payload and must still be attempted so its
-        // (possibly superseded) waiters resolve when it lands.
-        const q = _saveAsyncQueued.get(id);
-        if (q) {
-            _saveAsyncQueued.delete(id);
-            try {
-                _postAsyncWrite(id, q.session, q.opts, q.waiters, q.summaryVersion);
-            } catch (err) {
-                _rollbackCachedSessionSummary(id, q.summaryVersion);
-                for (const w of q.waiters) w.reject(err);
-            }
-        }
-    });
-    _saveWorker.on('error', (err) => {
-        for (const [, p] of _saveWorkerPending) {
-            _rollbackCachedSessionSummary(p.id, p.summaryVersion);
-            for (const w of p.waiters) w.reject(err);
-        }
-        _saveWorkerPending.clear();
-        for (const [id, q] of _saveAsyncQueued) {
-            _rollbackCachedSessionSummary(id, q.summaryVersion);
-            for (const w of q.waiters) w.reject(err);
-        }
-        _saveAsyncQueued.clear();
-        _saveAsyncInflight.clear();
-        _saveWorkerRefCount = 0;
-        _saveWorker = null;
-    });
-    _saveWorker.on('exit', (code) => {
-        // Reject pending resolvers on ANY exit (code 0 included) so an idle
-        // worker that races a pending postMessage cannot leak resolvers. The
-        // map is empty on the normal idle-exit path so the loop is a no-op,
-        // but it remains safe for the race window where exit fires after
-        // saveSessionAsync registered a resolver but before the worker
-        // received the message.
-        const err = new Error(`[session-store] save worker exited with code ${code}`);
-        for (const [, p] of _saveWorkerPending) {
-            _rollbackCachedSessionSummary(p.id, p.summaryVersion);
-            for (const w of p.waiters) w.reject(err);
-        }
-        _saveWorkerPending.clear();
-        for (const [id, q] of _saveAsyncQueued) {
-            _rollbackCachedSessionSummary(id, q.summaryVersion);
-            for (const w of q.waiters) w.reject(err);
-        }
-        _saveAsyncQueued.clear();
-        _saveAsyncInflight.clear();
-        _saveWorkerRefCount = 0;
-        _saveWorker = null;
-    });
-    _saveWorker.unref(); // don't keep process alive
-    return _saveWorker;
-}
-
-/**
- * Post one in-flight write for `id` to the worker and register it as the
- * single in-flight entry for that id. Callers guarantee no write is already
- * in flight for `id`. Throws (after cleaning its own map entries) if the
- * worker postMessage fails so the caller can reject the affected waiters.
- */
-function _postAsyncWrite(id, session, opts, waiters, summaryVersion) {
-    const reqId = ++_saveWorkerReqId;
-    _saveWorkerPending.set(reqId, {
-        id,
-        session,
-        opts,
-        summaryVersion,
-        waiters,
-    });
-    _saveAsyncInflight.set(id, reqId);
-    try {
-        const w = _getOrSpawnWorker();
-        w.postMessage({ session, opts, reqId });
-        // Ref AFTER successful postMessage so a queue/throw failure path does
-        // not leave the worker held alive with no pending message. Paired with
-        // the unref in the message handler when count hits 0.
-        if (++_saveWorkerRefCount === 1) w.ref();
-    } catch (err) {
-        _saveWorkerPending.delete(reqId);
-        _saveAsyncInflight.delete(id);
-        throw err;
-    }
-}
-
-/**
- * Async save via a dedicated Worker thread.
- * Errors surface as thrown Errors — callers must not silently swallow them.
- *
- * Per-session latest-wins coalescing: for a given id there is at most one
- * write in flight plus one queued follow-up. N rapid saves for the same id in
- * a turn collapse to (in-flight + one queued-latest), keeping the single
- * worker's backlog bounded. Per-id write ORDERING is preserved (a queued write
- * is only posted once the prior in-flight write for that id settles); different
- * ids interleave freely as before.
- */
-export function saveSessionAsync(session, opts) {
-    _ensureLifecycleFields(session);
-    setLiveSession(session);
-    const id = session.id;
-    const summaryVersion = _cacheSessionSummary(session);
-    const safeOpts = opts?._sessionWriteGuard ? opts : _guardedSaveOptions(id, opts);
-    // The Worker `postMessage` below structured-clones the whole session on the
-    // main thread. `session.liveTurnMessages` (live working transcript) and
-    // `session.toolApprovalHook` (askOpts.onToolApproval callback) are transient
-    // in-flight aliases askSession sets for the turn duration; both carry
-    // non-cloneable values (a function, and raw messages that can hold functions),
-    // which makes structuredClone throw "could not be cloned" for every mid-turn
-    // iteration save. The worker strips both via _sessionForDisk anyway, so drop
-    // them from the cloned payload here WITHOUT mutating the live session object.
-    const clonePayload = (session && typeof session === 'object'
-        && (Object.prototype.hasOwnProperty.call(session, 'liveTurnMessages')
-            || Object.prototype.hasOwnProperty.call(session, 'toolApprovalHook')))
-        ? (() => { const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session; return rest; })()
-        : session;
-    return new Promise((resolve, reject) => {
-        const waiter = { resolve, reject };
-        if (_saveAsyncInflight.has(id)) {
-            // A write is already on disk for this id — coalesce into the single
-            // latest-wins queued slot. Existing queued waiters carry over so a
-            // superseded caller resolves when THIS newer write lands (never
-            // hang, never reject on supersede).
-            const q = _saveAsyncQueued.get(id);
-            if (q) {
-                q.session = clonePayload;
-                q.opts = safeOpts;
-                q.summaryVersion = summaryVersion;
-                q.waiters.push(waiter);
-            } else {
-                _saveAsyncQueued.set(id, {
-                    session: clonePayload,
-                    opts: safeOpts,
-                    summaryVersion,
-                    waiters: [waiter],
-                });
-            }
-            return;
-        }
-        // Idle for this id — post immediately as the in-flight write. The
-        // in-flight entry persists {session, opts} so drainSessionStore can
-        // sync-flush outstanding writes if process exit interrupts the queue.
-        try {
-            _postAsyncWrite(id, clonePayload, safeOpts, [waiter], summaryVersion);
-        } catch (err) {
-            _rollbackCachedSessionSummary(id, summaryVersion);
-            reject(err);
-        }
-    });
-}
-
-/**
- * Register a save for the exit drain now, but yield one check phase before
- * Worker.postMessage performs its main-thread structured clone.
- */
-export function saveSessionAsyncDeferred(session, opts) {
-    _ensureLifecycleFields(session);
-    setLiveSession(session);
-    _cacheSessionSummary(session);
-    const reqId = ++_deferredSaveReqId;
-    return new Promise((resolve, reject) => {
-        _deferredSessionSaves.set(reqId, {
-            session,
-            opts: _guardedSaveOptions(session.id, opts),
-            resolve,
-            reject,
-        });
-        setImmediate(() => {
-            const pending = _deferredSessionSaves.get(reqId);
-            if (!pending) return;
-            _deferredSessionSaves.delete(reqId);
-            saveSessionAsync(pending.session, pending.opts).then(resolve, reject);
-        });
-    });
-}
 
 /**
  * Exported for save-session-worker — not part of the public API.
@@ -897,9 +423,7 @@ export function drainSessionStore() {
     }
     _deferredSessionSaves.clear();
     _saveWorkerPending.clear();
-    _saveAsyncQueued.clear();
-    _saveAsyncInflight.clear();
-    _saveWorkerRefCount = 0;
+    _resetSaveWorkerBookkeeping();
 }
 
 function _drainQueue(id) {
@@ -1179,17 +703,6 @@ export function loadSession(id) {
     return stored ? _ensureLifecycleFields(stored) : null;
 }
 
-/**
- * Returns the last save error for a session id, or null if no error has occurred.
- * Shape: { message: string, at: number } | null
- */
-export function getSessionSaveError(id) {
-    return _lastSaveError.get(id) ?? null;
-}
-
-export function clearSessionSaveError(id) {
-    _lastSaveError.delete(id);
-}
 
 export function deleteSession(id, options = {}) {
     // Keep caller probes and all vetoes ahead of the non-reentrant lock and
@@ -1252,18 +765,6 @@ const RESUMABLE_OPEN_MAX_COUNT = 300;
 // idle this long — see the blank-scratch branch in sweepStaleSessions.
 const BLANK_SCRATCH_MAX_AGE_MS = 60 * 60 * 1000; // 1h
 
-function _storedSessionFromFile(dir, filename, ensureLifecycle = true) {
-    if (!filename.endsWith('.json')) return null;
-    const storageId = filename.slice(0, -5);
-    if (!storageId || !/^[A-Za-z0-9_-]+$/.test(storageId)) return null;
-    try {
-        const session = JSON.parse(readFileSync(join(dir, filename), 'utf-8'));
-        if (session?.id !== storageId) return null;
-        return ensureLifecycle ? _ensureLifecycleFields(session) : session;
-    } catch {
-        return null;
-    }
-}
 
 export function listStoredSessions(options = {}) {
     const dir = getStoreDir();
@@ -1312,59 +813,6 @@ function _withUnpersistedSessions(stored, invalidStorageIds = new Set()) {
     return [...sessionsById.values()].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-// ── Incremental storage scan ────────────────────────────────────────────────
-// refreshFromStorage used to re-parse EVERY session JSON (full transcripts,
-// multi-MB files) on each desktop sidebar refresh. A summary only changes when
-// its file changes, so key a per-file row cache on (mtimeMs, size): unchanged
-// files reuse the cached row, changed/new files re-parse, vanished files drop
-// out. Storage stays the truth source — the sidecar index is never trusted.
-const _summaryScanCache = new Map(); // filename → { mtimeMs, size, row|null }
-
-function _scanStoredSessionSummaryRows() {
-    const dir = getStoreDir();
-    if (!existsSync(dir)) {
-        const changed = _summaryScanCache.size > 0;
-        _summaryScanCache.clear();
-        return { rows: [], invalidStorageIds: new Set(), changed };
-    }
-    const files = readdirSync(dir).filter(f => f.endsWith('.json'));
-    const present = new Set(files);
-    let changed = false;
-    for (const key of [..._summaryScanCache.keys()]) {
-        if (!present.has(key)) {
-            _summaryScanCache.delete(key);
-            changed = true;
-        }
-    }
-    const rows = [];
-    const invalidStorageIds = new Set();
-    const markInvalid = (filename) => {
-        const storageId = filename.slice(0, -5);
-        if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
-    };
-    for (const f of files) {
-        let fileStat = null;
-        try { fileStat = statSync(join(dir, f)); } catch { /* deleted mid-scan */ }
-        if (!fileStat) {
-            if (_summaryScanCache.delete(f)) changed = true;
-            continue;
-        }
-        const cached = _summaryScanCache.get(f);
-        if (cached && cached.mtimeMs === fileStat.mtimeMs && cached.size === fileStat.size) {
-            if (cached.row) rows.push(cached.row);
-            else markInvalid(f);
-            continue;
-        }
-        const session = _storedSessionFromFile(dir, f);
-        const row = session ? _sessionSummary(session) : null;
-        _summaryScanCache.set(f, { mtimeMs: fileStat.mtimeMs, size: fileStat.size, row });
-        changed = true;
-        if (row) rows.push(row);
-        else markInvalid(f);
-    }
-    rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    return { rows, invalidStorageIds, changed };
-}
 
 // Summary-level twin of _withUnpersistedSessions: overlay queued/in-flight
 // saves that have no disk record yet (read-your-writes for brand-new sessions).

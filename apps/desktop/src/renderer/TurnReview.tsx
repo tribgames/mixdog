@@ -180,4 +180,3 @@ export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: s
     </section>
   );
 }
-

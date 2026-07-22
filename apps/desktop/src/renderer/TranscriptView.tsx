@@ -870,4 +870,3 @@ export function CodeDiff({ patch }: { patch: string }) {
     </section>
   );
 }
-

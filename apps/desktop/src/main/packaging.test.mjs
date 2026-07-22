@@ -72,7 +72,7 @@ test('Windows acceptance checks the current canonical settings inventory', async
 
 test('production entry has no capture side effects and capture harness is excluded', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
-  const capture = await readFile(new URL('./capture-window.ts', import.meta.url), 'utf8');
+  const capture = (await Promise.all(['./capture-assertions.ts', './capture-host.ts', './capture-window.ts'].map((path) => readFile(new URL(path, import.meta.url), 'utf8')))).join('\n');
   const adapter = await readFile(new URL('../renderer/capture-ui.mjs', import.meta.url), 'utf8');
   const options = await readFile(new URL('./window-options.ts', import.meta.url), 'utf8');
   const packageJson = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));

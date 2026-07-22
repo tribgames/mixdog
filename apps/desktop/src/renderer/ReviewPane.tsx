@@ -299,4 +299,3 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
     </div>}
   </div>;
 }
-

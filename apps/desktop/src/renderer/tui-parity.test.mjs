@@ -115,7 +115,7 @@ test('desktop slash commands exactly match the TUI slash-command registry', () =
 
 test('every desktop slash command resolves to an implemented GUI target', async () => {
   const [settingsSource, surfaceSource, appSource, composerSource] = await Promise.all([
-    readFile(new URL('./settings/CapabilitySettings.tsx', import.meta.url), 'utf8'),
+    Promise.all(['./settings/CapabilitySettings.tsx', './settings/capability-data.ts', './settings/capability-controls.tsx', './settings/capability-panels.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./App.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./Composer.tsx', import.meta.url), 'utf8'),
@@ -166,4 +166,3 @@ test('every desktop slash command resolves to an implemented GUI target', async 
     }
   }
 });
-

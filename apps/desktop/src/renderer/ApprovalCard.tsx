@@ -92,4 +92,3 @@ export function ApprovalCard({ approval, resolve }: {
     </article>
   );
 }
-

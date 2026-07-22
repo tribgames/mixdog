@@ -31,7 +31,7 @@ import {
 import { filterConfiguredModels } from './ModelPicker.tsx';
 import { formatContextWindow, modelContextWindow, modelDetailTooltip } from './provider-display.tsx';
 
-const APP_MODULE_FILES = ['./App.tsx', './Composer.tsx', './TranscriptView.tsx', './UtilityDock.tsx', './ReviewPane.tsx', './TurnReview.tsx', './ApprovalCard.tsx', './transcript-metrics.ts', './desktop-types.ts', './text-format.ts', './lazy-widgets.ts'];
+const APP_MODULE_FILES = ['./App.tsx', './Conversation.tsx', './notifications.tsx', './Composer.tsx', './model-controls.tsx', './TranscriptView.tsx', './UtilityDock.tsx', './ReviewPane.tsx', './TurnReview.tsx', './ApprovalCard.tsx', './transcript-metrics.ts', './desktop-types.ts', './text-format.ts', './lazy-widgets.ts'];
 // The former App.tsx monolith now spans focused renderer modules; source-shape
 // assertions read them as one concatenated surface.
 async function readAppModules() {
@@ -187,7 +187,7 @@ test('every renderer stylesheet resolves through the shared desktop theme contra
 test('Desktop shell keeps Project and flat recent sessions inside the sidebar rail', async () => {
   const [styles, navigation] = await Promise.all([
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
-    readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
+    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './project-switcher.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
   ]);
   assert.match(styles, /--titlebar-height:\s*40px/);
   assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 13px;/s);
@@ -242,7 +242,7 @@ test('workspace tabs keep labels fully visible while retaining horizontal scroll
   const [layout, theme, navigation] = await Promise.all([
     readFile(new URL('./styles.css', import.meta.url), 'utf8'),
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
-    readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
+    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './project-switcher.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
   ]);
 
   assert.match(layout, /\.workspace-tabs\s*\{[^}]*overflow-x:\s*auto;/s);
@@ -282,7 +282,7 @@ test('copy hover changes only icon color while keyboard focus keeps its frame', 
 test('session title actions, message hover rows, and tool disclosures keep the desktop rhythm', async () => {
   const [styles, navigation, app] = await Promise.all([
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
-    readFile(new URL('./navigation.tsx', import.meta.url), 'utf8'),
+    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './project-switcher.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
     readAppModules(),
   ]);
   assert.match(styles, /\.session-row-menu-wrap\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
@@ -353,7 +353,7 @@ test('desktop UI keeps every public TUI command and core capability represented'
     readAppModules(),
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./slash-commands.ts', import.meta.url), 'utf8'),
-    readFile(new URL('./settings/CapabilitySettings.tsx', import.meta.url), 'utf8'),
+    Promise.all(['./settings/CapabilitySettings.tsx', './settings/capability-data.ts', './settings/capability-controls.tsx', './settings/capability-panels.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
     readFile(new URL('./settings/OnboardingWizard.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./SchedulesView.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),

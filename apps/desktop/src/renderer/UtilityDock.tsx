@@ -221,4 +221,3 @@ export function UtilityDock({ open, width, tab, onTab, onResize, items, snapshot
     </div>
   </aside>;
 }
-

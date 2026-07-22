@@ -201,14 +201,16 @@ try {
   assert.equal(metadata.liveAssertions.desktop.contextChipCount, 0);
   assert.equal(metadata.liveAssertions.desktop.controlsNonOverlapping, true);
   assert.equal(metadata.liveAssertions.desktop.sidebarGap, 8);
-  // Header/composer shared axis: title left and status right sit exactly on
-  // the composer field edges (user-flagged drift; now pinned).
+  // Header/composer shared axis: the header title and status follow the
+  // 36px thread prose inset, which sits exactly 4px inside the composer
+  // plate's 32px inset (plate edges deliberately extend past the prose
+  // column). Pinned so neither surface drifts independently.
   {
     const axis = metadata.liveAssertions.desktop.headerAxis;
-    assert.ok(Math.abs(axis.titleLeft - axis.composerLeft) <= 0.5,
-      `header title must sit on the composer left edge (${axis.titleLeft} vs ${axis.composerLeft})`);
-    assert.ok(Math.abs(axis.statusRight - axis.composerRight) <= 0.5,
-      `header status must sit on the composer right edge (${axis.statusRight} vs ${axis.composerRight})`);
+    assert.ok(Math.abs(axis.titleLeft - (axis.composerLeft + 4)) <= 0.5,
+      `header title must sit on the thread prose inset, 4px inside the composer plate (${axis.titleLeft} vs ${axis.composerLeft} + 4)`);
+    assert.ok(Math.abs(axis.statusRight - (axis.composerRight - 4)) <= 0.5,
+      `header status must sit on the thread prose inset, 4px inside the composer plate (${axis.statusRight} vs ${axis.composerRight} - 4)`);
   }
   assert.equal(metadata.liveAssertions.lightTheme.theme, "light");
   assert.equal(metadata.liveAssertions.lightTheme.colorScheme, "light");

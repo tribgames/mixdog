@@ -95,4 +95,3 @@ export async function copyTextToClipboard(value: string) {
   document.execCommand("copy");
   input.remove();
 }
-

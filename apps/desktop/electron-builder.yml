@@ -1,5 +1,3 @@
-# Packaging layout adapted from AiderDesk's electron-builder.yml under Apache-2.0.
-# See src/shared/AIDERDESK_NOTICE.md.
 appId: io.mixdog.desktop
 productName: Mixdog
 artifactName: mixdog-desktop-${os}-${arch}.${ext}
@@ -19,7 +17,6 @@ directories:
 files:
   - out/**
   - package.json
-  - src/shared/AIDERDESK_NOTICE.md
   - '!out/main/capture-window.js'
   - '!**/*.map'
 extraResources:
