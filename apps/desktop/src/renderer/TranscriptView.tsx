@@ -1,7 +1,7 @@
 import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Code2, Command, FileDiff, Folder, GitCompare, Layers3, LoaderCircle, Mic, PanelLeft, PanelRight, Plus, RotateCcw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import type { DesktopCapability, DesktopModelOption, DesktopModelSelection, DesktopPromptAttachment, DesktopPromptContent, DesktopProjectSummary, DesktopSessionSummary, DesktopSubmitOptions, DesktopUpdaterState, EngineSnapshot } from "../shared/contract";
 import { approvalInstanceKey, draftAfterSubmission, followAfterScroll, isApprovalDismissKey, isScrollIntentKey, mergeTranscript, normalizeApplyPatch, parseUnifiedDiff, reconcileTurnFailures, shouldNavigatePromptHistory, toolInputRows, transcriptTurnKeys } from "./renderer-logic.mjs";
 import { type RecordValue, type Project, type TranscriptItem, type Approval, type Toast, type Snapshot, EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "./desktop-types";
@@ -15,7 +15,7 @@ import { classifyToolCategory, formatAggregateHeader, formatToolSurface, summari
 export const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 
 // TUI parity (Spinner formatNumber): compact lowercase k/m token units.
-export const compactTokenFormatter = new Intl.NumberFormat("en-US", {
+const compactTokenFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
   minimumFractionDigits: 0,
@@ -108,7 +108,7 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   </div>;
 }
 
-export function contextMetrics(snapshot: Snapshot) {
+function contextMetrics(snapshot: Snapshot) {
   const stats = asRecord(snapshot.stats);
   const limit = Math.max(0, Number(
     snapshot.autoCompactTokenLimit || snapshot.displayContextWindow || snapshot.contextWindow || 0,
@@ -326,12 +326,12 @@ export function CopyControl({ value, label, className, tooltipSide = "top" }: {
   return <button type="button" className={className} onClick={() => void copy()}
     aria-label={copied ? "Copied" : label} data-copied={copied || undefined}
     data-tooltip={copied ? "Copied" : "Copy"} data-tooltip-side={tooltipSide}>
-    {copied ? <OcIcon name="check" size={13} /> : <OcIcon name="copy" size={13} />}
+    {copied ? <MxIcon name="check" size={13} /> : <MxIcon name="copy" size={13} />}
   </button>;
 }
 
-export let markdownBodyReady = false;
-export let markdownBodyPromise: Promise<typeof import("./MarkdownBody")> | null = null;
+let markdownBodyReady = false;
+let markdownBodyPromise: Promise<typeof import("./MarkdownBody")> | null = null;
 export function preloadMarkdownBody() {
   markdownBodyPromise ||= import("./MarkdownBody").then((module) => {
     markdownBodyReady = true;
@@ -376,7 +376,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({ text, str
   </div>;
 });
 
-export const transcriptItemSignatures = new WeakMap<object, string>();
+const transcriptItemSignatures = new WeakMap<object, string>();
 
 export function transcriptItemSignature(item: TranscriptItem | undefined): string {
   if (!item) return "";
@@ -406,7 +406,7 @@ export function messageMetadata(item: TranscriptItem) {
 
 // The transcript renders attached images as chips, so the raw composer token
 // ("[Image #N: name]") in the message text is redundant noise there.
-export function stripImageTokens(text: string): string {
+function stripImageTokens(text: string): string {
   return text
     .replace(/ ?\[Image #\d+(?::[^\]]*)?\] ?/g, ' ')
     .replace(/ {2,}/g, ' ')
@@ -418,8 +418,8 @@ export function stripImageTokens(text: string): string {
 // displayed at 1027x702]", "[Image omitted from stored history: image/png]").
 // Desktop folds them into compact photo chips (icon + filename + dimensions)
 // instead of rendering the raw marker text.
-export interface ImageMarkerChip { name: string; dims: string; title: string }
-export function extractImageMarkers(text: string): { text: string; chips: ImageMarkerChip[] } {
+interface ImageMarkerChip { name: string; dims: string; title: string }
+function extractImageMarkers(text: string): { text: string; chips: ImageMarkerChip[] } {
   const chips: ImageMarkerChip[] = [];
   const kept: string[] = [];
   let pendingRefs = 0;
@@ -523,7 +523,7 @@ export const TranscriptRow = memo(function TranscriptRow({
                   {preview
                     ? <img src={preview} alt={image.name || 'Attached image'} />
                     : <span className="message-image-fallback">
-                <OcIcon name="photo" size={14} />
+                <MxIcon name="photo" size={14} />
                       <span>{image.name || 'Image'}</span>
                     </span>}
                 </span>;
@@ -531,7 +531,7 @@ export const TranscriptRow = memo(function TranscriptRow({
               {markerChips.map((chip, index) => (
                 <span className="message-image-chip" key={`marker-${index}`} title={chip.title}>
                   <span className="message-image-fallback">
-                    <OcIcon name="photo" size={14} />
+                    <MxIcon name="photo" size={14} />
                     <span>{chip.name}</span>
                     {chip.dims ? <small>{chip.dims}</small> : null}
                   </span>
@@ -690,7 +690,7 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   );
 }
 
-export function ToolOutput({ value, command = "", copyLabel, follow = false }: {
+function ToolOutput({ value, command = "", copyLabel, follow = false }: {
   value: unknown;
   command?: string;
   copyLabel?: string;
@@ -714,7 +714,7 @@ export function ToolOutput({ value, command = "", copyLabel, follow = false }: {
   </div>;
 }
 
-export function DetailBlock({ label, value, copyLabel }: { label: string; value: unknown; copyLabel?: string }) {
+function DetailBlock({ label, value, copyLabel }: { label: string; value: unknown; copyLabel?: string }) {
   const text = boundedTextOf(value);
   if (!text.trim()) return null;
   return <div className="detail-block">
@@ -728,7 +728,7 @@ export function DetailBlock({ label, value, copyLabel }: { label: string; value:
 // Structured Input block: per-tool key/value rows
 // instead of a raw args JSON dump. Long values (prompts,
 // briefs) drop into a wrapped block in the value column.
-export function ToolInputBlock({ name, args }: { name: string; args: RecordValue }) {
+function ToolInputBlock({ name, args }: { name: string; args: RecordValue }) {
   const rows = useMemo(() => toolInputRows(name, args) as Array<{
     key: string; value: string; block: boolean;
   }>, [name, args]);
@@ -790,13 +790,13 @@ export function shouldSuppressFullyFailedToolItem(item: TranscriptItem) {
 
 export function toolIcon(category: unknown) {
   if (category === "Patch") return <Code2 size={16} />;
-  if (category === "Read") return <OcIcon name="open-file" size={16} />;
-  if (category === "Search" || category === "Web Research") return <OcIcon name="magnifying-glass" size={16} />;
-  if (category === "Shell") return <OcIcon name="terminal" size={16} />;
+  if (category === "Read") return <MxIcon name="open-file" size={16} />;
+  if (category === "Search" || category === "Web Research") return <MxIcon name="magnifying-glass" size={16} />;
+  if (category === "Shell") return <MxIcon name="terminal" size={16} />;
   return <Layers3 size={16} />;
 }
 
-export const normalizedPatchCache = new Map<string, string>();
+const normalizedPatchCache = new Map<string, string>();
 export const PATCH_CACHE_LIMIT = 24;
 
 export function findPatch(item: TranscriptItem) {

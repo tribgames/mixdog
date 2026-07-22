@@ -62,10 +62,10 @@ export function resolveProviderRequestTools({
   return deferredTools.length ? [...activeTools, ...deferredTools] : activeTools;
 }
 
-export const OMIT_REQUEST_TOOL_VALUE = Symbol('omit-request-tool-value');
-export const MAX_PROVIDER_SNAPSHOT_ARRAY_LENGTH = 1_000_000;
+const OMIT_REQUEST_TOOL_VALUE = Symbol('omit-request-tool-value');
+const MAX_PROVIDER_SNAPSHOT_ARRAY_LENGTH = 1_000_000;
 
-export function defineEnumerableDataProperty(target, key, value) {
+function defineEnumerableDataProperty(target, key, value) {
   Object.defineProperty(target, key, {
     value,
     enumerable: true,
@@ -74,7 +74,7 @@ export function defineEnumerableDataProperty(target, key, value) {
   });
 }
 
-export function boxedJsonPrimitive(value) {
+function boxedJsonPrimitive(value) {
   try { return { matched: true, value: Number.prototype.valueOf.call(value) }; } catch {}
   try { return { matched: true, value: String.prototype.valueOf.call(value) }; } catch {}
   try { return { matched: true, value: Boolean.prototype.valueOf.call(value) }; } catch {}
@@ -82,7 +82,7 @@ export function boxedJsonPrimitive(value) {
   return { matched: false, value: null };
 }
 
-export function providerSnapshotLengthPrimitive(value) {
+function providerSnapshotLengthPrimitive(value) {
   if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return value;
   const exotic = value[Symbol.toPrimitive];
   if (exotic !== undefined && exotic !== null) {
@@ -104,7 +104,7 @@ export function providerSnapshotLengthPrimitive(value) {
   throw new TypeError('invalid length primitive');
 }
 
-export function providerSnapshotArrayLength(rawLength) {
+function providerSnapshotArrayLength(rawLength) {
   let primitive;
   let numeric;
   try {
@@ -131,7 +131,7 @@ export function providerSnapshotArrayLength(rawLength) {
   return effectiveLength;
 }
 
-export function normalizeRequestToolJson(value, state, {
+function normalizeRequestToolJson(value, state, {
   arrayEntry = false,
   key = '',
   applyToJSON = true,

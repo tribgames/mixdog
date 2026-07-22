@@ -4,9 +4,9 @@ import { getPluginData } from '../../config.mjs';
 // Recent full-session reads are much hotter than writes while a user hops
 // between conversations. Verify the file identity on every access, but reuse
 // the parsed object while the atomic file has not changed.
-export const SESSION_LOAD_CACHE_LIMIT = 8;
-export const _sessionLoadCache = new Map(); // path → { signature, session }
-export let _sessionLoadCacheDataDir = null;
+const SESSION_LOAD_CACHE_LIMIT = 8;
+const _sessionLoadCache = new Map(); // path → { signature, session }
+let _sessionLoadCacheDataDir = null;
 
 export function _readStoredSessionCached(id, path) {
     const dataDir = getPluginData();

@@ -1,8 +1,4 @@
-const __mixdogMemoryStderrWrite = process.stderr.write.bind(process.stderr);
-function __mixdogMemoryLog(...args) {
-  if (process.env.MIXDOG_QUIET_MEMORY_LOG) return true;
-  return __mixdogMemoryStderrWrite(...args);
-}
+import { __mixdogMemoryLog } from './memory-log.mjs';
 
 // trace-store.mjs — native-PG trace analytics store for mixdog 0.4.0.
 // Uses pg-adapter (schema='trace') so trace_events live in the trace schema.

@@ -28,7 +28,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import type {
   DesktopProjectSummary,
   DesktopSessionSummary,
@@ -47,9 +47,9 @@ export function projectIdentity(path: string | null | undefined) {
 }
 
 
-export const DEFAULT_SIDEBAR_WIDTH = 260;
+const DEFAULT_SIDEBAR_WIDTH = 260;
 // Project-avatar palette: deterministic per-project colour chips.
-export const AVATAR_VARIANTS = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple"] as const;
+const AVATAR_VARIANTS = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple"] as const;
 export function avatarVariantFor(seed: string): string {
   let hash = 0;
   for (let index = 0; index < seed.length; index += 1) hash = ((hash * 31) + seed.charCodeAt(index)) | 0;
@@ -60,15 +60,15 @@ export function avatarInitials(label: string): string {
   const initials = words.length >= 2 ? `${words[0][0]}${words[1][0]}` : label.trim().slice(0, 2);
   return initials.toUpperCase();
 }
-export const MIN_SIDEBAR_WIDTH = 232;
-export const MAX_SIDEBAR_WIDTH = 420;
-export const SIDEBAR_WIDTH_KEY = "mixdog:session-sidebar-width";
+const MIN_SIDEBAR_WIDTH = 232;
+const MAX_SIDEBAR_WIDTH = 420;
+const SIDEBAR_WIDTH_KEY = "mixdog:session-sidebar-width";
 
-export function clampSidebarWidth(value: number) {
+function clampSidebarWidth(value: number) {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(value)));
 }
 
-export function storedSidebarWidth() {
+function storedSidebarWidth() {
   try {
     const value = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
 
@@ -78,7 +78,7 @@ export function storedSidebarWidth() {
   }
 }
 
-export interface SessionSidebarProps {
+interface SessionSidebarProps {
   open: boolean;
   sessions: DesktopSessionSummary[];
   workingSessionIds?: ReadonlySet<string>;
@@ -324,7 +324,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   );
 });
 
-export const SessionSidebarRow = React.memo(function SessionSidebarRow({
+const SessionSidebarRow = React.memo(function SessionSidebarRow({
   session,
   active,
   working,
@@ -407,7 +407,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
     }} />;
 });
 
-export const SessionRow = React.memo(function SessionRow({
+const SessionRow = React.memo(function SessionRow({
   session,
   active,
   working,

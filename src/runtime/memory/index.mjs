@@ -1,9 +1,5 @@
 #!/usr/bin/env bun
-const __mixdogMemoryStderrWrite = process.stderr.write.bind(process.stderr);
-function __mixdogMemoryLog(...args) {
-  if (process.env.MIXDOG_QUIET_MEMORY_LOG) return true;
-  return __mixdogMemoryStderrWrite(...args);
-}
+import { __mixdogMemoryLog } from './lib/memory-log.mjs';
 
 process.removeAllListeners('warning')
 process.on('warning', () => {})

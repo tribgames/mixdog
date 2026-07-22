@@ -150,8 +150,8 @@
   flex-direction: column;
   padding: 28px 16px 16px;
   overflow: hidden;
-  border-right: .5px solid var(--oc-border);
-  background: var(--oc-bg-layer-1);
+  border-right: .5px solid var(--mx-border);
+  background: var(--mx-bg-layer-1);
 }
 .mixdog-settings__rail nav {
   min-height: 0;
@@ -168,7 +168,7 @@
   padding: 0 10px;
   /* Match the workspace sidebar section-heading grammar (Recent): full ink,
      14px/600 — the 11px faint caps read as a weaker, mismatched hierarchy. */
-  color: var(--oc-text);
+  color: var(--mx-text);
   font-size: 14px;
   font-weight: 600;
   line-height: 20px;
@@ -183,7 +183,7 @@
   border: 0;
   border-radius: 6px;
   /* Sidebar row grammar: 14px medium, full ink. */
-  color: var(--oc-text);
+  color: var(--mx-text);
   font-size: 14px;
   font-weight: 500;
   background: transparent;
@@ -191,26 +191,26 @@
   cursor: pointer;
 }
 .mixdog-settings__rail-group button:hover {
-  color: var(--oc-text);
-  background: var(--oc-hover);
+  color: var(--mx-text);
+  background: var(--mx-hover);
 }
 .mixdog-settings__rail-group button.active {
-  color: var(--oc-text);
-  background: var(--oc-pressed);
-  box-shadow: inset 0 0 0 .5px var(--oc-border-muted);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .mixdog-settings__rail-group button svg { color: inherit; }
-.mixdog-settings__rail-group button.active svg { color: var(--oc-icon); }
+.mixdog-settings__rail-group button.active svg { color: var(--mx-icon); }
 .mixdog-settings__rail footer {
   display: grid;
   gap: 4px;
   padding: 12px 10px 0;
-  border-top: .5px solid var(--oc-border-muted);
-  color: var(--oc-text-faint);
+  border-top: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-faint);
   font-size: 11px;
   line-height: 16px;
 }
-.mixdog-settings__rail footer strong { color: var(--oc-text-muted); font-weight: 530; }
+.mixdog-settings__rail footer strong { color: var(--mx-text-muted); font-weight: 530; }
 .mixdog-settings-v2 .mixdog-settings__header {
   height: 64px;
   min-height: 64px;
@@ -258,16 +258,16 @@
   max-width: none;
   flex: 0 0 100%;
 }
-.settings-row-control > .effort-control .oc-select-root,
-.settings-row-control > .fast-control .oc-select-root,
-.settings-row-control > .effort-control .oc-select-trigger,
-.settings-row-control > .fast-control .oc-select-trigger {
+.settings-row-control > .effort-control .mx-select-root,
+.settings-row-control > .fast-control .mx-select-root,
+.settings-row-control > .effort-control .mx-select-trigger,
+.settings-row-control > .fast-control .mx-select-trigger {
   width: 100%;
   min-width: 0;
   max-width: none;
 }
-.settings-row-control > .effort-control .oc-select-value,
-.settings-row-control > .fast-control .oc-select-value {
+.settings-row-control > .effort-control .mx-select-value,
+.settings-row-control > .fast-control .mx-select-value {
   text-align: right;
 }
 .settings-model-trigger > span {
@@ -292,20 +292,20 @@
 .settings-agent-route .settings-route-controls > *,
 .settings-agent-route .effort-control,
 .settings-agent-route .fast-control,
-.settings-agent-route .oc-select-root,
-.settings-agent-route .oc-select-trigger {
+.settings-agent-route .mx-select-root,
+.settings-agent-route .mx-select-trigger {
   width: 100%;
   min-width: 0;
   max-width: 100%;
 }
 .settings-agent-route .settings-model-trigger,
-.settings-agent-route .effort-control .oc-select-trigger,
-.settings-agent-route .fast-control .oc-select-trigger {
+.settings-agent-route .effort-control .mx-select-trigger,
+.settings-agent-route .fast-control .mx-select-trigger {
   height: 28px;
   justify-content: flex-end;
   gap: 6px;
   padding: 0 5px 0 8px;
-  color: var(--oc-text);
+  color: var(--mx-text);
   background: transparent;
   box-shadow: none;
   font-size: 13px;
@@ -321,33 +321,33 @@
   flex: 0 0 auto;
 }
 .settings-agent-route .settings-model-trigger > span,
-.settings-agent-route .oc-select-value { text-align: right; }
+.settings-agent-route .mx-select-value { text-align: right; }
 .settings-agent-route .settings-model-trigger:hover,
 .settings-agent-route .settings-model-trigger[aria-expanded="true"],
-.settings-agent-route .oc-select-trigger:hover:not(:disabled),
-.settings-agent-route .oc-select-trigger[aria-expanded="true"] {
-  color: var(--oc-text);
-  background: var(--oc-hover);
+.settings-agent-route .mx-select-trigger:hover:not(:disabled),
+.settings-agent-route .mx-select-trigger[aria-expanded="true"] {
+  color: var(--mx-text);
+  background: var(--mx-hover);
 }
-.settings-row-control > .effort-control .oc-select-trigger,
-.settings-row-control > .fast-control .oc-select-trigger {
-  color: var(--oc-text);
+.settings-row-control > .effort-control .mx-select-trigger,
+.settings-row-control > .fast-control .mx-select-trigger {
+  color: var(--mx-text);
   font-weight: 530;
 }
 
 /* ModelPicker and OpenSelect use different primitives. Settings routes own one
    shared closed-state chevron, value column, and right edge for both. */
 .settings-row-control > .settings-model-trigger,
-.settings-row-control > .effort-control .oc-select-trigger,
-.settings-row-control > .fast-control .oc-select-trigger,
+.settings-row-control > .effort-control .mx-select-trigger,
+.settings-row-control > .fast-control .mx-select-trigger,
 .settings-agent-route .settings-model-trigger,
-.settings-agent-route .effort-control .oc-select-trigger,
-.settings-agent-route .fast-control .oc-select-trigger {
+.settings-agent-route .effort-control .mx-select-trigger,
+.settings-agent-route .fast-control .mx-select-trigger {
   height: 28px;
   justify-content: flex-end;
   gap: 6px;
   padding: 0 5px 0 8px;
-  color: var(--oc-text);
+  color: var(--mx-text);
   background: transparent;
   box-shadow: none;
   font-size: 13px;
@@ -356,16 +356,16 @@
   text-align: right;
 }
 .settings-row-control > .settings-model-trigger > svg,
-.settings-row-control > .effort-control .oc-select-trigger > svg,
-.settings-row-control > .fast-control .oc-select-trigger > svg,
+.settings-row-control > .effort-control .mx-select-trigger > svg,
+.settings-row-control > .fast-control .mx-select-trigger > svg,
 .settings-agent-route .settings-model-trigger > svg,
-.settings-agent-route .effort-control .oc-select-trigger > svg,
-.settings-agent-route .fast-control .oc-select-trigger > svg {
+.settings-agent-route .effort-control .mx-select-trigger > svg,
+.settings-agent-route .fast-control .mx-select-trigger > svg {
   width: 14px;
   height: 14px;
   flex: 0 0 14px;
   padding: 0;
-  color: var(--oc-icon-muted);
+  color: var(--mx-icon-muted);
   background: transparent;
   opacity: 1;
   stroke-width: 2;
@@ -420,7 +420,7 @@ html[data-mixdog-mobile] .mixdog-settings__rail {
   flex-direction: column;
   align-items: center;
   padding: calc(8px + env(safe-area-inset-top, 0px)) 6px 8px;
-  border-right: .5px solid var(--oc-border);
+  border-right: .5px solid var(--mx-border);
 }
 html[data-mixdog-mobile] .mixdog-settings__rail nav {
   display: flex;
@@ -561,20 +561,20 @@ html[data-mixdog-mobile] .settings-provider-secret {
   justify-items: stretch;
 }
 html[data-mixdog-mobile] .settings-provider-secret button { justify-self: end; }
-html[data-mixdog-mobile] .settings-row-control > .settings-select.oc-select-root,
+html[data-mixdog-mobile] .settings-row-control > .settings-select.mx-select-root,
 html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
 html[data-mixdog-mobile] .settings-row-control > .effort-control,
 html[data-mixdog-mobile] .settings-row-control > .fast-control,
-html[data-mixdog-mobile] .settings-row-control > .effort-control .oc-select-root,
-html[data-mixdog-mobile] .settings-row-control > .fast-control .oc-select-root,
-html[data-mixdog-mobile] .settings-row-control > .effort-control .oc-select-trigger,
-html[data-mixdog-mobile] .settings-row-control > .fast-control .oc-select-trigger {
+html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-root,
+html[data-mixdog-mobile] .settings-row-control > .fast-control .mx-select-root,
+html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-trigger,
+html[data-mixdog-mobile] .settings-row-control > .fast-control .mx-select-trigger {
   width: 100%;
   min-width: 0;
   max-width: 100%;
   margin-left: 0;
 }
-html[data-mixdog-mobile] .settings-row-control .oc-select-value,
+html[data-mixdog-mobile] .settings-row-control .mx-select-value,
 html[data-mixdog-mobile] .settings-model-trigger > span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -588,15 +588,15 @@ html[data-mixdog-mobile] .settings-row-control .fast-control {
   justify-content: flex-end;
 }
 html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
-html[data-mixdog-mobile] .settings-row-control .oc-select-trigger,
+html[data-mixdog-mobile] .settings-row-control .mx-select-trigger,
 html[data-mixdog-mobile] .settings-agent-route .settings-model-trigger,
-html[data-mixdog-mobile] .settings-agent-route .oc-select-trigger {
+html[data-mixdog-mobile] .settings-agent-route .mx-select-trigger {
   justify-content: flex-end;
   text-align: right;
 }
-html[data-mixdog-mobile] .settings-row-control .oc-select-value,
+html[data-mixdog-mobile] .settings-row-control .mx-select-value,
 html[data-mixdog-mobile] .settings-row-control .settings-model-trigger > span,
-html[data-mixdog-mobile] .settings-agent-route .oc-select-value,
+html[data-mixdog-mobile] .settings-agent-route .mx-select-value,
 html[data-mixdog-mobile] .settings-agent-route .settings-model-trigger > span {
   flex: 0 1 auto;
   text-align: right;
@@ -629,7 +629,7 @@ html[data-mixdog-mobile] .core-memory-list {
   justify-items: center;
   padding: 14px 10px;
   border-radius: 10px;
-  background: var(--oc-bg-layer-1);
+  background: var(--mx-bg-layer-1);
 }
 .settings-connection-card svg { width: 168px; height: 168px; border-radius: 8px; }
 .settings-connection-card figcaption { display: grid; gap: 2px; justify-items: center; }
@@ -645,7 +645,7 @@ html[data-mixdog-mobile] .core-memory-list {
   gap: 12px;
   padding-block: 6px;
 }
-.settings-connection-links > div + div { border-top: .5px solid var(--oc-border-muted); }
+.settings-connection-links > div + div { border-top: .5px solid var(--mx-border-muted); }
 .settings-connection-links span { flex: 0 0 132px; color: var(--settings-muted); font-size: 12px; }
 .settings-connection-links code {
   flex: 1;
@@ -653,7 +653,7 @@ html[data-mixdog-mobile] .core-memory-list {
   padding: 7px 9px;
   border-radius: 6px;
   overflow-wrap: anywhere;
-  background: var(--oc-pressed);
+  background: var(--mx-pressed);
   font-size: 11px;
   user-select: text;
 }

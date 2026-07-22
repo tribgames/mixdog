@@ -1,7 +1,7 @@
 import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Code2, Command, FileDiff, Folder, GitCompare, Layers3, LoaderCircle, Mic, PanelLeft, PanelRight, Plus, RotateCcw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import type { DesktopCapability, DesktopModelOption, DesktopModelSelection, DesktopPromptAttachment, DesktopPromptContent, DesktopProjectSummary, DesktopSessionSummary, DesktopSubmitOptions, DesktopUpdaterState, EngineSnapshot } from "../shared/contract";
 import { approvalInstanceKey, draftAfterSubmission, followAfterScroll, isApprovalDismissKey, isScrollIntentKey, mergeTranscript, normalizeApplyPatch, parseUnifiedDiff, reconcileTurnFailures, shouldNavigatePromptHistory, toolInputRows, transcriptTurnKeys } from "./renderer-logic.mjs";
 import { type RecordValue, type Project, type TranscriptItem, type Approval, type Toast, type Snapshot, EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "./desktop-types";
@@ -59,7 +59,7 @@ export function ProjectContextSelector({ projects, activePath, activeLabel, disa
   </div>;
 }
 
-export type ComposerAttachment = {
+type ComposerAttachment = {
   id: number;
   name: string;
   kind: 'image' | 'text' | 'pdf';
@@ -70,16 +70,16 @@ export type ComposerAttachment = {
   metadataText?: string;
 };
 
-export const MAX_COMPOSER_ATTACHMENTS = 8;
-export const MAX_INLINE_FILE_BYTES = 750_000;
-export const MAX_INLINE_TEXT_TOTAL = 850_000;
-export const MAX_INLINE_IMAGE_BASE64_TOTAL = 30_000_000;
+const MAX_COMPOSER_ATTACHMENTS = 8;
+const MAX_INLINE_FILE_BYTES = 750_000;
+const MAX_INLINE_TEXT_TOTAL = 850_000;
+const MAX_INLINE_IMAGE_BASE64_TOTAL = 30_000_000;
 // PDFs attach as provider document blocks, 20 MiB per file.
-export const MAX_PDF_FILE_BYTES = 20 * 1024 * 1024;
-export const MAX_SUBMIT_TEXT_LENGTH = 950_000;
-export const MAX_PERSISTED_PROMPT_HISTORY = 100;
-export const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
-export const COMPOSER_PLACEHOLDERS = [
+const MAX_PDF_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_SUBMIT_TEXT_LENGTH = 950_000;
+const MAX_PERSISTED_PROMPT_HISTORY = 100;
+const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
+const COMPOSER_PLACEHOLDERS = [
   // One quiet line (user decision): no rotating tips, no syntax lecture.
   'Ask anything…',
 ] as const;
@@ -121,7 +121,7 @@ export function queuedFollowupPreview(entry: unknown) {
   return queueText(entry).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "[Attachment]";
 }
 
-export function QueueList({ queued, restoring, onEdit, onRemove }: {
+function QueueList({ queued, restoring, onEdit, onRemove }: {
   queued?: unknown[];
   restoring: boolean;
   onEdit: (id: string) => void;
@@ -1311,7 +1311,7 @@ export const Composer = memo(function Composer({
           void attachFiles(itemFiles.length ? itemFiles : event.dataTransfer.files);
         }}>
       {draggingFiles && !transitioning && <div className="composer-drop-overlay" role="status">
-        <OcIcon name="photo" size={16} /><span>Drop images, PDFs, or text files</span>
+        <MxIcon name="photo" size={16} /><span>Drop images, PDFs, or text files</span>
       </div>}
       {slashOpen && (
         <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label="Slash commands">
@@ -1331,7 +1331,7 @@ export const Composer = memo(function Composer({
       {mentionOpen && (
         <div ref={mentionPalette} id="composer-mention-palette"
           className="slash-palette mention-palette" role="listbox" aria-label="Project files">
-          <header><OcIcon name="open-file" size={13} /><span>Files</span></header>
+          <header><MxIcon name="open-file" size={13} /><span>Files</span></header>
           {mentionResults.length ? mentionResults.map((path, index) => {
             const separator = path.lastIndexOf('/');
             const directory = separator >= 0 ? path.slice(0, separator + 1) : '';
@@ -1342,7 +1342,7 @@ export const Composer = memo(function Composer({
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setMentionIndex(index)}
                 onClick={() => selectMention(path)}>
-                <OcIcon name="open-file" size={14} />
+                <MxIcon name="open-file" size={14} />
                 <span className="mention-path"><span>{directory}</span><strong>{filename}</strong></span>
               </button>
             );
@@ -1353,7 +1353,7 @@ export const Composer = memo(function Composer({
         {attachments.map((attachment) => <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
           {attachment.kind === 'image'
             ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
-            : <span><OcIcon name="open-file" size={15} /></span>}
+            : <span><MxIcon name="open-file" size={15} /></span>}
           <span data-tooltip={attachment.name}>{attachment.name}</span>
           <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => {
             setAttachments((current) => {
@@ -1362,7 +1362,7 @@ export const Composer = memo(function Composer({
               return next;
             });
             setDraft((current) => current.replace(attachment.token, '').replace(/ {2,}/g, ' '));
-          }}><OcIcon name="close-small" size={13} /></button>
+          }}><MxIcon name="close-small" size={13} /></button>
         </div>)}
       </div>}
       <textarea ref={textarea} value={draft} onInput={(event) => {
@@ -1419,7 +1419,7 @@ export const Composer = memo(function Composer({
           accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql"
           onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
         <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images, PDFs, or text files" data-tooltip-side="top"
-        onClick={() => fileInput.current?.click()}><OcIcon name="plus" size={16} /></button>
+        onClick={() => fileInput.current?.click()}><MxIcon name="plus" size={16} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
           modelDisabled={commandBusy || transitioning}
           tuningDisabled={turnBusy || commandBusy || transitioning}
@@ -1442,7 +1442,7 @@ export const Composer = memo(function Composer({
         {turnBusy && !draft.trim() ? (
           <button type="button" className="send-button stop" onClick={() => void stop()}
             aria-label="Stop generation" data-tooltip="Stop" data-tooltip-side="top">
-            <OcIcon name="stop" size={16} />
+            <MxIcon name="stop" size={16} />
           </button>
         ) : (
           <button className="send-button" disabled={!draft.trim() || submitting || transitioning}

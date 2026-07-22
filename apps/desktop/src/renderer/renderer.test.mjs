@@ -132,7 +132,7 @@ test('settings dialog reserves the native window-controls safe area', async () =
   assert.match(settings,
     /\.settings-agent-route \.settings-route-controls\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);[^}]*gap:\s*4px;/s);
   assert.match(settings,
-    /\.settings-agent-route \.settings-route-controls > \*,[\s\S]*?\.settings-agent-route \.oc-select-trigger\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;/s,
+    /\.settings-agent-route \.settings-route-controls > \*,[\s\S]*?\.settings-agent-route \.mx-select-trigger\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;/s,
     'agent model, effort, and fast controls must share the full value-column width');
   assert.match(settings,
     /\.settings-row-control > \.settings-model-trigger\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*justify-content:\s*flex-end;/s);
@@ -140,10 +140,10 @@ test('settings dialog reserves the native window-controls safe area', async () =
     /\.settings-row-control > \.effort-control,[\s\S]*?\.settings-row-control > \.fast-control\s*\{[^}]*width:\s*100%;[^}]*flex:\s*0 0 100%;/s,
     'model, effort, and fast controls must use one shared settings value column');
   assert.match(settings,
-    /html\[data-mixdog-mobile\] \.settings-row-control > \.settings-model-trigger,\s*html\[data-mixdog-mobile\] \.settings-row-control \.oc-select-trigger,[\s\S]*?\.settings-agent-route \.oc-select-trigger\s*\{[^}]*justify-content:\s*flex-end;[^}]*text-align:\s*right;/s,
+    /html\[data-mixdog-mobile\] \.settings-row-control > \.settings-model-trigger,\s*html\[data-mixdog-mobile\] \.settings-row-control \.mx-select-trigger,[\s\S]*?\.settings-agent-route \.mx-select-trigger\s*\{[^}]*justify-content:\s*flex-end;[^}]*text-align:\s*right;/s,
     'mobile route values must anchor to the shared right edge');
   assert.match(settings,
-    /html\[data-mixdog-mobile\] \.settings-row-control \.oc-select-value,[\s\S]*?\.settings-agent-route \.settings-model-trigger > span\s*\{[^}]*flex:\s*0 1 auto;[^}]*text-align:\s*right;/s,
+    /html\[data-mixdog-mobile\] \.settings-row-control \.mx-select-value,[\s\S]*?\.settings-agent-route \.settings-model-trigger > span\s*\{[^}]*flex:\s*0 1 auto;[^}]*text-align:\s*right;/s,
     'mobile route text must hug the right edge beside its chevron');
   assert.doesNotMatch(settings,
     /html\[data-mixdog-mobile\] \.settings-row-control:has\(/,
@@ -152,7 +152,7 @@ test('settings dialog reserves the native window-controls safe area', async () =
     /\.mixdog-settings-v2 \.settings-resource-title\s*\{[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s,
     'resource status tags must stack under their names');
   assert.match(settings,
-    /\.settings-row-control > \.settings-model-trigger > svg,[\s\S]*?\.settings-agent-route \.fast-control \.oc-select-trigger > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*color:\s*var\(--oc-icon-muted\);[^}]*opacity:\s*1;/s,
+    /\.settings-row-control > \.settings-model-trigger > svg,[\s\S]*?\.settings-agent-route \.fast-control \.mx-select-trigger > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*color:\s*var\(--mx-icon-muted\);[^}]*opacity:\s*1;/s,
     'every route picker must use the same visible down-chevron geometry and color');
   assert.match(settings,
     /\.settings-model-trigger\[aria-expanded="true"\] > svg\s*\{\s*transform:\s*rotate\(180deg\);\s*\}/,
@@ -166,21 +166,21 @@ test('every renderer stylesheet resolves through the shared desktop theme contra
     readFile(new URL('./settings/settings.css', import.meta.url), 'utf8'),
   ]);
   const allCss = `${theme}\n${layout}\n${settings}`;
-  const definitions = new Set([...allCss.matchAll(/(--oc-[\w-]+)\s*:/g)].map((match) => match[1]));
-  const runtimeTokens = new Set(['--oc-scrollbar-thumb', '--oc-scrollbar-thumb-hover']);
-  const unresolved = [...new Set([...allCss.matchAll(/var\((--oc-[\w-]+)/g)].map((match) => match[1]))]
+  const definitions = new Set([...allCss.matchAll(/(--mx-[\w-]+)\s*:/g)].map((match) => match[1]));
+  const runtimeTokens = new Set(['--mx-scrollbar-thumb', '--mx-scrollbar-thumb-hover']);
+  const unresolved = [...new Set([...allCss.matchAll(/var\((--mx-[\w-]+)/g)].map((match) => match[1]))]
     .filter((token) => !definitions.has(token) && !runtimeTokens.has(token));
 
   assert.deepEqual(unresolved, [], 'all shared theme tokens must have a renderer definition');
   assert.doesNotMatch(`${layout}\n${settings}`, /#[\da-f]{3,8}\b|rgba?\(/i,
     'layout and settings CSS must use semantic theme tokens rather than private colors');
   assert.match(theme,
-    /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--oc-text-accent:\s*var\(--oc-blue-600\);[^}]*--oc-danger-bg:\s*#fceceb;[^}]*--oc-success-border:\s*#b8e9c1;/s,
+    /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--mx-text-accent:\s*var\(--mx-blue-600\);[^}]*--mx-danger-bg:\s*#fceceb;[^}]*--mx-success-border:\s*#b8e9c1;/s,
     'light mode must override accents and every status semantic instead of inheriting dark values');
   assert.match(theme,
-    /\.session-context-popover\s*\{[^}]*box-shadow:\s*var\(--oc-floating\);/s,
+    /\.session-context-popover\s*\{[^}]*box-shadow:\s*var\(--mx-floating\);/s,
     'context popovers must use the same semantic floating elevation as other menus');
-  assert.doesNotMatch(theme, /--oc-light-overlay-(?:shadow|border)/,
+  assert.doesNotMatch(theme, /--mx-light-overlay-(?:shadow|border)/,
     'light overlays must use the shared elevation scale without a private override');
 });
 
@@ -192,11 +192,11 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles, /--titlebar-height:\s*40px/);
   assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 13px;/s);
   assert.match(styles, /\.titlebar-caption-space\s*\{[^}]*env\(titlebar-area-width,\s*calc\(100vw - 138px\)\)/s);
-  assert.match(styles, /--oc-bg-deep:\s*#1a1917;[\s\S]*?--oc-window-band:\s*#201e1c;[\s\S]*?--oc-workspace-sheet:\s*#282623;[\s\S]*?--oc-text:\s*#f4f2ee;/s);
-  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--oc-bg-deep:\s*#f8f6f3;[^}]*--oc-window-band:\s*#f1efec;[^}]*--oc-workspace-sheet:\s*#faf8f5;[^}]*--oc-text:\s*#1b1a17;/s);
-  assert.match(styles, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--oc-bg-base\);[^}]*box-shadow:\s*var\(--oc-raised\);/s);
+  assert.match(styles, /--mx-bg-deep:\s*#1a1917;[\s\S]*?--mx-window-band:\s*#201e1c;[\s\S]*?--mx-workspace-sheet:\s*#282623;[\s\S]*?--mx-text:\s*#f4f2ee;/s);
+  assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--mx-bg-deep:\s*#f8f6f3;[^}]*--mx-window-band:\s*#f1efec;[^}]*--mx-workspace-sheet:\s*#faf8f5;[^}]*--mx-text:\s*#1b1a17;/s);
+  assert.match(styles, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s);
   assert.match(styles, /\.workspace-tab\s*\{[^}]*width:\s*224px;[^}]*height:\s*28px;[^}]*min-width:\s*96px;[^}]*max-width:\s*224px;[^}]*flex:\s*1 1 224px;/s);
-  assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*0 8px 8px;[^}]*background:\s*var\(--oc-window-band\);/s);
+  assert.match(styles, /\.desktop-body\s*\{[^}]*padding:\s*0 8px 8px;[^}]*background:\s*var\(--mx-window-band\);/s);
   assert.match(styles, /\.sidebar\.session-sidebar\s*\{[^}]*width:\s*var\(--session-sidebar-width,\s*260px\);[^}]*flex:\s*0 0 var\(--session-sidebar-width,\s*260px\);[^}]*border-radius:\s*10px;/s);
   assert.match(styles, /\.session-sidebar \.task-link,[\s\S]*?\.session-sidebar \.session-row\s*\{[^}]*height:\s*36px;[^}]*min-height:\s*36px;/s);
   // Session rows override to a denser 31px (user: list read too airy).
@@ -214,7 +214,7 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles, /\.composer-region\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   // Control chrome (Settings, New task, pickers) runs medium weight for
   // hierarchy against 400 content rows.
-  assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--oc-text\);[^}]*font:\s*500 14px\/20px/s);
+  assert.match(styles, /\.session-sidebar-footer span\s*\{[^}]*color:\s*var\(--mx-text\);[^}]*font:\s*500 14px\/20px/s);
   // Phone drawer: the sidebar overlays the thread instead of squeezing it
   // out of a 390px viewport (user: "message pane not visible" on a phone).
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*\.sidebar\.session-sidebar,[\s\S]*?position:\s*fixed;[\s\S]*?transform:\s*translateX\(-100%\)/);
@@ -254,10 +254,10 @@ test('workspace tabs keep labels fully visible while retaining horizontal scroll
 
 test('copy hover changes only icon color while keyboard focus keeps its frame', async () => {
   const styles = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
-  assert.match(styles, /\.message-actions:hover\s*\{[^}]*color:\s*var\(--oc-icon\);[^}]*background:\s*transparent;[^}]*outline:\s*0;/s);
-  assert.match(styles, /\.message-actions:focus-visible\s*\{[^}]*background:\s*transparent;[^}]*outline:\s*2px solid var\(--oc-focus\);/s);
-  assert.match(styles, /\.markdown-code-copy:hover\s*\{[^}]*color:\s*var\(--oc-icon\);[^}]*background:\s*transparent;/s);
-  assert.match(styles, /\.markdown-code-copy:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--oc-focus\);/s);
+  assert.match(styles, /\.message-actions:hover\s*\{[^}]*color:\s*var\(--mx-icon\);[^}]*background:\s*transparent;[^}]*outline:\s*0;/s);
+  assert.match(styles, /\.message-actions:focus-visible\s*\{[^}]*background:\s*transparent;[^}]*outline:\s*2px solid var\(--mx-focus\);/s);
+  assert.match(styles, /\.markdown-code-copy:hover\s*\{[^}]*color:\s*var\(--mx-icon\);[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.markdown-code-copy:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--mx-focus\);/s);
   assert.doesNotMatch(styles, /\.message\.assistant\.settled,\s*\.tool-card\.settled\s*\{[^}]*content-visibility:\s*auto;/s,
     'virtualized transcript rows must not add a second content-visibility layer');
   assert.doesNotMatch(styles, /\.message\.settled,\s*\.tool-card\.settled/);
@@ -272,10 +272,10 @@ test('copy hover changes only icon color while keyboard focus keeps its frame', 
   assert.doesNotMatch(styles, /\.tool-header:hover:not\(:disabled\) \.tool-icon/,
     'tool icons should retain their status color on hover');
   assert.match(styles,
-    /\.tool-header:hover:not\(:disabled\) \.tool-chevron,[\s\S]*\.tool-header:focus-visible \.tool-icon,[\s\S]*\.tool-header:focus-visible \.tool-chevron\s*\{[^}]*color:\s*var\(--oc-icon\);/s,
+    /\.tool-header:hover:not\(:disabled\) \.tool-chevron,[\s\S]*\.tool-header:focus-visible \.tool-icon,[\s\S]*\.tool-header:focus-visible \.tool-chevron\s*\{[^}]*color:\s*var\(--mx-icon\);/s,
     'tool disclosures should keep chevron hover feedback and keyboard focus feedback');
   assert.match(styles,
-    /\.composer-attachments > div:hover,\s*\.composer-attachments > div:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--oc-border-strong\);/s,
+    /\.composer-attachments > div:hover,\s*\.composer-attachments > div:focus-within\s*\{[^}]*box-shadow:\s*0 0 0 1px var\(--mx-border-strong\);/s,
     'composer attachments should expose the same hover/focus boundary as the reference UI');
 });
 
@@ -293,7 +293,7 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles, /\.message\.user \.message-meta-line\s*\{[^}]*position:\s*absolute;[^}]*width:\s*100%;/s);
   assert.match(styles, /\.tool-title\s*\{[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.tool-card\[data-open="true"\] \.tool-chevron svg\s*\{[^}]*rotate\(90deg\)/s);
-  assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--oc-border-muted\);[^}]*border-radius:\s*8px;/s);
+  assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--mx-border-muted\);[^}]*border-radius:\s*8px;/s);
   assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*min\(100%, 800px\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px 36px;/s);
   assert.match(styles, /\.session-header-content h1\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*min\(52ch,\s*100%\);[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.session-title-trigger\s*\{[^}]*width:\s*100%;[^}]*padding:\s*0;/s);

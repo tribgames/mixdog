@@ -205,15 +205,15 @@ export function TooltipLayer() {
     : undefined;
   return createPortal(<div
     ref={content}
-    className="oc-tooltip"
+    className="mx-tooltip"
     role="tooltip"
     data-side={position?.side || tooltip.preferredSide || 'bottom'}
     style={position
       ? { left: position.left, top: position.top, maxWidth }
       : { left: 0, top: 0, maxWidth, visibility: 'hidden' }}
     aria-label={tooltip.text}
-  ><span className="oc-tooltip-label">{tooltip.label}</span>
-    {tooltip.keys.length > 0 && <span className="oc-keybind" data-component="keybind">
+  ><span className="mx-tooltip-label">{tooltip.label}</span>
+    {tooltip.keys.length > 0 && <span className="mx-keybind" data-component="keybind">
       {tooltip.keys.map((key) => <kbd key={key}>{key}</kbd>)}
     </span>}
   </div>, document.body);

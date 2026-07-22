@@ -1,8 +1,4 @@
-const __mixdogMemoryStderrWrite = process.stderr.write.bind(process.stderr);
-function __mixdogMemoryLog(...args) {
-  if (process.env.MIXDOG_QUIET_MEMORY_LOG) return true;
-  return __mixdogMemoryStderrWrite(...args);
-}
+import { __mixdogMemoryLog } from './memory-log.mjs';
 
 // Native-PG-backed memory store. Schema, helpers, and lifecycle.
 

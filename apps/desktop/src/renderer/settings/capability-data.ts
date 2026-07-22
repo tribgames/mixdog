@@ -78,14 +78,14 @@ export interface CachedCapabilitySettings {
   loadedAt: number;
 }
 
-export interface CapabilitySettingsCacheEntry {
+interface CapabilitySettingsCacheEntry {
   value?: CachedCapabilitySettings;
   inFlight?: Promise<CachedCapabilitySettings>;
 }
 
-export const CAPABILITY_SETTINGS_CACHE = new WeakMap<object, CapabilitySettingsCacheEntry>();
+const CAPABILITY_SETTINGS_CACHE = new WeakMap<object, CapabilitySettingsCacheEntry>();
 
-export function settingsCacheEntry(api: CapabilityApi): CapabilitySettingsCacheEntry {
+function settingsCacheEntry(api: CapabilityApi): CapabilitySettingsCacheEntry {
   const key = api as object;
   const cached = CAPABILITY_SETTINGS_CACHE.get(key);
   if (cached) return cached;
@@ -98,7 +98,7 @@ export function getCachedCapabilitySettings(api: CapabilityApi): CachedCapabilit
   return CAPABILITY_SETTINGS_CACHE.get(api as object)?.value;
 }
 
-export async function readAllCapabilitySettings(
+async function readAllCapabilitySettings(
   api: CapabilityApi,
   force: boolean,
   previous?: CachedCapabilitySettings,

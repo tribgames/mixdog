@@ -50,7 +50,7 @@ export function CategoryPanel({ category, context }: {
 
 // Keybind reference (read-only). Bindings live in App.tsx's
 // global keydown handler and the composer key map; keep this list in sync.
-export const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
+const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, string]>]> = [
   ['Workspace', [
     ['Ctrl+N', 'New task'],
     ['Ctrl+Q', 'Close tab'],
@@ -72,7 +72,7 @@ export const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<read
   ]],
 ];
 
-export function ShortcutsPanel() {
+function ShortcutsPanel() {
   return <>
     {SHORTCUT_GROUPS.map(([title, rows]) => <Group key={title} title={title}>
       <div className="settings-shortcut-list">
@@ -88,7 +88,7 @@ export function ShortcutsPanel() {
 // Settings → Connection: pairing card for the phone remote (ChatGPT-desktop
 // 연결 page grammar). Data + pre-rendered QR SVGs come from the main process;
 // the remote shim omits the API, so a phone session shows the fallback note.
-export function ConnectionPanel() {
+function ConnectionPanel() {
   const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(undefined);
   const [tab, setTab] = useState<'browser' | 'android'>('browser');
   useEffect(() => {
@@ -164,7 +164,7 @@ export function ConnectionPanel() {
   </Group>;
 }
 
-export function ChoicePanel({ title, values, active, pending, emptyText, onChoose }: {
+function ChoicePanel({ title, values, active, pending, emptyText, onChoose }: {
   title: string; values: RecordValue[]; active: string; pending: string; emptyText?: string; onChoose(id: string): void;
 }) {
   return <Group title={title}>{values.length ? values.map((entry) => {
@@ -175,14 +175,14 @@ export function ChoicePanel({ title, values, active, pending, emptyText, onChoos
   }) : <ListEmpty text={emptyText || `No ${title.toLowerCase()} available.`} />}</Group>;
 }
 
-export function OutputStylePanel({ data, pending, run }: PanelContext) {
+function OutputStylePanel({ data, pending, run }: PanelContext) {
   const output = record(data.outputStyles);
   return <ChoicePanel title="" values={rows(output, 'styles')}
     active={String(record(output.current).id || output.configured || 'default')} pending={pending}
     emptyText="No output styles available." onChoose={(id) => void run('setOutputStyle', [id])} />;
 }
 
-export function UpdatePanel({ data, pending, run }: PanelContext) {
+function UpdatePanel({ data, pending, run }: PanelContext) {
   const update = record(data.update);
   const status = record(data.updateStatus);
   const busy = Boolean(pending);
@@ -200,7 +200,7 @@ export function UpdatePanel({ data, pending, run }: PanelContext) {
   </Group>;
 }
 
-export function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>) {
+function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>) {
   const backendTheme = String(data.theme || 'basic');
   const [preference, setPreference] = useState<DesktopThemePreference>(() =>
     getDesktopThemePreference() || desktopThemePreferenceForTheme(backendTheme));
@@ -225,7 +225,7 @@ export function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pen
   </Group>;
 }
 
-export function GeneralPanel({ data, pending, run }: PanelContext) {
+function GeneralPanel({ data, pending, run }: PanelContext) {
   const profile = record(data.profile);
   const autoClear = record(data.autoClear);
   const compaction = record(data.compaction);
@@ -258,7 +258,7 @@ export function GeneralPanel({ data, pending, run }: PanelContext) {
   </>;
 }
 
-export function ModelsPanel({ data, snapshot: liveSnapshot, pending, run, route, setFast, openCategory }: PanelContext) {
+function ModelsPanel({ data, snapshot: liveSnapshot, pending, run, route, setFast, openCategory }: PanelContext) {
   const models = filterConfiguredModels(
     normalizeModelOptions(Array.isArray(data.models) ? data.models as DesktopModelOption[] : []),
     data.providerSetup,
@@ -305,7 +305,7 @@ export function ModelsPanel({ data, snapshot: liveSnapshot, pending, run, route,
   </>;
 }
 
-export function AgentsPanel({ data, pending, run, openCategory }: PanelContext) {
+function AgentsPanel({ data, pending, run, openCategory }: PanelContext) {
   const agents = rows(data.agents);
   const workflows = rows(data.workflows);
   const models = filterConfiguredModels(
@@ -330,7 +330,7 @@ export function AgentsPanel({ data, pending, run, openCategory }: PanelContext) 
   </>;
 }
 
-export function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
+function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
   const setup = record(data.providerSetup);
   const apiProviders = rows(setup.api);
   const oauthProviders = rows(setup.oauth);
@@ -440,7 +440,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
   </>;
 }
 
-export function McpPanel({ data, pending, run }: PanelContext) {
+function McpPanel({ data, pending, run }: PanelContext) {
   const status = record(data.mcp);
   const servers = rows(status, 'servers');
   const busy = Boolean(pending);
@@ -458,7 +458,7 @@ export function McpPanel({ data, pending, run }: PanelContext) {
   </>;
 }
 
-export function SkillsPanel({ data, pending, run }: PanelContext) {
+function SkillsPanel({ data, pending, run }: PanelContext) {
   const status = record(data.skills);
   const skills = rows(status, 'skills');
   const disabled = new Set((Array.isArray(record(data.disabledSkills).disabled) ? record(data.disabledSkills).disabled as unknown[] : []).map(String));
@@ -478,7 +478,7 @@ export function SkillsPanel({ data, pending, run }: PanelContext) {
   </>;
 }
 
-export function PluginsPanel({ data, pending, run, confirm }: PanelContext) {
+function PluginsPanel({ data, pending, run, confirm }: PanelContext) {
   const status = record(data.plugins);
   const plugins = rows(status, 'plugins');
   const busy = Boolean(pending);
@@ -509,7 +509,7 @@ export function PluginsPanel({ data, pending, run, confirm }: PanelContext) {
   </>;
 }
 
-export function HooksPanel({ data, pending, run }: PanelContext) {
+function HooksPanel({ data, pending, run }: PanelContext) {
   const status = record(data.hooks);
   const rules = rows(status, 'rules');
   const busy = Boolean(pending);
@@ -525,7 +525,7 @@ export function HooksPanel({ data, pending, run }: PanelContext) {
   </>;
 }
 
-export function MemoryPanel({ data, pending, run, confirm }: PanelContext) {
+function MemoryPanel({ data, pending, run, confirm }: PanelContext) {
   const memory = record(data.memory);
   const busy = Boolean(pending);
   return <>
@@ -538,7 +538,7 @@ export function MemoryPanel({ data, pending, run, confirm }: PanelContext) {
   </>;
 }
 
-export type CoreMemoryEntry = {
+type CoreMemoryEntry = {
   id: number;
   projectId: string | null;
   element: string;
@@ -546,7 +546,7 @@ export type CoreMemoryEntry = {
   singleSentence: boolean;
 };
 
-export function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
+function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
   let projectId: string | null = null;
   const entries: CoreMemoryEntry[] = [];
   for (const line of String(value || '').split('\n').map((entry) => entry.trim()).filter(Boolean)) {
@@ -570,14 +570,14 @@ export function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
   return entries.sort((left, right) => right.id - left.id);
 }
 
-export function memoryResultError(value: unknown): string {
+function memoryResultError(value: unknown): string {
   const text = String(value || '').trim();
   return /^(?:core (?:add|edit|delete|promote|dismiss)(?::| failed)|core:.*(?:not initialized|failed|error)|(?:error|failed)\b)/i.test(text)
     ? text
     : '';
 }
 
-export function CoreMemoryManager({ initialValue, pending, run, confirm }: {
+function CoreMemoryManager({ initialValue, pending, run, confirm }: {
   initialValue: unknown;
   pending: string;
   run: PanelContext['run'];
@@ -650,7 +650,7 @@ export function CoreMemoryManager({ initialValue, pending, run, confirm }: {
   </div>;
 }
 
-export function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
+function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
   const channels = record(data.channels);
   const setup = record(data.channelSetup);
   const worker = record(data.channelWorker);
@@ -729,7 +729,7 @@ export function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelCon
   </>;
 }
 
-export function SystemPanel(context: PanelContext) {
+function SystemPanel(context: PanelContext) {
   const { data, pending, run } = context;
   const worker = record(data.channelWorker);
   const busy = Boolean(pending);
@@ -748,7 +748,7 @@ export function SystemPanel(context: PanelContext) {
   </>;
 }
 
-export function SecretForm({ title, status, disabled, onSave }: {
+function SecretForm({ title, status, disabled, onSave }: {
   title: string; status: RecordValue; disabled: boolean; onSave(secret: string): void;
 }) {
   const saved = status.stored === true || status.authenticated === true || String(status.status || '').toLowerCase() === 'set';
@@ -764,7 +764,7 @@ export function SecretForm({ title, status, disabled, onSave }: {
 
 // Schedules moved to the dedicated Scheduled-tasks page (sidebar → Schedules);
 // the settings Channels pane keeps webhook endpoint management only.
-export function AutomationPanel({ data, pending, run }: PanelContext) {
+function AutomationPanel({ data, pending, run }: PanelContext) {
   const setup = record(data.channelSetup);
   const webhooks = rows(setup.webhooks);
   const busy = Boolean(pending);
@@ -779,7 +779,7 @@ export function AutomationPanel({ data, pending, run }: PanelContext) {
   </>;
 }
 
-export function DiagnosticsPanel({ data, pending, run, confirm }: PanelContext) {
+function DiagnosticsPanel({ data, pending, run, confirm }: PanelContext) {
   const update = record(data.update);
   const status = record(data.updateStatus);
   const busy = Boolean(pending);

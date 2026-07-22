@@ -286,9 +286,9 @@ export function projectAlias(
   return null;
 }
 
-export const INTERNAL_TRANSCRIPT_ROLES = new Set(['system', 'developer']);
-export const INTERNAL_TRANSCRIPT_KINDS = new Set(['system', 'developer', 'synthetic', 'internal', 'hidden']);
-export const INTERNAL_DISPLAY_FIELDS = new Set(['display', 'displayMetadata', 'toolDisplay', 'summaryMetadata']);
+const INTERNAL_TRANSCRIPT_ROLES = new Set(['system', 'developer']);
+const INTERNAL_TRANSCRIPT_KINDS = new Set(['system', 'developer', 'synthetic', 'internal', 'hidden']);
+const INTERNAL_DISPLAY_FIELDS = new Set(['display', 'displayMetadata', 'toolDisplay', 'summaryMetadata']);
 
 export function recordValue(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -361,7 +361,7 @@ export function sanitizeTranscriptItem(value: unknown): boolean {
 // state publication cost is O(changed items). Cached clones are shared across
 // snapshots and MUST stay read-only downstream (IPC serialization, remote
 // relay JSON, renderer deserialized copies) — none of those mutate them.
-export const sanitizedItemClones = new WeakMap<object, { keep: boolean; clone: unknown }>();
+const sanitizedItemClones = new WeakMap<object, { keep: boolean; clone: unknown }>();
 
 export function sanitizedItemClone(item: unknown): { keep: boolean; clone: unknown } {
   if (!item || typeof item !== 'object') {

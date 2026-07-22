@@ -39,7 +39,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import { ContextBody } from "./CommandSurface";
 import { createPortal } from "react-dom";
 import { elementScroll, useVirtualizer } from "@tanstack/react-virtual";

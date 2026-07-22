@@ -236,7 +236,7 @@ async function captureWindow(): Promise<void> {
       const deadline = Date.now() + 30_000;
       for (;;) {
         const state = await window.webContents.executeJavaScript(`(() => {
-          const option = Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'))
+          const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
             .find((entry) => (entry.textContent || '').trim() === ${JSON.stringify(optionText)});
           if (option instanceof HTMLButtonElement) return 'open';
           const trigger = document.querySelector('button[role="combobox"][aria-label="Theme"]');
@@ -254,7 +254,7 @@ async function captureWindow(): Promise<void> {
     };
     await openThemeMenuUntilOption('White');
     const selectedWhite = await window.webContents.executeJavaScript(`(() => {
-      const option = Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'))
+      const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
         .find((entry) => (entry.textContent || '').trim() === 'White');
       if (!(option instanceof HTMLButtonElement)) return false;
       option.click();
@@ -272,7 +272,7 @@ async function captureWindow(): Promise<void> {
         const icon = document.querySelector('.toolbar-sidebar');
         if (!(icon instanceof HTMLElement)) return false;
         const probe = document.createElement('span');
-        probe.style.color = 'var(--oc-text)';
+        probe.style.color = 'var(--mx-text)';
         document.body.append(probe);
         const settled = getComputedStyle(icon).color === getComputedStyle(probe).color;
         probe.remove();
@@ -307,7 +307,7 @@ async function captureWindow(): Promise<void> {
     );
     await openThemeMenuUntilOption('Dark');
     const restoredBasic = await window.webContents.executeJavaScript(`(() => {
-      const option = Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'))
+      const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
         .find((entry) => (entry.textContent || '').trim() === 'Dark');
       if (!(option instanceof HTMLButtonElement)) return false;
       option.click();
@@ -592,7 +592,7 @@ async function captureWindow(): Promise<void> {
       bridgePresent: typeof window.mixdogDesktop === 'object'
         && typeof window.mixdogDesktop.getSnapshot === 'function',
       inlineErrors: Array.from(document.querySelectorAll('.inline-error, [role="alert"]'))
-        .filter((node) => !node.closest('.oc-toast-region'))
+        .filter((node) => !node.closest('.mx-toast-region'))
         .map((node) => (node.textContent || '').trim())
         .filter(Boolean),
     }))()`) as { bridgePresent: boolean; inlineErrors: string[] };

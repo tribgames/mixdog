@@ -1,6 +1,6 @@
 import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Code2, Command, FileDiff, Folder, GitCompare, Layers3, LoaderCircle, Mic, PanelLeft, PanelRight, Plus, RotateCcw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import { type RecordValue, type Project, type TranscriptItem, type Approval, type Toast, type Snapshot, EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "./desktop-types";
 import { asRecord, displayProject, navigationKey, newDraftSelection, textOf, publicThinkingSummary, oneLine, queueText, formatElapsed, formatIdleDuration, TURN_LOCKED_SLASH_COMMANDS, copyTextToClipboard } from "./text-format";
 import { approvalInstanceKey, draftAfterSubmission, followAfterScroll, isApprovalDismissKey, isScrollIntentKey, mergeTranscript, normalizeApplyPatch, parseUnifiedDiff, reconcileTurnFailures, shouldNavigatePromptHistory, toolInputRows, transcriptTurnKeys } from "./renderer-logic.mjs";
@@ -9,7 +9,7 @@ import { DiffBoundary } from "./TranscriptView";
 import { REVIEW_DIFF_STYLE_KEY } from "./desktop-types";
 
 // ── Dock Git panel ───────────────────────
-export interface GitPanelStatus {
+interface GitPanelStatus {
   repository: boolean;
   branch: string;
   ahead: number;
@@ -28,7 +28,7 @@ export interface GitReviewFile {
   untracked: boolean;
   uncommitted: boolean;
 }
-export interface GitReviewInfo {
+interface GitReviewInfo {
   base: string;
   files: GitReviewFile[];
 }
@@ -46,7 +46,7 @@ export function GitDiffBody({ file, mode }: { file: ReturnType<typeof parseUnifi
 }
 // Working-tree file diff (single file): the row already names the file, so
 // the body renders hunks only.
-export function GitFileDiff({ patch, mode }: { patch: string; mode?: "unified" | "split" }) {
+function GitFileDiff({ patch, mode }: { patch: string; mode?: "unified" | "split" }) {
   const files = useMemo(() => {
     try { return parseUnifiedDiff(patch); } catch { return []; }
   }, [patch]);

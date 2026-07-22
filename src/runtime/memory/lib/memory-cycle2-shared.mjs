@@ -3,11 +3,8 @@
 // No cycle2 business logic; safe to import from any cycle2 sub-module.
 import { fileURLToPath } from 'url'
 
-const __mixdogMemoryStderrWrite = process.stderr.write.bind(process.stderr)
-export function __mixdogMemoryLog(...args) {
-  if (process.env.MIXDOG_QUIET_MEMORY_LOG) return true
-  return __mixdogMemoryStderrWrite(...args)
-}
+import { __mixdogMemoryLog } from './memory-log.mjs'
+export { __mixdogMemoryLog }
 
 export function throwIfAborted(signal) {
   if (signal?.aborted) throw signal.reason ?? new Error('aborted')

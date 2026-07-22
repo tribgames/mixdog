@@ -25,9 +25,9 @@ import {
   READONLY_TOOL_NAMES,
 } from './tool-catalog-data.mjs';
 
-export const toolSchemaBreakdownMemo = new WeakMap();
+const toolSchemaBreakdownMemo = new WeakMap();
 
-export function sameToolSchemaEntries(cached, tools) {
+function sameToolSchemaEntries(cached, tools) {
   if (!cached || cached.entries.length !== tools.length) return false;
   const nativePrefixCount = providerNativeToolPrefixCount(tools);
   for (let index = 0; index < tools.length; index += 1) {
@@ -50,11 +50,11 @@ export function sameToolSchemaEntries(cached, tools) {
   return true;
 }
 
-export function toolMeteringList(tool, native) {
+function toolMeteringList(tool, native) {
   return native ? finalizeProviderRequestTools([tool], 1) : [tool];
 }
 
-export function toolSchemaEntry(tool, native = false) {
+function toolSchemaEntry(tool, native = false) {
   return {
     tool,
     name: tool?.name,

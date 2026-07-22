@@ -78,7 +78,7 @@ import {
 
 import { _findCachedCodexModel, codexModelSupportsServiceTier } from './openai-oauth.mjs';
 
-export function _contentTextParts(content, type = 'input_text') {
+function _contentTextParts(content, type = 'input_text') {
     if (typeof content === 'string') return content ? [{ type, text: content }] : [];
     if (!Array.isArray(content)) {
         const text = content == null ? '' : JSON.stringify(content);
@@ -208,7 +208,7 @@ export const _convertMessagesToResponsesInputForTest = convertMessagesToResponse
 // without summary support get NO reasoning field at all. Mirror that via the
 // cached codex catalog; unknown models default to true (gpt-5 family all
 // support summaries) so a cold catalog cannot strip reasoning from the wire.
-export function _codexModelSupportsReasoningSummaries(id) {
+function _codexModelSupportsReasoningSummaries(id) {
     const info = _findCachedCodexModel(id);
     if (!info) return true;
     const flags = [info.supportsReasoningSummaries, info.supports_reasoning_summaries, info.supportsReasoning, info.supports_reasoning];

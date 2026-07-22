@@ -1,8 +1,4 @@
-const __mixdogMemoryStderrWrite = process.stderr.write.bind(process.stderr);
-function __mixdogMemoryLog(...args) {
-  if (process.env.MIXDOG_QUIET_MEMORY_LOG) return true;
-  return __mixdogMemoryStderrWrite(...args);
-}
+import { __mixdogMemoryLog } from '../memory-log.mjs';
 
 // pg-process.mjs — lower-level PG lifecycle helpers for mixdog 0.4.0
 // Track B can wire these into the supervisor; pg-adapter calls them directly.

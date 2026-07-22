@@ -767,9 +767,9 @@ test('General exposes only System, White, and Dark with persistent desktop prefe
     theme.click();
     await Promise.resolve();
   });
-  assert.deepEqual(Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'),
+  assert.deepEqual(Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'),
     (node) => node.textContent.trim()), ['System', 'White', 'Dark']);
-  const white = Array.from(document.querySelectorAll('.oc-menu[aria-label="Theme"] [role="option"]'))
+  const white = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
     .find((entry) => entry.textContent.includes('White'));
   await act(async () => {
     white.click();
@@ -988,14 +988,14 @@ test('Settings lets a portaled select consume Escape without closing the dialog'
     select.click();
     await Promise.resolve();
   });
-  assert.ok(document.querySelector('.oc-menu[role="listbox"]'));
+  assert.ok(document.querySelector('.mx-menu[role="listbox"]'));
 
   await act(async () => {
     document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('.oc-menu[role="listbox"]') === null, true,
-    'selector .oc-menu[role="listbox"] should be absent');
+  assert.equal(document.querySelector('.mx-menu[role="listbox"]') === null, true,
+    'selector .mx-menu[role="listbox"] should be absent');
   assert.ok(document.querySelector('.mixdog-settings[role="dialog"]'));
   assert.equal(closes, 0);
   assert.equal(document.activeElement === select, true,
@@ -1062,14 +1062,14 @@ test('onboarding lets a portaled model menu consume Escape without opening skip 
   await act(async () => next.click());
   const select = document.querySelector('button[role="combobox"][aria-label="Main model"]');
   await act(async () => select.click());
-  assert.ok(document.querySelector('.oc-menu[role="listbox"]'));
+  assert.ok(document.querySelector('.mx-menu[role="listbox"]'));
 
   await act(async () => {
     document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('.oc-menu[role="listbox"]') === null, true,
-    'selector .oc-menu[role="listbox"] should be absent');
+  assert.equal(document.querySelector('.mx-menu[role="listbox"]') === null, true,
+    'selector .mx-menu[role="listbox"] should be absent');
   assert.equal(document.querySelector('[role="alertdialog"]') === null, true,
     'selector [role="alertdialog"] should be absent');
   assert.equal(document.activeElement === select, true,

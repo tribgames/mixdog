@@ -34,7 +34,7 @@ const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: nu
   terminal: Terminal,
 };
 
-export function OcIcon({ name, size = 16, className = '', ...rest }: {
+export function MxIcon({ name, size = 16, className = '', ...rest }: {
   name: string;
   size?: number;
 } & SVGProps<SVGSVGElement>) {
@@ -46,7 +46,7 @@ export function OcIcon({ name, size = 16, className = '', ...rest }: {
     fill: name === 'stop' ? 'currentColor' : 'none',
     'aria-hidden': 'true',
     focusable: 'false',
-    className: `oc-icon ${className}`.trim(),
+    className: `mx-icon ${className}`.trim(),
     ...rest,
   });
 }

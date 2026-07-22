@@ -39,7 +39,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import { ContextBody } from "./CommandSurface";
 import { createPortal } from "react-dom";
 import { elementScroll, useVirtualizer } from "@tanstack/react-virtual";
@@ -489,7 +489,7 @@ export function Conversation({
     const retryDisabled = Boolean(snapshot.busy) || transitioning;
     const retryButton = <button type="button" className="turn-retry" disabled={retryDisabled}
       onClick={retryTurn} aria-label="Retry failed turn">
-    <OcIcon name="reset" size={12} />Retry
+    <MxIcon name="reset" size={12} />Retry
     </button>;
     if (failedTurns.has(turnKey) && completion) {
       if (index !== lastCompletionByTurn.get(turnKey)) return null;

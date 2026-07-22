@@ -105,7 +105,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
     const shell = document.querySelector<HTMLElement>('.app-shell');
     const isolatedElements = Array.from(shell?.children || [])
       .filter((element): element is HTMLElement =>
-        element instanceof HTMLElement && !element.matches('.oc-toast-region'));
+        element instanceof HTMLElement && !element.matches('.mx-toast-region'));
     const layer = acquireModalLayer(isolatedElements);
     layer.attachSurface(surfaceLayer.current);
     dialog.current?.focus();
@@ -113,13 +113,13 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose, o
       if (!layer.isTop()) return;
       if (event.key === 'Escape') {
         // OpenSelect menus are portaled to document.body and own the first Escape.
-        if (document.querySelector('.oc-menu[role="listbox"]')) return;
+        if (document.querySelector('.mx-menu[role="listbox"]')) return;
         event.preventDefault();
         onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
-      const openMenu = document.querySelector<HTMLElement>('.oc-menu[role="listbox"]');
+      const openMenu = document.querySelector<HTMLElement>('.mx-menu[role="listbox"]');
       if (openMenu?.contains(document.activeElement)) return;
       const focusable = Array.from(dialog.current?.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), ' +

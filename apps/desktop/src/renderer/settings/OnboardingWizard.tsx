@@ -236,7 +236,7 @@ export function OnboardingWizard({ api, onDone }: {
     const layer = layerRef.current;
     const background = Array.from(document.body.children)
       .filter((element): element is HTMLElement => element instanceof HTMLElement
-        && !element.matches('.oc-toast-region')
+        && !element.matches('.mx-toast-region')
         && element !== layer)
       .map((element) => ({ element, inert: element.inert, ariaHidden: element.getAttribute('aria-hidden') }));
     for (const { element } of background) {
@@ -264,7 +264,7 @@ export function OnboardingWizard({ api, onDone }: {
           dialog.querySelectorAll<HTMLElement>('[role="combobox"][aria-expanded="true"][aria-controls]'),
         ).some((trigger) => {
           const menu = document.getElementById(trigger.getAttribute('aria-controls') || '');
-          return menu?.matches('.oc-menu[role="listbox"]');
+          return menu?.matches('.mx-menu[role="listbox"]');
         });
         if (openPortaledMenu) return;
         event.preventDefault();

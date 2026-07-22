@@ -184,7 +184,7 @@ test("toast region anchors to the sheet top-right", async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  const region = document.querySelector(".oc-toast-region");
+  const region = document.querySelector(".mx-toast-region");
   assert.ok(region, "toast region renders");
   assert.equal(region.style.top !== "", true, "toast region is top-anchored");
   assert.equal(region.style.bottom, "", "toast region has no bottom anchor");
@@ -214,7 +214,7 @@ test("mobile toast region keeps the desktop top-right anchor", async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  const region = document.querySelector(".oc-toast-region");
+  const region = document.querySelector(".mx-toast-region");
   assert.ok(region, "mobile toast region renders");
   assert.equal(region.style.top, "40px", "mobile toast stays at the safe workspace top");
   assert.equal(region.style.right, "16px", "mobile toast stays right-aligned");
@@ -2287,7 +2287,7 @@ test("Tooltip placement stays inside the viewport and flips away from a clipped 
   trigger.getBoundingClientRect = () => triggerBounds;
   const originalBounds = window.HTMLElement.prototype.getBoundingClientRect;
   window.HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
-    if (this.classList?.contains("oc-tooltip")) {
+    if (this.classList?.contains("mx-tooltip")) {
       return {
         left: 0, right: 280, top: 0, bottom: 34, width: 280, height: 34,
         x: 0, y: 0, toJSON() {},
@@ -2302,7 +2302,7 @@ test("Tooltip placement stays inside the viewport and flips away from a clipped 
   };
 
   await act(async () => trigger.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
-  let tooltip = document.querySelector(".oc-tooltip");
+  let tooltip = document.querySelector(".mx-tooltip");
   assert.equal(tooltip.dataset.side, "bottom");
   assert.equal(tooltip.style.left, "736px");
   assert.equal(tooltip.style.top, "54px");
@@ -2314,7 +2314,7 @@ test("Tooltip placement stays inside the viewport and flips away from a clipped 
     x: 990, y: 730, toJSON() {},
   };
   await act(async () => trigger.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
-  tooltip = document.querySelector(".oc-tooltip");
+  tooltip = document.querySelector(".mx-tooltip");
   assert.equal(tooltip.dataset.side, "top");
   assert.equal(tooltip.style.left, "736px");
   assert.equal(tooltip.style.top, "690px");
@@ -2336,11 +2336,11 @@ test("snapshot notifications render and dismiss through the desktop toast surfac
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  const toast = document.querySelector('.oc-toast[data-tone="success"]');
+  const toast = document.querySelector('.mx-toast[data-tone="success"]');
   assert.equal(toast != null, true, "success toast should be present");
   assert.match(toast.textContent, /Completed.*Settings saved/);
   await act(async () => toast.querySelector('[aria-label="Dismiss notification"]').click());
-  assert.equal(document.querySelector('.oc-toast') === null, true, "selector .oc-toast should be absent");
+  assert.equal(document.querySelector('.mx-toast') === null, true, "selector .mx-toast should be absent");
 });
 
 test("desktop retains, deduplicates, bounds, and explicitly dismisses engine error toasts", async () => {
@@ -2361,10 +2361,10 @@ test("desktop retains, deduplicates, bounds, and explicitly dismisses engine err
     root.render(React.createElement(App));
     await Promise.resolve();
   });
-  assert.match(document.querySelector('.oc-toast[data-tone="error"]')?.textContent || "", /First failure/);
+  assert.match(document.querySelector('.mx-toast[data-tone="error"]')?.textContent || "", /First failure/);
 
   await act(async () => publish({ items: [], queued: [], toasts: [] }));
-  assert.match(document.querySelector('.oc-toast[data-tone="error"]')?.textContent || "", /First failure/);
+  assert.match(document.querySelector('.mx-toast[data-tone="error"]')?.textContent || "", /First failure/);
 
   await act(async () => publish({
     items: [], queued: [],
@@ -2377,13 +2377,13 @@ test("desktop retains, deduplicates, bounds, and explicitly dismisses engine err
       })),
     ],
   }));
-  const errors = Array.from(document.querySelectorAll('.oc-toast[data-tone="error"]'));
+  const errors = Array.from(document.querySelectorAll('.mx-toast[data-tone="error"]'));
   assert.equal(errors.length, 5);
   assert.equal(errors.some((toast) => toast.textContent.includes("First failure")), false);
   assert.equal(errors.filter((toast) => toast.textContent.includes("Failure 2")).length, 1);
 
   await act(async () => errors.at(-1).querySelector('[aria-label="Dismiss notification"]').click());
-  assert.equal(document.querySelectorAll('.oc-toast[data-tone="error"]').length, 4);
+  assert.equal(document.querySelectorAll('.mx-toast[data-tone="error"]').length, 4);
 });
 
 test("a failed project replacement synchronizes to the empty actual host without stale selection", async () => {
@@ -3080,7 +3080,7 @@ test("settings and provider error toasts use the notification surface without ch
   });
   await selectFirstProject();
 
-  const notification = document.querySelector('.oc-toast-region .oc-toast[data-tone="error"]');
+  const notification = document.querySelector('.mx-toast-region .mx-toast[data-tone="error"]');
   assert.match(notification.textContent || "", /Provider request failed: quota exceeded/);
   assert.equal(document.querySelector(".composer-region .inline-error") === null, true,
     "provider notifications should use the redesigned toast surface rather than bridge errors");
@@ -3581,11 +3581,11 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(themeCss, /\.route-controls > \.fast-control\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*40px;/s,
     "the Fast toggle must keep its compact click target");
   assert.match(themeCss,
-    /\.route-controls > \.fast-control:hover:not\(:disabled\),[\s\S]*?\{[^}]*color:\s*var\(--oc-text\);[^}]*background:\s*var\(--oc-hover\);/s,
+    /\.route-controls > \.fast-control:hover:not\(:disabled\),[\s\S]*?\{[^}]*color:\s*var\(--mx-text\);[^}]*background:\s*var\(--mx-hover\);/s,
     "the Fast toggle must expose hover feedback");
-  assert.match(themeCss, /\.route-controls > \.fast-control\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--oc-text\);/s);
+  assert.match(themeCss, /\.route-controls > \.fast-control\[aria-pressed="true"\]\s*\{[^}]*color:\s*var\(--mx-text\);/s);
   assert.match(themeCss,
-    /\.model-trigger,\s*\.effort-control \.oc-select-trigger\s*\{[^}]*color:\s*var\(--oc-text\);/s,
+    /\.model-trigger,\s*\.effort-control \.mx-select-trigger\s*\{[^}]*color:\s*var\(--mx-text\);/s,
     "model and effort labels should share the active Fast tone");
   assert.match(themeCss,
     /\.model-trigger\s*\{[^}]*width:\s*auto;[^}]*max-width:\s*min\(220px,\s*100%\);[^}]*flex:\s*0 1 auto;/s,
@@ -3593,14 +3593,14 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(themeCss,
     /\.effort-control\s*\{[^}]*width:\s*auto;[^}]*flex:\s*0 0 auto;/s,
     "the effort picker should use its full intrinsic label width beside the model");
-  assert.doesNotMatch(themeCss, /\.effort-control \.oc-select-trigger\s*\{\s*width:\s*100%;/s);
+  assert.doesNotMatch(themeCss, /\.effort-control \.mx-select-trigger\s*\{\s*width:\s*100%;/s);
   assert.match(themeCss,
-    /\.oc-menu\[aria-label="Project context"\] \.oc-menu-item\s*\{[^}]*line-height:\s*20px;/s,
+    /\.mx-menu\[aria-label="Project context"\] \.mx-menu-item\s*\{[^}]*line-height:\s*20px;/s,
     "project labels need enough line height for descenders");
   assert.match(themeCss,
-    /\.effort-control \.oc-select-trigger\s*\{[^}]*height:\s*28px;[^}]*padding:\s*0 5px 0 8px;[^}]*line-height:\s*20px;/s,
+    /\.effort-control \.mx-select-trigger\s*\{[^}]*height:\s*28px;[^}]*padding:\s*0 5px 0 8px;[^}]*line-height:\s*20px;/s,
     "the effort trigger needs a full text line box inside its fixed control height");
-  assert.match(themeCss, /\.effort-control \.oc-select-value\s*\{[^}]*line-height:\s*20px;/s);
+  assert.match(themeCss, /\.effort-control \.mx-select-value\s*\{[^}]*line-height:\s*20px;/s);
   assert.match(themeCss, /\.model-picker-layer\s*\{[^}]*background:[^}]*backdrop-filter:\s*blur\(2px\);/s);
   assert.match(themeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*background:\s*transparent;/s);
   assert.match(themeCss, /\.model-picker-header\s*\{[^}]*padding:\s*16px 12px 16px 20px;/s);
@@ -3613,7 +3613,7 @@ test("model control styles keep the reference compact geometry and bounded list"
     /\.model-option-row\s*\{[^}]*min-height:\s*48px;[^}]*padding:\s*6px 8px;/s,
     "model rows should leave room for stable secondary metadata");
   assert.match(themeCss, /\.model-row-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s);
-  assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--oc-text-faint\);[^}]*font-size:\s*11px;/s);
+  assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--mx-text-faint\);[^}]*font-size:\s*11px;/s);
   assert.match(themeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
   assert.doesNotMatch(themeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
   assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/s);
@@ -3622,7 +3622,7 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(themeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
   assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s,
     "the composer should sit close to the workspace bottom edge");
-  assert.match(themeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--oc-bg-base\);[^}]*box-shadow:\s*var\(--oc-raised\);/s,
+  assert.match(themeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s,
     "the composer should use the solid desktop base and its subtle raised elevation");
 });
 
@@ -3708,7 +3708,7 @@ test("successful effort selection uses the dedicated capability and restores foc
   const trigger = document.querySelector(".model-trigger");
   const effort = document.querySelector('[aria-label="Reasoning effort"]');
   await act(async () => effort.click());
-  const high = Array.from(document.querySelectorAll('.oc-menu [role="option"]'))
+  const high = Array.from(document.querySelectorAll('.mx-menu [role="option"]'))
     .find((option) => option.textContent.includes("High"));
   await act(async () => {
     high.click();
@@ -4010,9 +4010,9 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.doesNotMatch(themeCss, /\.session-row\.selected \.session-row-action,/s);
   assert.doesNotMatch(themeCss, /\.session-row\.selected \.session-row-actions,/s);
   assert.match(themeCss,
-    /\.session-sidebar \.session-row:hover\s*\{[^}]*--session-row-action-surface:\s*var\(--oc-bg-layer-1\);/s);
+    /\.session-sidebar \.session-row:hover\s*\{[^}]*--session-row-action-surface:\s*var\(--mx-bg-layer-1\);/s);
   assert.match(themeCss,
-    /\.session-sidebar \.session-row\.selected\s*\{[^}]*--session-row-action-surface:\s*var\(--oc-bg-layer-2\);/s);
+    /\.session-sidebar \.session-row\.selected\s*\{[^}]*--session-row-action-surface:\s*var\(--mx-bg-layer-2\);/s);
   assert.doesNotMatch(themeCss, /\.session-row-actions::before/);
   assert.match(themeCss,
     /\.session-row-action\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*1;/s);

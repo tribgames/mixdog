@@ -1,6 +1,6 @@
 import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Code2, Command, FileDiff, Folder, GitCompare, Layers3, LoaderCircle, Mic, PanelLeft, PanelRight, Plus, RotateCcw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import { type RecordValue, type Project, type TranscriptItem, type Approval, type Toast, type Snapshot, EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "./desktop-types";
 import { asRecord, displayProject, navigationKey, newDraftSelection, textOf, publicThinkingSummary, oneLine, queueText, formatElapsed, formatIdleDuration, TURN_LOCKED_SLASH_COMMANDS, copyTextToClipboard } from "./text-format";
 import { approvalInstanceKey, draftAfterSubmission, followAfterScroll, isApprovalDismissKey, isScrollIntentKey, mergeTranscript, normalizeApplyPatch, parseUnifiedDiff, reconcileTurnFailures, shouldNavigatePromptHistory, toolInputRows, transcriptTurnKeys } from "./renderer-logic.mjs";
@@ -15,15 +15,15 @@ import { REVIEW_DIFF_STYLE_KEY } from "./desktop-types";
 // item AFTER the last user message whose args/result carry a unified diff
 // (apply_patch/edit payloads) is parsed and aggregated per file. Rows expand
 // to the actual diff and carry a guarded working-tree revert.
-export type TurnReviewPatchPart = ReturnType<typeof parseUnifiedDiff>[number];
-export const turnReviewPatchCache = new Map<string, Array<{
+type TurnReviewPatchPart = ReturnType<typeof parseUnifiedDiff>[number];
+const turnReviewPatchCache = new Map<string, Array<{
   name: string;
   additions: number;
   deletions: number;
   part: TurnReviewPatchPart;
 }>>();
 
-export function analyzeTurnReviewPatch(patch: string) {
+function analyzeTurnReviewPatch(patch: string) {
   const cached = turnReviewPatchCache.get(patch);
   if (cached) {
     turnReviewPatchCache.delete(patch);

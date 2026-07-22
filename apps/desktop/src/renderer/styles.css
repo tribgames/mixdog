@@ -252,7 +252,7 @@ button { color: inherit; }
     transition: transform 180ms ease;
   }
   .sidebar.open { transform: translateX(0); pointer-events: auto; visibility: visible; }
-  .sidebar-backdrop { display: block; position: absolute; z-index: 3; inset: 0; border: 0; background: var(--oc-scrim); }
+  .sidebar-backdrop { display: block; position: absolute; z-index: 3; inset: 0; border: 0; background: var(--mx-scrim); }
   .starter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-grid { grid-template-columns: 1fr; }
 }

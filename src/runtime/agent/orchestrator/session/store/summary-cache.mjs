@@ -11,10 +11,10 @@ import { _sessionSummary, _normalizeSummaryIndex, _upsertSessionSummary, _remove
 // explicit refresh remains the authoritative cross-process/disk reconciliation
 // path. Pending overlays cover a write that lands before the first listing.
 export let _summaryRowsCache = null;
-export const _summaryCacheUpserts = new Map();
+const _summaryCacheUpserts = new Map();
 export const _summaryCacheRemovals = new Set();
 export const _summaryCacheVersions = new Map();
-export let _summaryCacheDataDir = null;
+let _summaryCacheDataDir = null;
 
 export function _ensureSummaryCacheDataDir() {
     const dataDir = getPluginData();
@@ -27,7 +27,7 @@ export function _ensureSummaryCacheDataDir() {
     _summaryCacheVersions.clear();
 }
 
-export function _summaryRowsWithLocalMutations(rows, { discardLocalMutations = false } = {}) {
+function _summaryRowsWithLocalMutations(rows, { discardLocalMutations = false } = {}) {
     if (discardLocalMutations) {
         _summaryCacheUpserts.clear();
         _summaryCacheRemovals.clear();
@@ -51,14 +51,14 @@ export function _cachedSummaryRows() {
     return _summaryRowsCache === null ? null : _summaryRowsWithLocalMutations(_summaryRowsCache);
 }
 
-export function _setCachedBaseSummary(row) {
+function _setCachedBaseSummary(row) {
     if (!row || _summaryRowsCache === null) return;
     const byId = new Map(_summaryRowsCache.map((existing) => [existing.id, existing]));
     byId.set(row.id, row);
     _summaryRowsCache = [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
-export function _removeCachedBaseSummary(id) {
+function _removeCachedBaseSummary(id) {
     if (_summaryRowsCache === null) return;
     _summaryRowsCache = _summaryRowsCache.filter((row) => row.id !== id);
 }
@@ -114,7 +114,7 @@ export function _queueSummaryIndexPrune(ids) {
 // its file changes, so key a per-file row cache on (mtimeMs, size): unchanged
 // files reuse the cached row, changed/new files re-parse, vanished files drop
 // out. Storage stays the truth source — the sidecar index is never trusted.
-export const _summaryScanCache = new Map(); // filename → { mtimeMs, size, row|null }
+const _summaryScanCache = new Map(); // filename → { mtimeMs, size, row|null }
 
 export function _scanStoredSessionSummaryRows() {
     const dir = getStoreDir();

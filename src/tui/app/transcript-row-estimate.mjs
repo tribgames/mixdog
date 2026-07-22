@@ -42,7 +42,7 @@ export function wrappedLineRows(line, width) {
   return Math.max(1, rows);
 }
 
-export function estimateWrappedRows(text, columns, reserve = 4) {
+function estimateWrappedRows(text, columns, reserve = 4) {
   const width = Math.max(8, Number(columns || 80) - reserve);
   const lines = String(text ?? '').split('\n');
   return Math.max(1, lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0));
@@ -52,7 +52,7 @@ export const SKILL_SURFACE_NAMES = new Set([
   'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill',
 ]);
 
-export function isAgentResponseResultText(text) {
+function isAgentResponseResultText(text) {
   const value = String(text || '').trim();
   if (!value) return false;
   if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
@@ -60,13 +60,13 @@ export function isAgentResponseResultText(text) {
   return true;
 }
 
-export const BACKGROUND_TASK_TOOL_NAMES = new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
+const BACKGROUND_TASK_TOOL_NAMES = new Set(['explore', 'search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
 
-export function isBackgroundTaskToolName(normalizedName) {
+function isBackgroundTaskToolName(normalizedName) {
   return BACKGROUND_TASK_TOOL_NAMES.has(String(normalizedName || '').toLowerCase());
 }
 
-export function parseBackgroundTaskResultForRows(value) {
+function parseBackgroundTaskResultForRows(value) {
   const text = String(value || '').trim();
   if (!text) return null;
   const allLines = text.split('\n');
@@ -93,7 +93,7 @@ export function parseBackgroundTaskResultForRows(value) {
   };
 }
 
-export function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
+function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
   if (!isBackgroundTaskToolName(normalizedName)) return false;
   const type = String(args?.type || args?.action || '').toLowerCase();
   const status = String(args?.status || '').toLowerCase();
@@ -108,8 +108,8 @@ export function isBackgroundTaskResponseArgsForRows(normalizedName, args = {}) {
 // and parseToolArgs JSON.parses the same raw string each call (6.6% of frame
 // CPU in the 11k-item load bench). Raw-string-keyed memo; entries are treated
 // as READ-ONLY by every caller in this module.
-export const parsedArgsByRaw = new Map(); // raw args string → parsed object
-export const PARSED_ARGS_CACHE_MAX = 1024;
+const parsedArgsByRaw = new Map(); // raw args string → parsed object
+const PARSED_ARGS_CACHE_MAX = 1024;
 export function backgroundArgsForRows(rawArgs) {
   if (typeof rawArgs === 'string' && rawArgs) {
     let parsed = parsedArgsByRaw.get(rawArgs);
@@ -127,7 +127,7 @@ export function backgroundArgsForRows(rawArgs) {
   return parsed && typeof parsed === 'object' ? parsed : {};
 }
 
-export function toolItemPendingForRows(item) {
+function toolItemPendingForRows(item) {
   const count = Math.max(1, Number(item?.count || 1));
   const done = Math.max(0, Math.min(count, Number(item?.completedCount || (item?.result == null ? 0 : count))));
   return done < count;
@@ -135,13 +135,13 @@ export function toolItemPendingForRows(item) {
 
 export const LEADING_STATUS_MARKER_LINE_RE = /^\[status:\s*[^\]]*\]\s*$/i;
 
-export function stripLeadingStatusMarkerFromTextForRows(text) {
+function stripLeadingStatusMarkerFromTextForRows(text) {
   const lines = String(text || '').split('\n');
   if (lines.length > 0 && LEADING_STATUS_MARKER_LINE_RE.test(String(lines[0] ?? '').trim())) lines.shift();
   return lines.join('\n');
 }
 
-export function toolDisplayedResultTextForRows(item) {
+function toolDisplayedResultTextForRows(item) {
   const rt = item?.result == null ? '' : String(item.result).replace(/\s+$/, '');
   const bgArgs = backgroundArgsForRows(item?.args);
   const backgroundError = String(bgArgs.error || '');
@@ -156,7 +156,7 @@ export function toolDisplayedResultTextForRows(item) {
   return stripLeadingStatusMarkerFromTextForRows(errorOnlyResult ? '' : (rt || ''));
 }
 
-export function toolHasDisplayResultForRows(item) {
+function toolHasDisplayResultForRows(item) {
   const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
   const trimmed = String(rt || '').trim();
   if (!trimmed) return false;
@@ -170,7 +170,7 @@ export function toolHasDisplayResultForRows(item) {
   return true;
 }
 
-export function toolExpandedRawTextForRows(item, rawRt) {
+function toolExpandedRawTextForRows(item, rawRt) {
   if (item?.aggregate) return rawRt;
   if (item?.agentResponseAggregate) return rawRt;
   const hasDisplayResult = toolHasDisplayResultForRows(item);
@@ -178,7 +178,7 @@ export function toolExpandedRawTextForRows(item, rawRt) {
   return stripLeadingStatusMarkerFromTextForRows(rawRt || '');
 }
 
-export function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
+function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
   if (hasDisplayResult) return false;
   const bgArgs = backgroundArgsForRows(item.args);
   const error = String(bgArgs.error || '').trim();
@@ -205,7 +205,7 @@ export function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayRes
   return /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(status);
 }
 
-export function toolArgPathForRows(item) {
+function toolArgPathForRows(item) {
   const a = backgroundArgsForRows(item?.args);
   return a?.path ?? a?.file_path ?? a?.file ?? '';
 }
@@ -215,7 +215,7 @@ export function toolArgPathForRows(item) {
 // errored, or the brief/status reads as a failure/cancel). Pending agent cards
 // never carry failure info yet, so they collapse to one row. A header-failure-
 // only card is handled earlier by toolHeaderFailureOnlyForRows (also one row).
-export function agentCardKeepsCollapsedDetailForRows(item, normalizedName) {
+function agentCardKeepsCollapsedDetailForRows(item, normalizedName) {
   if (normalizedName !== 'agent') return false;
   if (toolItemPendingForRows(item)) return false;
   const bgArgs = backgroundArgsForRows(item.args);
@@ -237,21 +237,21 @@ export function agentCardKeepsCollapsedDetailForRows(item, normalizedName) {
   return isError || failureText;
 }
 
-export function isShellSurfaceForRows(normalizedName, label = '') {
+function isShellSurfaceForRows(normalizedName, label = '') {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   return n === 'shell' || n === 'bash' || n === 'bash_session'
     || n === 'shell_command' || n === 'job_wait' || l === 'run';
 }
 
-export function isShellSurfaceForToolItem(item, normalizedName) {
+function isShellSurfaceForToolItem(item, normalizedName) {
   const label = formatToolSurface(item?.name, item?.args)?.label || '';
   return isShellSurfaceForRows(normalizedName, label);
 }
 
 // EXPANDED tool bodies are post-processed by formatExpandedResult; the row
 // estimate MUST run the SAME pipeline. Pass pathArg/isShell so the count matches.
-export function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false, columns = 80 } = {}) {
+function estimateToolRenderedResultRows(value, { pathArg = '', isShell = false, columns = 80 } = {}) {
   const text = String(value ?? '').replace(/\s+$/, '');
   if (!text) return 1;
   try {

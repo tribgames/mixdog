@@ -7,7 +7,7 @@ import { _cacheSessionSummary, _rollbackCachedSessionSummary, _queueSessionSumma
 // ── Worker-thread async save ──────────────────────────────────────────────────
 // Single long-lived Worker serializes all saveSessionAsync calls.
 // The worker's message queue preserves generation-race ordering.
-export let _saveWorker = null;
+let _saveWorker = null;
 // In-flight writes, keyed by reqId. Value: { id, session, opts, waiters:[{resolve,reject}] }.
 // At most ONE entry per session id at a time (single-in-flight-per-id).
 export let _saveWorkerPending = new Map();
@@ -18,12 +18,12 @@ export let _saveWorkerPending = new Map();
 export let _saveAsyncQueued = new Map();
 // id → reqId of the in-flight write for that id (enforces one-in-flight-per-id).
 export let _saveAsyncInflight = new Map();
-export let _saveWorkerReqId = 0;
-export let _saveWorkerRefCount = 0;
-export let _deferredSaveReqId = 0;
+let _saveWorkerReqId = 0;
+let _saveWorkerRefCount = 0;
+let _deferredSaveReqId = 0;
 export const _deferredSessionSaves = new Map();
 
-export function _getOrSpawnWorker() {
+function _getOrSpawnWorker() {
     if (_saveWorker) return _saveWorker;
     _saveWorker = new Worker(new URL('../save-session-worker.mjs', import.meta.url), {
         execArgv: [],
@@ -138,7 +138,7 @@ export function _getOrSpawnWorker() {
  * in flight for `id`. Throws (after cleaning its own map entries) if the
  * worker postMessage fails so the caller can reject the affected waiters.
  */
-export function _postAsyncWrite(id, session, opts, waiters, summaryVersion) {
+function _postAsyncWrite(id, session, opts, waiters, summaryVersion) {
     const reqId = ++_saveWorkerReqId;
     _saveWorkerPending.set(reqId, {
         id,

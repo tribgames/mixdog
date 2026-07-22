@@ -28,7 +28,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import type {
   DesktopProjectSummary,
   DesktopSessionSummary,
@@ -38,7 +38,7 @@ import { sessionSummaryTitle } from "../shared/session-title.mjs";
 
 import type { NavigationSelection, WorkspaceTab } from "./nav-types";
 
-export interface DesktopTitlebarProps {
+interface DesktopTitlebarProps {
   sidebarOpen: boolean;
   tabs: WorkspaceTab[];
   activeKey: string;
@@ -55,7 +55,7 @@ export interface DesktopTitlebarProps {
   onToggleDock?(): void;
 }
 
-export function SidebarToggleIcon({ open }: { open: boolean }) {
+function SidebarToggleIcon({ open }: { open: boolean }) {
   // Outline-only glyph (user: no filled state) from the rounded lucide set,
   // matching the New task / Project icons.
   return <PanelLeft className="sidebar-toggle-icon" size={18}
@@ -271,7 +271,7 @@ export function DesktopTitlebar({
         {!tabs.some((tab) => tab.key === activeKey && tab.selection.kind === "new") && (
           <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
             aria-label="New task" data-tooltip="New task">
-            <OcIcon name="plus" size={16} />
+            <MxIcon name="plus" size={16} />
           </button>
         )}
       </div>
@@ -295,7 +295,7 @@ export function DesktopTitlebar({
   );
 }
 
-export function useWorkspaceTabCommands({
+function useWorkspaceTabCommands({
   tabs,
   activeKey,
   onSelectTab,

@@ -9,7 +9,7 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { OcIcon } from './OcIcon';
+import { MxIcon } from './MxIcon';
 
 export interface OpenSelectOption {
   value: string;
@@ -190,7 +190,7 @@ export function OpenSelect({
         : enabledIndexes[(Math.max(0, currentIndex) + direction + enabledIndexes.length) % enabledIndexes.length];
     setActive(next);
     queueMicrotask(() => {
-      const item = menu.current?.querySelectorAll<HTMLElement>('.oc-menu-item')[next];
+      const item = menu.current?.querySelectorAll<HTMLElement>('.mx-menu-item')[next];
       item?.focus();
       item?.scrollIntoView?.({ block: 'nearest' });
     });
@@ -257,26 +257,26 @@ export function OpenSelect({
     else moveActive(event.key === 'ArrowDown' ? 1 : -1);
   };
 
-  return <div ref={root} className={`oc-select-root ${className}`.trim()}
+  return <div ref={root} className={`mx-select-root ${className}`.trim()}
     data-trigger-style={settingsStyle ? 'settings' : 'default'}>
     {name && <input type="hidden" name={name} value={current} required={required} />}
-    <button ref={trigger} type="button" className="oc-select-trigger" role="combobox"
+    <button ref={trigger} type="button" className="mx-select-trigger" role="combobox"
       aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={listboxId}
       aria-activedescendant={open && activeOption ? `${listboxId}-option-${active}` : undefined}
       disabled={disabled} onClick={() => setOpen((currentOpen) => !currentOpen)} onKeyDown={onKeyDown}>
-      <span className="oc-select-value">{displayValue || selected?.label || options[0]?.label || 'Select…'}</span>
+      <span className="mx-select-value">{displayValue || selected?.label || options[0]?.label || 'Select…'}</span>
       {settingsStyle
-        ? <OcIcon name="chevron-grabber-vertical" size={14} />
-        : <OcIcon name="chevron-down" size={16} />}
+        ? <MxIcon name="chevron-grabber-vertical" size={14} />
+        : <MxIcon name="chevron-down" size={16} />}
     </button>
-    {open && createPortal(<div ref={menu} id={listboxId} className="oc-menu" role="listbox"
+    {open && createPortal(<div ref={menu} id={listboxId} className="mx-menu" role="listbox"
       data-trigger-style={settingsStyle ? 'settings' : 'default'}
       aria-label={ariaLabel} style={position} onKeyDown={onKeyDown}>
-      {options.map((option, index) => <button type="button" role="option" className="oc-menu-item"
+      {options.map((option, index) => <button type="button" role="option" className="mx-menu-item"
         id={`${listboxId}-option-${index}`} disabled={option.disabled}
         aria-selected={option.value === current} data-active={index === active} tabIndex={index === active ? 0 : -1}
         key={option.value} onMouseEnter={() => setActive(index)} onClick={() => select(option.value)}>
-        <span>{option.label}</span>{option.value === current && <OcIcon name="check-small" size={16} />}
+        <span>{option.label}</span>{option.value === current && <MxIcon name="check-small" size={16} />}
       </button>)}
     </div>, document.body)}
   </div>;

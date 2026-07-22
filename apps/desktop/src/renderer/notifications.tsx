@@ -39,7 +39,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import { ContextBody } from "./CommandSurface";
 import { createPortal } from "react-dom";
 import { elementScroll, useVirtualizer } from "@tanstack/react-virtual";
@@ -301,7 +301,7 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
     };
   }, []);
   if (!entries.length) return null;
-  return createPortal(<section className="oc-toast-region" aria-label="Notifications" aria-live="polite"
+  return createPortal(<section className="mx-toast-region" aria-label="Notifications" aria-live="polite"
     data-count={entries.length} style={placement}>
     {entries.map((entry) => {
       const title = entry.tone === 'error' ? 'Something went wrong'
@@ -318,12 +318,12 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
       };
       // Tapping anywhere on the toast dismisses it — the 16px X is a poor
       // touch target and stuck toasts read as "won't go away" on phones.
-      return <article className="oc-toast" data-tone={entry.tone} key={entry.key}
+      return <article className="mx-toast" data-tone={entry.tone} key={entry.key}
         role={entry.tone === 'error' ? 'alert' : 'status'} onClick={dismissEntry}>
         {entry.tone === 'error' ? <ShieldAlert size={16} />
           : entry.tone === 'success' ? <Check size={16} /> : <Sparkles size={16} />}
-        <span className="oc-toast-copy"><b>{title}</b><span>{entry.text}</span></span>
-        <button type="button" className="oc-toast-close" aria-label="Dismiss notification"
+        <span className="mx-toast-copy"><b>{title}</b><span>{entry.text}</span></span>
+        <button type="button" className="mx-toast-close" aria-label="Dismiss notification"
           onClick={dismissEntry}><X size={16} /></button>
       </article>;
     })}

@@ -71,7 +71,7 @@ globalThis.__mixdogShellJobsRuntimeLoaded = true;
 // Poll cadence for the adopted-job output-cap self-tick (mirrors the
 // foreground sizeWatchdog in shell-command.mjs).
 
-import { refreshShellJob, trackChildUntilConfirmedExit, releaseShellJobOwnershipWhenQuiescent } from './shell-jobs.mjs';
+import { refreshShellJob, trackChildUntilConfirmedExit, releaseShellJobOwnershipWhenQuiescent, TIMER_MAX_MS } from './shell-jobs.mjs';
 
 export async function _startBackgroundShellJobImpl({
     command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs,
@@ -279,7 +279,7 @@ export async function _startBackgroundShellJobImpl({
     return detail;
 }
 
-export async function startBackgroundPowerShellJob({
+async function startBackgroundPowerShellJob({
     command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid,
     spawnFn = spawn, writeDetailFn = writeShellJobDetail, rollbackTimeoutMs = 5000,
 }) {

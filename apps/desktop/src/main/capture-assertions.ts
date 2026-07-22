@@ -431,7 +431,7 @@ export async function readPhoneSettingsAssertions(window: BrowserWindow): Promis
         categoryLabelsSeparated = categoryLabelsSeparated
           && (!(first instanceof HTMLElement) || rect(first).right <= controlRect.left + 1);
         const fillTargets = Array.from(control.querySelectorAll(
-          '.settings-select.oc-select-root, .settings-model-trigger, .effort-control, '
+          '.settings-select.mx-select-root, .settings-model-trigger, .effort-control, '
           + '.fast-control, input:not([type="checkbox"])',
         )).filter((element) => element instanceof HTMLElement && visible(element));
         for (const target of fillTargets) {
@@ -517,8 +517,8 @@ export async function readLightThemeAssertions(window: BrowserWindow): Promise<L
     const titlebarIconColor = getComputedStyle(icon).color;
     const activeTabColor = getComputedStyle(activeTab).color;
     // The rail toggle carries the LABEL ink (user: icons match text color).
-    const iconTokenColor = resolveColor('--oc-text');
-    const textTokenColor = resolveColor('--oc-text');
+    const iconTokenColor = resolveColor('--mx-text');
+    const textTokenColor = resolveColor('--mx-text');
     return {
       theme: root.dataset.mixdogTheme || '',
       colorScheme: getComputedStyle(root).colorScheme,
@@ -534,7 +534,7 @@ export async function readLightThemeAssertions(window: BrowserWindow): Promise<L
 
 export async function readModalStackAssertions(window: BrowserWindow): Promise<ModalStackAssertions> {
   return window.webContents.executeJavaScript(`(() => {
-    const toast = document.querySelector('.oc-toast-region');
+    const toast = document.querySelector('.mx-toast-region');
     const modal = document.querySelector('.mixdog-settings-layer');
     if (!(toast instanceof HTMLElement) || !(modal instanceof HTMLElement)) {
       return {

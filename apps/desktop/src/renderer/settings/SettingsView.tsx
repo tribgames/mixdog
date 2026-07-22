@@ -140,7 +140,7 @@ export function SettingsView({
     const dialog = dialogRef.current;
     const background = Array.from(document.body.children)
       .filter((element): element is HTMLElement => element instanceof HTMLElement
-        && !element.matches('.oc-toast-region')
+        && !element.matches('.mx-toast-region')
         && element !== dialog
         && !element.contains(dialog))
       .map((element) => ({
@@ -187,7 +187,7 @@ export function SettingsView({
           dialog?.querySelectorAll<HTMLElement>('[role="combobox"][aria-expanded="true"][aria-controls]') || [],
         ).some((trigger) => {
           const menu = document.getElementById(trigger.getAttribute('aria-controls') || '');
-          return menu?.matches('.oc-menu[role="listbox"]');
+          return menu?.matches('.mx-menu[role="listbox"]');
         });
         if (openPortaledMenu) return;
         event.preventDefault();

@@ -17,6 +17,7 @@ async function createExitWorkerFixture() {
   `)
   const source = await readFile(providerUrl, 'utf8')
   const instrumented = source
+    .replace("'./memory-log.mjs'", JSON.stringify(new URL('../src/runtime/memory/lib/memory-log.mjs', import.meta.url).href))
     .replace("'./model-profile.mjs'", JSON.stringify(new URL('../src/runtime/memory/lib/model-profile.mjs', import.meta.url).href))
     .replace("'./embedding-model-config.mjs'", JSON.stringify(new URL('../src/runtime/memory/lib/embedding-model-config.mjs', import.meta.url).href))
     .replace(/^const WORKER_PATH = .*$/m, `const WORKER_PATH = ${JSON.stringify(workerPath)}`)

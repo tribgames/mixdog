@@ -1,6 +1,6 @@
 import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, Code2, Command, FileDiff, Folder, GitCompare, Layers3, LoaderCircle, Mic, PanelLeft, PanelRight, Plus, RotateCcw, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import { type RecordValue, type Project, type TranscriptItem, type Approval, type Toast, type Snapshot, EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "./desktop-types";
 import { asRecord, displayProject, navigationKey, newDraftSelection, textOf, publicThinkingSummary, oneLine, queueText, formatElapsed, formatIdleDuration, TURN_LOCKED_SLASH_COMMANDS, copyTextToClipboard } from "./text-format";
 import { approvalInstanceKey, draftAfterSubmission, followAfterScroll, isApprovalDismissKey, isScrollIntentKey, mergeTranscript, normalizeApplyPatch, parseUnifiedDiff, reconcileTurnFailures, shouldNavigatePromptHistory, toolInputRows, transcriptTurnKeys } from "./renderer-logic.mjs";
@@ -31,13 +31,13 @@ export function readDockState(): { open: boolean; tab: UtilityDockTab; width: nu
 // Changes: session-wide file edits (every tool patch), expandable per file.
 // Context: the live context surface (same body as the modal), polled while
 // the tab is visible.
-export interface SessionFileChange {
+interface SessionFileChange {
   name: string;
   additions: number;
   deletions: number;
   patches: string[];
 }
-export interface DockAgentRow {
+interface DockAgentRow {
   key: string;
   name: string;
   status: string;
@@ -50,8 +50,8 @@ export interface DockAgentRow {
 // Reused-session workers can surface without a startedAt (round-2 spawns);
 // anchor their elapsed timer to first sight so the dock shows a ticking
 // duration instead of the literal word "running".
-export const agentRowFirstSeen = new Map<string, number>();
-export function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
+const agentRowFirstSeen = new Map<string, number>();
+function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
   const workers = Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [];
   const jobs = Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [];
   // The dock lists CURRENT spawns only (user decision): terminal runs drop
@@ -102,7 +102,7 @@ export function dockAgentRows(snapshot: Snapshot): DockAgentRow[] {
   }
   return result.sort((left, right) => left.startedAt - right.startedAt);
 }
-export function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
+function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
   const files = new Map<string, SessionFileChange>();
   for (const item of items) {
     if (item?.kind !== "tool") continue;

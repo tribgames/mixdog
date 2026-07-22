@@ -240,7 +240,7 @@ const SHELL_JOB_WATCH_GRACE_MS = 5000;
 // and fire immediately. The resolved timeout is already clamped at parse time
 // (bash-tool.mjs TIMER_MAX_MS), but sites that add grace to it can still exceed
 // the ceiling, so clamp the summed delay here too.
-const TIMER_MAX_MS = 2_147_483_647;
+export const TIMER_MAX_MS = 2_147_483_647;
 // Registry of armed background-job watchers keyed by jobId. task wait
 // and `kill` actions already hold the completed outcome, so they cancel the
 // armed watcher here to prevent a double-notify when its next poll fires.

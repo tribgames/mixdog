@@ -4,7 +4,7 @@ import type { TranscriptItem } from "./desktop-types";
 // items carry byte-free metadata only (snapshot hygiene); the composer
 // registers the data URL at submit time so the current window can render real
 // thumbnails. After a restart the chip falls back to an icon + filename.
-export const MAX_IMAGE_PREVIEW_CACHE = 24;
+const MAX_IMAGE_PREVIEW_CACHE = 24;
 export const imagePreviewCache = new Map<string, string>();
 export function imagePreviewKey(id: number | null | undefined, bytes: number | undefined): string {
   return `${id ?? 'x'}:${bytes ?? 0}`;
@@ -37,12 +37,12 @@ export function lastVisibleTranscriptItemIndex(
   return index;
 }
 
-export const transcriptRowHeightEstimateCache = new WeakMap<object, number>();
-export const transcriptStableRowHeightEstimateCache = new Map<string, { signature: string; estimate: number }>();
-export const TRANSCRIPT_HEIGHT_SAMPLE_CHARS = 768;
-export const TRANSCRIPT_STABLE_HEIGHT_CACHE_LIMIT = 4_096;
+const transcriptRowHeightEstimateCache = new WeakMap<object, number>();
+const transcriptStableRowHeightEstimateCache = new Map<string, { signature: string; estimate: number }>();
+const TRANSCRIPT_HEIGHT_SAMPLE_CHARS = 768;
+const TRANSCRIPT_STABLE_HEIGHT_CACHE_LIMIT = 4_096;
 
-export function estimatedWrappedTextRows(text: string, columns = 70): number {
+function estimatedWrappedTextRows(text: string, columns = 70): number {
   if (!text) return 1;
   const sampledRows = (value: string): number => {
     let rows = 1;
@@ -74,7 +74,7 @@ export function estimatedWrappedTextRows(text: string, columns = 70): number {
   return Math.max(1, Math.round(sampledIncrements * (text.length / sampledLength)) + 1);
 }
 
-export function stableTranscriptHeightKey(item: TranscriptItem): { key: string; signature: string } | null {
+function stableTranscriptHeightKey(item: TranscriptItem): { key: string; signature: string } | null {
   if (item.id === undefined || item.id === null) return null;
   const text = String(item.text || "");
   return {
@@ -90,7 +90,7 @@ export function stableTranscriptHeightKey(item: TranscriptItem): { key: string; 
   };
 }
 
-export function rememberStableTranscriptHeight(key: string, signature: string, estimate: number): void {
+function rememberStableTranscriptHeight(key: string, signature: string, estimate: number): void {
   transcriptStableRowHeightEstimateCache.delete(key);
   transcriptStableRowHeightEstimateCache.set(key, { signature, estimate });
   while (transcriptStableRowHeightEstimateCache.size > TRANSCRIPT_STABLE_HEIGHT_CACHE_LIMIT) {
@@ -100,7 +100,7 @@ export function rememberStableTranscriptHeight(key: string, signature: string, e
   }
 }
 
-export function cachedStableTranscriptHeight(item: TranscriptItem): number | undefined {
+function cachedStableTranscriptHeight(item: TranscriptItem): number | undefined {
   const stable = stableTranscriptHeightKey(item);
   if (!stable) return undefined;
   const cached = transcriptStableRowHeightEstimateCache.get(stable.key);
@@ -110,7 +110,7 @@ export function cachedStableTranscriptHeight(item: TranscriptItem): number | und
   return cached.estimate;
 }
 
-export function cacheStableTranscriptHeight(item: TranscriptItem, estimate: number): void {
+function cacheStableTranscriptHeight(item: TranscriptItem, estimate: number): void {
   const stable = stableTranscriptHeightKey(item);
   if (stable) rememberStableTranscriptHeight(stable.key, stable.signature, estimate);
 }

@@ -28,7 +28,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { OcIcon } from "./OcIcon";
+import { MxIcon } from "./MxIcon";
 import type {
   DesktopProjectSummary,
   DesktopSessionSummary,
@@ -39,7 +39,7 @@ import { sessionSummaryTitle } from "../shared/session-title.mjs";
 import type { NavigationSelection, WorkspaceTab } from "./nav-types";
 import { avatarVariantFor, avatarInitials, sessionLabel, projectIdentity } from "./session-sidebar";
 
-export interface ProjectSwitcherProps {
+interface ProjectSwitcherProps {
   open: boolean;
   projects: DesktopProjectSummary[];
   selectedProjectPath: string;
@@ -254,7 +254,7 @@ export function ProjectSwitcher({
   );
 }
 
-export function cycleMenuFocus(event: KeyboardEvent<HTMLDivElement>) {
+function cycleMenuFocus(event: KeyboardEvent<HTMLDivElement>) {
   const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
   if (items.length === 0) return;
   const index = items.indexOf(document.activeElement as HTMLButtonElement);
