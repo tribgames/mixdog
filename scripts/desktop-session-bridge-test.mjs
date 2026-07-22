@@ -707,7 +707,7 @@ test('runtime resume returns the persisted transcript and restores desktop task 
     applyResolvedCwd: (value) => { cwd = value; },
     resolveRoute: (_config, value) => value,
     applyDeferredToolSurface: () => {},
-    standaloneTools: [],
+    getStandaloneTools: () => [],
     pushTranscriptRebind: () => { transcriptRebinds += 1; },
   });
 
@@ -716,6 +716,25 @@ test('runtime resume returns the persisted transcript and restores desktop task 
   assert.equal(resumed.cwd, '/app/workspace');
   assert.equal(current.cwd, '/app/workspace');
   assert.equal(transcriptRebinds, 1);
+});
+
+test('runtime session prefetch warms the manager without changing the active session', () => {
+  const calls = [];
+  const current = { id: 'active', messages: [] };
+  const runtime = createLifecycleApi({
+    getSession: () => current,
+    getMode: () => 'full',
+    mgr: {
+      prefetchSession: (...args) => {
+        calls.push(args);
+        return true;
+      },
+    },
+  });
+
+  assert.equal(runtime.prefetchSession('next'), true);
+  assert.deepEqual(calls, [['next', 'full']]);
+  assert.equal(current.id, 'active');
 });
 
 test('desktop context switches retain runtime resources while durably closing the old session', async () => {
@@ -846,7 +865,7 @@ test('cleared desktop context resumes legacy rows without reviving the creation 
     applyResolvedCwd: async (value) => { cwd = value; },
     resolveRoute: (_config, value) => value,
     applyDeferredToolSurface: () => {},
-    standaloneTools: [],
+    getStandaloneTools: () => [],
   });
 
   await runtime.switchContext({ cwd: '/legacy', desktopSession: null });

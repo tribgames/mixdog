@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs';
 import * as fsp from 'fs/promises';
 import { join } from 'path';
 import { getPluginData } from '../../config.mjs';
@@ -49,6 +49,26 @@ export function publishHeartbeat(id, ts) {
 export function deleteHeartbeat(id) {
     try { unlinkSync(_heartbeatPath(id)); } catch { /* ignore */ }
     _hbLastAt.delete(id);
+}
+
+// Batch reader for session catalogs. Scanning only the handful of `.hb`
+// sidecars avoids one failed stat per historical session while still exposing
+// cross-process turn activity to desktop/TUI resume lists.
+export function listSessionHeartbeatMtimes() {
+    const result = new Map();
+    try {
+        const dir = getStoreDir();
+        for (const filename of readdirSync(dir)) {
+            if (!filename.endsWith('.hb')) continue;
+            const id = filename.slice(0, -3);
+            if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
+            try {
+                const mtime = statSync(join(dir, filename)).mtimeMs || 0;
+                if (mtime > 0) result.set(id, mtime);
+            } catch { /* sidecar disappeared after readdir */ }
+        }
+    } catch { /* catalog activity is best-effort */ }
+    return result;
 }
 
 // ── Interactive presence publish ──────────────────────────

@@ -492,6 +492,57 @@ export function updateSessionRoute(id, route = {}) {
 // ONE transcript, every surface talking into the same conversation. Idle
 // sessions keep the normal single-identity handoff.
 const ACTIVE_OWNER_HB_FRESH_MS = 2 * 60 * 1000; // heartbeat freshness window
+const PREPARED_RESUME_LIMIT = 8;
+const _preparedResumes = new Map();
+
+function _prepareResumeTools(session, preset) {
+    const ownerIsAgent = isAgentOwner(session);
+    const skills = ownerIsAgent ? [] : collectPromptSkillsCached(session.cwd);
+    let toolSpec = ownerIsAgent ? 'full' : (preset || session.preset || 'full');
+    const agentRuntime = getAgentRuntimeSync();
+    if (session.profileId && agentRuntime?.getProfile) {
+        try {
+            const profile = agentRuntime.getProfile(session.profileId);
+            if (!ownerIsAgent && Array.isArray(profile?.tools)) toolSpec = profile.tools;
+        } catch { /* ignore lookup failures, keep preset fallback */ }
+    }
+    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
+    if (ownerIsAgent) {
+        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.agent || null);
+    }
+    return {
+        session,
+        preset,
+        toolSpec,
+        ownerIsAgent,
+        tools: finalizeSessionToolList(toolsForRouting, {
+            schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
+            disallowedTools: getHiddenAgent(session.agent || null) ? ['Skill'] : null,
+            ownerIsAgent,
+            resolvedAgent: session.agent || null,
+        }),
+    };
+}
+
+function _rememberPreparedResume(sessionId, prepared) {
+    _preparedResumes.delete(sessionId);
+    _preparedResumes.set(sessionId, prepared);
+    while (_preparedResumes.size > PREPARED_RESUME_LIMIT) {
+        const oldest = _preparedResumes.keys().next().value;
+        if (oldest === undefined) break;
+        _preparedResumes.delete(oldest);
+    }
+}
+
+// Desktop session-row hover/idle prefetch. loadSession validates the atomic
+// file signature before reusing its parsed object, so a later external write
+// naturally misses this preparation and rebuilds from the new session object.
+export function prefetchSession(sessionId, preset = 'full') {
+    const session = loadSession(sessionId);
+    if (!session || session.closed === true) return false;
+    _rememberPreparedResume(sessionId, _prepareResumeTools(session, preset));
+    return true;
+}
 
 function _isActivelyOwnedElsewhere(session, sessionId) {
     // This process already owns the runtime for the id — switching back to
@@ -571,28 +622,14 @@ export async function resumeSession(sessionId, preset, options = {}) {
         return attached;
     }
     const oldTools = session.tools || [];
-    const ownerIsAgent = isAgentOwner(session);
-    const skills = ownerIsAgent ? [] : collectPromptSkillsCached(session.cwd);
-    let toolSpec = ownerIsAgent ? 'full' : (preset || session.preset || 'full');
-    const agentRuntime = getAgentRuntimeSync();
-    if (session.profileId && agentRuntime?.getProfile) {
-        try {
-            const profile = agentRuntime.getProfile(session.profileId);
-            if (!ownerIsAgent && Array.isArray(profile?.tools)) toolSpec = profile.tools;
-        } catch { /* ignore lookup failures, keep preset fallback */ }
-    }
-    let toolsForRouting = resolveSessionTools(toolSpec, skills, { ownerIsAgentSession: ownerIsAgent });
-    if (ownerIsAgent) {
-        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.agent || null);
-    }
+    const cached = _preparedResumes.get(sessionId);
+    _preparedResumes.delete(sessionId);
+    const prepared = cached?.session === session && cached?.preset === preset
+        ? cached
+        : _prepareResumeTools(session, preset);
     // Keep the persisted tool mode in sync on resume (see createSession note).
-    session.toolSpec = toolSpec;
-    session.tools = finalizeSessionToolList(toolsForRouting, {
-        schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
-        disallowedTools: getHiddenAgent(session.agent || null) ? ['Skill'] : null,
-        ownerIsAgent,
-        resolvedAgent: session.agent || null,
-    });
+    session.toolSpec = prepared.toolSpec;
+    session.tools = prepared.tools;
     const newTools = session.tools;
     const missing = oldTools.filter(t => !newTools.find(n => n.name === t.name));
     if (missing.length) {

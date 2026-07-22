@@ -17,6 +17,7 @@ import type {
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,
   DesktopCapabilityResult,
+  EngineSnapshot,
   DesktopModelOption,
   DesktopSessionSummary,
 } from '../shared/contract';
@@ -842,9 +843,46 @@ const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
 
 class CaptureEngineHost extends EngineHost {
   private captureTheme = 'basic';
+  private jitterStoredSnapshot: EngineSnapshot = null;
+  private jitterLiveSnapshot: EngineSnapshot = null;
+
+  prepareJitterRemoteResume(stored: EngineSnapshot, live: EngineSnapshot): void {
+    this.jitterStoredSnapshot = stored;
+    this.jitterLiveSnapshot = live;
+  }
 
   override async listSessions(): Promise<DesktopSessionSummary[]> {
+    if (process.env.MIXDOG_JITTER_PROBE === '1') {
+      return [{
+        id: 'probe_session_b',
+        preview: 'Remote streaming probe',
+        title: 'Remote streaming probe',
+        updatedAt: Date.now(),
+        messageCount: 90,
+        cwd: process.cwd(),
+        classification: 'task',
+        projectPath: null,
+        currentSession: false,
+        working: true,
+      }];
+    }
     return [];
+  }
+
+  override async resumeSession(sessionId: string): Promise<EngineSnapshot> {
+    if (process.env.MIXDOG_JITTER_PROBE !== '1' || sessionId !== 'probe_session_b') {
+      return super.resumeSession(sessionId);
+    }
+    const stored = this.jitterStoredSnapshot as Record<string, unknown> | null;
+    const live = this.jitterLiveSnapshot as Record<string, unknown> | null;
+    if (!stored || !live || stored.sessionId !== sessionId || live.sessionId !== sessionId) {
+      throw new Error('Jitter probe remote resume snapshots are not prepared.');
+    }
+    // Model EngineHost's real held-publication boundary: the persisted restore
+    // exists first, but resume resolves only after live-share supplies FULL.
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 180));
+    this.publish(this.jitterLiveSnapshot);
+    return this.jitterLiveSnapshot;
   }
 
   // Keep model-route rows fully populated without starting the isolated
@@ -1089,6 +1127,22 @@ async function captureWindow(): Promise<void> {
     // late capture passes (tool showcase) read the compositor's latest frame
     // and a paint-suspended window serves stale pre-mutation pixels.
     window.webContents.setBackgroundThrottling(false);
+    // Scroll-jitter probe mode: reproduce "enter a still-streaming long
+    // session" and measure follow stability, then exit — no capture passes.
+    if (process.env.MIXDOG_JITTER_PROBE === '1') {
+      const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
+      await runJitterProbe({
+        window,
+        stateChannel: DESKTOP_IPC.state,
+        baseSnapshot: host.getSnapshot() as unknown as Record<string, unknown>,
+        prepareRemoteResume: (stored, live) => host.prepareJitterRemoteResume(stored, live),
+        outPath: jitterProbeOutPath(resolve(__dirname, '../..')),
+      });
+      removeIpc();
+      window.destroy();
+      app.exit(0);
+      return;
+    }
     // Startup-geometry stability: sample the chrome rects right after show and
     // again after the settle window. Any delta is the "tab pops once at
     // launch" class of first-paint jolt (env(titlebar-area) resolution, font

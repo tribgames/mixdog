@@ -183,11 +183,23 @@ const bootstrap = harnessInstalled
     await sleep(25);
   };
   const submitSlash = async (command) => {
-    await setDraft(command);
-    const button = await waitFor(() => {
-      const candidate = queryVisible('button.send-button:not(.stop)');
-      return candidate && !candidate.disabled ? candidate : null;
-    }, 'enabled command submit button for ' + command);
+    await waitFor(async () => {
+      const snapshot = await window.mixdogDesktop.getSnapshot();
+      return snapshot?.commandBusy !== true ? snapshot : null;
+    }, 'command idle before ' + command, 45000);
+    let button = null;
+    for (let attempt = 0; attempt < 2 && !button; attempt += 1) {
+      await setDraft(command);
+      try {
+        button = await waitFor(() => {
+          const candidate = queryVisible('button.send-button:not(.stop)');
+          return candidate && !candidate.disabled ? candidate : null;
+        }, 'enabled command submit button for ' + command, attempt === 0 ? 5_000 : 30_000);
+      } catch (error) {
+        if (attempt === 1) throw error;
+        await clearDraft();
+      }
+    }
     const form = button.closest('form');
     if (!(form instanceof HTMLFormElement)) throw new Error('Composer form is unavailable.');
     form.requestSubmit(button);
@@ -288,6 +300,21 @@ const bootstrap = harnessInstalled
     return result;
   };
   const commandSurface = async (name, expectedTitle) => {
+    if (name === 'schedules') {
+      const pane = await submitAndWait('/schedules', () => queryVisible('.schedules-pane'),
+        'schedules main pane');
+      await waitFor(() => pane.querySelector('.schedules-empty, .schedules-list'),
+        'schedules main pane load', 45000);
+      const title = text(pane.querySelector('.schedules-page-header h1'));
+      if (title !== expectedTitle) {
+        throw new Error('/schedules opened ' + title + ' instead of ' + expectedTitle + '.');
+      }
+      const taskLink = queryVisible('.task-link');
+      if (!taskLink) throw new Error('New task navigation is unavailable after /schedules.');
+      taskLink.click();
+      await waitFor(() => !queryVisible('.schedules-pane'), 'schedules main pane close');
+      return { name, title, bodyLength: text(pane).length };
+    }
     const dialog = await submitAndWait('/' + name, () => queryVisible(
       '[role="dialog"][aria-labelledby="command-surface-title"]'
     ), 'command surface /' + name);
@@ -591,7 +618,7 @@ try {
   const surfaceTitles = {
     agents: 'Agents',
     memory: 'Memory',
-    schedules: 'Schedules',
+    schedules: 'Scheduled tasks',
     webhooks: 'Webhooks',
     channels: 'Channels',
     context: 'Context',
@@ -601,10 +628,14 @@ try {
   };
   const commandSurfaces = [];
   for (const command of desktopSlashCommands.filter((entry) => entry.surface)) {
-    commandSurfaces.push(await client.evaluate(
-      `window.__mixdogE2e.commandSurface(${JSON.stringify(command.name)}, ${JSON.stringify(surfaceTitles[command.surface])})`,
-      90_000,
-    ));
+    try {
+      commandSurfaces.push(await client.evaluate(
+        `window.__mixdogE2e.commandSurface(${JSON.stringify(command.name)}, ${JSON.stringify(surfaceTitles[command.surface])})`,
+        90_000,
+      ));
+    } catch (reason) {
+      throw new Error(`/${command.name} command surface acceptance failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+    }
   }
 
   const settingsAudit = await client.evaluate(

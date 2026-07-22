@@ -18,7 +18,10 @@ test('packaged preload path matches electron-vite output', async () => {
 
 test('Windows installer is one-click, per-user, and registers Mixdog deep links', async () => {
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
+  const installer = await readFile(new URL('../../build/installer.nsh', import.meta.url), 'utf8');
+  const progressDriver = await readFile(new URL('../../build/progress-driver.ps1', import.meta.url), 'utf8');
   const iconGenerator = await readFile(new URL('../../scripts/generate-brand-icons.mjs', import.meta.url), 'utf8');
+  const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   assert.match(builder, /protocols:\s+name:\s*Mixdog\s+schemes:\s+-\s*mixdog/);
   assert.match(builder, /oneClick:\s*true/);
   assert.match(builder, /perMachine:\s*false/);
@@ -32,10 +35,29 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
     /(?:allowToChangeInstallationDirectory|runAfterFinish|shortcutName|uninstallDisplayName|createStartMenuShortcut|uninstallerIcon|include):/,
   );
   assert.match(builder, /win:[\s\S]*icon:\s*build\/mixdog\.ico/);
+  assert.match(builder, /extraResources:[\s\S]*from:\s*build\/mixdog\.ico\s+to:\s*mixdog\.ico/);
   assert.match(builder, /installerIcon:\s*build\/mixdog\.ico/);
   assert.match(builder, /installerHeaderIcon:\s*build\/mixdog\.ico/);
+  assert.match(main, /app\.isPackaged \? \[join\(process\.resourcesPath,\s*'mixdog\.ico'\)\]/);
+  assert.doesNotMatch(builder, /script:/);
   assert.match(iconGenerator, /writeFile\(`\$\{buildDir\}\/mixdog\.ico`/);
   assert.doesNotMatch(iconGenerator, /mixdog\.png/);
+  assert.match(installer, /CreateWindowExW[\s\S]*msctls_progress32/);
+  assert.match(installer, /progress-driver\.ps1[\s\S]*-ProgressHwnd \$MixdogProgressBar/);
+  assert.match(installer, /Function MixdogInstFilesPre[\s\S]*SetLayeredWindowAttributes[\s\S]*ShowWindow \$HWNDPARENT 0/);
+  assert.match(installer, /!macro customInstall\s+Call MixdogProgressComplete/);
+  assert.match(installer, /GetDlgItem \$MixdogProgressStock \$0 1004/);
+  assert.match(installer, /SetWindowPos[\s\S]*-32000[\s\S]*-32000/);
+  assert.doesNotMatch(installer, /progress-overlay|System\.Windows\.Forms|MixdogInstallerProgressOverlay/);
+  assert.match(progressDriver, /FindProgress\(\$installer,\s*1001\)/);
+  assert.match(progressDriver, /GetWindowRect\(\$source/);
+  assert.match(progressDriver, /SetLayeredWindowAttributes\(\$installer,\s*0,\s*255,\s*2\)/);
+  assert.match(progressDriver, /GetProp\(\$progress,\s*'MixdogProgressComplete'\)/);
+  assert.doesNotMatch(progressDriver, /System\.Windows\.Forms|CreateWindowEx|SetParent/);
+  await assert.rejects(
+    access(new URL('../../build/progress-overlay.ps1', import.meta.url)),
+    (error) => error?.code === 'ENOENT',
+  );
   const icon = await readFile(new URL('../../build/mixdog.ico', import.meta.url));
   assert.deepEqual([...icon.subarray(0, 4)], [0, 0, 1, 0]);
 });
@@ -79,7 +101,7 @@ test('production entry has no capture side effects and capture harness is exclud
     'renderer validation must follow the desktopCapturer capture.',
   );
   const validationBoundaryStart = capture.indexOf('function validateAndDestroyRenderer');
-  const validationBoundaryEnd = capture.indexOf('function imageReader');
+  const validationBoundaryEnd = capture.indexOf('const CAPTURE_SETTINGS_VALUES');
   const validationBoundary = capture.slice(validationBoundaryStart, validationBoundaryEnd);
   const validationCall = capture.indexOf('const rendererValidation = validateAndDestroyRenderer');
   const pixelWork = capture.indexOf('const pixel = imageReader', validationCall);

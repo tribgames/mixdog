@@ -506,8 +506,20 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.deleteSession, (_event, sessionId) =>
     host.deleteSession(requiredSessionId(sessionId)));
-  handle(DESKTOP_IPC.resumeSession, (_event, sessionId) =>
-    host.resumeSession(requiredSessionId(sessionId)));
+  handle(DESKTOP_IPC.prefetchSession, (_event, sessionId) =>
+    host.prefetchSession(requiredSessionId(sessionId)));
+  handle(DESKTOP_IPC.resumeSession, async (_event, sessionId) => {
+    const snapshot = await host.resumeSession(requiredSessionId(sessionId));
+    if (!snapshot) return null;
+    // The complete snapshot already travels over mixdog:state. Returning the
+    // same 512-row transcript from invoke() makes Electron structured-clone it
+    // a second time; the renderer only needs this correlated acknowledgement.
+    return {
+      sessionId: snapshot.sessionId,
+      sessionForkedFrom: snapshot.sessionForkedFrom,
+      desktopSessionTitle: snapshot.desktopSessionTitle,
+    };
+  });
   handle(DESKTOP_IPC.searchProjectFiles, (_event, projectIdOrWorkspaceId, query, limit) => {
     if (typeof query !== 'string' || query.length > 1_024) {
       throw new TypeError('query is invalid.');

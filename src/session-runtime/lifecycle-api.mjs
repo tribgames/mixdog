@@ -11,7 +11,10 @@ import {
 } from './session-text.mjs';
 import { toolSpecForMode, deferredSurfaceModeForLead } from './effort.mjs';
 import { unregisterLiveSession } from '../runtime/shared/staged-update.mjs';
-import { getStoreDir } from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
+import {
+  getStoreDir,
+  listSessionHeartbeatMtimes,
+} from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
 
 export function resolveResumeCwd(session, currentCwd) {
   const desktop = session?.desktopSession;
@@ -49,9 +52,11 @@ export function createLifecycleApi(deps) {
     pushTranscriptRebind,
     notificationListeners, remoteStateListeners, desktopSession,
   } = deps;
-  const listLeadSessions = (options = {}) => mgr.listSessions({
-    refreshFromStorage: options?.refreshFromStorage === true,
-  }).map(s => {
+  const listLeadSessions = (options = {}) => {
+    const heartbeatMtimes = listSessionHeartbeatMtimes();
+    return mgr.listSessions({
+      refreshFromStorage: options?.refreshFromStorage === true,
+    }).map(s => {
     const owner = clean(s.owner || 'user').toLowerCase();
     if (owner && !['cli', 'user', 'mixdog', 'legacy'].includes(owner)) return null;
     const sourceType = clean(s.sourceType || '').toLowerCase();
@@ -89,9 +94,14 @@ export function createLifecycleApi(deps) {
       provider: s.provider,
       messageCount,
       preview,
+      heartbeatAt: Math.max(
+        Number(s.lastHeartbeatAt) || 0,
+        Number(heartbeatMtimes.get(s.id)) || 0,
+      ),
       desktopSession: s.desktopSession || null,
     };
-  }).filter(Boolean);
+    }).filter(Boolean);
+  };
   // Persist a closing session's conversation into the memory DB. Sessions
   // that never compacted had NO session-sourced rows (ingest_session
   // previously ran only inside compaction), so recall could not reconstruct
@@ -362,6 +372,9 @@ export function createLifecycleApi(deps) {
       // outbound forwarding repoints immediately (best-effort, remote-gated).
       pushTranscriptRebind?.();
       return getSession().id;
+    },
+    prefetchSession(id) {
+      return mgr.prefetchSession?.(id, toolSpecForMode(getMode())) === true;
     },
     async resume(id) {
       const prev = getSession();

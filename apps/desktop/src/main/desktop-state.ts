@@ -5,6 +5,8 @@ import type {
 } from '../shared/contract';
 import { generatedSessionTitle, normalizeSessionTitle } from '../shared/session-title.mjs';
 
+export const SESSION_WORKING_HEARTBEAT_MS = 2 * 60 * 1000;
+
 function normalizedPath(value: string): string {
   return value.replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase();
 }
@@ -33,6 +35,7 @@ export function desktopSessionSummaries(
   currentId: string,
   titles: Readonly<Record<string, string>> = {},
   names: Readonly<Record<string, string>> = {},
+  now = Date.now(),
 ): DesktopSessionSummary[] {
   return rows.flatMap((row): DesktopSessionSummary[] => {
     const rawMeta = row.desktopSession;
@@ -56,6 +59,8 @@ export function desktopSessionSummaries(
     const id = String(row.id || '');
     const manualTitle = normalizeSessionTitle(names[id] || '', '');
     const storedTitle = generatedSessionTitle(titles[id] || '', '');
+    const heartbeatAt = Number(row.heartbeatAt) || 0;
+    const working = heartbeatAt > 0 && now - heartbeatAt <= SESSION_WORKING_HEARTBEAT_MS;
     // A session with no conversation preview, no manual name, and no stored
     // title is an abandoned blank ("Untitled") — opened once and never used.
     // Hide it from the sidebar instead of stacking empty rows; the active
@@ -71,6 +76,7 @@ export function desktopSessionSummaries(
       classification,
       projectPath: classification === 'project' ? projectPath : null,
       currentSession: String(row.id || '') === currentId,
+      ...(working ? { working: true } : {}),
     }];
   }).filter((row) => /^[A-Za-z0-9_-]+$/.test(row.id));
 }

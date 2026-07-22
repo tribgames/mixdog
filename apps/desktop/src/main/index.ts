@@ -185,15 +185,23 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
   deferredServicesScheduled = true;
   let fallback: NodeJS.Timeout | null = null;
   const start = () => {
-    window.webContents.removeListener('before-input-event', start);
+    // The 4s fallback can outlive the window: a quick quit (or the installer
+    // force-closing a freshly launched app) destroys webContents first, and
+    // touching it then crashes the main process ("Object has been destroyed").
     if (fallback) clearTimeout(fallback);
     fallback = null;
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.removeListener('before-input-event', start);
     const timer = setTimeout(() => { void startDeferredDesktopServices(); }, 250);
     timer.unref();
   };
   window.webContents.once('before-input-event', start);
   fallback = setTimeout(start, 4_000);
   fallback.unref();
+  window.once('closed', () => {
+    if (fallback) clearTimeout(fallback);
+    fallback = null;
+  });
 }
 
 function disposeDesktopResources(): Promise<void> {
@@ -246,15 +254,13 @@ function configuredDevelopmentUrl(candidate: string): URL {
 async function createWindow(): Promise<void> {
   const developmentUrl = process.env.ELECTRON_RENDERER_URL;
   const packagedRendererPath = join(__dirname, '../renderer/index.html');
-  // Packaged builds inherit the executable's embedded icon, but the dev and
-  // preview shells run node_modules/electron/dist/electron.exe, so every
-  // runtime surface (taskbar, Alt-Tab, window) showed the stock Electron icon
-  // instead of the Mixdog brand mark. Point the window at the build icon.
-  const brandIconPath = app.isPackaged
-    ? null
-    : ['mixdog.ico', 'mixdog.png']
-      .map((name) => join(app.getAppPath(), 'build', name))
-      .find((candidate) => existsSync(candidate)) ?? null;
+  // Use an explicit runtime icon even in packaged builds. Relying only on the
+  // executable's embedded resource leaves the live taskbar button at the mercy
+  // of Explorer's stale icon cache after an in-place installer upgrade.
+  const brandIconPath = [
+    ...(app.isPackaged ? [join(process.resourcesPath, 'mixdog.ico')] : []),
+    ...['mixdog.ico', 'mixdog.png'].map((name) => join(app.getAppPath(), 'build', name)),
+  ].find((candidate) => existsSync(candidate)) ?? null;
   const rendererUrl = developmentUrl
     ? configuredDevelopmentUrl(developmentUrl)
     : new URL(pathToFileURL(packagedRendererPath).href);

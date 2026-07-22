@@ -10,9 +10,11 @@ export type TurnFailureModel = {
   scope: string;
   failedTurnKeys: string[];
   activeToastTurns: Record<string, string>;
+  turnKeys: string[];
   scopes?: Record<string, {
     failedTurnKeys: string[];
     activeToastTurns: Record<string, string>;
+    turnKeys: string[];
   }>;
 };
 

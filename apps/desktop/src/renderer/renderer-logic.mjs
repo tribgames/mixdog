@@ -70,6 +70,7 @@ export function reconcileTurnFailures(_previous, items, _toasts, scope = '') {
   const current = {
     failedTurnKeys: failed,
     activeToastTurns: {},
+    turnKeys,
   };
   return {
     scope,

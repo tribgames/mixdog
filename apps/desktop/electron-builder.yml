@@ -23,6 +23,10 @@ files:
   - '!out/main/capture-window.js'
   - '!**/*.map'
 extraResources:
+  # BrowserWindow uses the same explicit icon as the executable/shortcut so
+  # Windows taskbar rendering never depends on Explorer's embedded-icon cache.
+  - from: build/mixdog.ico
+    to: mixdog.ico
   # Electron resolves modules directly from this archive. NSIS therefore
   # installs one runtime file instead of expanding thousands of dependencies.
   - from: .runtime/runtime.asar

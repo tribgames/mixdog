@@ -49,7 +49,8 @@ interface MixdogEngine {
     desktopSession: { classification: 'task' | 'project'; projectPath: string | null } | null;
   }): Promise<boolean>;
   newSession(): Promise<boolean>;
-  resume(id: string): Promise<boolean>;
+  prefetchSession?(id: string): boolean | Promise<boolean>;
+  resume(id: string, options?: { transcriptItemLimit?: number }): Promise<boolean>;
   dispose(reason?: string): Promise<void>;
   [key: string]: unknown;
 }
@@ -147,6 +148,7 @@ const DESKTOP_PERF_ENABLED = process.env.MIXDOG_DESKTOP_PERF === '1';
 // session click. Boot the task engine shortly after the list is on screen so
 // that first click only pays session resume.
 const ENGINE_PREWARM_DELAY_MS = 300;
+export const DESKTOP_TRANSCRIPT_ITEM_LIMIT = 512;
 // shellJobsStatus itself is cache-only and refreshes its disk-backed cache
 // asynchronously. Polling at the cache's 1s cadence keeps disk work out of the
 // engine's 50ms publication path.
@@ -575,9 +577,11 @@ export class EngineHost {
     this.stopSessionsWatcher();
     try {
       const watcher = watch(dir, { persistent: false }, (_event, filename) => {
-        // Heartbeat sidecars (.hb) churn constantly during turns — only the
-        // session JSONs themselves signal catalog-visible changes.
-        if (filename && !String(filename).endsWith('.json')) return;
+        // Session JSON changes update titles/counts; heartbeat create/touch/
+        // delete changes cross-process working state. Both are catalog-visible
+        // and the existing debounce absorbs duplicate fs events.
+        const changed = String(filename || '');
+        if (changed && !changed.endsWith('.json') && !changed.endsWith('.hb')) return;
         this.scheduleSessionsChanged();
       });
       watcher.on('error', () => this.stopSessionsWatcher());
@@ -1236,7 +1240,9 @@ export class EngineHost {
             return engine;
           })();
         const resumeStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
-        if (await nextEngine.resume(sessionId) !== true) {
+        if (await nextEngine.resume(sessionId, {
+          transcriptItemLimit: DESKTOP_TRANSCRIPT_ITEM_LIMIT,
+        }) !== true) {
           if (!sameManagedContext) await this.disposeCurrent('desktop-session-resume-failed');
           throw new Error('Session could not be resumed.');
         }
@@ -1264,6 +1270,26 @@ export class EngineHost {
       this.perfLog(`resume-session id=${sessionId} total=${(performance.now() - totalStarted).toFixed(0)}ms${stageNote}`);
     }
     return result;
+  }
+
+  async prefetchSession(sessionId: string): Promise<boolean> {
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new TypeError('session id is invalid.');
+    let prefetched = false;
+    const started = DESKTOP_PERF_ENABLED ? performance.now() : 0;
+    await this.exclusive(async () => {
+      if (!this.engine) {
+        const workspace = await this.taskWorkspace();
+        await this.replaceEngine(workspace, {
+          classification: 'task',
+          projectPath: null,
+        }, 'desktop-session-prefetch');
+      }
+      prefetched = await Promise.resolve(this.engine?.prefetchSession?.(sessionId)) === true;
+    });
+    if (DESKTOP_PERF_ENABLED) {
+      this.perfLog(`prefetch-session id=${sessionId} ok=${prefetched} total=${(performance.now() - started).toFixed(0)}ms`);
+    }
+    return prefetched;
   }
 
   async submit(prompt: DesktopPromptContent, options: DesktopSubmitOptions = {}): Promise<boolean> {
@@ -1463,7 +1489,7 @@ export class EngineHost {
     this.pendingFastPreference = null;
   }
 
-  private publish(snapshot?: EngineSnapshot): void {
+  protected publish(snapshot?: EngineSnapshot): void {
     this.cancelScheduledPublication();
     if (this.publicationHoldDepth > 0) {
       this.publicationPending = true;

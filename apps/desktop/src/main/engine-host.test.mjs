@@ -4,6 +4,7 @@ import {
   desktopSessionSummaries,
   desktopSnapshot,
   requiredSessionId,
+  SESSION_WORKING_HEARTBEAT_MS,
 } from "./desktop-state.ts";
 import {
   EngineHost,
@@ -317,6 +318,27 @@ test("desktop session summaries hide abandoned blank sessions but keep the activ
   assert.deepEqual(summaries.map((row) => row.id), ["blank_active", "blank_named"]);
   assert.equal(summaries[0].currentSession, true);
   assert.equal(summaries[1].title, "Kept by name");
+});
+
+test("desktop session summaries expose only fresh cross-process heartbeat activity", () => {
+  const now = 1_000_000;
+  const rows = desktopSessionSummaries([
+    {
+      id: "fresh_heartbeat",
+      preview: "Fresh heartbeat",
+      heartbeatAt: now - 1_000,
+      cwd: "C:\\work",
+    },
+    {
+      id: "stale_heartbeat",
+      preview: "Stale heartbeat",
+      heartbeatAt: now - SESSION_WORKING_HEARTBEAT_MS - 1,
+      cwd: "C:\\work",
+    },
+  ], "", {}, {}, now);
+
+  assert.equal(rows.find((row) => row.id === "fresh_heartbeat")?.working, true);
+  assert.equal(rows.find((row) => row.id === "stale_heartbeat")?.working, undefined);
 });
 
 test("host refreshes session summaries from storage for sidebar listing", async () => {
@@ -1121,7 +1143,16 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     listSessions: async () => { calls.push(["listSessions"]); return []; },
     renameSession: async (id, title) => { calls.push(["renameSession", id, title]); },
     deleteSession: async (id) => { calls.push(["deleteSession", id]); return null; },
-    resumeSession: async (id) => { calls.push(["resumeSession", id]); return null; },
+    prefetchSession: async (id) => { calls.push(["prefetchSession", id]); return true; },
+    resumeSession: async (id) => {
+      calls.push(["resumeSession", id]);
+      return {
+        sessionId: id,
+        sessionForkedFrom: "source",
+        desktopSessionTitle: "Resumed",
+        items: [{ id: "large-row", text: "must not cross invoke twice" }],
+      };
+    },
     searchProjectFiles: async (id, query, limit) => {
       calls.push(["searchProjectFiles", id, query, limit]);
       return ["src/index.ts"];
@@ -1196,7 +1227,13 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   await invoke(DESKTOP_IPC.listSessions, validEvent);
   await invoke(DESKTOP_IPC.renameSession, validEvent, " rename_1 ", " New name ");
   await invoke(DESKTOP_IPC.deleteSession, validEvent, " delete_1 ");
-  await invoke(DESKTOP_IPC.resumeSession, validEvent, " resume_1 ");
+  await invoke(DESKTOP_IPC.prefetchSession, validEvent, " resume_1 ");
+  const resumeAck = await invoke(DESKTOP_IPC.resumeSession, validEvent, " resume_1 ");
+  assert.deepEqual(resumeAck, {
+    sessionId: "resume_1",
+    sessionForkedFrom: "source",
+    desktopSessionTitle: "Resumed",
+  });
   await invoke(DESKTOP_IPC.searchProjectFiles, validEvent, " C:\\known ", "index", 12);
   await invoke(DESKTOP_IPC.listProviderModels, validEvent);
   await invoke(DESKTOP_IPC.setModelRoute, validEvent, {
@@ -1228,11 +1265,12 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
   ]);
   assert.equal(disposeCalls, 1);
   assert.equal(quitCalls, 1);
-  assert.deepEqual(calls.slice(0, 9), [
+  assert.deepEqual(calls.slice(0, 10), [
     ["startTask"],
     ["listSessions"],
     ["renameSession", "rename_1", "New name"],
     ["deleteSession", "delete_1"],
+    ["prefetchSession", "resume_1"],
     ["resumeSession", "resume_1"],
     ["searchProjectFiles", "C:\\known", "index", 12],
     ["listProviderModels"],
@@ -1246,16 +1284,16 @@ test("desktop IPC enforces the owning main frame and validates bridge arguments"
     /protocol is unsupported/,
   );
 
-  assert.throws(
-    () => invoke(DESKTOP_IPC.resumeSession, validEvent, "../resume"),
+  await assert.rejects(
+    invoke(DESKTOP_IPC.resumeSession, validEvent, "../resume"),
     /invalid/,
   );
   assert.throws(
     () => invoke(DESKTOP_IPC.deleteSession, validEvent, "../delete"),
     /invalid/,
   );
-  assert.throws(
-    () => invoke(DESKTOP_IPC.resumeSession, validEvent, "a".repeat(257)),
+  await assert.rejects(
+    invoke(DESKTOP_IPC.resumeSession, validEvent, "a".repeat(257)),
     /invalid/,
   );
   assert.throws(

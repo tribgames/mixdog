@@ -227,7 +227,38 @@ export function createLiveShare({
   let client = null;
   let clientId = '';
   let clientUp = false;
+  let clientSyncedId = '';
   let lastSyncRequestAt = 0;
+  const viewerSyncWaiters = new Set();
+
+  const settleViewerSync = (id, synced) => {
+    for (const waiter of [...viewerSyncWaiters]) {
+      if (waiter.id === id) waiter.finish(synced);
+    }
+  };
+
+  const waitForViewerSync = (id, timeoutMs = 750) => {
+    const target = String(id || '');
+    if (!target) return Promise.resolve(false);
+    if (clientUp && clientId === target && clientSyncedId === target) {
+      return Promise.resolve(true);
+    }
+    return new Promise((resolve) => {
+      const waiter = {
+        id: target,
+        timer: null,
+        finish: null,
+      };
+      waiter.finish = (synced) => {
+        if (!viewerSyncWaiters.delete(waiter)) return;
+        if (waiter.timer) clearTimeout(waiter.timer);
+        resolve(synced === true);
+      };
+      viewerSyncWaiters.add(waiter);
+      waiter.timer = setTimeout(() => waiter.finish(false), Math.max(1, Number(timeoutMs) || 750));
+      waiter.timer.unref?.();
+    });
+  };
 
   const requestSync = (socket) => {
     const now = Date.now();
@@ -280,9 +311,12 @@ export function createLiveShare({
 
   const stopClient = () => {
     const closing = client;
+    const closingId = clientId;
     client = null;
     clientId = '';
     clientUp = false;
+    clientSyncedId = '';
+    if (closingId) settleViewerSync(closingId, false);
     if (closing) {
       try { closing.destroy(); } catch { /* already gone */ }
     }
@@ -294,6 +328,7 @@ export function createLiveShare({
     client = socket;
     clientId = id;
     clientUp = false;
+    clientSyncedId = '';
     socket.setNoDelay?.(true);
     socket.on('connect', () => { if (client === socket) clientUp = true; });
     const down = (ownerClosed) => {
@@ -310,7 +345,17 @@ export function createLiveShare({
       if (client !== socket) return;
       if (frame.t === 'close') { down(true); return; }
       if (viewerSessionId() !== id) return;
-      try { applyViewerFrame(frame, socket); } catch { requestSync(socket); }
+      try {
+        applyViewerFrame(frame, socket);
+        // A connected socket is not an entry boundary: the viewer must wait
+        // until the owner's atomic full frame has replaced the stale disk
+        // restore. Desktop resume holds its renderer publication on this
+        // barrier, preventing "last user message first, whole turn later".
+        if (frame.t === 'full') {
+          clientSyncedId = id;
+          settleViewerSync(id, true);
+        }
+      } catch { requestSync(socket); }
     }, () => down(false));
   };
 
@@ -326,6 +371,7 @@ export function createLiveShare({
       if (attachId && !client) startClient(attachId);
     },
     viewerConnected: () => clientUp,
+    waitForViewerSync,
     sendSubmit(text) {
       if (!clientUp || !client) return false;
       try {

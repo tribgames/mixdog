@@ -90,6 +90,8 @@ test('session scrolling restores once before paint and preserves per-session pos
   assert.match(renderer, /scrollEndThreshold:\s*80/);
   assert.match(renderer, /virtualContent\.current\.style\.height\s*=\s*`\$\{instance\.getTotalSize\(\)\}px`/);
   assert.match(renderer, /transcriptVirtualizer\.scrollToEnd\(\{ behavior \}\)/);
+  assert.doesNotMatch(renderer, /element\.scrollTop\s*=/);
+  assert.doesNotMatch(renderer, /transcriptVirtualizer\.measure\(\)/);
   assert.doesNotMatch(renderer, /transcriptVirtualizer\.scrollToIndex/);
   assert.doesNotMatch(renderer, /skipNextFollowFrame|bottomPinForced|measurementCaptureFrame/);
   assert.doesNotMatch(renderer, /restoringSessionTail|sessionTailRestoreTimer/);
@@ -193,6 +195,12 @@ test('OpenCode desktop shell keeps Project and flat recent sessions inside the s
   // Session rows override to a denser 31px (user: list read too airy).
   assert.match(styles, /\.session-sidebar \.session-row\s*\{[^}]*height:\s*31px;[^}]*min-height:\s*31px;/s);
   assert.match(styles, /\.session-list\s*\{\s*gap:\s*1px;/s);
+  assert.match(styles,
+    /\.session-row-status\s*\{[^}]*width:\s*12px;[^}]*flex:\s*0 0 12px;[^}]*align-self:\s*center;[^}]*align-items:\s*center;[^}]*justify-content:\s*center;[^}]*line-height:\s*0;/s,
+    'every recent row must reserve one vertically centered status slot');
+  assert.match(styles,
+    /\.session-row-spinner\s*\{[^}]*width:\s*12px;[^}]*display:\s*block;[^}]*margin:\s*0;[^}]*transform-origin:\s*center;/s,
+    'the spinner must rotate around its centered box without adding a second margin');
   assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*10px;/s);
   assert.match(styles, /\.project-switcher\s*\{[^}]*width:\s*min\(640px,/s);
   assert.match(styles, /\.thread\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
@@ -243,7 +251,8 @@ test('copy hover changes only icon color while keyboard focus keeps its frame', 
   assert.match(styles, /\.message-actions:focus-visible\s*\{[^}]*background:\s*transparent;[^}]*outline:\s*2px solid var\(--oc-focus\);/s);
   assert.match(styles, /\.markdown-code-copy:hover\s*\{[^}]*color:\s*var\(--oc-icon\);[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.markdown-code-copy:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--oc-focus\);/s);
-  assert.match(styles, /\.message\.assistant\.settled,\s*\.tool-card\.settled\s*\{[^}]*content-visibility:\s*auto;/s);
+  assert.doesNotMatch(styles, /\.message\.assistant\.settled,\s*\.tool-card\.settled\s*\{[^}]*content-visibility:\s*auto;/s,
+    'virtualized transcript rows must not add a second content-visibility layer');
   assert.doesNotMatch(styles, /\.message\.settled,\s*\.tool-card\.settled/);
   assert.doesNotMatch(styles, /\.message\.assistant\.streaming \.markdown > :nth-last-child/,
     'streamed response prose must remain readable; shimmer belongs to compact status text only');
@@ -263,10 +272,10 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   ]);
   assert.match(styles, /\.session-row-menu-wrap\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
   assert.match(styles, /\.session-row-copy b\s*\{[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
-  assert.match(styles, /\.message\.user\.attached-user\s*\{\s*margin-top:\s*-12px;/);
-  assert.match(styles, /\.thread\s*\{[^}]*padding:\s*20px 36px 28px;[^}]*gap:\s*16px;/s);
-  assert.match(styles, /\.message\.user \+ \.message\.assistant\s*\{\s*margin-top:\s*-16px;/);
-  assert.match(styles, /\.message\.user \.message-meta-line\s*\{[^}]*position:\s*static;[^}]*width:\s*100%;/s);
+  assert.doesNotMatch(styles, /\.message\.user\.attached-user\s*\{[^}]*margin-top:/s);
+  assert.match(styles, /\.thread\s*\{[^}]*padding:\s*20px 36px 20px;[^}]*gap:\s*20px;/s);
+  assert.doesNotMatch(styles, /\.message\.user \+ \.message\.assistant\s*\{[^}]*margin-top:/s);
+  assert.match(styles, /\.message\.user \.message-meta-line\s*\{[^}]*position:\s*absolute;[^}]*width:\s*100%;/s);
   assert.match(styles, /\.tool-title\s*\{[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.tool-card\[data-open="true"\] \.tool-chevron svg\s*\{[^}]*rotate\(90deg\)/s);
   assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--oc-border-muted\);[^}]*border-radius:\s*8px;/s);
@@ -520,6 +529,7 @@ test('turn failure attribution uses authoritative transcript outcomes, not error
   ], 'project/session-1');
   assert.deepEqual(settingsToast.failedTurnKeys, []);
   assert.deepEqual(settingsToast.activeToastTurns, {});
+  assert.deepEqual(settingsToast.turnKeys, transcriptTurnKeys(successful));
 
   const failed = reconcileTurnFailures(settingsToast, [
     ...successful,

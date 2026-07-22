@@ -13,6 +13,8 @@ const captureEntry = join(here, "../../out/main/capture-window.js");
 const windowOutput = join(here, "../../artifacts/mixdog-desktop-window-1113x687.png");
 const metadataOutput = windowOutput.replace(/\.png$/i, ".json");
 const errorOutput = `${windowOutput}.error.txt`;
+const jitterProbeOutput = join(here, "../../artifacts/jitter-probe.json");
+const jitterProbeMode = process.env.MIXDOG_JITTER_PROBE === "1";
 const timeoutMs = Number.parseInt(process.env.MIXDOG_CAPTURE_TIMEOUT_MS || "30000", 10);
 // Last-resort self-destruct: if any cleanup/teardown path wedges past the
 // capture deadline (locked temp profiles, zombie Electron descendants), kill
@@ -36,6 +38,7 @@ const captureId = randomUUID();
 await rm(windowOutput, { force: true });
 await rm(metadataOutput, { force: true });
 await rm(errorOutput, { force: true });
+if (jitterProbeMode) await rm(jitterProbeOutput, { force: true });
 await stat(captureEntry);
 const startedAt = Date.now();
 
@@ -96,6 +99,23 @@ try {
     });
   });
   assert.equal(exitCode, 0, `Capture exited with code ${exitCode}.`);
+  if (jitterProbeMode) {
+    const [reportText, reportStat] = await Promise.all([
+      readFile(jitterProbeOutput, "utf8"),
+      stat(jitterProbeOutput),
+    ]);
+    const report = JSON.parse(reportText);
+    const summary = report?.summary || {};
+    assert.ok(reportStat.mtimeMs >= startedAt && reportStat.mtimeMs <= Date.now(),
+      "Jitter probe output mtime is outside the current run window.");
+    assert.equal(summary.reversals, 0, "followed transcript must not reverse direction while streaming.");
+    assert.equal(summary.offBottomFrames, 0, "followed transcript must remain pinned to the bottom.");
+    assert.ok(Number(summary.maxDistance) <= 8, "followed transcript drifted away from the bottom.");
+    assert.equal(summary.partialFrames, 0,
+      "remote resume must never paint the persisted last-user-only transcript.");
+    console.log(`JITTER_PROBE_JSON=${jitterProbeOutput}`);
+    console.log(`JITTER_PROBE_SUMMARY=${JSON.stringify(summary)}`);
+  } else {
   while (true) {
     try {
       await Promise.all([stat(windowOutput), stat(metadataOutput)]);
@@ -392,6 +412,7 @@ try {
   console.log(`IMAGE_SIDEBAR=${JSON.stringify(metadata.imageMeasuredSidebar)}`);
   console.log(`PIXELS=${JSON.stringify(metadata.pixelSamples)}`);
   console.log(`LIVE_ASSERTIONS=${JSON.stringify(metadata.liveAssertions)}`);
+  }
 } finally {
   // Electron's crashpad handler can hold DIPS/lock files for a short window
   // after process exit; EBUSY here must not fail an otherwise green capture.

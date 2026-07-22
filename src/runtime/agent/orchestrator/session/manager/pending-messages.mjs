@@ -47,8 +47,13 @@ function pendingMessageId(entry) {
     return typeof entry?.id === 'string' && entry.id ? entry.id : null;
 }
 
+// Content-addressed (NO index): an index-keyed id changed whenever the queue
+// shifted, so ack/ledger suppression missed the renamed entry and the foreign
+// drain re-injected it as a duplicate user message. Identical legacy strings
+// now share one id — acceptable, since ack-by-id then clears such duplicate
+// stale rows together.
 function legacyPendingMessageId(sessionId, index, value) {
-    return `legacy_${createHash('sha256').update(`${sessionId}:${index}:${value}`).digest('hex').slice(0, 24)}`;
+    return `legacy_${createHash('sha256').update(`${sessionId}:${value}`).digest('hex').slice(0, 24)}`;
 }
 
 function isCompletionNotificationEntry(entry) {
@@ -377,11 +382,19 @@ export function acknowledgePendingMessages(sessionId, deliveredEntries) {
     const reported = operation.then(() => true).catch((err) => {
         try { process.stderr.write(`[session] pending-message ack failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
         return false;
-    }).finally(() => {
+    }).then((ok) => {
+        if (_pendingPersistTails.get(sessionId) === operation) _pendingPersistTails.delete(sessionId);
+        // Keep the acked ids when the spool cleanup FAILED: the durable entry
+        // still exists, and forgetting that it was already delivered let the
+        // foreign-injection drain re-take it as a "new" cross-surface submit
+        // (user saw the same message duplicated in the transcript). Retained
+        // ids also keep suppressing the hydrate path; they are dropped only
+        // once a later ack round actually lands.
+        if (!ok) return false;
         const currentAcked = pendingIdSet(_ackedPendingIds, sessionId);
         for (const id of ids) currentAcked.delete(id);
         if (currentAcked.size === 0) _ackedPendingIds.delete(sessionId);
-        if (_pendingPersistTails.get(sessionId) === operation) _pendingPersistTails.delete(sessionId);
+        return true;
     });
     return reported;
 }
@@ -687,6 +700,15 @@ export function drainForeignUserInjections(sessionId) {
     for (const set of [_inDeliveryPendingIds.get(sessionId), _ackedPendingIds.get(sessionId)]) {
         for (const id of set || []) localIds.add(id);
     }
+    // The durable delivered-ledger mirrors the hydrate path's suppression: an
+    // entry whose id was recorded as delivered (but whose spool cleanup has
+    // not landed yet — crash, lock contention, another process) is NOT a
+    // foreign submit and must never re-inject.
+    try {
+        for (const id of loadSession(sessionId)?.deliveredPendingMessageIds || []) {
+            if (typeof id === 'string' && id) localIds.add(id);
+        }
+    } catch { /* ledger unavailable — in-memory sets still guard */ }
     const taken = [];
     try {
         updateJsonAtomicSync(pendingMessagesPath(), (raw) => {

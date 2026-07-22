@@ -135,15 +135,15 @@ try {
       Invoke-CheckedNative -File 'npm.cmd' -Arguments @('run', 'brand:win')
       return 'Mixdog PNG and ICO assets generated and validated'
     } | Out-Null
-    Invoke-AcceptanceStep 'packaging-tests' 'npm run test:packaging' {
-      Invoke-CheckedNative -File 'npm.cmd' -Arguments @('run', 'test:packaging') `
-        -LogPath (Join-Path $distDir 'acceptance-packaging-test.log')
-      return '10 NSIS/config/acceptance/migration/archive/sidecar tests passed'
-    } | Out-Null
     Invoke-AcceptanceStep 'installer-build' 'npx electron-builder --win --x64' {
       Invoke-CheckedNative -File 'npx.cmd' -Arguments @('electron-builder', '--win', '--x64') `
         -LogPath (Join-Path $distDir 'acceptance-build.log')
       return 'Branded NSIS x64 build passed'
+    } | Out-Null
+    Invoke-AcceptanceStep 'packaging-tests' 'npm run test:packaging' {
+      Invoke-CheckedNative -File 'npm.cmd' -Arguments @('run', 'test:packaging') `
+        -LogPath (Join-Path $distDir 'acceptance-packaging-test.log')
+      return '10 NSIS/config/acceptance/migration/archive/sidecar tests passed'
     } | Out-Null
   }
 
@@ -252,7 +252,7 @@ try {
       $value.inventory.tuiCommands -ne 30 -or
       $value.inventory.desktopCommands -ne 30 -or
       $value.inventory.settingsItems -ne 19 -or
-      $value.inventory.settingsCategories -ne 13 -or
+      $value.inventory.settingsCategories -ne 14 -or
       $value.capabilityFailures.Count -ne 0 -or
       $value.renderer.exceptions.Count -ne 0
     ) {

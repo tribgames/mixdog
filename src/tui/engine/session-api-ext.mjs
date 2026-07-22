@@ -200,6 +200,117 @@ export function mergeRestoredToolItems(items) {
   return merged;
 }
 
+function restoredMessageItemUpperBound(message) {
+  if (message?.role === 'user') return 1;
+  if (message?.role !== 'assistant') return 0;
+  const calls = Array.isArray(message?.tool_calls) ? message.tool_calls
+    : Array.isArray(message?.toolCalls) ? message.toolCalls : [];
+  const content = message?.content;
+  const hasContent = typeof content === 'string'
+    ? content.length > 0
+    : Array.isArray(content) && content.length > 0;
+  const hasCompletion = Boolean(message?.meta?.transcript?.completion);
+  return Number(hasContent) + Number(hasCompletion) + calls.length;
+}
+
+function restoredUserTranscriptItems(message, nextId) {
+  // Injected model-context payloads are model-visible but never user-authored:
+  // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
+  // blocks must not restore as user bubbles in any client.
+  if (message?.meta === 'skill' || message?.meta === 'hook') return [];
+  const text = (typeof message?.content === 'string'
+    ? message.content
+    : toolResultText(message?.content)).trim();
+  if (/^<(?:system-reminder|skill|memory-context|mcp-instructions|available-deferred-tools|event)\b/i.test(text)) {
+    return [];
+  }
+  if (!text) return [];
+  const synthetic = parseSyntheticAgentMessage(text);
+  if (!synthetic) {
+    return [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }];
+  }
+  const label = synthetic.label || 'notification';
+  const syntheticAt = Number(message?.meta?.transcript?.at);
+  return [{
+    kind: 'tool',
+    id: nextId(),
+    name: synthetic.name || 'agent',
+    args: synthetic.args || {
+      type: label,
+      task_id: synthetic.taskId || undefined,
+      description: synthetic.summary || 'agent notification',
+    },
+    result: synthetic.result,
+    rawResult: synthetic.rawResult ?? text,
+    isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
+    expanded: false,
+    count: 1,
+    completedCount: 1,
+    ...(Number.isFinite(syntheticAt)
+      ? { at: syntheticAt, startedAt: syntheticAt, completedAt: syntheticAt }
+      : {}),
+  }];
+}
+
+function restoreTranscriptRange(messages, start, sessionId) {
+  const items = [];
+  const pendingToolCalls = new Map();
+  for (let index = start; index < messages.length; index += 1) {
+    const message = messages[index];
+    let part = 0;
+    // Message-position ids remain stable when newer messages are appended and
+    // let a tail-only restore skip the prefix without first counting every old
+    // projected item.
+    const restoredId = () => `hist_${sessionId}_${index}_${++part}`;
+    if (message?.role === 'user') {
+      items.push(...restoredUserTranscriptItems(message, restoredId));
+    } else if (message?.role === 'assistant') {
+      items.push(...restoredAssistantTranscriptItems(message, restoredId));
+      items.push(...restoredToolCallItems(message, restoredId, pendingToolCalls));
+    } else if (message?.role === 'tool') {
+      attachRestoredToolResult(message, pendingToolCalls);
+    }
+  }
+  return mergeRestoredToolItems(items);
+}
+
+export function restoreTranscriptItems(messages, {
+  sessionId = 'session',
+  itemLimit = Number.POSITIVE_INFINITY,
+} = {}) {
+  const source = Array.isArray(messages) ? messages : [];
+  const numericLimit = Number(itemLimit);
+  const limited = Number.isFinite(numericLimit) && numericLimit > 0;
+  if (!limited) return restoreTranscriptRange(source, 0, sessionId);
+
+  const limit = Math.max(1, Math.floor(numericLimit));
+  // Restore beyond the visible cap so a boundary tool run can merge exactly
+  // as it did in the full transcript. Selection is incremental from the tail:
+  // large cold sessions never read or project their old message bodies.
+  const target = limit + Math.min(128, limit);
+  let start = source.length;
+  let upperBound = 0;
+  while (start > 0 && upperBound < target) {
+    start -= 1;
+    upperBound += restoredMessageItemUpperBound(source[start]);
+  }
+
+  let restored = restoreTranscriptRange(source, start, sessionId);
+  // Hidden/context messages and aggregate tool runs can make the cheap upper
+  // bound optimistic. Expand backward exponentially only when necessary.
+  let expansionTarget = Math.max(64, limit - restored.length);
+  while (start > 0 && restored.length < limit) {
+    let expansion = 0;
+    while (start > 0 && expansion < expansionTarget) {
+      start -= 1;
+      expansion += restoredMessageItemUpperBound(source[start]);
+    }
+    restored = restoreTranscriptRange(source, start, sessionId);
+    expansionTarget *= 2;
+  }
+  return restored.length > limit ? restored.slice(-limit) : restored;
+}
+
 export function createEngineApiB(bag) {
   const {
     runtime, nextId, flags, lifecycle, listeners, getState, set, flushEmitImmediate, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
@@ -214,6 +325,9 @@ export function createEngineApiB(bag) {
     },
     listProviderModels: (options = {}) => {
       return runtime.listProviderModels(options);
+    },
+    prefetchSession: (id) => {
+      return runtime.prefetchSession?.(id) === true;
     },
     getSearchRoute: () => {
       return runtime.getSearchRoute?.() || runtime.searchRoute || null;
@@ -750,71 +864,19 @@ export function createEngineApiB(bag) {
         const r = await runtime.resume(id);
         if (!r) return false;
         resetStatsAndSyncContext();
-        // Deterministic restore ids (session-scoped): the process-global
-        // nextId() reissued fresh ids on every resume, so attached viewers
-        // (desktop live-follow re-resume) and session re-entry changed every
-        // React key and remounted the whole transcript (user: messages
-        // visibly re-generate, slow entry). Position-derived ids are stable
-        // across resumes of the same stored history.
-        let restoredSeq = 0;
-        const restoredId = () => `hist_${id}_${++restoredSeq}`;
-        const items = [];
-        const pendingToolCalls = new Map();
-        for (const m of r.messages || []) {
-          if (m.role === 'user') {
-            // Injected model-context payloads are model-visible but never
-            // user-authored: skill bodies (meta:'skill'), hook/system
-            // reminders (meta:'hook'), and tag-wrapped context blocks. They
-            // must not restore as user bubbles in any client (TUI/desktop).
-            if (m.meta === 'skill' || m.meta === 'hook') continue;
-            // content may be a string OR an array of parts (text/tool-call
-            // interleaving) — toolResultText coerces both to readable text so
-            // array-content messages aren't silently dropped.
-            const text = (typeof m.content === 'string' ? m.content : toolResultText(m.content)).trim();
-            if (/^<(?:system-reminder|skill|memory-context|mcp-instructions|available-deferred-tools|event)\b/i.test(text)) continue;
-            if (text) {
-              const synthetic = parseSyntheticAgentMessage(text);
-              if (synthetic) {
-                const label = synthetic.label || 'notification';
-                const syntheticAt = Number(m?.meta?.transcript?.at);
-                items.push({
-                  kind: 'tool',
-                  id: restoredId(),
-                  name: synthetic.name || 'agent',
-                  args: synthetic.args || {
-                    type: label,
-                    task_id: synthetic.taskId || undefined,
-                    description: synthetic.summary || 'agent notification',
-                  },
-                  result: synthetic.result,
-                  rawResult: synthetic.rawResult ?? text,
-                  isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
-                  expanded: false,
-                  count: 1,
-                  completedCount: 1,
-                  // Stable timestamps: Date.now() changed the item signature
-                  // every resume and re-rendered settled cards for no reason.
-                  // Same convention as restoredToolCallItems: omit when the
-                  // stored history has no timestamp (completedCount marks done).
-                  ...(Number.isFinite(syntheticAt)
-                    ? { at: syntheticAt, startedAt: syntheticAt, completedAt: syntheticAt }
-                    : {}),
-                });
-              } else {
-                items.push({ kind: 'user', id: restoredId(), text, ...restoredTranscriptMetadata(m) });
-              }
-            }
-          } else if (m.role === 'assistant') {
-            items.push(...restoredAssistantTranscriptItems(m, restoredId));
-            items.push(...restoredToolCallItems(m, restoredId, pendingToolCalls));
-          } else if (m.role === 'tool') {
-            attachRestoredToolResult(m, pendingToolCalls);
-          }
+        const requestedLimit = Number(options.transcriptItemLimit);
+        if (Number.isFinite(requestedLimit) && requestedLimit > 0) {
+          flags.resumeTranscriptItemLimit = Math.max(1, Math.floor(requestedLimit));
         }
+        const itemLimit = Number(flags.resumeTranscriptItemLimit);
+        const items = restoreTranscriptItems(r.messages, {
+          sessionId: String(r.id || id),
+          itemLimit: Number.isFinite(itemLimit) && itemLimit > 0
+            ? itemLimit
+            : Number.POSITIVE_INFINITY,
+        });
         set({
-          // Results above attach by mutating the per-call items in place, so
-          // the category-merge pass must run only now, after the full walk.
-          items: replaceItems(mergeRestoredToolItems(items)),
+          items: replaceItems(items),
           toasts: [],
           queued: [],
           thinking: null,
@@ -823,6 +885,12 @@ export function createEngineApiB(bag) {
           ...routeState(),
           stats: { ...getState().stats },
         });
+        // Reconcile the live-share legs NOW (viewer pipe attach / owner pipe
+        // start). The 3s share tick otherwise leaves a live-owned session on
+        // the stale disk snapshot and then full-swaps it seconds after entry —
+        // the visible transcript lurch. Connecting here makes the owner's
+        // full frame land at the resume boundary, so entry paints settled.
+        bag.ensureLiveShare?.();
         void restoreLeadSteeringFromDisk();
         return true;
       } finally {

@@ -1236,7 +1236,7 @@ export async function createMixdogSessionRuntime({
     channels.execute('reload_config', {}).catch(() => {});
   }
 
-  function invalidateProviderCaches() {
+  function invalidateProviderCaches(options = {}) {
     providerModelCaches.providerModelsCache = { models: null, at: 0 };
     providerModelCaches.providerModelsPromise = null;
     providerModelCaches.providerModelsLoadSeq += 1;
@@ -1246,7 +1246,7 @@ export async function createMixdogSessionRuntime({
     providerUsageCaches.providerSetupCache = { setup: null, at: 0 };
     providerUsageCaches.providerSetupQuickCache = { setup: null, at: 0 };
     providerUsageCaches.providerSetupPromise = null;
-    providerInitPromises.clear();
+    if (options.preserveProviderInit !== true) providerInitPromises.clear();
     modelMetaByRoute.clear();
   }
 
@@ -1299,18 +1299,29 @@ export async function createMixdogSessionRuntime({
     const initKey = providerInitCacheKey(providerConfig);
     const existing = providerInitPromises.get(initKey);
     if (existing) return await existing;
-    const providerInitPromise = reg.initProviders(providerConfig)
-      .finally(() => {
-        if (providerInitPromises.get(initKey) === providerInitPromise) providerInitPromises.delete(initKey);
-      });
+    // Provider initialization is idempotent for one normalized config. Keep
+    // the fulfilled promise, not only the in-flight one: session resume used
+    // to rerun registry/keychain setup on every click even though neither the
+    // provider config nor the registry had changed. Auth/config mutations call
+    // invalidateProviderCaches(), which clears this gate and preserves the
+    // existing refresh semantics.
+    const providerInitPromise = Promise.resolve().then(() => reg.initProviders(providerConfig));
     providerInitPromises.set(initKey, providerInitPromise);
-    const result = await providerInitPromise;
+    let result;
+    try {
+      result = await providerInitPromise;
+    } catch (error) {
+      if (providerInitPromises.get(initKey) === providerInitPromise) providerInitPromises.delete(initKey);
+      throw error;
+    }
     if (!startupProviderCatalogRefreshStarted && !closeRequested) {
       startupProviderCatalogRefreshStarted = true;
       try {
         void Promise.resolve(reg.refreshProviderCatalogsOnStartup())
           .then(() => {
-            invalidateProviderCaches();
+            // Fresh catalog rows invalidate model-derived caches, but the
+            // already initialized provider registry remains valid.
+            invalidateProviderCaches({ preserveProviderInit: true });
             warmProviderModelCache();
             bootProfile('provider-catalogs:refresh-ready');
           })

@@ -15,6 +15,7 @@ import { createEngineApiA } from '../src/tui/engine/session-api.mjs';
 import { createRunTurn } from '../src/tui/engine/turn.mjs';
 import { createContextState } from '../src/tui/engine/context-state.mjs';
 import {
+  restoreTranscriptItems,
   restoredAssistantTranscriptItems,
   restoredTranscriptMetadata,
 } from '../src/tui/engine/session-api-ext.mjs';
@@ -276,6 +277,42 @@ test('assistant completion metadata survives session resume projection', () => {
     elapsedMs: 2_000,
     at: turnStartedAt + 1_000,
   });
+});
+
+test('cold transcript restore incrementally projects only the visible tail', () => {
+  let oldBodyReads = 0;
+  const oldMessages = Array.from({ length: 4_000 }, (_, index) => {
+    const message = { role: index % 2 === 0 ? 'user' : 'assistant' };
+    Object.defineProperty(message, 'content', {
+      enumerable: true,
+      get() {
+        oldBodyReads += 1;
+        return `old body ${index}`;
+      },
+    });
+    return message;
+  });
+  const recentMessages = Array.from({ length: 400 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: `recent body ${index}`,
+    ...(index % 2 === 1
+      ? { meta: { transcript: { completion: { status: 'done', elapsedMs: index } } } }
+      : {}),
+  }));
+  const messages = [...oldMessages, ...recentMessages];
+  const restored = restoreTranscriptItems(messages, {
+    sessionId: 'fast',
+    itemLimit: 64,
+  });
+  const recentFull = restoreTranscriptItems(recentMessages, { sessionId: 'recent' });
+
+  assert.equal(oldBodyReads, 0, 'tail restore must not read old message bodies');
+  assert.equal(restored.length, 64);
+  assert.deepEqual(
+    restored.map((item) => [item.kind, item.text || '', item.status || '']),
+    recentFull.slice(-64).map((item) => [item.kind, item.text || '', item.status || '']),
+  );
+  assert.match(restored[0].id, /^hist_fast_4\d{3}_\d+$/);
 });
 
 test('restored transcripts publish estimated context before a new provider turn', () => {
@@ -645,6 +682,7 @@ test('transcript spill caps the live window and restores every item in order', (
   assert.deepEqual(live, original.slice(-live.length));
   assert.ok(live.length <= TRANSCRIPT_LIVE_ITEM_CAP);
   spill.reset();
+  spill.dispose();
 });
 
 test('spill restore succeeds before its asynchronous worker write completes', () => {

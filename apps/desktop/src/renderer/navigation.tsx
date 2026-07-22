@@ -52,6 +52,7 @@ interface DesktopTitlebarProps {
   tabs: WorkspaceTab[];
   activeKey: string;
   activeBusy?: boolean;
+  workingSessionIds?: ReadonlySet<string>;
   updaterState?: DesktopUpdaterState;
   dockOpen?: boolean;
   onToggleSidebar(): void;
@@ -75,6 +76,7 @@ export function DesktopTitlebar({
   tabs,
   activeKey,
   activeBusy = false,
+  workingSessionIds,
   updaterState,
   dockOpen = false,
   onToggleSidebar,
@@ -202,7 +204,8 @@ export function DesktopTitlebar({
           onPointerCancel={(event) => finishPointerDrag(event.pointerId || 1)}>
           {tabs.map((tab) => {
             const active = tab.key === activeKey;
-            const working = active && activeBusy;
+            const working = (tab.selection.kind === "session" &&
+              workingSessionIds?.has(tab.selection.id) === true) || (active && activeBusy);
             return (
                 <div key={tab.key}
                   ref={(node) => setTabNode(tab.key, node)}
@@ -383,13 +386,14 @@ function storedSidebarWidth() {
 interface SessionSidebarProps {
   open: boolean;
   sessions: DesktopSessionSummary[];
-  busySessionId?: string;
+  workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
   selection: NavigationSelection;
   onNewTask(): void;
   onOpenProjects(): void;
   onOpenSchedules(): void;
   onOpenSettings(): void;
+  onPrefetchSession?(sessionId: string): Promise<boolean>;
   onResumeSession(sessionId: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
   /** Codex-style archive: the row leaves Recent but the session file stays. */
@@ -400,13 +404,14 @@ interface SessionSidebarProps {
 export const SessionSidebar = React.memo(function SessionSidebar({
   open,
   sessions,
-  busySessionId = "",
+  workingSessionIds,
   unreadSessionIds,
   selection,
   onNewTask,
   onOpenProjects,
   onOpenSchedules,
   onOpenSettings,
+  onPrefetchSession,
   onResumeSession,
   onRenameSession,
   onArchiveSession,
@@ -443,6 +448,27 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived === true), [allRows]);
   const [recentOpen, setRecentOpen] = useState(true);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const prefetchedSessionIds = useRef(new Set<string>());
+  const requestPrefetch = useCallback((sessionId: string) => {
+    if (!onPrefetchSession || prefetchedSessionIds.current.has(sessionId)) return;
+    prefetchedSessionIds.current.add(sessionId);
+    void onPrefetchSession(sessionId).then((ready) => {
+      if (ready !== true) prefetchedSessionIds.current.delete(sessionId);
+    }).catch(() => {
+      prefetchedSessionIds.current.delete(sessionId);
+    });
+  }, [onPrefetchSession]);
+  useEffect(() => {
+    if (!open || !onPrefetchSession) return undefined;
+    const candidates = rows
+      .filter((session) => !(selection.kind === "session" && selection.id === session.id))
+      .slice(0, 2);
+    const timers = candidates.map((session, index) => window.setTimeout(
+      () => requestPrefetch(session.id),
+      350 + index * 250,
+    ));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [onPrefetchSession, open, requestPrefetch, rows, selection]);
   const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
     setMenuSessionId("");
     setConfirmingSessionId("");
@@ -529,13 +555,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             {rows.length === 0 && <p className="sidebar-section-empty">No sessions</p>}
             {rows.map((session) => <SessionSidebarRow key={session.id}
               session={session} active={selection.kind === "session" && selection.id === session.id}
-              working={session.id === busySessionId}
+              working={workingSessionIds?.has(session.id) === true}
               unread={unreadSessionIds?.has(session.id) === true}
               editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
               sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
               confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
               onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
               onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+              onPrefetchSession={requestPrefetch}
               onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
               onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
               onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
@@ -555,13 +582,14 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               <nav className="session-list archived-session-list" aria-label="Archived sessions">
                 {archivedRows.map((session) => <SessionSidebarRow key={session.id}
                   session={session} active={selection.kind === "session" && selection.id === session.id}
-                  working={session.id === busySessionId}
+                working={workingSessionIds?.has(session.id) === true}
                   unread={unreadSessionIds?.has(session.id) === true}
                   editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
                   sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
                   confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
                   onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
                   onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+                  onPrefetchSession={requestPrefetch}
                   onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
                   onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
                   onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
@@ -616,6 +644,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onStartRename,
   onCancelRename,
   onCommitRename,
+  onPrefetchSession,
   onResumeSession,
   onCloseEditor,
   onSetMenu,
@@ -638,6 +667,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onStartRename(session: DesktopSessionSummary): void;
   onCancelRename(): void;
   onCommitRename(session: DesktopSessionSummary, fromBlur?: boolean): void;
+  onPrefetchSession(sessionId: string): void;
   onResumeSession(sessionId: string): void;
   onCloseEditor(): void;
   onSetMenu: React.Dispatch<React.SetStateAction<string>>;
@@ -656,6 +686,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
     onStartRename={onStartRename}
     onCancelRename={onCancelRename}
     onCommitRename={onCommitRename}
+    onPrefetchSession={onPrefetchSession}
     onResumeSession={onResumeSession}
     menuOpen={menuSessionId === session.id}
     onToggleMenu={(target) => {
@@ -693,6 +724,7 @@ const SessionRow = React.memo(function SessionRow({
   onStartRename,
   onCancelRename,
   onCommitRename,
+  onPrefetchSession,
   onResumeSession,
   menuOpen,
   onToggleMenu,
@@ -715,6 +747,7 @@ const SessionRow = React.memo(function SessionRow({
   onStartRename(session: DesktopSessionSummary): void;
   onCancelRename(): void;
   onCommitRename(session: DesktopSessionSummary, fromBlur?: boolean): void;
+  onPrefetchSession(sessionId: string): void;
   onResumeSession(sessionId: string): void;
   menuOpen: boolean;
   onToggleMenu(session: DesktopSessionSummary): void;
@@ -744,6 +777,8 @@ const SessionRow = React.memo(function SessionRow({
       className={`session-row ${active ? "selected" : ""} ${editing ? "editing" : ""} ${confirmingDelete ? "confirming-delete" : ""}`}
       data-session-id={session.id}
       aria-current={active ? "page" : undefined}
+      onPointerEnter={() => onPrefetchSession(session.id)}
+      onFocusCapture={() => onPrefetchSession(session.id)}
       onClick={activateFromClick}
     >
       {editing ? (
@@ -777,8 +812,10 @@ const SessionRow = React.memo(function SessionRow({
           <button type="button" className="session-row-main">
             {/* Grok-web recent list: plain titles — the ONLY glyph is the
                 progress spinner while this session is working. */}
-            {working && <LoaderCircle size={12} className="session-row-spinner" role="status"
-              aria-label={`${sessionLabel(session)} is working`} />}
+            <span className="session-row-status" data-working={working || undefined}>
+              {working && <LoaderCircle size={12} className="session-row-spinner" role="status"
+                aria-label={`${sessionLabel(session)} is working`} />}
+            </span>
             <span className="session-row-copy"
               onDoubleClick={(event) => {
                 event.preventDefault();

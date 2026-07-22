@@ -14,6 +14,7 @@ export const DESKTOP_IPC = {
   setSessionArchived: 'mixdog:set-session-archived',
   deleteSession: 'mixdog:delete-session',
   remoteAccessInfo: 'mixdog:remote-access-info',
+  prefetchSession: 'mixdog:prefetch-session',
   resumeSession: 'mixdog:resume-session',
   searchProjectFiles: 'mixdog:search-project-files',
   getSnapshot: 'mixdog:get-snapshot',
@@ -468,6 +469,8 @@ export interface DesktopSessionSummary {
   classification: DesktopSessionClassification;
   projectPath: string | null;
   currentSession: boolean;
+  /** Fresh cross-process turn heartbeat; independent of which session is selected. */
+  working?: boolean;
   /** Codex-style archive: hidden from Recent, restorable; file stays on disk. */
   archived?: boolean;
 }
@@ -502,6 +505,7 @@ export interface DesktopApi {
    *  the in-process desktop implements it (null while the bridge is off);
    *  the remote shim omits it — a phone never needs its own pairing card. */
   getRemoteAccessInfo?(): Promise<DesktopRemoteAccessInfo | null>;
+  prefetchSession?(sessionId: string): Promise<boolean>;
   resumeSession(sessionId: string): Promise<EngineSnapshot>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   getSnapshot(): Promise<EngineSnapshot>;

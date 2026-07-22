@@ -517,10 +517,25 @@ button:focus-visible { outline-offset: 2.5px; }
   color: var(--oc-text-muted);
   animation: spin 1.1s linear infinite;
 }
+.session-row-status {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
 .session-row-spinner {
-  flex: 0 0 auto;
-  margin-right: 6px;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  display: block;
+  margin: 0;
   color: var(--oc-text-muted);
+  transform-box: fill-box;
+  transform-origin: center;
   animation: spin 1.1s linear infinite;
 }
 .workspace-tab-close {
@@ -3888,9 +3903,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
      row — the session header — with the drawer toggle on the left and the
      context/review/dock cluster on the right. Every mobile layer opens
      below that row. */
-  /* Roomier phone header (user: too cramped): a two-line grid — title on
-     the first line, the project badge UNDER it — with the drawer toggle
-     and status cluster centered on the full height. */
+  /* Roomier phone header (user: too cramped): one centered line — the title
+     column caps at ~30% of the width (user decision) so the project badge
+     sits IMMEDIATELY to its right instead of under it. */
   .app-shell { --titlebar-height: 56px; }
   .topbar { display: none; }
   .session-header {
@@ -3903,22 +3918,22 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     height: 56px;
     padding-inline: 12px;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: auto fit-content(30%) minmax(0, 1fr) auto auto;
     align-items: center;
     align-content: center;
     column-gap: 8px;
-    row-gap: 2px;
   }
   .session-header-menu { grid-row: 1; grid-column: 1; }
-  .session-header-content h1 { grid-row: 1; grid-column: 2; }
-  .session-title-regenerate { grid-row: 1; grid-column: 3; }
-  .session-header-status { grid-row: 1; grid-column: 4; }
+  .session-header-content h1 { grid-row: 1; grid-column: 2; min-width: 0; }
   .session-project-badge {
-    grid-row: 2;
-    grid-column: 2;
+    grid-row: 1;
+    grid-column: 3;
     justify-self: start;
+    min-width: 0;
     max-width: 100%;
   }
+  .session-title-regenerate { grid-row: 1; grid-column: 4; }
+  .session-header-status { grid-row: 1; grid-column: 5; }
   .thread { padding-inline: 12px; }
   /* Entering Schedules (or any main-pane menu) keeps the top header row:
      the workspace collapses to its header and the pane fills below it. */

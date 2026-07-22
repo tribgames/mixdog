@@ -1314,6 +1314,13 @@ export async function createEngineSession({
       clearStreamingTail: (...args) => bag.clearStreamingTail(...args),
     },
   });
+  // Immediate live-share reconcile for session entry/promotion. Waiting for
+  // the 3s share tick left a just-resumed live-owned session showing the
+  // stale disk snapshot, then full-swapped the transcript mid-view once the
+  // pipe finally connected (visible up/down lurch until heights resettled).
+  // resume() calls this right after installing the restored items so the
+  // owner's full frame lands at the entry boundary instead of seconds later.
+  bag.ensureLiveShare = () => { try { liveShare.ensure(); } catch { /* share tick retries */ } };
   // Live viewer submits ride the owner's pipe (instant user bubble + shared
   // streaming); the durable spool path below remains the fallback.
   if (typeof api.submit === 'function') {
@@ -1340,6 +1347,15 @@ export async function createEngineSession({
     api[method] = async (...args) => {
       const result = await base(...args);
       reconcileLiveShareNow();
+      if (method === 'resume' && result === true && state.sessionRemoteAttached) {
+        const id = String(state.sessionId || '');
+        // EngineHost holds renderer publications across resume. Keep that hold
+        // until the owner's first FULL frame replaces the persisted transcript,
+        // then synchronously publish the complete draft before getState().
+        // Old owners without live-share fall back to the disk restore after the
+        // short bounded wait rather than blocking session entry indefinitely.
+        if (id && await liveShare.waitForViewerSync(id)) bag.flushEmit();
+      }
       return result;
     };
   }

@@ -29,7 +29,11 @@ function waitFor(check, label, timeoutMs = 4000) {
 }
 
 function createViewerStore() {
-  const store = { items: [], streamingTail: null, spinner: null };
+  const store = {
+    items: [{ id: 'disk-only', kind: 'user', text: 'persisted last user message' }],
+    streamingTail: null,
+    spinner: null,
+  };
   return {
     store,
     apply: {
@@ -90,13 +94,17 @@ test('live-share mirrors owner deltas and routes viewer submits', async () => {
 
   try {
     owner.ensure();
+    const initialSync = viewerShare.waitForViewerSync(PIPE_ID, 1_000);
     await waitFor(() => {
       viewerShare.ensure();
       return viewerShare.viewerConnected();
     }, 'viewer connect');
     // Initial full frame mirrors the owner transcript.
+    assert.equal(await initialSync, true);
     await waitFor(() => viewer.store.items.length === 1
       && viewer.store.items[0].id === 'a1', 'initial full frame');
+    assert.equal(viewer.store.items.some((item) => item.id === 'disk-only'), false,
+      'the initial sync barrier must replace the incomplete persisted transcript');
 
     // Appended item + streaming tail start.
     publish({

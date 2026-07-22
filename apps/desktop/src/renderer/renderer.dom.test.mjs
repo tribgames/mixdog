@@ -432,8 +432,8 @@ test("workspace overlays clamp upward menus and tooltip widths to the sheet", as
   assert.equal(menu.style.bottom, "634px", "upward menu should include the viewport inset below the sheet");
   assert.equal(menu.style.maxHeight, "136px", "upward menu should fit above its trigger within the sheet");
   await act(async () => {
-    tooltipTarget.focus();
-    await new Promise((resolve) => window.setTimeout(resolve, 160));
+    tooltipTarget.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+    await new Promise((resolve) => window.setTimeout(resolve, 430));
   });
   assert.equal(document.querySelector('[role="tooltip"]')?.style.maxWidth, "254px");
 });
@@ -629,7 +629,10 @@ test("failed tools expose a failed status instead of a successful completion", a
   assert.equal(status?.textContent.trim(), "Failed");
   assert.equal(status?.getAttribute("role"), "status");
   assert.ok(status?.classList.contains("failed"));
-  assert.equal(status?.querySelector(".lucide-x") != null, true, "selector .lucide-x should be present");
+  assert.equal(document.querySelector(".tool-icon svg") != null, true,
+    "failed tools should retain their own icon");
+  assert.equal(document.querySelector(".lucide-x"), null,
+    "failed tools should not replace their own icon with an X");
 });
 
 test("tool counters and hook-denial visibility mirror the TUI", async () => {
@@ -1040,7 +1043,8 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".workspace-project-trigger") === null, true, "selector .workspace-project-trigger should be absent");
   assert.equal(document.querySelector(".session-header-divider") === null, true, "selector .session-header-divider should be absent");
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Mixdog|Local account/);
-  assert.equal(document.querySelectorAll(".toolbar-sidebar").length, 1);
+  assert.equal(document.querySelectorAll(".topbar .toolbar-sidebar").length, 1);
+  assert.equal(document.querySelectorAll(".session-header .toolbar-sidebar").length, 1);
   // The suite baseline pins the stored layout to a collapsed sidebar; the
   // fresh-install default (open) has its own test below.
   assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Expand session sidebar");
@@ -1236,6 +1240,89 @@ test("session switching keeps the target title while its correlated snapshot is 
     ?.textContent.includes(target.title), true);
 });
 
+test("session resume does not reapply an invoke snapshot after its state publication", async () => {
+  installDom();
+  let publish = () => {};
+  const target = {
+    id: "dedup-target",
+    preview: "Dedup target",
+    title: "Dedup target",
+    updatedAt: 2,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+    currentSession: false,
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ sessionId: "source", items: [], queued: [] }),
+    subscribeState: (listener) => { publish = listener; return () => {}; },
+    listProjects: async () => [],
+    listSessions: async () => [target],
+    resumeSession: async () => {
+      publish({
+        sessionId: target.id,
+        items: [{ id: "published-row", kind: "user", text: "Published transcript" }],
+        queued: [],
+      });
+      return {
+        sessionId: target.id,
+        items: [{ id: "duplicate-row", kind: "user", text: "Duplicate invoke transcript" }],
+        queued: [],
+      };
+    },
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(`[data-session-id="${target.id}"]`).click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const transcript = document.querySelector(".transcript")?.textContent || "";
+  assert.match(transcript, /Published transcript/);
+  assert.doesNotMatch(transcript, /Duplicate invoke transcript/);
+});
+
+test("session rows prefetch on pointer intent without changing the selection", async () => {
+  installDom();
+  const prefetched = [];
+  const target = {
+    id: "prefetch-target",
+    preview: "Prefetch target",
+    title: "Prefetch target",
+    updatedAt: 2,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+    currentSession: false,
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ sessionId: "source", items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listSessions: async () => [target],
+    prefetchSession: async (id) => {
+      prefetched.push(id);
+      return true;
+    },
+    resumeSession: async () => ({ sessionId: target.id, items: [], queued: [] }),
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const row = document.querySelector(`[data-session-id="${target.id}"]`);
+  await act(async () => {
+    row.dispatchEvent(new window.Event("pointerover", { bubbles: true }));
+    await Promise.resolve();
+  });
+  assert.deepEqual(prefetched, [target.id]);
+  assert.equal(row.classList.contains("selected"), false);
+});
+
 test("re-entering a visited session paints its cached transcript before resume completes", async () => {
   installDom();
   let sourceResumes = 0;
@@ -1417,11 +1504,24 @@ test("virtualized session switching renders immediately and uses one sticky resi
   let transcriptHeight = 480;
   const transcriptClientHeight = 320;
   const scrollTargets = [];
+  let simulatedScrollTop = 0;
+  let rawScrollWrites = 0;
   Object.defineProperties(transcript, {
     scrollHeight: { get: () => transcriptHeight, configurable: true },
     clientHeight: { value: transcriptClientHeight, configurable: true },
+    scrollTop: {
+      get: () => simulatedScrollTop,
+      set(value) {
+        rawScrollWrites += 1;
+        simulatedScrollTop = Number(value) || 0;
+      },
+      configurable: true,
+    },
     scrollTo: {
-      value(options) { scrollTargets.push(Number(options?.top || 0)); },
+      value(options) {
+        simulatedScrollTop = Number(options?.top || 0);
+        scrollTargets.push(simulatedScrollTop);
+      },
       configurable: true,
     },
   });
@@ -1460,13 +1560,11 @@ test("virtualized session switching renders immediately and uses one sticky resi
     }
     await Promise.resolve();
   });
-  // Pre-paint pin: every ResizeObserver delivery (browsers deliver at most one
-  // per observer per frame) pins the bottom synchronously so no unpinned frame
-  // can paint. The old rAF coalescing applied the pin one frame late, which
-  // painted the transcript visibly shaking during session-open measurement.
+  // Resize delivery schedules the pin, but every write still goes through the
+  // virtualizer's one end target rather than a competing raw DOM target.
   const pinnedScrollCount = scrollTargets.length;
   assert.equal(pinnedScrollCount, initialScrollCount + 3,
-    "each resize delivery should pin the bottom before paint");
+    "each resize delivery should retain the followed virtualized end");
   const resizeTargets = scrollTargets.slice(initialScrollCount);
   assert.equal(new Set(resizeTargets).size, 1,
     "resize pinning must retain one virtualizer-owned target");
@@ -1475,6 +1573,8 @@ test("virtualized session switching renders immediately and uses one sticky resi
   await advanceFrame(64);
   assert.equal(scrollTargets.length, pinnedScrollCount,
     "the synchronous pin must not queue an extra animation-frame update");
+  assert.equal(rawScrollWrites, 0,
+    "virtualized entry and streaming must not mix raw DOM writes with virtualizer scrolling");
 
   const settledItems = targetItems.slice(0, -1);
   let script = "```powershell\n";
@@ -1623,6 +1723,50 @@ test("sidebar keeps Project below New task and lists every session newest-first"
     await Promise.resolve();
   });
   assert.deepEqual(resumes, ["recent-4"]);
+});
+
+test("sidebar shows the working spinner for live spinner activity even when busy is false", async () => {
+  installDom();
+  const session = {
+    id: "working-session",
+    preview: "Working session",
+    title: "Working session",
+    updatedAt: 1,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+    currentSession: true,
+  };
+  const idleSession = {
+    ...session,
+    id: "idle-session",
+    preview: "Idle session",
+    title: "Idle session",
+    currentSession: false,
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({
+      sessionId: session.id,
+      items: [],
+      queued: [],
+      busy: false,
+      spinner: { active: true, mode: "responding" },
+    }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [session, idleSession],
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const spinner = document.querySelector(`[data-session-id="${session.id}"] .session-row-spinner`);
+  assert.ok(spinner);
+  assert.equal(spinner.getAttribute("aria-label"), "Working session is working");
+  assert.equal(document.querySelectorAll(".session-row-status").length, 2,
+    "working and idle rows must reserve the same fixed status slot");
+  assert.equal(document.querySelector(`[data-session-id="${idleSession.id}"] .session-row-status`)?.childElementCount, 0);
 });
 
 test("sidebar omits the runtime status trigger", async () => {
@@ -3346,7 +3490,7 @@ test("model control styles keep the reference compact geometry and bounded list"
     readFile(new URL("./opencode-v2.css", import.meta.url), "utf8"),
   ]);
   assert.match(css, /\.model-picker-layer\s*\{[^}]*place-items:\s*center;/s);
-  assert.match(css, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(100vh - 16px\), 512px\);/s);
+  assert.match(css, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(var\(--vvh, 100vh\) - 16px\), 512px\);/s);
   assert.match(css, /\.model-search\s*\{[^}]*height:\s*32px;/s);
   assert.match(css, /\.model-group button\s*\{[^}]*width:\s*100%;[^}]*display:\s*flex;/s);
   assert.match(css, /\.model-list\s*\{[^}]*overflow-y:\s*auto;/s);
@@ -3380,7 +3524,7 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*background:\s*transparent;/s);
   assert.match(openCodeCss, /\.model-picker-header\s*\{[^}]*padding:\s*16px 12px 16px 20px;/s);
   assert.match(openCodeCss, /\.model-provider-add\s*\{[^}]*margin-left:\s*auto;/s);
-  assert.match(openCodeCss, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(100vh - 16px\), 512px\);/s,
+  assert.match(openCodeCss, /\.model-picker-dialog\s*\{[^}]*width:\s*min\(calc\(100vw - 16px\), 640px\);[^}]*height:\s*min\(calc\(var\(--vvh, 100vh\) - 16px\), 512px\);/s,
     "the centered dialog should use the reference dialog container geometry");
   assert.match(openCodeCss, /\.model-picker-dialog\s*\{[^}]*border-radius:\s*10px;/s,
     "the model dialog should use the reference --radius-xl value");
@@ -3767,7 +3911,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   // Conversation title runs one step above tab chrome (user: important info
   // read underweighted at 14px/500).
   assert.match(openCodeCss, /\.session-header h1\s*\{[^}]*font-size:\s*15px;[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);
-  assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 36px 28px;/s);
+  assert.match(openCodeCss, /\.thread\s*\{[^}]*padding:\s*20px 36px 20px;[^}]*gap:\s*20px;/s);
   assert.match(openCodeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s);
   assert.match(openCodeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
   assert.match(openCodeCss, /\.session-sidebar-footer button\s*\{[^}]*height:\s*36px;/s);
@@ -3775,9 +3919,9 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(openCodeCss,
     /\.workspace-tab:not\(:first-child\):not\(\.active\)::before\s*\{[^}]*width:\s*1\.5px;[^}]*height:\s*12px;/s);
   assert.match(openCodeCss,
-     // right:12px keeps the hover action clear of the list scrollbar band
-     // (mass-archive incident: drags landed on the action at right:2px).
-     /\.session-row-actions\s*\{[^}]*position:\s*absolute;[^}]*right:\s*12px;[^}]*background:\s*transparent;/s);
+    // The action replaces the unread dot in place while remaining one pixel
+    // farther from the scrollbar than the unsafe right:2px position.
+    /\.session-row-actions\s*\{[^}]*position:\s*absolute;[^}]*right:\s*3px;[^}]*background:\s*transparent;/s);
   assert.match(openCodeCss,
     /\.session-row:hover \.session-row-actions,[\s\S]*?\{[^}]*background:\s*linear-gradient\([\s\S]*?transparent 0,[\s\S]*?var\(--session-row-action-surface\) 10px,[\s\S]*?var\(--session-row-action-surface\) 100%[\s\S]*?\);[^}]*pointer-events:\s*auto;/s);
   // Selected rows must NOT pin the … actions open — they reveal on hover,
@@ -4358,7 +4502,10 @@ test("desktop composer accepts clipboard images exposed through DataTransfer ite
       },
     });
     textarea.dispatchEvent(event);
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    const deadline = Date.now() + 1_000;
+    while (!textarea.value.includes('[Image #1: clipboard.png]') && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+    }
   });
 
   assert.match(textarea.value, /\[Image #1: clipboard\.png\]/);

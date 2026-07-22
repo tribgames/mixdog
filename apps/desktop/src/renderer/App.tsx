@@ -161,29 +161,115 @@ function registerImagePreview(id: number, bytes: number, dataUrl: string) {
 // perceived lag is the renderer mounting every markdown/tool row at once.
 // Virtualize much earlier so long sessions paint a window, not the world.
 const TRANSCRIPT_VIRTUALIZE_THRESHOLD = 32;
-// 8 rows: 20 premeasured a whole extra screen of markdown on session open —
-// the dominant cost of the perceived open lag (main-process resume is
-// 55-250ms). 8 keeps a cushion for upward scrolling at ~40% of the mount bill.
-const TRANSCRIPT_VIRTUAL_OVERSCAN = 8;
+// Keep the entry window tight: Markdown/tool mounts dominate perceived session
+// open latency, while four rows still cover a fast first upward wheel.
+const TRANSCRIPT_VIRTUAL_OVERSCAN = 4;
 
-function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number {
-  if (!item) return 40;
-  // Streaming rows estimate by CURRENT text length: a fixed 160px reservation
-  // left a phantom blank band under the growing text (user: "약간 떨어져서
-  // 생성되는 느낌"), and an empty tail reserved a gap above the spinner.
-  if (item.kind === "assistant") {
-    const text = String(item.text || "").trim();
-    if (!text) return 28;
-    const estimate = 34 + Math.ceil(text.length / 70) * 22;
-    if (item.streaming) return Math.min(160, estimate);
-    // Fixed 160 under-estimated long answers by hundreds of px; every upward
-    // scroll re-measured and shifted the list (user: judder scrolling up).
-    // Length-proportional guesses keep corrections small in both directions.
-    return Math.min(680, estimate);
+const transcriptRowHeightEstimateCache = new WeakMap<object, number>();
+const transcriptStableRowHeightEstimateCache = new Map<string, { signature: string; estimate: number }>();
+const TRANSCRIPT_HEIGHT_SAMPLE_CHARS = 768;
+const TRANSCRIPT_STABLE_HEIGHT_CACHE_LIMIT = 4_096;
+
+function estimatedWrappedTextRows(text: string, columns = 70): number {
+  if (!text) return 1;
+  const sampledRows = (value: string): number => {
+    let rows = 1;
+    let column = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      if (code === 10) {
+        rows += 1;
+        column = 0;
+        continue;
+      }
+      if (code === 13) continue;
+      column += 1;
+      if (column > columns) {
+        rows += 1;
+        column = 1;
+      }
+    }
+    return rows;
+  };
+  if (text.length <= TRANSCRIPT_HEIGHT_SAMPLE_CHARS * 2) return sampledRows(text);
+  // Height estimation runs for every virtual row during the first render.
+  // Scan a fixed-size head/tail sample instead of multi-megabyte historical
+  // outputs; mounted rows replace the estimate with their measured height.
+  const head = text.slice(0, TRANSCRIPT_HEIGHT_SAMPLE_CHARS);
+  const tail = text.slice(-TRANSCRIPT_HEIGHT_SAMPLE_CHARS);
+  const sampledLength = head.length + tail.length;
+  const sampledIncrements = Math.max(1, sampledRows(head) + sampledRows(tail) - 2);
+  return Math.max(1, Math.round(sampledIncrements * (text.length / sampledLength)) + 1);
+}
+
+function stableTranscriptHeightKey(item: TranscriptItem): { key: string; signature: string } | null {
+  if (item.id === undefined || item.id === null) return null;
+  const text = String(item.text || "");
+  return {
+    key: String(item.id),
+    signature: [
+      item.kind || "",
+      item.streaming ? "1" : "0",
+      item.expanded ? "1" : "0",
+      text.length,
+      text.slice(0, 48),
+      text.slice(-48),
+    ].join("|"),
+  };
+}
+
+function rememberStableTranscriptHeight(key: string, signature: string, estimate: number): void {
+  transcriptStableRowHeightEstimateCache.delete(key);
+  transcriptStableRowHeightEstimateCache.set(key, { signature, estimate });
+  while (transcriptStableRowHeightEstimateCache.size > TRANSCRIPT_STABLE_HEIGHT_CACHE_LIMIT) {
+    const oldest = transcriptStableRowHeightEstimateCache.keys().next().value;
+    if (oldest === undefined) break;
+    transcriptStableRowHeightEstimateCache.delete(oldest);
   }
-  if (item.kind === "user") return 72;
-  if (item.kind === "tool") return item.expanded ? 180 : 56;
-  return 40;
+}
+
+function cachedStableTranscriptHeight(item: TranscriptItem): number | undefined {
+  const stable = stableTranscriptHeightKey(item);
+  if (!stable) return undefined;
+  const cached = transcriptStableRowHeightEstimateCache.get(stable.key);
+  if (!cached || cached.signature !== stable.signature) return undefined;
+  transcriptStableRowHeightEstimateCache.delete(stable.key);
+  transcriptStableRowHeightEstimateCache.set(stable.key, cached);
+  return cached.estimate;
+}
+
+function cacheStableTranscriptHeight(item: TranscriptItem, estimate: number): void {
+  const stable = stableTranscriptHeightKey(item);
+  if (stable) rememberStableTranscriptHeight(stable.key, stable.signature, estimate);
+}
+
+export function estimatedTranscriptRowHeight(item: TranscriptItem | undefined): number {
+  if (!item) return 40;
+  const cached = transcriptRowHeightEstimateCache.get(item);
+  if (cached !== undefined) return cached;
+  const stableCached = cachedStableTranscriptHeight(item);
+  if (stableCached !== undefined) {
+    transcriptRowHeightEstimateCache.set(item, stableCached);
+    return stableCached;
+  }
+  const text = String(item.text || "");
+  const textRows = estimatedWrappedTextRows(text);
+  let estimate: number;
+  if (item.kind === "assistant") {
+    // A live code/script response can already be thousands of pixels tall when
+    // the session is entered. The former 160px live cap forced one huge
+    // post-mount correction; estimate the current shape without that cap.
+    estimate = text ? Math.min(24_000, 34 + textRows * 23) : 28;
+  } else if (item.kind === "user") {
+    estimate = Math.min(8_000, Math.max(72, 34 + textRows * 23));
+  } else if (item.kind === "tool") {
+    estimate = item.expanded ? 180 : 56;
+  } else {
+    estimate = 40;
+  }
+  transcriptRowHeightEstimateCache.set(item, estimate);
+  cacheStableTranscriptHeight(item, estimate);
+  return estimate;
 }
 type Approval = RecordValue & {
   id?: string;
@@ -238,6 +324,19 @@ type Snapshot = RecordValue & {
 };
 
 const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };
+const EMPTY_TRANSCRIPT_ITEMS: TranscriptItem[] = [];
+
+export function hasActiveSnapshotWork(snapshot: Snapshot): boolean {
+  const spinnerActive = Boolean(snapshot.spinner && snapshot.spinner.active !== false);
+  const commandActive = Boolean(snapshot.commandStatus && snapshot.commandStatus.active !== false);
+  return Boolean(
+    snapshot.busy
+    || snapshot.commandBusy
+    || snapshot.thinking
+    || spinnerActive
+    || commandActive
+  );
+}
 const SESSION_SNAPSHOT_CACHE_LIMIT = 6;
 const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
 const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
@@ -466,23 +565,36 @@ async function copyTextToClipboard(value: string) {
 
 function useDesktopState() {
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY_SNAPSHOT);
+  const snapshotRef = useRef<Snapshot>(EMPTY_SNAPSHOT);
   const [connected, setConnected] = useState(Boolean(window.mixdogDesktop));
   const [error, setError] = useState("");
   const failureModel = useRef<TurnFailureModel>({
     scope: "",
     failedTurnKeys: [],
     activeToastTurns: {},
+    turnKeys: [],
   });
+  const failureInput = useRef<{ items: TranscriptItem[] | undefined; scope: string } | null>(null);
   const applySnapshot = useCallback((next: EngineSnapshot | null) => {
     const state = next && typeof next === "object" ? next as Snapshot : EMPTY_SNAPSHOT;
-    const scope = String(state.currentProject || state.project || state.cwd || "");
-    failureModel.current = reconcileTurnFailures(
-      failureModel.current,
-      state.items,
-      state.toasts,
-      scope,
-    );
-    setSnapshot({ ...state, failedTurnKeys: failureModel.current.failedTurnKeys });
+    const scope = `${String(state.currentProject || state.project || state.cwd || "")}\n${String(state.sessionId || "")}`;
+    const previousInput = failureInput.current;
+    if (!previousInput || previousInput.items !== state.items || previousInput.scope !== scope) {
+      failureModel.current = reconcileTurnFailures(
+        failureModel.current,
+        state.items,
+        state.toasts,
+        scope,
+      );
+      failureInput.current = { items: state.items, scope };
+    }
+    const decorated = {
+      ...state,
+      failedTurnKeys: failureModel.current.failedTurnKeys,
+      transcriptTurnKeys: failureModel.current.turnKeys,
+    };
+    snapshotRef.current = decorated;
+    setSnapshot(decorated);
   }, []);
 
   useEffect(() => {
@@ -505,11 +617,11 @@ function useDesktopState() {
     };
   }, [applySnapshot]);
 
-  return { snapshot, connected, error, setError, setSnapshot, applySnapshot };
+  return { snapshot, snapshotRef, connected, error, setError, setSnapshot, applySnapshot };
 }
 
 export function App() {
-  const { snapshot, connected, error, setError, applySnapshot } = useDesktopState();
+  const { snapshot, snapshotRef, connected, error, setError, applySnapshot } = useDesktopState();
   // Layout persists across launches (user decision); a FRESH install opens
   // with the sidebar visible and the dock closed.
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -637,6 +749,7 @@ export function App() {
   const pendingSessionRenames = useRef(new Map<string, { title: string }>());
   const pendingSessionDeletes = useRef(new Set<string>());
   const isBusy = Boolean(snapshot.busy || snapshot.commandBusy);
+  const activeBusy = hasActiveSnapshotWork(snapshot);
   const startupMeasured = useRef(false);
   useEffect(() => {
     if (!import.meta.env?.DEV || startupMeasured.current) return;
@@ -1353,25 +1466,43 @@ export function App() {
     if (import.meta.env?.DEV) performance.mark(timingStart);
     void invoke(async () => {
       try {
-        const next = await window.mixdogDesktop?.resumeSession(sessionId);
-        const resumedSessionId = String(asRecord(next)?.sessionId || "");
-        const resumedForkedFrom = String(asRecord(next)?.sessionForkedFrom || "");
+        const response = await window.mixdogDesktop?.resumeSession(sessionId);
+        const resumedSessionId = String(asRecord(response)?.sessionId || "");
+        const resumedForkedFrom = String(asRecord(response)?.sessionForkedFrom || "");
         // A fork-on-resume (live session opened as a copy) legitimately comes
         // back under a fresh id whose sessionForkedFrom names the clicked row.
         if (resumedSessionId && resumedSessionId !== sessionId && resumedForkedFrom !== sessionId) {
           throw new Error("Session switch returned an unexpected session.");
         }
         const effectiveSessionId = resumedSessionId || sessionId;
+        let next: EngineSnapshot | Snapshot | null | undefined = response;
+        if (!Array.isArray(asRecord(next)?.items)) {
+          const published = snapshotRef.current;
+          if (String(published.sessionId || "") === effectiveSessionId) {
+            next = published;
+          } else {
+            // Remote/older hosts may acknowledge before their state event.
+            // Normal local resumes never take this fallback.
+            const fallback = await window.mixdogDesktop?.getSnapshot();
+            if (String(asRecord(fallback)?.sessionId || "") === effectiveSessionId) next = fallback;
+          }
+        }
         const resumedTitle = session
           ? sessionSummaryTitle(session)
-          : String(asRecord(next)?.desktopSessionTitle || "").trim() || "Untitled session";
+          : String(asRecord(response)?.desktopSessionTitle || asRecord(next)?.desktopSessionTitle || "").trim()
+            || "Untitled session";
         rememberSessionSnapshot(next);
         const superseded = Boolean(
           pendingResumeTarget.current && pendingResumeTarget.current !== effectiveSessionId,
         );
         if (!superseded) {
           frozenSessionSnapshot.current = null;
-          applySnapshot(next);
+          // resumeSession publishes the same state before its IPC result
+          // resolves. Do not apply that long transcript twice; remote shims
+          // without a state publication still fall back to the returned value.
+          if (String(snapshotRef.current.sessionId || "") !== effectiveSessionId) {
+            applySnapshot(next as EngineSnapshot);
+          }
           activateSelection({ kind: "session", id: effectiveSessionId }, resumedTitle);
           setSessions((current) => {
             let changed = false;
@@ -1420,6 +1551,9 @@ export function App() {
     });
   };
   resumeSessionRef.current = resumeSession;
+  const prefetchSession = useCallback((sessionId: string) => (
+    window.mixdogDesktop?.prefetchSession?.(sessionId) ?? Promise.resolve(false)
+  ), []);
   const openSettings = useCallback((section: SettingsSection | null = null) => {
     // Perf diagnostics: SettingsView's mount effect reports the request→paint
     // delta through the perf-log channel (no-op unless MIXDOG_DESKTOP_PERF=1).
@@ -1520,6 +1654,12 @@ export function App() {
     ? sessions.find((session) => session.id === navigationSelection.id)
     : undefined;
   const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
+  const workingSessionIds = useMemo(() => {
+    const ids = new Set(sessions.filter((session) => session.working === true).map((session) => session.id));
+    const activeSessionId = String(snapshot.sessionId || "");
+    if (activeBusy && activeSessionId) ids.add(activeSessionId);
+    return ids;
+  }, [activeBusy, sessions, snapshot.sessionId]);
   // Viewing a session consumes its unread marker.
   const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";
   useEffect(() => {
@@ -1677,7 +1817,8 @@ export function App() {
         sidebarOpen={sidebarOpen}
         tabs={tabs}
         activeKey={activeTabKey}
-        activeBusy={isBusy}
+        activeBusy={activeBusy}
+        workingSessionIds={workingSessionIds}
         updaterState={updaterState}
         onToggleSidebar={() => setSidebarOpen((open) => !open)}
         onSelectTab={navigateTab}
@@ -1690,13 +1831,14 @@ export function App() {
         <SessionSidebar
           open={sidebarOpen}
           sessions={sessions}
-          busySessionId={isBusy ? String(snapshot.sessionId || "") : ""}
+          workingSessionIds={workingSessionIds}
           unreadSessionIds={unreadSessionIds}
           selection={navigationSelection}
           onNewTask={(draft?: NavigationSelection) => { closeSidebarForNavigation(); startTask(draft); }}
           onOpenProjects={() => { closeSidebarForNavigation(); setProjectPanelOpen(true); }}
           onOpenSchedules={() => { closeSidebarForNavigation(); openSchedules(); }}
           onOpenSettings={() => { closeSidebarForNavigation(); openSettings(); }}
+          onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
           onResumeSession={(sessionId: string) => { closeSidebarForNavigation(); resumeSession(sessionId); }}
           onRenameSession={renameSession}
           onArchiveSession={archiveSession}
@@ -2079,6 +2221,8 @@ function Conversation({
   const virtualContent = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
   const programmaticScroll = useRef(false);
+  const pointerScrollIntent = useRef(false);
+  const scrollIntentUntil = useRef(0);
   const scrollTimer = useRef<number | undefined>(undefined);
   const stickyBottomFrame = useRef<number | undefined>(undefined);
   const stickyBottomBehavior = useRef<ScrollBehavior>("auto");
@@ -2093,9 +2237,10 @@ function Conversation({
     submit, invokeResult, applySnapshot, onNewTask, onStartProject, onResumeSession,
     onOpenProjects, onOpenSessions, onOpenSettings, onOpenCommandSurface,
   };
+  const settledItems = Array.isArray(snapshot.items) ? snapshot.items : EMPTY_TRANSCRIPT_ITEMS;
   const items = useMemo(
-    () => mergeTranscript(snapshot.items, snapshot.streamingTail),
-    [snapshot.items, snapshot.streamingTail],
+    () => mergeTranscript(settledItems, snapshot.streamingTail),
+    [settledItems, snapshot.streamingTail],
   );
   const transcriptSessionKey = String(routeSnapshot.sessionId || 'new-task');
   const virtualizingTranscript = items.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD;
@@ -2118,11 +2263,17 @@ function Conversation({
     } catch { return undefined; }
   }, []);
   const failedTurns = useMemo(() => new Set(snapshot.failedTurnKeys || []), [snapshot.failedTurnKeys]);
+  const precomputedTurnKeys = Array.isArray(snapshot.transcriptTurnKeys)
+    ? snapshot.transcriptTurnKeys as string[]
+    : null;
   const turnMetadata = useMemo(() => {
-    // `items` already contains the merged streaming tail. Reusing it avoids a
-    // second full-array copy on every session load and streaming publication.
-    const current = items;
-    const turnKeys = transcriptTurnKeys(current);
+    // Streaming text changes must not rescan the full settled transcript.
+    // Completion/failure structure lives in settled items; the live tail only
+    // needs one derived turn key below.
+    const current = settledItems;
+    const turnKeys = precomputedTurnKeys?.length === current.length
+      ? precomputedTurnKeys
+      : transcriptTurnKeys(current);
     const lastItemByTurn = new Map<string, number>();
     const lastCompletionByTurn = new Map<string, number>();
     const lastAssistantByTurn = new Map<string, number>();
@@ -2142,18 +2293,39 @@ function Conversation({
       attachedCompletionIndexes.add(index);
     });
     return { turnKeys, lastItemByTurn, lastCompletionByTurn, completionByAssistant, attachedCompletionIndexes };
-  }, [items, failedTurns]);
-  const { turnKeys, lastItemByTurn, lastCompletionByTurn, completionByAssistant, attachedCompletionIndexes } = turnMetadata;
+  }, [settledItems, failedTurns, precomputedTurnKeys]);
+  const { turnKeys: settledTurnKeys, lastItemByTurn, lastCompletionByTurn, completionByAssistant, attachedCompletionIndexes } = turnMetadata;
+  const tailAppended = Boolean(snapshot.streamingTail) && items.length === settledItems.length + 1;
+  const tailTurnKey = useMemo(() => {
+    if (!tailAppended) return "";
+    const previous = settledItems.at(-1);
+    if (previous?.kind !== "turndone" && settledTurnKeys.length > 0) {
+      return settledTurnKeys.at(-1) || "";
+    }
+    return transcriptTurnKeys([items.at(-1)])[0] || "";
+  }, [items, settledItems, settledTurnKeys, tailAppended]);
+  const turnKeyAt = useCallback((index: number) => (
+    index < settledTurnKeys.length ? settledTurnKeys[index] : tailTurnKey
+  ), [settledTurnKeys, tailTurnKey]);
   const transcriptItemHidden = (index: number) => {
     if (attachedCompletionIndexes.has(index)) return true;
     const item = items[index];
     const completion = item?.kind === "statusdone" || item?.kind === "turndone";
-    const turnKey = turnKeys[index];
+    const turnKey = turnKeyAt(index);
     return Boolean(completion && failedTurns.has(turnKey) && index !== lastCompletionByTurn.get(turnKey));
   };
-  const transcriptItemKey = useCallback((index: number) => `${transcriptSessionKey}:${String(
-    items[index]?.id ?? `${items[index]?.kind || "row"}-${index}`,
-  )}:${index}`, [items, transcriptSessionKey]);
+  // Row identity must survive index shifts: the streaming tail's index moves
+  // every time a settled row lands above it, and an index-suffixed key made
+  // the virtualizer drop that row's measured size on every append — the tail
+  // then repainted at its ESTIMATE height until re-measure (user: rows bounce
+  // up/down inside a still-streaming session). Index remains only as the
+  // fallback identity for id-less rows.
+  const transcriptItemKey = useCallback((index: number) => {
+    const id = items[index]?.id;
+    return id !== undefined && id !== null
+      ? `${transcriptSessionKey}:${String(id)}`
+      : `${transcriptSessionKey}:${items[index]?.kind || "row"}-${index}`;
+  }, [items, transcriptSessionKey]);
   const transcriptVirtualizer = useVirtualizer({
     count: virtualizingTranscript ? items.length : 0,
     enabled: virtualizingTranscript,
@@ -2200,8 +2372,13 @@ function Conversation({
   ) => {
     if (!followOutput.current) return;
     programmaticScroll.current = true;
-    if (virtualizingTranscript) transcriptVirtualizer.scrollToEnd({ behavior });
-    else element.scrollTo({ top: element.scrollHeight, behavior });
+    // One authority per mode: the virtualizer owns virtual geometry and the
+    // browser owns the short, non-virtual transcript.
+    if (virtualizingTranscript) {
+      transcriptVirtualizer.scrollToEnd({ behavior });
+    } else {
+      element.scrollTo({ top: element.scrollHeight, behavior });
+    }
     window.clearTimeout(scrollTimer.current);
     scrollTimer.current = window.setTimeout(() => {
       programmaticScroll.current = false;
@@ -2285,7 +2462,6 @@ function Conversation({
     followOutput.current = atEnd;
     setFollowing(atEnd);
     programmaticScroll.current = true;
-    if (virtualizingTranscript) transcriptVirtualizer.measure();
     if (saved && !saved.atEnd) {
       if (virtualizingTranscript) transcriptVirtualizer.scrollToOffset(saved.top, { behavior: 'auto' });
       else element.scrollTo({ top: saved.top, behavior: 'auto' });
@@ -2318,8 +2494,17 @@ function Conversation({
     const element = viewport.current;
     const contentElement = content.current;
     if (!element || !contentElement || typeof ResizeObserver === "undefined") return undefined;
+    // The observer schedules follow, but virtualized writes still flow through
+    // transcriptVirtualizer.scrollToEnd — there is no competing raw DOM
+    // scroll authority.
     const observer = new ResizeObserver(() => scheduleStickyBottom(element));
     observer.observe(contentElement);
+    // The scroll container itself resizes when the phone keyboard opens
+    // (mobile-shell pins the layout to the visual viewport): while following,
+    // the last row must ride up with the keyboard and settle back down when
+    // it closes. Off-bottom readers are untouched (scheduleStickyBottom
+    // no-ops without follow).
+    observer.observe(element);
     return () => observer.disconnect();
   }, [scheduleStickyBottom, transcriptSessionKey]);
   useLayoutEffect(() => {
@@ -2329,13 +2514,13 @@ function Conversation({
   }, [items.length, scheduleStickyBottom, snapshot.streamingTail?.text]);
 
   const renderTranscriptItem = (item: TranscriptItem, index: number) => {
-    const turnKey = turnKeys[index];
+    const turnKey = turnKeyAt(index);
     const completion = item.kind === "statusdone" || item.kind === "turndone";
     // Session retry (OpenCode parity): resubmit the failed turn's original
     // user prompt through the normal composer submit path.
     const retryTurn = () => {
       for (let cursor = 0; cursor < items.length; cursor += 1) {
-        if (turnKeys[cursor] !== turnKey || items[cursor]?.kind !== "user") continue;
+        if (turnKeyAt(cursor) !== turnKey || items[cursor]?.kind !== "user") continue;
         const text = String(items[cursor]?.text ?? "").trim();
         if (text) void composerSubmit(text);
         return;
@@ -2358,9 +2543,12 @@ function Conversation({
     const row = <TranscriptRow item={item} completion={completionByAssistant.get(index)}
       attachedUser={item.kind === "user" && items[index - 1]?.kind === "user"}
       key={`${String(routeSnapshot.sessionId || "new-task")}:${String(item.id ?? `${item.kind}-${index}`)}`} />;
+    const lastItemIndex = tailAppended && tailTurnKey === turnKey
+      ? items.length - 1
+      : lastItemByTurn.get(turnKey);
     const pendingFailure = failedTurns.has(turnKey) &&
       !lastCompletionByTurn.has(turnKey) &&
-      lastItemByTurn.get(turnKey) === index;
+      lastItemIndex === index;
     if (!pendingFailure) return row;
     return <React.Fragment key={`pending-${turnKey}`}>
       {row}
@@ -2376,11 +2564,27 @@ function Conversation({
         aria-busy={Boolean(snapshot.busy || snapshot.commandBusy)} tabIndex={0}
         onScroll={(event) => {
         const currentFollowing = followOutput.current;
-        const nextFollowing = followAfterScroll(
-          currentFollowing,
-          programmaticScroll.current,
-          event.currentTarget,
-        );
+        const explicitScrollIntent = pointerScrollIntent.current
+          || performance.now() <= scrollIntentUntil.current;
+        // Virtualizer measurement correction can emit a native scroll well
+        // after the 80ms programmatic marker expires. While already following,
+        // only explicit wheel/key/drag intent may disarm it; an unexplained
+        // layout scroll is repinned immediately in the same event.
+        const passiveLayoutScroll = currentFollowing
+          && !programmaticScroll.current
+          && !explicitScrollIntent;
+        const nextFollowing = passiveLayoutScroll
+          ? true
+          : followAfterScroll(
+              currentFollowing,
+              programmaticScroll.current,
+              event.currentTarget,
+            );
+        if (passiveLayoutScroll
+          && event.currentTarget.scrollHeight - event.currentTarget.scrollTop
+            - event.currentTarget.clientHeight > 1) {
+          scheduleStickyBottom(event.currentTarget);
+        }
         if (nextFollowing !== currentFollowing) {
           followOutput.current = nextFollowing;
           setFollowing(nextFollowing);
@@ -2391,6 +2595,7 @@ function Conversation({
         });
       }} onWheel={(event) => {
           programmaticScroll.current = false;
+          scrollIntentUntil.current = performance.now() + 180;
           // An upward wheel is an explicit read-back intent: break follow
           // IMMEDIATELY. Waiting for the 80px shouldAutoFollow threshold let
           // the pre-paint pin yank the view back to bottom between the first
@@ -2400,11 +2605,20 @@ function Conversation({
             setFollowing(false);
           }
         }}
-        onPointerDown={() => { programmaticScroll.current = false; }}
-        onTouchStart={() => { programmaticScroll.current = false; }}
+        onPointerDown={() => {
+          programmaticScroll.current = false;
+          pointerScrollIntent.current = true;
+        }}
+        onPointerUp={() => { pointerScrollIntent.current = false; }}
+        onPointerCancel={() => { pointerScrollIntent.current = false; }}
+        onTouchStart={() => {
+          programmaticScroll.current = false;
+          scrollIntentUntil.current = performance.now() + 240;
+        }}
         onKeyDown={(event) => {
           if (isScrollIntentKey(event.key)) {
             programmaticScroll.current = false;
+            scrollIntentUntil.current = performance.now() + 180;
             if ((event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home")
               && followOutput.current) {
               followOutput.current = false;
@@ -2430,16 +2644,25 @@ function Conversation({
           )}
           {virtualizingTranscript ? <div className="transcript-virtual-space" data-virtualized="true"
             ref={virtualContent} style={{ height: `${transcriptVirtualSize}px` }}>
-            {transcriptVirtualizer.getVirtualItems().map((virtualRow) => (
-              <div className={`transcript-virtual-row ${transcriptItemHidden(virtualRow.index)
-                ? "transcript-virtual-row--empty" : ""} ${virtualRow.index === items.length - 1
+            {transcriptVirtualizer.getVirtualItems().map((virtualRow) => {
+              const tailRow = virtualRow.index === items.length - 1;
+              return <div className={`transcript-virtual-row ${transcriptItemHidden(virtualRow.index)
+                ? "transcript-virtual-row--empty" : ""} ${tailRow
                 ? "transcript-virtual-row--tail" : ""}`} key={virtualRow.key}
                 data-index={virtualRow.index}
                 ref={transcriptVirtualizer.measureElement}
-                style={{ transform: `translateY(${virtualRow.start}px)` }}>
+                // The tail row anchors to the spacer BOTTOM instead of a
+                // translateY start: streamed text commits one frame before the
+                // virtualizer measures it, and a top-anchored tail painted that
+                // frame overflowing past the spacer (bottom line bouncing
+                // up/down while entering a streaming session). Bottom-anchored,
+                // the newest line stays glued to the pinned bottom and the
+                // one-frame slack moves to the row's top edge instead.
+                style={tailRow ? { top: "auto", bottom: 0 }
+                  : { transform: `translateY(${virtualRow.start}px)` }}>
                 {renderTranscriptItem(items[virtualRow.index], virtualRow.index)}
-              </div>
-            ))}
+              </div>;
+            })}
           </div> : items.map(renderTranscriptItem)}
           <LiveActivity snapshot={snapshot} />
           {snapshot.toolApproval && (

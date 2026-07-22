@@ -4,8 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { EngineHost } from "./engine-host.ts";
-import { TranscriptRow } from "../renderer/App.tsx";
+import { DESKTOP_TRANSCRIPT_ITEM_LIMIT, EngineHost } from "./engine-host.ts";
+import {
+  TranscriptRow,
+  estimatedTranscriptRowHeight,
+  hasActiveSnapshotWork,
+} from "../renderer/App.tsx";
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -64,6 +68,7 @@ test("resumeSession uses the cached catalog before requesting a storage refresh"
   await mkdir(workspace, { recursive: true });
   const canonicalWorkspace = await realpath(workspace);
   const calls = [];
+  let resumeOptions = null;
   let state = { sessionId: "", items: [], queued: [] };
   const row = {
     id: "cached_session",
@@ -77,7 +82,8 @@ test("resumeSession uses the cached catalog before requesting a storage refresh"
       calls.push(options);
       return [row];
     },
-    resume: async (sessionId) => {
+    resume: async (sessionId, options) => {
+      resumeOptions = options;
       state = { sessionId, items: [], queued: [] };
       return true;
     },
@@ -93,10 +99,32 @@ test("resumeSession uses the cached catalog before requesting a storage refresh"
   try {
     await host.resumeSession(row.id);
     assert.deepEqual(calls, [undefined]);
+    assert.deepEqual(resumeOptions, { transcriptItemLimit: DESKTOP_TRANSCRIPT_ITEM_LIMIT });
   } finally {
     await host.dispose();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("session prefetch reaches the warm engine without changing its active state", async () => {
+  const calls = [];
+  const state = { sessionId: "active", items: [], queued: [] };
+  const engine = {
+    getState: () => state,
+    prefetchSession: async (id) => {
+      calls.push(id);
+      return true;
+    },
+    dispose: async () => {},
+  };
+  const host = new EngineHost({ createEngine: async () => engine });
+  const internal = host;
+  internal.engine = engine;
+
+  assert.equal(await host.prefetchSession("next_session"), true);
+  assert.deepEqual(calls, ["next_session"]);
+  assert.equal(engine.getState().sessionId, "active");
+  await host.dispose();
 });
 
 test("TranscriptRow keeps semantically unchanged rows memoized", () => {
@@ -110,6 +138,41 @@ test("TranscriptRow keeps semantically unchanged rows memoized", () => {
     TranscriptRow.compare({ item }, { item: { ...item, text: "Updated response" } }),
     false,
   );
+});
+
+test("live transcript estimates scale with a long streaming script", () => {
+  const short = {
+    id: "live-script",
+    kind: "assistant",
+    text: "```powershell\nGet-ChildItem\n```",
+    streaming: true,
+  };
+  const long = {
+    ...short,
+    text: `\`\`\`powershell\n${Array.from({ length: 90 }, (_, index) =>
+      `Write-Output "streaming line ${index}"`).join("\n")}\n\`\`\``,
+  };
+  assert.ok(estimatedTranscriptRowHeight(short) < estimatedTranscriptRowHeight(long));
+  assert.ok(estimatedTranscriptRowHeight(long) > 1_500,
+    "a mounted long live script must not start from the old 160px cap");
+});
+
+test("desktop work detection includes live engine activity fields", () => {
+  assert.equal(hasActiveSnapshotWork({ items: [], queued: [], busy: true }), true);
+  assert.equal(hasActiveSnapshotWork({
+    items: [], queued: [], busy: false, spinner: { active: true },
+  }), true);
+  assert.equal(hasActiveSnapshotWork({
+    items: [], queued: [], thinking: { summary: "Working" },
+  }), true);
+  assert.equal(hasActiveSnapshotWork({
+    items: [], queued: [], spinner: { active: false }, commandStatus: { active: false },
+  }), false);
+});
+
+test("streaming-only state patches preserve settled item array identity", async () => {
+  const preload = await readFile(new URL("../preload/index.ts", import.meta.url), "utf8");
+  assert.match(preload, /patch\.prefix !== items\.length \|\| patch\.append\.length > 0/);
 });
 
 test("heavy renderer surfaces remain dynamic imports", async () => {

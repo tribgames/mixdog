@@ -38,6 +38,7 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.setSessionArchived, sessionId, archived),
   deleteSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.deleteSession, sessionId),
   getRemoteAccessInfo: () => ipcRenderer.invoke(DESKTOP_IPC.remoteAccessInfo),
+  prefetchSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId),
   resumeSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.resumeSession, sessionId),
   searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
     ipcRenderer.invoke(DESKTOP_IPC.searchProjectFiles, projectIdOrWorkspaceId, query, limit),
@@ -78,7 +79,12 @@ const api: DesktopApi = {
         try { ipcRenderer.send(DESKTOP_IPC.stateResync); } catch { /* next full send recovers */ }
         return;
       }
-      items = items.slice(0, patch.prefix).concat(patch.append);
+      // A streaming-tail-only publication carries an empty settled-items
+      // patch. Preserve the array identity so renderer memos do not rescan the
+      // full transcript for every token flush.
+      if (patch.prefix !== items.length || patch.append.length > 0) {
+        items = items.slice(0, patch.prefix).concat(patch.append);
+      }
       revision = patch.revision;
       const snapshot = { ...record };
       delete snapshot.__itemsPatch;
