@@ -409,6 +409,32 @@ test('abort before a newline settles the accumulated partial response', async ()
   assert.equal(assistants[0].text, 'partial without newline');
 });
 
+test('abort after tool boundaries does not replay committed progress as one giant assistant row', async () => {
+  const harness = makeTurnHarness(async (_text, options) => {
+    options.onAssistantText('first progress');
+    await options.onToolCall(1, [{
+      id: 'call_1',
+      name: 'shell',
+      input: { command: 'first' },
+    }]);
+    options.onToolResult({ tool_call_id: 'call_1', content: 'ok' });
+    options.onAssistantText('second progress');
+    await options.onToolCall(2, [{
+      id: 'call_2',
+      name: 'shell',
+      input: { command: 'second' },
+    }]);
+    const error = new Error('interrupted');
+    error.name = 'SessionClosedError';
+    throw error;
+  });
+
+  assert.equal(await harness.runTurn('go'), 'cancelled');
+  assert.equal(harness.getState().streamingTail, null);
+  const assistants = harness.getState().items.filter((item) => item.kind === 'assistant');
+  assert.deepEqual(assistants.map((item) => item.text), ['first progress', 'second progress']);
+});
+
 // Codifies pre-existing parity: the old in-items completed-line snapshot survived starved recovery.
 test('starved Esc recovery settles a non-empty tail exactly once', async () => {
   let state = {

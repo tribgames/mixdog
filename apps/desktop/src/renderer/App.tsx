@@ -89,6 +89,7 @@ import { ModelPicker } from "./ModelPicker";
 import { modelDisplayName } from "./provider-display";
 import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
 import { TooltipLayer } from "./TooltipLayer";
+import { acquireModalLayer } from "./modal-layer";
 import {
   SLASH_COMMANDS,
   type CommandSurface as CommandSurfaceName,
@@ -682,11 +683,15 @@ export function App() {
   }, [dockOpen]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   useLayoutEffect(() => {
     const subscribe = window.mixdogDesktop.subscribeUpdaterState;
     if (typeof subscribe !== "function") return;
     return subscribe((next) => setUpdaterState(next));
   }, []);
+  useEffect(() => {
+    if (updaterState.status !== "ready") setUpdateDialogOpen(false);
+  }, [updaterState.status]);
   const [sessions, setSessions] = useState<DesktopSessionSummary[]>([]);
   // Recent-list unread dots: session ids whose stored updatedAt advanced while
   // the session was not the viewed selection (Claude-style activity marker).
@@ -956,6 +961,11 @@ export function App() {
     }
   }, [setError]);
   const openDesktopUpdate = useCallback(() => {
+    if (updaterState.status === "ready") setUpdateDialogOpen(true);
+  }, [updaterState.status]);
+  const closeDesktopUpdate = useCallback(() => setUpdateDialogOpen(false), []);
+  const installDesktopUpdate = useCallback(() => {
+    setUpdateDialogOpen(false);
     void invoke(async () => {
       const next = await window.mixdogDesktop.showDesktopUpdate();
       setUpdaterState(next);
@@ -1987,6 +1997,11 @@ export function App() {
           }} onClose={() => setCommandSurface(null)} />}
         {onboardingOpen && <OnboardingWizard api={window.mixdogDesktop} onDone={() => setOnboardingOpen(false)} />}
       </Suspense>
+      {updateDialogOpen && updaterState.status === "ready" && <DesktopUpdateDialog
+        version={updaterState.version}
+        onCancel={closeDesktopUpdate}
+        onConfirm={installDesktopUpdate}
+      />}
       <DesktopToastRegion
         bridgeError={error || (!connected ? 'Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop.' : '')}
         toasts={Array.isArray(snapshot.toasts) ? snapshot.toasts : []}
@@ -1995,6 +2010,77 @@ export function App() {
       <TooltipLayer />
     </div>
   );
+}
+
+export function DesktopUpdateDialog({ version, onCancel, onConfirm }: {
+  version: string;
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    const layer = acquireModalLayer(shell ? [shell] : []);
+    layer.attachSurface(surfaceRef.current);
+    cancelRef.current?.focus({ preventScroll: true });
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!layer.isTop()) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) || []);
+      if (!controls.length) {
+        event.preventDefault();
+        dialogRef.current?.focus();
+        return;
+      }
+      const current = controls.indexOf(document.activeElement as HTMLElement);
+      const next = event.shiftKey
+        ? (current <= 0 ? controls.length - 1 : current - 1)
+        : (current < 0 || current === controls.length - 1 ? 0 : current + 1);
+      event.preventDefault();
+      controls[next]?.focus();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      layer.release();
+      prior?.focus({ preventScroll: true });
+    };
+  }, [onCancel]);
+
+  return createPortal(<div ref={surfaceRef} className="settings-confirm-layer"
+    onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onCancel();
+    }}>
+    <section ref={dialogRef} className="settings-confirm-dialog desktop-update-dialog"
+      role="alertdialog" aria-modal="true" aria-labelledby="desktop-update-title"
+      aria-describedby="desktop-update-description" tabIndex={-1}
+      data-desktop-update-dialog>
+      <header>
+        <h3 id="desktop-update-title">Install Mixdog {version}?</h3>
+        <button type="button" aria-label="Close update confirmation" onClick={onCancel}>
+          <X aria-hidden="true" size={15} />
+        </button>
+      </header>
+      <p id="desktop-update-description">
+        Mixdog will close while the update is installed, then reopen automatically.
+      </p>
+      <footer>
+        <button ref={cancelRef} type="button" onClick={onCancel}>Cancel</button>
+        <button type="button" className="primary" onClick={onConfirm}>Install and restart</button>
+      </footer>
+    </section>
+  </div>, document.body);
 }
 
 function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {

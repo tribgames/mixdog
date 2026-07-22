@@ -1278,9 +1278,13 @@ export function createRunTurn(bag) {
         flushStreamBatch(); // ensure any batched text lands before the error notice
         if (error?.name === 'SessionClosedError') {
           cancelled = true;
-          if (assistantText.trim()) {
-            const id = currentAssistantId || ensureAssistant(assistantText);
-            settleStreamingTail(id, { text: currentAssistantText || assistantText });
+          // Tool boundaries already sealed prior progress segments into their
+          // own rows. On abort, preserve only the still-open segment; replaying
+          // turn-global assistantText creates one giant duplicate after the
+          // cancelled tool card.
+          if (currentAssistantText.trim()) {
+            const id = currentAssistantId || ensureAssistant(currentAssistantText);
+            settleStreamingTail(id, { text: currentAssistantText });
           }
           // Finalize pending tool cards so they don't stay "Running..." forever
           // after cancellation. Without this, the spinner vanishes and TurnDone

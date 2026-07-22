@@ -7,7 +7,14 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 
 register(new URL("./settings/test-css-loader.mjs", import.meta.url));
-const { App, ApprovalCard, ContextUsageIndicator, LiveWorkStatus, TranscriptRow } = await import("./App.tsx");
+const {
+  App,
+  ApprovalCard,
+  ContextUsageIndicator,
+  DesktopUpdateDialog,
+  LiveWorkStatus,
+  TranscriptRow,
+} = await import("./App.tsx");
 const { ContextBody } = await import("./CommandSurface.tsx");
 const { DesktopTitlebar } = await import("./navigation.tsx");
 const { OpenSelect } = await import("./OpenSelect.tsx");
@@ -81,6 +88,21 @@ function installDom() {
   Object.defineProperty(background, "inert", { value: false, writable: true, configurable: true });
   root = createRoot(document.getElementById("root"));
   return background;
+}
+
+function elementLabel(element) {
+  if (!(element instanceof Element)) return String(element);
+  const id = element.id ? `#${element.id}` : "";
+  const aria = element.getAttribute("aria-label");
+  return `<${element.tagName.toLowerCase()}${id}${aria ? ` aria-label="${aria.slice(0, 80)}"` : ""}>`;
+}
+
+function assertActiveElement(expected, message) {
+  assert.equal(
+    document.activeElement === expected,
+    true,
+    `${message}; expected ${elementLabel(expected)}, received ${elementLabel(document.activeElement)}`,
+  );
 }
 
 async function openProjectSwitcher() {
@@ -1711,6 +1733,15 @@ test("sidebar footer keeps settings while the titlebar exposes the OpenCode-styl
   assert.equal(document.querySelector(".sidebar-update-button"), null);
   await act(async () => {
     update.click();
+    await Promise.resolve();
+  });
+  assert.equal(updateOpens, 0, "clicking Update must not install before confirmation");
+  const confirmation = document.querySelector("[data-desktop-update-dialog]");
+  assert.equal(confirmation != null, true, "clicking Update should open the themed confirmation");
+  assert.match(confirmation.textContent, /Install Mixdog 2\.0\.0/);
+  await act(async () => {
+    [...confirmation.querySelectorAll("button")]
+      .find((button) => button.textContent === "Install and restart").click();
     await Promise.resolve();
   });
   assert.equal(updateOpens, 1);
@@ -4152,6 +4183,74 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   assert.equal(document.querySelector(".titlebar-update")?.getAttribute("aria-label"), "Install Mixdog 2.0.0");
   assert.equal(document.querySelector(".titlebar-update-shell")?.previousElementSibling?.classList.contains(
     "workspace-tabs-shell"), true);
+});
+
+test("desktop update confirmation uses the themed modal and protects install behind confirmation", async () => {
+  const shell = installDom();
+  let cancelled = 0;
+  let confirmed = 0;
+  function Harness() {
+    const [open, setOpen] = React.useState(false);
+    return React.createElement(React.Fragment, null,
+      React.createElement("button", {
+        type: "button",
+        id: "update-trigger",
+        onClick: () => setOpen(true),
+      }, "Update"),
+      open && React.createElement(DesktopUpdateDialog, {
+        version: "2.0.0",
+        onCancel: () => {
+          cancelled += 1;
+          setOpen(false);
+        },
+        onConfirm: () => {
+          confirmed += 1;
+          setOpen(false);
+        },
+      }),
+    );
+  }
+  await act(async () => root.render(React.createElement(Harness)));
+  const trigger = document.getElementById("update-trigger");
+  await act(async () => {
+    trigger.focus();
+    trigger.click();
+  });
+  const dialog = document.querySelector("[data-desktop-update-dialog]");
+  const close = dialog.querySelector('[aria-label="Close update confirmation"]');
+  const cancel = [...dialog.querySelectorAll("button")].find((button) => button.textContent === "Cancel");
+  const install = [...dialog.querySelectorAll("button")].find((button) => button.textContent === "Install and restart");
+  assert.equal(dialog.classList.contains("settings-confirm-dialog"), true);
+  assert.equal(dialog.getAttribute("role"), "alertdialog");
+  assert.equal(dialog.getAttribute("aria-modal"), "true");
+  assert.match(dialog.textContent, /Install Mixdog 2\.0\.0/);
+  assert.equal(shell.inert, true);
+  assert.equal(shell.getAttribute("aria-hidden"), "true");
+  assertActiveElement(cancel, "destructive update action must not receive initial focus");
+  await act(async () => {
+    install.focus();
+    document.dispatchEvent(new window.KeyboardEvent("keydown", {
+      key: "Tab", bubbles: true,
+    }));
+  });
+  assertActiveElement(close, "focus remains trapped inside the update dialog");
+  await act(async () => {
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  assert.equal(cancelled, 1);
+  assert.equal(confirmed, 0);
+  assert.equal(document.querySelector("[data-desktop-update-dialog]"), null);
+  assert.equal(shell.inert, false);
+  assert.equal(shell.hasAttribute("aria-hidden"), false);
+  assertActiveElement(trigger, "closing the update dialog restores trigger focus");
+
+  await act(async () => trigger.click());
+  await act(async () => {
+    [...document.querySelectorAll("[data-desktop-update-dialog] button")]
+      .find((button) => button.textContent === "Install and restart").click();
+  });
+  assert.equal(confirmed, 1);
+  assert.equal(document.querySelector("[data-desktop-update-dialog]"), null);
 });
 
 test("model selector remains available for a next-session route during turn busy and closes for commandBusy", async () => {
