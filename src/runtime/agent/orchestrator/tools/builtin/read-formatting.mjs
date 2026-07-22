@@ -18,8 +18,7 @@ export const SMART_READ_TAIL_LINES = _readEnvInt('MIXDOG_READ_TAIL_LINES', 400);
 // floor mostly fired on full:true mid-size reads where the advisory was pure
 // tail bloat. Raised to 40 KB to keep the guidance only where re-reading a big
 // file actually hurts.
-export const READ_CONTEXT_ADVISORY_BYTES = 40 * 1024;
-export const READ_MAX_RENDERED_LINE_CHARS = 2_000;
+const READ_MAX_RENDERED_LINE_CHARS = 2_000;
 // The read line-prefix separator is `→` (the `→`
 // arrow), matching default cat -n format `<n>→<content>`. It
 // MUST be a NON-WHITESPACE glyph: a tab/space separator collides with the
@@ -84,7 +83,7 @@ export function appendReadContextAdvisory(out, { filePath: _filePath, lineCount:
     return out;
 }
 
-export function formatPaginationHint(remaining, nextOffset) {
+function formatPaginationHint(remaining, nextOffset) {
     const n = Number(remaining);
     const label = Number.isFinite(n) && n > 0 ? `${n} more entries` : 'more entries';
     return `... [${label}; next offset: ${nextOffset}]`;

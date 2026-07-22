@@ -20,7 +20,7 @@ export function isPidAlive(pid) {
 // detached group. Windows has no process-group probe in Node; the root PID is
 // the strongest non-invasive lifecycle signal available here (tree-kill still
 // uses taskkill /T).
-export function isProcessTreeAlive(pid) {
+function isProcessTreeAlive(pid) {
     if (!Number.isFinite(pid) || pid <= 0) return false;
     if (process.platform === 'win32') return isPidAlive(pid);
     try {
@@ -301,7 +301,7 @@ export function _killLiveJobPid(pid, { sync = false } = {}) {
         return false;
     }
 }
-export function _sweepLiveJobsSync() {
+function _sweepLiveJobsSync() {
     for (const pid of _liveJobPids) {
         _killLiveJobPid(pid, { sync: true });
     }

@@ -225,7 +225,7 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
     return { text: out, firstEmitted, lastEmitted, prefixHash };
 }
 
-export function tryWindowedSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {
+function tryWindowedSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {
     const { ioTraceStart, ioTraceDone } = streamingHooks(hooks);
     const displayPath = hooks.displayPath || fullPath;
     const traceStart = ioTraceStart();

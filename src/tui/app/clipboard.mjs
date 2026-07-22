@@ -5,7 +5,7 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 
-export function osc52ClipboardSequence(text) {
+function osc52ClipboardSequence(text) {
   const b64 = Buffer.from(String(text ?? ''), 'utf8').toString('base64');
   const raw = `\x1b]52;c;${b64}\x07`;
   if (!process.env.TMUX) return raw;
@@ -31,7 +31,7 @@ function shouldSkipOsc52() {
   return true;
 }
 
-export function writeOsc52Clipboard(text) {
+function writeOsc52Clipboard(text) {
   const value = String(text ?? '');
   if (shouldSkipOsc52()) return false;
   if (Buffer.byteLength(value, 'utf8') > OSC52_MAX_BYTES) return false;
@@ -43,7 +43,7 @@ export function writeOsc52Clipboard(text) {
   }
 }
 
-export function nativeClipboardCommand(text) {
+function nativeClipboardCommand(text) {
   const value = String(text ?? '');
   if (process.platform === 'win32') {
     // clip.exe starts in tens of ms (vs 1s+ for powershell.exe). It reads its

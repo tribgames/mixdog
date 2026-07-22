@@ -409,7 +409,7 @@ const HIGHLIGHT_CACHE_MAX = 300;
 const highlightCache = new Map();
 
 /** @internal Test-only introspection for highlight LRU cache. */
-export function _highlightCacheSizeForTests() {
+function _highlightCacheSizeForTests() {
   return highlightCache.size;
 }
 

@@ -47,12 +47,11 @@ const RECORD_SEP = '\x1e';
 
 // Names the env vars the launcher must set on the child so this module's
 // managedLaunchId() resolves inside the MCP server.
-export const LAUNCHER_ENV = Object.freeze({ ENV_LAUNCH_ID, ENV_MANAGED });
 
 // Mirror of channels/lib/runtime-paths.mjs RUNTIME_ROOT resolution so the
 // launcher and the MCP server agree on the queue location without importing
 // the channels layer into setup/.
-export function launcherRuntimeRoot() {
+function launcherRuntimeRoot() {
   return process.env.MIXDOG_RUNTIME_ROOT
     ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
     : join(tmpdir(), 'mixdog');
@@ -62,7 +61,7 @@ function sanitize(value) {
   return String(value).replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
-export function launcherQueueDir(launchId) {
+function launcherQueueDir(launchId) {
   return join(launcherRuntimeRoot(), `launch-cmds-${sanitize(launchId)}`);
 }
 
@@ -118,7 +117,7 @@ function nativeLaunchPrebuiltPath() {
 }
 
 let _nativeBinCache; // undefined = unresolved, string|null = resolved
-export function nativeLaunchBin() {
+function nativeLaunchBin() {
   if (_nativeBinCache !== undefined) return _nativeBinCache;
   // Opt-out for tests / forced-JS parity checks.
   if (/^(0|false|no|off|js)$/i.test(String(process.env.MIXDOG_LAUNCH_NATIVE || ''))) {
@@ -141,7 +140,7 @@ export function nativeLaunchBin() {
 // Returns true when the native mixdog-launch binary's `bridge` subcommand is
 // available for this platform (exit 0). The launcher uses this to gate the
 // managed-launch interactive path — no JS stdin pipe bridge fallback.
-export function nativeBridgeAvailable() {
+function nativeBridgeAvailable() {
   const bin = nativeLaunchBin();
   if (!bin) return false;
   const r = spawnSync(bin, ['bridge', '--probe'], {
@@ -151,7 +150,7 @@ export function nativeBridgeAvailable() {
   return r.status === 0;
 }
 
-export function newLaunchId() {
+function newLaunchId() {
   return `${process.pid}-${randomUUID().slice(0, 8)}`;
 }
 
@@ -159,7 +158,7 @@ export function newLaunchId() {
 // `mixdog`-launched session that engaged the control bridge, else null. The
 // launcher only sets MIXDOG_LAUNCH_ID once the bridge is live, so presence is
 // sufficient — there is no half-managed state to disambiguate.
-export function managedLaunchId() {
+function managedLaunchId() {
   const id = process.env[ENV_LAUNCH_ID];
   return id && String(id).length > 0 ? String(id) : null;
 }
@@ -170,7 +169,7 @@ let enqueueSequence = 0;
 // launcher to deliver. Prefers the canonical Rust backend; the JS writer (temp
 // name + rename so the watcher never sees a partial file) is the fallback.
 // Returns the published path.
-export function enqueueLauncherCommand(launchId, command) {
+function enqueueLauncherCommand(launchId, command) {
   const dir = launcherQueueDir(launchId);
   mkdirSync(dir, { recursive: true });
   const bin = nativeLaunchBin();
@@ -196,7 +195,7 @@ export function enqueueLauncherCommand(launchId, command) {
 // Launcher side: drain queued commands oldest-first (lexical sort on the
 // timestamp-prefixed name), deleting each as it is read. Prefers the canonical
 // Rust backend; the JS reader is the fallback.
-export function drainLauncherCommands(launchId) {
+function drainLauncherCommands(launchId) {
   const dir = launcherQueueDir(launchId);
   const bin = nativeLaunchBin();
   if (bin) {
@@ -236,7 +235,7 @@ export function drainLauncherCommands(launchId) {
 // platforms (and miss atomic-rename publishes on some) that a short poll is the
 // robust choice for this low-rate control path. Returns a stop() that also
 // removes the queue directory.
-export function watchLauncherCommands(launchId, onCommand, { intervalMs = 150 } = {}) {
+function watchLauncherCommands(launchId, onCommand, { intervalMs = 150 } = {}) {
   mkdirSync(launcherQueueDir(launchId), { recursive: true });
   let stopped = false;
   const timer = setInterval(() => {

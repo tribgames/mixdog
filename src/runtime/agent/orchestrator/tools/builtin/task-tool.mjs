@@ -57,20 +57,20 @@ import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 // routed through this tool. Bounded to the tracked-read set (capped) so cost
 // stays off the whole-cwd path; emits nothing when no read file changed.
 
-export const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
 export function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function shellJobToTaskStatus(status) {
+function shellJobToTaskStatus(status) {
     if (status === 'completed') return 'completed';
     if (status === 'cancelled') return 'cancelled';
     if (status === 'running') return 'running';
     return 'failed';
 }
 
-export function refreshShellTask(taskId, { includeRunning = false } = {}) {
+function refreshShellTask(taskId, { includeRunning = false } = {}) {
     const job = peekShellJob(taskId);
     if (!job) return null;
     const publicResult = shellJobPublicTaskResult(job);
@@ -91,7 +91,7 @@ export function refreshShellTask(taskId, { includeRunning = false } = {}) {
     return job;
 }
 
-export async function waitForGenericTask(taskId, { timeoutMs = 30_000, pollMs = 250, context = {} } = {}) {
+async function waitForGenericTask(taskId, { timeoutMs = 30_000, pollMs = 250, context = {} } = {}) {
     const started = Date.now();
     const deadline = started + Math.max(0, Number(timeoutMs) || 0);
     let task = getBackgroundTask(taskId, { context });
@@ -107,7 +107,7 @@ export async function waitForGenericTask(taskId, { timeoutMs = 30_000, pollMs = 
     };
 }
 
-export function renderTaskCancelSuccess(taskId, task) {
+function renderTaskCancelSuccess(taskId, task) {
     const surface = task?.surface || 'task';
     const operation = task?.operation || 'run';
     return [

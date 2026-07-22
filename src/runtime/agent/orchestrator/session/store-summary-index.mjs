@@ -27,7 +27,7 @@ function _messageText(content) {
     return sessionMessageText(content);
 }
 
-export function _cleanPreview(text, max = 240) {
+function _cleanPreview(text, max = 240) {
     const value = cleanSessionPreview(text, max);
     return value.length > max ? value.slice(0, max).replace(/\s+\S*$/, '').trim() : value;
 }

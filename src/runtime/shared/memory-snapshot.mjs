@@ -14,7 +14,7 @@ import { withFileLock } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const execFileAsync = promisify(execFile);
-export const MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES = 64 * 1024;
+const MEMORY_PRESSURE_SNAPSHOT_MAX_BYTES = 64 * 1024;
 const SNAPSHOT_NAME = 'memory-pressure.jsonl';
 const SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000;
 const SNAPSHOT_INTERVAL_JITTER_MS = 60 * 1000;
@@ -196,7 +196,7 @@ function baseSnapshot(reason) {
  * Collect a full attribution snapshot. Process enumeration failures are
  * intentionally omitted from the record, rather than surfacing to callers.
  */
-export async function captureMemoryPressureSnapshot(reason = 'memory-pressure') {
+async function captureMemoryPressureSnapshot(reason = 'memory-pressure') {
   if (!enabled()) return false;
   const entry = baseSnapshot(reason);
   const processes = await topProcesses();
@@ -229,7 +229,7 @@ export function requestMemoryPressureSnapshot(reason) {
   }
 }
 
-export function armMemoryPressureSampling() {
+function armMemoryPressureSampling() {
   if (!enabled() || periodicTimer) return false;
   periodicTimer = setInterval(() => {
     void capturePeriodicMemorySnapshot().catch(() => {});
@@ -238,7 +238,7 @@ export function armMemoryPressureSampling() {
   return true;
 }
 
-export function memoryPressureSnapshotPath() {
+function memoryPressureSnapshotPath() {
   return snapshotPaths().snapshot;
 }
 

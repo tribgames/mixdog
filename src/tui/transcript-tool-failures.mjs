@@ -23,7 +23,7 @@ export function toolItemResultText(item) {
   return chunks.join('\n').trim();
 }
 
-export function isHookApprovalDenialToolResult(text) {
+function isHookApprovalDenialToolResult(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
   if (HOOK_DENIAL_RE.test(value)) return true;
@@ -73,6 +73,6 @@ export function shouldSuppressFullyFailedToolItem(item) {
 }
 
 /** Non-empty result/rawResult text the user can expand and inspect in the transcript. */
-export function hasUsefulFailedToolResultBody(item) {
+function hasUsefulFailedToolResultBody(item) {
   return Boolean(toolItemResultText(item));
 }

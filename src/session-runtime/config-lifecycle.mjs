@@ -16,7 +16,7 @@
 //                   only serializes agent-section fields, so a top-level
 //                   outputStyle would never reach disk via that path)
 
-export const CONFIG_SAVE_DEBOUNCE_MS = 150;
+const CONFIG_SAVE_DEBOUNCE_MS = 150;
 
 export function createConfigLifecycle({
   // config mutable-state injection

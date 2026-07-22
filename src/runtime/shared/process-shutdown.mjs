@@ -20,7 +20,7 @@ function writeStderr(line) {
   try { process.stderr.write(`${line}\n`); } catch {}
 }
 
-export function signalExitCode(signal, fallback = 1) {
+function signalExitCode(signal, fallback = 1) {
   return SIGNAL_EXIT_CODES[signal] || fallback;
 }
 

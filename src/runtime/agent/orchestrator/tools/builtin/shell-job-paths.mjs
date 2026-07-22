@@ -13,7 +13,7 @@ const SHELL_JOB_SPILL_KEEP_BYTES = 4 * 1024 * 1024;
 // Tail-trim a single spill log in place: if it exceeds maxBytes, rewrite it
 // keeping only the last keepBytes. Sync, best-effort, no-op on a missing file.
 // Mirrors rotateBoundedLog in src/lib/mixdog-debug.cjs. Returns true if trimmed.
-export function trimShellJobSpillFile(filePath, maxBytes = SHELL_JOB_SPILL_MAX_BYTES, keepBytes = SHELL_JOB_SPILL_KEEP_BYTES) {
+function trimShellJobSpillFile(filePath, maxBytes = SHELL_JOB_SPILL_MAX_BYTES, keepBytes = SHELL_JOB_SPILL_KEEP_BYTES) {
     try {
         const st = statSync(filePath);
         if (st.size <= maxBytes) return false;
@@ -214,7 +214,7 @@ export function shellJobEnforcedPath(jobId) { return join(getShellJobsDir(), `${
 // precede its per-tick scan cap — otherwise other sessions' newer jobs evict
 // this session's live jobs before filtering. Swept alongside the other
 // artefacts.
-export function shellJobOwnerPath(jobId, pid) { return join(getShellJobsDir(), `${jobId}.owner-${pid}`); }
+function shellJobOwnerPath(jobId, pid) { return join(getShellJobsDir(), `${jobId}.owner-${pid}`); }
 
 // Resolve the CLI host pid that owns a freshly-spawned job. Standalone CLI
 // execution is process-owned: background tasks are scoped to this CLI lifetime,

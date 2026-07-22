@@ -290,7 +290,7 @@ function providerIconKind(provider: string): ProviderIconKind {
   return "synthetic";
 }
 
-export function ProviderIcon({ provider, ...props }: SVGProps<SVGSVGElement> & { provider: string }) {
+function ProviderIcon({ provider, ...props }: SVGProps<SVGSVGElement> & { provider: string }) {
   const kind = providerIconKind(provider);
   return (
     <svg {...props} viewBox="0 0 40 40" fill="none" aria-hidden="true" focusable="false"

@@ -31,7 +31,7 @@ const DELIVERED_MAX_ENTRIES = 512;
 // oldest key is always the first — used for bounded-size eviction.
 const _delivered = new Map();
 
-export function hashCompletionText(text) {
+function hashCompletionText(text) {
     const value = String(text ?? '').trim();
     if (!value) return null;
     return createHash('sha1').update(value).digest('hex');

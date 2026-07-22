@@ -833,7 +833,7 @@ function _overlayUnpersistedSummaryRows(rows, invalidStorageIds = new Set()) {
     return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
-export function rebuildSessionSummaryIndex() {
+function rebuildSessionSummaryIndex() {
     _ensureSummaryCacheDataDir();
     const { rows } = _scanStoredSessionSummaryRows();
     return _setSummaryRowsCache(_writeSummaryIndex(rows));

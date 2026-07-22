@@ -367,7 +367,7 @@ async function resetEmbeddingColumnsForDims(db, dimCount) {
 // Validate that the halfvec column dimension stored in the DB matches
 // dimCount from the current model config. Call after schema is confirmed
 // complete and before any embedding operations.
-export async function validateEmbeddingDims(db, dimCount) {
+async function validateEmbeddingDims(db, dimCount) {
   const colDims = await getEmbeddingColumnDims(db, 'entries')
   if (colDims == null) return // column absent — pre-schema DB; bootstrapSchema will handle
   // pgvector halfvec stores dimension as atttypmod directly (unlike varchar which uses dims+4).

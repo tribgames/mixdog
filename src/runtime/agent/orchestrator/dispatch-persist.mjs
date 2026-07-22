@@ -61,7 +61,7 @@ function setTail(dataDir, p) {
 // the drain window.  The window is bounded (process is exiting) and eliminating
 // it requires a fundamentally different design (e.g. a dedicated lock-owner
 // process).  Best-effort is the correct trade-off here.
-export function drainDispatchPersist() {
+function drainDispatchPersist() {
   // Prefer _pendingPayload (desired state captured at writeAll entry) over
   // _lastPayload (last successfully written state).  Pending is strictly
   // newer when a writeAll is still in-flight or queued at process exit.
@@ -296,7 +296,7 @@ export function hasPending(dataDir) {
   }
 }
 
-export function removePending(dataDir, handle) {
+function removePending(dataDir, handle) {
   if (!dataDir || !handle) return;
   const tail = getTail(dataDir).then(async () => {
     try {

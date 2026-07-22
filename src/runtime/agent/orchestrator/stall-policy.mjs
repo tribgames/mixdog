@@ -3,9 +3,9 @@ import { getHiddenAgent } from './internal-agents.mjs';
 const SECOND_MS = 1000;
 const MIN_PROVIDER_TIMEOUT_MS = 30_000;
 
-export const STALL_TICK_MS = 15_000;
-export const DEFAULT_STALL_WARN_S = 300;
-export const DEFAULT_STALL_ABORT_S = 600;
+const STALL_TICK_MS = 15_000;
+const DEFAULT_STALL_WARN_S = 300;
+const DEFAULT_STALL_ABORT_S = 600;
 // First-byte (no-stream-delta) abort for the agent stall watchdog. A wedged
 // socket can sit at stage=requesting with zero server events. The 30s deadline
 // trialed here false-aborted slow high-reasoning first bytes (e.g. gpt-5.5
@@ -13,14 +13,14 @@ export const DEFAULT_STALL_ABORT_S = 600;
 // with dispatch auto-retry, produced premature aborts + duplicate re-dispatches.
 // Auto-retry is now removed, so a single
 // attempt must get a generous first-byte window: 300s (5 min). Env-overridable.
-export const DEFAULT_STALL_FIRST_BYTE_ABORT_S = (() => {
+const DEFAULT_STALL_FIRST_BYTE_ABORT_S = (() => {
     const raw = process.env.MIXDOG_STALL_FIRST_BYTE_ABORT_S;
     const n = Number.parseInt(raw, 10);
     if (Number.isFinite(n) && n > 0) return Math.min(Math.max(n, 5), 600);
     return 300;
 })();
 
-export function envThresholdSeconds(env = process.env) {
+function envThresholdSeconds(env = process.env) {
     const raw = env.STALL_TIMEOUT_S;
     if (!raw) return null;
     const n = Number.parseInt(raw, 10);
@@ -28,17 +28,17 @@ export function envThresholdSeconds(env = process.env) {
     return n;
 }
 
-export function resolveBaseStallThresholds(env = process.env) {
+function resolveBaseStallThresholds(env = process.env) {
     const abort = envThresholdSeconds(env) ?? DEFAULT_STALL_ABORT_S;
     const warn = abort > DEFAULT_STALL_WARN_S ? DEFAULT_STALL_WARN_S : Math.floor(abort / 2);
     return { warn, abort };
 }
 
 const _baseThresholds = resolveBaseStallThresholds();
-export const STALL_WARN_S = _baseThresholds.warn;
+const STALL_WARN_S = _baseThresholds.warn;
 export const STALL_ABORT_S = _baseThresholds.abort;
-export const STALL_WARN_MS = STALL_WARN_S * SECOND_MS;
-export const STALL_ABORT_MS = STALL_ABORT_S * SECOND_MS;
+const STALL_WARN_MS = STALL_WARN_S * SECOND_MS;
+const STALL_ABORT_MS = STALL_ABORT_S * SECOND_MS;
 
 export const PROVIDER_MAX_BEFORE_WARN_MS = Math.max(
     SECOND_MS,
@@ -78,7 +78,7 @@ export const PROVIDER_GENERATE_TOTAL_TIMEOUT_MS = resolveTimeoutMs(
     { minMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS, maxMs: PROVIDER_MAX_BEFORE_WARN_MS },
 );
 
-export const PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS = resolveTimeoutMs(
+const PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS = resolveTimeoutMs(
     ['MIXDOG_NONSTREAM_TOTAL_TIMEOUT_MS', 'MIXDOG_COMPAT_NONSTREAM_TOTAL_TIMEOUT_MS'],
     480_000,
     { minMs: PROVIDER_GENERATE_TOTAL_TIMEOUT_MS, maxMs: STALL_ABORT_MS },

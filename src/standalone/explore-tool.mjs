@@ -33,14 +33,14 @@ export const EXPLORE_TOOL = {
 // Total merged-output character cap. The original source uses a very large cap
 // (50MB) plus a smart-read summariser downstream; the standalone path returns
 // the merged text in-turn, so we keep a sane bound to protect the Lead context.
-export const EXPLORE_OUTPUT_CHAR_CAP = 24_000;
+const EXPLORE_OUTPUT_CHAR_CAP = 24_000;
 const EXPLORE_TRUNCATION_MARKER = '\n\n[explore: output truncated; narrow cwd or split queries to see more]';
 // Bound fan-out so a hostile/poisoned query array cannot spawn unbounded subs.
 export const MAX_FANOUT_QUERIES = 8;
 // Mechanical turn cap per explorer sub-session: 3 free turns (contract: tool
 // turn 1 = whole batched search, turns 2-3 = miss recovery), then the agent
 // loop forces one tool-less final-answer turn. Overridable for tuning.
-export const EXPLORE_MAX_LOOP_ITERATIONS = (() => {
+const EXPLORE_MAX_LOOP_ITERATIONS = (() => {
   const raw = Number(process.env.MIXDOG_EXPLORE_MAX_LOOP);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 3;
 })();
@@ -528,7 +528,7 @@ function anchorLineExists(line, cwd, captureRe = ANCHOR_PATH_CAPTURE_RE) {
   try { return existsSync(isAbsolute(p) ? p : resolve(cwd, p)); } catch { return true; }
 }
 
-export function cleanExplorerText(text, cwd = null) {
+function cleanExplorerText(text, cwd = null) {
   const raw = String(text || '').trim();
   if (!raw) return '';
   const anchors = [];

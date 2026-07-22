@@ -79,7 +79,7 @@ function tryCreateLock(lockFile, token) {
     return true;
 }
 
-export async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 } = {}) {
+async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 } = {}) {
     const lockFile = lockFileFor(targetPath);
     // Ensure parent directory exists before openSync('wx'); the lockfile lives
     // next to the target, so writes to new files in missing parent dirs would

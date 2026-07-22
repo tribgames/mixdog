@@ -530,7 +530,7 @@ function readRawBufForV4AConversion(fullPath) {
 // file: the V4A source-line cache MUST key on this normalized form at every
 // get/set, otherwise a mixed-case duplicate section refreshed under one
 // casing is missed under another and converts against stale/original lines.
-export function v4aLinesCacheKey(fullPath) {
+function v4aLinesCacheKey(fullPath) {
   return process.platform === 'win32' ? String(fullPath).toLowerCase() : String(fullPath);
 }
 

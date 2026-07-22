@@ -125,7 +125,7 @@ export function buildPromptContentWithImages(text, pastedImages = {}) {
   return parts;
 }
 
-export function isImagePathText(value) {
+function isImagePathText(value) {
   return IMAGE_PATH_RE.test(cleanPathText(value));
 }
 

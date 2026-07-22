@@ -1,7 +1,7 @@
 /** Module-level map tracking per-session cancellation generations and commit locks. */
 const _writeControls = new Map();
 
-export function writeControl(id) {
+function writeControl(id) {
     let control = _writeControls.get(id);
     if (!control) {
         // [0] cancellation generation, [1] commit lock

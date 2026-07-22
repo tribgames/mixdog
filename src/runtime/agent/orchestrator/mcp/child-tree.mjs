@@ -82,7 +82,7 @@ function descendantsOf(childrenOf, rootPid) {
 }
 
 // Exposed for tests: descendant pid list captured while the tree is intact.
-export async function collectDescendants(rootPid) {
+async function collectDescendants(rootPid) {
     const { childrenOf } = await enumerate();
     return descendantsOf(childrenOf, rootPid);
 }

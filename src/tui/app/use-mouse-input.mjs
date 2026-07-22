@@ -44,7 +44,7 @@ const IS_WINDOWS_TERMINAL = Boolean(process.env.WT_SESSION);
 // Windows): try/catch only sees a synchronous throw. Keep this tiny helper
 // exported so the mode-restore failure path can be exercised without mounting
 // the full Ink app.
-export function writeMouseTrackingRestore(stdout, onError) {
+function writeMouseTrackingRestore(stdout, onError) {
   try {
     stdout.write(MOUSE_TRACKING_ON + ALT_SCROLL_OFF, (error) => {
       if (error) onError(error);

@@ -3,7 +3,7 @@ import { providerNativeToolPrefixCount } from '../../../../../session-runtime/pr
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 export const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
-export function appendAnthropicCacheControl(content, ttl = ANTHROPIC_CACHE_TTL_VOLATILE) {
+function appendAnthropicCacheControl(content, ttl = ANTHROPIC_CACHE_TTL_VOLATILE) {
     const withCacheControl = (block) => {
         if (!block || typeof block !== 'object' || block.cache_control) return block;
         return { ...block, cache_control: ttl };

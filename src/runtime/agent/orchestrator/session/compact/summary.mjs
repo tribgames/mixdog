@@ -90,7 +90,7 @@ function transcriptLineForCompaction(m, index, perMessageChars) {
     return `${index + 1}. ${role}${meta}:\n${text}`;
 }
 
-export function buildCompactionPrompt({ head, previousSummary, preservedFacts }, perMessageChars) {
+function buildCompactionPrompt({ head, previousSummary, preservedFacts }, perMessageChars) {
     const lines = [
         previousSummary
             ? 'Update the anchored summary below using the conversation history that follows. Preserve still-true details, remove stale details, and merge in the new facts.'

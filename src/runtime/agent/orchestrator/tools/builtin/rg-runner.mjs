@@ -81,7 +81,7 @@ function _walkRgArgs(argsList, visit) {
 // is the NEXT arg, short-attached (`-j8`), and long-attached (`--threads=8`).
 // Used by both the _withRgThreads injection guard and the EAGAIN retry guard
 // so the two never disagree.
-export function _hasRgThreadArg(argsList) {
+function _hasRgThreadArg(argsList) {
     let found = false;
     _walkRgArgs(argsList, (a, _index, _valueIndex, options) => {
         if (!options || typeof a !== 'string') return;
@@ -121,7 +121,7 @@ export function _rgEagainRetryArgs(argsList) {
 // retry would change nothing. Matches the separated `-j 1` / `--threads 1` form
 // and the attached `-j1` / `--threads=1` form. Any other thread pin (e.g. -j8)
 // is NOT "single-thread pinned": the retry should still run and downshift it.
-export function _isRgSingleThreadPinned(argsList) {
+function _isRgSingleThreadPinned(argsList) {
     let found = false;
     _walkRgArgs(argsList, (a, _index, valueIndex, options) => {
         if (!options || typeof a !== 'string') return;

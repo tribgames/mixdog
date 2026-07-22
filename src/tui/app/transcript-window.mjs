@@ -60,7 +60,7 @@ export const TRANSCRIPT_WINDOW_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT
 // during streaming (bench: 80→20 mounted rows ≈ 4.07ms/render, 109 CPU-ms/s).
 // Env-tunable for A/B / revert.
 export const TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_TAIL_OVERSCAN_ROWS', 4);
-export const TRANSCRIPT_WINDOW_TAIL_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_TAIL_ITEMS', 20);
+const TRANSCRIPT_WINDOW_TAIL_MAX_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_TAIL_ITEMS', 20);
 export const SELECTION_PAINT_INTERVAL_MS = positiveIntEnv('MIXDOG_TUI_SELECTION_PAINT_MS', 24);
 // Frame-coalesce edge-drag auto-scroll + wheel scroll: both paths accumulate
 // deltas into one pending total and flush via a single scrollTranscriptRows
@@ -108,7 +108,7 @@ export function comparePoints(a, b) {
 }
 
 
-export function lowerBound(values, target) {
+function lowerBound(values, target) {
   let lo = 0;
   let hi = values.length;
   while (lo < hi) {
@@ -163,7 +163,7 @@ function fnv1a32(str) {
 // Two INDEPENDENT 32-bit rolling-hash steps folded into a 64-bit signature.
 // fnvStepA is plain FNV-1a; fnvStepB uses a distinct seed/prime + xorshift
 // finalizer so the two chains are decorrelated (see the App.jsx history note).
-export function fnvStepA(hash, str) {
+function fnvStepA(hash, str) {
   let h = hash >>> 0;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);
@@ -172,7 +172,7 @@ export function fnvStepA(hash, str) {
   return h >>> 0;
 }
 
-export function fnvStepB(hash, str) {
+function fnvStepB(hash, str) {
   let h = hash >>> 0;
   for (let i = 0; i < str.length; i++) {
     h = Math.imul(h ^ str.charCodeAt(i), 0x85ebca77) >>> 0;

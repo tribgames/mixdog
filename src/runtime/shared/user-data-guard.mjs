@@ -23,7 +23,7 @@ function mixdogConfigBaseDir() {
   return process.env.MIXDOG_CONFIG_DIR || join(homedir(), '.mixdog');
 }
 
-export function getBackupRoot() {
+function getBackupRoot() {
   return process.env.MIXDOG_USER_DATA_BACKUP_ROOT
     || join(mixdogConfigBaseDir(), 'backups', 'user-data');
 }
@@ -64,7 +64,7 @@ export function hasUserDataInitMarker(dataDir) {
 }
 
 /** Skip single-section wipe remnants (e.g. `{ search: … }` only). */
-export function isStructurallyCompleteMixdogConfigBackup(parsed) {
+function isStructurallyCompleteMixdogConfigBackup(parsed) {
   if (!isPlainObject(parsed)) return false;
   if (Object.keys(parsed).length <= 1) return false;
   if (!parsed.agent && !parsed.channels) return false;
@@ -224,7 +224,7 @@ export async function backupUserDataAsync(dataDir, reason = 'snapshot') {
   return { dir: copied.length > 0 ? backupDir : null, copied };
 }
 
-export function shouldSeedMissingUserData(dataDir, rel) {
+function shouldSeedMissingUserData(dataDir, rel) {
   if (!dataDir) return true;
   if (existsSync(join(dataDir, rel))) {
     markUserDataInitialized(dataDir);
@@ -275,7 +275,7 @@ function normCase(p) {
  * @param {string} [ownedSubdir]  the single owned subdir name (default '.deps')
  * @returns {string}              the resolved owned path (only on allow)
  */
-export function assertSafeOwnedDir(targetDir, dataDir, op = 'destructive op', ownedSubdir = OWNED_SUBDIR) {
+function assertSafeOwnedDir(targetDir, dataDir, op = 'destructive op', ownedSubdir = OWNED_SUBDIR) {
   if (!targetDir) throw new Error(`[data-guard] ${op} refused: empty target dir`);
   if (!dataDir) throw new Error(`[data-guard] ${op} refused: empty data dir`);
 

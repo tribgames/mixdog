@@ -82,7 +82,7 @@ export function positiveIntEnv(name, fallback) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
-export const MIXDOG_SHELL_FSYNC_THROTTLE_MS = positiveIntEnv('MIXDOG_SHELL_FSYNC_THROTTLE_MS', 1000);
+const MIXDOG_SHELL_FSYNC_THROTTLE_MS = positiveIntEnv('MIXDOG_SHELL_FSYNC_THROTTLE_MS', 1000);
 
 // ANSI / VT control sequence stripper. Falls back to a regex sweep when
 // node:util's stripVTControlCharacters isn't available (older Node).
@@ -157,7 +157,7 @@ export function treeKill(child) {
 // only slice silently dropped early diagnostics. UTF-8 sequences are at most
 // 4 B, so a small padding window lets us cut/advance on codepoint boundaries
 // instead of emitting a U+FFFD glyph at the seam.
-export function _readHeadTail(filePath, fileSize) {
+function _readHeadTail(filePath, fileSize) {
   if (fileSize <= SHELL_OUTPUT_INLINE_CAP * 4) {
     return readFileSync(filePath, 'utf-8');
   }

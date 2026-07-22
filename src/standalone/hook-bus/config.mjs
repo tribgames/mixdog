@@ -35,7 +35,7 @@ function readTrustedProjects(dataDir) {
   return out;
 }
 
-export function isProjectTrusted(dataDir, projectDir) {
+function isProjectTrusted(dataDir, projectDir) {
   if (!projectDir) return false;
   const abs = resolve(projectDir);
   const key = process.platform === 'win32' ? abs.toLowerCase() : abs;

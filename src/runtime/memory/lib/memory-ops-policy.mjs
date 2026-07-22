@@ -20,7 +20,7 @@ function normalizeBackfillScope(value) {
   return 'all'
 }
 
-export function resolveBackfillSinceMs(windowValue, now = Date.now()) {
+function resolveBackfillSinceMs(windowValue, now = Date.now()) {
   const normalized = normalizeBackfillWindow(windowValue)
   if (normalized === '1d') return now - (1 * 24 * 60 * 60 * 1000)
   if (normalized === '3d') return now - (3 * 24 * 60 * 60 * 1000)
@@ -29,7 +29,7 @@ export function resolveBackfillSinceMs(windowValue, now = Date.now()) {
   return null
 }
 
-export async function countUnclassified(db) {
+async function countUnclassified(db) {
   if (!db) return 0
   try {
     const row = (await db.query(`SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL`, [])).rows[0]
@@ -39,7 +39,7 @@ export async function countUnclassified(db) {
   }
 }
 
-export function selectBackfillTranscripts({ sinceMs = null, limit = null, projectsRoot = null } = {}) {
+function selectBackfillTranscripts({ sinceMs = null, limit = null, projectsRoot = null } = {}) {
   const root = projectsRoot || path.join(mixdogHome(), 'projects')
   if (!fs.existsSync(root)) return []
   const files = []

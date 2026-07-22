@@ -65,7 +65,7 @@ export function parseMemoryCommand(text) {
   return out;
 }
 
-export function parseMemoryStatusRows(text) {
+function parseMemoryStatusRows(text) {
   return String(text || '')
     .split('\n')
     .map((line) => line.trim())

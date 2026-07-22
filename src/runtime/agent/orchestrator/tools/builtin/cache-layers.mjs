@@ -79,7 +79,7 @@ function bumpPathMutationGeneration(path) {
     }
 }
 
-export function getPathMutationGeneration(path) {
+function getPathMutationGeneration(path) {
     const key = canonicalCachePath(path);
     let generation = PATH_MUTATION_GLOBAL_GENERATION;
     for (const [changedPath, value] of PATH_MUTATION_GENERATIONS) {

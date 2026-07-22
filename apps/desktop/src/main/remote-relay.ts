@@ -23,7 +23,7 @@ const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 /** Packaged default: every install dials this relay so phone pairing works
  *  out of the box, with no VPS/env setup on the user side.
  *  MIXDOG_RELAY_URL=<wss url> overrides; 0/false/off disables. */
-export const DEFAULT_RELAY_URL = 'wss://192-255-139-161.sslip.io';
+const DEFAULT_RELAY_URL = 'wss://192-255-139-161.sslip.io';
 
 export function resolveRelayUrl(env: NodeJS.ProcessEnv): string | null {
   const raw = (env.MIXDOG_RELAY_URL || '').trim();
@@ -68,7 +68,7 @@ async function loadOrCreateDevice(userDataPath: string): Promise<DeviceIdentity>
   return identity;
 }
 
-export function relayClientUrl(relayUrl: string, token: string): string {
+function relayClientUrl(relayUrl: string, token: string): string {
   const url = new URL(relayUrl);
   url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
   url.pathname = '/';

@@ -106,7 +106,7 @@ export function readPathStringGuardError(filePath, workDir) {
 }
 
 /** Post-stat / symlink guards. Returns error message or null. */
-export function readPathStatGuardError(userPath, fullPath, st) {
+function readPathStatGuardError(userPath, fullPath, st) {
     if (isSpecialFileStat(st)) {
         return `cannot read special file (FIFO / character / block device / socket): ${normalizeOutputPath(userPath)}`;
     }

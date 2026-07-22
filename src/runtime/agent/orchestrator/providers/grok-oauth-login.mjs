@@ -87,7 +87,7 @@ export async function exchangeAuthorizationCode({ discovery, pkce, code }) {
     return tokens;
 }
 
-export function parseOAuthCodeInput(input) {
+function parseOAuthCodeInput(input) {
     const value = String(input || '').trim();
     if (!value) return { code: '', state: '' };
     try {

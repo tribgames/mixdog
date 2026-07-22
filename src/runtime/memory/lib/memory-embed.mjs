@@ -112,7 +112,7 @@ const RAW_EMBED_EXCLUDE_NON_CONVERSATION_CONTENT_RES = [
 ]
 const RAW_EMBED_CONVERSATION_ROLES = new Set(['user', 'assistant'])
 
-export function isRawEmbeddable(role, content) {
+function isRawEmbeddable(role, content) {
   const normRole = String(role ?? '').trim().toLowerCase()
   if (RAW_EMBED_EXCLUDE_ROLES.has(normRole)) return false
   const text = typeof content === 'string' ? content : ''

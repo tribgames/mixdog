@@ -57,7 +57,7 @@ function ioTraceDone(event, started, fields = {}) {
     });
 }
 
-export function atomicWriteShouldFsync(value) {
+function atomicWriteShouldFsync(value) {
     if (value === true || value === false) return value;
     return /^(1|true|yes|on|sync)$/i.test(String(process.env.MIXDOG_ATOMIC_FSYNC || ''));
 }

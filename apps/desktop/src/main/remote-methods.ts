@@ -40,7 +40,7 @@ import {
 // Secrets and OAuth flows stay desktop-local: tokens must not transit the
 // bridge link until end-to-end encryption lands, and OAuth logins open a
 // browser on the desktop machine where the phone cannot complete them.
-export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
+const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'saveProviderApiKey',
   'authenticateProvider',
   'saveOpenAIUsageSessionKey',

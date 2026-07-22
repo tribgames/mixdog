@@ -162,7 +162,7 @@ function listEntryDirs(dir) {
 
 // Single-channel read: resolves `cfg.channel` into the flat shape the
 // settings/TUI layer consumes.
-export function getChannel(config = {}) {
+function getChannel(config = {}) {
   const cfg = normalizeChannelsConfig(config);
   const backend = cfg.backend === 'telegram' ? 'telegram' : 'discord';
   const entry = resolveChannelEntry(cfg);
@@ -325,7 +325,7 @@ const DAY_TOKEN_TO_DOW = {
 // expression: daily -> '*', weekday -> '1-5', weekend -> '0,6', explicit day
 // lists ("mon,wed,fri" | "1,3,5") -> comma-joined numbers. Throws on an
 // unmappable token so bad combos surface instead of silently mis-scheduling.
-export function foldDaysIntoCron(cron, days) {
+function foldDaysIntoCron(cron, days) {
   const parts = String(cron).trim().split(/\s+/);
   const dowIndex = parts.length - 1;
   const raw = String(days || '').trim().toLowerCase();
@@ -446,7 +446,7 @@ export async function setScheduleEnabled(name, enabled) {
 // (webhooks-db.mjs) — the single source of truth. Legacy per-endpoint
 // WEBHOOK.md + secret folders are imported once at boot and deleted by the
 // store's migration hook.
-export async function listWebhooks() {
+async function listWebhooks() {
   const endpoints = await dbListEndpoints();
   return endpoints.map((ep) => ({
     name: ep.name,
@@ -556,7 +556,7 @@ export async function channelSetup(config = null) {
   };
 }
 
-export async function renderChannelStatus(config = null) {
+async function renderChannelStatus(config = null) {
   const setup = await channelSetup(config);
   const lines = [];
   lines.push(`discord  ${setup.discord.status}${setup.discord.problem ? ` (${setup.discord.problem})` : ''}`);

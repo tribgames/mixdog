@@ -2,7 +2,7 @@
  * Anthropic "effort" (extended-thinking budget) request parameter handling.
  */
 
-export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 
 // Canonical display/transport ordering for effort levels. Used only to sort
 // whatever set the catalog actually advertises — NOT as an allowlist. The
@@ -157,7 +157,7 @@ export function normalizeAnthropicEffortInput(raw, model, logTag = 'anthropic') 
     return undefined;
 }
 
-export function anthropicEffortUsesOutputConfig(model, opts = {}) {
+function anthropicEffortUsesOutputConfig(model, opts = {}) {
     const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
     if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) return false;
     return modelSupportsEffort(model);

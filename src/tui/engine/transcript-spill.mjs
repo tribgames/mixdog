@@ -120,10 +120,10 @@ export const nextId = () => `it_${++_idSeq}`;
 
 export const TRANSCRIPT_LIVE_ITEM_CAP = 512;
 export const TRANSCRIPT_SPILL_CHUNK_ITEMS = 128;
-export const TRANSCRIPT_RESTORE_OVERLAP_ITEMS = 64;
-export const TRANSCRIPT_SPILL_STALE_MS = 24 * 60 * 60 * 1000;
-export const TRANSCRIPT_SPILL_HEARTBEAT_MS = 10_000;
-export const TRANSCRIPT_PROCESS_NONCE = randomUUID();
+const TRANSCRIPT_RESTORE_OVERLAP_ITEMS = 64;
+const TRANSCRIPT_SPILL_STALE_MS = 24 * 60 * 60 * 1000;
+const TRANSCRIPT_SPILL_HEARTBEAT_MS = 10_000;
+const TRANSCRIPT_PROCESS_NONCE = randomUUID();
 
 export function cleanupStaleTranscriptSpillDirs({
   root = tmpdir(),

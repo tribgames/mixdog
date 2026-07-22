@@ -463,7 +463,7 @@ export function buildProviderCacheOpts(provider, sessionId, agent, options = {})
  * order (BP1 / BP2 / ...), serialized deterministically as a JSON array.
  * Invariant: callers must pass an array.
  */
-export function computePrefixContent(systemPrompt, tools) {
+function computePrefixContent(systemPrompt, tools) {
     const systemMessages = Array.isArray(systemPrompt)
         ? systemPrompt.map(s => s == null ? '' : String(s))
         : [systemPrompt == null ? '' : String(systemPrompt)];
@@ -480,7 +480,7 @@ export function computePrefixContent(systemPrompt, tools) {
 /**
  * Longest-lived layer TTL (seconds) for registry expiry tracking.
  */
-export function ttlSecondsForCache(agent) {
+function ttlSecondsForCache(agent) {
     const ttls = resolveCacheStrategy(agent);
     if (
         ttls.tools === 'none'

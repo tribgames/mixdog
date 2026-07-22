@@ -19,8 +19,8 @@ export function buildHeaders() {
   }
 }
 
-export const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
-export const MAX_REDIRECTS = 5
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
+const MAX_REDIRECTS = 5
 // Hard cap on response body size (10 MB) to prevent memory DoS from a
 // hostile / misconfigured URL returning a huge body. Applied in two places:
 //   1. Content-Length pre-check (cheap reject before reading bytes).
@@ -39,7 +39,7 @@ export function isFatalHttpPathPolicyError(error) {
   return false
 }
 
-export async function readBodyWithCap(response, maxBytes) {
+async function readBodyWithCap(response, maxBytes) {
   // Reject non-text content-types early; decode by content-type charset.
   const contentType = (response.headers.get('content-type') || '').toLowerCase()
   if (contentType) {
@@ -96,7 +96,7 @@ export async function readBodyWithCap(response, maxBytes) {
 }
 
 /** Binary-safe body reader for CDP Fetch fulfillment (no text-only filter). */
-export async function readBodyBytesWithCap(response, maxBytes) {
+async function readBodyBytesWithCap(response, maxBytes) {
   const contentLength = Number(response.headers.get('content-length') || 0)
   if (contentLength > maxBytes) {
     try { await response.body?.cancel() } catch {}
@@ -214,7 +214,7 @@ async function pinnedLoopbackFetch(url, options = {}) {
   })
 }
 
-export function assertLoopbackUrl(url) {
+function assertLoopbackUrl(url) {
   const parsed = new URL(url)
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`)
@@ -289,7 +289,7 @@ const CDP_FORBIDDEN_RESPONSE_HEADERS = new Set([
   'content-encoding',
 ])
 
-export function headersToCdpPairs(headers) {
+function headersToCdpPairs(headers) {
   const out = []
   headers.forEach((value, name) => {
     const lower = name.toLowerCase()

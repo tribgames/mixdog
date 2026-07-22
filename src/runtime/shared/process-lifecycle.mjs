@@ -22,7 +22,6 @@ import { resolvePluginData } from './plugin-paths.mjs';
 
 const execFileAsync = promisify(execFile);
 export const LIFECYCLE_LEDGER_MAX_BYTES = 64 * 1024;
-export const LIFECYCLE_LEDGER_KEEP_FILES = 2;
 const LEDGER_NAME = 'process-lifecycle.jsonl';
 const MARKER_DIR_NAME = 'process-lifecycle.active';
 const LEGACY_MARKER_NAME = 'process-lifecycle.active.json';

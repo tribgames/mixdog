@@ -39,7 +39,7 @@ const _failedShells = new Set();
 const _activeSnapshots = new Set();
 let _cleanupRegistered = false;
 
-export function drainShellSnapshots() {
+function drainShellSnapshots() {
   for (const p of _activeSnapshots) {
     try { unlinkSync(p); } catch {}
   }

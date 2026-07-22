@@ -804,7 +804,7 @@ export async function shutdownBashSessions(reason = 'runtime-close') {
 
 // Best-effort cleanup on process exit so orphan bash children don't linger
 // when the plugin host shuts down. Self-registered exit drain; bare 'exit' hook stays as idempotent backup.
-export function drainBashSessions(reason = 'process-exit') {
+function drainBashSessions(reason = 'process-exit') {
     let closed = 0;
     for (const id of [..._sessions.keys()]) {
         if (_killSessionNow(id, reason)) closed += 1;

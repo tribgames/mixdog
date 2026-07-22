@@ -37,7 +37,7 @@ export function isMcpToolName(name) {
 // (mcp__plugin_mixdog_mixdog__<tool>). Those must render as their stripped
 // builtin names, not as external "MCP" calls. Define the server id once here
 // and reuse everywhere a display path branches on MCP-ness.
-export const SELF_MCP_SERVER = 'plugin_mixdog_mixdog';
+const SELF_MCP_SERVER = 'plugin_mixdog_mixdog';
 
 export function isSelfMcpToolName(name) {
   const mcp = parseMcpToolName(name);

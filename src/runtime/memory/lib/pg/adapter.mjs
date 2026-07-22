@@ -108,7 +108,7 @@ const _bootstrapped = new Set()
 
 const ADVISORY_LOCK_CLASSID = 0x6d696478 // "midx" — mixdog bootstrap namespace
 const ADVISORY_OBJID_CREATE_DB = 1       // CREATE DATABASE mixdog
-export const ADVISORY_OBJID_SCHEMA_BOOTSTRAP = 2 // extensions + schema DDL
+const ADVISORY_OBJID_SCHEMA_BOOTSTRAP = 2 // extensions + schema DDL
 
 // ---------------------------------------------------------------------------
 // In-process cache

@@ -45,7 +45,7 @@ import {
   splitTextLinesForPatch,
 } from './matcher.mjs';
 
-export function formatNativeFailureContext(parsed, basePath, failedPath = '', options = {}) {
+function formatNativeFailureContext(parsed, basePath, failedPath = '', options = {}) {
   const entries = Array.isArray(parsed) ? parsed : [];
   const entry = entries.find((candidate) => classifyEntry(candidate) !== 'create' && nativeFailureMatchesEntry(candidate, failedPath))
     || entries.find((candidate) => classifyEntry(candidate) !== 'create');

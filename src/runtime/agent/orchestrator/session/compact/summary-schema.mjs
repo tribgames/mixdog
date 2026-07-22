@@ -45,7 +45,7 @@ function summaryHeadingLines(summary) {
 // Preferences` satisfy the `## Constraints` anchor while NOT letting an
 // unrelated `## Goalkeeper` heading satisfy `## Goal`. Requires a real `## `
 // heading line (not a substring buried in prose).
-export function headingMatchesAnchor(heading, anchor) {
+function headingMatchesAnchor(heading, anchor) {
     const anchorTitle = anchor.replace(/^##\s+/, '').trim().toLowerCase();
     const headingTitle = heading.replace(/^##\s+/, '').trim().toLowerCase();
     if (headingTitle === anchorTitle) return true;

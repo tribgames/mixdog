@@ -62,7 +62,7 @@ function retryAfterMs(error, now) {
     return Number.isFinite(date) ? Math.max(0, date - now) : 0;
 }
 
-export class ProviderAdmissionQueueOverflowError extends Error {
+class ProviderAdmissionQueueOverflowError extends Error {
     constructor(key, maxQueue) {
         super(`provider admission queue full for ${key} (maximum ${maxQueue})`);
         this.name = 'ProviderAdmissionQueueOverflowError';
@@ -78,7 +78,7 @@ export class ProviderAdmissionQueueOverflowError extends Error {
  * silently parking the request until the quota window resets. httpStatus 429
  * routes it through the existing quota/rate-limit error presentation.
  */
-export class ProviderCooldownError extends Error {
+class ProviderCooldownError extends Error {
     constructor(key, cooldownUntil, now) {
         const remaining = Math.max(0, Number(cooldownUntil) - Number(now));
         super(

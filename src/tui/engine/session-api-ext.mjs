@@ -58,7 +58,7 @@ export function restoredAssistantTranscriptItems(message, nextId) {
 // tool_calls and the follow-up role:'tool' results, but resume used to drop
 // both — a reopened session lost every tool marker (user bug). Rebuild one
 // transcript tool item per call and attach its result by tool_call_id.
-export function restoredToolCallItems(message, nextId, pendingByCallId) {
+function restoredToolCallItems(message, nextId, pendingByCallId) {
   const calls = Array.isArray(message?.tool_calls) ? message.tool_calls
     : Array.isArray(message?.toolCalls) ? message.toolCalls : [];
   const at = Number(message?.meta?.transcript?.at);
@@ -86,7 +86,7 @@ export function restoredToolCallItems(message, nextId, pendingByCallId) {
   return items;
 }
 
-export function attachRestoredToolResult(message, pendingByCallId) {
+function attachRestoredToolResult(message, pendingByCallId) {
   const callId = typeof message?.tool_call_id === 'string' && message.tool_call_id
     ? message.tool_call_id
     : typeof message?.toolCallId === 'string' ? message.toolCallId : '';
@@ -177,7 +177,7 @@ function buildRestoredAggregateItem(members) {
 // Runs of 1 keep the plain per-call card (its argument summary stays visible).
 // Agent cards never merge on restore: the live rule scopes Agent grouping to
 // a single provider batch, a boundary the stored history no longer carries.
-export function mergeRestoredToolItems(items) {
+function mergeRestoredToolItems(items) {
   const merged = [];
   let run = null; // { bucket, members: [{ item, category }] }
   const flushRun = () => {

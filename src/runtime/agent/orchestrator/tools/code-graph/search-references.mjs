@@ -33,7 +33,7 @@ import {
 
 import { _extractCallees, _formatCalleeRow, _cheapReferenceSearch, _formatSymbolHitLocation, _findSymbolHits, _augmentNoHitDiagnostic } from './search.mjs';
 
-export function _parseReferenceEntries(referenceText) {
+function _parseReferenceEntries(referenceText) {
   if (typeof referenceText !== 'string' || !referenceText.trim() || referenceText === '(no references)') {
     return [];
   }
@@ -48,12 +48,12 @@ export function _parseReferenceEntries(referenceText) {
   return out;
 }
 
-export function _formatSymbolImpactLine(item) {
+function _formatSymbolImpactLine(item) {
   const callerSuffix = item.callers.length ? ` -> ${item.callers.join(', ')}` : '';
   return `${item.symbol}\trefs=${item.references}\tcallers=${item.callers.length}${callerSuffix}`;
 }
 
-export function _collectImpactSymbols(node, graph) {
+function _collectImpactSymbols(node, graph) {
   const names = new Set();
   for (const typeName of Array.isArray(node?.topLevelTypes) ? node.topLevelTypes : []) names.add(typeName);
   const text = _getSourceTextForNode(graph, node);
@@ -61,7 +61,7 @@ export function _collectImpactSymbols(node, graph) {
   return [...names];
 }
 
-export function _buildImpactSummary(node, graph, cwd, targetSymbol = '') {
+function _buildImpactSummary(node, graph, cwd, targetSymbol = '') {
   const imports = node.resolvedImports.map((p) => _graphRel(p, cwd));
   const dependents = [...(graph.reverse.get(node.rel) || [])].sort();
   const related = [...new Set([...imports, ...dependents])].sort();
@@ -283,7 +283,7 @@ export function _resolveReferenceLanguageNode(graph, symbol, rel, cwd, language 
   return node ? { kind: 'ok', node, file: node.rel } : { kind: 'symbol-not-present', node: null, file: null };
 }
 
-export function _referenceKind(line, symbol, lang = null) {
+function _referenceKind(line, symbol, lang = null) {
   const escaped = String(symbol || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!escaped) return 'reference';
   const text = String(line || '');
@@ -301,7 +301,7 @@ export function _referenceKind(line, symbol, lang = null) {
   return 'reference';
 }
 
-export function _collectCallerEntries(graph, symbol, referenceText) {
+function _collectCallerEntries(graph, symbol, referenceText) {
   const entries = _parseReferenceEntries(referenceText);
   const detailed = [];
   const declLinesCache = new Map();
@@ -361,7 +361,7 @@ export function _formatCallerReferences(graph, symbol, referenceText, { limit = 
   ].filter(Boolean).join('\n');
 }
 
-export function _callerNamesOf(graph, symbol, cwd, language) {
+function _callerNamesOf(graph, symbol, cwd, language) {
   const refs = _cheapReferenceSearch(graph, symbol, cwd, { language });
   const byName = new Map();
   const leaves = new Map();

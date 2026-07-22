@@ -46,7 +46,7 @@ export function getPluginData() {
 // SUBSET of DEFAULT_MAINTENANCE: scheduler/webhook carry a per-entry model and
 // are not shown as shared rows, but still inherit the haiku default above when
 // an entry omits its own model.
-export const MAINTENANCE_SLOTS = Object.freeze(['explore', 'memory']);
+const MAINTENANCE_SLOTS = Object.freeze(['explore', 'memory']);
 
 // --- User profile (statusline /profile) -------------------------------------
 // Supported response languages for the /profile picker. `system` is the default

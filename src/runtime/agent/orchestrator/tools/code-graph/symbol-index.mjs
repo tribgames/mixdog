@@ -24,7 +24,7 @@ export function _unicodeBoundaryPattern(escaped, lang = null, symbol = null) {
   return `${before}${escaped}${after}`;
 }
 
-export function _extractIdentifierTokens(text, lang = null) {
+function _extractIdentifierTokens(text, lang = null) {
   const out = new Set();
   const allowDollar = !lang || _langUsesDollarInIdentifiers(lang);
   const before = allowDollar ? '(?<![\\p{ID_Continue}$])' : '(?<![\\p{ID_Continue}])';
@@ -212,7 +212,7 @@ export function _collectCheapSymbols(text, lang) {
 // returned only the first 6 anchors (all within the first 87 lines, 5%
 // of the file). tail-trim still bounds output payload, so a higher cap
 // surfaces full structure on large files without hurting small ones.
-export function _extractExplainerAnchorLines(node, graph, { limit = 50, maxLineChars = 180 } = {}) {
+function _extractExplainerAnchorLines(node, graph, { limit = 50, maxLineChars = 180 } = {}) {
   const sourceLines = _getSourceTextForNode(graph, node).split(/\r?\n/);
   const symbols = Array.isArray(node.symbols) && node.symbols.length
     ? node.symbols

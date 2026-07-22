@@ -39,7 +39,7 @@ function footerLocalNum(value) {
 }
 
 /** Mirrors StatusLine `isResetStatsState` — stats-only identity for footer cache. */
-export function isResetStatsState(stats) {
+function isResetStatsState(stats) {
   const s = stats && typeof stats === 'object' ? stats : {};
   return footerLocalNum(s.currentContextTokens) === 0
     && footerLocalNum(s.currentEstimatedContextTokens) === 0
@@ -116,7 +116,7 @@ export function statuslineFooterCacheKey({
  * (`Credit $1.23`, `used/limit`). Ink defaults reset to terminal fg; apply
  * themed status text until the next explicit SGR.
  */
-export function applyDefaultStatusForegroundAfterReset(text, STATUS, reset = RESET) {
+function applyDefaultStatusForegroundAfterReset(text, STATUS, reset = RESET) {
   const src = String(text || '');
   if (!STATUS || !reset) return src;
   let out = '';

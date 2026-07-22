@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve as pathResolve } from 'node:path';
 
 export const codeGraphCache = new Map();
-export const codeGraphDirtyPaths = new Map();
+const codeGraphDirtyPaths = new Map();
 
 const codeGraphDirtyGen = new Map();
 let drainCodeGraphCacheFn = null;
@@ -13,7 +13,7 @@ export function canonicalGraphCwd(cwd) {
   return process.platform === 'win32' ? full.toLowerCase() : full;
 }
 
-export function canonicalGraphPath(p) {
+function canonicalGraphPath(p) {
   const full = pathResolve(String(p || ''));
   return process.platform === 'win32' ? full.toLowerCase() : full;
 }
@@ -22,7 +22,7 @@ export function getCodeGraphGen(graphCwd) {
   return codeGraphDirtyGen.get(graphCwd) || 0;
 }
 
-export function bumpCodeGraphGen(graphCwd) {
+function bumpCodeGraphGen(graphCwd) {
   codeGraphDirtyGen.set(graphCwd, (codeGraphDirtyGen.get(graphCwd) || 0) + 1);
 }
 

@@ -169,7 +169,7 @@ async function migrateSchemaDrift(client) {
 // Called once per openTraceDatabase boot, inside the BOOTSTRAP advisory-lock
 // scope (see openTraceDatabase) so concurrent first-boot processes don't race
 // this DDL. All statements remain IF NOT EXISTS as a second line of defense.
-export async function initAgentTables(client) {
+async function initAgentTables(client) {
   // Repair schema drift on already-created tables before anything else
   // (trace_events already exists at this point via init(); agent_sessions
   // is created just below in this same function).

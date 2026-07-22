@@ -16,7 +16,7 @@
 const MDV2_ESCAPE_RE = /([_*[\]()~`>#+\-=|{}.!\\])/g;
 
 /** Backslash-escape all MarkdownV2 special characters. */
-export function escapeMdV2(text) {
+function escapeMdV2(text) {
   return String(text).replace(MDV2_ESCAPE_RE, "\\$1");
 }
 

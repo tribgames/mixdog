@@ -85,7 +85,7 @@ function formatUserCoreForPrompt(rows, pidMap) {
 // Returns { actions, rejected } or null when no parseable lines.
 // True when some entry id K in 1..N is also the row-ordinal label for a different
 // entry (token K is ambiguous between id K and "row K").
-export function batchOrdinalIdCollides(statusById, ordinalToId, rowCount) {
+function batchOrdinalIdCollides(statusById, ordinalToId, rowCount) {
   const n = Math.max(0, Number(rowCount) || 0)
   for (let k = 1; k <= n; k++) {
     if (!statusById.has(k)) continue

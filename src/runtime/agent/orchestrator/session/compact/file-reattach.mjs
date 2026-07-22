@@ -13,7 +13,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path';
 import { estimateTokens } from '../context-utils.mjs';
 
 export const MAX_REATTACH_FILES = 3;
-export const REATTACH_MAX_TOKENS_PER_FILE = 5_000;
+const REATTACH_MAX_TOKENS_PER_FILE = 5_000;
 export const REATTACH_MAX_TOTAL_TOKENS = 8_000;
 const REATTACH_MIN_ROOM_TOKENS = 1_024;
 const REATTACH_MAX_FILE_BYTES = 512 * 1024;
@@ -41,7 +41,7 @@ function pathsFromReadArgs(rawArgs) {
 }
 
 // Ordered (oldest -> newest) file paths read via the `read` tool in `messages`.
-export function collectReadToolPaths(messages) {
+function collectReadToolPaths(messages) {
     const out = [];
     for (const m of Array.isArray(messages) ? messages : []) {
         if (m?.role !== 'assistant' || !Array.isArray(m.toolCalls)) continue;

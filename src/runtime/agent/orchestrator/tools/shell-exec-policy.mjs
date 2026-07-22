@@ -39,7 +39,7 @@ function _firstCommandName(command) {
   return null;
 }
 
-export function classifyExecPolicy(command) {
+function classifyExecPolicy(command) {
   const text = String(command || '');
   if (!text.trim()) return { decision: 'allow', reason: '' };
   if (isBlockedCommand(text)) {
@@ -65,7 +65,7 @@ export function classifyExecPolicy(command) {
   return { decision: 'allow', reason: '' };
 }
 
-export function mergeExecPolicyDecisions(a, b) {
+function mergeExecPolicyDecisions(a, b) {
   const left = a && a.decision ? a : { decision: 'allow', reason: '' };
   const right = b && b.decision ? b : { decision: 'allow', reason: '' };
   if (_POLICY_RANK[right.decision] > _POLICY_RANK[left.decision]) return right;

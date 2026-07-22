@@ -31,7 +31,7 @@ export function isOnDeferredToolSurface(session, name) {
     return isActiveSessionTool(session, name) || lookupDeferredCatalogTool(session, name) !== null;
 }
 
-export function toolExecutesWhenInactive(name) {
+function toolExecutesWhenInactive(name) {
     return INACTIVE_INFRA_BYPASS.has(name);
 }
 

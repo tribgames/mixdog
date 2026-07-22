@@ -6,7 +6,7 @@ import {
     resolveAgainstCwd,
 } from './path-utils.mjs';
 
-export function literalPathHint(rawPath) {
+function literalPathHint(rawPath) {
     const s = String(rawPath || '');
     if (/\$env:[A-Za-z_][A-Za-z0-9_]*|\$[A-Za-z_][A-Za-z0-9_]*|%[^%]+%/.test(s)) {
         return ' Path fields do not expand shell environment variables; pass the resolved absolute path.';

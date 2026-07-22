@@ -34,8 +34,8 @@ import { normalizeGrokToolSchemas } from './lib/grok-tool-schema.mjs';
 // xAI's shared OAuth client. The consent screen renders this as "Grok Build".
 
 export const CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
-export const ISSUER = 'https://auth.x.ai';
-export const DISCOVERY_URL = `${ISSUER}/.well-known/openid-configuration`;
+const ISSUER = 'https://auth.x.ai';
+const DISCOVERY_URL = `${ISSUER}/.well-known/openid-configuration`;
 export const SCOPE = 'openid profile email offline_access grok-cli:access api:access';
 export const CALLBACK_HOST = '127.0.0.1';
 export const CALLBACK_PORT = 56121;
@@ -56,21 +56,21 @@ export const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
 // and requires the Grok CLI's client headers. We route only proxy-only models
 // here and keep grok-4.x + search on api.x.ai.
 export const PROXY_BASE_URL = 'https://cli-chat-proxy.grok.com/v1';
-export const GROK_CLIENT_IDENTIFIER = 'grok-shell';
-export const GROK_CLI_VERSION_FALLBACK = '0.2.16';
+const GROK_CLIENT_IDENTIFIER = 'grok-shell';
+const GROK_CLI_VERSION_FALLBACK = '0.2.16';
 
 // Route to the proxy: any grok-composer* model, plus the bare `grok-build`
 // coding agent. NOT grok-build-0.1 — that is a real api.x.ai model and must stay
 // on api.x.ai, so we match grok-build exactly rather than by prefix.
-export const PROXY_EXACT_MODELS = new Set(['grok-build']);
+const PROXY_EXACT_MODELS = new Set(['grok-build']);
 export function isProxyOnlyModel(model) {
     const m = String(model || '');
     return /^grok-composer/i.test(m) || PROXY_EXACT_MODELS.has(m);
 }
 
 // Use a Mixdog-controlled client version for the proxy version gate.
-export let _grokCliVersionCache = null;
-export function grokCliVersion() {
+let _grokCliVersionCache = null;
+function grokCliVersion() {
     if (_grokCliVersionCache) return _grokCliVersionCache;
     _grokCliVersionCache = String(process.env.MIXDOG_GROK_CLIENT_VERSION || '').trim() || GROK_CLI_VERSION_FALLBACK;
     return _grokCliVersionCache;
@@ -112,7 +112,7 @@ export function resolveGrokOAuthResponsesTransport() {
 // catalog surfaces the coding model as grok-build-0.1; map the legacy ids to
 // it so a stale config selection doesn't hit a model-not-found. Exact table,
 // not a heuristic. Mirrors openclaw extensions/xai/model-definitions.ts.
-export const RETIRED_MODEL_ALIASES = Object.freeze({
+const RETIRED_MODEL_ALIASES = Object.freeze({
     'grok-code-fast-1': 'grok-build-0.1',
     'grok-code-fast': 'grok-build-0.1',
     'grok-code-fast-1-0825': 'grok-build-0.1',
@@ -124,7 +124,7 @@ export const MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
 // Bump when the on-disk cache shape changes so stale-shape entries are
 // discarded instead of misread.
 export const GROK_MODEL_CACHE_SCHEMA_VERSION = 1;
-export const DISCOVERY_TIMEOUT_MS = 15_000;
+const DISCOVERY_TIMEOUT_MS = 15_000;
 export const TOKEN_TIMEOUT_MS = 30_000;
 export const LOGIN_TIMEOUT_MS = 5 * 60_000;
 
@@ -132,7 +132,7 @@ export const LOGIN_TIMEOUT_MS = 5 * 60_000;
 // tokens. xAI OAuth endpoints must be https on x.ai / *.x.ai — reject
 // anything else outright so a hostile discovery response can't redirect the
 // token / refresh request. Mirrors openclaw's isTrustedXaiOAuthEndpoint.
-export function assertTrustedXaiEndpoint(endpoint, label) {
+function assertTrustedXaiEndpoint(endpoint, label) {
     let url;
     try {
         url = new URL(String(endpoint));
@@ -146,7 +146,7 @@ export function assertTrustedXaiEndpoint(endpoint, label) {
     return url.toString();
 }
 
-export let _discoveryCache = null;
+let _discoveryCache = null;
 export async function fetchDiscovery() {
     if (_discoveryCache) return _discoveryCache;
     const timeout = createTimeoutSignal(null, DISCOVERY_TIMEOUT_MS, 'grok-oauth discovery');
@@ -336,7 +336,7 @@ export function forgetGrokOAuthCredentials() {
 export let _refreshInFlight = null;
 export function _getRefreshInFlight() { return _refreshInFlight; }
 export function _setRefreshInFlight(promise) { _refreshInFlight = promise; return promise; }
-export async function _postRefresh(tokens) {
+async function _postRefresh(tokens) {
     const tokenEndpoint = tokens.token_endpoint
         ? assertTrustedXaiEndpoint(tokens.token_endpoint, 'token endpoint')
         : (await fetchDiscovery()).token_endpoint;
@@ -394,7 +394,7 @@ export async function _postRefresh(tokens) {
     }
 }
 
-export async function _postRefreshWithRetry(tokens) {
+async function _postRefreshWithRetry(tokens) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
             return await _postRefresh(tokens);

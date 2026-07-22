@@ -20,7 +20,7 @@ const AUTO_DETECT_PORTS = {
 };
 const DEFAULT_MCP_CALL_TIMEOUT_MS = 120000;
 // Per-server STARTUP handshake budget (connect + listTools). Codex parity: 10s.
-export const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
+const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
 // --- State ---
 const servers = new Map();
 let mcpSdkPromise = null;
@@ -60,7 +60,7 @@ async function loadMcpSdk() {
  * provided env map (defaults to process.env). Recurses into arrays/objects.
  * Unknown vars expand to an empty string. No shell execution.
  */
-export function expandEnvVars(value, env = process.env) {
+function expandEnvVars(value, env = process.env) {
     if (typeof value === 'string') {
         return value.replace(/\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name) => {
             const v = env?.[name];
@@ -249,7 +249,7 @@ export function normalizeMcpToolResult(result) {
 // per-server timeoutMs/callTimeoutMs config value (0/off/none/false disables).
 // On expiry we close the transport so the next dispatch reconnects fresh, but
 // we do not retry the timed-out call automatically (avoids side-effect dupes).
-export function resolveMcpCallTimeoutMs(cfg = {}, env = process.env) {
+function resolveMcpCallTimeoutMs(cfg = {}, env = process.env) {
     const raw = cfg?.timeoutMs ?? cfg?.timeout_ms ?? cfg?.callTimeoutMs ?? cfg?.call_timeout_ms
         ?? env?.MIXDOG_MCP_CALL_TIMEOUT_MS;
     if (raw == null || raw === '' || raw === false) return DEFAULT_MCP_CALL_TIMEOUT_MS;
@@ -259,7 +259,7 @@ export function resolveMcpCallTimeoutMs(cfg = {}, env = process.env) {
     return Math.round(parsed);
 }
 
-export function isMcpToolCallTimeoutError(err) {
+function isMcpToolCallTimeoutError(err) {
     return err?.code === 'EMCPTOOLTIMEOUT';
 }
 

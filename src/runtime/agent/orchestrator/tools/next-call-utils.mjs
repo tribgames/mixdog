@@ -1,4 +1,4 @@
-export function parseJsonNextCalls(text) {
+function parseJsonNextCalls(text) {
   const input = String(text ?? '');
   if (!input.includes('next_call:')) return [];
   const out = [];

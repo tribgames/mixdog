@@ -85,7 +85,7 @@ function prepareFuzzyScore(query) {
  * @param {string} str     candidate path (relative)
  * @returns {number|null}  score, or null if `query` is not a subsequence
  */
-export function fuzzyScore(query, str) {
+function fuzzyScore(query, str) {
     const scorer = prepareFuzzyScore(query);
     return typeof scorer === 'function' ? scorer(str) : scorer;
 }

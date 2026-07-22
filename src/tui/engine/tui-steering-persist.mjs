@@ -83,7 +83,7 @@ function touchPendingSessionEntry(next, sessionId, now = Date.now()) {
   next.sessionTouchedAt[sessionId] = now;
 }
 
-export function entryPersistText(entry) {
+function entryPersistText(entry) {
   if (!entry) return '';
   const text = typeof entry.text === 'string' && entry.text.trim()
     ? entry.text.trim()

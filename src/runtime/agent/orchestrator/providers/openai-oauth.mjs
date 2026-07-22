@@ -156,7 +156,7 @@ export function codexModelSupportsServiceTier(id, serviceTier) {
 // Newest MAIN gpt-5 chat model by version, read from the SYNC in-memory
 // catalog mirror. Returns null until populated; callers warm via
 // ensureLatestCodexModel when null.
-export function resolveLatestCodexModel() {
+function resolveLatestCodexModel() {
     if (!Array.isArray(_inMemoryCodexCatalog)) return null;
     let best = null;
     for (const m of _inMemoryCodexCatalog) {
@@ -166,7 +166,7 @@ export function resolveLatestCodexModel() {
     return best?.id || null;
 }
 
-export async function ensureLatestCodexModel(provider) {
+async function ensureLatestCodexModel(provider) {
     let m = resolveLatestCodexModel();
     if (m) return m;
     await provider._refreshModelCache();

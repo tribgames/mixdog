@@ -21,7 +21,7 @@ export function customToolInputFromArguments(name, args) {
   try { return JSON.stringify(args ?? {}); } catch { return String(args ?? ''); }
 }
 
-export function customToolArgumentsFromInput(name, input) {
+function customToolArgumentsFromInput(name, input) {
   const text = typeof input === 'string'
     ? input
     : (() => {

@@ -14,7 +14,7 @@ export function steeringContentText(content) {
     return String(content ?? '');
 }
 
-export function normalizeSteeringEntry(entry) {
+function normalizeSteeringEntry(entry) {
     if (typeof entry === 'string') {
         const text = entry.trim();
         return text ? { content: text, text } : null;

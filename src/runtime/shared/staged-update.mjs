@@ -116,7 +116,7 @@ export function unregisterLiveSession() {
   try { unlinkSync(selfPidFile()); } catch { /* already gone */ }
 }
 
-export function otherLiveSessionExists() {
+function otherLiveSessionExists() {
   let entries;
   try { entries = readdirSync(liveSessionsDir()); } catch { return false; }
   let alive = false;
@@ -278,7 +278,7 @@ export function spawnStagedInstall(version) {
  * bestStagedVersion(currentVersion) — highest completed staged version strictly
  * newer than current, with a valid self-contained package dir; else null.
  */
-export function bestStagedVersion(currentVersion) {
+function bestStagedVersion(currentVersion) {
   const cur = String(currentVersion || localPackageVersion());
   let best = null;
   let entries;
@@ -303,7 +303,7 @@ export function bestStagedVersion(currentVersion) {
  * success; on failure of the second rename the backup is rolled back into
  * place. Returns true only when the new version is live. Never throws.
  */
-export function swapStagedIntoGlobal({ globalPkgRoot, pkgDir, expectedVersion, _rename } = {}) {
+function swapStagedIntoGlobal({ globalPkgRoot, pkgDir, expectedVersion, _rename } = {}) {
   if (!globalPkgRoot || !pkgDir) return false;
   // `_rename` is a test seam; production always uses renameWithRetrySync.
   const rename = typeof _rename === 'function' ? _rename : renameWithRetrySync;
@@ -366,7 +366,7 @@ function globalPopulated(root) {
  * cleanupStaging(currentVersion) — remove superseded/stale staging dirs and any
  * leftover swap backups. Best-effort; never throws.
  */
-export function cleanupStaging(currentVersion) {
+function cleanupStaging(currentVersion) {
   const cur = String(currentVersion || localPackageVersion());
   try {
     for (const name of readdirSync(stagingRootDir())) {
@@ -458,7 +458,7 @@ export function performPendingSwap() {
 // present + size-stable package; otherwise print a one-line notice and
 // process.exit(1). Exported so the swap-safety proof can exercise the exact
 // production decision.
-export function ensureGlobalStableOrExit(root, timeoutMs = 3000) {
+function ensureGlobalStableOrExit(root, timeoutMs = 3000) {
   if (ensureGlobalStable(root, timeoutMs) && globalPopulated(root)) return true;
   process.stderr.write('mixdog: update in progress — retry in a moment.\n');
   process.exit(1);
@@ -479,7 +479,7 @@ function currentGlobalVersion() {
 // Block until the swap lock file disappears (owner finished) or the deadline
 // passes. A dead/abandoned owner is reaped and treated as cleared. Returns true
 // if the lock is gone, false if it timed out with a live owner still holding.
-export function waitForSwapLockClear(lock, timeoutMs) {
+function waitForSwapLockClear(lock, timeoutMs) {
   const deadline = Date.now() + Math.max(0, timeoutMs);
   while (Date.now() < deadline) {
     if (!existsSync(lock)) return true;

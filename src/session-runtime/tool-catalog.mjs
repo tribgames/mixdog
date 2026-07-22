@@ -186,7 +186,7 @@ function setDeferredToolState(session, names) {
   return selected;
 }
 
-export function deferredPoolToolNames(session) {
+function deferredPoolToolNames(session) {
   if (!session || session.deferredProviderMode === 'full'
     || session.deferredProviderMode === 'manifest'
     || session.deferredProviderMode === 'canonical') return [];
@@ -652,7 +652,7 @@ export function selectDeferredTools(session, names, mode, options = {}) {
 //   query "select:a,b" → legacy query-side loader
 // A free-text `query` is NOT a search anymore: it yields no names, and the
 // caller is steered back to names[].
-export function parseLoadToolNames(args = {}) {
+function parseLoadToolNames(args = {}) {
   const fromNames = parseToolSelection(args.names);
   if (fromNames.length) return fromNames;
   const fromSelect = parseToolSelection(args.select);

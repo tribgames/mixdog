@@ -24,6 +24,7 @@ import {
     semanticCompactionEnabledForSession,
     compactTypeForSession,
 } from './context-meta.mjs';
+import { resolveSemanticSummaryModel } from '../loop/compact-policy.mjs';
 import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 import { pruneOffloadSession } from '../tool-result-offload.mjs';
 import { _getPendingMessagesForSession } from './pending-messages.mjs';

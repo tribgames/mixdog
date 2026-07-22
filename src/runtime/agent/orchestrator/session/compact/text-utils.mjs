@@ -6,9 +6,9 @@ import { estimateMessagesTokens } from '../context-utils.mjs';
 const TOOL_ARG_STRING_MAX_CHARS = 360;
 const TOOL_ARG_ARRAY_MAX_ITEMS = 8;
 const TOOL_ARG_MAX_DEPTH = 4;
-export const TOOL_CALL_ARGS_MAX_CHARS = 260;
+const TOOL_CALL_ARGS_MAX_CHARS = 260;
 export const TOOL_CALL_FACT_ARGS_MAX_CHARS = 140;
-export const TOOL_CALLS_MAX = 4;
+const TOOL_CALLS_MAX = 4;
 const SENSITIVE_TOOL_ARG_KEY_RE = /(?:^|[_-])(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)(?:$|[_-])/i;
 // Word alternation for raw-string (non-JSON) secret redaction. Mirrors the
 // keys in SENSITIVE_TOOL_ARG_KEY_RE and the session-ingest redactor so a raw

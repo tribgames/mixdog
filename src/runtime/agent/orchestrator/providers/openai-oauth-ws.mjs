@@ -103,7 +103,7 @@ const HANDSHAKE_MAX_ATTEMPTS = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT + 1;
 const HANDSHAKE_BACKOFF_BASE_MS = 200;
 const HANDSHAKE_BACKOFF_CAP_MS = 3200;
 
-export function _classifyHandshakeError(err, { retry429 = true } = {}) {
+function _classifyHandshakeError(err, { retry429 = true } = {}) {
     return classifyHandshakeError(err, { retry429 });
 }
 
@@ -475,7 +475,7 @@ function _cacheContinuityResetReason({ mode, deltaReason, entry, body, traceProv
 // asserted via metrics instead of behavior: does the warmup's response_id
 // become the anchor the FIRST real request chains from, and what is the
 // hit/miss outcome of the first up-to-3 real requests on the socket.
-export function _warmupContinuityTrace({
+function _warmupContinuityTrace({
     warmupUsed,
     warmupResponseId,
     priorEntryResponseId,

@@ -134,7 +134,7 @@ function normalizeSkillNameKey(name) {
     return String(name || '').trim().toLowerCase();
 }
 
-export function getDisabledSkillNameSet(config = null) {
+function getDisabledSkillNameSet(config = null) {
     const cfg = config || loadConfig({ secrets: false });
     const keys = normalizeSkillsConfig(cfg.skills).disabled
         .map((n) => normalizeSkillNameKey(n))
@@ -203,7 +203,7 @@ export function collectSkillsCached(cwd) {
 /**
  * Load full skill content by name.
  */
-export function loadSkillContent(name, cwd) {
+function loadSkillContent(name, cwd) {
     const skills = collectSkillsCached(cwd);
     const skill = skills.find(s => s.name === name);
     if (!skill)
@@ -250,7 +250,7 @@ export function buildSkillResultEnvelope(name, content, skillDir) {
  * body is delivered separately as ONE injected user message (newMessages),
  * never in the tool_result — so the body appears exactly once.
  */
-export function buildSkillStub(name) {
+function buildSkillStub(name) {
     return `Loaded skill: ${String(name || '').trim()}`;
 }
 
@@ -320,7 +320,7 @@ function sanitizeDeferredToolManifestName(name) {
     return text;
 }
 
-export function bp1HasDeferredToolManifestBlock(text) {
+function bp1HasDeferredToolManifestBlock(text) {
     const raw = String(text || '');
     return /<available-deferred-tools>[\s\S]*?<\/available-deferred-tools>/i.test(raw)
         || /<mcp-instructions>[\s\S]*?<\/mcp-instructions>/i.test(raw);
@@ -375,7 +375,7 @@ function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
  * Per-server MCP initialize instructions for deferred-pool tools only.
  * Empty when no instructions or no matching deferred MCP tools → omit block.
  */
-export function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
+function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
     const map = mcpServerInstructions && typeof mcpServerInstructions === 'object'
         ? mcpServerInstructions
         : {};
@@ -421,7 +421,7 @@ export function stripDeferredToolManifestBlock(text) {
 // manifest, agent rules, …) is reordered or dropped. The fresh manifest already
 // carries the mcp-instructions companion, so any pre-existing standalone one is
 // removed first to avoid duplication.
-export function rebuildDeferredToolManifestBlock(text, manifest) {
+function rebuildDeferredToolManifestBlock(text, manifest) {
     let out = String(text || '').replace(MCP_INSTRUCTIONS_BLOCK_RE, '');
     let replaced = false;
     out = out.replace(DEFERRED_TOOLS_BLOCK_RE, (match, sep) => {

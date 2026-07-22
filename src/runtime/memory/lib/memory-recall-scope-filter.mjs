@@ -1,6 +1,6 @@
 import { VALID_CATEGORY } from './memory.mjs'
 
-export function buildCategoryFilterClause(offset, categories, { tableAlias = '' } = {}) {
+function buildCategoryFilterClause(offset, categories, { tableAlias = '' } = {}) {
   const cats = (Array.isArray(categories) ? categories : [categories])
     .map(c => String(c ?? '').trim().toLowerCase())
     .filter(c => VALID_CATEGORY.has(c))

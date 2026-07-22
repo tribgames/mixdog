@@ -17,7 +17,7 @@ import { shouldFallbackTransport } from './retry-classifier.mjs';
 import { traceHash, stableTraceStringify, summarizeTraceTools, traceTextShape } from './trace-utils.mjs';
 import { summarizeTraceMessages, extractCompatCachedTokens } from './openai-compat-trace.mjs';
 
-export function xaiPrefixSeed({ opts, params, rawTools, model }) {
+function xaiPrefixSeed({ opts, params, rawTools, model }) {
     const providerKey = resolveProviderCacheKey(opts, 'xai');
     const systemMessages = (params?.messages || [])
         .filter(m => m?.role === 'system')
@@ -112,7 +112,7 @@ export function normalizeXaiReasoningEffort(value) {
     return ['low', 'medium', 'high'].includes(effort) ? effort : null;
 }
 
-export function opencodeGoReasoningEffortValues(modelInfo) {
+function opencodeGoReasoningEffortValues(modelInfo) {
     const effort = (modelInfo?.reasoningOptions || []).find((option) => option?.type === 'effort');
     return Array.isArray(effort?.values)
         ? effort.values.map((item) => String(item || '').trim().toLowerCase()).filter(Boolean)
@@ -433,7 +433,7 @@ export async function withXaiResponsesCacheLane({ opts, config, cacheRouting, mo
     return { value: await fn(laneMeta), laneMeta };
 }
 
-export function deterministicUuidFromKey(key) {
+function deterministicUuidFromKey(key) {
     const hex = createHash('sha256').update(String(key ?? '')).digest('hex');
     const variant = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
     return [
@@ -445,7 +445,7 @@ export function deterministicUuidFromKey(key) {
     ].join('-');
 }
 
-export function compatCacheTraceEnabled(provider) {
+function compatCacheTraceEnabled(provider) {
     return process.env.MIXDOG_COMPAT_CACHE_TRACE === '1'
         || process.env.MIXDOG_PROVIDER_CACHE_TRACE === '1'
         || (provider === 'xai' && process.env.MIXDOG_XAI_CACHE_TRACE === '1');

@@ -16,7 +16,7 @@
  * `result` and the loop alone is responsible for flushing `newMessages`.
  */
 
-export const TOOL_ENVELOPE_MARKER = '__toolEnvelope';
+const TOOL_ENVELOPE_MARKER = '__toolEnvelope';
 
 export function isToolEnvelope(value) {
     return !!value

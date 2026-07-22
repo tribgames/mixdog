@@ -53,7 +53,7 @@ export function getThemeSetting() {
 }
 
 /** Coerce any value to a known theme id, falling back to the default. */
-export function resolveThemeId(id) {
+function resolveThemeId(id) {
   const key = String(id || '').trim();
   if (THEME_ALIASES[key] && THEME_REGISTRY[THEME_ALIASES[key]]) return THEME_ALIASES[key];
   return THEME_REGISTRY[key] ? key : DEFAULT_THEME_ID;

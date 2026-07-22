@@ -42,7 +42,7 @@ export function safeInlineText(value) {
     .trim();
 }
 
-export function normalizeCount(value) {
+function normalizeCount(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
 }
@@ -59,7 +59,7 @@ export function normalizeCountMap(value = {}) {
   return out;
 }
 
-export function deltaColor(token) {
+function deltaColor(token) {
   return String(token || '').startsWith('+') ? theme.success : theme.error;
 }
 

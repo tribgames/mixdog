@@ -21,7 +21,7 @@ import {
 // Returns the index just past the closing `/flags`. Bytes between the
 // delimiters are replaced with spaces in `out` so downstream identifier
 // searches do not see them.
-export function _maskJsRegexLiteral(src, out, start) {
+function _maskJsRegexLiteral(src, out, start) {
   if (src[start] !== '\n') out[start] = ' ';
   let j = start + 1;
   let inCharClass = false;

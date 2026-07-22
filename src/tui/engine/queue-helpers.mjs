@@ -53,7 +53,7 @@ export function isSlashQueuedEntry(entry) {
   return text.trim().startsWith('/');
 }
 
-export function firstQueueLine(text) {
+function firstQueueLine(text) {
   return String(text || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
 }
 
@@ -88,7 +88,7 @@ export function promptContentText(content) {
   return String(content ?? '');
 }
 
-export function timestampMs(value) {
+function timestampMs(value) {
   if (value == null || value === '') return 0;
   const n = Number(value);
   if (Number.isFinite(n) && n > 0) return n;
@@ -96,7 +96,7 @@ export function timestampMs(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
-export function hasModelVisibleConversation(session) {
+function hasModelVisibleConversation(session) {
   const messages = Array.isArray(session?.messages) ? session.messages : [];
   return messages.some((message) => {
     const role = message?.role;

@@ -28,7 +28,7 @@ const SIM_RECALL = 0.65
 export const CORE_DEDUP_TOP_K = 5
 
 export const CORE_SUMMARY_MAX = 100
-export const CORE_ELEMENT_MAX = 40
+const CORE_ELEMENT_MAX = 40
 
 function trimOrNull(v) {
   if (v == null) return null

@@ -124,7 +124,7 @@ export const NOISE_DIR_NAMES = new Set([
     '.gradle',
 ]);
 
-export const MAX_WALK_ENTRIES = 200_000;
+const MAX_WALK_ENTRIES = 200_000;
 
 // Unified directory walk used by list / tree / find_files. The visitor
 // callback owns the "should I record this entry?" decision; returning

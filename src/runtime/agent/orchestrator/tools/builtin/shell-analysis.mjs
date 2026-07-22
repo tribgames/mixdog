@@ -761,7 +761,7 @@ export async function analyzeShellCommandEffects(command, cwd) {
 // its deadline. Only the first top-level segment is considered — sleeps inside
 // pipelines/subshells/scripts are legitimate pacing and pass through. Float
 // durations (sleep 0.5) are allowed, mirroring the reference CLI.
-export function detectBlockedSleepPattern(command) {
+function detectBlockedSleepPattern(command) {
     const cmd = String(command || '').trim();
     if (!cmd) return null;
     const sep = cmd.match(/&&|\|\||;|\|/);

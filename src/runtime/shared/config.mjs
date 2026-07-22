@@ -294,7 +294,7 @@ export function updateConfig(updater) {
   return saved
 }
 
-export function writeSection(section, data) {
+function writeSection(section, data) {
   withConfigLock(() => {
     const all = readAllForRmW()
     all[section] = stripGeneratedMarker(data)
@@ -383,7 +383,7 @@ export function updateConfigAsync(updater) {
   })
 }
 
-export function writeSectionAsync(section, data) {
+function writeSectionAsync(section, data) {
   return trackConfigWrite(() => withConfigLockAsync(async () => {
     const all = readAllForRmW()
     all[section] = stripGeneratedMarker(data)
@@ -427,7 +427,7 @@ function readCapabilities() {
 // Convenience alias requested by B2 call-site plumbing. Returns the
 // same object shape as readCapabilities(); callers that only need a
 // boolean can read `.homeAccess` directly.
-export function getCapabilities() {
+function getCapabilities() {
   return readCapabilities()
 }
 
@@ -443,7 +443,7 @@ export const SECRET_ACCOUNTS = Object.freeze({
   opencodeGoAuthCookie: 'agent.opencode-go.authCookie',
 })
 
-export function isDiscordSnowflake(value) {
+function isDiscordSnowflake(value) {
   return /^\d{17,20}$/.test(String(value || '').trim())
 }
 

@@ -13,13 +13,13 @@
 // that stays under that cap after the 4/3 base64 inflation.
 export const API_IMAGE_MAX_BASE64_SIZE = 5 * 1024 * 1024; // 5 MB
 export const IMAGE_TARGET_RAW_SIZE = (API_IMAGE_MAX_BASE64_SIZE * 3) / 4; // 3.75 MB
-export const IMAGE_MAX_WIDTH = 2000;
-export const IMAGE_MAX_HEIGHT = 2000;
+const IMAGE_MAX_WIDTH = 2000;
+const IMAGE_MAX_HEIGHT = 2000;
 // Token budget for a single image. est tokens = base64.length * 0.125 (CC's
 // per-image heuristic). Default aligns to the 5MB base64 API ceiling so the
 // dimension/raw-size resize governs the common case and the token gate only
 // fires on pathologically dense images.
-export const DEFAULT_IMAGE_MAX_TOKENS = Math.ceil(API_IMAGE_MAX_BASE64_SIZE * 0.125);
+const DEFAULT_IMAGE_MAX_TOKENS = Math.ceil(API_IMAGE_MAX_BASE64_SIZE * 0.125);
 
 // Cached dynamic import. Resolves to the sharp factory or null (absent /
 // failed). Cached so repeated reads don't re-attempt a failing import.
@@ -39,7 +39,7 @@ async function loadSharp() {
 }
 
 // True when sharp resolved; used for the per-file change summary / fallback note.
-export async function sharpAvailable() {
+async function sharpAvailable() {
     return (await loadSharp()) !== null;
 }
 

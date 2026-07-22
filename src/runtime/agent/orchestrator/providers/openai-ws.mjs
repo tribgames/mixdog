@@ -31,12 +31,12 @@ const OPENAI_DIRECT_PRIORITY_MODEL_PATTERNS = Object.freeze([
     /^gpt-5\.4-mini(?:-\d{4}|$)/,
 ]);
 
-export function openAiDirectSupportsPriority(model) {
+function openAiDirectSupportsPriority(model) {
     const id = String(model || '').trim();
     return OPENAI_DIRECT_PRIORITY_MODEL_PATTERNS.some(re => re.test(id));
 }
 
-export function applyOpenAIDirectFastTier(body, model, opts) {
+function applyOpenAIDirectFastTier(body, model, opts) {
     if (opts?.fast === true && openAiDirectSupportsPriority(model)) {
         body.service_tier = 'priority';
     }

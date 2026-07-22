@@ -372,7 +372,7 @@ export function _formatSymbolHitLocation(hit) {
   return `${hit.rel}:${line}:${col}`;
 }
 
-export function _sortSymbolHits(hits) {
+function _sortSymbolHits(hits) {
   if (!hits?.length) return hits;
   const depthOf = (rel) => String(rel || '').split('/').length;
   const isCanonicalSrc = (rel) => /^src\//.test(rel || '');

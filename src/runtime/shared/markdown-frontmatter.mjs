@@ -33,7 +33,7 @@ export function parseMarkdownFrontmatter(markdown) {
   return meta;
 }
 
-export function stripMarkdownFrontmatter(markdown) {
+function stripMarkdownFrontmatter(markdown) {
   return String(markdown || '').replace(FRONTMATTER_RE, '').trim();
 }
 

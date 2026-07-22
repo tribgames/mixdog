@@ -169,7 +169,7 @@ function _markLatestGrok(models) {
 // on-disk catalog cache. Deterministic — no version-string guessing (xAI's
 // grok-4.20 actually predates grok-4.3 despite the higher-looking number).
 // Returns null until the catalog is cached; use ensureLatestGrokModel when null.
-export function resolveLatestGrokModel() {
+function resolveLatestGrokModel() {
     const cached = _modelCache.loadSync();
     if (!Array.isArray(cached)) return null;
     let best = null;
@@ -180,7 +180,7 @@ export function resolveLatestGrokModel() {
     return best?.id || null;
 }
 
-export async function ensureLatestGrokModel(provider) {
+async function ensureLatestGrokModel(provider) {
     let m = resolveLatestGrokModel();
     if (m) return m;
     await provider._refreshModelCache();

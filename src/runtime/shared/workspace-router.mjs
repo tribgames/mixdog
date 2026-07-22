@@ -91,7 +91,7 @@ function projectFromRoot(root, marker) {
   };
 }
 
-export function findNearestProjectRoot(start) {
+function findNearestProjectRoot(start) {
   const initial = safeResolve(start);
   if (!initial || !safeIsDirectory(initial)) return null;
   let cur = initial;
@@ -108,7 +108,7 @@ function shouldIgnoreDir(name) {
   return IGNORE_DIRS.has(name) || name.startsWith('$') || name.endsWith('.tmp');
 }
 
-export function discoverProjectCandidates(base, {
+function discoverProjectCandidates(base, {
   maxDepth = DEFAULT_MAX_DEPTH,
   maxDirs = DEFAULT_MAX_DIRS,
   maxCandidates = DEFAULT_MAX_CANDIDATES,
@@ -179,7 +179,7 @@ function scanBaseFor(currentCwd, activeProject) {
   return currentCwd;
 }
 
-export function createWorkspaceRouter({
+function createWorkspaceRouter({
   entryCwd = process.cwd(),
   maxDepth = DEFAULT_MAX_DEPTH,
   maxDirs = DEFAULT_MAX_DIRS,
@@ -227,7 +227,7 @@ export function createWorkspaceRouter({
   return { snapshot };
 }
 
-export function formatWorkspaceSessionContext(snapshot) {
+function formatWorkspaceSessionContext(snapshot) {
   if (!snapshot) return '';
   const candidates = (snapshot.candidates || []).slice(0, 20);
   const lines = ['# Workspace'];
@@ -252,7 +252,7 @@ export function formatWorkspaceSessionContext(snapshot) {
   return lines.join('\n');
 }
 
-export function resolveWorkspaceCwd(baseCwd, value) {
+function resolveWorkspaceCwd(baseCwd, value) {
   const raw = String(value || '').trim();
   if (!raw) return resolve(baseCwd || process.cwd());
   return isAbsolute(raw) ? resolve(raw) : resolve(baseCwd || process.cwd(), raw);

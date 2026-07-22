@@ -64,7 +64,7 @@ const AGENT_DISPLAY_NAMES = new Map([
   ['debugger', 'Debugger'],
 ]);
 
-export function titleizeAgentName(value) {
+function titleizeAgentName(value) {
   const text = String(value || '').trim();
   if (!text) return '';
   const key = text.toLowerCase().replace(/[\s_]+/g, '-');
@@ -77,7 +77,7 @@ export function titleizeAgentName(value) {
     .join(' ');
 }
 
-export function agentModelLabel(args) {
+function agentModelLabel(args) {
   const a = args && typeof args === 'object' ? args : {};
   const provider = String(a.provider || a.providerId || a.provider_id || '').trim();
   const model = String(a.model || '').trim();
@@ -85,14 +85,14 @@ export function agentModelLabel(args) {
   return displayModelName(model, provider, displayHint);
 }
 
-export function agentTagLabel(args) {
+function agentTagLabel(args) {
   // The real spawn tag (engine fills parsedArgs.tag from the envelope target).
   // Never fall back to task_id — only the human-meaningful spawn tag belongs in
   // the header parentheses.
   return String(args?.tag || '').trim();
 }
 
-export function withModelAndTag(label, args) {
+function withModelAndTag(label, args) {
   const model = agentModelLabel(args);
   const tag = agentTagLabel(args);
   const inner = [model, tag].filter(Boolean).join(', ');
@@ -101,7 +101,7 @@ export function withModelAndTag(label, args) {
 
 // Append an agent name to a base action word without leaving a trailing space
 // when the agent is unknown (no generic "Agent" fallback).
-export function joinActionAgent(action, agent) {
+function joinActionAgent(action, agent) {
   return agent ? `${action} ${agent}` : action;
 }
 
@@ -180,7 +180,7 @@ export function hasAgentResponseResult(value) {
   return false;
 }
 
-export function parseBackgroundTaskResult(value) {
+function parseBackgroundTaskResult(value) {
   const text = String(value || '').trim();
   if (!text) return null;
   const allLines = text.split('\n');
@@ -211,7 +211,7 @@ export function parseBackgroundTaskResult(value) {
   };
 }
 
-export function backgroundTaskMetaFromArgs(args = {}) {
+function backgroundTaskMetaFromArgs(args = {}) {
   const taskId = String(args.task_id || args.taskId || '').trim();
   if (!taskId) return null;
   return {
@@ -275,7 +275,7 @@ export function shouldPrefixSyncElapsed(normalizedName, label) {
   return n === 'explore' || l === 'explore' || n === 'search' || l === 'search' || l === 'web search';
 }
 
-export function backgroundTaskDisplayName(normalizedName, meta = {}) {
+function backgroundTaskDisplayName(normalizedName, meta = {}) {
   const surface = String(meta.surface || normalizedName || '').toLowerCase();
   if (surface === 'explore') return 'Explore';
   if (surface === 'search') return 'Search';
@@ -322,7 +322,7 @@ export function isBackgroundTaskResponseArgs(normalizedName, args = {}) {
   return type === 'result' || type === 'completion' || (/^(completed|cancelled|canceled)$/i.test(status) && Boolean(args?.task_id));
 }
 
-export function isOutputDetailTool(normalizedName, label) {
+function isOutputDetailTool(normalizedName, label) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   return new Set([

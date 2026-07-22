@@ -41,7 +41,7 @@ export function openCodeGoEndpointForModel(model, configuredBaseURL) {
         : `${bases.openai}/chat/completions`;
 }
 
-export function normalizeOpenCodeGoResultUsage(result, anthropicRoute) {
+function normalizeOpenCodeGoResultUsage(result, anthropicRoute) {
     if (!anthropicRoute || !result?.usage) return result;
     const usage = result.usage;
     const input = Number(usage.inputTokens) || 0;

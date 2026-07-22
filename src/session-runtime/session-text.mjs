@@ -42,14 +42,14 @@ const SYNTHETIC_SESSION_TEXT_PATTERNS = Object.freeze([
   /^the async (?:agent|shell) task\b/i,
 ]);
 
-export function stripSessionDisplayEnvelope(value) {
+function stripSessionDisplayEnvelope(value) {
   return String(value ?? '')
     .replace(/^# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, '')
     .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '')
     .replace(/^#\s*Session\s+Cwd:\s+\S+(?:\s+Model:\s+\S*)?(?:\s+Workflow:\s+\S*)?\s*/i, '');
 }
 
-export function stripInjectedSessionText(value) {
+function stripInjectedSessionText(value) {
   let text = String(value ?? '');
   for (const tag of INJECTED_DISPLAY_BLOCK_TAGS) {
     const block = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?(?:<\\/${tag}\\s*>|$)`, 'gi');
@@ -59,7 +59,7 @@ export function stripInjectedSessionText(value) {
   return text;
 }
 
-export function isSyntheticSessionText(text) {
+function isSyntheticSessionText(text) {
   const value = String(text || '').trim();
   return SYNTHETIC_SESSION_TEXT_PATTERNS.some((pattern) => pattern.test(value));
 }
@@ -102,7 +102,7 @@ export function isLateToolAnnouncement(text) {
 // "MCP tools available: UnityMCP (12 tools)". MCP tool entries in the manifest
 // are `- mcp__<server>__<tool>: ...` lines; the server name is the segment
 // after the `mcp__` prefix. Returns '' for non-announcement text.
-export function summarizeLateToolAnnouncement(text) {
+function summarizeLateToolAnnouncement(text) {
   const value = String(text || '');
   if (!isLateToolAnnouncement(value)) return '';
   const block = value.match(/<available-deferred-tools>([\s\S]*?)<\/available-deferred-tools>/i);

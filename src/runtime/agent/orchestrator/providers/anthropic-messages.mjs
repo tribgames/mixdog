@@ -54,7 +54,7 @@ import {
 
 
 export const require = createRequire(import.meta.url);
-export let _Anthropic = null;
+let _Anthropic = null;
 export function loadAnthropic() {
     if (!_Anthropic) {
         const mod = require('@anthropic-ai/sdk');
@@ -168,8 +168,8 @@ export function _normalizeAnthropicModel(raw, provider = 'anthropic') {
 // it. If this provider is ever run standalone without the OAuth provider
 // ever having populated the cache, loadSync() simply returns null and we
 // fall through to the shared static heuristic in anthropic-max-tokens.mjs.
-export const ANTHROPIC_OAUTH_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
-export const _sharedOAuthModelCache = makeModelCache({
+const ANTHROPIC_OAUTH_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
+const _sharedOAuthModelCache = makeModelCache({
     fileName: 'anthropic-oauth-models.json',
     ttlMs: ANTHROPIC_OAUTH_MODEL_CACHE_TTL_MS,
     version: 1,
@@ -180,10 +180,10 @@ export const _sharedOAuthModelCache = makeModelCache({
 // cache, so without this mirror catalog outputTokens would stay invisible to
 // resolveMaxTokens until an OAuth session runs. listModels() results flow in
 // here (memory only — the disk cache stays OAuth-owned/read-only for us).
-export let _apiKeyCatalogMirror = null;
+let _apiKeyCatalogMirror = null;
 export function _setApiKeyCatalogMirror(value) { _apiKeyCatalogMirror = value; }
 
-export function _catalogOutputTokensFromSharedCache(model) {
+function _catalogOutputTokensFromSharedCache(model) {
     if (!model) return null;
     try {
         const models = Array.isArray(_apiKeyCatalogMirror)

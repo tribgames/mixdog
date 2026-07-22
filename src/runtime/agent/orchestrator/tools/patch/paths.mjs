@@ -197,7 +197,7 @@ function nativeHeaderSupported(entry) {
 // ancestor when the leaf does not yet exist (e.g. a create-mode target).
 // Returns the resolved real path, or the lexically-resolved path if no
 // ancestor can be realpath'd.
-export function realpathNearestExistingAncestor(absPath) {
+function realpathNearestExistingAncestor(absPath) {
   let cur = pathResolve(absPath);
   while (true) {
     try {

@@ -94,7 +94,7 @@ function formatRetryAfter(ms) {
     return `${Math.ceil(n)}ms`;
 }
 
-export function anthropicQuotaError(status, headers, bodyText = '') {
+function anthropicQuotaError(status, headers, bodyText = '') {
     const retryAfterMs = retryAfterMsFromError({ headers, response: { headers } });
     const retryAfter = formatRetryAfter(retryAfterMs);
     const detail = bodyText ? `: ${String(bodyText).slice(0, 200)}` : '';

@@ -283,7 +283,7 @@ function nativeBlocksEstimateText(value) {
         catch { return String(block ?? ''); }
     }).join('\n');
 }
-export function messageEstimateText(m) {
+function messageEstimateText(m) {
     if (!m || typeof m !== 'object') return '';
     // Multimodal image payloads remain on the live message for provider sends,
     // but their base64/data-url JSON is not text and must not dominate local
@@ -361,7 +361,7 @@ function messageFileAllowance(m) {
         Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, Math.ceil((descriptor.sizeBytes || 0) / 16)),
     ), 0);
 }
-export function estimateMessageTokens(m) {
+function estimateMessageTokens(m) {
     return estimateTokens(messageEstimateText(m)) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
 }
 export function estimateMessagesTokens(messages) {

@@ -34,7 +34,7 @@ export function hasMarkdownSyntax(text) {
   return MD_SYNTAX_RE.test(value);
 }
 
-export function lexMarkdown(content, { trimPartialFences = false } = {}) {
+function lexMarkdown(content, { trimPartialFences = false } = {}) {
   configureMarked();
   const text = String(content ?? '');
   if (!hasMarkdownSyntax(text)) {

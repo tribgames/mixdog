@@ -97,7 +97,7 @@ export const SESSION_MANAGE_TOOL = {
 };
 
 export const LEAD_DISALLOWED_TOOLS = Object.freeze([]);
-export const AGENT_HIDDEN_WRAPPER_TOOLS = new Set([]);
+const AGENT_HIDDEN_WRAPPER_TOOLS = new Set([]);
 
 export function applyStandaloneToolDefaults(tool) {
   if (!tool || !AGENT_HIDDEN_WRAPPER_TOOLS.has(tool.name)) return tool;

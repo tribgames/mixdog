@@ -252,7 +252,7 @@ export function npmCliJsPath() {
  * npm-cli.js cannot be located. Resolves once the child exits; never throws —
  * failures come back as {ok:false, error}.
  */
-export function runGlobalUpdate() {
+function runGlobalUpdate() {
   return new Promise((resolvePromise) => {
     let child;
     try {

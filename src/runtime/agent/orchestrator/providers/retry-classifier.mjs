@@ -274,7 +274,7 @@ function isPermanentQuotaError(err) {
  * oauth's MAX_ATTEMPTS, openai-oauth-ws's mid-stream classifier) still gate
  * on attempt count separately; this helper only answers the kind question.
  */
-export function isRetryable(err) {
+function isRetryable(err) {
   return classifyError(err) === 'transient'
 }
 
@@ -304,7 +304,7 @@ export function anthropicRequestTimeoutMs() {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 600_000
 }
 
-export const ANTHROPIC_MAX_CONSECUTIVE_529 = 3
+const ANTHROPIC_MAX_CONSECUTIVE_529 = 3
 
 export class AnthropicFallbackTriggeredError extends Error {
   constructor(originalModel, fallbackModel, cause) {

@@ -13,7 +13,7 @@ import {
   toolResultTerminalStatus,
 } from '../../runtime/shared/tool-status.mjs';
 
-export const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
+const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
 // Detect a shell command that RAN but exited non-zero (a process exit code)
 // as opposed to a real tool-call failure (`[shell-tool-failed]`) or a
@@ -71,15 +71,15 @@ export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 
   return parts.join(' · ');
 }
 
-export function normalizedResultStatusToken(value) {
+function normalizedResultStatusToken(value) {
   return normalizeToolTerminalStatus(value);
 }
 
-export function resultTextTerminalStatus(text) {
+function resultTextTerminalStatus(text) {
   return toolResultTerminalStatus(text);
 }
 
-export function itemHasKnownTerminalStatus(item, texts = []) {
+function itemHasKnownTerminalStatus(item, texts = []) {
   const settled = (token) => token === 'completed' || token === 'failed' || token === 'cancelled';
   if (settled(normalizedResultStatusToken(item?.args?.status))) return true;
   for (const text of texts) {
@@ -129,7 +129,7 @@ export function groupedToolResultText(group) {
   return '';
 }
 
-export function firstErrorLine(text) {
+function firstErrorLine(text) {
   const clean = toolErrorDisplay(text, 'tool');
   if (clean) return clean;
   for (const line of String(text || '').split('\n')) {

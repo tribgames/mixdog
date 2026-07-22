@@ -31,10 +31,10 @@ function assertSafeTokenURL(rawURL) {
     return rawURL;
 }
 export const TOKEN_URL = assertSafeTokenURL(process.env.ANTHROPIC_OAUTH_TOKEN_URL || 'https://platform.claude.com/v1/oauth/token');
-export const DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
-export const CLAUDE_CODE_CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID || '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+const DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
+const CLAUDE_CODE_CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID || '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
-export const ANTHROPIC_OAUTH_REFRESH_DISABLED_ENV = 'MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED';
+const ANTHROPIC_OAUTH_REFRESH_DISABLED_ENV = 'MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED';
 const CLAUDE_AI_AUTHORIZE_URL = 'https://claude.com/cai/oauth/authorize';
 const ALL_OAUTH_SCOPES = [
     'org:create_api_key',
@@ -71,7 +71,7 @@ function _pushUnique(list, value) {
     if (!list.includes(value)) list.push(value);
 }
 
-export function credentialCandidates() {
+function credentialCandidates() {
     const bound = boundProviderAuthPath('anthropic-oauth');
     if (bound) return [resolve(bound)];
     const explicit = process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH;

@@ -44,7 +44,7 @@ export function formatAgentWatchdogSummary(policy, snapshot = null) {
   return parts.length ? `armed ${parts.join(' ')}` : null;
 }
 
-export function resolveSilentForSeconds(now, snapshot, runtime) {
+function resolveSilentForSeconds(now, snapshot, runtime) {
   const last = Math.max(
     snapshot?.lastProgressAt || 0,
     runtime?.lastProgressAt || 0,

@@ -37,7 +37,7 @@ const DEFAULT_MARKDOWN_WIDTH = 80;
 // Hard ceilings so a pathological tool result can never lock the render loop.
 // CC uses ~MAX_LINES*width*4 for the collapsed fold; for the EXPANDED body we
 // cap total characters processed and total lines kept, with an explicit marker.
-export const MAX_EXPANDED_CHARS = 256 * 1024; // 256 KB of text gets per-line processing
+const MAX_EXPANDED_CHARS = 256 * 1024; // 256 KB of text gets per-line processing
 const MAX_EXPANDED_LINES = 4000; // logical-line safety ceiling; physical mount cap is separate
 const MAX_JSON_FORMAT_LENGTH = 10_000; // mirror CC's tryJsonFormatContent cap
 const MAX_HIGHLIGHT_LINE_CHARS = 2000; // skip token-scan on absurdly long lines
@@ -58,7 +58,7 @@ const MIN_EXPANDED_BODY_COLS = 24;
 // unchanged — only pathological wide/unwrapped blobs are trimmed. Env-tunable
 // via MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES (0 disables); legacy
 // MIXDOG_TUI_EXPANDED_MAX_ROWS is still honored when the primary var is unset.
-export function resolveToolOutputMaxRenderLines() {
+function resolveToolOutputMaxRenderLines() {
   const raw = process.env.MIXDOG_TUI_TOOL_OUTPUT_MAX_RENDER_LINES;
   if (raw !== undefined && String(raw).trim() !== '') {
     const v = Number(raw);
@@ -188,7 +188,7 @@ function normalizeToolOutputControls(text) {
 
 
 /** Infer a highlighter family from a read/grep path arg's extension. */
-export function inferLangFamily(pathArg) {
+function inferLangFamily(pathArg) {
   const p = String(pathArg || '').trim().toLowerCase();
   if (!p) return null;
   const m = /\.([a-z0-9]+)$/.exec(p);
@@ -197,7 +197,7 @@ export function inferLangFamily(pathArg) {
 }
 
 /** Strip ONLY underline SGR (4 / 24) — other styles/colors are preserved. */
-export function stripUnderlineAnsi(text) {
+function stripUnderlineAnsi(text) {
   return String(text ?? '').replace(
     // eslint-disable-next-line no-control-regex
     /\x1b\[([0-9;]*)m/g,
@@ -211,7 +211,7 @@ export function stripUnderlineAnsi(text) {
 }
 
 /** Wrap bare URLs in OSC 8 hyperlinks (terminals that ignore it show the URL). */
-export function linkifyUrls(text) {
+function linkifyUrls(text) {
   const src = String(text ?? '');
   if (!/https?:\/\//.test(src)) return src;
   const chunks = [];
@@ -247,7 +247,7 @@ function tryFormatJsonLine(line) {
 }
 
 /** Auto pretty-print whole-result JSON (size-capped, per-line). */
-export function tryFormatJson(text) {
+function tryFormatJson(text) {
   const src = String(text ?? '');
   if (src.length > MAX_JSON_FORMAT_LENGTH) return src;
   return src.split('\n').map(tryFormatJsonLine).join('\n');
@@ -452,7 +452,7 @@ function highlightBody(body, { c, family, diffMode }) {
 }
 
 /** Body text width for expanded tool results (terminal cols minus the ⎿ rail). */
-export function expandedResultBodyWidth(columns = 80) {
+function expandedResultBodyWidth(columns = 80) {
   const cols = Math.max(1, Number(columns) || 80);
   const budget = cols - stringWidth(RESULT_GUTTER);
   return Math.max(MIN_EXPANDED_BODY_COLS, budget);

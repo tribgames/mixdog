@@ -10,7 +10,7 @@ function positiveNumberEnv(name, fallback) {
 
 // The histogram and sampling timer are never constructed unless explicitly
 // enabled, leaving the normal runtime with no event-loop profiling work.
-export function installHitchProfiler() {
+function installHitchProfiler() {
   if (!HITCH_PROFILE_ENABLED) return null;
 
   const thresholdMs = positiveNumberEnv('MIXDOG_HITCH_THRESHOLD_MS', 100);

@@ -25,7 +25,7 @@ const removeIdentifier = (text, identifier) => (
   text.replace(new RegExp(`(?<![a-z0-9_])${escapeRegExp(identifier)}(?![a-z0-9_])`, 'gi'), '')
 );
 
-export const CODE_GRAPH_EQUIVALENT_DESCRIPTION_PROBES = [
+const CODE_GRAPH_EQUIVALENT_DESCRIPTION_PROBES = [
   {
     description: [
       'Keywords use search/symbol_search while callers/callees/references/find_symbol use exact identifiers.',
@@ -64,7 +64,7 @@ export const CODE_GRAPH_EQUIVALENT_DESCRIPTION_PROBES = [
   },
 ];
 
-export const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
+const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
   {
     name: 'contracted negated file assignment',
     mutate: (parts) => ({
@@ -140,7 +140,7 @@ export const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
   },
 ];
 
-export function hasCodeGraphDescriptionContract({ description, modeDescription, symbolsDescription }) {
+function hasCodeGraphDescriptionContract({ description, modeDescription, symbolsDescription }) {
   return (
     hasPositiveClause(description, ['file modes', 'files[]'])
     && hasModeClause(description, 'symbol modes', SYMBOL_MODES, 'symbols[]')

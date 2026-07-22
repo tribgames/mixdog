@@ -12,7 +12,7 @@ import { askSession } from '../agent/orchestrator/session/manager/ask-session.mj
 import { parseScheduleModelRef } from './schedule-model-ref.mjs';
 
 /** Resolve schedule.model into a {provider,model,effort?,fast?} route. */
-export function scheduleRouteFromModelRef(modelRef, config = null) {
+function scheduleRouteFromModelRef(modelRef, config = null) {
   const ref = parseScheduleModelRef(modelRef);
   if (ref && typeof ref === 'object') return ref;
   const cfg = config || loadConfig({ secrets: false });

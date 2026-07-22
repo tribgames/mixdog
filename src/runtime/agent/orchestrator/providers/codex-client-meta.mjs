@@ -19,7 +19,7 @@ import os from 'node:os';
 // The backend gates model exposure AND per-request model access on the client
 // version (gpt-5.6-* require >= 0.144.0 per codex models-manager/models.json,
 // verified 2026-07-09), so keep this at the current release when bumping.
-export const CODEX_CLIENT_VERSION_FLOOR = '0.144.1';
+const CODEX_CLIENT_VERSION_FLOOR = '0.144.1';
 const VERSION_TTL_MS = 24 * 60 * 60_000;
 let _cache = { value: null, fetchedAt: 0 };
 let _refreshInFlight = null;
@@ -47,7 +47,7 @@ async function _refresh() {
  * fresh, otherwise kicks a background refresh and returns the floor. The
  * handshake must never await a registry fetch.
  */
-export function codexClientVersionSync() {
+function codexClientVersionSync() {
     if (_cache.value && Date.now() - _cache.fetchedAt < VERSION_TTL_MS) return _cache.value;
     if (!_refreshInFlight) {
         _refreshInFlight = _refresh().finally(() => { _refreshInFlight = null; });

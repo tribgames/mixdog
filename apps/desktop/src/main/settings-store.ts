@@ -25,7 +25,7 @@ function record(value: unknown): Record<string, unknown> {
 
 const DEFAULT_ZOOM_FACTOR = 1;
 
-export function desktopZoomFromConfig(value: unknown): number {
+function desktopZoomFromConfig(value: unknown): number {
   const factor = Number(record(record(value).desktop).zoomFactor);
   return Number.isFinite(factor) && factor >= 0.2 && factor <= 10
     ? factor

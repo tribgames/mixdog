@@ -28,7 +28,7 @@ export class AgentStallAbortError extends Error {
     }
 }
 
-export function isAgentProgressWatchdogAbortError(err) {
+function isAgentProgressWatchdogAbortError(err) {
     const msg = err?.message;
     return typeof msg === 'string' && WATCHDOG_ABORT_RE.test(msg);
 }
@@ -104,7 +104,7 @@ export function resolveHandoffMessageStartIndex(session) {
     return messages.length;
 }
 
-export function collectSessionAssistantHandoffText(session, messageStartIndex = 0) {
+function collectSessionAssistantHandoffText(session, messageStartIndex = 0) {
     const messages = Array.isArray(session?.messages) ? session.messages : [];
     const start = Math.max(0, Math.floor(Number(messageStartIndex) || 0));
     const parts = [];
@@ -141,7 +141,7 @@ function resolveWatchdogAbortElapsedMs({ error, snapshot, policy, now, anchorTs,
     return null;
 }
 
-export function recordAgentWatchdogAbort({
+function recordAgentWatchdogAbort({
     sessionId,
     agent = null,
     error,
@@ -190,15 +190,15 @@ function envTimeoutMs(name, fallback) {
     return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
 }
 
-export const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs(
+const DEFAULT_FIRST_RESPONSE_TIMEOUT_MS = envTimeoutMs(
     'MIXDOG_AGENT_FIRST_RESPONSE_TIMEOUT_MS',
     120_000,
 );
-export const DEFAULT_FIRST_VISIBLE_CEILING_MS = envTimeoutMs(
+const DEFAULT_FIRST_VISIBLE_CEILING_MS = envTimeoutMs(
     'MIXDOG_AGENT_FIRST_VISIBLE_TIMEOUT_MS',
     600_000,
 );
-export const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs(
+const DEFAULT_STALE_TIMEOUT_MS = envTimeoutMs(
     'MIXDOG_AGENT_STALE_TIMEOUT_MS',
     30 * 60_000,
 );

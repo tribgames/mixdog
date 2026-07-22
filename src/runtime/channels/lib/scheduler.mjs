@@ -64,7 +64,7 @@ function isCronExpression(time) {
 }
 /** Validate a cron expression and throw a descriptive error if invalid.
  *  Used by schedule_control / schedules POST before accepting input. */
-export function validateCronExpression(time) {
+function validateCronExpression(time) {
   if (typeof time !== "string" || !time) throw new Error(`invalid cron expression: ${JSON.stringify(time)}`);
   if (!cron) throw new Error(`cron expression "${time}" rejected: node-cron is not available (install node-cron to use cron expressions)`);
   const tokens = time.trim().split(/\s+/);

@@ -27,8 +27,8 @@ const RUNTIME_PLATFORMS = [
 ];
 const STRICT_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const SHA256 = /^[a-f0-9]{64}$/i;
-export const MAX_ASSET_BYTES = 256 * 1024 * 1024;
-export const MAX_DOWNLOAD_TIMEOUT_MS = 300_000;
+const MAX_ASSET_BYTES = 256 * 1024 * 1024;
+const MAX_DOWNLOAD_TIMEOUT_MS = 300_000;
 const PATCH_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/patch-manifest.json';
 const PATCH_CARGO_PATH = 'native/mixdog-patch/Cargo.toml';
 const RUNTIME_MANIFEST_PATH = 'src/runtime/memory/data/runtime-manifest.json';

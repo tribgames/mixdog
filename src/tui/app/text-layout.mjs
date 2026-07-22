@@ -77,7 +77,7 @@ export function queuedBandRows(text, width) {
 }
 
 // Character offsets where each visual row starts (hard wrap + explicit newlines).
-export function visualRowStartOffsets(text, width) {
+function visualRowStartOffsets(text, width) {
   const value = String(text ?? '');
   const w = Math.max(1, Math.floor(Number(width) || 1));
   const starts = [0];

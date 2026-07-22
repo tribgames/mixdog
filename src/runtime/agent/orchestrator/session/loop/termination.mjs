@@ -15,7 +15,7 @@ export const INCOMPLETE_STOP_REASONS = new Set([
 // Gemini OTHER is intentionally opaque; neither is safe to treat as a token-cap
 // continuation. Compare case-insensitively so provider spelling variants do not
 // create a second policy.
-export const OUTPUT_LIMIT_STOP_REASONS = new Set([
+const OUTPUT_LIMIT_STOP_REASONS = new Set([
     'length', 'max_tokens', 'max_output_tokens',
 ]);
 

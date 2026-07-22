@@ -12,7 +12,7 @@
 // logic is unchanged; we only refuse to enter it when the path is unreachable.
 import { stat } from 'node:fs/promises';
 
-export const FS_REACHABILITY_DEADLINE_MS = 5000;
+const FS_REACHABILITY_DEADLINE_MS = 5000;
 
 // Resolve true when the path is reachable (exists OR cleanly absent — ENOENT,
 // EACCES, etc. are "the FS answered", let the real sync logic produce its own

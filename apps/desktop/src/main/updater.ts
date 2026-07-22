@@ -125,6 +125,6 @@ export function startAutoUpdater(
   });
 }
 
-export async function quitAndInstallUpdate(): Promise<void> {
+async function quitAndInstallUpdate(): Promise<void> {
   await desktopUpdater.install();
 }

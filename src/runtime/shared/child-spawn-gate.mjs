@@ -144,7 +144,7 @@ export function hasSpareCapacity() {
  * @param {AbortSignal | null} [signal]
  * @returns {Promise<T>}
  */
-export async function withGate(fn, signal = null) {
+async function withGate(fn, signal = null) {
   const release = await acquire(signal);
   try {
     return await fn({ signal: signal || null });

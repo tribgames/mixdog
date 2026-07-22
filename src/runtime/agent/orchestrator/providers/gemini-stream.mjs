@@ -37,14 +37,14 @@ export function geminiTimeoutError(label, timeoutMs) {
     return err;
 }
 
-export function geminiTruncatedStreamError(message) {
+function geminiTruncatedStreamError(message) {
     return Object.assign(
         new Error(message),
         { name: 'TruncatedStreamError', code: 'TRUNCATED_STREAM', truncatedStream: true },
     );
 }
 
-export function geminiStreamCorruptionError(message, cause = null) {
+function geminiStreamCorruptionError(message, cause = null) {
     return Object.assign(
         new Error(message, cause ? { cause } : undefined),
         {
@@ -87,7 +87,7 @@ function normalizeGeminiSdkStreamError(err, label) {
 // stall after visible output was silently retried. Visible-text stalls also
 // gain streamStalled + partialContent so the loop's partial-final path can
 // keep the streamed output instead of dropping the turn.
-export function stampGeminiStreamFailure(err, {
+function stampGeminiStreamFailure(err, {
     relayedText = '',
     textLeakGuard = null,
     sawFunctionCall = false,
@@ -123,7 +123,7 @@ export function stampGeminiStreamFailure(err, {
 
 // True when a streamed Gemini chunk carries a native functionCall part (as
 // opposed to a tool call leaked as plain text, tracked by textLeakGuard).
-export function geminiChunkHasFunctionCall(chunk) {
+function geminiChunkHasFunctionCall(chunk) {
     const parts = chunk?.candidates?.[0]?.content?.parts;
     if (!Array.isArray(parts)) return false;
     return parts.some((p) => p && p.functionCall);
@@ -181,7 +181,7 @@ export function aggregateGeminiStreamChunks(responses) {
     return aggregatedResponse;
 }
 
-export function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label }) {
+function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label }) {
     if (!sawStreamChunk) {
         throw geminiTruncatedStreamError(`${label} truncated: empty stream`);
     }
@@ -205,7 +205,7 @@ export function geminiChunkText(chunk) {
     return text;
 }
 
-export function relayGeminiStreamText(t, { onTextDelta, textLeakGuard }) {
+function relayGeminiStreamText(t, { onTextDelta, textLeakGuard }) {
     if (!t) return;
     if (textLeakGuard) textLeakGuard.feedText(t);
     else if (onTextDelta) { try { onTextDelta(t); } catch {} }

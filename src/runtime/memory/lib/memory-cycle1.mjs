@@ -109,7 +109,7 @@ function selectRootId(members) {
   return rootId
 }
 
-export function buildEntriesText(entries) {
+function buildEntriesText(entries) {
   // @N is a 1-based prompt-local index; cycle1-agent answers with @N indexes.
   return entries.map((e, i) => {
     const content = cleanMemoryText(String(e.content ?? '')).slice(0, 400)
@@ -131,14 +131,14 @@ const DEFAULT_CYCLE1_RULES = [
   `First character of your response must be a digit. Use bare @N indexes without @ in output.`,
 ]
 
-export function buildCycle1ChunkPrompt(rows, customRules = null) {
+function buildCycle1ChunkPrompt(rows, customRules = null) {
   const rules = Array.isArray(customRules) && customRules.length > 0
     ? customRules
     : DEFAULT_CYCLE1_RULES
   return [...rules, '', buildEntriesText(rows)].join('\n')
 }
 
-export function parseCycle1LineFormat(raw) {
+function parseCycle1LineFormat(raw) {
   if (raw == null) return null
   const text = String(raw).trim()
   if (!text) return null

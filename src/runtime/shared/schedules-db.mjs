@@ -220,7 +220,7 @@ export async function setSkippedUntil(name, ts, { dataDir } = {}) {
  * next_fire_at at/before `now`, and not currently deferred or skipped past
  * `now`.
  */
-export async function listDue(now = new Date(), { dataDir } = {}) {
+async function listDue(now = new Date(), { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `SELECT ${COLS} FROM scheduler.schedules

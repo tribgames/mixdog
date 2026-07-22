@@ -42,7 +42,7 @@ const CONTEXT_WINDOWS = {
 // (llama/mistral/phi/qwen/gemma) stay small so an unknown local id never claims
 // a giant window.
 const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp', 'llama.cpp', 'local', '']);
-export function guessContextWindow(model, provider = null) {
+function guessContextWindow(model, provider = null) {
     if (CONTEXT_WINDOWS[model])
         return CONTEXT_WINDOWS[model];
     const m = String(model || '').toLowerCase();

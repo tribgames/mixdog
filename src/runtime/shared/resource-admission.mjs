@@ -50,7 +50,7 @@ function abortError(signal) {
     : new Error(String(signal?.reason || 'resource admission canceled'));
 }
 
-export class ResourcePressureError extends Error {
+class ResourcePressureError extends Error {
   constructor(message, details = {}) {
     super(`resource pressure: ${message}`);
     this.name = 'ResourcePressureError';
@@ -59,7 +59,7 @@ export class ResourcePressureError extends Error {
   }
 }
 
-export class ResourceAdmissionQueueFullError extends ResourcePressureError {
+class ResourceAdmissionQueueFullError extends ResourcePressureError {
   constructor(maxQueue) {
     super(`high-load admission queue full (maximum ${maxQueue}); retry after running work completes`, {
       maxQueue,

@@ -131,7 +131,7 @@ function isSkillMdFile(name) {
   return /^(SKILL|skill)\.md$/i.test(name);
 }
 
-export const PLUGIN_INLINE_MCP_SCRIPT = 'plugin.json';
+const PLUGIN_INLINE_MCP_SCRIPT = 'plugin.json';
 
 export function countSkillFiles(root) {
   let count = 0;

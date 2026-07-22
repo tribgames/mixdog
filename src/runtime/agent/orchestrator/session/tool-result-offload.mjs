@@ -10,7 +10,7 @@ const TOOL_RESULT_PREVIEW_CHARS = 2_000;
 const TOOL_RESULT_SHELL_THRESHOLD_CHARS = 30_000;
 const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_GREP_THRESHOLD_CHARS = 20_000;
-export const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
+const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
 const OFFLOAD_PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
 
 // Per-tool persistence limits mirror reference per-tool maxResultSizeChars
@@ -193,7 +193,7 @@ export function isOffloadedToolResultText(text) {
     return typeof text === 'string' && text.startsWith(TOOL_RESULT_OFFLOAD_PREFIX);
 }
 
-export function compactOffloadedToolResultText(text) {
+function compactOffloadedToolResultText(text) {
     if (!isOffloadedToolResultText(text)) return text;
     const value = String(text);
     const lineEnd = value.indexOf('\n');

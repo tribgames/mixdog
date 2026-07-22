@@ -19,9 +19,9 @@ import wrapAnsi from 'wrap-ansi';
 import { formatToken, padAligned } from './format-token.mjs';
 import { displayWidth } from '../display-width.mjs';
 
-export const SAFETY_MARGIN = 4;
-export const MIN_COLUMN_WIDTH = 3;
-export const MAX_ROW_LINES = 4;
+const SAFETY_MARGIN = 4;
+const MIN_COLUMN_WIDTH = 3;
+const MAX_ROW_LINES = 4;
 const ANSI_BOLD_START = '\x1b[1m';
 const ANSI_BOLD_END = '\x1b[22m';
 
@@ -44,7 +44,7 @@ export function wrapText(text, width, options) {
 }
 
 /** Hard-wrap so every line satisfies stringWidth(line) <= width (vertical tables). */
-export function hardWrapLines(text, width) {
+function hardWrapLines(text, width) {
   const max = Math.max(1, Math.floor(Number(width) || 1));
   const input = String(text ?? '');
   if (!input) return [''];

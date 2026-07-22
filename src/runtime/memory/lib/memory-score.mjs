@@ -23,7 +23,7 @@ export const CATEGORY_GRADE = {
   issue:      1.0,
 }
 
-export const CATEGORY_DECAY = {
+const CATEGORY_DECAY = {
   rule:       0.0,
   constraint: 0.06,
   decision:   0.15,

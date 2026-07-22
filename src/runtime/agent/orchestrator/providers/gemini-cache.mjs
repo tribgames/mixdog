@@ -104,7 +104,7 @@ export function _geminiCachePrefixHash({ model, systemInstruction, geminiTools, 
 // overhead. This matches the default five-minute cache's per-session 25%
 // reuse threshold, so a cross-session hit cannot expire while opening.
 export const GEMINI_GLOBAL_CACHE_MIN_LIVE_MS = 75 * 1000;
-export const GEMINI_GLOBAL_CACHE_MAX_ENTRIES = 128;
+const GEMINI_GLOBAL_CACHE_MAX_ENTRIES = 128;
 // Grace window before deleting a superseded cachedContents name (see the
 // cross-session race note at the delete call site in gemini.mjs). Long enough
 // that a concurrent session still mid-flight on the old name has time to finish.
@@ -147,7 +147,7 @@ export function _invalidateGeminiCacheName(cacheName) {
     return removed;
 }
 
-export function _pruneGeminiGlobalCaches(now = Date.now()) {
+function _pruneGeminiGlobalCaches(now = Date.now()) {
     for (const [key, entry] of geminiGlobalCaches) {
         if (!entry?.cacheName || Number(entry.cacheExpiresAt || 0) <= now) {
             geminiGlobalCaches.delete(key);

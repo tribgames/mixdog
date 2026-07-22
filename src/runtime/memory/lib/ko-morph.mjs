@@ -27,7 +27,7 @@ import zlib from 'node:zlib'
 // 0.23.0: its base model ships CoNg (72MB, ~940MB RSS after build) vs
 // KnLM's 35MB download / ~560MB build peak, and recall stemming gains
 // nothing from the CoNg accuracy delta.
-export const KIWI_MODEL_VERSION = 'v0.21.0'
+const KIWI_MODEL_VERSION = 'v0.21.0'
 const KIWI_MODEL_ASSET = `kiwi_model_${KIWI_MODEL_VERSION}_base.tgz`
 const KIWI_MODEL_URL = `https://github.com/bab2min/Kiwi/releases/download/${KIWI_MODEL_VERSION}/${KIWI_MODEL_ASSET}`
 
@@ -52,7 +52,7 @@ let _initMs = 0
 
 export function isReady() { return _state === 'ready' && _kiwi != null }
 export function state() { return _state }
-export function initLatencyMs() { return _initMs }
+function initLatencyMs() { return _initMs }
 
 function modelDir(dataDir) {
   return path.join(dataDir, 'kiwi-model', KIWI_MODEL_VERSION)

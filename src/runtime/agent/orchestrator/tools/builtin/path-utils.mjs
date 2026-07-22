@@ -35,7 +35,7 @@ export function posixPathToWindowsPath(posixPath) {
 // a literal under WSL — the drive surfaces at `/mnt/<letter>/...`. Map
 // `<drive>:` → `/mnt/<lowercase-drive>` and flip backslashes to slashes. Only
 // drive-letter paths are touched; anything else is returned unchanged.
-export function windowsPathToPosixPath(winPath) {
+function windowsPathToPosixPath(winPath) {
     if (typeof winPath !== 'string') return winPath;
     const m = winPath.match(/^([a-zA-Z]):[\\/](.*)$/);
     if (m) return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}`;

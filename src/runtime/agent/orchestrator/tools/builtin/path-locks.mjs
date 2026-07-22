@@ -2,7 +2,7 @@
 // chain so that overlapping calls for the same file are serialised in-process.
 const editLocks = new Map();
 
-export function pathLockKey(absPath) {
+function pathLockKey(absPath) {
     const text = String(absPath || '');
     return process.platform === 'win32' ? text.toLowerCase() : text;
 }

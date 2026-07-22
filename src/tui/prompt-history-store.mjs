@@ -15,7 +15,7 @@ export function promptHistoryKey(value) {
 }
 
 /** Stable map key for cwd-scoped prompt history buckets. */
-export function promptHistoryCwdKey(rawPath) {
+function promptHistoryCwdKey(rawPath) {
   const text = String(rawPath || '').trim();
   if (!text) return '';
   const abs = resolve(text);
@@ -153,7 +153,7 @@ async function writeBehindFlush(filePath) {
 
 // Synchronously flush any coalesced pending writes. Registered on process exit
 // so an in-flight write-behind is never lost when the TUI quits.
-export function flushPromptHistory() {
+function flushPromptHistory() {
   for (const timer of pendingTimers.values()) clearTimeout(timer);
   pendingTimers.clear();
   for (const [filePath, pend] of pendingAppends) {
@@ -170,7 +170,7 @@ process.once('exit', flushPromptHistory);
 /**
  * In-memory session list (newest first). Dedupes by promptHistoryKey.
  */
-export function pushSessionPromptHistory(sessionTexts, value, limit = PROMPT_HISTORY_LIMIT) {
+function pushSessionPromptHistory(sessionTexts, value, limit = PROMPT_HISTORY_LIMIT) {
   const text = String(value || '').trim();
   const key = promptHistoryKey(text);
   if (!key) return Array.isArray(sessionTexts) ? sessionTexts : [];

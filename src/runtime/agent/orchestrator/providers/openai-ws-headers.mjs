@@ -28,8 +28,8 @@ import {
 // with openai-oauth-ws.mjs (stream-side errors use the same labels).
 import { _wsPool, _sendFrame } from './openai-ws-pool.mjs';
 
-export const _cfCookieJar = new Map(); // accountKey -> { name -> value }
-export const _CF_COOKIE_ALLOWLIST = new Set(['__cf_bm', '_cfuvid']);
+const _cfCookieJar = new Map(); // accountKey -> { name -> value }
+const _CF_COOKIE_ALLOWLIST = new Set(['__cf_bm', '_cfuvid']);
 
 export function _envOn(name) {
     const v = String(process.env[name] || '').trim().toLowerCase();
@@ -115,14 +115,14 @@ export function _codexBetaFeatures() {
 // codex. Secrets (Authorization / Cookie / account-id / routing tokens) are
 // hashed, never written in clear. When the env is unset both helpers are
 // no-ops, so there is no default behavior change.
-export const _WS_DUMP_SECRET_RE = /^(authorization|proxy-authorization|cookie|set-cookie|chatgpt-account-id|x-codex-turn-state|session_id|session-id|thread-id|x-codex-parent-thread-id|x-client-request-id|x-session-affinity)$/i;
+const _WS_DUMP_SECRET_RE = /^(authorization|proxy-authorization|cookie|set-cookie|chatgpt-account-id|x-codex-turn-state|session_id|session-id|thread-id|x-codex-parent-thread-id|x-client-request-id|x-session-affinity)$/i;
 
-export function _wsDumpDir() {
+function _wsDumpDir() {
     const dir = String(process.env.MIXDOG_OAI_WS_DUMP_DIR || '').trim();
     return dir || null;
 }
 
-export function _redactHeaderValue(key, value) {
+function _redactHeaderValue(key, value) {
     const v = String(value ?? '');
     if (_WS_DUMP_SECRET_RE.test(String(key))) {
         if (!v) return '';
@@ -131,7 +131,7 @@ export function _redactHeaderValue(key, value) {
     return v;
 }
 
-export function _redactDumpUrl(url) {
+function _redactDumpUrl(url) {
     try {
         const parsed = new URL(String(url));
         for (const [key, value] of parsed.searchParams.entries()) {
@@ -188,7 +188,7 @@ export function _dumpFrame(payload) {
     } catch {}
 }
 
-export function _cfCookieAccountKey(auth) {
+function _cfCookieAccountKey(auth) {
     return String(auth?.account_id || auth?.apiKey || 'default');
 }
 

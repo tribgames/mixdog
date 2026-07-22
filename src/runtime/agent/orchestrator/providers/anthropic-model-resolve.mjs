@@ -29,7 +29,7 @@ export async function _loadModelCache() {
     return _modelCache.loadSync();
 }
 
-export async function _saveModelCache(models) {
+async function _saveModelCache(models) {
     _modelCache.save(models);
 }
 
@@ -112,7 +112,7 @@ function _defaultContextForModel(id, family) {
 
 // Mark the highest-numbered version per family as `latest: true`. Uses a simple
 // lexicographic comparison on the numeric parts embedded in the id.
-export function _markLatestByFamily(models) {
+function _markLatestByFamily(models) {
     const byFamily = new Map();
     for (const m of models) {
         if (m.tier !== 'version') continue;

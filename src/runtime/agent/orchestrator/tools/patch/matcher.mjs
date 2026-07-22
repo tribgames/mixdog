@@ -6,7 +6,7 @@
 import { classifyEntry, stripDiffPrefix } from './paths.mjs';
 import { normalizeOutputPath } from '../builtin.mjs';
 
-export function collectUnifiedOldLines(hunk) {
+function collectUnifiedOldLines(hunk) {
   const oldLines = [];
   let lastWasOld = false;
   for (const raw of hunk?.lines || []) {
@@ -109,11 +109,11 @@ export function firstMeaningfulUnifiedEntryLine(entry) {
 }
 
 // --- Byte-level diagnostic-matcher substrate (diagnostics ONLY) ---------------
-export function toLineBytes(v) {
+function toLineBytes(v) {
   return Buffer.isBuffer(v) ? v : Buffer.from(String(v ?? ''), 'utf8');
 }
 
-export function byteTrimPatchWhitespace(buf) {
+function byteTrimPatchWhitespace(buf) {
   let start = 0;
   let end = buf.length;
   while (start < end && (buf[start] === 0x20 || buf[start] === 0x09)) start++;
@@ -176,7 +176,7 @@ export function unifiedOldLinesMatchAt(sourceLines, oldLines, startIdx, fuzz, ba
   return { fuzzUsed, normCount };
 }
 
-export function findUnifiedHunkMatch(sourceLines, hunk, minStartIdx, fuzz) {
+function findUnifiedHunkMatch(sourceLines, hunk, minStartIdx, fuzz) {
   const oldLines = collectUnifiedOldLines(hunk);
   const band = computeUnifiedChangeBand(collectUnifiedOps(hunk));
   const oldStart = Math.max(0, (Number(hunk?.oldStart) || 1) - 1);
@@ -217,7 +217,7 @@ export function findFirstFailingUnifiedHunk(entry, sourceLines, fuzz) {
   return null;
 }
 
-export function nativeFailurePathCandidates(parsed) {
+function nativeFailurePathCandidates(parsed) {
   const candidates = new Set();
   for (const entry of Array.isArray(parsed) ? parsed : []) {
     const kind = classifyEntry(entry);
@@ -319,7 +319,7 @@ export function splitBufferLinesForPatch(buf) {
   return lines;
 }
 
-export function longestCommonSubstringLen(a, b, cap = 4000) {
+function longestCommonSubstringLen(a, b, cap = 4000) {
   if (!a || !b) return 0;
   const A = a.length > cap ? a.slice(0, cap) : a;
   const B = b.length > cap ? b.slice(0, cap) : b;
@@ -401,7 +401,7 @@ export function compactPatchPreviewLine(line, maxLen = 140) {
   return text.length > maxLen ? `${text.slice(0, maxLen - 1)}…` : text;
 }
 
-export function escapeNonAsciiForPatch(line) {
+function escapeNonAsciiForPatch(line) {
   const s = String(line ?? '');
   let out = '';
   for (let i = 0; i < s.length; i++) {

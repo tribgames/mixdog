@@ -28,7 +28,7 @@ import {
   loginOAuth as loginGrokOAuth,
 } from '../runtime/agent/orchestrator/providers/grok-oauth.mjs';
 
-export const API_PROVIDERS = Object.freeze([
+const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'openai', name: 'OpenAI API', env: 'OPENAI_API_KEY', url: 'https://platform.openai.com/api-keys' }),
   Object.freeze({ id: 'anthropic', name: 'Anthropic API', env: 'ANTHROPIC_API_KEY', url: 'https://console.anthropic.com/settings/keys' }),
   Object.freeze({ id: 'gemini', name: 'Gemini API', env: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/apikey' }),
@@ -37,7 +37,7 @@ export const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
 ]);
 
-export const OAUTH_PROVIDERS = Object.freeze([
+const OAUTH_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'openai-oauth', name: 'OpenAI OAuth', desc: 'Mixdog OAuth credentials', has: hasOpenAIOAuthCredentials, describe: describeOpenAIOAuthCredentials, forget: forgetOpenAIOAuthCredentials, begin: beginOpenAIOAuthLogin, login: loginOpenAIOAuth }),
   Object.freeze({ id: 'anthropic-oauth', name: 'Anthropic OAuth', desc: 'Mixdog OAuth credentials', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, begin: beginAnthropicOAuthLogin, login: loginAnthropicOAuth }),
   Object.freeze({ id: 'grok-oauth', name: 'Grok OAuth', desc: 'Mixdog OAuth credentials (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),

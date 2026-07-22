@@ -109,7 +109,7 @@ export function formatTs(tsMs) {
   return String(tsMs ?? '').slice(0, 16)
 }
 
-export const CORE_RECALL_STOPWORDS = new Set([
+const CORE_RECALL_STOPWORDS = new Set([
   'about', 'after', 'again', 'before', 'check', 'color', 'decision', 'decided',
   'earlier', 'memory', 'previous', 'routing', 'stored', 'tell', 'what',
 ])
@@ -258,7 +258,7 @@ function exactDuplicateKey(r) {
 // Legacy object-identity-only ingest could mint duplicate rows on JSON reload.
 // Keep the newest/highest-ranked exact body once, including short acknowledgments
 // that shingle dedupe intentionally ignores.
-export function collapseExactDuplicateRows(rows) {
+function collapseExactDuplicateRows(rows) {
   if (!Array.isArray(rows) || rows.length < 2) return rows
   const seen = new Set()
   const out = []

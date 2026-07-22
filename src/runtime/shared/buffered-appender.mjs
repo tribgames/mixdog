@@ -182,7 +182,7 @@ export function getBufferedAppenderStats(path) {
  * Synchronously drain any remaining buffered bytes for every known path.
  * Intended for process exit hooks only — best-effort, never throws.
  */
-export function drainAllSync() {
+function drainAllSync() {
     for (const [path, q] of queues) {
         drainPathSync(path);
     }

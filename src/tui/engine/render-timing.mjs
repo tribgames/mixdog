@@ -17,12 +17,11 @@
  * The fixed timeout below is only a fallback ceiling for when no renderer ack is
  * wired (or the renderer is idle) so a yield can never hang the turn.
  */
-export const RENDER_ACK_FALLBACK_MS = 32;
-export const RENDER_ACK_HANG_GUARD_MS = 250;
-export const RENDER_SETTLE_IDLE_MS = 64;
+const RENDER_ACK_FALLBACK_MS = 32;
+const RENDER_ACK_HANG_GUARD_MS = 250;
+const RENDER_SETTLE_IDLE_MS = 64;
 
 // Back-compat alias: previously the fixed wait duration, now the fallback only.
-export const RENDER_THROTTLE_FLUSH_MS = RENDER_ACK_FALLBACK_MS;
 
 let pendingRenderAcks = [];
 let renderAckSeq = 0;
@@ -38,7 +37,7 @@ export const scheduleRenderFrameAck = () => {
   setImmediate(() => notifyRenderFrame(seq));
 };
 
-export const notifyRenderFrame = (seq = ++renderAckSeq) => {
+const notifyRenderFrame = (seq = ++renderAckSeq) => {
   if (pendingRenderAcks.length === 0) return;
   const acks = pendingRenderAcks;
   pendingRenderAcks = [];

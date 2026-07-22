@@ -23,12 +23,12 @@ export const GREP_CONTEXT_MAX = 200;
 // explicit requests are honored up to the generic GREP_CONTEXT_MAX; total
 // output stays bounded by the block clamp, the stream line cap, and the
 // tool-output byte cap.
-export const GREP_CTX_HEAD_LIMIT_MAX = 40;
+const GREP_CTX_HEAD_LIMIT_MAX = 40;
 
 // Unbounded (no offset/limit) plain full reads default to this window instead of
 // pulling the whole file; the read tool's ranged-read footer then hands the
 // caller the next offset to page with.
-export const READ_GUARD_DEFAULT_LIMIT = 800;
+const READ_GUARD_DEFAULT_LIMIT = 800;
 
 // Best-effort clamp notice channel: stash a one-line note on the args so a
 // surfacing consumer can echo it. Underscore-prefixed; ignored by executors.

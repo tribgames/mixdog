@@ -316,7 +316,7 @@ export function _withLoadedProviderCtorForTest(name, Ctor, fn) {
 // agent.init() after providers are registered so the first agent dispatch call
 // (e.g. cycle1 on session start) does not pay the catalog refresh latency
 // inline. Fire-and-forget: failures are logged inside each provider.
-export function warmupCatalogs() {
+function warmupCatalogs() {
     const metadataReady = Promise.resolve()
         .then(() => warmModelMetadataCatalogs())
         .catch((err) => {

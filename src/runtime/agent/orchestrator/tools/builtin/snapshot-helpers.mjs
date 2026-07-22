@@ -112,7 +112,7 @@ export function snapshotCoversFullFile(snapshot) {
 }
 
 /** Logical line count captured at read-time (wc-l compatible). Undefined if absent. */
-export function snapshotFileLineCount(snapshot) {
+function snapshotFileLineCount(snapshot) {
     const n = snapshot?.fileLineCount;
     return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
 }

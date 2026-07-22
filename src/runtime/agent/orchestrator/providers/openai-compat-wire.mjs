@@ -279,7 +279,7 @@ export function collectCompatResponseSearchSources(response) {
     return { citations, webSearchCalls };
 }
 
-export function toResponsesInputMessage(m, pendingToolMedia = null, customToolCallNameById = null) {
+function toResponsesInputMessage(m, pendingToolMedia = null, customToolCallNameById = null) {
     if (m.role === 'tool') {
         const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
         // xai path: never emit `custom_tool_call_output` (the `custom` variant

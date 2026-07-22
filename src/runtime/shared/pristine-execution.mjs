@@ -97,7 +97,7 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-export function createSelectedProviderPristineLoader({
+function createSelectedProviderPristineLoader({
   config,
   provider,
   apiKey = null,

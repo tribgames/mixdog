@@ -1,4 +1,4 @@
-export const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch hunk+ end_patch
+const APPLY_PATCH_LARK_GRAMMAR = `start: begin_patch hunk+ end_patch
 begin_patch: "*** Begin Patch" LF
 end_patch: "*** End Patch" LF?
 
@@ -19,7 +19,7 @@ eof_line: "*** End of File" LF
 %import common.LF
 `;
 
-export const APPLY_PATCH_FREEFORM_DESCRIPTION = 'Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
+const APPLY_PATCH_FREEFORM_DESCRIPTION = 'Use the `apply_patch` tool to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.';
 
 export const PATCH_TOOL_DEFS = [
   {

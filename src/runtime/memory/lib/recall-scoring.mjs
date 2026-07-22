@@ -5,8 +5,8 @@ import { freshnessFactor } from './memory-score.mjs'
 import { buildRecallScopeFilter } from './memory-recall-scope-filter.mjs'
 import { recallReadQuery } from './memory-recall-read-query.mjs'
 
-export const _MV_HOT_ACTIVE_TTL_MS = 60_000
-export const _mvHotActiveCache = new WeakMap() // db → { populated: boolean, ts: number }
+const _MV_HOT_ACTIVE_TTL_MS = 60_000
+const _mvHotActiveCache = new WeakMap() // db → { populated: boolean, ts: number }
 export const SEMANTIC_ONLY_MIN_SIM = 0.72
 // Member-hit time gate: a chunk MEMBER whose own ts falls inside the requested
 // [ts_from, ts_to] window is an in-window match even when its ROOT's ts sits

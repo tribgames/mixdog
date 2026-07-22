@@ -52,7 +52,7 @@ function compactToolResultObjectFallback(obj) {
   }
 }
 
-export function toolResultPartText(part, depth = 0) {
+function toolResultPartText(part, depth = 0) {
   if (part == null) return '';
   if (depth > TOOL_RESULT_PART_MAX_DEPTH) return '';
   if (typeof part === 'string') return part;

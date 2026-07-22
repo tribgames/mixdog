@@ -2,7 +2,7 @@
 // loop.mjs. These drive cross-turn read dedup, scoped caching, shell routing,
 // and duplicate-call detection. Strips the MCP prefix so direct calls and
 // MCP-wrapped calls share the same cache.
-export const MCP_TOOL_PREFIX = 'mcp__plugin_mixdog_mixdog__';
+const MCP_TOOL_PREFIX = 'mcp__plugin_mixdog_mixdog__';
 
 export function _stripMcpPrefix(name) {
     return typeof name === 'string' && name.startsWith(MCP_TOOL_PREFIX)
@@ -21,7 +21,7 @@ export function _isMutationTool(name) {
 // shell/bash_session, write/edit-style tools, and any (non-mixdog) MCP tool
 // whose effects are unknown. Kept separate from _isMutationTool, which stays
 // apply_patch-only for epoch-mutation counting and eager-dispatch gating.
-export const ORDERED_GATE_SAFE_READONLY_TOOLS = new Set([
+const ORDERED_GATE_SAFE_READONLY_TOOLS = new Set([
     'read',
     'find',
     'glob',
@@ -40,7 +40,7 @@ export const ORDERED_GATE_SAFE_READONLY_TOOLS = new Set([
 export function _isOrderedGateSkippable(name) {
     return !ORDERED_GATE_SAFE_READONLY_TOOLS.has(_stripMcpPrefix(name));
 }
-export const SCOPED_CACHEABLE_TOOLS = new Set([
+const SCOPED_CACHEABLE_TOOLS = new Set([
     'code_graph',
     'grep',
     'list',

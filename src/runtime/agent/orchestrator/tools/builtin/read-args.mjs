@@ -6,7 +6,7 @@ export function parseReadLineNumberArg(value) {
     return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
 }
 
-export function parseReadPathLineSpec(rawPath) {
+function parseReadPathLineSpec(rawPath) {
     if (typeof rawPath !== 'string' || rawPath.length === 0) return null;
     const text = rawPath.trim();
     let m = /^(.+?)#L(\d+)(?:-L?(\d+))?(?:\b.*)?$/i.exec(text);
@@ -23,7 +23,7 @@ export function parseReadPathLineSpec(rawPath) {
     return { path: m[1], lineNo, endLine, inverted, invertedEnd: inverted ? endLineRaw : null };
 }
 
-export function resolveExistingPathLineCoordinate(rawPath, workDir) {
+function resolveExistingPathLineCoordinate(rawPath, workDir) {
     const spec = parseReadPathLineSpec(rawPath);
     if (!spec) return null;
     const normalizedRawPath = normalizeInputPath(rawPath);

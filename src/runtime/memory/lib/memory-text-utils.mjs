@@ -13,7 +13,7 @@ const MEMORY_TOKEN_STOPWORDS = new Set([
   '\uC0AC\uC6A9\uC790', '\uC720\uC800', '\uC694\uCCAD', '\uC9C8\uBB38', '\uB2F5\uBCC0', '\uC5B8\uAE09', '\uB9D0\uC500', '\uC124\uBA85', '\uBCF4\uACE0', '\uBB34\uC2A8', '\uBB50\uC57C', '\uD588\uC9C0', 'user', 'asks', 'asked', 'request', 'requested', 'question', 'answer', 'reply', 'said', 'mentioned', 'explained', 'reported', 'what', 'huh',
 ])
 
-export function normalizeMemoryToken(token) {
+function normalizeMemoryToken(token) {
   let normalized = String(token ?? '').trim().toLowerCase()
   if (!normalized) return ''
 
@@ -36,7 +36,7 @@ export function normalizeMemoryToken(token) {
   return normalized
 }
 
-export function tokenizeMemoryText(text) {
+function tokenizeMemoryText(text) {
   return cleanMemoryText(text)
     .toLowerCase()
     .split(/[^\p{L}\p{N}_]+/u)

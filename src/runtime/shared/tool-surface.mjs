@@ -317,7 +317,7 @@ export function formatToolSurface(name, args, opts = {}) {
 
 // ── Aggregate tool-card classification & formatting ──────────────
 
-export const CATEGORY_ORDER = [
+const CATEGORY_ORDER = [
   'Read', 'Search', 'Load', 'MCP', 'Skill', 'Web Research', 'Memory', 'Explore',
   'Patch', 'Shell', 'Agent', 'Task', 'Schedule', 'Channel', 'Setup', 'Other',
 ];
@@ -400,7 +400,7 @@ const CATEGORY_COPY = new Map([
 ]);
 
 /** Active gerund for a category (e.g. "Reading" for "Read"). */
-export function activeCategoryLabel(category) {
+function activeCategoryLabel(category) {
   return CATEGORY_COPY.get(category)?.active || category;
 }
 

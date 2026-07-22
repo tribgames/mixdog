@@ -564,7 +564,7 @@ async function mapWithPuppeteer(url, options, timeoutMs, signal) {
   })
 }
 
-export async function scrapeUrl(url, timeoutMs, usageState, signal) {
+async function scrapeUrl(url, timeoutMs, usageState, signal) {
   const normalizedUrl = normalizeUrl(url)
   const host = new URL(normalizedUrl).host
   const extractors = rankScrapeExtractors(host, usageState, DEFAULT_EXTRACTORS)
@@ -646,7 +646,7 @@ async function mapSite(url, { limit = 50, sameDomainOnly = true, search }, timeo
   return mapWithPuppeteer(url, options, timeoutMs, signal)
 }
 
-export async function crawlSite(
+async function crawlSite(
   startUrl,
   { maxPages = 10, maxDepth = 1, sameDomainOnly = true },
   timeoutMs,

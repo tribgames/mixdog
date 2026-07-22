@@ -32,7 +32,7 @@ const MAX_TOKENS = {
 // garbage, whitespace) are treated as UNSET — not as "use the default cap
 // outright" — so catalog/fallback still decide for low-cap models. Raw env
 // truthiness must never bypass resolution.
-export function envAnthropicMaxOutputOverride() {
+function envAnthropicMaxOutputOverride() {
     const raw = process.env[ENV_VAR];
     if (raw == null || String(raw).trim() === '') return null;
     const n = Number(raw);
@@ -40,14 +40,14 @@ export function envAnthropicMaxOutputOverride() {
     return Math.floor(n);
 }
 
-export function resolveAnthropicSafetyCap() {
+function resolveAnthropicSafetyCap() {
     return envAnthropicMaxOutputOverride() ?? DEFAULT_SAFETY_CAP;
 }
 
 // Pure lookup over an already-loaded catalog array (disk cache or in-memory
 // mirror) — no I/O, no caching strategy. Callers own how/when the array is
 // loaded/refreshed.
-export function lookupCatalogOutputTokens(models, id) {
+function lookupCatalogOutputTokens(models, id) {
     if (!id || !Array.isArray(models)) return null;
     const entry = models.find(m => m?.id === id);
     const out = Number(entry?.outputTokens);
@@ -59,7 +59,7 @@ export function lookupCatalogOutputTokens(models, id) {
 // the legacy 4.x line (this is the claude-sonnet-5 fix: 16384 was starving
 // visible output once extended thinking ate into the same hard cap). Keep
 // sonnet-4-x conservative at 16384; only bump 5+.
-export function fallbackAnthropicMaxTokens(model) {
+function fallbackAnthropicMaxTokens(model) {
     if (MAX_TOKENS[model]) return MAX_TOKENS[model];
     const id = String(model || '').toLowerCase();
     if (id.includes('opus')) return 65536;

@@ -1,7 +1,7 @@
 import { compactValue } from './payload.mjs';
 import { defaultShellKind } from './handlers.mjs';
 
-export function matchesList(pattern, value) {
+function matchesList(pattern, value) {
   if (pattern == null || pattern === '*' || pattern === 'all') return true;
   const items = Array.isArray(pattern) ? pattern : [pattern];
   return items.some((item) => {

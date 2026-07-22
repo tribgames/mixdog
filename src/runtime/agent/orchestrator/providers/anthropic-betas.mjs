@@ -1,9 +1,9 @@
 import { EFFORT_BETA_HEADER } from './anthropic-effort.mjs';
 
-export const EXTENDED_CACHE_TTL_BETA_HEADER = 'extended-cache-ttl-2025-04-11';
-export const INTERLEAVED_THINKING_BETA_HEADER = 'interleaved-thinking-2025-05-14';
-export const FAST_MODE_BETA_HEADER = 'fast-mode-2026-02-01';
-export const TOOL_SEARCH_BETA_HEADER = 'advanced-tool-use-2025-11-20';
+const EXTENDED_CACHE_TTL_BETA_HEADER = 'extended-cache-ttl-2025-04-11';
+const INTERLEAVED_THINKING_BETA_HEADER = 'interleaved-thinking-2025-05-14';
+const FAST_MODE_BETA_HEADER = 'fast-mode-2026-02-01';
+const TOOL_SEARCH_BETA_HEADER = 'advanced-tool-use-2025-11-20';
 export { EFFORT_BETA_HEADER };
 
 export function supportsAnthropicFastMode(model) {

@@ -85,7 +85,7 @@ export {
 // inter-chunk / reasoning span keeps the longer deadlines below.
 // Positive-int coercion for per-call timeout overrides: finite > 0 → floor,
 // else fallback.
-export function _positiveInt(value, fallback = 0) {
+function _positiveInt(value, fallback = 0) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
@@ -102,7 +102,7 @@ export const WS_INTER_CHUNK_MS = PROVIDER_WS_INTER_CHUNK_TIMEOUT_MS;
 // The ws library has already assembled the Buffer by this point, so this check
 // must stay before data.toString() below. xAI shares this stream implementation
 // but retains its existing unbounded behavior.
-export const OPENAI_WS_MAX_INCOMING_FRAME_BYTES = 16 * 1024 * 1024;
+const OPENAI_WS_MAX_INCOMING_FRAME_BYTES = 16 * 1024 * 1024;
 const X_CODEX_TURN_STATE_HEADER = 'x-codex-turn-state';
 const WS_TRACE_ENABLED = process.env.MIXDOG_WS_TRACE === '1';
 

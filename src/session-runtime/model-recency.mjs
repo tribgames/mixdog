@@ -3,7 +3,7 @@
 // injected route provider (for sort priority) and searchCapableFor predicate.
 import { clean } from './session-text.mjs';
 
-export function parsedProviderModelVersion(id) {
+function parsedProviderModelVersion(id) {
   const text = clean(id).toLowerCase();
   const claude = text.match(/^claude-[a-z]+-(\d+)(?:[-.](\d+))?/);
   if (claude) return [Number(claude[1]) || 0, Number(claude[2]) || 0];
@@ -13,7 +13,7 @@ export function parsedProviderModelVersion(id) {
   return generic ? generic.slice(1).filter((v) => v != null).map((v) => Number(v) || 0) : [];
 }
 
-export function compareProviderModelVersion(a, b) {
+function compareProviderModelVersion(a, b) {
   const va = parsedProviderModelVersion(a.id || a.display || a.name);
   const vb = parsedProviderModelVersion(b.id || b.display || b.name);
   if (va.length === 0 && vb.length === 0) return 0;
@@ -26,7 +26,7 @@ export function compareProviderModelVersion(a, b) {
   return 0;
 }
 
-export function providerModelReleaseTime(model) {
+function providerModelReleaseTime(model) {
   if (model?.releaseDate) {
     const t = Date.parse(model.releaseDate);
     if (Number.isFinite(t)) return t;
@@ -39,12 +39,12 @@ export function providerModelReleaseTime(model) {
   return dated ? (Date.parse(`${dated[1]}-${dated[2]}-${dated[3]}`) || 0) : 0;
 }
 
-export function isClaudeProviderModel(model) {
+function isClaudeProviderModel(model) {
   return clean(model?.provider).toLowerCase().includes('anthropic')
     && /^claude-[a-z]+-/.test(clean(model?.id).toLowerCase());
 }
 
-export function compareProviderModelRecency(a, b) {
+function compareProviderModelRecency(a, b) {
   if (isClaudeProviderModel(a) && isClaudeProviderModel(b)) {
     if (a.latest !== b.latest) return a.latest ? -1 : 1;
     const versionDelta = compareProviderModelVersion(a, b);

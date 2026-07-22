@@ -29,7 +29,7 @@ function _extractSubstitutionBodies(s) {
   return out;
 }
 
-export function injectionBlockTargets(cmd) {
+function injectionBlockTargets(cmd) {
   const targets = [];
   const decoded = _decodeAnsiCQuotes(cmd);
   if (decoded && decoded !== cmd) targets.push(decoded);

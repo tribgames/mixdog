@@ -128,7 +128,7 @@ export function contentHasImage(content) {
     return contentImageCount(content) > 0;
 }
 
-export function contentImageCount(content) {
+function contentImageCount(content) {
     return contentImageDescriptors(content).length;
 }
 

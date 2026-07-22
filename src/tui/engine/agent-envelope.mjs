@@ -12,7 +12,7 @@ export function textBetweenTag(text, tag) {
   return match ? match[1].trim() : '';
 }
 
-export function stripSyntheticAgentTags(text) {
+function stripSyntheticAgentTags(text) {
   const value = String(text ?? '').trim();
   const finalAnswer = textBetweenTag(value, 'final-answer');
   if (finalAnswer) return finalAnswer;
@@ -24,7 +24,7 @@ export function stripSyntheticAgentTags(text) {
     .trim();
 }
 
-export function splitBridgeEnvelope(text) {
+function splitBridgeEnvelope(text) {
   const value = String(text ?? '').trim();
   if (!value) return { head: '', body: '' };
   const match = /\n\s*\n/.exec(value);
@@ -35,7 +35,7 @@ export function splitBridgeEnvelope(text) {
   };
 }
 
-export function agentJobStatusText(parsed) {
+function agentJobStatusText(parsed) {
   if (!parsed) return '';
   const parts = [];
   if (parsed.status) parts.push(`status: ${parsed.status}`);
@@ -158,7 +158,7 @@ export function isStatusOnlyAgentCompletionNotification(text) {
   return !(hasAgentResponseResultText(result) || hasAgentResponseResultText(text));
 }
 
-export function hasAgentResponseResultText(text) {
+function hasAgentResponseResultText(text) {
   const value = String(text || '').trim();
   if (!value) return false;
   if (/^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)) return false;
@@ -166,7 +166,7 @@ export function hasAgentResponseResultText(text) {
   return true;
 }
 
-export function bracketField(text, name) {
+function bracketField(text, name) {
   const re = new RegExp(`^\\[${name}:\\s*([^\\]]*)\\]`, 'mi');
   return re.exec(String(text ?? ''))?.[1]?.trim() || '';
 }

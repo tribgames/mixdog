@@ -52,7 +52,7 @@ export function modelSwitchNotice() {
   return 'Model saved · new sessions';
 }
 
-export function compactJson(value, max = 180) {
+function compactJson(value, max = 180) {
   let text = '';
   try {
     text = typeof value === 'string' ? value : JSON.stringify(value);
@@ -139,7 +139,7 @@ export function centerLine(value, columns, reserve = 0) {
   return `${' '.repeat(pad)}${text}`;
 }
 
-export const WELCOME_PROMPT_HINTS = [
+const WELCOME_PROMPT_HINTS = [
   'Tip: /setting · Tune the runtime before the run.',
   'Tip: /model · Pick the right brain for the job.',
   'Tip: /workflow · Change how work gets routed.',

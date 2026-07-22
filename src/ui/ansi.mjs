@@ -151,18 +151,9 @@ export const gray = sgr('38;2;198;198;198');
 export const grey = gray;
 
 // Bright variants (used sparingly for headings / accents).
-export const brightRed = sgr('38;2;220;70;88');
 export const brightGreen = sgr('38;2;0;185;88');
-export const brightYellow = sgr('38;2;255;210;80');
-export const brightBlue = sgr('38;2;93;173;255');
-export const brightMagenta = sgr('38;2;190;150;230');
-export const brightCyan = sgr('38;2;168;168;168');
-export const brightWhite = sgr('38;2;220;220;220');
 
 // --- Background colors ------------------------------------------------------
-export const bgGray = sgr('100');
-export const bgBlack = sgr('40');
-export const bgBlue = sgr('44');
 
 // --- RGB colors --------------------------------------------------------------
 // Emit 24-bit SGR where supported, otherwise use the nearest 256-color entry.

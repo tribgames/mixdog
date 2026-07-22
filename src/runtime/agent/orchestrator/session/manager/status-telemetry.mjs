@@ -10,7 +10,7 @@ import {
 } from '../../providers/statusline-route-meta.mjs';
 import { estimateTranscriptContextUsage } from '../context-utils.mjs';
 
-export function standaloneStatusRouteInfo(session) {
+function standaloneStatusRouteInfo(session) {
     if (!session) return null;
     // autoCompactTokenLimit is an EXPLICIT sub-boundary auto-compact limit only.
     // Do NOT fall back to compactBoundaryTokens/contextWindow here — that

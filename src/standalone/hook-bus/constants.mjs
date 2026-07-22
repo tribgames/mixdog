@@ -22,7 +22,7 @@ export const USER_PROMPT_TIMEOUT_S = 30;
 export const MESSAGE_DISPLAY_TIMEOUT_S = 10;
 export const DEFAULT_PROMPT_TIMEOUT_S = 30;
 export const DEFAULT_AGENT_TIMEOUT_S = 60;
-export const MAX_OUTPUT_CHARS = 10_000;
+const MAX_OUTPUT_CHARS = 10_000;
 export const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
 export const TOOL_IF_EVENTS = new Set([

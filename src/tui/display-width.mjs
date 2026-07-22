@@ -42,7 +42,7 @@ const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme
  * draws it 1 cell, so widening it reserved a phantom cell that shifted the
  * right-aligned workflow label one column left when the usage segment appeared.
  */
-export function isProblemCodePoint(cp) {
+function isProblemCodePoint(cp) {
   return (cp >= 0x2460 && cp <= 0x24ff) || (cp >= 0x2194 && cp <= 0x21ff && cp !== 0x21bb);
 }
 
@@ -57,7 +57,7 @@ const PROBLEM_RE = /[\u2194-\u21ff\u2460-\u24ff]/;
  * default is ON on Windows (WT_SESSION does not reliably propagate to child
  * processes, so gate on the OS itself) or when WT_SESSION is present.
  */
-export function resolveAmbiguousWidePolicy(env = process.env, platform = process.platform) {
+function resolveAmbiguousWidePolicy(env = process.env, platform = process.platform) {
   const override = env?.MIXDOG_TUI_AMBIGUOUS_WIDE;
   if (override === '1') return true;
   if (override === '0') return false;
@@ -65,7 +65,7 @@ export function resolveAmbiguousWidePolicy(env = process.env, platform = process
 }
 
 /** Resolved once at module load (matches the "computed once" requirement). */
-export const AMBIGUOUS_WIDE = resolveAmbiguousWidePolicy();
+const AMBIGUOUS_WIDE = resolveAmbiguousWidePolicy();
 
 /**
  * Pure width with an explicit policy flag (used by tests and by `displayWidth`).
@@ -74,7 +74,7 @@ export const AMBIGUOUS_WIDE = resolveAmbiguousWidePolicy();
  * ANSI escape bytes are all ASCII and never fall in the problem ranges, so the
  * raw code-point scan adds nothing for them.
  */
-export function displayWidthWith(str, wide) {
+function displayWidthWith(str, wide) {
   const s = String(str ?? '');
   const base = stringWidth(s);
   if (!wide) return base;

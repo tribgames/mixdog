@@ -20,7 +20,7 @@ export function scheduledCycle2Signature(config) {
   })
 }
 
-export function scheduledCycle3ApplyMode(config) {
+function scheduledCycle3ApplyMode(config) {
   const raw = String(config?.cycle3?.applyMode || 'conservative').trim().toLowerCase()
   return (raw === 'proposal' || raw === 'dry-run' || raw === 'dryrun') ? 'proposal' : 'conservative'
 }

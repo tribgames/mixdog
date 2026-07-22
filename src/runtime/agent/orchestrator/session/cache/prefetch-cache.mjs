@@ -131,7 +131,7 @@ export function invalidatePrefetchCache(path, cwd) {
     _deleteDiskEntry(abs);
 }
 
-export function drainPrefetchDiskWrites() {
+function drainPrefetchDiskWrites() {
     if (_diskWriteTimer !== null) {
         clearTimeout(_diskWriteTimer);
         _diskWriteTimer = null;

@@ -15,7 +15,6 @@ import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/mo
 export const FALLBACK_CONTEXT_WINDOW = 200000;
 export const statusText = rgb(198, 198, 198);
 export const statusSubtle = rgb(136, 136, 136);
-export const statusAccent = rgb(215, 119, 87);
 
 function sgr(code) {
   return colorEnabled() ? `\x1b[${code}m` : '';
@@ -27,7 +26,6 @@ export const D = colorEnabled() ? rgbSgr(136, 136, 136) : '';
 export const GRN = colorEnabled() ? rgbSgr(0, 170, 75) : '';
 export const YLW = colorEnabled() ? rgbSgr(255, 193, 7) : '';
 export const RED = colorEnabled() ? rgbSgr(220, 70, 88) : '';
-export const CYN = colorEnabled() ? rgbSgr(136, 136, 136) : '';
 export const GREY = colorEnabled() ? rgbSgr(136, 136, 136) : '';
 
 export function terminalColumns() {
@@ -80,7 +78,7 @@ export function formatContextSegment(ctxPct, cols) {
   return `${fill}${filled}${R}${D}${empty}${R} ${label}%`;
 }
 
-export function makeBar(pct, cells) {
+function makeBar(pct, cells) {
   let filled = Math.floor((Number(pct) || 0) * cells / 100);
   if (filled < 0) filled = 0;
   if (filled > cells) filled = cells;
@@ -105,7 +103,7 @@ export function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-export function clampPct(v) {
+function clampPct(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(100, n));

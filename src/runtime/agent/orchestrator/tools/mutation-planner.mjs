@@ -9,7 +9,7 @@
 // noisy double-error block. The exact-unique byte path now handles large
 // chunks natively, so the V4A pre-route is dead and has been removed.
 
-export function planEditMutationRoute() {
+function planEditMutationRoute() {
     // Large-chunk V4A reroute removed: an EXACT-UNIQUE byte match is safe
     // at any size, so the edit-exact tier handles >=30-line chunks
     // natively (size gate now guards only the fold/fuzzy fallback). The
@@ -19,11 +19,11 @@ export function planEditMutationRoute() {
     return { engine: 'edit-exact', reason: 'default' };
 }
 
-export function isMutationPlanRoutable(plan) {
+function isMutationPlanRoutable(plan) {
     return plan?.engine === 'v4a-patch' && plan?.patchArgs?.patch;
 }
 
-export function formatMutationRouteLine(plan = {}, extras = {}) {
+function formatMutationRouteLine(plan = {}, extras = {}) {
     const source = plan.sourceTool || extras.sourceTool || 'unknown';
     const engine = plan.engine || extras.engine || 'unknown';
     const reason = plan.reason || extras.reason || 'unknown';
@@ -40,7 +40,7 @@ export function wrapMutationRouteOutput(text, plan = {}, extras = {}) {
     return `${formatMutationRouteLine(plan, extras)}\n${body}`;
 }
 
-export async function executeMutationPlan(plan, context = {}) {
+async function executeMutationPlan(plan, context = {}) {
     if (!isMutationPlanRoutable(plan)) return null;
     const { executePatchTool } = await import('./patch.mjs');
     let out;
@@ -68,7 +68,7 @@ export async function executeMutationPlan(plan, context = {}) {
     };
 }
 
-export function appendMutationPlanFailure(originalResult, plannedResult) {
+function appendMutationPlanFailure(originalResult, plannedResult) {
     if (!plannedResult || plannedResult.ok) return originalResult;
     const plan = plannedResult.plan || {};
     return `${originalResult}\nmutation_route: source=${plan.sourceTool || 'unknown'} engine=${plan.engine || 'unknown'} reason=${plan.reason || 'unknown'} failed\n${plannedResult.text}`;

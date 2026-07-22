@@ -50,7 +50,7 @@ function cycleScheduleKey(kind, signature = 'default') {
   return `cycle_schedule.${normalized}.${sig}`
 }
 
-export async function claimScheduledCycle(db, kind, intervalMs, signature = 'default', options = {}) {
+async function claimScheduledCycle(db, kind, intervalMs, signature = 'default', options = {}) {
   const key = cycleScheduleKey(kind, signature)
   const now = Number.isFinite(Number(options?.now)) ? Number(options.now) : Date.now()
   const spacingMsRaw = Number.isFinite(Number(options?.spacingMs)) ? Number(options.spacingMs) : Number(intervalMs)
@@ -226,7 +226,7 @@ export function resolveCoalesceMaxDrains(config, fallback = 1) {
   return Math.max(0, Math.min(10, Math.floor(value)))
 }
 
-export function resolveCoalesceRetryDelayMs(config, fallback = 1000) {
+function resolveCoalesceRetryDelayMs(config, fallback = 1000) {
   const direct = Number(config?.coalesce_retry_delay_ms)
   const nested = Number(config?.coalesce?.retry_delay_ms)
   const env = Number(process.env.MIXDOG_MEMORY_CYCLE_COALESCE_RETRY_MS)

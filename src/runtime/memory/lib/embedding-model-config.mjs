@@ -24,7 +24,7 @@ export function getConfiguredEmbeddingModelId() {
   return clean(process.env.MIXDOG_EMBED_MODEL) || DEFAULT_MODEL_ID
 }
 
-export function getEmbeddingModelProfile(modelId = getConfiguredEmbeddingModelId()) {
+function getEmbeddingModelProfile(modelId = getConfiguredEmbeddingModelId()) {
   return MODEL_PROFILES[clean(modelId)] || null
 }
 

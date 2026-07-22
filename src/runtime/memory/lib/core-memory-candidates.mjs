@@ -25,13 +25,13 @@ import { __mixdogMemoryLog, CORE_DEDUP_TOP_K, CORE_SUMMARY_MAX, _getDb, throwIfA
 export const CANDIDATE_CAP = 10
 // Durable categories worth surfacing for user-curated core memory. Mirrors the
 // high end of CATEGORY_GRADE (memory-score.mjs) — task/issue excluded.
-export const CANDIDATE_CATEGORIES = new Set(['rule', 'constraint', 'decision', 'preference', 'goal', 'fact'])
+const CANDIDATE_CATEGORIES = new Set(['rule', 'constraint', 'decision', 'preference', 'goal', 'fact'])
 // Score floor: preference grade is 1.4, fact 1.6 — require the entry to still
 // be near its grade ceiling (i.e. survived decay), not a stale low-score root.
-export const CANDIDATE_MIN_SCORE = 1.3
+const CANDIDATE_MIN_SCORE = 1.3
 // Embedding sim at/above which the active entry is considered already covered
 // by an existing core row → skip nomination. Matches cycle2 TIER1_THRESHOLD.
-export const CANDIDATE_OVERLAP_SIM = 0.78
+const CANDIDATE_OVERLAP_SIM = 0.78
 // A promote left mid-flight ('promoting') longer than this is treated as a
 // crashed promotion and reverted to a live candidate by recoverStalePromotions.
 // Worst-case addCore duration bounds this: it runs up to CORE_DEDUP_TOP_K (5)
@@ -41,9 +41,9 @@ export const CANDIDATE_OVERLAP_SIM = 0.78
 // crash within one hourly cycle2 pass. The finalize path ALSO tolerates a
 // racing recovery (rowCount=0 → re-claim, see promoteCoreCandidate) so an
 // over-tight cutoff can't corrupt state — this margin is defense-in-depth.
-export const PROMOTING_STALE_MS = 15 * 60_000
+const PROMOTING_STALE_MS = 15 * 60_000
 
-export function _candidateReason(row) {
+function _candidateReason(row) {
   return `${row.category} grade, score ${Number(row.score).toFixed(2)}, survived gate review`
 }
 

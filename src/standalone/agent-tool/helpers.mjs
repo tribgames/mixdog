@@ -75,7 +75,7 @@ export function presetKey(preset) {
   return clean(preset?.id || preset?.name);
 }
 
-export function bridgeRouteForStatusline(preset = {}) {
+function bridgeRouteForStatusline(preset = {}) {
   const provider = clean(preset.provider);
   const model = clean(preset.model);
   if (!provider || !model) return null;
@@ -191,7 +191,7 @@ export function compactIso(value) {
   return text.replace('T', ' ').replace(/\.\d+Z$/, 'Z');
 }
 
-export function formatElapsedMs(ms) {
+function formatElapsedMs(ms) {
   const n = Number(ms);
   if (!Number.isFinite(n) || n < 0) return '';
   const totalSec = Math.floor(n / 1000);

@@ -82,7 +82,7 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-export function SettingsTrigger({ onOpen, className }: SettingsTriggerProps) {
+function SettingsTrigger({ onOpen, className }: SettingsTriggerProps) {
   return <button type="button" className={className} aria-label="Open settings" onClick={onOpen}>
     <Settings aria-hidden="true" size={16} />
   </button>;

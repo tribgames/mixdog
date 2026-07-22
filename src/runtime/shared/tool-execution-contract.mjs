@@ -135,7 +135,7 @@ export function toolCompletionInstruction({ surface = 'tool', id, status, detail
   return `The async ${label} ${id || ''} has finished${statusText} - review this result in your next step.`;
 }
 
-export function toolCompletionMeta({
+function toolCompletionMeta({
   surface = 'tool',
   id,
   status,

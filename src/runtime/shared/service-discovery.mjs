@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { writeJsonAtomicSync } from './atomic-file.mjs'
 
-export function discoveryRoot() {
+function discoveryRoot() {
   const root = process.env.MIXDOG_RUNTIME_ROOT
     ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
     : join(tmpdir(), 'mixdog')
@@ -152,7 +152,7 @@ export function writeServiceAdvert(service, fields = {}) {
 // advertises a port, the file is removed (clean shutdown). Read-modify-write is
 // race-free enough for a genuine single owner (only the service's supervisor
 // writes its own file).
-export function patchServiceAdvert(service, fields = {}) {
+function patchServiceAdvert(service, fields = {}) {
   const cur = readServiceAdvert(service) ?? {}
   const merged = { ...cur }
   for (const [k, v] of Object.entries(fields)) {

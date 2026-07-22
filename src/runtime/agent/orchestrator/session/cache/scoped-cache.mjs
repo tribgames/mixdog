@@ -326,7 +326,7 @@ export function clearScopedCounters(sessionId) {
  * Configure the data directory for snapshot writes. Must be called once at
  * startup. Safe to call repeatedly.
  */
-export function configureCacheStatsSnapshot(dataDir) {
+function configureCacheStatsSnapshot(dataDir) {
     _snapshotDataDir = typeof dataDir === 'string' && dataDir.length > 0 ? dataDir : null;
 }
 
@@ -334,7 +334,7 @@ export function configureCacheStatsSnapshot(dataDir) {
  * Aggregate all live session counters into totals + per-session breakdown.
  * Pure computation — no I/O. Exported for tests.
  */
-export function aggregateCacheStats() {
+function aggregateCacheStats() {
     const totals = { sets: 0, hits: 0, misses: 0, clears: 0 };
     const perSession = [];
     for (const [sessionId, c] of _scopedCounters) {
@@ -379,7 +379,7 @@ function _scheduleCacheStatsFlush() {
 }
 
 /** Sync-flush pending cache-stats snapshot on exit. */
-export function drainCacheStats() {
+function drainCacheStats() {
     if (_snapshotTimer === null) return;
     clearTimeout(_snapshotTimer);
     _snapshotTimer = null;

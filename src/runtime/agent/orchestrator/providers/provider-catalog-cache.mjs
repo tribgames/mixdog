@@ -44,7 +44,7 @@ function rowId(row) {
   return String(row?.id || row?.name || row?.slug || '').trim();
 }
 
-export function getProviderCachedModelSync(provider, model) {
+function getProviderCachedModelSync(provider, model) {
   const p = String(provider || '').toLowerCase();
   const files = PROVIDER_CACHE_FILES[p] || [];
   if (!files.length || !model) return null;

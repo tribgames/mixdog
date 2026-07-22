@@ -13,7 +13,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { createRemoteMethods, executeRemoteFrame, type RemoteMethodDependencies } from './remote-methods';
 import { createSnapshotDeltaEncoder, isStateResyncFrame, type SnapshotDeltaEncoder } from './state-delta';
 
-export const DEFAULT_REMOTE_BRIDGE_PORT = 8791;
+const DEFAULT_REMOTE_BRIDGE_PORT = 8791;
 // Headroom over the IPC surface's 28M-base64 attachment ceiling.
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 

@@ -138,10 +138,9 @@ export const AUTO_CLEAR_PROVIDER_IDLE_MS = Object.freeze({
   'mistral': 60 * 60 * 1000,
   'default': AUTO_CLEAR_DEFAULT_IDLE_MS,
 });
-export const AUTO_CLEAR_PROVIDER_IDS = Object.freeze(Object.keys(AUTO_CLEAR_PROVIDER_IDLE_MS));
-export const AUTO_CLEAR_UNKNOWN_PROVIDER_IDLE_MS = AUTO_CLEAR_PROVIDER_IDLE_MS.default;
+const AUTO_CLEAR_PROVIDER_IDS = Object.freeze(Object.keys(AUTO_CLEAR_PROVIDER_IDLE_MS));
 
-export function normalizeAutoClearProviderIdleMs(value = {}) {
+function normalizeAutoClearProviderIdleMs(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const out = {};
   for (const [key, ms] of Object.entries(raw)) {

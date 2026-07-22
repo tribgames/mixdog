@@ -141,7 +141,7 @@ function normalizeTrailingNewlines(text) {
 // aggregated worker bodies in ai-wrapped-dispatch). These functions are
 // NO LONGER part of the tool-result compression chain — that chain is
 // lossless-only.
-export function normalizeWhitespace(text) {
+function normalizeWhitespace(text) {
     if (typeof text !== 'string') return text;
     return text
         .split('\n')
@@ -150,7 +150,7 @@ export function normalizeWhitespace(text) {
         .replace(/\n{3,}/g, '\n\n');
 }
 
-export function dedupRepeatedLines(text) {
+function dedupRepeatedLines(text) {
     if (typeof text !== 'string') return text;
     const lines = text.split('\n');
     const out = [];
@@ -240,7 +240,7 @@ function _trimLongLines(content) {
  * @param {string} content
  * @param {{ trimLongLines?: boolean, fullOutputPath?: string, sequential?: boolean }} [opts]
  */
-export function tailTrimLargeOutput(content, opts = {}) {
+function tailTrimLargeOutput(content, opts = {}) {
     if (typeof content !== 'string') return content;
     let text = content;
     if (opts.trimLongLines) {

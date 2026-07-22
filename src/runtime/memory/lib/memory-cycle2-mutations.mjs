@@ -45,7 +45,7 @@ const TRANSIENT_SNAPSHOT_RE = new RegExp(
 // task/issue block by category. Durable knowledge categories are trusted and
 // skip the content scan. Everything else (e.g. 'fact') is content-scanned so
 // snapshots mis-categorized as durable are still blocked.
-export function isTransientPromotion(row) {
+function isTransientPromotion(row) {
   if (!row) return false
   const cat = String(row.category ?? '').toLowerCase()
   if (TRANSIENT_PROMOTE_CATEGORIES.has(cat)) return true

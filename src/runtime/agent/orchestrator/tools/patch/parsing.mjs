@@ -16,7 +16,7 @@ export function prepareInput(patchStr) {
   return String(patchStr).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
 }
 
-export function isApplyPatchEnvelope(patchStr) {
+function isApplyPatchEnvelope(patchStr) {
   const text = prepareInput(patchStr).trimStart();
   return text.startsWith('*** Begin Patch')
     || text.startsWith('*** Add File:')
@@ -96,7 +96,7 @@ export function hasUnifiedBareV4AHunk(patchStr) {
   return text.split('\n').some((line) => line.startsWith('@@') && !UNIFIED_HUNK_HEADER_RE.test(line));
 }
 
-export function isUnifiedHunkCountError(err) {
+function isUnifiedHunkCountError(err) {
   const message = String(err?.message || err || '');
   return /Hunk at line .*more lines than expected|Hunk at line .*less lines than expected|expected \d+ old lines|line count did not match/i.test(message);
 }
@@ -128,7 +128,7 @@ function stripV4APathHeader(line, prefix) {
   return stripPatchPathMetadata(String(line || '').slice(prefix.length));
 }
 
-export function normaliseV4APath(rawPath) {
+function normaliseV4APath(rawPath) {
   const p = stripPatchPathMetadata(rawPath);
   if (!p) return '';
   return p.replace(/^["']|["']$/g, '').replace(/\\/g, '/');
@@ -187,7 +187,7 @@ function splitPatchLines(patchStr) {
 // Matches EVERY placeholder variant, not just "<key>: <N> chars, sha256:…":
 // the marker key segment varies ("patch", "old_string", "patch v4a, sha256:…",
 // etc.), so anchor on the "[mixdog compacted …]" bracket span alone.
-export const COMPACTED_PLACEHOLDER_RE = /^\s*\[mixdog compacted\b[^\]\n]*\]/;
+const COMPACTED_PLACEHOLDER_RE = /^\s*\[mixdog compacted\b[^\]\n]*\]/;
 
 // Mid-body scan reuses the same broad bracket shape. It only runs on lines that
 // are NOT unified diff content (+/-/space-prefixed), so a legit edit whose real

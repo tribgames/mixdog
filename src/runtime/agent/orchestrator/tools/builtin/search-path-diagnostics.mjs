@@ -65,7 +65,7 @@ export function stripEmbeddedPathQuotes(p) {
 // must not trigger same-basename guidance or the BFS scan.
 const NOT_FOUND_CODES = new Set(['ENOENT', 'ENOTDIR']);
 
-export const ENOENT_FIND_NUDGE = 'Locate with find on the basename before retrying.';
+const ENOENT_FIND_NUDGE = 'Locate with find on the basename before retrying.';
 
 // Per-invocation memo for the ENOENT recovery fs scans. A single grep/glob
 // ENOENT surfaces the SAME missing path through tryReadFamilyEnoentRedirect
@@ -109,7 +109,7 @@ function nearestExistingParentRel(workDir, missingPath) {
     return null;
 }
 
-export function spaceJoinedPathHint(requestedPath) {
+function spaceJoinedPathHint(requestedPath) {
     if (typeof requestedPath !== 'string') return '';
     const trimmed = requestedPath.trim();
     if (!/\s/.test(trimmed)) return '';
@@ -118,7 +118,7 @@ export function spaceJoinedPathHint(requestedPath) {
     return ' Pass multiple scopes as path[] array (not a space-joined string).';
 }
 
-export function appendEnoentFindNudge(text = '') {
+function appendEnoentFindNudge(text = '') {
     const base = String(text || '');
     if (base.includes(ENOENT_FIND_NUDGE)) return base;
     const sep = base.length && !/\s$/.test(base) ? ' ' : '';
@@ -130,7 +130,7 @@ export function finalizeReadFamilyEnoentTail(hint, requestedPath, errCode = 'ENO
     return appendEnoentFindNudge(String(hint || '') + spaceJoinedPathHint(requestedPath));
 }
 
-export function resolveUniqueEnoentRedirect(workDir, missingPath, errCode = 'ENOENT', cache = null) {
+function resolveUniqueEnoentRedirect(workDir, missingPath, errCode = 'ENOENT', cache = null) {
     if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return null;
     const suffixHit = cachedSuffixStrip(workDir, missingPath, cache);
     if (suffixHit) return suffixHit;
@@ -143,7 +143,7 @@ export function resolveUniqueEnoentRedirect(workDir, missingPath, errCode = 'ENO
     return null;
 }
 
-export function redirectedFromPrefix(requestedPath) {
+function redirectedFromPrefix(requestedPath) {
     return `[redirected from ${normalizeOutputPath(requestedPath)}]\n`;
 }
 

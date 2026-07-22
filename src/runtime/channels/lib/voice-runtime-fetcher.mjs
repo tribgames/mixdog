@@ -581,7 +581,7 @@ export async function ensureWhisperRuntime(dataDir, onProgress = null) {
 // Read-only resolver: returns the cached binary path when the managed runtime
 // is fully installed, null otherwise. Used by the transcribe hot path and the
 // /cli-check endpoint to test installation state without triggering a fetch.
-export function resolveManagedWhisperCmd(dataDir) {
+function resolveManagedWhisperCmd(dataDir) {
   const activeFile = join(dataDir, 'voice-runtime', 'active-version')
   if (!existsSync(activeFile)) return null
   const activeName = readFileSync(activeFile, 'utf8').trim()
@@ -618,13 +618,13 @@ export function resolveManagedWhisperCmd(dataDir) {
 // Read-only resolver matching the managed model layout. The bundled manifest
 // path is read synchronously because this runs on the per-message hot path
 // and an async fetch would add latency to every voice transcribe.
-export function resolveManagedWhisperModel(dataDir) {
+function resolveManagedWhisperModel(dataDir) {
   if (!existsSync(BUNDLED_MANIFEST_PATH)) return null
   const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'))
   return resolveManagedWhisperModelForId(manifest, dataDir, 'standard')
 }
 
-export function resolveManagedWhisperModelById(dataDir, modelId = 'standard') {
+function resolveManagedWhisperModelById(dataDir, modelId = 'standard') {
   if (!existsSync(BUNDLED_MANIFEST_PATH)) return null
   const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'))
   return resolveManagedWhisperModelForId(manifest, dataDir, modelId)
@@ -732,7 +732,7 @@ export async function ensureFfmpegRuntime(dataDir, onProgress = null) {
   })
 }
 
-export function resolveManagedFfmpegPath(dataDir) {
+function resolveManagedFfmpegPath(dataDir) {
   const activeFile = join(dataDir, 'ffmpeg-runtime', 'active-version')
   if (!existsSync(activeFile)) return null
   const activeName = readFileSync(activeFile, 'utf8').trim()

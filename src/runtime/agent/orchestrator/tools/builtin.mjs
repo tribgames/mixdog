@@ -334,7 +334,7 @@ function editDistance(a, b) {
     return prev[bb.length];
 }
 
-export function suggestBuiltinToolName(name) {
+function suggestBuiltinToolName(name) {
     if (typeof name !== 'string' || !name) return null;
     const canonical = canonicalizeBuiltinToolName(name);
     if (canonical !== name) return canonical;

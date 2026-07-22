@@ -63,7 +63,7 @@ export function executionCardKey(event, text, parsed) {
   return `card:${executionId}:${hasBody}`;
 }
 
-export function isExecutionNotification(event, text, parsed) {
+function isExecutionNotification(event, text, parsed) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
   if (meta.execution_id || meta.execution_surface) return true;
   if (parseAgentResultEnvelope(text)) return true;

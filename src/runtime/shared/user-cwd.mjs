@@ -44,7 +44,7 @@ function _dataFile(name) {
 // back to the home dir: a missing session signal then surfaces as ENOENT
 // (absolute paths required) rather than a silent stale read. Invariant check
 // (exact path equality with the known root), not a path-substring heuristic.
-export function _safeProcessCwd() {
+function _safeProcessCwd() {
   const cwd = process.cwd()
   try { if (resolve(cwd) === resolve(mixdogRoot())) return homedir() } catch { /* fall through to cwd */ }
   return cwd
@@ -143,7 +143,7 @@ export function captureOriginalUserCwd() {
  * Used by the cwd-tool auto-init path to avoid self-reference when
  * deciding whether to seed MIXDOG_SESSION_CWD from disk.
  */
-export function rawUserCwd() {
+function rawUserCwd() {
   try {
     const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim()
     return _normalizePlatformCwd(txt) || startRootCwd() || _safeProcessCwd()
@@ -208,7 +208,7 @@ export function readLastSessionCwd(keyPid) {
  * Run fn inside an async context where pwd() returns cwd.
  * All descendant async calls within fn see cwd as their working directory.
  */
-export function runWithCwdOverride(cwd, fn) {
+function runWithCwdOverride(cwd, fn) {
   return _cwdOverride.run(cwd, fn)
 }
 

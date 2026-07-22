@@ -11,7 +11,7 @@ export interface NativeMenuExtras {
   showRemoteAccess?: () => void;
 }
 
-export function nativeMenuTemplate(
+function nativeMenuTemplate(
   development: boolean,
   zoom?: NativeZoomActions,
   extras?: NativeMenuExtras,
