@@ -129,11 +129,20 @@ const api: DesktopApi = {
   openFilePath: (cwd, path) => ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path),
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => {
+    let active = true;
     const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {
       listener(state);
     };
     ipcRenderer.on(DESKTOP_IPC.updaterState, receive);
-    return () => ipcRenderer.removeListener(DESKTOP_IPC.updaterState, receive);
+    void ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState)
+      .then((state: DesktopUpdaterState) => {
+        if (active) listener(state);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      ipcRenderer.removeListener(DESKTOP_IPC.updaterState, receive);
+    };
   },
   checkForDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.checkForDesktopUpdate),
   showDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.showDesktopUpdate),

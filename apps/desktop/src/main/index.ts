@@ -126,10 +126,6 @@ function installDesktopMenu(): void {
 
 function startDeferredDesktopServices(): Promise<void> {
   deferredServicesPromise ??= (async () => {
-    startAutoUpdater(async () => {
-      await disposeDesktopResources();
-      quitAfterDispose = true;
-    });
     try {
       const { resolveRemoteBridgePort, startRemoteBridge } = await import('./remote-bridge');
       const remoteBridgePort = resolveRemoteBridgePort(process.env);
@@ -412,6 +408,12 @@ if (!app.requestSingleInstanceLock()) {
       electronVersion: process.versions.electron,
       chromeVersion: process.versions.chrome,
       nodeVersion: process.versions.node,
+    });
+    startAutoUpdater(async () => {
+      await disposeDesktopResources();
+      quitAfterDispose = true;
+    }, (message, data) => {
+      diagnostics?.write('updater', { message, ...data });
     });
     diagnosticsMemoryTimer = setInterval(() => {
       diagnostics?.write('process-memory', { processes: currentProcessMemory() });

@@ -2,17 +2,26 @@ import type { DesktopUpdaterState } from '../shared/contract';
 
 export type UpdaterState = DesktopUpdaterState;
 
+export type UpdaterReadyRecord = { version: string };
+
 export type UpdaterBackend = {
   checkForUpdates(): Promise<{ isUpdateAvailable?: boolean; updateInfo?: { version?: string } } | null | undefined>;
   downloadUpdate(): Promise<unknown>;
   quitAndInstall(): void;
 };
 
+type UpdaterPersistence = {
+  get(): UpdaterReadyRecord | undefined | Promise<UpdaterReadyRecord | undefined>;
+  set(value: UpdaterReadyRecord): void | Promise<void>;
+  clear(): void | Promise<void>;
+};
+
 export function createUpdaterController(input: {
   enabled: boolean;
   currentVersion: string;
   backend: UpdaterBackend;
-  stop?: () => Promise<void>;
+  persistence: UpdaterPersistence;
+  stop: () => Promise<void>;
   log?: (message: string, data?: object) => void;
 }) {
   let state: UpdaterState = input.enabled ? { status: 'idle' } : { status: 'disabled' };
@@ -35,11 +44,13 @@ export function createUpdaterController(input: {
       const result = await input.backend.checkForUpdates();
       const version = result?.updateInfo?.version;
       if (!result?.isUpdateAvailable || !version || version === input.currentVersion) {
+        await input.persistence.clear();
         return transition({ status: 'up-to-date' });
       }
 
       transition({ status: 'downloading', version });
       await input.backend.downloadUpdate();
+      await input.persistence.set({ version });
       return transition({ status: 'ready', version });
     })()
       .catch((error: unknown) =>
@@ -58,14 +69,18 @@ export function createUpdaterController(input: {
       listener(state);
       return () => listeners.delete(listener);
     },
-    start: check,
+    async start(): Promise<UpdaterState> {
+      const ready = await input.persistence.get();
+      if (ready?.version === input.currentVersion) await input.persistence.clear();
+      return check();
+    },
     check,
     async install(): Promise<void> {
       if (state.status !== 'ready') throw new Error('Update is not ready to install');
       const version = state.version;
       transition({ status: 'installing', version });
       try {
-        await input.stop?.();
+        await input.stop();
         input.backend.quitAndInstall();
         transition({ status: 'ready', version });
       } catch (error) {

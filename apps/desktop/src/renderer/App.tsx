@@ -682,6 +682,11 @@ export function App() {
   }, [dockOpen]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
+  useLayoutEffect(() => {
+    const subscribe = window.mixdogDesktop.subscribeUpdaterState;
+    if (typeof subscribe !== "function") return;
+    return subscribe((next) => setUpdaterState(next));
+  }, []);
   const [sessions, setSessions] = useState<DesktopSessionSummary[]>([]);
   // Recent-list unread dots: session ids whose stored updatedAt advanced while
   // the session was not the viewed selection (Claude-style activity marker).

@@ -537,16 +537,7 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.showDesktopUpdate, async () => {
     const current = updater?.getState() ?? { status: 'disabled' } as const;
     if (current.status !== 'ready' || !updater) return current;
-    const response = await dialog.showMessageBox(window, {
-      type: 'info',
-      title: 'Update Ready',
-      message: `Mixdog ${current.version} has been downloaded.`,
-      detail: 'Restart now to install the update?',
-      buttons: ['Restart', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    });
-    if (response.response === 0) await updater.install();
+    await updater.install();
     return updater.getState();
   });
   handle(DESKTOP_IPC.submit, (_event, prompt, options) =>

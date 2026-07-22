@@ -1663,12 +1663,18 @@ test("virtualized session switching renders immediately and uses one sticky resi
 test("sidebar footer keeps settings while the titlebar exposes the OpenCode-style update control", async () => {
   installDom();
   let updateOpens = 0;
+  let updaterSubscriptions = 0;
+  let publishUpdater = () => {};
   window.mixdogDesktop = {
     getSnapshot: async () => ({ items: [], queued: [] }),
     subscribeState: () => () => {},
     listSessions: async () => [],
-    getUpdaterState: async () => ({ status: "ready", version: "2.0.0" }),
-    subscribeUpdaterState: () => () => {},
+    getUpdaterState: async () => ({ status: "idle" }),
+    subscribeUpdaterState: (listener) => {
+      updaterSubscriptions += 1;
+      publishUpdater = listener;
+      return () => {};
+    },
     showDesktopUpdate: async () => {
       updateOpens += 1;
       return { status: "ready", version: "2.0.0" };
@@ -1679,6 +1685,11 @@ test("sidebar footer keeps settings while the titlebar exposes the OpenCode-styl
   await act(async () => {
     root.render(React.createElement(App));
     await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  await act(async () => {
+    publishUpdater({ status: "ready", version: "2.0.0" });
     await Promise.resolve();
   });
 
@@ -1691,6 +1702,7 @@ test("sidebar footer keeps settings while the titlebar exposes the OpenCode-styl
   assert.equal(trigger.getAttribute("aria-label"), "Open settings");
   assert.equal(trigger.getAttribute("data-tooltip"), "Settings");
   assert.equal(trigger.getAttribute("title"), null);
+  assert.ok(updaterSubscriptions >= 1, "the renderer should subscribe to authoritative updater state");
   const update = document.querySelector(".titlebar-update");
   assert.equal(update?.closest(".topbar") !== null, true,
     "the update control should sit in the titlebar before the caption controls");

@@ -3,8 +3,9 @@ import { test } from 'node:test';
 
 import { createUpdaterController } from './updater-controller.ts';
 
-function setup({ currentVersion = '1.0.0', enabled = true } = {}) {
+function setup({ currentVersion = '1.0.0', enabled = true, ready: initialReady } = {}) {
   const calls = [];
+  let ready = initialReady;
   const backend = {
     async checkForUpdates() {
       calls.push('check');
@@ -23,12 +24,18 @@ function setup({ currentVersion = '1.0.0', enabled = true } = {}) {
       enabled,
       currentVersion,
       backend,
+      persistence: {
+        get: () => ready,
+        set: (value) => { ready = value; },
+        clear: () => { ready = undefined; },
+      },
       stop: async () => { calls.push('stop'); },
     }),
+    getReady: () => ready,
   };
 }
 
-test('updater checks, downloads, and exposes the ready update', async () => {
+test('updater checks, downloads, persists, and exposes the ready update', async () => {
   const updater = setup();
   const states = [];
   updater.controller.subscribe((state) => states.push(state.status));
@@ -36,8 +43,27 @@ test('updater checks, downloads, and exposes the ready update', async () => {
   await updater.controller.start();
 
   assert.deepEqual(updater.calls, ['check', 'download']);
+  assert.deepEqual(updater.getReady(), { version: '2.0.0' });
   assert.deepEqual(states, ['idle', 'checking', 'downloading', 'ready']);
   assert.deepEqual(updater.controller.getState(), { status: 'ready', version: '2.0.0' });
+});
+
+test('updater revalidates a persisted target through the updater cache on launch', async () => {
+  const updater = setup({ ready: { version: '2.0.0' } });
+
+  await updater.controller.start();
+
+  assert.deepEqual(updater.calls, ['check', 'download']);
+  assert.deepEqual(updater.controller.getState(), { status: 'ready', version: '2.0.0' });
+});
+
+test('updater clears a persisted target that is already installed', async () => {
+  const updater = setup({ currentVersion: '2.0.0', ready: { version: '2.0.0' } });
+
+  await updater.controller.start();
+
+  assert.equal(updater.getReady(), undefined);
+  assert.deepEqual(updater.calls, ['check']);
 });
 
 test('updater coalesces concurrent checks and installs only a downloaded update', async () => {
@@ -60,6 +86,7 @@ test('updater returns to ready when application shutdown cannot complete', async
       downloadUpdate: async () => {},
       quitAndInstall: () => { calls.push('install'); },
     },
+    persistence: { get: () => undefined, set() {}, clear() {} },
     stop: async () => { throw new Error('shutdown failed'); },
   });
 
@@ -84,6 +111,8 @@ test('disabled and unreachable update feeds are safe no-ops', async () => {
       downloadUpdate: async () => {},
       quitAndInstall() {},
     },
+    persistence: { get: () => undefined, set() {}, clear() {} },
+    stop: async () => {},
   });
   assert.deepEqual(await unavailable.start(), { status: 'error', message: 'publish feed unavailable' });
 });
