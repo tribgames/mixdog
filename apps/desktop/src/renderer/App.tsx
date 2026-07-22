@@ -1999,8 +1999,7 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
 }) {
   const [placement, setPlacement] = useState<{
     right: number;
-    top: number | 'auto';
-    bottom?: number;
+    top: number;
     width: number;
     maxHeight: number;
   }>({
@@ -2089,25 +2088,12 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
       const margin = 16;
       const width = Math.min(320, Math.max(0, sheet.width - margin * 2));
       const right = Math.max(margin, window.innerWidth - sheet.right + margin);
-      // User request: toasts anchor to the sheet's TOP-right and stack
-      // downward. Phones instead anchor ABOVE the composer as a snackbar
-      // (user: top toasts covered the chat) so the header and transcript
-      // stay readable while one is up.
-      const phone = window.innerWidth <= 760;
-      if (phone) {
-        const composerTop = document.querySelector('.composer-region')
-          ?.getBoundingClientRect().top || sheet.bottom;
-        const bottom = Math.max(margin, window.innerHeight - composerTop + 8);
-        const maxHeight = Math.max(0, composerTop - 8 - sheet.top - margin);
-        setPlacement((current) => current.right === right && current.top === 'auto'
-          && current.bottom === bottom && current.width === width && current.maxHeight === maxHeight
-          ? current : { right, top: 'auto', bottom, width, maxHeight });
-        return;
-      }
+      // Desktop and mobile share one predictable top-right notification
+      // anchor; the workspace top already includes the native safe area.
       const top = Math.max(margin, sheet.top + margin);
       const maxHeight = Math.max(0, sheet.bottom - top - margin);
       setPlacement((current) => current.right === right && current.top === top
-        && current.bottom === undefined && current.width === width && current.maxHeight === maxHeight
+        && current.width === width && current.maxHeight === maxHeight
         ? current : { right, top, width, maxHeight });
     };
     measure();
@@ -2115,10 +2101,6 @@ function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }: {
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     const workspace = document.querySelector('.workspace');
     if (resizeObserver && workspace instanceof HTMLElement) resizeObserver.observe(workspace);
-    // The phone anchor tracks the composer edge (it grows with drafts and
-    // the soft keyboard), not just the workspace sheet.
-    const composer = document.querySelector('.composer-region');
-    if (resizeObserver && composer instanceof HTMLElement) resizeObserver.observe(composer);
     return () => {
       window.removeEventListener('resize', measure);
       resizeObserver?.disconnect();

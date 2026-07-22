@@ -3906,16 +3906,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* Roomier phone header (user: too cramped): one centered line — the title
      column caps at ~30% of the width (user decision) so the project badge
      sits IMMEDIATELY to its right instead of under it. */
-  .app-shell { --titlebar-height: 56px; }
+  .app-shell { --titlebar-height: 64px; }
   .topbar { display: none; }
   .session-header {
-    flex-basis: 56px;
-    min-height: 56px;
+    flex-basis: 64px;
+    min-height: 64px;
     border-bottom: .5px solid var(--oc-border-muted);
   }
   .session-header-menu { display: grid; place-items: center; margin-right: 2px; }
   .session-header-content {
-    height: 56px;
+    height: 64px;
     padding-inline: 12px;
     display: grid;
     grid-template-columns: auto fit-content(30%) minmax(0, 1fr) auto auto;
@@ -3924,14 +3924,27 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     column-gap: 8px;
   }
   .session-header-menu { grid-row: 1; grid-column: 1; }
-  .session-header-content h1 { grid-row: 1; grid-column: 2; min-width: 0; }
+  .session-header-content h1 {
+    grid-row: 1;
+    grid-column: 2;
+    min-width: 0;
+    font-size: 16px;
+    line-height: 24px;
+  }
   .session-project-badge {
     grid-row: 1;
     grid-column: 3;
     justify-self: start;
     min-width: 0;
     max-width: 100%;
+    height: 22px;
+    padding-inline: 8px;
+    font-size: 12px;
+    line-height: 22px;
   }
+  .session-header-menu .sidebar-toggle-icon,
+  .session-dock-toggle svg.lucide { width: 20px; height: 20px; }
+  .live-work-spinner { width: 18px; height: 18px; }
   .session-title-regenerate { grid-row: 1; grid-column: 4; }
   .session-header-status { grid-row: 1; grid-column: 5; }
   .thread { padding-inline: 12px; }
@@ -3989,7 +4002,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
      pushed the + affordance off a phone-width top bar. */
   .titlebar-caption-space { display: none; }
   .oc-toast-region {
-    top: calc(54px + env(safe-area-inset-top, 0px));
     width: calc(100vw - 32px);
   }
   .composer-region { padding-inline: 16px; }
@@ -5925,10 +5937,10 @@ html[data-mixdog-mobile] .mixdog-settings__body { overscroll-behavior: contain; 
 html[data-mixdog-mobile] input,
 html[data-mixdog-mobile] textarea,
 html[data-mixdog-mobile] select { font-size: 16px; }
-/* Finger-sized targets: 36px header glyphs, 44px sidebar rows. */
+/* Finger-sized targets: 40px header controls, 44px sidebar rows. */
 @media (pointer: coarse) {
   .session-dock-toggle, .session-header .icon-button, .titlebar-new,
-  .toolbar-sidebar { width: 36px; height: 36px; }
+  .toolbar-sidebar { width: 40px; height: 40px; }
   .session-sidebar .task-link,
   .session-sidebar .projects-link,
   .session-sidebar .session-row { height: 44px; min-height: 44px; }

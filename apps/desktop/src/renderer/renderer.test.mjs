@@ -297,6 +297,17 @@ test('session title actions, message hover rows, and tool disclosures keep OpenC
   assert.match(navigation, /aria-label=\{`Delete \$\{sessionLabel\(session\)\}`\}/);
 });
 
+test('phone header uses the roomier mobile scale', async () => {
+  const styles = await readFile(new URL('./opencode-v2.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.app-shell\s*\{\s*--titlebar-height:\s*64px;/);
+  assert.match(styles, /\.session-header\s*\{[^}]*flex-basis:\s*64px;[^}]*min-height:\s*64px;/s);
+  assert.match(styles, /\.session-header-content\s*\{[^}]*height:\s*64px;[^}]*grid-template-columns:/s);
+  assert.match(styles, /\.session-header-content h1\s*\{[^}]*font-size:\s*16px;[^}]*line-height:\s*24px;/s);
+  assert.match(styles, /\.session-project-badge\s*\{[^}]*height:\s*22px;[^}]*font-size:\s*12px;[^}]*line-height:\s*22px;/s);
+  assert.match(styles, /\.session-header-menu \.sidebar-toggle-icon,[^}]*\.session-dock-toggle svg\.lucide\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px;/s);
+  assert.match(styles, /@media \(pointer:\s*coarse\)\s*\{[^}]*\.toolbar-sidebar\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;/s);
+});
+
 test('conversation uses native scrolling and silent session transitions', async () => {
   const renderer = await readFile(new URL('./App.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(renderer, /TranscriptRail|Previous user message|Next user message|message-navigation|navigateMessage/);

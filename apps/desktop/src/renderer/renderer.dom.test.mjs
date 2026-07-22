@@ -167,6 +167,37 @@ test("toast region anchors to the sheet top-right", async () => {
   assert.equal(region.style.bottom, "", "toast region has no bottom anchor");
 });
 
+test("mobile toast region keeps the desktop top-right anchor", async () => {
+  installDom();
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+  const originalGetBoundingClientRect = window.HTMLElement.prototype.getBoundingClientRect;
+  window.HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.classList?.contains("workspace")) {
+      return {
+        x: 0, y: 24, top: 24, right: 390, bottom: 760, left: 0,
+        width: 390, height: 736, toJSON: () => ({}),
+      };
+    }
+    return originalGetBoundingClientRect.call(this);
+  };
+  const first = { items: [], queued: [], sessionId: "first", toasts: [{ id: "toast", text: "Failed", tone: "error" }] };
+  window.mixdogDesktop = {
+    getSnapshot: async () => first,
+    listSessions: async () => [],
+    subscribeState: () => () => {},
+  };
+
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+  });
+  const region = document.querySelector(".oc-toast-region");
+  assert.ok(region, "mobile toast region renders");
+  assert.equal(region.style.top, "40px", "mobile toast stays at the safe workspace top");
+  assert.equal(region.style.right, "16px", "mobile toast stays right-aligned");
+  assert.equal(region.style.bottom, "", "mobile toast never anchors above the composer");
+});
+
 test("live-work strip renders ordered snapshot segments and filters terminal agents", async () => {
   installDom();
   const now = Date.parse("2026-01-02T12:00:00Z");
