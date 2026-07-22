@@ -42,7 +42,6 @@ import {
   ensureDiskCodeGraphLoaded,
   drainCodeGraphCacheStrict,
   getDiskCodeGraphEntry,
-  hasLegacyDiskCodeGraphCache,
   probeDiskCodeGraphEntry,
   _setDiskCodeGraphEntry,
 } from './disk-cache.mjs';
@@ -177,23 +176,18 @@ export async function _runDiskCodeGraphFastPath({
   }
 }
 
-// A legacy single-file cache can be very large. Its migration is deliberately
-// performed by _buildCodeGraph in the Worker; probing it here would poison the
-// parent disk-cache loaded state after a synchronous JSON.parse.
 export function _prepareDiskCodeGraphFastPath({
   graphCwd,
-  hasLegacyCache = hasLegacyDiskCodeGraphCache,
   ensureDiskLoaded = ensureDiskCodeGraphLoaded,
   probeDiskEntry = probeDiskCodeGraphEntry,
   runFastPath,
 }) {
-  if (hasLegacyCache()) return runFastPath(null);
   ensureDiskLoaded();
   return runFastPath(probeDiskEntry(graphCwd, CODE_GRAPH_FAST_PATH_MAX_BYTES));
 }
 
 // Worker disk writes are debounced with an unref'd timer. Drain before sending
-// success so legacy migration persists every loaded cwd before this Worker can
+// success so every loaded cwd persists before this Worker can
 // exit; a drain failure is intentionally thrown to the worker's failure path.
 export function _postCodeGraphWorkerSuccess(
   graph,

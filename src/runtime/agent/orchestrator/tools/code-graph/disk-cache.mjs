@@ -1,5 +1,5 @@
-// Per-cwd on-disk code-graph cache: manifest + <hash>.json layout, legacy
-// single-file migration, budget pruning, orphan sweep, and a debounced
+// Per-cwd on-disk code-graph cache: manifest + <hash>.json layout, stray
+// single-file cleanup, budget pruning, orphan sweep, and a debounced
 // atomic flush. Owns its own module-level state (the in-memory disk map,
 // manifest, flush timer). Extracted verbatim from code-graph.mjs.
 import { createHash } from 'node:crypto';
@@ -58,37 +58,12 @@ function _hashCwd(cwd) {
   return hash;
 }
 
-function _migrateLegacyDiskCache() {
-  const legacy = join(getPluginData(), CODE_GRAPH_DISK_FILE);
-  if (!existsSync(legacy)) return;
-  try {
-    const parsed = JSON.parse(readFileSync(legacy, 'utf8'));
-    if (parsed && typeof parsed === 'object') {
-      for (const [cwd, entry] of Object.entries(parsed)) {
-        if (!entry || typeof entry !== 'object') continue;
-        _diskCodeGraphCache.set(_canonicalGraphCwd(cwd), entry);
-      }
-    }
-    // Rename rather than delete so a rollback can recover the blob if the
-    // per-cwd layout misbehaves. Next persist round writes the new layout
-    // and the legacy path no longer exists, so this branch is a one-shot.
-    renameSync(legacy, `${legacy}.bak-${Date.now()}`);
-    // Schedule an immediate flush so the in-memory entries we just loaded
-    // get written out as per-cwd files now, instead of waiting for the
-    // next graph rebuild to trigger _setDiskCodeGraphEntry. Without this,
-    // the layout transition is half-complete (legacy renamed, new layout
-    // empty) until an unrelated build happens to land.
-    _scheduleDiskCodeGraphCacheFlush();
-  } catch (err) {
-    process.stderr.write(`[code-graph] legacy cache migration failed: ${err?.message || err}\n`);
-  }
-}
-
-// This intentionally does not call _loadDiskCodeGraphCache: the parent-side
-// fast path uses it to leave a legacy blob's synchronous read/JSON.parse to
-// the Worker, where normal one-shot migration still happens.
-export function hasLegacyDiskCodeGraphCache() {
-  return existsSync(join(getPluginData(), CODE_GRAPH_DISK_FILE));
+// The pre-layout single-file cache blob is dead weight: caches are fully
+// regenerable, so remove the stray file instead of migrating its contents.
+function _cleanupLegacyDiskCache() {
+  const stale = join(getPluginData(), CODE_GRAPH_DISK_FILE);
+  if (!existsSync(stale)) return;
+  try { unlinkSync(stale); } catch { /* best-effort */ }
 }
 
 function _pruneDiskCodeGraphEntries(_now = Date.now()) {
@@ -234,9 +209,7 @@ function _loadDiskCodeGraphCache(now = Date.now()) {
   if (_diskCodeGraphCacheLoaded) return;
   _diskCodeGraphCacheLoaded = true;
 
-  // One-shot migration from the legacy single-file cache. Subsequent boots
-  // skip this branch because the source file was renamed to .bak.
-  _migrateLegacyDiskCache();
+  _cleanupLegacyDiskCache();
 
   // Manifest-only load: per-cwd entries are picked up by _ensureCwdLoaded()
   // at lookup time. Cold start now pays a single small JSON.parse instead

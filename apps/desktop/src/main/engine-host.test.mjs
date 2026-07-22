@@ -641,7 +641,7 @@ test("host deletes session metadata and returns the replacement snapshot for the
   }
 });
 
-test("host migrates legacy title overrides into manual names without changing their display", async () => {
+test("host ignores pre-v2 metadata and starts clean", async () => {
   const root = await mkdtemp(join(tmpdir(), "mixdog-session-title-migration-"));
   const originalCwd = process.cwd();
   const row = {
@@ -662,7 +662,8 @@ test("host migrates legacy title overrides into manual names without changing th
   };
   const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
   try {
-    assert.equal((await host.listSessions())[0].title, "Legacy preserved title");
+    // Pre-v2 metadata is not shape-migrated: the row falls back to its preview.
+    assert.equal((await host.listSessions())[0].title, "Newer preview");
     await host.renameSession(row.id, "Migrated custom name");
     await host.dispose();
     const metadata = JSON.parse(await readFile(

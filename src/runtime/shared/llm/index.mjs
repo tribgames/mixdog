@@ -26,36 +26,21 @@ function loadAgentConfig() {
 /**
  * Resolve the maintenance model ROUTE for a given task from agent-config.
  *
- * Maintenance slots now store a direct `{provider, model, effort?, fast?}`
- * route (parity with `agents.<role>`). This returns that route object. For
- * backward compatibility a slot still holding a legacy preset-NAME string is
- * resolved against config.presets and returned as a route. Falls back to the
- * canonical DEFAULT_MAINTENANCE route. Returns null only when nothing resolves.
+ * Maintenance slots store a direct `{provider, model, effort?, fast?}` route
+ * (parity with `agents.<role>`). This returns that route object, falling back
+ * to the canonical DEFAULT_MAINTENANCE route. Returns null only when nothing
+ * resolves.
  *
  * The returned value is passed straight through as `opts.preset` to
- * makeAgentDispatch, whose resolveMaintenanceRoute()/maintenanceRouteToPreset()
- * accept either a route object or a legacy name string.
+ * makeAgentDispatch (resolveMaintenanceRoute()/maintenanceRouteToPreset()).
  */
 export function resolveMaintenancePreset(task, agentConfig) {
   const cfg = agentConfig || loadAgentConfig()
   const maint = cfg?.maintenance || {}
-  const presets = cfg?.presets || []
   const slot = maint[task]
-  // Preferred: slot already holds a direct route object.
   if (slot && typeof slot === 'object' && !Array.isArray(slot)
       && slot.provider && slot.model) {
     return { ...slot }
-  }
-  // Legacy: slot holds a preset-NAME string — resolve it to a route.
-  const name = String(slot || '').trim()
-  if (name) {
-    const preset = presets.find(p => p && (p.id === name || p.name === name))
-    if (preset && preset.provider && preset.model) {
-      const route = { provider: preset.provider, model: preset.model }
-      if (preset.effort) route.effort = preset.effort
-      if (preset.fast === true) route.fast = true
-      return route
-    }
   }
   // Canonical default route (DEFAULT_MAINTENANCE is now route-shaped).
   const def = DEFAULT_MAINTENANCE[task]

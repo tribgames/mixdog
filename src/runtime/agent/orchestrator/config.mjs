@@ -129,10 +129,10 @@ function resolveAnthropicFamilyModel(family) {
 // Each maintenance slot stores its model route DIRECTLY ({provider, model}) —
 // parity with `agents.<role>`. The old shape stored a preset NAME string (e.g.
 // "haiku") that had to be looked up in the config.presets array; that
-// indirection is the legacy path. agent-dispatch.resolveMaintenanceRoute still
-// accepts a legacy name string for backward compatibility, but new configs and
-// these defaults use the direct route. loadConfig() migrates any stored string
-// slot to a route on read (see migrateMaintenanceRoutes). The cycle1/2/3 memory
+// indirection resolves at dispatch. agent-dispatch.resolveMaintenanceRoute
+// accepts a preset NAME (Main inheritance via config.default), and
+// these defaults use the direct route. loadConfig() normalizes stored
+// slots on read (see normalizeMaintenanceRoutes). The cycle1/2/3 memory
 // agents share ONE `memory` route via the `maintKey: 'memory'` override on
 // their hidden-role entries.
 const _HAIKU_ROUTE = Object.freeze({
@@ -227,15 +227,11 @@ function normalizeSearchRoute(route) {
     return out;
 }
 
-// Migrate stored maintenance slots from the legacy preset-NAME string shape to
-// the direct {provider, model} route shape. A slot value that is already a
-// route object is normalized (provider/model/effort/fast only); a string value
-// is resolved against the config.presets array (the legacy lookup) and rewritten
-// to a route. Unresolvable strings are dropped so the DEFAULT_MAINTENANCE route
-// fills the slot. `presets` is the normalized preset array for legacy lookup.
-function migrateMaintenanceRoutes(rawMaint, presets, defaultProvider) {
+// Normalize stored maintenance slots to the direct {provider, model} route
+// shape (provider/model/effort/fast only). Non-route values are dropped so the
+// DEFAULT_MAINTENANCE route fills the slot.
+function normalizeMaintenanceRoutes(rawMaint, defaultProvider) {
     const out = {};
-    const list = Array.isArray(presets) ? presets : [];
     const configuredProvider = String(defaultProvider || '').trim();
     const fallbackProvider = isConfiguredProviderId(configuredProvider)
         ? configuredProvider
@@ -255,16 +251,6 @@ function migrateMaintenanceRoutes(rawMaint, presets, defaultProvider) {
             }
             continue;
         }
-        const name = String(value || '').trim();
-        if (!name) continue;
-        const preset = list.find(p => p && (p.id === name || p.name === name));
-        if (preset && preset.provider && preset.model) {
-            const route = { provider: preset.provider, model: preset.model };
-            if (preset.effort) route.effort = preset.effort;
-            if (preset.fast === true) route.fast = true;
-            out[slot] = route;
-        }
-        // Unresolvable legacy name → dropped; DEFAULT_MAINTENANCE route fills it.
     }
     return out;
 }
@@ -288,25 +274,10 @@ async function persistAgentConfigAsync(build) {
 }
 
 // Recap toggle (recap.enabled, default true) gates ONLY the background memory
-// cycles. The memory module itself is always-on. On load we fold a legacy
-// `modules.memory === false` flag into recap.enabled=false one time; the caller
-// (loadConfig) persists the migration so the legacy flag is dropped from disk.
-let _migratedRecapLegacy = false;
-function normalizeRecapConfig(rawRecap, rawModules) {
+// cycles. The memory module itself is always-on.
+function normalizeRecapConfig(rawRecap) {
     const recap = rawRecap && typeof rawRecap === 'object' ? { ...rawRecap } : {};
-    if (!('enabled' in recap)) {
-        const legacyMemory = rawModules && typeof rawModules === 'object' ? rawModules.memory : undefined;
-        const legacyDisabled = legacyMemory === false
-            || (legacyMemory && typeof legacyMemory === 'object' && legacyMemory.enabled === false);
-        if (legacyDisabled) {
-            recap.enabled = false;
-            _migratedRecapLegacy = true;
-        } else {
-            recap.enabled = true;
-        }
-    } else {
-        recap.enabled = recap.enabled !== false;
-    }
+    recap.enabled = recap.enabled !== false;
     return recap;
 }
 
@@ -355,19 +326,7 @@ export function loadConfig(options = {}) {
             for (const [k, v] of Object.entries(raw.maintenance || {})) {
                 if (allowedMaintKeys.has(k)) rawMaint[k] = v;
             }
-            // One-time schema migration: the three memory-cycle MODEL presets
-            // (cycle1/cycle2/cycle3) collapsed into a single `memory` key. If the
-            // stored config still carries any old cycle key and no `memory`, fold
-            // the first present value into `memory` (preserving the user's
-            // choice), then the old keys drop via the allow-list above. This is a
-            // schema migration, NOT a runtime fallback — the persisted config is
-            // cleaned once so runtime never has to re-migrate.
-            const legacyCycleKeys = ['cycle1', 'cycle2', 'cycle3'];
-            let migratedMaintenance = false;
-            if (!('memory' in rawMaint) && legacyCycleKeys.some(k => k in (raw.maintenance || {}))) {
-                rawMaint.memory = raw.maintenance.cycle1 ?? raw.maintenance.cycle2 ?? raw.maintenance.cycle3 ?? DEFAULT_MAINTENANCE.memory;
-                migratedMaintenance = true;
-            }
+
             // Self-ref guard: mcpServers.mixdog / mcpServers["trib-plugin"]
             // would self-spawn through the in-process tool adapter. Strip on
             // ingress so user-edited configs cannot brick the agent boot.
@@ -400,72 +359,8 @@ export function loadConfig(options = {}) {
                     process.stderr.write(`[config] persist sanitized config failed: ${err?.message}\n`);
                 }
             }
-            // Persist the memory-cycle schema migration once. rawMaint already
-            // carries the folded `memory` key and excludes the dropped cycle1/2/3
-            // keys (not in the allow-list); rebase onto the in-lock current so a
-            // concurrent writer's unrelated edits survive, mirroring the
-            // mcpServers self-ref strip above.
-            if (migratedMaintenance) {
-                try {
-                    persistAgentConfig((current) => {
-                        const cur = { ...current };
-                        const target = (cur.agent && cur.agent.providers)
-                            ? (cur.agent = { ...cur.agent })
-                            : cur;
-                        const curMaint = (target.maintenance && typeof target.maintenance === 'object') ? { ...target.maintenance } : {};
-                        // Derive `memory` from the IN-LOCK current, not the
-                        // pre-lock rawMaint snapshot — a concurrent writer may
-                        // have set maintenance.memory or changed a legacy cycle
-                        // value between this loadConfig()'s read and the lock.
-                        // If `memory` is already present in-lock, preserve it
-                        // (lost-update guard); otherwise fold the in-lock legacy
-                        // cycle value first, with the pre-lock snapshot as the
-                        // last-resort seed.
-                        if (!('memory' in curMaint)) {
-                            curMaint.memory = curMaint.cycle1 ?? curMaint.cycle2 ?? curMaint.cycle3 ?? rawMaint.memory;
-                        }
-                        for (const k of legacyCycleKeys) delete curMaint[k];
-                        target.maintenance = curMaint;
-                        return cur;
-                    });
-                } catch (err) {
-                    process.stderr.write(`[config] persist maintenance migration failed: ${err?.message}\n`);
-                }
-            }
-            // One-time recap migration: fold a legacy `modules.memory === false`
-            // flag into `recap.enabled=false` and drop the legacy flag on disk.
-            // Compute the recap shape here (before the return) so the
-            // _migratedRecapLegacy latch is set, then persist under the lock.
-            const recapConfig = normalizeRecapConfig(raw.recap, raw.modules);
-            if (_migratedRecapLegacy) {
-                _migratedRecapLegacy = false;
-                try {
-                    persistAgentConfig((current) => {
-                        const cur = { ...current };
-                        const target = (cur.agent && cur.agent.providers)
-                            ? (cur.agent = { ...cur.agent })
-                            : cur;
-                        const recap = (target.recap && typeof target.recap === 'object') ? { ...target.recap } : {};
-                        if (!('enabled' in recap)) recap.enabled = false;
-                        target.recap = recap;
-                        if (target.modules && typeof target.modules === 'object' && target.modules.memory === false) {
-                            const modules = { ...target.modules };
-                            delete modules.memory;
-                            target.modules = modules;
-                        } else if (target.modules && typeof target.modules === 'object' && target.modules.memory) {
-                            const modules = { ...target.modules };
-                            const memoryMod = { ...modules.memory };
-                            delete memoryMod.enabled;
-                            if (Object.keys(memoryMod).length === 0) delete modules.memory;
-                            else modules.memory = memoryMod;
-                            target.modules = modules;
-                        }
-                        return cur;
-                    });
-                } catch (err) {
-                    process.stderr.write(`[config] persist recap migration failed: ${err?.message}\n`);
-                }
-            }
+            const recapConfig = normalizeRecapConfig(raw.recap);
+
             const rawPresets = Array.isArray(raw.presets) ? raw.presets : [];
             const normalizedPresets = rawPresets
                 .map(p => normalizePreset(p))
@@ -473,9 +368,9 @@ export function loadConfig(options = {}) {
                 .filter(p => p.id !== 'workflow-search');
             const workflowRoutes = raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? { ...raw.workflowRoutes } : {};
             delete workflowRoutes.search;
-            // Migrate legacy preset-name maintenance slots to direct routes,
-            // then overlay onto the route-shaped defaults.
-            const migratedMaint = migrateMaintenanceRoutes(rawMaint, normalizedPresets, raw.defaultProvider);
+            // Normalize maintenance slots to routes, then overlay onto the
+            // route-shaped defaults.
+            const normalizedMaint = normalizeMaintenanceRoutes(rawMaint, raw.defaultProvider);
             return {
                 providers: mergedProviders,
                 mcpServers,
@@ -484,7 +379,7 @@ export function loadConfig(options = {}) {
                     : {},
                 presets: normalizedPresets,
                 default: raw.default || null,
-                maintenance: { ...DEFAULT_MAINTENANCE, ...migratedMaint },
+                maintenance: { ...DEFAULT_MAINTENANCE, ...normalizedMaint },
                 workflowRoutes,
                 searchRoute: normalizeSearchRoute(raw.searchRoute),
                 fastModels: raw.fastModels && typeof raw.fastModels === 'object' ? raw.fastModels : {},

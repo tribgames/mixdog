@@ -4042,6 +4042,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     root.render(React.createElement(App));
     await Promise.resolve();
   });
+  // Stored widths within the clamp range are honored verbatim.
   // Panels start minimized: expand the sidebar so the resize rail is live.
   await act(async () => document.querySelector(".toolbar-sidebar").click());
   const sidebar = document.querySelector(".sidebar");
@@ -4054,9 +4055,9 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     "selector .session-search should be absent");
   const resize = document.querySelector('[role="separator"][aria-label="Resize session sidebar"]');
   assert.ok(resize);
-  assert.equal(resize.getAttribute("aria-valuenow"), "260");
+  assert.equal(resize.getAttribute("aria-valuenow"), "286");
   await act(async () => resize.dispatchEvent(new window.MouseEvent("pointerdown", {
-    bubbles: true, button: 0, clientX: 260,
+    bubbles: true, button: 0, clientX: 286,
   })));
   await act(async () => resize.dispatchEvent(new window.MouseEvent("pointermove", {
     bubbles: true, clientX: 300,

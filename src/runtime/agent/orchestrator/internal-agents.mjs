@@ -5,7 +5,7 @@
  * invoked only by internal handlers (explore / recall / search) and carry
  * their own system prompt + tool-set policy.
  *
- * Lookup order (agent-dispatch.resolvePresetName):
+ * Lookup order (agent-dispatch.resolveMaintenanceRoute):
  *   1. explicit preset arg
  *   2. opts.preset
  *   3. hidden-agent registry (defaults/agents.json + systemFile frontmatter)
@@ -15,7 +15,7 @@
  *
  * The preset names refer to entries seeded in mixdog-config.json (agent.presets)
  * via DEFAULT_PRESETS (see config.mjs). If the user deletes the referenced preset
- * from their config the hidden agents degrade gracefully — `resolvePresetName`
+ * from their config the hidden agents degrade gracefully — `resolveMaintenanceRoute`
  * returns a name, but session creation will fail with a clear "preset not
  * found" error rather than silently mis-dispatching.
  *

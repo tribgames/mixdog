@@ -1564,11 +1564,15 @@ export class EngineHost {
       }
       return result;
     };
+    // Pre-v2 metadata is a dev-era artifact: start clean instead of carrying a
+    // shape-migration path.
     const legacy = parsed.version !== 2;
     this.sessionTitles = legacy
       ? Object.create(null) as Record<string, string>
       : normalizedMap(parsed.titles, true);
-    this.sessionNames = normalizedMap(legacy ? parsed.titles : parsed.names);
+    this.sessionNames = legacy
+      ? Object.create(null) as Record<string, string>
+      : normalizedMap(parsed.names);
     const archivedMap = Object.create(null) as Record<string, number>;
     const archivedRaw = legacy ? null : parsed.archived;
     if (archivedRaw && typeof archivedRaw === 'object' && !Array.isArray(archivedRaw)) {

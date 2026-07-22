@@ -226,20 +226,6 @@ test('persisted entries require matching maxFiles in both cache paths', () => {
   assert.equal(_serializeGraph({ nodes: new Map() }).maxFiles, CODE_GRAPH_MAX_FILES);
 });
 
-test('large legacy cache bypasses parent migration/parser and routes directly to Worker', () => {
-  let migrationOrParserCalls = 0;
-  let probeCalls = 0;
-  const result = _prepareDiskCodeGraphFastPath({
-    graphCwd: '/project',
-    hasLegacyCache: () => true,
-    ensureDiskLoaded: () => { migrationOrParserCalls++; },
-    probeDiskEntry: () => { probeCalls++; return assert.fail('legacy probe must not run'); },
-    runFastPath: (probe) => ({ probe, route: 'worker' }),
-  });
-  assert.deepEqual(result, { probe: null, route: 'worker' });
-  assert.equal(migrationOrParserCalls, 0);
-  assert.equal(probeCalls, 0);
-});
 
 test('Worker drains all migrated cache entries before posting success', () => {
   const migratedEntries = new Map([

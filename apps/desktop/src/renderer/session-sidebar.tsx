@@ -46,7 +46,7 @@ export function projectIdentity(path: string | null | undefined) {
   return String(path || "").replace(/[\\/]+/g, "/").replace(/\/$/, "").toLocaleLowerCase();
 }
 
-export const LEGACY_DEFAULT_SIDEBAR_WIDTH = 286;
+
 export const DEFAULT_SIDEBAR_WIDTH = 260;
 // Project-avatar palette: deterministic per-project colour chips.
 export const AVATAR_VARIANTS = ["orange", "yellow", "cyan", "green", "red", "pink", "blue", "purple"] as const;
@@ -71,7 +71,7 @@ export function clampSidebarWidth(value: number) {
 export function storedSidebarWidth() {
   try {
     const value = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
-    if (value === LEGACY_DEFAULT_SIDEBAR_WIDTH) return DEFAULT_SIDEBAR_WIDTH;
+
     return Number.isFinite(value) && value > 0 ? clampSidebarWidth(value) : DEFAULT_SIDEBAR_WIDTH;
   } catch {
     return DEFAULT_SIDEBAR_WIDTH;

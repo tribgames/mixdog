@@ -142,19 +142,19 @@ export function resolveHiddenRoleSchemaAllowedTools(hidden) {
 }
 
 /**
- * Resolve the maintenance ROUTE (or legacy preset name) for a dispatch.
+ * Resolve the maintenance ROUTE (or preset name) for a dispatch.
  *
  * Returns one of:
  *   - a route object `{ provider, model, effort?, fast? }` — the preferred
  *     shape: a maintenance slot now stores its model directly (parity with
  *     `agents.<role>`), so no preset-array name lookup is needed.
- *   - a string — a legacy preset NAME still stored in a maintenance slot, or an
- *     explicit `preset`/`opts.preset` override. The caller resolves the name
- *     against config.presets for backward compatibility.
+ *   - a string — a preset NAME (Main inheritance via config.default, or an
+ *     explicit `preset`/`opts.preset` override). The caller resolves the name
+ *     against config.presets.
  *   - null — unresolved.
  *
  * Explore and memory hidden roles mirror public spawning precedence:
- * `agents.<role>` (including legacy `agents.maintenance`) → workflow route →
+ * `agents.<role>` (including the `agents.maintenance` alias) → workflow route →
  * maintenance route → Main. The cycle1/2/3 agents share the memory knob via
  * their `maintKey: 'memory'` override. Scheduler and webhook are unchanged.
  */
@@ -207,9 +207,6 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
     return null;
 }
 
-// Back-compat alias: older callers/tests import resolvePresetName. It now
-// returns whatever resolveMaintenanceRoute does (route object OR name string).
-export const resolvePresetName = resolveMaintenanceRoute;
 
 // A maintenance slot value is a direct route when it carries provider+model.
 function maintenanceRouteToPreset(routeOrName, agent) {
@@ -324,22 +321,22 @@ export function makeAgentDispatch(opts = {}) {
             );
         }
         // Preferred path: a maintenance slot that stores its model directly
-        // (route object). Legacy path: a slot still holding a preset NAME —
-        // resolve it against config.presets for backward compatibility.
+        // (route object). Name path: Main inheritance (config.default) or an
+        // explicit preset override still identify a preset by NAME.
         let preset = maintenanceRouteToPreset(routeOrName, agent);
         if (!preset) {
-            const legacyName = String(routeOrName || '').trim();
-            preset = config.presets?.find((p) => p.id === legacyName || p.name === legacyName) || null;
+            const routeName = String(routeOrName || '').trim();
+            preset = config.presets?.find((p) => p.id === routeName || p.name === routeName) || null;
             if (!preset) {
                 throw new Error(
                     `[agent-dispatch] maintenance route for agent "${agent}" is neither a `
-                    + `{provider,model} route nor a known preset name ("${legacyName}")`,
+                    + `{provider,model} route nor a known preset name ("${routeName}")`,
                 );
             }
         }
         // Stable label for traces / session metadata, derived from the resolved
         // preset object regardless of whether it came from a direct route or a
-        // legacy preset name.
+        // preset name.
         const presetName = preset.id || preset.name || `maint-${agent}`;
 
         const runtimeSpec = resolveRuntimeSpec(preset, {

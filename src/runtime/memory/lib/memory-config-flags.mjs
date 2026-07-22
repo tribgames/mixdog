@@ -16,8 +16,8 @@ export function readMainConfig() {
 // default true) — the same file the session runtime persists via
 // saveConfigAndAdopt. The memory daemon runs as a detached cross-process HTTP
 // worker, so it re-reads this section from disk each cycle tick (poll-on-use)
-// rather than relying on IPC. A legacy `agent.modules.memory === false` flag is
-// still honored as recap off (migration folds it on the session-runtime side).
+// rather than relying on IPC.
+
 export function readRecapEnabled() {
   try {
     let agent = readSection('agent')
@@ -28,9 +28,6 @@ export function readRecapEnabled() {
     if (agent?.agent && agent.agent.providers) agent = agent.agent
     const recap = agent?.recap
     if (recap && typeof recap === 'object' && recap.enabled === false) return false
-    const legacyMemory = agent?.modules?.memory
-    if (legacyMemory === false) return false
-    if (legacyMemory && typeof legacyMemory === 'object' && legacyMemory.enabled === false) return false
     return true
   } catch {
     return true
