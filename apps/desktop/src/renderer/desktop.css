@@ -4103,8 +4103,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .mx-menu, .mx-toast, .model-picker-dialog, .slash-palette,
   .live-activity span, .stream-cursor { animation: none; }
   .message-actions { transition: none; }
-  .workspace-tab-status { animation: none; }
 }
+/* Progress spinners (tab glyph, session rows, live-work chip) keep rotating
+   under reduced motion: freezing them leaves a broken-circle glyph that reads
+   as a stuck state. The rotation is small, slow, and status-essential. */
 
 /* Transcript audit additions. Kept append-only so the consolidated v2 rules above remain stable. */
 .markdown-code {

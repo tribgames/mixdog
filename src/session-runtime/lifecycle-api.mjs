@@ -94,10 +94,12 @@ export function createLifecycleApi(deps) {
       provider: s.provider,
       messageCount,
       preview,
-      heartbeatAt: Math.max(
-        Number(s.lastHeartbeatAt) || 0,
-        Number(heartbeatMtimes.get(s.id)) || 0,
-      ),
+      // Working indicator: the .hb sidecar ALONE is the liveness signal. Its
+      // deletion at turn end IS the completion signal, so the persisted
+      // lastHeartbeatAt JSON field (refreshed by the final save) must not be
+      // folded in — it pinned desktop spinners on for the full 2-minute TTL
+      // after a turn had already finished.
+      heartbeatAt: Number(heartbeatMtimes.get(s.id)) || 0,
       desktopSession: s.desktopSession || null,
     };
     }).filter(Boolean);

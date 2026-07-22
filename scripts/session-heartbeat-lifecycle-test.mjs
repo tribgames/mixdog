@@ -66,3 +66,34 @@ test('terminal sessions ignore late transport, stream, and tool callbacks', asyn
     'desktop session catalog must not receive a working marker after completion');
   _clearSessionRuntime(id);
 });
+
+test('summary rows derive liveness from the .hb sidecar alone, never stored JSON fields', async () => {
+  const { writeFile, mkdir } = await import('node:fs/promises');
+  const { listStoredSessionSummaries } = await import('../src/runtime/agent/orchestrator/session/store-summary-reader.mjs');
+  const id = `heartbeat_row_source_${Date.now()}`;
+  const now = Date.now();
+  await mkdir(join(dataDir, 'sessions'), { recursive: true });
+  // Final save shape after a completed turn: fresh lastHeartbeatAt/heartbeatAt
+  // fields persisted in the JSON, but the .hb sidecar already deleted.
+  await writeFile(join(dataDir, 'sessions', `${id}.json`), JSON.stringify({
+    id,
+    owner: 'user',
+    updatedAt: now,
+    lastHeartbeatAt: now,
+    heartbeatAt: now,
+    messages: [{ role: 'user', content: 'hello from the finished turn' }],
+  }));
+
+  const rowAfterCompletion = listStoredSessionSummaries({ refreshFromStorage: true })
+    .find((row) => row.id === id);
+  assert.ok(rowAfterCompletion, 'the completed session must stay listed');
+  assert.equal(rowAfterCompletion.heartbeatAt, 0,
+    'stored heartbeat fields must not pin the desktop working spinner after completion');
+
+  await publishHeartbeat(id, now);
+  const rowWhileWorking = listStoredSessionSummaries({ refreshFromStorage: true })
+    .find((row) => row.id === id);
+  assert.ok((rowWhileWorking?.heartbeatAt || 0) > 0,
+    'a live .hb sidecar must surface as catalog liveness');
+  await deleteHeartbeat(id);
+});

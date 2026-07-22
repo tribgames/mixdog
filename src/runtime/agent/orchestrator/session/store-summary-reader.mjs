@@ -76,7 +76,10 @@ function normalizedRow(row, heartbeatAt = 0) {
         updatedAt: positiveNumber(row.updatedAt, 0),
         createdAt: positiveNumber(row.createdAt, 0),
         lastHeartbeatAt: positiveNumber(row.lastHeartbeatAt, 0),
-        heartbeatAt: Math.max(positiveNumber(row.heartbeatAt, 0), positiveNumber(heartbeatAt, 0)),
+        // Liveness comes from the .hb sidecar mtime alone: stored row fields
+        // (summary index / final session save) survive completion and must not
+        // keep the desktop working indicator on after the sidecar is deleted.
+        heartbeatAt: positiveNumber(heartbeatAt, 0),
         closed: row.closed === true,
         status: String(row.status || (row.closed === true ? 'closed' : 'idle')),
         owner: row.owner || 'user',
