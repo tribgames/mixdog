@@ -338,6 +338,23 @@ export function hasActiveSnapshotWork(snapshot: Snapshot): boolean {
     || commandActive
   );
 }
+
+export function workingSessionIdsForSnapshot(
+  sessions: readonly DesktopSessionSummary[],
+  activeSessionId: string,
+  activeBusy: boolean,
+): Set<string> {
+  const ids = new Set(sessions.filter((session) => session.working === true).map((session) => session.id));
+  if (activeSessionId) {
+    // The attached live snapshot is authoritative for the selected session.
+    // This also releases stale heartbeats from pre-fix external TUI owners
+    // without hiding real work in other, non-selected sessions.
+    if (activeBusy) ids.add(activeSessionId);
+    else ids.delete(activeSessionId);
+  }
+  return ids;
+}
+
 const SESSION_SNAPSHOT_CACHE_LIMIT = 6;
 const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
 const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
@@ -1670,10 +1687,8 @@ export function App() {
     : undefined;
   const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
   const workingSessionIds = useMemo(() => {
-    const ids = new Set(sessions.filter((session) => session.working === true).map((session) => session.id));
     const activeSessionId = String(snapshot.sessionId || "");
-    if (activeBusy && activeSessionId) ids.add(activeSessionId);
-    return ids;
+    return workingSessionIdsForSnapshot(sessions, activeSessionId, activeBusy);
   }, [activeBusy, sessions, snapshot.sessionId]);
   // Viewing a session consumes its unread marker.
   const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";

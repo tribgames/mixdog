@@ -9,6 +9,7 @@ import {
   TranscriptRow,
   estimatedTranscriptRowHeight,
   hasActiveSnapshotWork,
+  workingSessionIdsForSnapshot,
 } from "../renderer/App.tsx";
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -168,6 +169,20 @@ test("desktop work detection includes live engine activity fields", () => {
   assert.equal(hasActiveSnapshotWork({
     items: [], queued: [], spinner: { active: false }, commandStatus: { active: false },
   }), false);
+});
+
+test("selected live snapshot overrides a stale catalog heartbeat", () => {
+  const sessions = [
+    { id: "selected", working: true },
+    { id: "background", working: true },
+  ];
+  const settled = workingSessionIdsForSnapshot(sessions, "selected", false);
+  assert.equal(settled.has("selected"), false);
+  assert.equal(settled.has("background"), true,
+    "other live sessions must keep their cross-process progress indicator");
+
+  const active = workingSessionIdsForSnapshot(sessions, "selected", true);
+  assert.equal(active.has("selected"), true);
 });
 
 test("streaming-only state patches preserve settled item array identity", async () => {
