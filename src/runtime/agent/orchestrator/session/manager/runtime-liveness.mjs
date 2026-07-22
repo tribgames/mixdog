@@ -156,7 +156,7 @@ export function markSessionAskStart(id) {
     // statusline showed no maintenance/agent badge. STREAM_FRESH_MS (5 min)
     // still drops a session whose provider truly never returns a chunk;
     // markSessionStreamDelta keeps refreshing once chunks arrive.
-    publishHeartbeat(id, now);
+    return publishHeartbeat(id, now);
 }
 export function enableSessionTransportTracking(id) {
     if (!id) return;
@@ -173,7 +173,7 @@ export function disableSessionTransportTracking(id) {
 export function markSessionTransportActivity(id) {
     if (!id) return;
     const entry = _runtimeState.get(id);
-    if (!entry || entry.closed || entry.controller?.signal?.aborted) return;
+    if (!entry || entry.closed || entry.controller?.signal?.aborted || TERMINAL_STAGES.has(entry.stage)) return;
     const now = Date.now();
     entry.lastTransportAt = now;
     entry.updatedAt = now;
@@ -199,7 +199,7 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
     // heartbeat indefinitely (the disk tombstone blocks ask resumption but not this
     // path). Skip a missing, tombstoned, or aborted entry — never refresh liveness.
     const entry = _runtimeState.get(id);
-    if (!entry || entry.closed || entry.controller?.signal?.aborted) return;
+    if (!entry || entry.closed || entry.controller?.signal?.aborted || TERMINAL_STAGES.has(entry.stage)) return;
     const progressKind = _normalizeModelProgressKind(kind);
     if (progressKind === 'transport') {
         markSessionTransportActivity(id);
@@ -237,7 +237,10 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
 }
 export function markSessionToolCall(id, toolName, selfDeadlineMs) {
     if (!id) return;
-    const entry = _touchRuntime(id);
+    // A real tool call always follows markSessionAskStart. Never create or
+    // revive a runtime from a late provider callback after the turn settled.
+    const entry = _runtimeState.get(id);
+    if (!entry || entry.closed || entry.controller?.signal?.aborted || TERMINAL_STAGES.has(entry.stage)) return;
     entry.stage = 'tool_running';
     entry.lastToolCall = toolName || null;
     // A new tool call invalidates the previous call's live-output tail.
@@ -258,8 +261,9 @@ export function markSessionToolCall(id, toolName, selfDeadlineMs) {
     entry.lastToolProtocolAt = entry.toolStartedAt;
     entry.lastProgressAt = entry.toolStartedAt;
     entry.updatedAt = entry.toolStartedAt;
-    publishHeartbeat(id, entry.toolStartedAt);
+    const heartbeat = publishHeartbeat(id, entry.toolStartedAt);
     _startToolActivityHeartbeat(id);
+    return heartbeat;
 }
 // Live shell-output tail for the CURRENT running tool. Written by the shell
 // tool's onOutputTail timer (~1 s cadence), read by engine transcript
@@ -298,7 +302,7 @@ export function markSessionDone(id, { empty = false } = {}) {
     // Terminal stage — drop the heartbeat so the status badge releases
     // immediately. A subsequent ask on the same session re-publishes via
     // markSessionStreamDelta on the first chunk.
-    deleteHeartbeat(id);
+    return deleteHeartbeat(id);
 }
 // Tag a session as having completed with empty final synthesis (no
 // content/reasoning). Distinct from `markSessionDone`: still a success
@@ -327,8 +331,9 @@ export function markSessionError(id, msg) {
     entry.doneAt = errTs;
     entry.lastProgressAt = errTs;
     entry.updatedAt = errTs;
-    deleteHeartbeat(id);
+    const heartbeatDeleted = deleteHeartbeat(id);
     _unlinkParentAbortListener(entry);
+    return heartbeatDeleted;
 }
 export function markSessionCancelled(id) {
     if (!id) return;
@@ -344,8 +349,9 @@ export function markSessionCancelled(id) {
     entry.doneAt = doneTs;
     entry.lastProgressAt = doneTs;
     entry.updatedAt = doneTs;
-    deleteHeartbeat(id);
+    const heartbeatDeleted = deleteHeartbeat(id);
     _unlinkParentAbortListener(entry);
+    return heartbeatDeleted;
 }
 export function getSessionRuntime(id) {
     return id ? (_runtimeState.get(id) || null) : null;

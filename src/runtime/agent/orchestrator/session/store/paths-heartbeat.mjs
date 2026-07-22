@@ -28,6 +28,17 @@ export function sessionPath(id) {
 // directory and matches `<id>.hb` to `<id>.json`.
 const _HEARTBEAT_THROTTLE_MS = 5_000;
 const _hbLastAt = new Map();
+const _hbOperations = new Map();
+
+function _queueHeartbeatOperation(id, operation) {
+    const prior = _hbOperations.get(id) || Promise.resolve();
+    const next = prior.then(operation, operation).catch(() => {});
+    _hbOperations.set(id, next);
+    void next.then(() => {
+        if (_hbOperations.get(id) === next) _hbOperations.delete(id);
+    });
+    return next;
+}
 
 function _heartbeatPath(id) {
     if (!id || typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id)) {
@@ -37,18 +48,27 @@ function _heartbeatPath(id) {
 }
 
 export function publishHeartbeat(id, ts) {
-    if (!id) return;
+    if (!id) return Promise.resolve();
     const now = ts || Date.now();
     const last = _hbLastAt.get(id) || 0;
-    if (now - last < _HEARTBEAT_THROTTLE_MS) return;
+    if (now - last < _HEARTBEAT_THROTTLE_MS) {
+        return _hbOperations.get(id) || Promise.resolve();
+    }
     const target = _heartbeatPath(id);
     _hbLastAt.set(id, now);
-    void fsp.writeFile(target, `${now}\n`, 'utf8').catch(() => {});
+    return _queueHeartbeatOperation(id, () => fsp.writeFile(target, `${now}\n`, 'utf8'));
 }
 
 export function deleteHeartbeat(id) {
-    try { unlinkSync(_heartbeatPath(id)); } catch { /* ignore */ }
+    if (!id) return Promise.resolve();
+    const target = _heartbeatPath(id);
+    // Remove the visible marker immediately, then queue a second delete behind
+    // any pending write. Without the ordered cleanup, a write started just
+    // before turn completion can land after this unlink and resurrect the
+    // session's working badge for the full freshness window.
+    try { unlinkSync(target); } catch { /* ignore */ }
     _hbLastAt.delete(id);
+    return _queueHeartbeatOperation(id, () => fsp.unlink(target).catch(() => {}));
 }
 
 // Batch reader for session catalogs. Scanning only the handful of `.hb`
