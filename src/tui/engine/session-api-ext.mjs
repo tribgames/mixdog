@@ -745,6 +745,13 @@ export function createEngineApiB(bag) {
     listSessions: (options) => {
       return runtime.listSessions(options);
     },
+    // Desktop sidebar watcher hook: EngineHost fs.watches this directory so
+    // heartbeat sidecar create/delete pushes instant working/dot updates.
+    // Without it the watcher silently no-ops and the sidebar falls back to
+    // the 60s safety poll (user: spinner kept spinning after the turn ended).
+    sessionStoreDir: () => {
+      try { return runtime.sessionStoreDir?.() || null; } catch { return null; }
+    },
     deleteSession: async (id) => {
       if (getState().commandBusy) return false;
       const deletingCurrent = String(runtime.session?.id || getState().sessionId || '') === String(id || '');

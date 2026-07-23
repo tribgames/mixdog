@@ -532,6 +532,10 @@ button:focus-visible { outline-offset: 2.5px; }
   align-items: center;
   justify-content: center;
   line-height: 0;
+  /* Optical centering against the TITLE GLYPHS, not the line box: the 21px
+     line carries descender space at the bottom, so a box-centered icon reads
+     ~1px low next to the text (user: center on the font's vertical extent). */
+  transform: translateY(-1px);
 }
 .session-row-spinner {
   width: 12px;
@@ -834,6 +838,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Selection reads through the pressed background alone — no blue focus ring
    on click/keyboard for the rail rows (user decision). */
 .session-sidebar .session-row-main:focus-visible { outline: none; }
+/* User decision: NO keyboard focus rings anywhere — the blue Tab-focus
+   outline read as a stray selection highlight. Pressed/hover surfaces and
+   the text caret remain the affordances. Kills both outline rings and the
+   var(--mx-focus) box-shadow rings in one sweep. */
+:focus-visible { outline: none !important; }
+.effort-control .mx-select-trigger:focus-visible,
+.send-button:focus-visible { box-shadow: none; }
 /* Double-click rename: the editor replaces the row button, so the row itself
    must center the 24px input inside its 36px height and keep the focus ring
    clear of the rail edges. */
