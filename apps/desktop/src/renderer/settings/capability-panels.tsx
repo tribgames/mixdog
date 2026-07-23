@@ -670,9 +670,11 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
   }, [persistedBackend]);
   return <>
     <Group title="Channel service">
+      {/* Messaging-only toggle: schedules/webhooks run sessions through the
+          automation runtime and no longer depend on this switch. */}
       <ToggleRow title="Channels enabled" description={channels.enabled === false
-        ? 'Discord, Telegram, schedules, and webhooks are disabled.'
-        : 'Discord, Telegram, schedules, and webhooks are enabled.'}
+        ? 'Discord and Telegram messaging is disabled. Schedules and webhooks keep running.'
+        : 'Discord and Telegram messaging is enabled.'}
         checked={channels.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setChannelsEnabled', [enabled])} />
       <SelectRow title="Channel" description="Primary outbound channel backend." value={backend} disabled={busy}

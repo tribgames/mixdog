@@ -333,7 +333,6 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
   active?: boolean;
 }) {
   const [setup, setSetup] = useState<RecordValue>({});
-  const [remote, setRemote] = useState(false);
   const [models, setModels] = useState<DesktopModelOption[]>([]);
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -354,15 +353,13 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
     }
     const sequence = ++loadSequence.current;
     try {
-      const [setupResult, remoteResult, modelRows, projectRows] = await Promise.all([
+      const [setupResult, modelRows, projectRows] = await Promise.all([
         api.invokeCapability({ capability: 'getChannelSetup', args: [] }),
-        api.invokeCapability({ capability: 'isRemoteEnabled', args: [] }),
         api.listProviderModels ? api.listProviderModels({ quick: true }).catch(() => []) : Promise.resolve([]),
         api.listProjects ? api.listProjects().catch(() => []) : Promise.resolve([]),
       ]);
       if (sequence !== loadSequence.current) return;
       setSetup(record(setupResult?.value));
-      setRemote(remoteResult?.value === true);
       setModels(Array.isArray(modelRows) ? modelRows : []);
       setProjects(Array.isArray(projectRows) ? projectRows : []);
       setError('');
@@ -474,7 +471,9 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
             <div className="schedules-row-actions">
               <button type="button" className="settings-action" disabled={busy || Boolean(runningName)}
                 onClick={() => void runNow(name)}>{runningName === name ? 'Running…' : 'Run now'}</button>
-              <button type="button" className="settings-action" disabled={busy || !remote}
+              {/* Automation is decoupled from the messaging runtime: pause/
+                  resume only needs the store, never the remote toggle. */}
+              <button type="button" className="settings-action" disabled={busy}
                 onClick={() => void run('setScheduleEnabled', [name, !enabled])}>{enabled ? 'Pause' : 'Resume'}</button>
               <button type="button" className="settings-action" disabled={busy}
                 onClick={() => {

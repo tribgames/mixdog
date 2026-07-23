@@ -15,6 +15,7 @@ export function createPrewarmSchedulers({
   getSession,
   isRemoteEnabled,
   channelsEnabled,
+  hasActiveAutomation,
   getCodeGraphModule,
   createCurrentSession,
   channels,
@@ -111,25 +112,30 @@ export function createPrewarmSchedulers({
       bootProfile('channels:start-skipped');
       return;
     }
-    if (!channelsEnabled()) {
-      bootProfile('channels:start-disabled');
-      return;
-    }
     if (timers.channelStartTimer || state.channelStartPromise || isCloseRequested()) return;
     bootProfile('channels:start-scheduled', { delayMs });
-    timers.channelStartTimer = setTimeout(() => {
+    timers.channelStartTimer = setTimeout(() => void (async () => {
       timers.channelStartTimer = null;
       if (isCloseRequested()) return;
+      // Channels-module and remote toggles gate MESSAGING; automation
+      // (enabled schedules/webhooks) keeps the worker boot alive — its
+      // backend runs headless when messaging is off or unconfigured.
+      const automation = await hasActiveAutomation().catch(() => false);
+      if (!channelsEnabled() && !automation) {
+        bootProfile('channels:start-disabled');
+        return;
+      }
       // A deferred start may straddle a stopRemote(); re-check before booting so
       // a turned-off session neither starts channels nor keeps rescheduling.
-      if (!isRemoteEnabled()) return;
+      if (!isRemoteEnabled() && !automation) return;
+      if (isCloseRequested()) return;
       if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
         bootProfile('channels:start-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });
         scheduleChannelStart(backgroundBusyRetryMs);
         return;
       }
       void invokeChannelStart();
-    }, delayMs);
+    })(), delayMs);
     timers.channelStartTimer.unref?.();
   }
 

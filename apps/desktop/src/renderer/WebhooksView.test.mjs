@@ -94,9 +94,10 @@ test('webhooks pane lists endpoints, exposes the relay URL, and creates webhooks
     .find((button) => button.textContent.includes('Copy URL'));
   assert.equal(copyUrl.disabled, false);
   assert.equal(copyUrl.dataset.tooltip, 'https://relay.example/hook/device-1/webhook/gh-issues');
-  // Pause gates on the remote runtime exactly like schedules.
+  // Automation is decoupled from the messaging runtime: pause works with the
+  // remote/channel runtime off.
   assert.equal(Array.from(row.querySelectorAll('button'))
-    .find((button) => button.textContent === 'Pause').disabled, true);
+    .find((button) => button.textContent === 'Pause').disabled, false);
 
   await act(async () => {
     Array.from(document.querySelectorAll('button'))

@@ -508,6 +508,20 @@ export async function setWebhookEnabled(name, enabled) {
   return { name: id, enabled: enabled !== false };
 }
 
+// Automation presence: any enabled schedule or webhook endpoint. Drives the
+// worker boot decision independently of the messaging channels — schedules
+// and webhooks run sessions, so they must not require Discord/Telegram
+// tokens or an explicit remote toggle.
+export async function hasActiveAutomation() {
+  try {
+    const [schedules, webhooks] = await Promise.all([listSchedules(), listWebhooks()]);
+    return schedules.some((entry) => entry?.enabled !== false && entry?.status !== 'done')
+      || webhooks.some((entry) => entry?.enabled !== false);
+  } catch {
+    return false;
+  }
+}
+
 export async function channelSetup(config = null) {
   const cfg = normalizeChannelsConfig(config || readSection('channels'));
   const discordToken = getDiscordToken();

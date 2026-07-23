@@ -65,6 +65,7 @@ import {
   deleteWebhook,
   forgetDiscordToken,
   forgetTelegramToken,
+  hasActiveAutomation,
   setChannel,
   saveDiscordToken,
   saveTelegramToken,
@@ -1692,6 +1693,7 @@ export async function createMixdogSessionRuntime({
     getSession: () => session,
     isRemoteEnabled: () => remoteEnabled,
     channelsEnabled,
+    hasActiveAutomation,
     getCodeGraphModule,
     createCurrentSession,
     channels,
@@ -1882,10 +1884,6 @@ export async function createMixdogSessionRuntime({
       bootProfile('channels:start-skipped');
       return true;
     }
-    if (!channelsEnabled()) {
-      bootProfile('channels:start-disabled');
-      return true;
-    }
     if (closeRequested) return true;
     if (prewarmTimers.channelStartTimer) {
       clearTimeout(prewarmTimers.channelStartTimer);
@@ -1893,6 +1891,14 @@ export async function createMixdogSessionRuntime({
     }
     bootProfile('channels:start-scheduled', { delayMs: 0, immediate: true });
     void (async () => {
+      // Channels-module toggle gates MESSAGING only: automation (schedules/
+      // webhooks) still boots the worker — its backend runs headless when
+      // messaging is off or unconfigured (see channels/lib/config.mjs).
+      if (!channelsEnabled() && !(await hasActiveAutomation().catch(() => false))) {
+        bootProfile('channels:start-disabled');
+        remoteClaimPending = false;
+        return;
+      }
       // A backend switch may still be pending or writing asynchronously. Drain
       // it before the worker reads config; never race it with a sync lock wait.
       try { await flushBackendSave(); } catch {}
@@ -2033,9 +2039,9 @@ export async function createMixdogSessionRuntime({
   // early /remote (startRemote clears it), stopRemote(), and close() all
   // cancel it through the existing clearTimeout paths. Runtime /remote calls
   // still start immediately (user-initiated, UI already painted).
+  const remoteAutoStartDelayMs = envDelayMs('MIXDOG_REMOTE_AUTOSTART_DELAY_MS', 1_500, { min: 0, max: 60_000 });
   if (remoteEnabled || remoteAutoStartRequested) {
     const remoteStartIntent = remoteEnabled ? 'explicit' : 'auto';
-    const remoteAutoStartDelayMs = envDelayMs('MIXDOG_REMOTE_AUTOSTART_DELAY_MS', 1_500, { min: 0, max: 60_000 });
     bootProfile('channels:autostart-deferred', { delayMs: remoteAutoStartDelayMs, intent: remoteStartIntent });
     prewarmTimers.channelStartTimer = setTimeout(() => {
       prewarmTimers.channelStartTimer = null;
@@ -2044,6 +2050,23 @@ export async function createMixdogSessionRuntime({
       // Auto: always attempt (claim-if-vacant is safe when a live owner exists).
       if (remoteStartIntent === 'explicit' && !remoteEnabled) return;
       startRemote({ intent: remoteStartIntent });
+    }, remoteAutoStartDelayMs);
+    prewarmTimers.channelStartTimer.unref?.();
+  } else {
+    // Automation decoupling (user decision): enabled schedules/webhooks boot
+    // the worker on their own — no remote flag, no remote.autoStart, no
+    // messaging backend required. Claim-if-vacant auto intent reuses the
+    // exact autoStart semantics (a live owner elsewhere wins silently).
+    prewarmTimers.channelStartTimer = setTimeout(() => {
+      prewarmTimers.channelStartTimer = null;
+      if (closeRequested || remoteEnabled) return;
+      void hasActiveAutomation()
+        .then((active) => {
+          if (!active || closeRequested || remoteEnabled) return;
+          bootProfile('channels:automation-autostart');
+          startRemote({ intent: 'auto' });
+        })
+        .catch(() => { /* automation probe is best-effort */ });
     }, remoteAutoStartDelayMs);
     prewarmTimers.channelStartTimer.unref?.();
   }

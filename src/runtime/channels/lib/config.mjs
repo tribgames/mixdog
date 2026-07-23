@@ -156,6 +156,13 @@ const HEADLESS_BACKEND = {
   }
 };
 function createBackend(config) {
+  // Channels-module toggle is MESSAGING-ONLY: automation (scheduler/webhooks)
+  // keeps the worker alive, so a disabled module runs the headless backend
+  // instead of blocking the whole runtime.
+  if (config.enabled === false) {
+    process.stderr.write("mixdog: channels messaging disabled; channel runtime running in headless mode\n");
+    return HEADLESS_BACKEND;
+  }
   // Single-backend select: exactly one backend is constructed based on
   // config.backend (discord|telegram). The two are mutually exclusive.
   if (config.backend === "telegram") {

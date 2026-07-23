@@ -204,7 +204,6 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
   active?: boolean;
 }) {
   const [setup, setSetup] = useState<RecordValue>({});
-  const [remote, setRemote] = useState(false);
   const [models, setModels] = useState<DesktopModelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState('');
@@ -225,14 +224,12 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
     }
     const sequence = ++loadSequence.current;
     try {
-      const [setupResult, remoteResult, modelRows] = await Promise.all([
+      const [setupResult, modelRows] = await Promise.all([
         api.invokeCapability({ capability: 'getChannelSetup', args: [] }),
-        api.invokeCapability({ capability: 'isRemoteEnabled', args: [] }),
         api.listProviderModels ? api.listProviderModels({ quick: true }).catch(() => []) : Promise.resolve([]),
       ]);
       if (sequence !== loadSequence.current) return;
       setSetup(record(setupResult?.value));
-      setRemote(remoteResult?.value === true);
       setModels(Array.isArray(modelRows) ? modelRows : []);
       setError('');
     } catch (reason) {
@@ -344,7 +341,9 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
                 onClick={() => url && copy(name, url)}>
                 {copied === name ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
                 {copied === name ? 'Copied' : 'Copy URL'}</button>
-              <button type="button" className="settings-action" disabled={busy || !remote}
+              {/* Automation is decoupled from the messaging runtime: pause/
+                  resume only needs the store, never the remote toggle. */}
+              <button type="button" className="settings-action" disabled={busy}
                 onClick={() => void run('setWebhookEnabled', [name, !enabled])}>{enabled ? 'Pause' : 'Resume'}</button>
               <button type="button" className="settings-action" disabled={busy}
                 onClick={() => {

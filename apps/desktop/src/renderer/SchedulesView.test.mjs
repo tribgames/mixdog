@@ -79,15 +79,17 @@ async function submit(form) {
   });
 }
 
-test('schedules pane lists schedules, gates pause on remote, and creates schedules', async () => {
+test('schedules pane lists schedules, keeps pause available without remote, and creates schedules', async () => {
   mount();
   const { api, calls } = schedulesApi();
   await renderPane(api);
   assert.match(document.querySelector('.schedules-page-header h1').textContent, /Scheduled tasks/);
   const row = document.querySelector('.schedules-row');
   assert.match(row.textContent, /daily/);
+  // Automation is decoupled from the messaging runtime: pause works with the
+  // remote/channel runtime off.
   assert.equal(Array.from(row.querySelectorAll('button'))
-    .find((button) => button.textContent === 'Pause').disabled, true);
+    .find((button) => button.textContent === 'Pause').disabled, false);
 
   await act(async () => {
     Array.from(document.querySelectorAll('button'))
