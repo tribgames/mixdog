@@ -642,6 +642,18 @@ export function App() {
   // The session currently on screen (selection or in-flight switch target):
   // reconcile must never dot it, and selectionRef lags behind a switch.
   const viewedSessionRef = useRef("");
+  // Bumps when the window regains focus/visibility so viewed-session unread
+  // consumption re-evaluates (dots earned while unfocused clear on return).
+  const [windowFocusTick, setWindowFocusTick] = useState(0);
+  useEffect(() => {
+    const onEngage = () => setWindowFocusTick((tick) => (tick + 1) % 1_000_000);
+    window.addEventListener("focus", onEngage);
+    document.addEventListener("visibilitychange", onEngage);
+    return () => {
+      window.removeEventListener("focus", onEngage);
+      document.removeEventListener("visibilitychange", onEngage);
+    };
+  }, []);
   const loadSessionLastSeen = useCallback(() => {
     if (sessionLastSeen.current) return sessionLastSeen.current;
     const map = new Map<string, number>();
@@ -692,7 +704,11 @@ export function App() {
       // read by definition. Only MESSAGE GROWTH earns the dot afterwards —
       // housekeeping saves (resume/switch/turn bookkeeping) bump updatedAt
       // without new messages and must never re-dot a checked session.
-      if (last === undefined || row.id === activeId) {
+      // "Viewed" requires the desktop window to actually be engaged: growth
+      // that lands while the app is unfocused/hidden (user working in the
+      // terminal with this session merely selected) must still earn the dot.
+      const engaged = document.visibilityState === "visible" && document.hasFocus();
+      if (last === undefined || (row.id === activeId && engaged)) {
         if (last !== count) {
           seen.set(row.id, count);
           dirty = true;
@@ -1350,6 +1366,10 @@ export function App() {
   const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";
   useEffect(() => {
     if (!viewedSessionId) return;
+    // Consuming the unread marker requires the window to be engaged — a
+    // selected-but-background session keeps its dot until the user actually
+    // looks (window focus re-runs this via focusTick).
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
     const seen = loadSessionLastSeen();
     const row = sessions.find((session) => session.id === viewedSessionId);
     // Seen map holds MESSAGE COUNTS (v2): viewing consumes growth by
@@ -1366,7 +1386,7 @@ export function App() {
       next.delete(viewedSessionId);
       return next;
     });
-  }, [loadSessionLastSeen, persistSessionLastSeen, sessions, viewedSessionId]);
+  }, [loadSessionLastSeen, persistSessionLastSeen, sessions, viewedSessionId, windowFocusTick]);
   const visibleSessionTitle = currentSessionTitle ||
     tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || "New task";
   const openHeaderTitleEditor = () => {
