@@ -483,61 +483,39 @@ button:focus-visible { outline-offset: 2.5px; }
   -webkit-app-region: no-drag;
 }
 .workspace-tab.dragging { opacity: .35; }
-/* Chrome-parity strip motion (Chromium tabstrip: 200ms standard curve):
-   widths animate on re-layout (post-close release, squeeze on overflow), a
-   NEW tab grows in from zero width, and a CLOSING tab collapses in place
-   before removal so neighbors slide instead of snapping. Drag reorder is
-   transform-based, so the width transition does not fight it. The negative
-   margins in enter/close compensate the strip's 13.5px gap slot so the
-   neighbors travel exactly one tab width. */
-.workspace-tab {
+/* Chrome-parity strip motion. Flexbox re-layout is NOT transitionable (the
+   computed width property never changes), so the strip measures itself and
+   applies each tab's layout width inline (titlebar.tsx); transitions arm
+   ONLY around create/close/pin-release via `.workspace-tabs.animating` —
+   window/sidebar resizes re-layout instantly, exactly like Chrome. A new
+   tab starts at the `.entering` zero slot and grows to its layout width the
+   moment the class drops; a `.closing` tab collapses to zero before the
+   parent removes it. The negative margins swallow the strip's 13.5px gap
+   slot so neighbors travel exactly one slot. */
+.workspace-tabs.animating .workspace-tab {
   transition:
     width 200ms cubic-bezier(.4, 0, .2, 1),
-    max-width 200ms cubic-bezier(.4, 0, .2, 1),
     margin 200ms cubic-bezier(.4, 0, .2, 1),
     padding 200ms cubic-bezier(.4, 0, .2, 1),
     opacity 120ms linear;
 }
-.workspace-tab.entering {
-  min-width: 0;
-  overflow: hidden;
-  animation: workspace-tab-enter 200ms cubic-bezier(.4, 0, .2, 1);
-}
-@keyframes workspace-tab-enter {
-  from {
-    max-width: 0;
-    margin-left: -6.75px;
-    margin-right: -6.75px;
-    padding-left: 0;
-    padding-right: 0;
-    opacity: 0;
-  }
-  to {
-    max-width: 224px;
-    margin-left: 0;
-    margin-right: 0;
-    padding-left: 6px;
-    padding-right: 6px;
-    opacity: 1;
-  }
-}
-/* !important beats the inline pinned width applied during a close streak. */
+/* !important beats the inline layout/pinned width. */
+.workspace-tab.entering,
 .workspace-tab.closing {
   width: 0 !important;
   min-width: 0 !important;
-  max-width: 0 !important;
   flex: 0 0 auto !important;
   margin-left: -6.75px;
   margin-right: -6.75px;
   padding: 0;
   opacity: 0;
   overflow: hidden;
-  pointer-events: none;
 }
+.workspace-tab.closing { pointer-events: none; }
+.workspace-tab.entering::before,
 .workspace-tab.closing::before { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .workspace-tab { transition: none; }
-  .workspace-tab.entering { animation: none; }
+  .workspace-tabs.animating .workspace-tab { transition: none; }
 }
 .workspace-tab:active { cursor: grabbing; }
 .workspace-tab:hover,
@@ -4290,6 +4268,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   position: relative;
   width: auto;
   max-width: none;
+  /* Layout-managed tab widths need a content-independent measuring box: the
+     shell grows over the leftover titlebar run (the + button still hugs the
+     content-sized nav inside it). app-region keeps the vacated empty run
+     draggable exactly like the bare topbar it replaces. */
+  flex: 1 1 auto;
+  min-width: 0;
+  -webkit-app-region: drag;
+  /* The strip self-measures for tab layout widths: the shell must span the
+     full leftover titlebar row (content-sized boxes cannot report available
+     space). The empty run right of + stays a window-drag region. */
+  flex: 1 1 auto;
+  min-width: 0;
+  -webkit-app-region: drag;
   min-width: 0;
   flex: 1 1 0;
   align-self: center;

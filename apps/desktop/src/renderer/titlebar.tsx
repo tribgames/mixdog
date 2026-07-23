@@ -2,6 +2,7 @@ import React, {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -89,10 +90,41 @@ export function DesktopTitlebar({
   } | null>(null);
   const suppressTabClick = useRef("");
   const [draggingKey, setDraggingKey] = useState("");
+  // Chrome-parity strip layout: flexbox re-layout is NOT transitionable (the
+  // computed width never changes), so tab widths are computed here from the
+  // measured shell run and applied inline. Transitions arm only around
+  // create/close/pin-release (`.animating`), so window/sidebar resizes
+  // re-layout instantly — exactly Chrome's tabstrip model.
+  const TAB_MAX_WIDTH = 224;
+  const TAB_MIN_WIDTH = 96;
+  const TAB_GAP = 13.5;
+  const NEW_BUTTON_RESERVE = 34; // mirrors the CSS `calc(100% - 34px)` nav cap
+  const [stripRunWidth, setStripRunWidth] = useState(0);
+  useLayoutEffect(() => {
+    const shell = tabStrip.current?.parentElement;
+    if (!shell) return;
+    const measure = () => setStripRunWidth(shell.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, []);
+  const [stripAnimating, setStripAnimating] = useState(false);
+  const stripAnimationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const kickStripAnimation = useCallback(() => {
+    setStripAnimating(true);
+    if (stripAnimationTimer.current) clearTimeout(stripAnimationTimer.current);
+    stripAnimationTimer.current = setTimeout(() => setStripAnimating(false), 320);
+  }, []);
+  useEffect(() => () => {
+    if (stripAnimationTimer.current) clearTimeout(stripAnimationTimer.current);
+  }, []);
   // Chrome-parity strip motion: a tab present at first render must NOT play
   // the grow-in animation (Chrome only animates tabs opened after startup).
-  // Keys enter `seenTabKeys` 240ms after they appear so mid-animation
-  // re-renders cannot strip the .entering class and snap the tab open.
+  // A new key renders one frame at the collapsed geometry (.entering), then
+  // joins `seenTabKeys` on the next frame so the width flip to its layout
+  // target rides the armed transition — Chrome's grow-in.
   const seenTabKeys = useRef<Set<string> | null>(null);
   if (seenTabKeys.current === null) seenTabKeys.current = new Set(tabs.map((tab) => tab.key));
   const [, bumpEnterEpoch] = useState(0);
@@ -104,12 +136,29 @@ export function DesktopTitlebar({
     // A closed key is forgotten so reopening the same session animates again.
     for (const key of [...seen]) if (!currentSet.has(key)) seen.delete(key);
     if (!currentKeys.some((key) => !seen.has(key))) return;
-    const timer = setTimeout(() => {
-      for (const key of currentKeys) seen.add(key);
-      bumpEnterEpoch((epoch) => epoch + 1);
-    }, 240);
-    return () => clearTimeout(timer);
-  }, [tabs]);
+    kickStripAnimation();
+    // Two frames: the zero-width entry must PAINT before the width flips to
+    // its layout target, otherwise there is nothing to transition from.
+    if (typeof requestAnimationFrame !== "function") {
+      // Headless DOM test environments have no frame clock.
+      const timer = setTimeout(() => {
+        for (const key of currentKeys) seen.add(key);
+        bumpEnterEpoch((epoch) => epoch + 1);
+      }, 32);
+      return () => clearTimeout(timer);
+    }
+    let innerFrame = 0;
+    const outerFrame = requestAnimationFrame(() => {
+      innerFrame = requestAnimationFrame(() => {
+        for (const key of currentKeys) seen.add(key);
+        bumpEnterEpoch((epoch) => epoch + 1);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outerFrame);
+      if (innerFrame) cancelAnimationFrame(innerFrame);
+    };
+  }, [tabs, kickStripAnimation]);
   // Closing collapses the tab in place (Chrome) before the parent removes it.
   const [closingKeys, setClosingKeys] = useState<ReadonlySet<string>>(() => new Set());
   const closingTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -146,10 +195,13 @@ export function DesktopTitlebar({
         next.delete(tab.key);
         return next;
       });
+      // Unpinned survivors re-expand in the same commit that removes the
+      // collapsed tab — keep the transition armed for that width change.
+      kickStripAnimation();
       onCloseTab(tab);
     }, 180);
     closingTimers.current.set(tab.key, timer);
-  }, [onCloseTab]);
+  }, [kickStripAnimation, onCloseTab]);
   const windowsCaptionControls = typeof navigator !== "undefined" &&
     /Windows/i.test(navigator.userAgent);
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
@@ -233,6 +285,19 @@ export function DesktopTitlebar({
 
   const updateVisible = updaterState?.status === "ready" || updaterState?.status === "installing";
   const updateInstalling = updaterState?.status === "installing";
+  // Entering keys keep the strip armed until their grow-in finishes; the
+  // closing set covers collapses; explicit kicks cover pin release and the
+  // post-close survivor re-expand.
+  const hasEnteringTabs = tabs.some((tab) => !seenTabKeys.current?.has(tab.key));
+  const stripMotion = hasEnteringTabs || closingKeys.size > 0 || stripAnimating;
+  // Equal distribution over the measured run, clamped to Chrome-style
+  // min/max — identical numbers to the flex layout it replaces.
+  const layoutCount = tabs.reduce(
+    (count, tab) => count + (closingKeys.has(tab.key) ? 0 : 1), 0);
+  const layoutTabWidth = layoutCount > 0 && stripRunWidth > 0
+    ? Math.max(TAB_MIN_WIDTH, Math.min(TAB_MAX_WIDTH,
+      (stripRunWidth - NEW_BUTTON_RESERVE - TAB_GAP * (layoutCount - 1)) / layoutCount))
+    : TAB_MAX_WIDTH;
 
   return (
     <header className="topbar" aria-label="Workspace tabs">
@@ -250,10 +315,16 @@ export function DesktopTitlebar({
       </div>
 
       <div className="workspace-tabs-shell" data-slot="workspace-tabs" data-count={tabs.length}>
-        <nav ref={tabStrip} className="workspace-tabs" data-slot="workspace-tabs-scroll"
+        <nav ref={tabStrip} className={`workspace-tabs${stripMotion ? " animating" : ""}`}
+          data-slot="workspace-tabs-scroll"
           aria-label="Open workspaces" onKeyDown={onTabKeyDown}
           onPointerMove={movePointerDrag}
-          onPointerLeave={() => setPinnedTabWidth(0)}
+          onPointerLeave={() => {
+            // Chrome-parity pin release: the survivors re-expand SMOOTHLY once
+            // the pointer leaves the strip after a close streak.
+            if (pinnedTabWidth > 0) kickStripAnimation();
+            setPinnedTabWidth(0);
+          }}
           onPointerUp={(event) => finishPointerDrag(event.pointerId || 1)}
           onPointerCancel={(event) => finishPointerDrag(event.pointerId || 1)}>
           {tabs.map((tab) => {
@@ -270,9 +341,13 @@ export function DesktopTitlebar({
                   data-active={active}
                   data-working={working || undefined}
                   aria-grabbed={draggingKey === tab.key}
-                  style={pinnedTabWidth > 0
-                    ? { width: pinnedTabWidth, minWidth: pinnedTabWidth, flex: "0 0 auto" }
-                    : undefined}
+                  // Layout-managed width (flex re-layout cannot transition):
+                  // the entering/closing classes force 0 over this value, so
+                  // adding/removing them is what animates grow-in/collapse.
+                  style={{
+                    width: pinnedTabWidth > 0 ? pinnedTabWidth : layoutTabWidth,
+                    flex: "0 0 auto",
+                  }}
                   onPointerDown={(event) => {
                     if (event.button !== 0 || event.pointerType === "touch" ||
                       (event.target as Element | null)?.closest?.(".workspace-tab-close")) return;
