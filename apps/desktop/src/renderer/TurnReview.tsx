@@ -67,6 +67,8 @@ export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: s
     patch: string;
   } | null>(null);
   const snapshotFailures = useRef(0);
+  const snapshotRequestInFlight = useRef(false);
+  const lastSnapshotPatch = useRef<string | null>(null);
   // Only probe once the transcript shows turn activity: a fresh/empty session
   // has no base to diff, and passive mounts must not fire capability calls
   // (test call-order recordings and real engine leases both stay quiet).
@@ -82,6 +84,11 @@ export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: s
       invokeCapability?: (request: { capability: string; args: unknown[] }) => Promise<{ value?: unknown }>;
     } | undefined;
     if (!api?.invokeCapability || snapshotFailures.current >= 3) return;
+    // Single-flight + visibility gate (measured: during a live attached
+    // session the diff refresh fired every ~2s and each response re-parsed a
+    // large patch — periodic scroll-time jank bursts).
+    if (snapshotRequestInFlight.current || document.visibilityState === "hidden") return;
+    snapshotRequestInFlight.current = true;
     try {
       const result = await api.invokeCapability({ capability: TURN_REVIEW_CAPABILITY, args: [] });
       const value = (result?.value ?? null) as {
@@ -94,6 +101,11 @@ export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: s
         return;
       }
       snapshotFailures.current = 0;
+      const nextPatch = typeof value.patch === "string" ? value.patch : "";
+      // Unchanged diff → no state write: skips the re-render + downstream
+      // patch re-analysis entirely (the common case for every poll tick).
+      if (lastSnapshotPatch.current === nextPatch) return;
+      lastSnapshotPatch.current = nextPatch;
       setSnapshotReview({
         files: (Array.isArray(value.files) ? value.files : []).flatMap((file) => {
           const name = String(file?.name || "");
@@ -104,17 +116,34 @@ export function TurnReviewBar({ items, cwd }: { items: TranscriptItem[]; cwd?: s
             deletions: Math.max(0, Number(file?.deletions) || 0),
           }];
         }),
-        patch: typeof value.patch === "string" ? value.patch : "",
+        patch: nextPatch,
       });
     } catch {
       snapshotFailures.current += 1;
+    } finally {
+      snapshotRequestInFlight.current = false;
     }
   }, []);
-  // Refresh on transcript movement (turn events) and on a slow idle poll so
-  // background work that lands while the Lead is idle still surfaces.
+  // Refresh on TURN BOUNDARIES, not on every transcript publication: a live
+  // streaming session republishes `items` every ~2s, and each refresh ran a
+  // main-process worktree diff + shipped the full patch over IPC (measured:
+  // ~34 calls during a 34s scroll window — the reported scroll stutter). The
+  // diff only meaningfully changes when a tool settles or a turn completes;
+  // the 6s idle poll below still catches background/subagent edits.
+  const turnBoundaryKey = useMemo(() => {
+    for (let index = items.length - 1; index >= 0; index--) {
+      const item = items[index];
+      if (!item) continue;
+      if (item.kind === "turndone" || item.kind === "statusdone" || item.kind === "tool") {
+        return `${String(item.id ?? index)}:${String(item.completedAt ?? item.completedCount ?? "")}`;
+      }
+    }
+    return "";
+  }, [items]);
   useEffect(() => {
     if (hasTurnActivity) void refreshSnapshotReview();
-  }, [refreshSnapshotReview, hasTurnActivity, items]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- turnBoundaryKey stands in for items
+  }, [refreshSnapshotReview, hasTurnActivity, turnBoundaryKey]);
   useEffect(() => {
     if (!hasTurnActivity && !snapshotReview) return undefined;
     const timer = window.setInterval(() => { void refreshSnapshotReview(); }, 6_000);

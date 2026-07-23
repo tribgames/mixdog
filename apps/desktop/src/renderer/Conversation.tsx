@@ -207,7 +207,9 @@ export function Conversation({
     try {
       const observer = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
-          if (entry.duration >= 100) {
+          // 50ms: a 100ms floor hid scroll-time stalls (3-5 dropped frames
+          // read as visible judder but never crossed the old threshold).
+          if (entry.duration >= 50) {
             window.mixdogDesktop?.perfLog?.(`renderer-longtask ms=${Math.round(entry.duration)}`);
           }
         }

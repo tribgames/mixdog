@@ -2817,6 +2817,9 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
   });
 
   await selectFirstProject();
+  // Cards default collapsed (user decision) — the engine `expanded` flag no
+  // longer forces desktop cards open; open the diff via the header chevron.
+  await act(async () => document.querySelector(".tool-card .tool-header")?.click());
   assert.equal(document.querySelector(".code-diff") != null, true, "selector .code-diff should be present");
   assert.equal(document.querySelectorAll(".starter-grid button").length, 0);
   assert.match(document.querySelector(".diff-file header").textContent || "", /new\.txt/);

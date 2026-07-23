@@ -603,11 +603,12 @@ export const TranscriptRow = memo(function TranscriptRow({
   ) && previous.attachedUser === next.attachedUser);
 
 export function ToolCard({ item }: { item: TranscriptItem }) {
-  const [open, setOpen] = useState(Boolean(item.expanded));
+  // Default collapsed (user decision): the engine's `expanded` flag mirrors
+  // the terminal's ctrl+o state and must not force desktop cards open — the
+  // `└ detail` row already carries the summary, and the desktop chevron owns
+  // raw-body expansion.
+  const [open, setOpen] = useState(false);
   const contentId = useId();
-  useEffect(() => {
-    if (typeof item.expanded === "boolean") setOpen(item.expanded);
-  }, [item.expanded]);
   const done = item.completedAt != null || (item.completedCount === undefined
     ? item.result != null || item.rawResult != null
     : item.completedCount >= (item.count || 1));
