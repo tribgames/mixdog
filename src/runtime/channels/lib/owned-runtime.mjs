@@ -48,6 +48,10 @@ export function createOwnedRuntime({
   let _ownedRuntimeStopRequested = false;
   let bridgeOwnershipRefreshInFlight = null;
   let _memoryDrainTimer = null;
+  // Automation (scheduler + webhook server + relay tunnel) can outlive a
+  // failed/absent messaging backend: it is tracked separately so teardown and
+  // reload know it is running even while bridgeRuntimeConnected stays false.
+  let automationRunning = false;
   // Promise that resolves when the current startOwnedRuntime() run fully
   // settles (bridgeRuntimeStarting -> false). reloadRuntimeConfig awaits this
   // before issuing a restart so a backend swap that lands mid-start is not
@@ -272,9 +276,14 @@ async function startOwnedRuntime(options = {}) {
       if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
       return;
     }
-    scheduler.start();
-    startSnapshotWriter(scheduler);
+    // Reconnect after a degraded (automation-only) start must not double-arm
+    // the scheduler/snapshot timers; the webhook/event sync is idempotent.
+    if (!automationRunning) {
+      scheduler.start();
+      startSnapshotWriter(scheduler);
+    }
     syncOwnedWebhookAndEventRuntime();
+    automationRunning = true;
     if (restoreBinding) {
       if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
       const pendingTranscriptPath = forwarder.transcriptPath;
@@ -303,6 +312,33 @@ async function startOwnedRuntime(options = {}) {
     try { releaseOwnedChannelLocks(instanceId); } catch {}
     try { clearActiveInstance(instanceId); } catch {}
     if (_memoryDrainTimer) { clearInterval(_memoryDrainTimer); _memoryDrainTimer = null; }
+    // DEGRADED MODE (automation decoupling): a messaging connect failure —
+    // packaged runtime without discord.js, bad token, gateway outage — must
+    // not take schedules/webhooks down with it. Start the automation runtime
+    // anyway; sends stay dead (bridgeRuntimeConnected=false) but session
+    // runs, the webhook server, and the relay tunnel work.
+    if (!_ownedRuntimeStopRequested) {
+      if (automationRunning) {
+        // Already degraded-started by an earlier attempt; this run was only a
+        // messaging reconnect retry — the finally below settles the start.
+        return;
+      }
+      try {
+        const agentCfg = loadAgentConfig();
+        await initProviders(agentCfg.providers || {});
+      } catch (e2) {
+        process.stderr.write(`mixdog: initProviders failed (non-fatal): ${e2 instanceof Error ? e2.message : String(e2)}\n`);
+      }
+      try {
+        scheduler.start();
+        startSnapshotWriter(scheduler);
+        syncOwnedWebhookAndEventRuntime();
+        automationRunning = true;
+        process.stderr.write('mixdog: automation runtime up without messaging backend (degraded mode)\n');
+      } catch (e3) {
+        process.stderr.write(`mixdog: degraded automation start failed: ${e3 instanceof Error ? e3.message : String(e3)}\n`);
+      }
+    }
   } finally {
     settleInFlightStart();
   }
@@ -318,7 +354,7 @@ async function stopOwnedRuntime(reason) {
   // during that window (bridgeRuntimeStarting=true, getBridgeRuntimeConnected()
   // still false) we still need to tear that partial state down — otherwise
   // the port stays bound and active-instance.json stays stale.
-  if (!getBridgeRuntimeConnected() && !bridgeRuntimeStarting) return;
+  if (!getBridgeRuntimeConnected() && !bridgeRuntimeStarting && !automationRunning) return;
   // If a start is in flight (bridgeRuntimeStarting=true), signal the in-flight
   // startOwnedRuntime() to abort right after its getBackend().connect() resolves.
   // Without this the in-flight start re-marks connected and re-launches
@@ -335,6 +371,7 @@ async function stopOwnedRuntime(reason) {
   scheduler.stop();
   stopSnapshotWriter();
   await stopWebhookAndEventRuntime();
+  automationRunning = false;
   releaseOwnedChannelLocks(instanceId);
   clearActiveInstance(instanceId);
   try {
@@ -462,7 +499,7 @@ async function reloadRuntimeConfig() {
   } else if (nextBackend !== previousBackend) {
     try { await nextBackend.disconnect?.(); } catch {}
   }
-  if (getBridgeRuntimeConnected()) {
+  if (getBridgeRuntimeConnected() || automationRunning) {
     syncOwnedWebhookAndEventRuntime({ reload: true });
   } else {
     await stopWebhookAndEventRuntime();

@@ -17,7 +17,7 @@ import { runScheduleSession } from '../runtime/shared/schedule-session-run.mjs';
 // API object; the mutating admin helpers are imported directly here and the
 // runtime injects only the closure-owned callbacks (backend flush, channel
 // worker handle, soft reload).
-export function createChannelConfigApi({ flushBackendSave, channels, reloadChannelsSoon }) {
+export function createChannelConfigApi({ flushBackendSave, channels, reloadChannelsSoon, ensureAutomationRuntime = () => {} }) {
   return {
     async getChannelSetup() {
       // Flush a pending debounced backend switch first so setup readers
@@ -42,6 +42,10 @@ export function createChannelConfigApi({ flushBackendSave, channels, reloadChann
     async saveSchedule(entry) {
       const result = await saveSchedule(entry);
       reloadChannelsSoon();
+      // First automation created while the app is already running: the boot-
+      // time autostart check has passed, so kick the worker start path now
+      // (no-op when it is already up).
+      ensureAutomationRuntime();
       return result;
     },
     async deleteSchedule(name) {
@@ -52,11 +56,13 @@ export function createChannelConfigApi({ flushBackendSave, channels, reloadChann
     async setScheduleEnabled(name, enabled) {
       const result = await setScheduleEnabled(name, enabled);
       reloadChannelsSoon();
+      if (enabled !== false) ensureAutomationRuntime();
       return result;
     },
     async saveWebhook(entry) {
       const result = await saveWebhook(entry);
       reloadChannelsSoon();
+      ensureAutomationRuntime();
       return result;
     },
     async deleteWebhook(name) {
@@ -67,6 +73,7 @@ export function createChannelConfigApi({ flushBackendSave, channels, reloadChann
     async setWebhookEnabled(name, enabled) {
       const result = await setWebhookEnabled(name, enabled);
       reloadChannelsSoon();
+      if (enabled !== false) ensureAutomationRuntime();
       return result;
     },
     // Read-only secret fetch for the webhook editor; no worker reload.

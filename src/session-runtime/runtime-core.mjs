@@ -2127,7 +2127,14 @@ export async function createMixdogSessionRuntime({
     setBackend,
   });
 
-  const channelConfigApi = createChannelConfigApi({ flushBackendSave, channels, reloadChannelsSoon });
+  const channelConfigApi = createChannelConfigApi({
+    flushBackendSave,
+    channels,
+    reloadChannelsSoon,
+    // Automation saved mid-session boots the worker (claim-if-vacant) even
+    // though the boot-time autostart window has already passed.
+    ensureAutomationRuntime: () => scheduleChannelStart(0),
+  });
   const providerAuthApi = createProviderAuthApi({
     cfgMod,
     getConfig: () => config,
