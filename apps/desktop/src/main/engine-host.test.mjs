@@ -2630,3 +2630,53 @@ test("a live-engine context switch publishes no mid-switch snapshot carrying the
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a switch whose engine settles late still returns and publishes the post-switch state", async () => {
+  // Attached-viewer engines (CLI-owned sessions opened as disk followers)
+  // resolve switchContext BEFORE their state reflects the reset. The host
+  // must wait for the settled state; an immediate clone resurrected the
+  // outgoing transcript in the renderer's fresh draft (measured ~35ms stale).
+  const root = await mkdtemp(join(tmpdir(), "mixdog-switch-settle-"));
+  const originalCwd = process.cwd();
+  let engineListener = null;
+  let state = {
+    sessionId: "attached_outgoing",
+    items: [{ id: "m1", kind: "user", text: "attached outgoing transcript" }],
+  };
+  const engine = {
+    getState: () => state,
+    subscribe: (listener) => { engineListener = listener; return () => {}; },
+    listSessions: () => [],
+    newSession: async () => true,
+    resume: async () => true,
+    dispose: async () => {},
+    switchContext: async () => {
+      // State clears AFTER the resolved promise (follower pump behavior).
+      setTimeout(() => {
+        state = { sessionId: null, items: [] };
+        engineListener?.();
+      }, 30);
+      return true;
+    },
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    await host.startTask();
+    const published = [];
+    const unsubscribe = host.subscribe((snapshot) => published.push(snapshot));
+    const result = await host.startTask();
+    unsubscribe();
+    assert.equal(String(result?.sessionId || ""), "", "the invoke result must reflect the post-switch state");
+    assert.equal((Array.isArray(result?.items) ? result.items : []).length, 0,
+      "the invoke result must not carry the outgoing transcript");
+    for (const snapshot of published) {
+      const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+      assert.equal(items.some((item) => String(item?.text || "").includes("attached outgoing transcript")), false,
+        "post-switch publications must not resurrect the outgoing transcript");
+    }
+  } finally {
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});

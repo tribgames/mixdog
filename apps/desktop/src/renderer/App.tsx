@@ -1259,7 +1259,15 @@ export function App() {
         const next = await setupPromise;
         if (newTaskSetup.current !== pendingSetup ||
           navigationKey(selectionRef.current) !== nextKey) return;
-        applySnapshot(next);
+        // Defense-in-depth (measured bug class): a task setup must NEVER
+        // paint a snapshot that still carries the OUTGOING session's
+        // transcript (attached engines settle late). Blank the draft instead;
+        // the settled state event that follows supersedes it.
+        const nextRecord = asRecord(next);
+        const staleSetup = Array.isArray(nextRecord?.items)
+          && (nextRecord?.items as unknown[]).length > 0
+          && Boolean(nextRecord?.sessionId);
+        applySnapshot(staleSetup ? null : next);
         newTaskReady.current = true;
         setNewTaskActive(true);
         refreshSessionsBestEffort();

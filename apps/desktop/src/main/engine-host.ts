@@ -1408,11 +1408,26 @@ export class EngineHost {
     const previousCwd = process.cwd();
     if (current?.switchContext) {
       this.cancelOAuthFlows();
+      const outgoingSessionId = String(current.getState?.()?.sessionId || '');
       process.chdir(cwd);
       try {
         const switchStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
         if (await current.switchContext({ cwd, desktopSession }) !== true) {
           throw new Error('Engine context switch was rejected.');
+        }
+        // Attached-viewer engines (CLI-owned sessions opened as followers)
+        // settle their state ASYNCHRONOUSLY after switchContext resolves: an
+        // immediate getSnapshot() still cloned the OUTGOING session, so the
+        // invoke result and the held-release publication resurrected the old
+        // transcript inside a fresh draft for a few frames (measured: stale
+        // for ~35ms; user saw the old script flash after the view switched).
+        // Wait — bounded — until the engine reflects the reset.
+        if (outgoingSessionId) {
+          const settleDeadline = Date.now() + 500;
+          while (String(current.getState?.()?.sessionId || '') === outgoingSessionId
+            && Date.now() < settleDeadline) {
+            await new Promise((resolve) => setImmediate(resolve));
+          }
         }
         if (DESKTOP_PERF_ENABLED) {
           this.perfLog(`engine-switch-context ms=${(performance.now() - switchStarted).toFixed(0)} cwd=${cwd}`);
