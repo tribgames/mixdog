@@ -58,9 +58,14 @@ export function StatusPopover() {
     };
     document.addEventListener('pointerdown', dismiss, true);
     document.addEventListener('keydown', keydown, true);
+    // The panel position is frozen from the trigger rect at open time — a
+    // window resize would leave it floating detached (tooltip layer parity).
+    const close = () => setOpen(false);
+    window.addEventListener('resize', close);
     return () => {
       document.removeEventListener('pointerdown', dismiss, true);
       document.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('resize', close);
     };
   }, [load, open]);
 

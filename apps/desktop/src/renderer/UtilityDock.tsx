@@ -165,15 +165,29 @@ export function UtilityDock({ open, width, tab, onTab, onResize, snapshot }: {
   }, [agentView]);
   const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
     const startX = event.clientX;
     const startWidth = width;
     const move = (moveEvent: PointerEvent) => onResize(startWidth + (startX - moveEvent.clientX));
-    const up = () => {
+    const stop = () => {
       window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("blur", stop);
+      try {
+        if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+      } catch { /* capture already released */ }
     };
+    // Capture keeps move/up events flowing when the pointer leaves the
+    // window; pointercancel/blur reap the drag when the up never arrives
+    // (release outside the window, alt-tab) — otherwise the listeners leak
+    // and the dock keeps resizing on bare mouse moves (zombie drag).
+    try { handle.setPointerCapture?.(pointerId); } catch { /* best-effort */ }
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    window.addEventListener("blur", stop);
   };
   return <aside className={`utility-dock${open ? "" : " closing"}`}
     style={{ width: open ? width : 0, flexBasis: open ? width : 0 }} aria-label="Utility panel">
