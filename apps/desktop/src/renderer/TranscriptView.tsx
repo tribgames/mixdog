@@ -670,12 +670,9 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   // Streamed tail from the running command (engine liveOutput plumbing).
   // Only meaningful pre-settlement; the settled result supersedes it.
   const liveOutput = !done && typeof item.liveOutput === "string" ? item.liveOutput : "";
-  // Entering a session must read COLLAPSED (user): settled successful cards
-  // are a single header row. The `└ detail` row stays only where it carries
-  // live or exceptional information — running progress ("Running · 12s") and
-  // failure/cancel/exit causes that must not hide behind a click.
-  const detailRowVisible = !open && !liveOutput && Boolean(model.detailLine)
-    && (!done || /failed|cancelled|denied|exit/.test(String(model.terminalStatus || "")));
+  // Collapsed cards always show the TUI's `└ detail` row (user reconfirmed:
+  // "안 펼쳐져 있을 때 뜨던 게 떠야 함") — expansion swaps it for the body.
+  const detailRowVisible = !open && !liveOutput && Boolean(model.detailLine);
   return (
     <article className={`tool-card ${failed || denied ? "failed" : ""} ${partialFailed ? "partial-failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}

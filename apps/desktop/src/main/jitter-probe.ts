@@ -212,6 +212,75 @@ export async function runJitterProbe({
   });
   await sleep(700);
 
+  // Phase 4: first-scroll-to-top jank (user report: entering a session and
+  // scrolling to the TOP always lags the first time). Two identical upward
+  // passes: pass 1 is COLD (every row above the viewport mounts + measures +
+  // compensates), pass 2 is WARM (virtualizer measurement cache hit). The
+  // delta between the two isolates the first-pass cost.
+  // The synthetic host can tear the probe route down between phases — re-push
+  // the completed snapshot immediately before measuring so the virtualized
+  // transcript is guaranteed on screen.
+  send({
+    ...sessionB(),
+    busy: true,
+    spinner: null,
+    items: [
+      ...items,
+      { ...tail(), streaming: false },
+    ],
+    streamingTail: null,
+  });
+  await sleep(600);
+  const scrollPasses = await window.webContents.executeJavaScript(`(async () => {
+    const el = document.querySelector('.transcript');
+    if (!el) return null;
+    const disarmFollow = () => el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
+    const stats = (frames) => {
+      const sorted = [...frames].sort((a, b) => a - b);
+      const total = frames.reduce((a, b) => a + b, 0);
+      return {
+        frames: frames.length,
+        totalMs: Math.round(total),
+        maxMs: Math.round(frames.length ? Math.max(...frames) : 0),
+        p95Ms: Math.round(sorted[Math.floor(sorted.length * 0.95)] || 0),
+        longFrames: frames.filter((value) => value > 33).length,
+      };
+    };
+    const passUp = () => new Promise((resolve) => {
+      const frames = [];
+      let last = performance.now();
+      const step = () => {
+        const now = performance.now();
+        frames.push(now - last);
+        last = now;
+        el.scrollTop = Math.max(0, el.scrollTop - 700);
+        if (el.scrollTop <= 0) { requestAnimationFrame(() => resolve(frames)); return; }
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(() => { last = performance.now(); requestAnimationFrame(step); });
+    });
+    disarmFollow();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const diag = {
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      scrollTop: Math.round(el.scrollTop),
+      virtualRows: el.querySelectorAll('.transcript-virtual-row').length,
+      virtualSpace: el.querySelector('.transcript-virtual-space')?.getBoundingClientRect().height ?? null,
+    };
+    const pass1 = stats(await passUp());
+    el.scrollTop = el.scrollHeight;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    disarmFollow();
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const pass2 = stats(await passUp());
+    return { pass1, pass2, diag };
+  })()`) as {
+    pass1: Record<string, number>;
+    pass2: Record<string, number>;
+    diag: Record<string, number | null>;
+  } | null;
+
   const report = await window.webContents.executeJavaScript(`(() => {
     const w = window;
     cancelAnimationFrame(w.__jitter.raf);
@@ -276,6 +345,9 @@ export async function runJitterProbe({
     finishWrongTailFrames: finish.filter(
       (sample) => sample.tailIndex != null && sample.tailIndex !== completedVisibleTailIndex,
     ).length,
+    scrollToTopPass1: scrollPasses?.pass1 ?? null,
+    scrollToTopPass2: scrollPasses?.pass2 ?? null,
+    scrollToTopDiag: scrollPasses?.diag ?? null,
   };
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify({ summary, samples: report }, null, 1));
