@@ -95,16 +95,65 @@ function endpointUrl(publicBase: string, name: string): string {
   return publicBase ? `${publicBase.replace(/\/+$/, '')}/webhook/${encodeURIComponent(name)}` : '';
 }
 
-function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onSave }: {
+// Client-side secret mint for NEW webhooks: showing the value (with copy)
+// inside the editor beats the old one-shot post-save reveal. Same shape as
+// the store's randomBytes(24) hex.
+function generateSigningSecret(): string {
+  const bytes = new Uint8Array(24);
+  try {
+    crypto.getRandomValues(bytes);
+  } catch {
+    for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+function ConnectionRow({ label, value, placeholder, copied, onCopy }: {
+  label: string;
+  value: string;
+  placeholder: string;
+  copied: boolean;
+  onCopy(): void;
+}) {
+  return <div className="schedules-field webhook-connection-row">
+    <span>{label}</span>
+    <div className="webhook-connection-value">
+      <code>{value || placeholder}</code>
+      <button type="button" className="settings-action" disabled={!value} onClick={onCopy}
+        aria-label={`Copy ${label.toLowerCase()}`}>
+        {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+        {copied ? 'Copied' : 'Copy'}</button>
+    </div>
+  </div>;
+}
+
+function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error = '', onCancel, onSave }: {
   draft: WebhookDraft;
   editing: boolean;
   busy: boolean;
   models: DesktopModelOption[];
+  publicBase: string;
+  secret: string;
   error?: string;
   onCancel(): void;
   onSave(entry: RecordValue): void;
 }) {
   const [parser, setParser] = useState(draft.parser);
+  // Uncontrolled name input + shadow state so the endpoint URL previews live
+  // while typing (FormData still reads the input on submit).
+  const [urlName, setUrlName] = useState(draft.name);
+  const [copiedField, setCopiedField] = useState('');
+  const copiedFieldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copiedFieldTimer.current) clearTimeout(copiedFieldTimer.current);
+  }, []);
+  const copyField = (field: string, value: string) => {
+    void copyTextToClipboard(value);
+    setCopiedField(field);
+    if (copiedFieldTimer.current) clearTimeout(copiedFieldTimer.current);
+    copiedFieldTimer.current = setTimeout(() => setCopiedField(''), 1600);
+  };
+  const previewUrl = urlName.trim() ? endpointUrl(publicBase, urlName.trim()) : '';
   const initialModel = parseModelRef(draft.model);
   const [model, setModel] = useState(initialModel.route);
   const [effort, setEffort] = useState(initialModel.effort);
@@ -139,7 +188,11 @@ function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onS
         setFormError('');
         const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
         const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
-        const secret = text('webhook-secret');
+        // Replace-input wins; otherwise a NEW webhook persists the displayed
+        // pre-minted secret and an EDIT sends nothing (the store preserves
+        // the existing secret on overwrite).
+        const replacement = text('webhook-secret');
+        const effectiveSecret = replacement || (editing ? '' : secret);
         onSave({
           name: editing ? draft.name : text('webhook-name'),
           description: draft.description,
@@ -148,7 +201,7 @@ function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onS
           // webhook fire runs as a new agent session in Recent — no channel
           // target, so saving a legacy channel webhook converts it.
           ...(model ? { model: `${model}${effortSuffix}${fastSuffix}` } : {}),
-          ...(secret ? { secret } : {}),
+          ...(effectiveSecret ? { secret: effectiveSecret } : {}),
           instructions: text('webhook-instructions'),
           enabled: draft.enabled,
           ...(editing ? { overwrite: true } : {}),
@@ -156,8 +209,25 @@ function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onS
       }}>
         <label className="schedules-field">Name
           <input name="webhook-name" defaultValue={draft.name} placeholder="github-issues" required autoFocus
-            disabled={busy || editing} maxLength={64} />
+            disabled={busy || editing} maxLength={64}
+            onChange={(event) => setUrlName(event.currentTarget.value)} />
         </label>
+        {/* Connection details up front (user decision): the endpoint URL and
+            signing secret are both visible with copy buttons, ready to paste
+            into the external service's webhook settings. */}
+        <div className="webhook-connection" aria-label="Connection details">
+          <ConnectionRow label="Endpoint URL"
+            value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
+            placeholder={publicBase
+              ? 'Type a name to preview the endpoint URL'
+              : 'URL appears once the runtime connects to the relay'}
+            copied={copiedField === 'url'}
+            onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)} />
+          <ConnectionRow label="Signing secret" value={secret}
+            placeholder="Secret unavailable"
+            copied={copiedField === 'secret'}
+            onCopy={() => copyField('secret', secret)} />
+        </div>
         <div className="schedules-composer">
           <textarea name="webhook-instructions" defaultValue={draft.instructions} required disabled={busy}
             placeholder="What should Mixdog do when this webhook fires?" aria-label="Webhook instructions" />
@@ -183,9 +253,9 @@ function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onS
             </div>
           </div>
         </div>
-        <label className="schedules-field">Signing secret
+        <label className="schedules-field">Replace secret
           <input name="webhook-secret" type="password" autoComplete="off" disabled={busy}
-            placeholder={editing ? 'Leave empty to rotate the secret' : 'Leave empty to auto-generate'} />
+            placeholder="Optional — leave empty to keep the secret above" />
         </label>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
@@ -210,9 +280,8 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'paused'>('all');
-  const [editor, setEditor] = useState<{ name: string; draft: WebhookDraft } | null>(null);
+  const [editor, setEditor] = useState<{ name: string; draft: WebhookDraft; secret: string } | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState('');
-  const [savedSecret, setSavedSecret] = useState<{ name: string; secret: string } | null>(null);
   const [copied, setCopied] = useState('');
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadSequence = useRef(0);
@@ -285,10 +354,18 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
     const result = await run('saveWebhook', [entry]);
     if (result === undefined) return;
     setEditor(null);
-    // The store returns the (possibly generated/rotated) signing secret only
-    // on save — surface it once with a copy affordance.
-    const secret = String(record(result).secret || '');
-    setSavedSecret(secret ? { name: String(entry.name || ''), secret } : null);
+  };
+  // Edit opens with the STORED secret visible (copy affordance in the
+  // editor); the read stays a local-only capability.
+  const openEditor = async (name: string, draft: WebhookDraft) => {
+    setConfirmingDelete('');
+    setError('');
+    let secret = '';
+    try {
+      const result = await api?.invokeCapability?.({ capability: 'getWebhookSecret', args: [name] });
+      secret = String(record(result?.value).secret || '');
+    } catch { /* the editor shows "Secret unavailable" */ }
+    setEditor({ name, draft, secret });
   };
 
   return <div className="schedules-pane" style={active ? undefined : { display: 'none' }}>
@@ -301,8 +378,9 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
         <button type="button" className="settings-action schedules-new" disabled={busy}
           onClick={() => {
             setError('');
-            setSavedSecret(null);
-            setEditor({ name: '', draft: webhookDraft(undefined) });
+            // Pre-mint the signing secret so the popup shows URL + secret
+            // with copy buttons BEFORE the first save (user decision).
+            setEditor({ name: '', draft: webhookDraft(undefined), secret: generateSigningSecret() });
           }}>
           <Plus size={14} aria-hidden="true" />New webhook</button>
       </header>
@@ -317,7 +395,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
             aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
       </div>
       {editor && <WebhookEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
-        busy={busy} models={models} error={error}
+        busy={busy} models={models} publicBase={publicBase} secret={editor.secret} error={error}
         onCancel={() => {
           setError('');
           setEditor(null);
@@ -346,12 +424,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
               <button type="button" className="settings-action" disabled={busy}
                 onClick={() => void run('setWebhookEnabled', [name, !enabled])}>{enabled ? 'Pause' : 'Resume'}</button>
               <button type="button" className="settings-action" disabled={busy}
-                onClick={() => {
-                  setConfirmingDelete('');
-                  setError('');
-                  setSavedSecret(null);
-                  setEditor({ name, draft: webhookDraft(webhook) });
-                }}>Edit</button>
+                onClick={() => void openEditor(name, webhookDraft(webhook))}>Edit</button>
               <button type="button" className="settings-action danger" disabled={busy}
                 onClick={() => {
                   if (confirmingDelete !== name) {
@@ -369,12 +442,6 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
           <p>{webhooks.length ? 'No webhooks match the current filter.' : 'No inbound webhooks yet.'}</p>
         </div>}
       {error && !editor && <p className="mixdog-settings__error" role="alert">{error}</p>}
-      {savedSecret && !editor && <p className="schedules-notice" role="status">
-        {`"${savedSecret.name}" saved — signing secret: ${savedSecret.secret} `}
-        <button type="button" className="settings-action"
-          onClick={() => copy(`secret:${savedSecret.name}`, savedSecret.secret)}>
-          {copied === `secret:${savedSecret.name}` ? 'Copied' : 'Copy secret'}</button>
-      </p>}
     </div>
   </div>;
 }

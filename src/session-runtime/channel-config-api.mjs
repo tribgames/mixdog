@@ -2,6 +2,7 @@ import {
   channelSetup,
   deleteSchedule,
   deleteWebhook,
+  getWebhookSecret,
   setChannelAsync,
   saveSchedule,
   saveWebhook,
@@ -67,6 +68,10 @@ export function createChannelConfigApi({ flushBackendSave, channels, reloadChann
       const result = await setWebhookEnabled(name, enabled);
       reloadChannelsSoon();
       return result;
+    },
+    // Read-only secret fetch for the webhook editor; no worker reload.
+    async getWebhookSecret(name) {
+      return getWebhookSecret(name);
     },
     async runScheduleNow(name) {
       const id = String(name || '').trim();

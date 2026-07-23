@@ -378,6 +378,7 @@ export const DESKTOP_CAPABILITIES = [
   'saveWebhook',
   'deleteWebhook',
   'setWebhookEnabled',
+  'getWebhookSecret',
   'clear',
 ] as const;
 

@@ -33,6 +33,7 @@ import {
 import {
   listEndpoints as dbListEndpoints,
   loadEndpointConfig as dbLoadEndpoint,
+  readEndpointSecret as dbReadEndpointSecret,
   upsertEndpoint as dbUpsertEndpoint,
   deleteEndpoint as dbDeleteEndpoint,
   setEndpointEnabled as dbSetEndpointEnabled,
@@ -472,7 +473,13 @@ export async function saveWebhook({
   if (overwrite !== true && (await dbLoadEndpoint(id))) {
     throw new Error(`webhook "${id}" already exists`);
   }
-  const secretValue = String(secret || randomBytes(24).toString('hex')).trim();
+  // Secret semantics: an explicit value always wins; an EMPTY value on an
+  // overwrite PRESERVES the stored secret (editing instructions must not
+  // silently rotate the key the external service was configured with); only
+  // a brand-new endpoint mints a random secret.
+  const secretValue = String(secret || '').trim()
+    || (overwrite === true ? String((await dbReadEndpointSecret(id)) || '').trim() : '')
+    || randomBytes(24).toString('hex');
   const saved = await dbUpsertEndpoint({
     name: id,
     description: String(description || '').trim(),
@@ -506,6 +513,14 @@ export async function setWebhookEnabled(name, enabled) {
   const updated = await dbSetEndpointEnabled(id, enabled !== false);
   if (!updated) throw new Error(`webhook "${id}" does not exist`);
   return { name: id, enabled: enabled !== false };
+}
+
+// Explicit single-purpose secret read for the editor's copy affordance (the
+// list path only ever exposes a presence flag). Local surfaces only — the
+// desktop blocks this capability over the remote bridge.
+export async function getWebhookSecret(name) {
+  const id = assertName(name, 'webhook name');
+  return { name: id, secret: (await dbReadEndpointSecret(id)) || '' };
 }
 
 // Automation presence: any enabled schedule or webhook endpoint. Drives the

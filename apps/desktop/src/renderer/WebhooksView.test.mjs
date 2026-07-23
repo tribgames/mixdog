@@ -53,6 +53,9 @@ function webhooksApi({ remote = false, publicUrl = 'https://relay.example/hook/d
     invokeCapability: async ({ capability, args = [] }) => {
       if (capability === 'getChannelSetup') return { value: setup };
       if (capability === 'isRemoteEnabled') return { value: remote };
+      if (capability === 'getWebhookSecret') {
+        return { value: { name: args[0], secret: 'stored-secret' } };
+      }
       calls.push([capability, args]);
       if (capability === 'saveWebhook') {
         return { value: { name: args[0]?.name, secret: 'generated-secret' } };
@@ -105,18 +108,21 @@ test('webhooks pane lists endpoints, exposes the relay URL, and creates webhooks
     await Promise.resolve();
   });
   const form = document.querySelector('.schedules-dialog form');
+  // Connection details render inside the editor with copy affordances.
+  assert.equal(document.querySelectorAll('.webhook-connection-row').length, 2);
+  const mintedSecret = document.querySelectorAll('.webhook-connection-value code')[1].textContent;
+  assert.match(mintedSecret, /^[0-9a-f]{48}$/, 'a new webhook pre-mints its signing secret');
   form.querySelector('input[name="webhook-name"]').value = 'stripe-events';
   form.querySelector('textarea[name="webhook-instructions"]').value = 'Handle the event.';
   await submit(form);
+  // The displayed pre-minted secret is exactly what gets persisted.
   assert.deepEqual(calls.filter(([name]) => name === 'saveWebhook').at(-1)[1][0], {
-    name: 'stripe-events', description: '', parser: 'github',
+    name: 'stripe-events', description: '', parser: 'github', secret: mintedSecret,
     instructions: 'Handle the event.', enabled: true,
   });
   // Boolean form: a failed equality against a DOM node would serialize jsdom.
   assert.equal(document.querySelector('.schedules-dialog') === null, true,
     'the editor should close after a successful save');
-  assert.match(document.querySelector('.schedules-notice').textContent, /generated-secret/,
-    'the returned signing secret must surface once after save');
 });
 
 test('editing prefills and saves with overwrite; delete requires a two-step confirm', async () => {
@@ -127,11 +133,18 @@ test('editing prefills and saves with overwrite; delete requires a two-step conf
   await act(async () => {
     buttons().find((button) => button.textContent === 'Edit').click();
     await Promise.resolve();
+    await Promise.resolve();
   });
   const form = document.querySelector('.schedules-dialog form');
   const nameInput = form.querySelector('input[name="webhook-name"]');
   assert.equal(nameInput.value, 'gh-issues');
   assert.equal(nameInput.disabled, true);
+  // Connection block: the endpoint URL and the STORED signing secret are both
+  // visible with copy buttons (user decision — no one-shot reveal).
+  const connection = form.querySelector('.webhook-connection');
+  assert.match(connection.textContent, /https:\/\/relay\.example\/hook\/device-1\/webhook\/gh-issues/);
+  assert.match(connection.textContent, /stored-secret/);
+  assert.equal(connection.querySelectorAll('button').length, 2);
   const instructions = form.querySelector('textarea[name="webhook-instructions"]');
   assert.equal(instructions.value, 'Summarize the issue.');
   instructions.value = 'Triage the issue.';
@@ -140,6 +153,8 @@ test('editing prefills and saves with overwrite; delete requires a two-step conf
   assert.equal(edited.name, 'gh-issues');
   assert.equal(edited.overwrite, true);
   assert.equal(edited.instructions, 'Triage the issue.');
+  assert.equal('secret' in edited, false,
+    'editing without a replacement must not send a secret (the store preserves it)');
 
   const pause = buttons().find((button) => button.textContent === 'Pause');
   assert.equal(pause.disabled, false);
