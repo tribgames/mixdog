@@ -36,25 +36,67 @@ function _isPreviewNoise(text) {
     return isSessionPreviewNoise(text);
 }
 
-function _sessionPreview(session) {
-    const messages = Array.isArray(session?.messages) ? session.messages : [];
-    for (const m of messages) {
-        if (m?.role !== 'user') continue;
-        const raw = _messageText(m.content);
-        if (_isPreviewNoise(raw)) continue;
-        const text = _cleanPreview(raw);
-        if (text) return text;
-    }
-    return '';
+const sessionMessageProjectionMemo = new WeakMap();
+
+function _previewFromMessage(message) {
+    if (message?.role !== 'user') return '';
+    const raw = _messageText(message.content);
+    if (_isPreviewNoise(raw)) return '';
+    return _cleanPreview(raw);
 }
 
-function _sessionMessageCount(session) {
+function _sessionMessageProjection(session) {
     const messages = Array.isArray(session?.messages) ? session.messages : [];
+    const cached = session && typeof session === 'object'
+        ? sessionMessageProjectionMemo.get(session)
+        : null;
+    let start = 0;
     let count = 0;
-    for (const m of messages) {
-        if (m && (m.role === 'user' || m.role === 'assistant')) count++;
+    let preview = '';
+    let previewMessage = null;
+    const canAppend = cached
+        && messages.length >= cached.length
+        && (cached.length === 0 || messages[cached.length - 1] === cached.lastMessage);
+    if (canAppend) {
+        start = cached.length;
+        count = cached.count;
+        preview = cached.preview;
+        previewMessage = cached.previewMessage;
+        // The first real user message is stable in normal append-only session
+        // flow, but refresh it cheaply so an in-place content scrub still
+        // invalidates the cached title source without rescanning the transcript.
+        if (previewMessage) {
+            const refreshed = _previewFromMessage(previewMessage);
+            if (refreshed) preview = refreshed;
+            else {
+                start = 0;
+                count = 0;
+                preview = '';
+                previewMessage = null;
+            }
+        }
     }
-    return count;
+    for (let index = start; index < messages.length; index += 1) {
+        const message = messages[index];
+        if (message && (message.role === 'user' || message.role === 'assistant')) count += 1;
+        if (!preview) {
+            const candidate = _previewFromMessage(message);
+            if (candidate) {
+                preview = candidate;
+                previewMessage = message;
+            }
+        }
+    }
+    if (session && typeof session === 'object') {
+        sessionMessageProjectionMemo.set(session, {
+            length: messages.length,
+            lastMessage: messages[messages.length - 1] || null,
+            count,
+            preview,
+            previewMessage,
+        });
+    }
+    return { count, preview };
 }
 
 function _positiveNumber(value, fallback = 0) {
@@ -79,9 +121,14 @@ function _desktopSessionSummary(value, cwd = null) {
 
 export function _sessionSummary(session) {
     if (!session?.id) return null;
+    const messageProjection = _sessionMessageProjection(session);
     return {
         id: String(session.id),
         updatedAt: _positiveNumber(session.updatedAt, Date.now()),
+        // Conversation activity is intentionally separate from lifecycle
+        // bookkeeping. Resume/detach saves can advance updatedAt without a
+        // user-visible turn and must not reshuffle Recent session lists.
+        lastUsedAt: _positiveNumber(session.lastUsedAt, 0),
         createdAt: _positiveNumber(session.createdAt, 0),
         lastHeartbeatAt: _positiveNumber(session.lastHeartbeatAt, 0),
         closed: session.closed === true,
@@ -101,8 +148,8 @@ export function _sessionSummary(session) {
         task_id: session.task_id || session.taskId || null,
         permission: session.permission || null,
         toolPermission: session.toolPermission || null,
-        messageCount: _sessionMessageCount(session),
-        preview: _sessionPreview(session),
+        messageCount: messageProjection.count,
+        preview: messageProjection.preview,
         generation: typeof session.generation === 'number' ? session.generation : 0,
         implicitBashSessionId: session.implicitBashSessionId || null,
     };
@@ -113,6 +160,7 @@ function _normalizeSummaryRow(row) {
     return {
         id: row.id,
         updatedAt: _positiveNumber(row.updatedAt, 0),
+        lastUsedAt: _positiveNumber(row.lastUsedAt, 0),
         createdAt: _positiveNumber(row.createdAt, 0),
         lastHeartbeatAt: _positiveNumber(row.lastHeartbeatAt, 0),
         closed: row.closed === true,
@@ -173,6 +221,12 @@ const _pendingUpserts = new Map(); // id → summary row (latest wins)
 const _pendingRemovals = new Set(); // ids to drop (upsert/removal are mutually exclusive per id)
 let _summaryRetryTimer = null;
 let _summaryFlushScheduled = false;
+let _summaryFlushInflight = 0;
+
+export function _hasUnsettledSummaryOps() {
+    return _pendingUpserts.size > 0 || _pendingRemovals.size > 0
+        || _summaryFlushScheduled || _summaryFlushInflight > 0;
+}
 
 function _scheduleSummaryRetry() {
     if (_summaryRetryTimer) return;
@@ -206,6 +260,7 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
     _pendingRemovals.clear();
     const mutate = (cur) => {
             const index = _normalizeSummaryIndex(cur);
+            const existingById = new Map(index.rows.map((row) => [row.id, row]));
             let changed = false;
             const rows = index.rows.filter((r) => {
                 if (removals.has(r.id) || upserts.has(r.id)) { changed = true; return false; }
@@ -214,7 +269,7 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
             for (const row of upserts.values()) {
                 const cleanRow = _normalizeSummaryRow(row);
                 if (!cleanRow) continue;
-                const existing = index.rows.find((r) => r.id === cleanRow.id) || null;
+                const existing = existingById.get(cleanRow.id) || null;
                 if (existing && JSON.stringify(existing) === JSON.stringify(cleanRow)) {
                     rows.push(existing);
                     continue;
@@ -248,12 +303,18 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
         } catch { requeue(); }
         return;
     }
+    _summaryFlushInflight++;
     updateJsonAtomic(summaryIndexPath(), mutate, { compact: true, lock: true, timeoutMs: SUMMARY_LOCK_TIMEOUT_MS })
-        .catch(() => { requeue(); });
+        .catch(() => { requeue(); })
+        .finally(() => { _summaryFlushInflight--; });
 }
 
 export function _upsertSessionSummary(session) {
     const row = _sessionSummary(session);
+    _upsertSessionSummaryRow(row);
+}
+
+export function _upsertSessionSummaryRow(row) {
     if (!row) return;
     _pendingRemovals.delete(row.id);
     _pendingUpserts.set(row.id, row);

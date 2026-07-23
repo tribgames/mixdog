@@ -14,7 +14,8 @@
  *   Live token streaming via onTextDelta conflicts with post-hoc markdown
  *   rendering (you can't style a heading until you've seen the whole line).
  *   We choose: stream raw tokens live so the turn FEELS alive, then on turn
- *   end clear the streamed raw block and re-print the markdown-rendered text.
+ *   end replace only changed rows with markdown-rendered text, falling back to
+ *   a full block redraw when wrapping or row structure makes patching unsafe.
  *   Rationale: the alternative (buffer silently, render once) loses all live
  *   feedback on slow turns, which is the worse UX. The re-render is cheap and
  *   only runs when stdout is a TTY (so piped/non-TTY output stays clean and is
@@ -27,12 +28,14 @@ import { basename } from 'node:path';
 import { bold, dim, cyan, green, red, yellow, colorEnabled } from './ui/ansi.mjs';
 import { printHelp } from './help.mjs';
 import { createSessionStats, applyUsageDelta } from './ui/session-stats.mjs';
+import { buildStreamFinalPatch } from './ui/stream-finalize.mjs';
 
 let runtimeModulePromise = null;
 let markdownModulePromise = null;
 let toolCardModulePromise = null;
 let statuslineModulePromise = null;
 let shutdownModulePromise = null;
+const STREAM_WRITE_BATCH_MS = 8;
 
 function loadRuntimeModule() {
   runtimeModulePromise ??= import('./mixdog-session-runtime.mjs');
@@ -159,6 +162,15 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
       stdout.write('\n');
 
       let streamedText = '';
+      let streamedChunks = [];
+      let streamedTextDirty = false;
+      const currentStreamedText = () => {
+        if (!streamedTextDirty) return streamedText;
+        streamedText = streamedChunks.join('');
+        streamedChunks = streamedText ? [streamedText] : [];
+        streamedTextDirty = false;
+        return streamedText;
+      };
       let printedAny = false;
       let printedToolCard = false;
       // After the blank line emitted above, the cursor sits at a fresh line
@@ -166,6 +178,38 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
       // a leading newline is only needed to break away from un-terminated
       // streamed text, never between consecutive cards.
       let atLineStart = true;
+      let pendingStreamChunks = [];
+      let streamFlushTimer = null;
+      let streamWriteError = null;
+      const flushStream = () => {
+        if (streamFlushTimer) {
+          clearTimeout(streamFlushTimer);
+          streamFlushTimer = null;
+        }
+        if (streamWriteError) {
+          const error = streamWriteError;
+          streamWriteError = null;
+          throw error;
+        }
+        if (pendingStreamChunks.length === 0) return;
+        const text = pendingStreamChunks.join('');
+        pendingStreamChunks = [];
+        stdout.write(text);
+      };
+      const queueStreamChunk = (chunk) => {
+        if (streamWriteError) throw streamWriteError;
+        pendingStreamChunks.push(chunk);
+        if (streamFlushTimer) return;
+        streamFlushTimer = setTimeout(() => {
+          streamFlushTimer = null;
+          try {
+            flushStream();
+          } catch (error) {
+            streamWriteError = error;
+          }
+        }, STREAM_WRITE_BATCH_MS);
+        streamFlushTimer.unref?.();
+      };
       try {
         const runtime = await ensureRuntime();
         const { result } = await runtime.ask(
@@ -173,6 +217,7 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
           {
             onToolCall: async (_iter, calls) => {
               for (const c of calls || []) {
+                flushStream();
                 printedToolCard = true;
                 const lead = atLineStart ? '' : '\n';
                 stdout.write(lead + (await renderToolCardLazy(c)) + '\n');
@@ -181,16 +226,21 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
           },
             onTextDelta: (chunk) => {
               printedAny = true;
-              streamedText += chunk;
-              stdout.write(chunk);
+              streamedChunks.push(chunk);
+              streamedTextDirty = true;
+              queueStreamChunk(chunk);
               atLineStart = chunk.endsWith('\n');
             },
             onTextReset: ({ chars } = {}) => {
               const count = Math.max(0, Number(chars) || 0);
               if (!count || !colorEnabled() || printedToolCard) return false;
+              flushStream();
+              streamedText = currentStreamedText();
               const remaining = streamedText.slice(0, Math.max(0, streamedText.length - count));
               eraseStreamedBlock(streamedText);
               streamedText = remaining;
+              streamedChunks = remaining ? [remaining] : [];
+              streamedTextDirty = false;
               if (remaining) stdout.write(remaining);
               printedAny = !!remaining;
               atLineStart = !remaining || remaining.endsWith('\n');
@@ -199,7 +249,9 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
             onUsageDelta: (delta) => applyUsageDelta(stats, delta),
           },
         );
+        flushStream();
 
+        streamedText = currentStreamedText();
         const finalText = (result?.content != null && String(result.content)) || streamedText;
 
         // Approach (a): clear the raw streamed block and re-print as markdown.
@@ -208,8 +260,16 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
         // into a pipe).
         if (finalText) {
           if (printedAny && colorEnabled() && !printedToolCard) {
-            eraseStreamedBlock(streamedText);
-            stdout.write(await renderMarkdownLazy(finalText) + '\n');
+            const rendered = await renderMarkdownLazy(finalText);
+            const patch = buildStreamFinalPatch(streamedText, rendered, {
+              columns: stdout.columns || 80,
+            });
+            if (patch) stdout.write(patch.output);
+            else {
+              eraseStreamedBlock(streamedText);
+              stdout.write(rendered);
+            }
+            stdout.write('\n');
           } else if (!printedAny) {
             // Nothing streamed live (provider without onTextDelta) — render once.
             stdout.write(await renderMarkdownLazy(finalText) + '\n');
@@ -235,7 +295,13 @@ export async function runRepl({ provider: providerName, model, toolMode = 'full'
           rawContextWindow: runtime.rawContextWindow,
         })) + '\n');
       } catch (error) {
-        stdout.write('\n' + red(`[error] ${error?.message || error}`) + '\n');
+        let displayError = error;
+        try {
+          flushStream();
+        } catch (flushError) {
+          displayError = flushError;
+        }
+        stdout.write('\n' + red(`[error] ${displayError?.message || displayError}`) + '\n');
       }
 
       stdout.write('\n');

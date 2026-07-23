@@ -2,6 +2,7 @@ import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node
 import { appendFileSync, watch, type FSWatcher } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import type {
   DesktopCapability,
@@ -57,6 +58,7 @@ export interface MixdogEngine {
 
 export type SnapshotListener = (snapshot: EngineSnapshot) => void;
 export type EngineFactory = (options: Record<string, unknown>) => Promise<MixdogEngine>;
+const snapshotFieldClonesByEngine = new WeakMap<MixdogEngine, Map<string, unknown>>();
 
 export interface EngineHostOptions {
   userDataPath?: string;
@@ -428,11 +430,19 @@ export function projectDesktopLiveWorkState(snapshot: Record<string, unknown>): 
 export function copySnapshot(engine: MixdogEngine | null): EngineSnapshot {
   if (!engine) return null;
   const state = engine.getState();
-  const shallow: Record<string, unknown> = {};
+  const previousFields = snapshotFieldClonesByEngine.get(engine);
+  const nextFields = new Map<string, unknown>();
+  const snapshot: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(state)) {
-    if (key !== 'items') shallow[key] = value;
+    if (key === 'items' || key === 'streamingTail') continue;
+    const previous = previousFields?.get(key);
+    const clone = previousFields?.has(key) && isDeepStrictEqual(value, previous)
+      ? previous
+      : structuredClone(value);
+    snapshot[key] = clone;
+    nextFields.set(key, clone);
   }
-  const snapshot = structuredClone(shallow);
+  snapshotFieldClonesByEngine.set(engine, nextFields);
   const items = Array.isArray(state.items) ? state.items : [];
   const cloned: unknown[] = [];
   for (const item of items) {
@@ -440,8 +450,17 @@ export function copySnapshot(engine: MixdogEngine | null): EngineSnapshot {
     if (entry.keep) cloned.push(entry.clone);
   }
   snapshot.items = cloned;
-  if (snapshot.streamingTail != null && !sanitizeTranscriptItem(snapshot.streamingTail)) {
-    snapshot.streamingTail = null;
+  if (state.streamingTail != null) {
+    const source = recordValue(state.streamingTail);
+    let tail: unknown;
+    if (source) {
+      const { text, ...metadata } = source;
+      tail = structuredClone(metadata);
+      if (Object.hasOwn(source, 'text')) (tail as Record<string, unknown>).text = text;
+    } else {
+      tail = structuredClone(state.streamingTail);
+    }
+    snapshot.streamingTail = sanitizeTranscriptItem(tail) ? tail : null;
   }
   return projectDesktopLiveWorkState(snapshot);
 }

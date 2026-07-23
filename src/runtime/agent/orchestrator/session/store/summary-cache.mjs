@@ -3,7 +3,7 @@ import { join } from 'path';
 import { getPluginData } from '../../config.mjs';
 import { getStoreDir } from './paths-heartbeat.mjs';
 import { _storedSessionFromFile } from './serialize.mjs';
-import { _sessionSummary, _normalizeSummaryIndex, _upsertSessionSummary, _removeSessionSummary, _pruneSummaryIndexIds } from '../store-summary-index.mjs';
+import { _sessionSummary, _normalizeSummaryIndex, _upsertSessionSummaryRow, _removeSessionSummary, _pruneSummaryIndexIds } from '../store-summary-index.mjs';
 
 // Listing is much hotter than writing, especially while the desktop session
 // browser is open. Keep the compact sidecar in memory after the first read;
@@ -12,27 +12,31 @@ import { _sessionSummary, _normalizeSummaryIndex, _upsertSessionSummary, _remove
 // path. Pending overlays cover a write that lands before the first listing.
 export let _summaryRowsCache = null;
 const _summaryCacheUpserts = new Map();
+const _summaryCacheLatestRows = new Map();
 export const _summaryCacheRemovals = new Set();
 export const _summaryCacheVersions = new Map();
 let _summaryCacheDataDir = null;
+let _summaryRowsViewCache = null;
+
+function _invalidateSummaryRowsView() {
+    _summaryRowsViewCache = null;
+}
 
 export function _ensureSummaryCacheDataDir() {
     const dataDir = getPluginData();
     if (_summaryCacheDataDir === dataDir) return;
     _summaryCacheDataDir = dataDir;
     _summaryRowsCache = null;
+    _summaryRowsViewCache = null;
     _summaryScanCache.clear();
     _summaryCacheUpserts.clear();
+    _summaryCacheLatestRows.clear();
     _summaryCacheRemovals.clear();
     _summaryCacheVersions.clear();
 }
 
-function _summaryRowsWithLocalMutations(rows, { discardLocalMutations = false } = {}) {
-    if (discardLocalMutations) {
-        _summaryCacheUpserts.clear();
-        _summaryCacheRemovals.clear();
-    }
-    const byId = new Map(_normalizeSummaryIndex({ rows }).rows.map((row) => [row.id, row]));
+function _summaryRowsWithLocalMutations(rows) {
+    const byId = new Map(rows.map((row) => [row.id, row]));
     for (const id of _summaryCacheRemovals) byId.delete(id);
     for (const [id, row] of _summaryCacheUpserts) byId.set(id, row);
     return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -41,14 +45,19 @@ function _summaryRowsWithLocalMutations(rows, { discardLocalMutations = false } 
 export function _setSummaryRowsCache(rows, options) {
     if (options?.discardLocalMutations === true) {
         _summaryCacheUpserts.clear();
+        _summaryCacheLatestRows.clear();
         _summaryCacheRemovals.clear();
     }
     _summaryRowsCache = _normalizeSummaryIndex({ rows }).rows;
-    return _summaryRowsWithLocalMutations(_summaryRowsCache);
+    _invalidateSummaryRowsView();
+    return _cachedSummaryRows();
 }
 
 export function _cachedSummaryRows() {
-    return _summaryRowsCache === null ? null : _summaryRowsWithLocalMutations(_summaryRowsCache);
+    if (_summaryRowsCache === null) return null;
+    if (_summaryRowsViewCache) return _summaryRowsViewCache;
+    _summaryRowsViewCache = _summaryRowsWithLocalMutations(_summaryRowsCache);
+    return _summaryRowsViewCache;
 }
 
 function _setCachedBaseSummary(row) {
@@ -56,21 +65,26 @@ function _setCachedBaseSummary(row) {
     const byId = new Map(_summaryRowsCache.map((existing) => [existing.id, existing]));
     byId.set(row.id, row);
     _summaryRowsCache = [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    _invalidateSummaryRowsView();
 }
 
 function _removeCachedBaseSummary(id) {
     if (_summaryRowsCache === null) return;
     _summaryRowsCache = _summaryRowsCache.filter((row) => row.id !== id);
+    _invalidateSummaryRowsView();
 }
 
 export function _cacheSessionSummary(session) {
     _ensureSummaryCacheDataDir();
     const row = _sessionSummary(session);
     if (!row) return;
-    _summaryCacheVersions.set(row.id, (_summaryCacheVersions.get(row.id) || 0) + 1);
+    const version = (_summaryCacheVersions.get(row.id) || 0) + 1;
+    _summaryCacheVersions.set(row.id, version);
     _summaryCacheRemovals.delete(row.id);
     _summaryCacheUpserts.set(row.id, row);
-    return _summaryCacheVersions.get(row.id);
+    _summaryCacheLatestRows.set(row.id, { version, row });
+    _invalidateSummaryRowsView();
+    return version;
 }
 
 export function _uncacheSessionSummary(id) {
@@ -78,24 +92,33 @@ export function _uncacheSessionSummary(id) {
     if (!id) return;
     _summaryCacheVersions.set(id, (_summaryCacheVersions.get(id) || 0) + 1);
     _summaryCacheUpserts.delete(id);
+    _summaryCacheLatestRows.delete(id);
     _summaryCacheRemovals.add(id);
+    _invalidateSummaryRowsView();
     _removeCachedBaseSummary(id);
 }
 
 export function _rollbackCachedSessionSummary(id, version) {
     if ((_summaryCacheVersions.get(id) || 0) !== version) return;
     _summaryCacheUpserts.delete(id);
+    _summaryCacheLatestRows.delete(id);
+    _invalidateSummaryRowsView();
 }
 
 export function _queueSessionSummaryUpsert(session, version = null) {
-    const row = _sessionSummary(session);
+    const latest = version === null ? null : _summaryCacheLatestRows.get(session?.id);
+    const row = latest?.version === version ? latest.row : _sessionSummary(session);
     if (!row) return;
     _setCachedBaseSummary(row);
     if (version === null || (_summaryCacheVersions.get(row.id) || 0) === version) {
         _summaryCacheUpserts.delete(row.id);
+        if (_summaryCacheLatestRows.get(row.id)?.version === version) {
+            _summaryCacheLatestRows.delete(row.id);
+        }
         _summaryCacheRemovals.delete(row.id);
+        _invalidateSummaryRowsView();
     }
-    _upsertSessionSummary(session);
+    _upsertSessionSummaryRow(row);
 }
 
 export function _queueSessionSummaryRemoval(id) {

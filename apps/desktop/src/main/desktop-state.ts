@@ -61,6 +61,8 @@ export function desktopSessionSummaries(
     const storedTitle = generatedSessionTitle(titles[id] || '', '');
     const heartbeatAt = Number(row.heartbeatAt) || 0;
     const working = heartbeatAt > 0 && now - heartbeatAt <= SESSION_WORKING_HEARTBEAT_MS;
+    const updatedAt = Number(row.updatedAt) || 0;
+    const activityAt = Number(row.lastUsedAt) || updatedAt;
     // A session with no conversation preview, no manual name, and no stored
     // title is an abandoned blank ("Untitled") — opened once and never used.
     // Hide it from the sidebar instead of stacking empty rows; the active
@@ -70,7 +72,8 @@ export function desktopSessionSummaries(
       id,
       preview,
       title: manualTitle || storedTitle || generatedSessionTitle(preview),
-      updatedAt: Number(row.updatedAt) || 0,
+      updatedAt,
+      activityAt,
       messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
       cwd,
       classification,

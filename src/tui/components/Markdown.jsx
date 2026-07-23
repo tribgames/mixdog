@@ -80,6 +80,14 @@ export function Markdown({ children, themeEpoch = 0, trimPartialFences = false, 
   );
 }
 
+const StableMarkdownChunk = React.memo(function StableMarkdownChunk({
+  text,
+  themeEpoch,
+  columns,
+}) {
+  return <Markdown themeEpoch={themeEpoch} columns={columns}>{text}</Markdown>;
+});
+
 export function StreamingMarkdown({ children, themeEpoch = 0, columns, streamKey }) {
   const parts = resolveStreamingMarkdownParts(children, streamKey);
   if (parts.plain) {
@@ -89,9 +97,15 @@ export function StreamingMarkdown({ children, themeEpoch = 0, columns, streamKey
     // identical visible text directly.
     return <Text color={theme.text} wrap="wrap">{parts.unstableForRender}</Text>;
   }
+  const stableChunks = parts.stableChunks?.length
+    ? parts.stableChunks
+    : parts.stablePrefix ? [parts.stablePrefix] : [];
   return (
     <Box flexDirection="column" gap={1}>
-      {parts.stablePrefix ? <Markdown themeEpoch={themeEpoch} columns={columns}>{parts.stablePrefix}</Markdown> : null}
+      {stableChunks.map((text, index) => (
+        <StableMarkdownChunk key={`stable-${index}`} text={text}
+          themeEpoch={themeEpoch} columns={columns} />
+      ))}
       {parts.unstableSuffix
         ? <Markdown themeEpoch={themeEpoch} columns={columns} trimPartialFences>{parts.unstableForRender}</Markdown>
         : null}

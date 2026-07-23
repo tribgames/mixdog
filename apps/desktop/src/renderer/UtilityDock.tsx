@@ -5,7 +5,7 @@ import { type RecordValue, type Project, type TranscriptItem, type Approval, typ
 import { asRecord, displayProject, navigationKey, newDraftSelection, textOf, publicThinkingSummary, oneLine, queueText, formatElapsed, formatIdleDuration, TURN_LOCKED_SLASH_COMMANDS, copyTextToClipboard } from "./text-format";
 import { approvalInstanceKey, draftAfterSubmission, followAfterScroll, isApprovalDismissKey, isScrollIntentKey, mergeTranscript, normalizeApplyPatch, parseUnifiedDiff, reconcileTurnFailures, shouldNavigatePromptHistory, toolInputRows, transcriptTurnKeys } from "./renderer-logic.mjs";
 import { DiffView, TerminalPane } from "./lazy-widgets";
-import { ContextBody } from "./CommandSurface";
+import { ContextBody } from "./ContextBody";
 import { TERMINAL_AGENT_STATUS, timeMs, formatWorkElapsed, formatTokenCount, findPatch } from "./TranscriptView";
 
 export const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
@@ -123,13 +123,12 @@ function sessionFileChanges(items: TranscriptItem[]): SessionFileChange[] {
   return [...files.values()];
 }
 
-export function UtilityDock({ open, width, tab, onTab, onResize, items, snapshot }: {
+export function UtilityDock({ open, width, tab, onTab, onResize, snapshot }: {
   open: boolean;
   width: number;
   tab: UtilityDockTab;
   onTab(tab: UtilityDockTab): void;
   onResize(width: number): void;
-  items: TranscriptItem[];
   snapshot: Snapshot;
 }) {
   // Elapsed readouts for running agents tick once a second while visible.

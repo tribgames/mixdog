@@ -50,7 +50,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
 
   const bodyWidth = assistantBodyWidth(columns);
   const renderText = streaming && streamingWindowRows > 0
-    ? windowPlainStreamingText(text, bodyWidth, streamingWindowRows)
+    ? windowPlainStreamingText(text, bodyWidth, streamingWindowRows, assistantId)
     : text;
   return (
     <Box flexDirection="row" marginTop={1}>

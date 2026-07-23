@@ -40,7 +40,7 @@ import {
   X,
 } from "lucide-react";
 import { MxIcon } from "./MxIcon";
-import { ContextBody } from "./CommandSurface";
+import { ContextBody } from "./ContextBody";
 import { createPortal } from "react-dom";
 import { elementScroll, useVirtualizer } from "@tanstack/react-virtual";
 import type {

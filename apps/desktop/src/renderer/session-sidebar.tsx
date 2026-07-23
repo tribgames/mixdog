@@ -136,8 +136,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   useEffect(() => () => document.body.classList.remove("session-sidebar-resizing"), []);
   const allRows = useMemo(() => sessions
     .filter((session) => session.classification === "task" || session.classification === "project")
-    .sort((left, right) =>
-      right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)),
+    .sort((left, right) => {
+      const leftActivityAt = Number(left.activityAt) || left.updatedAt;
+      const rightActivityAt = Number(right.activityAt) || right.updatedAt;
+      return rightActivityAt - leftActivityAt || left.id.localeCompare(right.id);
+    }),
   [sessions]);
   const rows = useMemo(() => allRows.filter((session) => session.archived !== true), [allRows]);
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived === true), [allRows]);

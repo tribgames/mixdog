@@ -212,6 +212,9 @@ function assertStreamingMarkdownPartsCache() {
   const key = 'streaming-parts-cache-coverage';
   const longText = 'Settled paragraph.\n\n```js\nconst value = 1;';
   const initial = resolveStreamingMarkdownParts(longText, key);
+  if (!Array.isArray(initial.stableChunks) || initial.stableChunks.join('') !== initial.stablePrefix) {
+    throw new Error('stable markdown chunks do not reconstruct the stable prefix');
+  }
   const repeated = resolveStreamingMarkdownParts(`${longText}\n\n`, key);
   if (repeated !== initial) {
     throw new Error('normalized-equivalent stream text did not reuse its resolved parts');

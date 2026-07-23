@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createFrameBatchedStorePublisher } from '../src/tui/engine/frame-batched-store.mjs';
+import { renderFrameDelay, TUI_FRAME_MS } from '../src/tui/engine/render-timing.mjs';
 
 function harness() {
   let draft = { items: [], structureRevision: 4 };
@@ -96,4 +97,11 @@ test('dispose publishes pending state once and cancels its timer', () => {
   assert.equal(h.getCancellations(), 1);
   timer.fn();
   assert.equal(snapshots.length, 1, 'cancelled timer cannot emit after dispose');
+});
+
+test('store frame delay shares Ink cadence and aligns to the last rendered frame', () => {
+  assert.equal(TUI_FRAME_MS, 17);
+  assert.equal(renderFrameDelay(0, 105), 17);
+  assert.equal(renderFrameDelay(100, 105), 12);
+  assert.equal(renderFrameDelay(100, 117), 0);
 });

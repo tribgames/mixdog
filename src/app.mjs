@@ -39,8 +39,8 @@ export { parseHeadlessRoleCommand };
  * tools, and the canonical Ink TUI. Vendored reference code is not executable
  * from this entry point.
  */
-export async function run(argv = []) {
-  const invocation = classifyCliInvocation(argv);
+export async function run(argv = [], classifiedInvocation = null) {
+  const invocation = classifiedInvocation ?? classifyCliInvocation(argv);
   // Headless commands establish their own audited environment after route
   // validation; do not let an inherited MIXDOG_BOOT_PROFILE affect that path.
   if (invocation.kind !== 'headless' && invocation.skipHostPrelude !== true) {

@@ -1,7 +1,10 @@
 import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { providerNativeToolPrefixCount } from '../../../../session-runtime/provider-request-tools.mjs';
+import {
+    isFinalizedProviderRequestTools,
+    providerNativeToolPrefixCount,
+} from '../../../../session-runtime/provider-request-tools.mjs';
 import { contentFileDescriptors, contentImageDescriptors, contentToText } from '../providers/media-normalization.mjs';
 export {
     DEFAULT_COMPACTION_BUFFER_TOKENS,
@@ -591,9 +594,10 @@ export function summarizeContextMessages(messages) {
     if (!Array.isArray(messages)) return contextSummaryResult(emptyContextSummaryState(), 0);
     let cached = contextTranscriptMemo.get(messages);
     if (!cached || messages.length < cached.count) {
-        cached = { count: 0, contributions: [], state: emptyContextSummaryState(), revision: 0 };
+        cached = { count: 0, contributions: [], state: emptyContextSummaryState(), revision: 0, result: null };
         contextTranscriptMemo.set(messages, cached);
     }
+    let changed = cached.result === null;
     for (let index = 0; index < messages.length; index += 1) {
         const previous = cached.contributions[index];
         const contribution = contextMessageContribution(messages[index]);
@@ -602,10 +606,13 @@ export function summarizeContextMessages(messages) {
         cached.contributions[index] = contribution;
         applyContextMessageContribution(cached.state, contribution, 1);
         cached.revision += 1;
+        changed = true;
     }
     cached.contributions.length = messages.length;
     cached.count = messages.length;
-    return contextSummaryResult(cached.state, messages.length);
+    if (!changed && cached.result) return cached.result;
+    cached.result = contextSummaryResult(cached.state, messages.length);
+    return cached.result;
 }
 
 // A stable warm-cache generation for consumers that cache a derived view of
@@ -617,11 +624,47 @@ export function contextMessagesRevision(messages) {
     return contextTranscriptMemo.get(messages)?.revision || 0;
 }
 
+export function summarizeContextMessagesAtRevision(messages, revision) {
+    if (Array.isArray(messages)) {
+        const cached = contextTranscriptMemo.get(messages);
+        if (cached
+            && cached.count === messages.length
+            && cached.revision === revision
+            && cached.result) return cached.result;
+    }
+    return summarizeContextMessages(messages);
+}
+
 // Hash only estimator/provider-visible projections. In particular, images
 // contribute their visual count but never their raw data-url/base64 bytes.
+const contextMessagesSignatureMemo = new WeakMap();
+const CONTEXT_SIGNATURE_COUNTS_MAX = 4;
+
 export function contextMessagesSignature(messages, count = messages?.length) {
     const list = Array.isArray(messages) ? messages : [];
     const end = Math.max(0, Math.min(list.length, Number.isInteger(count) ? count : list.length));
+    let contributions = null;
+    let signatures = null;
+    if (Array.isArray(messages)) {
+        summarizeContextMessages(messages);
+        contributions = contextTranscriptMemo.get(messages)?.contributions.slice(0, end) || [];
+        signatures = contextMessagesSignatureMemo.get(messages);
+        const previous = signatures?.get(end);
+        if (previous && previous.contributions.length === contributions.length) {
+            let unchanged = true;
+            for (let index = 0; index < contributions.length; index += 1) {
+                if (previous.contributions[index] !== contributions[index]) {
+                    unchanged = false;
+                    break;
+                }
+            }
+            if (unchanged) {
+                signatures.delete(end);
+                signatures.set(end, previous);
+                return previous.signature;
+            }
+        }
+    }
     const hash = createHash('sha256');
     for (let index = 0; index < end; index += 1) {
         const message = list[index];
@@ -634,11 +677,22 @@ export function contextMessagesSignature(messages, count = messages?.length) {
         ]));
         hash.update('\0');
     }
-    return hash.digest('hex');
+    const signature = hash.digest('hex');
+    if (Array.isArray(messages)) {
+        signatures ||= new Map();
+        if (signatures.has(end)) signatures.delete(end);
+        signatures.set(end, { contributions, signature });
+        while (signatures.size > CONTEXT_SIGNATURE_COUNTS_MAX) {
+            const oldest = signatures.keys().next().value;
+            if (oldest === undefined) break;
+            signatures.delete(oldest);
+        }
+        contextMessagesSignatureMemo.set(messages, signatures);
+    }
+    return signature;
 }
 
-const toolSchemaTokenMemo = new WeakMap();
-const requestReserveTokenMemo = new WeakMap();
+const toolSchemaAnalysisMemo = new WeakMap();
 
 function serializeToolSchemas(tools) {
     const list = Array.isArray(tools) ? tools : [];
@@ -661,7 +715,19 @@ function serializeToolSchemas(tools) {
 }
 
 export function toolSchemaSignature(tools) {
-    return createHash('sha256').update(serializeToolSchemas(tools)).digest('hex');
+    return analyzeToolSchemas(tools).signature;
+}
+
+function analyzeToolSchemas(tools) {
+    const list = Array.isArray(tools) ? tools : [];
+    const cached = Array.isArray(tools) ? toolSchemaAnalysisMemo.get(tools) : null;
+    if (cached && isFinalizedProviderRequestTools(tools)) return cached;
+    const text = serializeToolSchemas(list);
+    const signature = createHash('sha256').update(text).digest('hex');
+    if (cached?.signature === signature) return cached;
+    const analysis = { signature, tokens: estimateTokens(text) };
+    if (Array.isArray(tools)) toolSchemaAnalysisMemo.set(tools, analysis);
+    return analysis;
 }
 
 /**
@@ -674,13 +740,7 @@ export function toolSchemaSignature(tools) {
  */
 export function estimateToolSchemaTokens(tools) {
     if (!Array.isArray(tools) || tools.length === 0) return 0;
-    const signature = toolSchemaSignature(tools);
-    const cached = toolSchemaTokenMemo.get(tools);
-    if (cached?.signature === signature) return cached.value;
-    const text = serializeToolSchemas(tools);
-    const tokens = estimateTokens(text);
-    toolSchemaTokenMemo.set(tools, { signature, value: tokens });
-    return tokens;
+    return analyzeToolSchemas(tools).tokens;
 }
 
 /**
@@ -689,13 +749,8 @@ export function estimateToolSchemaTokens(tools) {
  * not expose a stable framing cost, so no synthetic fixed allowance is added.
  */
 export function estimateRequestReserveTokens(tools) {
-    if (!Array.isArray(tools)) return estimateToolSchemaTokens(tools);
-    const signature = toolSchemaSignature(tools);
-    const cached = requestReserveTokenMemo.get(tools);
-    if (cached?.signature === signature) return cached.value;
-    const reserve = estimateToolSchemaTokens(tools);
-    requestReserveTokenMemo.set(tools, { signature, value: reserve });
-    return reserve;
+    if (!Array.isArray(tools) || tools.length === 0) return estimateToolSchemaTokens(tools);
+    return analyzeToolSchemas(tools).tokens;
 }
 
 /**

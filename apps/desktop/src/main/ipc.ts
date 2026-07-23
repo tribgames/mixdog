@@ -32,6 +32,7 @@ import {
 } from '../shared/contract';
 import type { EngineHost } from './engine-host';
 import { resolve as resolvePath, sep as pathSep } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { requiredSessionId } from './desktop-state';
 import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
@@ -614,40 +615,116 @@ export function registerDesktopIpc(
   // IPC serializer. The preload bridge reassembles full snapshots; a resync
   // request (window reload, missed event) restarts from a full send.
   let sentItems: readonly unknown[] | null = null;
+  let sentStreamingTail: Record<string, unknown> | null = null;
+  let sentStateFields: Record<string, unknown> | null = null;
   let sentRevision = 0;
+  const snapshotFieldsFrom = (record: Record<string, unknown>): Record<string, unknown> => {
+    const fields: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      if (key !== 'items' && key !== 'streamingTail') fields[key] = value;
+    }
+    return fields;
+  };
+  const patchStateFields = (
+    wire: Record<string, unknown>,
+    record: Record<string, unknown>,
+    base: number,
+    revision: number,
+  ): void => {
+    const nextFields = snapshotFieldsFrom(record);
+    const previousFields = sentStateFields || {};
+    const changed: Record<string, unknown> = {};
+    const removed: string[] = [];
+    for (const [key, value] of Object.entries(nextFields)) {
+      if (!Object.hasOwn(previousFields, key) || !isDeepStrictEqual(previousFields[key], value)) {
+        changed[key] = value;
+      }
+    }
+    for (const key of Object.keys(previousFields)) {
+      if (!Object.hasOwn(nextFields, key)) removed.push(key);
+    }
+    wire.__statePatch = { base, revision, changed, removed };
+    sentStateFields = nextFields;
+  };
+  const streamingTailFrom = (record: Record<string, unknown> | null): Record<string, unknown> | null => {
+    const value = record?.streamingTail;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
+  };
+  const patchStreamingTail = (
+    wire: Record<string, unknown>,
+    nextTail: Record<string, unknown> | null,
+  ): void => {
+    const previousTail = sentStreamingTail;
+    if (isDeepStrictEqual(previousTail, nextTail)) {
+      sentStreamingTail = nextTail;
+      return;
+    }
+    const previousText = typeof previousTail?.text === 'string' ? previousTail.text : '';
+    const nextText = typeof nextTail?.text === 'string' ? nextTail.text : '';
+    if (
+      previousTail
+      && nextTail
+      && previousTail.id != null
+      && previousTail.id === nextTail.id
+      && nextText.startsWith(previousText)
+    ) {
+      const tail = { ...nextTail };
+      delete tail.text;
+      delete wire.streamingTail;
+      wire.__streamingTailPatch = {
+        prefix: previousText.length,
+        append: nextText.slice(previousText.length),
+        tail,
+      };
+    } else {
+      wire.streamingTail = nextTail;
+    }
+    sentStreamingTail = nextTail;
+  };
   const sendEngineState = (snapshot: EngineSnapshot): void => {
     if (window.isDestroyed() || window.webContents.isDestroyed()) return;
     const record = snapshot as Record<string, unknown> | null;
     const items = record && Array.isArray(record.items) ? record.items as unknown[] : null;
+    const streamingTail = streamingTailFrom(record);
     if (!items) {
       sentItems = null;
+      sentStreamingTail = streamingTail;
+      sentStateFields = record ? snapshotFieldsFrom(record) : null;
       window.webContents.send(DESKTOP_IPC.state, snapshot);
       return;
     }
     sentRevision += 1;
     if (sentItems) {
+      const base = sentRevision - 1;
       let prefix = 0;
       const shared = Math.min(sentItems.length, items.length);
       while (prefix < shared && sentItems[prefix] === items[prefix]) prefix += 1;
-      const wire: Record<string, unknown> = { ...record };
-      delete wire.items;
+      const wire: Record<string, unknown> = {};
       wire.__itemsPatch = {
-        base: sentRevision - 1,
+        base,
         revision: sentRevision,
         prefix,
         append: items.slice(prefix),
       };
+      patchStateFields(wire, record!, base, sentRevision);
+      patchStreamingTail(wire, streamingTail);
       sentItems = items;
       window.webContents.send(DESKTOP_IPC.state, wire);
       return;
     }
     sentItems = items;
+    sentStreamingTail = streamingTail;
+    sentStateFields = snapshotFieldsFrom(record!);
     window.webContents.send(DESKTOP_IPC.state, { ...record, __itemsRevision: sentRevision });
   };
   const unsubscribeState = host.subscribe(sendEngineState);
   const onStateResync = (event: Electron.IpcMainEvent): void => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) return;
     sentItems = null;
+    sentStreamingTail = null;
+    sentStateFields = null;
     sendEngineState(host.getSnapshot());
   };
   ipcMain.on(DESKTOP_IPC.stateResync, onStateResync);

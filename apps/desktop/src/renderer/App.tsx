@@ -13,6 +13,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 // react-markdown and the remark/unified ecosystem are heavy; they load as a
 // separate lazy chunk (MarkdownBody) so the first paint never pays for them.
@@ -40,7 +41,6 @@ import {
   X,
 } from "lucide-react";
 import { MxIcon } from "./MxIcon";
-import { ContextBody } from "./CommandSurface";
 import { createPortal } from "react-dom";
 import { elementScroll, useVirtualizer } from "@tanstack/react-virtual";
 import type {
@@ -116,6 +116,15 @@ import { Composer, ProjectContextSelector, PROJECT_CONTEXT_LOCAL, PROJECT_CONTEX
 
 import { DesktopUpdateDialog, DesktopToastRegion, InlineErrors } from "./notifications";
 import { Conversation } from "./Conversation";
+import {
+  createDesktopSnapshotStore,
+  desktopChromeSnapshotsEqual,
+  desktopConversationSnapshotsEqual,
+  desktopDockSnapshotsEqual,
+  desktopHeaderSnapshotsEqual,
+  desktopSidebarSnapshotsEqual,
+  type DesktopSnapshotStore,
+} from "./desktop-snapshot-store";
 
 const SESSION_SNAPSHOT_CACHE_LIMIT = 6;
 const SIDEBAR_OPEN_KEY = 'mixdog.desktop-sidebar-open.v1';
@@ -228,8 +237,102 @@ if (typeof window !== "undefined") {
   });
 }
 
+const selectDesktopSnapshot = (snapshot: Snapshot) => snapshot;
+
+function useDesktopSnapshotSelector<T>(
+  store: DesktopSnapshotStore,
+  selector: (snapshot: Snapshot) => T,
+  isEqual: (left: T, right: T) => boolean = Object.is,
+): T {
+  const cached = useRef<{ value: T } | null>(null);
+  const getSelection = useCallback(() => {
+    const next = selector(store.getSnapshot());
+    const previous = cached.current;
+    if (previous && isEqual(previous.value, next)) return previous.value;
+    cached.current = { value: next };
+    return next;
+  }, [isEqual, selector, store]);
+  return useSyncExternalStore(store.subscribe, getSelection, getSelection);
+}
+
+function useSelectedDesktopSnapshot(
+  store: DesktopSnapshotStore,
+  frozenSnapshot: Snapshot | null,
+  isEqual: (left: Snapshot, right: Snapshot) => boolean = Object.is,
+): Snapshot {
+  const selector = useCallback(
+    (live: Snapshot) => frozenSnapshot || live,
+    [frozenSnapshot],
+  );
+  return useDesktopSnapshotSelector(store, selector, isEqual);
+}
+
+type LiveConversationProps = Omit<React.ComponentProps<typeof Conversation>, "snapshot" | "routeSnapshot"> & {
+  snapshotStore: DesktopSnapshotStore;
+  frozenSnapshot: Snapshot | null;
+  hidden: boolean;
+};
+
+const LiveConversation = memo(function LiveConversation({
+  snapshotStore,
+  frozenSnapshot,
+  hidden,
+  ...props
+}: LiveConversationProps) {
+  const selectedSnapshot = useSelectedDesktopSnapshot(
+    snapshotStore,
+    frozenSnapshot,
+    desktopConversationSnapshotsEqual,
+  );
+  const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
+  return <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot} {...props} />;
+});
+
+function SnapshotHeaderStatus({
+  snapshotStore,
+  frozenSnapshot,
+  hidden,
+  onOpen,
+}: {
+  snapshotStore: DesktopSnapshotStore;
+  frozenSnapshot: Snapshot | null;
+  hidden: boolean;
+  onOpen(): void;
+}) {
+  const selectedSnapshot = useSelectedDesktopSnapshot(
+    snapshotStore,
+    frozenSnapshot,
+    desktopHeaderSnapshotsEqual,
+  );
+  const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
+  return <>
+    <LiveWorkStatus snapshot={visibleSnapshot} />
+    <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
+  </>;
+}
+
+function SnapshotUtilityDock({
+  snapshotStore,
+  frozenSnapshot,
+  hidden,
+  ...props
+}: Omit<React.ComponentProps<typeof UtilityDock>, "snapshot"> & {
+  snapshotStore: DesktopSnapshotStore;
+  frozenSnapshot: Snapshot | null;
+  hidden: boolean;
+}) {
+  const selectedSnapshot = useSelectedDesktopSnapshot(
+    snapshotStore,
+    frozenSnapshot,
+    desktopDockSnapshotsEqual,
+  );
+  return <UtilityDock {...props} snapshot={hidden ? EMPTY_SNAPSHOT : selectedSnapshot} />;
+}
+
 function useDesktopState() {
-  const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY_SNAPSHOT);
+  const snapshotStoreRef = useRef<DesktopSnapshotStore | null>(null);
+  snapshotStoreRef.current ||= createDesktopSnapshotStore();
+  const snapshotStore = snapshotStoreRef.current;
   const snapshotRef = useRef<Snapshot>(EMPTY_SNAPSHOT);
   const [connected, setConnected] = useState(Boolean(window.mixdogDesktop));
   const [error, setError] = useState("");
@@ -259,8 +362,8 @@ function useDesktopState() {
       transcriptTurnKeys: failureModel.current.turnKeys,
     };
     snapshotRef.current = decorated;
-    setSnapshot(decorated);
-  }, []);
+    snapshotStore.publish(decorated);
+  }, [snapshotStore]);
 
   useEffect(() => {
     const host = window.mixdogDesktop;
@@ -282,11 +385,21 @@ function useDesktopState() {
     };
   }, [applySnapshot]);
 
-  return { snapshot, snapshotRef, connected, error, setError, setSnapshot, applySnapshot };
+  return { snapshotStore, snapshotRef, connected, error, setError, applySnapshot };
 }
 
 export function App() {
-  const { snapshot, snapshotRef, connected, error, setError, applySnapshot } = useDesktopState();
+  const { snapshotStore, snapshotRef, connected, error, setError, applySnapshot } = useDesktopState();
+  const snapshot = useDesktopSnapshotSelector(
+    snapshotStore,
+    selectDesktopSnapshot,
+    desktopChromeSnapshotsEqual,
+  );
+  const sidebarSnapshot = useDesktopSnapshotSelector(
+    snapshotStore,
+    selectDesktopSnapshot,
+    desktopSidebarSnapshotsEqual,
+  );
   // Layout persists across launches (user decision); a FRESH install opens
   // with the sidebar visible and the dock closed.
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -348,11 +461,6 @@ export function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
-  useLayoutEffect(() => {
-    const subscribe = window.mixdogDesktop.subscribeUpdaterState;
-    if (typeof subscribe !== "function") return;
-    return subscribe((next) => setUpdaterState(next));
-  }, []);
   useEffect(() => {
     if (updaterState.status !== "ready") setUpdateDialogOpen(false);
   }, [updaterState.status]);
@@ -408,7 +516,11 @@ export function App() {
     }
     return cached;
   }, []);
-  useEffect(() => rememberSessionSnapshot(snapshot), [rememberSessionSnapshot, snapshot]);
+  useEffect(() => {
+    const rememberCurrent = () => rememberSessionSnapshot(snapshotStore.getSnapshot());
+    rememberCurrent();
+    return snapshotStore.subscribe(rememberCurrent);
+  }, [rememberSessionSnapshot, snapshotStore]);
   const newTaskReady = useRef(false);
   const newTaskSetup = useRef<{
     key: string;
@@ -426,7 +538,7 @@ export function App() {
   const pendingSessionRenames = useRef(new Map<string, { title: string }>());
   const pendingSessionDeletes = useRef(new Set<string>());
   const isBusy = Boolean(snapshot.busy || snapshot.commandBusy);
-  const activeBusy = hasActiveSnapshotWork(snapshot);
+  const activeBusy = hasActiveSnapshotWork(sidebarSnapshot);
   const startupMeasured = useRef(false);
   useEffect(() => {
     if (!import.meta.env?.DEV || startupMeasured.current) return;
@@ -1361,9 +1473,9 @@ export function App() {
     : undefined;
   const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
   const workingSessionIds = useMemo(() => {
-    const activeSessionId = String(snapshot.sessionId || "");
+    const activeSessionId = String(sidebarSnapshot.sessionId || "");
     return workingSessionIdsForSnapshot(sessions, activeSessionId, activeBusy);
-  }, [activeBusy, sessions, snapshot.sessionId]);
+  }, [activeBusy, sessions, sidebarSnapshot.sessionId]);
   // Viewing a session consumes its unread marker.
   const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";
   useEffect(() => {
@@ -1439,6 +1551,10 @@ export function App() {
     catch { /* persistence is a convenience only */ }
   }, [activeProjectPath]);
   const activeTabKey = navigationKey(navigationSelection);
+  const frozenSnapshot = switchingSessionId && frozenSessionSnapshot.current
+    ? frozenSessionSnapshot.current
+    : null;
+  const hideLiveSnapshot = selection.kind === "new" && !newTaskActive;
   const navigateTab = (tab: WorkspaceTab) => {
     if (tab.key === activeTabKey) {
       // Re-selecting the current tab while the Schedules pane owns the main
@@ -1476,8 +1592,25 @@ export function App() {
   // mod+N new task · ctrl+Tab / mod+←→ cycle tabs (everywhere — user chose
   // tab switching over composer word-jump; shift+mod+←→ keeps word
   // selection) · mod+, settings · mod+B sidebar toggle.
+  const shortcutActionsRef = useRef({
+    tabs,
+    activeTabKey,
+    navigateTab,
+    startTask,
+    openSettings,
+    closeTab,
+  });
+  shortcutActionsRef.current = {
+    tabs,
+    activeTabKey,
+    navigateTab,
+    startTask,
+    openSettings,
+    closeTab,
+  };
   useEffect(() => {
     const cycleTab = (offset: number) => {
+      const { tabs, activeTabKey, navigateTab } = shortcutActionsRef.current;
       if (tabs.length < 2) return;
       const index = tabs.findIndex((tab) => tab.key === activeTabKey);
       const next = tabs[(index + offset + tabs.length) % tabs.length];
@@ -1489,12 +1622,12 @@ export function App() {
       const key = event.key.toLowerCase();
       if (key === "n" && !event.shiftKey && !event.altKey) {
         event.preventDefault();
-        startTask();
+        shortcutActionsRef.current.startTask();
         return;
       }
       if (key === "," && !event.shiftKey && !event.altKey) {
         event.preventDefault();
-        openSettings();
+        shortcutActionsRef.current.openSettings();
         return;
       }
       if (key === "b" && !event.shiftKey && !event.altKey) {
@@ -1509,6 +1642,7 @@ export function App() {
       }
       if (key === "q" && !event.shiftKey && !event.altKey) {
         event.preventDefault();
+        const { tabs, activeTabKey, closeTab } = shortcutActionsRef.current;
         const active = tabs.find((tab) => tab.key === activeTabKey);
         if (active) closeTab(active);
         return;
@@ -1526,7 +1660,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  });
+  }, []);
 
   return (
     <div className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"}`}>
@@ -1610,7 +1744,8 @@ export function App() {
                   <button type="button" className="session-title-regenerate"
                     aria-label="Regenerate title" data-tooltip="Regenerate title"
                     onClick={() => {
-                      const seed = ((visibleSnapshot.items || []) as TranscriptItem[]).find((entry) =>
+                      const actionSnapshot = frozenSnapshot || snapshotRef.current;
+                      const seed = ((actionSnapshot.items || []) as TranscriptItem[]).find((entry) =>
                         entry?.kind === "user" && String(entry.text || "").trim());
                       if (seed) void renameSession(selectedSession.id, promptTitle(String(seed.text || "")));
                     }}>
@@ -1618,8 +1753,8 @@ export function App() {
                   </button>
                 )}
                 <div className="session-header-status">
-                  <LiveWorkStatus snapshot={visibleSnapshot} />
-                  <ContextUsageIndicator snapshot={visibleSnapshot}
+                  <SnapshotHeaderStatus snapshotStore={snapshotStore}
+                    frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot}
                     onOpen={() => setCommandSurface("context")} />
                   <button type="button" className="session-dock-toggle"
                     onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
@@ -1638,7 +1773,9 @@ export function App() {
             </header>
             {reviewOpen
               ? <ReviewPane cwd={String(visibleSnapshot.currentProject || visibleSnapshot.project || "") || null} />
-              : <Conversation snapshot={visibleSnapshot} routeSnapshot={selectedSnapshot} invoke={invoke} invokeResult={invokeResult}
+              : <LiveConversation snapshotStore={snapshotStore}
+              frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot}
+              invoke={invoke} invokeResult={invokeResult}
               errors={errors} submit={submit} applySnapshot={applySnapshot}
               transitioning={Boolean(transitionSessionId)}
               composerFocusRequest={composerFocusRequest}
@@ -1669,9 +1806,11 @@ export function App() {
             on narrow viewports). */}
         {dockOpen && <button className="dock-backdrop" onClick={() => setDockOpen(false)}
           aria-label="Close utility panel" />}
-        {dockRender && <UtilityDock open={dockOpen} width={dockWidth} tab={dockTab}
+        {dockRender && <SnapshotUtilityDock snapshotStore={snapshotStore}
+          frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot}
+          open={dockOpen} width={dockWidth} tab={dockTab}
           onTab={setDockTab} onResize={(value) => setDockWidth(clampDockWidth(value))}
-          items={(visibleSnapshot.items || []) as TranscriptItem[]} snapshot={visibleSnapshot} />}
+        />}
       </div>
       <ProjectSwitcher
         open={projectPanelOpen}

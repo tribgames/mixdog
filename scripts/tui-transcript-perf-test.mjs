@@ -26,6 +26,7 @@ import {
 import { attachAssistantTranscriptMetadata } from '../src/runtime/agent/orchestrator/session/agent-loop.mjs';
 import {
   buildTranscriptRowIndexIncremental,
+  transcriptHarvestInputsEqual,
   transcriptItemsWithStableTail,
   transcriptStructureSignature,
 } from '../src/tui/app/transcript-window.mjs';
@@ -680,6 +681,32 @@ test('tail height changes reuse the settled transcript container', () => {
     cacheRef,
   );
   assert.equal(after, before, 'tail growth must not spread/copy the settled prefix');
+});
+
+test('transcript harvest gate skips unrelated commits and observes layout changes', () => {
+  const settledItems = [{ id: 'stable', kind: 'notice', text: 'stable' }];
+  const tail = { id: 'tail', kind: 'assistant', streaming: true, text: 'a' };
+  const inputs = {
+    revision: 3,
+    settledItems,
+    streamingTailItem: tail,
+    startIndex: 0,
+    endIndex: 2,
+    frameColumns: 80,
+    toolOutputExpanded: false,
+    transcriptContentHeight: 24,
+    floatingPanelRows: 0,
+    overlayHintRequested: false,
+    transcriptGuardRows: 1,
+    themeEpoch: 0,
+  };
+  assert.equal(transcriptHarvestInputsEqual(inputs, { ...inputs }), true);
+  assert.equal(transcriptHarvestInputsEqual(inputs, {
+    ...inputs,
+    streamingTailItem: { ...tail, text: 'ab' },
+  }), false);
+  assert.equal(transcriptHarvestInputsEqual(inputs, { ...inputs, frameColumns: 79 }), false);
+  assert.equal(transcriptHarvestInputsEqual(inputs, { ...inputs, revision: 4 }), false);
 });
 
 test('transcript spill caps the live window and restores every item in order', () => {

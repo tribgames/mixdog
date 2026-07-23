@@ -57,7 +57,7 @@ async function main() {
     } catch { /* fall through to in-place run */ }
   }
   const { run } = await import('./app.mjs');
-  return await run(argv);
+  return await run(argv, invocation);
 }
 
 main().then(async (code) => {

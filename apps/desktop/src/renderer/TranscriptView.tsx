@@ -9,6 +9,10 @@ import { asRecord, displayProject, navigationKey, newDraftSelection, textOf, pub
 import { imagePreviewCache, imagePreviewKey, registerImagePreview, lastVisibleTranscriptItemIndex, estimatedTranscriptRowHeight, TRANSCRIPT_VIRTUALIZE_THRESHOLD, TRANSCRIPT_VIRTUAL_OVERSCAN } from "./transcript-metrics";
 import { DiffView, TerminalPane } from "./lazy-widgets";
 import { resolveContextUsage } from "./context-usage";
+import {
+  createStreamingMarkdownCache,
+  resolveStreamingMarkdownChunks,
+} from "./streaming-markdown";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory, formatAggregateHeader, formatToolSurface, summarizeToolResult } from "../../../../src/runtime/shared/tool-surface.mjs";
 
@@ -343,6 +347,9 @@ export function preloadMarkdownBody() {
   return markdownBodyPromise;
 }
 export const MarkdownBody = lazy(preloadMarkdownBody);
+const StableMarkdownBody = React.memo(function StableMarkdownBody({ text }: { text: string }) {
+  return <MarkdownBody text={text} copyControl={CopyControl} />;
+});
 
 export const MarkdownResponse = React.memo(function MarkdownResponse({ text, streaming }: {
   text: string;
@@ -351,6 +358,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({ text, str
   const [renderedText, setRenderedText] = useState(text);
   const pendingText = useRef(text);
   const parseTimer = useRef<number | undefined>(undefined);
+  const markdownCache = useRef(createStreamingMarkdownCache());
   pendingText.current = text;
   useEffect(() => {
     if (!streaming) {
@@ -368,9 +376,15 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({ text, str
     return undefined;
   }, [text, streaming]);
   useEffect(() => () => window.clearTimeout(parseTimer.current), []);
+  const markdownParts = resolveStreamingMarkdownChunks(renderedText, streaming, markdownCache.current);
   return <div className={`markdown ${streaming ? "streaming" : ""}`}>
     <Suspense fallback={<div className="markdown-plain">{renderedText}</div>}>
-      <MarkdownBody text={renderedText} copyControl={CopyControl} />
+      {markdownParts.stableChunks.map((chunk, index) => (
+        <StableMarkdownBody key={`stable-${index}`} text={chunk} />
+      ))}
+      {markdownParts.unstableText
+        ? <StableMarkdownBody key="unstable" text={markdownParts.unstableText} />
+        : null}
     </Suspense>
     {streaming && <span className="stream-cursor" aria-hidden="true" />}
   </div>;

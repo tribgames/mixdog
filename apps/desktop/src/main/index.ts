@@ -272,7 +272,10 @@ async function createWindow(): Promise<void> {
   };
 
   const statePath = join(app.getPath('userData'), 'window-state.json');
-  const savedState = await readWindowState(statePath, screen.getAllDisplays());
+  const [savedState, initialZoom] = await Promise.all([
+    readWindowState(statePath, screen.getAllDisplays()),
+    settingsStore ? settingsStore.readZoom() : Promise.resolve(1),
+  ]);
   configureTitleBarThemePersistence(join(app.getPath('userData'), 'desktop-titlebar-theme'));
   const window = new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,
@@ -291,7 +294,6 @@ async function createWindow(): Promise<void> {
   // the renderer's lazy getZoomFactor call a beat after the window appeared,
   // which rescaled the page and the titlebar overlay height in quick
   // succession — the visible double "pop" of the title tab on startup.
-  const initialZoom = settingsStore ? await settingsStore.readZoom() : 1;
   if (initialZoom !== 1) {
     setDesktopTitleBarZoom(window, initialZoom);
     window.webContents.on('dom-ready', () => {

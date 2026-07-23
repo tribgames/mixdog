@@ -83,12 +83,16 @@ test('desktop classification is optional and round-trips through the existing su
     owner: 'cli',
     agent: 'lead',
     cwd: '/app/workspace',
+    updatedAt: 20,
+    lastUsedAt: 12,
     desktopSession: { classification: 'task', projectPath: null },
   });
   const project = _normalizeSummaryIndex({
     rows: [{
       id: 'lead_project',
       cwd: '/project',
+      updatedAt: 30,
+      lastUsedAt: 15,
       desktopSession: { classification: 'project', projectPath: '/project' },
     }],
   }).rows[0];
@@ -99,6 +103,8 @@ test('desktop classification is optional and round-trips through the existing su
 
   assert.deepEqual(task.desktopSession, { classification: 'task', projectPath: null });
   assert.deepEqual(project.desktopSession, { classification: 'project', projectPath: '/project' });
+  assert.equal(task.lastUsedAt, 12);
+  assert.equal(project.lastUsedAt, 15);
   assert.equal(legacy.desktopSession, null);
   assert.equal(malformed.desktopSession, null);
 });
@@ -175,6 +181,31 @@ test('session summaries use the first real user request and remove injected disp
   });
 
   assert.equal(summary.preview, 'Align the project dropdown');
+});
+
+test('session summary message projection updates append, mutation, and replacement paths', () => {
+  const session = {
+    id: 'summary_projection_cache',
+    messages: [
+      { role: 'user', content: 'first request' },
+      { role: 'assistant', content: 'first response' },
+    ],
+  };
+  const first = _sessionSummary(session);
+  assert.equal(first.messageCount, 2);
+  assert.equal(first.preview, 'first request');
+
+  session.messages.push({ role: 'assistant', content: 'second response' });
+  const appended = _sessionSummary(session);
+  assert.equal(appended.messageCount, 3);
+
+  session.messages[0].content = 'updated first request';
+  assert.equal(_sessionSummary(session).preview, 'updated first request');
+
+  session.messages = [{ role: 'user', content: 'replacement request' }];
+  const replaced = _sessionSummary(session);
+  assert.equal(replaced.messageCount, 1);
+  assert.equal(replaced.preview, 'replacement request');
 });
 
 test('authoritative summary refresh repairs a stale index and skips malformed session files', () => {

@@ -7,8 +7,11 @@ import {
     estimateToolSchemaTokens,
     estimateTokens,
     IMAGE_VISUAL_TOKEN_ALLOWANCE,
+    contextMessagesRevision,
+    contextMessagesSignature,
     providerTokenCalibration,
     summarizeContextMessages,
+    summarizeContextMessagesAtRevision,
 } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
 import { createContextStatus } from '../src/session-runtime/context-status.mjs';
 import {
@@ -407,6 +410,31 @@ test('native replay fingerprint detects encrypted reasoning and provider metadat
     message.providerMetadata.gemini.thoughtParts[0].text = 'gemini_private_thought_'.repeat(1_000);
     const fourth = summarizeContextMessages(messages).estimatedTokens;
     assert.ok(fourth > third, 'in-place Gemini replay metadata mutation must invalidate the message memo');
+});
+
+test('context summary and signature caches reuse a stable revision and detect mutation', () => {
+    const messages = [
+        { role: 'user', content: 'stable request' },
+        { role: 'assistant', content: 'stable response' },
+    ];
+    const firstSummary = summarizeContextMessages(messages);
+    const firstRevision = contextMessagesRevision(messages);
+    const firstSignature = contextMessagesSignature(messages);
+    assert.equal(
+        summarizeContextMessagesAtRevision(messages, firstRevision),
+        firstSummary,
+        'a known revision should reuse the materialized summary',
+    );
+    assert.equal(contextMessagesSignature(messages), firstSignature);
+
+    messages[1].content = 'changed response '.repeat(100);
+    const secondRevision = contextMessagesRevision(messages);
+    assert.ok(secondRevision > firstRevision);
+    assert.notEqual(
+        summarizeContextMessagesAtRevision(messages, secondRevision),
+        firstSummary,
+    );
+    assert.notEqual(contextMessagesSignature(messages), firstSignature);
 });
 
 test('recall compaction preserves provider-scoped Gemini replay metadata on the live tail', () => {

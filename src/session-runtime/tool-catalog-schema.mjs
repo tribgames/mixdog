@@ -13,6 +13,7 @@ import {
 } from '../runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
 import {
   finalizeProviderRequestTools,
+  isFinalizedProviderRequestTools,
   providerNativeToolPrefixCount,
 } from './provider-request-tools.mjs';
 import {
@@ -101,7 +102,10 @@ export function toolSchemaBucket(tool) {
 export function estimateToolSchemaBreakdown(tools) {
   if (Array.isArray(tools)) {
     const cached = toolSchemaBreakdownMemo.get(tools);
-    if (sameToolSchemaEntries(cached, tools)) return cached.value;
+    if (cached && (
+      isFinalizedProviderRequestTools(tools)
+      || sameToolSchemaEntries(cached, tools)
+    )) return cached.value;
   }
   const out = {};
   const list = Array.isArray(tools) ? tools : [];

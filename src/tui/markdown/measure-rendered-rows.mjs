@@ -85,15 +85,19 @@ function measureStreamingPartsUncached(parts, columns) {
   }
   let rows = 0;
   let childCount = 0;
-  if (parts.stablePrefix) {
-    rows += measureMarkdownRenderedRows(parts.stablePrefix, columns, { trimPartialFences: false });
+  const stableChunks = parts.stableChunks?.length
+    ? parts.stableChunks
+    : parts.stablePrefix ? [parts.stablePrefix] : [];
+  for (const chunk of stableChunks) {
+    if (childCount > 0) rows += 1;
+    rows += measureMarkdownRenderedRows(chunk, columns, { trimPartialFences: false });
     childCount += 1;
   }
   if (parts.unstableSuffix) {
+    if (childCount > 0) rows += 1;
     rows += measureMarkdownRenderedRows(parts.unstableForRender, columns, { trimPartialFences: true });
     childCount += 1;
   }
-  if (childCount === 2) rows += 1;
   return childCount === 0 ? 1 : Math.max(1, rows);
 }
 
@@ -166,30 +170,38 @@ export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
   let rows = 0;
   let childCount = 0;
   let stableRows = 0;
-  if (parts.stablePrefix) {
-    // The renderer mounts stablePrefix and unstableSuffix as separate Markdown
-    // children. An unchanged stable child is therefore safe to reuse exactly;
-    // only the independently-rendered live suffix needs measuring on append.
-    stableRows = cached
-      && cached.mode === 'markdown'
-      && cached.columns === columns
-      && cached.stablePrefix === parts.stablePrefix
-      ? cached.stableRows
-      : measureMarkdownRenderedRows(parts.stablePrefix, columns, { trimPartialFences: false });
-    rows += stableRows;
-    childCount += 1;
+  const stableChunks = parts.stableChunks?.length
+    ? parts.stableChunks
+    : parts.stablePrefix ? [parts.stablePrefix] : [];
+  const reusableChunks = cached
+    && cached.mode === 'markdown'
+    && cached.columns === columns
+    && Array.isArray(cached.stableChunks)
+    && cached.stableChunks.length <= stableChunks.length
+    && cached.stableChunks.every((chunk, index) => chunk === stableChunks[index]);
+  let measuredStableChunks = 0;
+  if (reusableChunks) {
+    stableRows = cached.stableRows;
+    measuredStableChunks = cached.stableChunks.length;
   }
+  for (let index = measuredStableChunks; index < stableChunks.length; index += 1) {
+    if (index > 0) stableRows += 1;
+    stableRows += measureMarkdownRenderedRows(stableChunks[index], columns, { trimPartialFences: false });
+  }
+  rows += stableRows;
+  childCount = stableChunks.length;
   if (parts.unstableSuffix) {
+    if (childCount > 0) rows += 1;
     rows += measureMarkdownRenderedRows(parts.unstableForRender, columns, { trimPartialFences: true });
     childCount += 1;
   }
-  if (childCount === 2) rows += 1;
   const measuredRows = childCount === 0 ? 1 : Math.max(1, rows);
   cacheStreamingRows(key, {
     text: value,
     columns,
     mode: 'markdown',
     stablePrefix: parts.stablePrefix,
+    stableChunks: stableChunks.slice(),
     stableRows,
     rows: measuredRows,
   });

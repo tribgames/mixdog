@@ -125,6 +125,7 @@ export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> 
 
 export interface DesktopEngineState extends Readonly<Record<string, unknown>> {
   items?: DesktopTranscriptItem[];
+  streamingTail?: DesktopTranscriptItem | null;
   queued?: unknown[];
   busy?: boolean;
   commandBusy?: boolean;
@@ -163,9 +164,22 @@ export interface DesktopStateItemsPatch {
   prefix: number;
   append: DesktopTranscriptItem[];
 }
+export interface DesktopStateStreamingTailPatch {
+  prefix: number;
+  append: string;
+  tail: DesktopTranscriptItem;
+}
+export interface DesktopStateFieldsPatch {
+  base: number;
+  revision: number;
+  changed: Readonly<Record<string, unknown>>;
+  removed: string[];
+}
 export type DesktopStateWire = (DesktopEngineState & {
   __itemsRevision?: number;
   __itemsPatch?: DesktopStateItemsPatch;
+  __streamingTailPatch?: DesktopStateStreamingTailPatch;
+  __statePatch?: DesktopStateFieldsPatch;
 }) | null;
 
 export interface ToolApprovalDecision {
@@ -464,6 +478,9 @@ export interface DesktopSessionSummary {
   preview: string;
   title: string;
   updatedAt: number;
+  /** User-visible conversation activity; unlike updatedAt, lifecycle-only
+   *  resume/detach saves do not advance this timestamp. */
+  activityAt?: number;
   /** User/assistant message count — the unread dot keys off GROWTH here, not
    *  updatedAt, so housekeeping saves never re-dot an already-checked session. */
   messageCount: number;

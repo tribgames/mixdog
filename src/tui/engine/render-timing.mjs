@@ -20,11 +20,38 @@
 const RENDER_ACK_FALLBACK_MS = 32;
 const RENDER_ACK_HANG_GUARD_MS = 250;
 const RENDER_SETTLE_IDLE_MS = 64;
+export const TUI_RENDER_FPS = 60;
+// Ink uses Math.ceil(1000 / maxFps); share that exact cadence with the store.
+export const TUI_FRAME_MS = Math.ceil(1000 / TUI_RENDER_FPS);
 
 // Back-compat alias: previously the fixed wait duration, now the fallback only.
 
 let pendingRenderAcks = [];
 let renderAckSeq = 0;
+let lastRenderFrameAt = 0;
+
+export const renderFrameDelay = (
+  lastFrameAt,
+  currentTime,
+  frameMs = TUI_FRAME_MS,
+) => {
+  if (!(lastFrameAt > 0)) return frameMs;
+  return Math.max(0, frameMs - Math.max(0, currentTime - lastFrameAt));
+};
+
+export const scheduleRenderAlignedStoreFlush = (
+  callback,
+  frameMs = TUI_FRAME_MS,
+) => {
+  const timer = setTimeout(
+    callback,
+    renderFrameDelay(lastRenderFrameAt, performance.now(), frameMs),
+  );
+  timer.unref?.();
+  return timer;
+};
+
+export const cancelRenderAlignedStoreFlush = (timer) => clearTimeout(timer);
 
 /**
  * Called by the Ink onRender hook once per painted frame. The sequence is
@@ -38,6 +65,7 @@ export const scheduleRenderFrameAck = () => {
 };
 
 const notifyRenderFrame = (seq = ++renderAckSeq) => {
+  lastRenderFrameAt = performance.now();
   if (pendingRenderAcks.length === 0) return;
   const acks = pendingRenderAcks;
   pendingRenderAcks = [];

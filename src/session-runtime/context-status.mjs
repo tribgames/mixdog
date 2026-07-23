@@ -5,6 +5,7 @@ import {
   providerTokenCalibration,
   resolveSessionCompactPolicy,
   summarizeContextMessages,
+  summarizeContextMessagesAtRevision,
   toolSchemaSignature,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
@@ -234,7 +235,7 @@ export function createContextStatus({
       return contextStatusCacheValue;
     }
 
-    const messageSummary = summarizeContextMessages(messages);
+    const messageSummary = summarizeContextMessagesAtRevision(messages, messagesRevision);
     const toolSchemaTokens = estimateToolSchemaTokens(requestTools);
     const toolSchemaBreakdown = estimateToolSchemaBreakdown(requestTools);
     const requestReserveTokens = estimateRequestReserveTokens(requestTools);

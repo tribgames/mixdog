@@ -77,7 +77,12 @@ import {
 import {
   resolveTuiRuntimeNotificationDelivery,
 } from './engine/notification-plan.mjs';
-import { yieldToRenderer } from './engine/render-timing.mjs';
+import {
+  TUI_FRAME_MS,
+  cancelRenderAlignedStoreFlush,
+  scheduleRenderAlignedStoreFlush,
+  yieldToRenderer,
+} from './engine/render-timing.mjs';
 import {
   aggregateRawResult,
   aggregateBucketForCategory,
@@ -273,6 +278,9 @@ export async function createEngineSession({
     },
     listeners,
     isDisposed: () => flags.disposed,
+    frameMs: TUI_FRAME_MS,
+    scheduleFrame: scheduleRenderAlignedStoreFlush,
+    cancelFrame: cancelRenderAlignedStoreFlush,
   });
   const emit = publisher.emit;
   const flushEmit = publisher.flush;

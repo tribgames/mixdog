@@ -1795,14 +1795,18 @@ test("sidebar footer keeps settings while the titlebar exposes the titlebar upda
   assert.equal(updateOpens, 1);
 });
 
-test("sidebar keeps Project below New task and lists every session newest-first", async () => {
+test("sidebar keeps Project below New task and orders Recent by conversation activity", async () => {
   installDom();
   const resumes = [];
+  let publishSessions = null;
   const sessions = Array.from({ length: 6 }, (_, index) => ({
     id: `recent-${index + 1}`,
     preview: `Recent ${index + 1}`,
     title: `Recent ${index + 1}`,
-    updatedAt: index + 1,
+    // Lifecycle bookkeeping runs in the opposite order; it must not affect
+    // the user-visible Recent order.
+    updatedAt: 100 - index,
+    activityAt: index + 1,
     cwd: "C:\\work",
     classification: index % 2 ? "project" : "task",
     projectPath: index % 2 ? "C:\\work" : null,
@@ -1811,6 +1815,10 @@ test("sidebar keeps Project below New task and lists every session newest-first"
   window.mixdogDesktop = {
     getSnapshot: async () => ({ items: [], queued: [] }),
     subscribeState: () => () => {},
+    subscribeSessions: (listener) => {
+      publishSessions = listener;
+      return () => {};
+    },
     listProjects: async () => [],
     listSessions: async () => sessions,
     resumeSession: async (id) => {
@@ -1845,6 +1853,26 @@ test("sidebar keeps Project below New task and lists every session newest-first"
     await Promise.resolve();
   });
   assert.deepEqual(resumes, ["recent-4"]);
+
+  await act(async () => {
+    publishSessions(sessions.map((session) => (
+      session.id === "recent-4" ? { ...session, updatedAt: 1_000 } : session
+    )));
+    await Promise.resolve();
+  });
+  assert.deepEqual(Array.from(recent.querySelectorAll(".session-row"),
+    (row) => row.textContent.trim()),
+  ["Recent 6", "Recent 5", "Recent 4", "Recent 3", "Recent 2", "Recent 1"],
+  "resume bookkeeping alone must not reshuffle Recent");
+
+  await act(async () => {
+    publishSessions(sessions.map((session) => (
+      session.id === "recent-4" ? { ...session, updatedAt: 1_000, activityAt: 10 } : session
+    )));
+    await Promise.resolve();
+  });
+  assert.equal(recent.querySelector(".session-row")?.getAttribute("data-session-id"), "recent-4",
+    "new conversation activity should promote the session");
 });
 
 test("sidebar shows the working spinner for live spinner activity even when busy is false", async () => {

@@ -29,6 +29,7 @@ import {
   TRANSCRIPT_WINDOW_OVERSCAN_ROWS,
   upperBound,
   shiftSelectionRectY,
+  transcriptHarvestInputsEqual,
 } from './transcript-window.mjs';
 import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.mjs';
 
@@ -125,6 +126,11 @@ export function useTranscriptWindow({
   // overscan band).
   const transcriptItemElsRef = useRef(new Map());
   const transcriptMeasureRefCache = useRef(new Map());
+  const harvestGateRef = useRef({
+    inputs: null,
+    skippedForDrag: false,
+    forceNext: false,
+  });
   // id → latest item object for this render. The callback ref reads from here so
   // a reused (stable) callback never captures a stale item across patches.
   const transcriptMeasureItemsRef = useRef(new Map());
@@ -516,6 +522,20 @@ export function useTranscriptWindow({
     && floatingPanelRows <= 0
     && transcriptGuardRows > 0
     && !overlayHintOnLastItem;
+  const harvestInputs = {
+    revision,
+    settledItems,
+    streamingTailItem,
+    startIndex: transcriptWindow.startIndex,
+    endIndex: transcriptWindow.endIndex,
+    frameColumns,
+    toolOutputExpanded,
+    transcriptContentHeight,
+    floatingPanelRows,
+    overlayHintRequested,
+    transcriptGuardRows,
+    themeEpoch,
+  };
   // ── App-level measured height harvest ───────────────────────────────────
   // Runs after EVERY commit (no deps): Yoga has just laid out the mounted rows,
   // so each tracked item Box's getComputedHeight() is its REAL terminal height.
@@ -528,6 +548,7 @@ export function useTranscriptWindow({
   // follow path already keeps them visually stable.
   useLayoutEffect(() => {
     if (!TRANSCRIPT_MEASURED_ROWS) return;
+    const gate = harvestGateRef.current;
     // Skip the per-row Yoga harvest while a drag is in progress. Edge auto-
     // scroll commits setScrollOffset on every pointer motion, but the mounted
     // rows' real heights do not change during a drag — only their scroll
@@ -535,9 +556,18 @@ export function useTranscriptWindow({
     // variantKey check per row) for no height change, which is pure drag
     // overhead on a tall transcript. The cached measurements stay authoritative
     // for the row-index math; a single re-measure is forced on release below.
-    if (dragRef.current.active) return;
+    if (dragRef.current.active) {
+      gate.skippedForDrag = true;
+      return;
+    }
+    if (!gate.skippedForDrag
+      && !gate.forceNext
+      && transcriptHarvestInputsEqual(gate.inputs, harvestInputs)) return;
     const els = transcriptItemElsRef.current;
     if (!els || els.size === 0) return;
+    gate.inputs = harvestInputs;
+    gate.skippedForDrag = false;
+    gate.forceNext = false;
     const liveItems = transcriptMeasureItemsRef.current;
     const toolExpandedFlag = toolOutputExpanded ? 1 : 0;
     let changed = false;
@@ -655,6 +685,11 @@ export function useTranscriptWindow({
           }, 0);
           if (typeof streak.timer?.unref === 'function') streak.timer.unref();
         }
+        // Preserve the original convergence contract: a measurement-driven
+        // render gets one confirmation harvest even when no external layout
+        // input changed. Stable rows stop there; a real oscillation continues
+        // until the existing circuit breaker trips.
+        gate.forceNext = true;
         setMeasuredRowsVersion((v) => (v + 1) % 1000000);
       }
     }

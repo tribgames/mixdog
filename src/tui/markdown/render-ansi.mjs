@@ -16,9 +16,14 @@
 import { marked } from 'marked';
 import { formatToken } from './format-token.mjs';
 import { trimPartialClosingFences, findOpenFenceStart } from './stream-fence.mjs';
+import { getThemeVersion } from '../theme.mjs';
 
 const TOKEN_CACHE_MAX = 500;
 const tokenCache = new Map();
+const renderedSegmentCache = [];
+const RENDERED_SEGMENT_CACHE_MAX = 12;
+const RENDERED_SEGMENT_CACHE_MAX_CHARS = 256 * 1024;
+let renderedSegmentCacheChars = 0;
 const MD_SYNTAX_RE = /[#*`|[>\-_~]|\n\n|^\d+\. |\n\d+\. /;
 
 let _configured = false;
@@ -99,8 +104,24 @@ function lexMarkdown(content, { trimPartialFences = false } = {}) {
  * Blank-edge-only ansi segments are dropped (mirrors the component's pushAnsi).
  */
 export function renderTokenAnsiSegments(content, opts = {}) {
-  const tokens = lexMarkdown(content, opts);
+  const text = String(content ?? '');
   const width = Number(opts.width) || 0;
+  const trimPartialFences = opts.trimPartialFences === true;
+  const themeVersion = getThemeVersion();
+  for (let index = renderedSegmentCache.length - 1; index >= 0; index -= 1) {
+    const entry = renderedSegmentCache[index];
+    if (
+      entry.text === text
+      && entry.width === width
+      && entry.trimPartialFences === trimPartialFences
+      && entry.themeVersion === themeVersion
+    ) {
+      renderedSegmentCache.splice(index, 1);
+      renderedSegmentCache.push(entry);
+      return entry.segments;
+    }
+  }
+  const tokens = lexMarkdown(text, opts);
   const segments = [];
   for (const token of tokens) {
     if (token.type === 'table') {
@@ -111,6 +132,18 @@ export function renderTokenAnsiSegments(content, opts = {}) {
       const ansi = String(formatToken(token, 0, null, null, width) ?? '').replace(/^\n+|\n+$/g, '');
       if (!ansi) continue;
       segments.push({ type: 'ansi', ansi, token });
+    }
+  }
+  if (text.length <= RENDERED_SEGMENT_CACHE_MAX_CHARS) {
+    const entry = { text, width, trimPartialFences, themeVersion, segments };
+    renderedSegmentCache.push(entry);
+    renderedSegmentCacheChars += text.length;
+    while (
+      renderedSegmentCache.length > RENDERED_SEGMENT_CACHE_MAX
+      || renderedSegmentCacheChars > RENDERED_SEGMENT_CACHE_MAX_CHARS
+    ) {
+      const removed = renderedSegmentCache.shift();
+      renderedSegmentCacheChars -= removed?.text.length || 0;
     }
   }
   return segments;

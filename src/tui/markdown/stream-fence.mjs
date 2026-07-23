@@ -55,6 +55,8 @@ export function trimPartialClosingFences(tokens) {
  */
 const OPEN_FENCE_RE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 const CLOSE_FENCE_RE = /^ {0,3}([`~]+)[ \t]*$/;
+const OPEN_FENCE_SCAN_LRU_MAX = 32;
+const openFenceScanByStreamKey = new Map();
 
 function isClosingFence(line, char, openLen) {
   const m = CLOSE_FENCE_RE.exec(line);
@@ -66,12 +68,14 @@ function isClosingFence(line, char, openLen) {
   return run.startsWith(char.repeat(openLen));
 }
 
-export function findOpenFenceStart(text) {
-  const value = String(text ?? '');
-  let open = null;
-  let start = 0;
-  for (let i = 0; i <= value.length; i++) {
+function scanOpenFence(value, startAt = 0, initialOpen = null) {
+  let open = initialOpen;
+  let start = startAt;
+  const checkpointIndex = value.lastIndexOf('\n') + 1;
+  let openBeforeCheckpoint = start === checkpointIndex ? open : null;
+  for (let i = startAt; i <= value.length; i++) {
     if (i !== value.length && value[i] !== '\n') continue;
+    if (start === checkpointIndex) openBeforeCheckpoint = open;
     const line = value.slice(start, i);
     if (!open) {
       const m = OPEN_FENCE_RE.exec(line);
@@ -88,7 +92,40 @@ export function findOpenFenceStart(text) {
     }
     start = i + 1;
   }
+  return { open, checkpointIndex, openBeforeCheckpoint };
+}
+
+function touchOpenFenceScan(key, entry) {
+  if (openFenceScanByStreamKey.has(key)) openFenceScanByStreamKey.delete(key);
+  openFenceScanByStreamKey.set(key, entry);
+  while (openFenceScanByStreamKey.size > OPEN_FENCE_SCAN_LRU_MAX) {
+    const oldest = openFenceScanByStreamKey.keys().next().value;
+    if (oldest === undefined) break;
+    openFenceScanByStreamKey.delete(oldest);
+  }
+}
+
+export function resetOpenFenceScan(streamKey) {
+  if (streamKey == null || streamKey === '') return;
+  openFenceScanByStreamKey.delete(String(streamKey));
+}
+
+export function resetAllOpenFenceScans() {
+  openFenceScanByStreamKey.clear();
+}
+
+export function findOpenFenceStart(text, streamKey = null) {
+  const value = String(text ?? '');
+  const key = streamKey == null || streamKey === '' ? null : String(streamKey);
+  const cached = key ? openFenceScanByStreamKey.get(key) : null;
+  if (cached?.text === value) return cached.result;
+  const scanned = cached && value.startsWith(cached.text)
+    ? scanOpenFence(value, cached.checkpointIndex, cached.openBeforeCheckpoint)
+    : scanOpenFence(value);
   // Only fast-path unambiguously top-level (column-0) fences.
-  if (!open || open.indent !== 0) return null;
-  return { index: open.index, lang: open.lang };
+  const result = !scanned.open || scanned.open.indent !== 0
+    ? null
+    : { index: scanned.open.index, lang: scanned.open.lang };
+  if (key) touchOpenFenceScan(key, { text: value, ...scanned, result });
+  return result;
 }

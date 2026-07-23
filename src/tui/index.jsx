@@ -14,7 +14,7 @@ import { format } from 'node:util';
 import { App } from './App.jsx';
 import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
 import { createEngineSession } from './engine.mjs';
-import { scheduleRenderFrameAck } from './engine/render-timing.mjs';
+import { scheduleRenderFrameAck, TUI_RENDER_FPS } from './engine/render-timing.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 import { finishProcessLifecycle } from '../runtime/shared/process-lifecycle.mjs';
 import { rgbSgr } from '../ui/ansi.mjs';
@@ -481,6 +481,12 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
 
   process.on('exit', restoreTerminal);
 
+  // Engine startup is independent from palette selection. Start it now and
+  // overlap its runtime import/config work with the theme read, while still
+  // awaiting the theme before the first React frame.
+  const storeOutcomePromise = createEngineSession({ provider, model, toolMode, remote })
+    .then((store) => ({ store, error: null }), (error) => ({ store: null, error }));
+
   // Apply the persisted UI theme (ui.theme in mixdog-config.json) before the
   // first React frame so the whole tree paints in the chosen palette. Unknown
   // or missing values leave the default Mixdog dark palette in place; a failed
@@ -496,7 +502,9 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
 
   let store;
   try {
-    store = await createEngineSession({ provider, model, toolMode, remote });
+    const outcome = await storeOutcomePromise;
+    if (outcome.error) throw outcome.error;
+    store = outcome.store;
     bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     splash.stop();
@@ -590,7 +598,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     // its clear-frame → write → relative re-render dance, which scrolls the
     // alt screen one line per stray console line (the streaming newline
     // bounce). See installTuiConsoleGuard.
-    const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} />, { exitOnCtrlC: false, maxFps: 60, incrementalRendering: true, patchConsole: false, onRender: makeRenderProfiler() });
+    const instance = render(<App store={store} forceOnboarding={forceOnboarding === true} />, { exitOnCtrlC: false, maxFps: TUI_RENDER_FPS, incrementalRendering: true, patchConsole: false, onRender: makeRenderProfiler() });
     bootProfile('render:mounted', { ms: (performance.now() - startedAt).toFixed(1) });
     const { waitUntilExit } = instance;
     // [mixdog fork] Hand the ink renderer's drag-selection setter to the store so

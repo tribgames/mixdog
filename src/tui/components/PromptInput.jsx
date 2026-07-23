@@ -126,6 +126,7 @@ export function PromptInput({
   // that node's REAL laid-out position + our caret col/row — no external
   // absolute-coordinate guessing, so it never drifts).
   const boxRef = useRef(null);
+  const inkRootRef = useRef(null);
   const cursorEnabledRef = useRef(false); // latest enabled state, read by the anchor fn at render time
   const contentWidthRef = useRef(80);
   const preferredColumnRef = useRef(null);
@@ -154,9 +155,15 @@ export function PromptInput({
   // (slower) rendering, never a crash.
   const flushThrottleRef = useRef({ lastAt: 0, timer: null });
   const flushImmediate = () => {
+    const cachedRoot = inkRootRef.current;
+    if (typeof cachedRoot?.onImmediateRender === 'function') {
+      cachedRoot.onImmediateRender();
+      return;
+    }
     let node = boxRef.current;
     for (let i = 0; node && i < 64; i++) {
       if (node.nodeName === 'ink-root') {
+        inkRootRef.current = node;
         if (typeof node.onImmediateRender === 'function') node.onImmediateRender();
         return;
       }

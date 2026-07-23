@@ -34,6 +34,7 @@ import {
     _removeSessionSummary,
     _pruneSummaryIndexIds,
     _flushPendingSummaryOps,
+    _hasUnsettledSummaryOps,
 } from './store-summary-index.mjs';
 // Facade re-export: summary-index API moved to store-summary-index.mjs; keep
 // prior importers of store.mjs unchanged.
@@ -839,7 +840,12 @@ function _overlayUnpersistedSummaryRows(rows, invalidStorageIds = new Set()) {
 function rebuildSessionSummaryIndex() {
     _ensureSummaryCacheDataDir();
     const { rows } = _scanStoredSessionSummaryRows();
-    return _setSummaryRowsCache(_writeSummaryIndex(rows));
+    const indexedRows = _writeSummaryIndex(rows);
+    // This process just authored the new cache base. Remember its mtime so the
+    // next local save cannot mistake the rebuild for a cross-process update
+    // and replace a newer in-memory row with the just-obsoleted sidecar.
+    try { _summaryIndexMtimeSeen = statSync(summaryIndexPath()).mtimeMs || 0; } catch { /* stat only */ }
+    return _setSummaryRowsCache(indexedRows);
 }
 
 export function listStoredSessionSummaries(options = {}) {
@@ -871,6 +877,10 @@ export function listStoredSessionSummaries(options = {}) {
         }
     }
     if (_summaryRowsCache !== null) {
+        // A local session save has already updated the in-memory cache but its
+        // non-blocking sidecar merge may still be queued/in flight. Re-reading
+        // the older sidecar in that window would temporarily erase the new row.
+        if (_hasUnsettledSummaryOps()) return _cachedSummaryRows().slice();
         // Cross-process freshness: another live process (terminal CLI owning a
         // session this surface only views) advances messageCount/updatedAt by
         // rewriting the summary index FILE — an in-memory cache that never

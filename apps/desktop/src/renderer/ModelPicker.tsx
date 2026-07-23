@@ -128,6 +128,7 @@ export function ModelPicker({
   const pickerLayer = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const modelList = useRef<HTMLDivElement>(null);
+  const restoreFocusPending = useRef(false);
 
   const close = useCallback((restoreFocus = false) => {
     setOpen(false);
@@ -196,6 +197,11 @@ export function ModelPicker({
   useEffect(() => {
     if (disabled && open) close();
   }, [close, disabled, open]);
+  useEffect(() => {
+    if (disabled || !restoreFocusPending.current) return;
+    restoreFocusPending.current = false;
+    trigger.current?.focus({ preventScroll: true });
+  }, [disabled]);
 
   const providerEntries = useMemo(() => {
     const entries = new Map<string, DesktopModelOption[]>();
@@ -297,7 +303,12 @@ export function ModelPicker({
       setRecentModelKeys(previousRecentModelKeys);
       writeRecentModelKeys(previousRecentModelKeys);
     } finally {
-      window.setTimeout(() => trigger.current?.focus({ preventScroll: true }), 0);
+      restoreFocusPending.current = true;
+      queueMicrotask(() => {
+        if (trigger.current?.disabled !== false) return;
+        restoreFocusPending.current = false;
+        trigger.current.focus({ preventScroll: true });
+      });
     }
   };
   const renderModelOption = (option: DesktopModelOption, scope = '') => {

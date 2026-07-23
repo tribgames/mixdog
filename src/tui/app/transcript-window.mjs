@@ -303,6 +303,22 @@ export function hasStreamingRowStateToPrune() {
     || streamingTailEstimateById.size > 0;
 }
 
+export function transcriptHarvestInputsEqual(left, right) {
+  return !!left && !!right
+    && left.revision === right.revision
+    && left.settledItems === right.settledItems
+    && left.streamingTailItem === right.streamingTailItem
+    && left.startIndex === right.startIndex
+    && left.endIndex === right.endIndex
+    && left.frameColumns === right.frameColumns
+    && left.toolOutputExpanded === right.toolOutputExpanded
+    && left.transcriptContentHeight === right.transcriptContentHeight
+    && left.floatingPanelRows === right.floatingPanelRows
+    && left.overlayHintRequested === right.overlayHintRequested
+    && left.transcriptGuardRows === right.transcriptGuardRows
+    && left.themeEpoch === right.themeEpoch;
+}
+
 /** Drop streamingMeasuredRowsById entries for ids no longer mounted, so the
  * store does not grow unbounded over a long session (mirrors the id→item /
  * id→callback map pruning already done for the mounted set). */

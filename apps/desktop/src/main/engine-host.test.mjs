@@ -254,6 +254,7 @@ test("desktop session summaries prioritize manual names over generated titles an
       id: "task_1",
       preview: " Fresh task ",
       updatedAt: 10,
+      lastUsedAt: 8,
       cwd: "C:\\app\\workspace",
       desktopSession: { classification: "task", projectPath: null },
     },
@@ -277,6 +278,7 @@ test("desktop session summaries prioritize manual names over generated titles an
     preview: "Fresh task",
     title: "Custom task name",
     updatedAt: 10,
+    activityAt: 8,
     messageCount: 0,
     cwd: "C:\\app\\workspace",
     classification: "task",
@@ -1428,9 +1430,21 @@ test("desktop IPC state pushes ride identity-prefix transcript deltas", () => {
     // Append: shared identity prefix travels as an offset, not as data.
     assert.equal(states[1].items, undefined);
     assert.deepEqual(states[1].__itemsPatch, { base: 1, revision: 2, prefix: 1, append: [itemB] });
+    assert.deepEqual(states[1].__statePatch, {
+      base: 1,
+      revision: 2,
+      changed: {},
+      removed: [],
+    });
     // In-place tail replacement (streaming): only the changed suffix is sent.
     assert.deepEqual(states[2].__itemsPatch, { base: 2, revision: 3, prefix: 1, append: [itemB2] });
-    assert.equal(states[2].busy, false);
+    assert.equal(states[2].busy, undefined);
+    assert.deepEqual(states[2].__statePatch, {
+      base: 2,
+      revision: 3,
+      changed: { busy: false },
+      removed: [],
+    });
     // A null/itemless snapshot resets the stream: the next send is full again.
     assert.equal(states[3], null);
     assert.equal(states[4].__itemsRevision, 4);

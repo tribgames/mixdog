@@ -12,6 +12,8 @@ export function createFrameBatchedStorePublisher({
   setTimer = setTimeout,
   clearTimer = clearTimeout,
   enqueueMicrotask = queueMicrotask,
+  scheduleFrame = (callback, delay) => setTimer(callback, delay),
+  cancelFrame = (handle) => clearTimer(handle),
 }) {
   let timer = null;
   let emitPending = false;
@@ -20,7 +22,7 @@ export function createFrameBatchedStorePublisher({
 
   const flush = () => {
     if (timer !== null) {
-      clearTimer(timer);
+      cancelFrame(timer);
       timer = null;
     }
     immediatePending = false;
@@ -43,7 +45,7 @@ export function createFrameBatchedStorePublisher({
   const emit = () => {
     emitPending = true;
     if (timer !== null || isDisposed()) return;
-    timer = setTimer(flush, frameMs);
+    timer = scheduleFrame(flush, frameMs);
     timer?.unref?.();
   };
 
@@ -64,7 +66,7 @@ export function createFrameBatchedStorePublisher({
     // Disposal is itself an immediate boundary: publish the final pending
     // snapshot once, while subscribers are still present, then disarm.
     if (emitPending && !isDisposed()) flush();
-    else if (timer !== null) clearTimer(timer);
+    else if (timer !== null) cancelFrame(timer);
     timer = null;
     emitPending = false;
     structureChangePending = false;

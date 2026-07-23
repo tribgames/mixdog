@@ -4,10 +4,17 @@
  */
 import { marked } from 'marked';
 import { configureMarked, hasMarkdownSyntax } from './render-ansi.mjs';
-import { trimPartialClosingFences, findOpenFenceStart } from './stream-fence.mjs';
+import {
+  trimPartialClosingFences,
+  findOpenFenceStart,
+  resetAllOpenFenceScans,
+  resetOpenFenceScan,
+} from './stream-fence.mjs';
 import { displayWidth } from '../display-width.mjs';
 
 const stablePrefixByStreamKey = new Map();
+const markdownSyntaxByStreamKey = new Map();
+const plainWindowSyntaxByStreamKey = new Map();
 // Reuse the current normalized-text split across measure → render → harvest.
 const resolvedPartsByStreamKey = new Map();
 const STABLE_PREFIX_LRU_MAX = 32;
@@ -17,46 +24,90 @@ export function streamingLayoutText(text) {
   return String(text ?? '').replace(/^\n+|\n+$/g, '');
 }
 
-export function windowPlainStreamingText(text, columns, maxRows) {
+export function windowPlainStreamingText(text, columns, maxRows, streamKey = null) {
   const value = streamingLayoutText(text);
   const rowBudget = Math.max(0, Math.floor(Number(maxRows) || 0));
-  if (!value || rowBudget <= 0 || hasMarkdownSyntax(value)) return value;
-  const lines = value.split('\n');
+  const key = streamKey == null || streamKey === '' ? null : String(streamKey);
+  if (!value || rowBudget <= 0 || cachedStreamingHasMarkdownSyntax(
+    plainWindowSyntaxByStreamKey,
+    value,
+    key,
+  )) return value;
   const width = Math.max(1, Math.floor(Number(columns) || 80));
   let rows = 0;
-  let start = lines.length;
-  while (start > 0) {
-    const line = lines[start - 1];
+  let end = value.length;
+  let start = end;
+  while (end >= 0) {
+    const newline = value.lastIndexOf('\n', end - 1);
+    const lineStart = newline + 1;
+    const line = value.slice(lineStart, end);
     const lineRows = Math.max(1, Math.ceil(displayWidth(line) / width));
     if (rows > 0 && rows + lineRows > rowBudget) break;
     rows += lineRows;
-    start -= 1;
-    if (rows >= rowBudget) break;
+    start = lineStart;
+    if (rows >= rowBudget || newline < 0) break;
+    end = newline;
   }
-  return start > 0 ? lines.slice(start).join('\n') : value;
+  return start > 0 ? value.slice(start) : value;
 }
 
 function isWhitespaceOnlyText(text) {
   return !String(text ?? '').trim();
 }
 
-function touchStablePrefixKey(key, value) {
+function touchLruKey(cache, key, value) {
   if (!key) return;
-  if (stablePrefixByStreamKey.has(key)) stablePrefixByStreamKey.delete(key);
-  stablePrefixByStreamKey.set(key, value);
-  while (stablePrefixByStreamKey.size > STABLE_PREFIX_LRU_MAX) {
-    const oldest = stablePrefixByStreamKey.keys().next().value;
+  if (cache.has(key)) cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > STABLE_PREFIX_LRU_MAX) {
+    const oldest = cache.keys().next().value;
     if (oldest === undefined) break;
-    stablePrefixByStreamKey.delete(oldest);
+    cache.delete(oldest);
   }
 }
 
+function touchStablePrefixKey(key, value) {
+  touchLruKey(stablePrefixByStreamKey, key, value);
+}
+
 function getStablePrefixKey(key) {
-  if (!key || !stablePrefixByStreamKey.has(key)) return '';
+  if (!key || !stablePrefixByStreamKey.has(key)) return { text: '', chunks: [] };
   const value = stablePrefixByStreamKey.get(key);
-  stablePrefixByStreamKey.delete(key);
-  stablePrefixByStreamKey.set(key, value);
+  touchStablePrefixKey(key, value);
   return value;
+}
+
+function stableStateForText(text, previous) {
+  if (!text) return { text: '', chunks: [] };
+  if (text.startsWith(previous.text)) {
+    const appended = text.substring(previous.text.length);
+    return appended
+      ? { text, chunks: [...previous.chunks, appended] }
+      : previous;
+  }
+  return { text, chunks: [text] };
+}
+
+function cachedStreamingHasMarkdownSyntax(cache, text, key) {
+  if (!key) return hasMarkdownSyntax(text);
+  const previous = cache.get(key);
+  let value;
+  if (previous && text.startsWith(previous.text)) {
+    if (previous.value) {
+      value = true;
+    } else {
+      const lineStart = previous.text.lastIndexOf('\n') + 1;
+      value = hasMarkdownSyntax(text.substring(Math.max(0, lineStart - 1)));
+    }
+  } else {
+    value = hasMarkdownSyntax(text);
+  }
+  touchLruKey(cache, key, { text, value });
+  return value;
+}
+
+function streamingHasMarkdownSyntax(text, key) {
+  return cachedStreamingHasMarkdownSyntax(markdownSyntaxByStreamKey, text, key);
 }
 
 function getResolvedPartsKey(key, text) {
@@ -136,12 +187,18 @@ export function resetStreamingMarkdownStablePrefix(streamKey) {
   if (streamKey == null || streamKey === '') return;
   const key = String(streamKey);
   stablePrefixByStreamKey.delete(key);
+  markdownSyntaxByStreamKey.delete(key);
+  plainWindowSyntaxByStreamKey.delete(key);
   resolvedPartsByStreamKey.delete(key);
+  resetOpenFenceScan(key);
 }
 
 export function resetAllStreamingMarkdownStablePrefixes() {
   stablePrefixByStreamKey.clear();
+  markdownSyntaxByStreamKey.clear();
+  plainWindowSyntaxByStreamKey.clear();
   resolvedPartsByStreamKey.clear();
+  resetAllOpenFenceScans();
 }
 
 export function resolveStreamingMarkdownParts(text, streamKey) {
@@ -155,42 +212,47 @@ export function resolveStreamingMarkdownParts(text, streamKey) {
     return cacheResolvedPartsKey(key, t, {
       plain: true,
       stablePrefix: '',
+      stableChunks: [],
       unstableSuffix: '',
       unstableForRender: '',
     });
   }
 
-  if (!hasMarkdownSyntax(t)) {
+  if (!streamingHasMarkdownSyntax(t, key)) {
     if (key) stablePrefixByStreamKey.delete(key);
     return cacheResolvedPartsKey(key, t, {
       plain: true,
       stablePrefix: '',
+      stableChunks: [],
       unstableSuffix: t,
       unstableForRender: t,
     });
   }
 
-  let stablePrefix = key ? getStablePrefixKey(key) : '';
-  if (!t.startsWith(stablePrefix)) {
-    stablePrefix = '';
+  let stableState = key ? getStablePrefixKey(key) : { text: '', chunks: [] };
+  if (!t.startsWith(stableState.text)) {
+    stableState = { text: '', chunks: [] };
   }
+  let stablePrefix = stableState.text;
 
   // Open-fence fast path: never run marked.lexer on a growing unclosed code
   // block (its closing-fence regex never matches and backtracks over the whole
   // body every delta — the ~56ms/frame cost). Split cheaply at the fence line:
   // everything before it is settled markdown (lexed + cached once by the stable
   // <Markdown>), the open block is rendered flat until the closing fence lands.
-  const open = findOpenFenceStart(t);
+  const open = findOpenFenceStart(t, key);
   if (open) {
     let openPrefix = t.substring(0, open.index);
     if (isWhitespaceOnlyText(openPrefix)) openPrefix = '';
-    if (key && openPrefix) touchStablePrefixKey(key, openPrefix);
+    stableState = stableStateForText(openPrefix, stableState);
+    if (key && openPrefix) touchStablePrefixKey(key, stableState);
     else if (key) stablePrefixByStreamKey.delete(key);
     const unstableSuffix = t.substring(openPrefix.length);
     return cacheResolvedPartsKey(key, t, {
       plain: false,
       openFence: true,
       stablePrefix: openPrefix,
+      stableChunks: stableState.chunks,
       unstableSuffix,
       unstableForRender: unstableSuffix,
     });
@@ -214,20 +276,26 @@ export function resolveStreamingMarkdownParts(text, streamKey) {
     if (advance > 0) {
       stablePrefix = t.substring(0, boundary + advance);
       if (isWhitespaceOnlyText(stablePrefix)) stablePrefix = '';
-      if (key && stablePrefix) touchStablePrefixKey(key, stablePrefix);
+      stableState = stableStateForText(stablePrefix, stableState);
+      if (key && stablePrefix) touchStablePrefixKey(key, stableState);
       else if (key && !stablePrefix) stablePrefixByStreamKey.delete(key);
     }
   } catch {
     stablePrefix = '';
+    stableState = { text: '', chunks: [] };
     if (key) stablePrefixByStreamKey.delete(key);
   }
 
-  if (isWhitespaceOnlyText(stablePrefix)) stablePrefix = '';
+  if (isWhitespaceOnlyText(stablePrefix)) {
+    stablePrefix = '';
+    stableState = { text: '', chunks: [] };
+  }
 
   const unstableSuffix = t.substring(stablePrefix.length);
   return cacheResolvedPartsKey(key, t, {
     plain: false,
     stablePrefix,
+    stableChunks: stableState.chunks,
     unstableSuffix,
     unstableForRender: balanceStreamingMarkdown(unstableSuffix),
   });

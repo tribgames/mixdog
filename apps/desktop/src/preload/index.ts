@@ -5,8 +5,11 @@ import {
   DESKTOP_IPC,
   type DesktopApi,
   type DesktopSessionSummary,
+  type DesktopStateFieldsPatch,
   type DesktopStateItemsPatch,
+  type DesktopStateStreamingTailPatch,
   type DesktopStateWire,
+  type DesktopTranscriptItem,
   type EngineSnapshot,
   type DesktopUpdaterState,
 } from '../shared/contract';
@@ -49,10 +52,30 @@ const api: DesktopApi = {
     // consuming complete EngineSnapshot objects; unchanged items retain their
     // object identity across snapshots, so memoized rows skip re-rendering.
     let items: unknown[] = [];
+    let streamingTail: DesktopTranscriptItem | null = null;
+    let stateFields: Record<string, unknown> = {};
     let revision: number | null = null;
+    const stateFieldsFrom = (record: Record<string, unknown>): Record<string, unknown> => {
+      const fields: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(record)) {
+        if (
+          key !== 'items'
+          && key !== 'streamingTail'
+          && key !== '__itemsRevision'
+          && key !== '__itemsPatch'
+          && key !== '__streamingTailPatch'
+          && key !== '__statePatch'
+        ) {
+          fields[key] = value;
+        }
+      }
+      return fields;
+    };
     const receive = (_event: Electron.IpcRendererEvent, wire: DesktopStateWire): void => {
       if (!wire || typeof wire !== 'object') {
         items = [];
+        streamingTail = null;
+        stateFields = {};
         revision = null;
         listener(wire as EngineSnapshot);
         return;
@@ -62,6 +85,7 @@ const api: DesktopApi = {
       if (!patch) {
         const snapshot = { ...record };
         delete snapshot.__itemsRevision;
+        delete snapshot.__statePatch;
         if (Array.isArray(snapshot.items)) {
           items = snapshot.items;
           revision = typeof record.__itemsRevision === 'number' ? record.__itemsRevision : null;
@@ -69,15 +93,56 @@ const api: DesktopApi = {
           items = [];
           revision = null;
         }
+        streamingTail = snapshot.streamingTail && typeof snapshot.streamingTail === 'object'
+          ? snapshot.streamingTail as DesktopTranscriptItem
+          : null;
+        stateFields = stateFieldsFrom(snapshot);
         listener(snapshot as EngineSnapshot);
         return;
       }
-      if (revision === null || patch.base !== revision) {
+      const statePatch = record.__statePatch as DesktopStateFieldsPatch | undefined;
+      if (
+        revision === null
+        || patch.base !== revision
+        || (statePatch && (statePatch.base !== revision || statePatch.revision !== patch.revision))
+      ) {
         // Lost sync (preload reload, missed event): drop the patch and ask the
         // host to restart from a full snapshot.
         revision = null;
         try { ipcRenderer.send(DESKTOP_IPC.stateResync); } catch { /* next full send recovers */ }
         return;
+      }
+      if (statePatch) {
+        const nextFields = { ...stateFields };
+        for (const key of statePatch.removed) delete nextFields[key];
+        Object.assign(nextFields, statePatch.changed);
+        stateFields = nextFields;
+      } else {
+        stateFields = stateFieldsFrom(record);
+      }
+      const tailPatch = record.__streamingTailPatch as DesktopStateStreamingTailPatch | undefined;
+      let nextStreamingTail = streamingTail;
+      if (tailPatch) {
+        const priorText = typeof streamingTail?.text === 'string' ? streamingTail.text : '';
+        if (
+          !streamingTail
+          || streamingTail.id == null
+          || streamingTail.id !== tailPatch.tail.id
+          || tailPatch.prefix < 0
+          || tailPatch.prefix > priorText.length
+        ) {
+          revision = null;
+          try { ipcRenderer.send(DESKTOP_IPC.stateResync); } catch { /* next full send recovers */ }
+          return;
+        }
+        nextStreamingTail = {
+          ...tailPatch.tail,
+          text: priorText.slice(0, tailPatch.prefix) + tailPatch.append,
+        };
+      } else if (Object.hasOwn(record, 'streamingTail')) {
+        nextStreamingTail = record.streamingTail && typeof record.streamingTail === 'object'
+          ? record.streamingTail as DesktopTranscriptItem
+          : null;
       }
       // A streaming-tail-only publication carries an empty settled-items
       // patch. Preserve the array identity so renderer memos do not rescan the
@@ -86,9 +151,10 @@ const api: DesktopApi = {
         items = items.slice(0, patch.prefix).concat(patch.append);
       }
       revision = patch.revision;
-      const snapshot = { ...record };
-      delete snapshot.__itemsPatch;
+      const snapshot = { ...stateFields };
       snapshot.items = items;
+      snapshot.streamingTail = nextStreamingTail;
+      streamingTail = nextStreamingTail;
       listener(snapshot as EngineSnapshot);
     };
     ipcRenderer.on(DESKTOP_IPC.state, receive);
@@ -129,20 +195,11 @@ const api: DesktopApi = {
   openFilePath: (cwd, path) => ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path),
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => {
-    let active = true;
     const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {
       listener(state);
     };
     ipcRenderer.on(DESKTOP_IPC.updaterState, receive);
-    void ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState)
-      .then((state: DesktopUpdaterState) => {
-        if (active) listener(state);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-      ipcRenderer.removeListener(DESKTOP_IPC.updaterState, receive);
-    };
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.updaterState, receive);
   },
   checkForDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.checkForDesktopUpdate),
   showDesktopUpdate: () => ipcRenderer.invoke(DESKTOP_IPC.showDesktopUpdate),

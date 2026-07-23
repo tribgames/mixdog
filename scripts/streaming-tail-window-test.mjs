@@ -5,6 +5,10 @@ import {
   windowPlainStreamingText,
 } from '../src/tui/markdown/streaming-markdown.mjs';
 import {
+  findOpenFenceStart,
+  resetOpenFenceScan,
+} from '../src/tui/markdown/stream-fence.mjs';
+import {
   measureStreamingMarkdownRenderedRows,
   measureStreamingMarkdownRenderedRowsUncached,
 } from '../src/tui/markdown/measure-rendered-rows.mjs';
@@ -40,6 +44,39 @@ test('wrapped plain lines consume the streaming row budget', () => {
   const lines = ['old', 'x'.repeat(160), 'new'];
   assert.equal(windowPlainStreamingText(lines.join('\n'), 80, 2), lines.slice(-1).join('\n'));
   assert.equal(windowPlainStreamingText(lines.join('\n'), 80, 3), lines.slice(-2).join('\n'));
+});
+
+test('plain streaming window preserves suffix output across incremental appends', () => {
+  const key = 'plain-window-incremental';
+  const before = Array.from({ length: 500 }, (_, index) => `plain line ${index}`).join('\n');
+  const after = `${before}\nplain line 500`;
+  assert.equal(
+    windowPlainStreamingText(before, 80, 8, key),
+    before.split('\n').slice(-8).join('\n'),
+  );
+  assert.equal(
+    windowPlainStreamingText(after, 80, 8, key),
+    after.split('\n').slice(-8).join('\n'),
+  );
+});
+
+test('open fence scan preserves results across append, close, and regression', () => {
+  const key = 'incremental-open-fence';
+  assert.equal(findOpenFenceStart('intro', key), null);
+  assert.deepEqual(findOpenFenceStart('intro\n\n```js\nconst a = 1;', key), {
+    index: 7,
+    lang: 'js',
+  });
+  assert.deepEqual(findOpenFenceStart('intro\n\n```js\nconst a = 1;\nconst b = 2;', key), {
+    index: 7,
+    lang: 'js',
+  });
+  assert.equal(findOpenFenceStart('intro\n\n```js\nconst a = 1;\n```', key), null);
+  assert.deepEqual(findOpenFenceStart('```powershell\nGet-ChildItem', key), {
+    index: 0,
+    lang: 'powershell',
+  });
+  resetOpenFenceScan(key);
 });
 
 test('streaming row memo preserves plain append and resize measurements', () => {
