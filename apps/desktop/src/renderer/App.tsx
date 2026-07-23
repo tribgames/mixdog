@@ -106,7 +106,7 @@ import { classifyToolCategory, formatAggregateHeader, formatToolSurface, summari
 import { type RecordValue, type Project, type TranscriptItem, type Approval, type Toast, type Snapshot, EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "./desktop-types";
 import { asRecord, displayProject, navigationKey, newDraftSelection, textOf, publicThinkingSummary, oneLine, queueText, formatElapsed, formatIdleDuration, TURN_LOCKED_SLASH_COMMANDS, copyTextToClipboard } from "./text-format";
 import { imagePreviewCache, imagePreviewKey, registerImagePreview, lastVisibleTranscriptItemIndex, estimatedTranscriptRowHeight, TRANSCRIPT_VIRTUALIZE_THRESHOLD, TRANSCRIPT_VIRTUAL_OVERSCAN } from "./transcript-metrics";
-import { DiffView, TerminalPane } from "./lazy-widgets";
+import { DiffView, TerminalPane, prefetchLazyWidgets } from "./lazy-widgets";
 import { LiveWorkStatus, ContextUsageIndicator, LiveActivity, TextShimmer, CompletionStatus, completionTone, CopyControl, MarkdownResponse, preloadMarkdownBody, transcriptItemSignature, messageMetadata, TranscriptRow, ToolCard, DiffBoundary, CodeDiff, findPatch, toolIcon, toolResultText, isHookApprovalDenialToolItem, shouldSuppressFullyFailedToolItem, boundedTextOf } from "./TranscriptView";
 import { ApprovalCard } from "./ApprovalCard";
 import { TurnReviewBar } from "./TurnReview";
@@ -574,6 +574,10 @@ export function App() {
     // foreground session click wait behind settings work.
     return schedulePostInteractionIdle(() => {
       void loadSettingsViewModule().catch(() => {});
+      // Warm the ~1.7MB DiffView (and terminal) lazy chunks too: loading them
+      // on the first mid-scroll diff-card mount stalled the main thread for
+      // the whole hitch (user: first scroll to the top always lags).
+      prefetchLazyWidgets();
     });
   }, []);
   useEffect(() => {

@@ -47,7 +47,11 @@ function assistantMarkdown(seed: number): string {
   if (kind === 2) {
     return `${paragraph(seed, 2)}\n\n${Array.from({ length: 5 }, (_, i) => `- item ${i}: ${paragraph(seed + i, 1)}`).join('\n')}`;
   }
-  return `${paragraph(seed, 2)}\n\n\`\`\`ts\n${Array.from({ length: 8 + (seed % 9) }, (_, i) => `const line${i} = probe(${seed}, ${i});`).join('\n')}\n\`\`\``;
+  // Real sessions carry multi-hundred-line highlighted code answers; every
+  // 7th fenced row goes big so the scroll-to-top pass pays realistic mount
+  // costs instead of toy paragraphs.
+  const codeLines = 8 + (seed % 9) + (seed % 7 === 0 ? 220 : 0);
+  return `${paragraph(seed, 2)}\n\n\`\`\`ts\n${Array.from({ length: codeLines }, (_, i) => `const line${i} = probe(${seed}, ${i});`).join('\n')}\n\`\`\``;
 }
 
 function probeItems(count: number): Array<Record<string, unknown>> {
@@ -277,8 +281,12 @@ export async function runJitterProbe({
       virtualSpace: el.querySelector('.transcript-virtual-space')?.getBoundingClientRect().height ?? null,
     };
     const pass1 = stats(await passUp());
+    // Return to the bottom for the warm pass; re-assert after layout settles
+    // so pass 2 genuinely starts from the far end.
     el.scrollTop = el.scrollHeight;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    el.scrollTop = el.scrollHeight;
+    await new Promise((resolve) => setTimeout(resolve, 200));
     disarmFollow();
     await new Promise((resolve) => setTimeout(resolve, 120));
     const pass2 = stats(await passUp());
