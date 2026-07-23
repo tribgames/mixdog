@@ -177,7 +177,14 @@ export function TooltipLayer() {
     // unmounts (busy-state swaps) never fires pointerout — reap it.
     document.addEventListener('click', cancel, true);
     const watchdog = window.setInterval(() => {
-      if (active.current && !active.current.isConnected) cancel();
+      const anchor = active.current;
+      if (!anchor) return;
+      // Layout shifts (tab-close width pinning, dock resize, list reorder)
+      // slide a still-connected anchor out from under a stationary pointer —
+      // no pointerout ever fires. Reap when the anchor lost BOTH hover and
+      // keyboard focus, not just when it unmounted.
+      if (!anchor.isConnected
+        || !(anchor.matches(':hover') || anchor.matches(':focus-visible'))) cancel();
     }, 500);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('scroll', cancel, true);
