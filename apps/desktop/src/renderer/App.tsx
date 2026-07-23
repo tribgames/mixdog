@@ -1732,13 +1732,27 @@ export function App() {
             : webhooksOpen ? "webhooks"
             : projectPanelOpen ? "projects"
             : null}
-          onNewTask={(draft?: NavigationSelection) => { closeSidebarForNavigation(); startTask(draft); }}
+          // Re-selecting the CURRENT session/new-task while Schedules or
+          // Webhooks owns the main pane leaves `selection` unchanged, so the
+          // close-on-selection effect never fires — close the takeover panes
+          // here explicitly (user report: list click appeared dead).
+          onNewTask={(draft?: NavigationSelection) => {
+            closeSidebarForNavigation();
+            setSchedulesOpen(false);
+            setWebhooksOpen(false);
+            startTask(draft);
+          }}
           onOpenProjects={() => { closeSidebarForNavigation(); setProjectPanelOpen(true); }}
           onOpenSchedules={() => { closeSidebarForNavigation(); openSchedules(); }}
           onOpenWebhooks={() => { closeSidebarForNavigation(); openWebhooks(); }}
           onOpenSettings={() => { closeSidebarForNavigation(); openSettings(); }}
           onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
-          onResumeSession={(sessionId: string) => { closeSidebarForNavigation(); resumeSession(sessionId); }}
+          onResumeSession={(sessionId: string) => {
+            closeSidebarForNavigation();
+            setSchedulesOpen(false);
+            setWebhooksOpen(false);
+            resumeSession(sessionId);
+          }}
           onRenameSession={renameSession}
           onArchiveSession={archiveSession}
           onDeleteSession={deleteSession}
