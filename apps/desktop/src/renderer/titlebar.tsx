@@ -285,15 +285,13 @@ export function DesktopTitlebar({
             );
           })}
         </nav>
-        {/* New-session affordance:
-            while a draft tab is active the draft IS the new-session surface, so
-            the + affordance hides; it returns once a real tab is active. */}
-        {!tabs.some((tab) => tab.key === activeKey && tab.selection.kind === "new") && (
-          <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
-            aria-label="New task" data-tooltip="New task">
-            <MxIcon name="plus" size={16} />
-          </button>
-        )}
+        {/* Chrome-parity new-tab affordance: + is ALWAYS visible and every
+            press opens another independent draft tab (drafts carry unique
+            keys), exactly like a browser's new-tab button. */}
+        <button type="button" className="icon-button titlebar-new" onClick={onNewTask}
+          aria-label="New task" data-tooltip="New task">
+          <MxIcon name="plus" size={16} />
+        </button>
       </div>
 
       {updateVisible && <div className="titlebar-update-shell">

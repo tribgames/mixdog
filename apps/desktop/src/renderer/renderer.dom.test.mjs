@@ -4243,18 +4243,17 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   assert.deepEqual(closed, ["two"]);
   assert.deepEqual(selected, ["one", "two", "one", "two"]);
   assert.deepEqual(reordered, [["one", "two"]]);
-  // New-session affordance: with the
-  // session tab active the + is available; switching to a draft tab hides it
-  // because the draft itself is the new-session surface.
-  assert.equal(document.querySelector(".titlebar-new") === null, true,
-    "the new-task button hides while a draft tab is active");
+  // Chrome-parity new-tab affordance: + stays visible even while a draft tab
+  // is active — every press opens another independent draft.
+  assert.equal(document.querySelector(".titlebar-new") !== null, true,
+    "the new-task button stays visible while a draft tab is active");
   await act(async () => root.render(React.createElement(DesktopTitlebar, {
     ...props,
     activeKey: "two",
     updaterState: { status: "ready", version: "2.0.0" },
   })));
   assert.equal(document.querySelector(".titlebar-new") !== null, true,
-    "the new-task button returns once a session tab is active");
+    "the new-task button stays visible with a session tab active");
   assert.equal(document.querySelector(".workspace-tabs-shell")?.lastElementChild?.classList.contains("titlebar-new"), true,
     "the new-task button hugs the tab strip inside the tabs shell");
   assert.equal(document.querySelector(".titlebar-update")?.getAttribute("aria-label"), "Install Mixdog 2.0.0");
