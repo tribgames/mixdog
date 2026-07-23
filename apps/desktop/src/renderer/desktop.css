@@ -1516,6 +1516,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 0;
   border-radius: 2px;
   cursor: pointer;
+  /* Hit target hugs the actual text (icon + title + chevron) instead of the
+     full transcript row — clicking the empty right side of the line must not
+     toggle the card (user request). Ellipsis truncation still applies via
+     the max-width cap. */
+  width: fit-content;
+  max-width: 100%;
 }
 .tool-header:hover:not(:disabled),
 .tool-header:focus-visible { background: transparent; }
@@ -1532,8 +1538,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Card titles carry the primary "what happened" info — medium weight so they
    do not read as secondary chrome (user: important info looks underweighted). */
 .tool-title b { font-weight: 500; }
-.tool-title b { flex: 0 0 auto; }
-.tool-title small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Narrow windows: the title must ellipsize instead of shoving the elapsed
+   readout/chevron sideways (user: fully narrowed, text invades the side).
+   The subtitle absorbs shrink first (999), the bold label only after. */
+.tool-title b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-title small { min-width: 0; flex-shrink: 999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Tool-card subtitles read as muted, not faint. */
 .tool-title small { color: var(--mx-text-muted); }
 /* Bare command subtitles (no human description) read in mono like the
@@ -4486,7 +4495,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .tool-header { overflow: hidden; }
 .tool-title { min-width: 0; overflow: hidden; }
-.tool-title b { flex: 0 0 auto; }
+.tool-title b { flex: 0 1 auto; min-width: 0; }
 .tool-title small {
   min-width: 0;
   overflow: hidden;
