@@ -635,12 +635,12 @@ export function createEngineApiB(bag) {
     },
     saveWebhookAuthtoken: (token) => {
       const result = runtime.saveWebhookAuthtoken(token);
-      pushNotice('webhook/ngrok authtoken saved', 'info');
+      pushNotice('webhook authtoken saved', 'info');
       return result;
     },
     forgetWebhookAuthtoken: () => {
       const result = runtime.forgetWebhookAuthtoken();
-      pushNotice('webhook/ngrok authtoken forgotten', 'info');
+      pushNotice('webhook authtoken forgotten', 'info');
       return result;
     },
     setChannel: async (entry) => {

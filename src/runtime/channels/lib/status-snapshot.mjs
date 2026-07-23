@@ -3,7 +3,7 @@
  *
  * Writes <DATA_DIR>/channels/status-snapshot.json every 10 seconds so that
  * setup-server can read cross-process state (cron next-fire, deferred count,
- * Discord unread, ngrok tunnel URL) without IPC.
+ * Discord unread, relay hook URL) without IPC.
  *
  * Atomic write: tmp → rename so readers never see a partial file.
  *
@@ -13,10 +13,10 @@
  */
 
 import * as fs from 'fs';
-import * as http from 'http';
 import * as path from 'path';
 import { DATA_DIR } from './config.mjs';
 import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
+import { readHookPublicBase } from './webhook/relay-tunnel.mjs';
 
 const SNAPSHOT_DIR  = path.join(DATA_DIR, 'channels');
 const SNAPSHOT_PATH = path.join(SNAPSHOT_DIR, 'status-snapshot.json');
@@ -76,30 +76,6 @@ export function recordFetchedMessages(channelId, channelLabel, messages, options
     label: channelLabel ?? channelId,
     latestSeenId: newLatestId,
     unseenCount,
-  });
-}
-
-// ── Ngrok tunnel URL probe ───────────────────────────────────────────────────
-async function probeNgrokUrl() {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => { try { req && req.destroy(); } catch {} resolve(null); }, 400);
-    let req;
-    try {
-      req = http.get('http://127.0.0.1:4040/api/tunnels', (res) => {
-        clearTimeout(timer);
-        let body = '';
-        res.on('data', d => { body += d; });
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(body);
-            const tunnel = (parsed.tunnels || []).find(t => t.public_url);
-            resolve(tunnel ? tunnel.public_url : null);
-          } catch { resolve(null); }
-        });
-      });
-      req.on('error', () => { clearTimeout(timer); resolve(null); });
-      req.setTimeout(400, () => { clearTimeout(timer); try { req.destroy(); } catch {} resolve(null); });
-    } catch { clearTimeout(timer); resolve(null); }
   });
 }
 
@@ -172,8 +148,8 @@ async function computeSnapshot(scheduler) {
     totalUnread += entry.unseenCount;
   }
 
-  // ── Ngrok tunnel URL ───────────────────────────────────────────────────────
-  const tunnelUrl = await probeNgrokUrl();
+  // ── Relay hook URL (identity file read; assigned on first tunnel start) ────
+  const hookPublicUrl = readHookPublicBase();
 
   return {
     writtenAt: now,
@@ -188,8 +164,8 @@ async function computeSnapshot(scheduler) {
       unread: unreadList,
       totalUnread,
     },
-    ngrok: {
-      tunnelUrl,
+    hook: {
+      publicUrl: hookPublicUrl,
     },
   };
 }

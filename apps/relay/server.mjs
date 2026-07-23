@@ -46,6 +46,138 @@ function sendToPhone(phone, data, droppable) {
   try { phone.send(data); } catch { /* phone vanished */ }
 }
 
+// Public webhook forwarding (replaces per-user ngrok tunnels): the channel
+// worker keeps one outbound `/hookleg` WebSocket and the relay replays
+// inbound `/hook/<deviceId>/...` HTTP requests over it as JSON frames.
+// Payloads pass through un-inspected; HMAC verification stays on the agent.
+const MAX_HOOK_BODY_BYTES = 1024 * 1024;
+const HOOK_TIMEOUT_MS = 30_000;
+// Hop-by-hop / transport headers stay on this hop; signature headers and the
+// rest forward verbatim so local HMAC verification sees the sender's bytes.
+const HOOK_DROP_HEADERS = new Set([
+  'host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive', 'upgrade', 'te',
+]);
+
+function handleHookRequest(liveHooks, request, response) {
+  let url;
+  try {
+    url = new URL(request.url || '/', 'http://localhost');
+  } catch {
+    response.writeHead(400).end();
+    return;
+  }
+  const match = url.pathname.match(/^\/hook\/([0-9a-f-]{8,64})(\/.*)?$/);
+  if (!match) {
+    response.writeHead(404, { 'Content-Type': 'application/json' }).end('{"error":"not found"}');
+    return;
+  }
+  const entry = liveHooks.get(match[1]);
+  if (!entry || entry.socket.readyState !== entry.socket.OPEN) {
+    response.writeHead(503, { 'Content-Type': 'application/json' }).end('{"error":"agent offline"}');
+    return;
+  }
+  const chunks = [];
+  let total = 0;
+  let aborted = false;
+  request.on('data', (chunk) => {
+    if (aborted) return;
+    total += chunk.length;
+    if (total > MAX_HOOK_BODY_BYTES) {
+      aborted = true;
+      try {
+        response.writeHead(413, { 'Content-Type': 'application/json' }).end('{"error":"payload too large"}');
+      } catch { /* client vanished */ }
+      try { request.destroy(); } catch { /* already gone */ }
+      return;
+    }
+    chunks.push(chunk);
+  });
+  request.on('error', () => { aborted = true; });
+  request.on('end', () => {
+    if (aborted) return;
+    const id = randomUUID();
+    const headers = {};
+    for (const [key, value] of Object.entries(request.headers)) {
+      if (!HOOK_DROP_HEADERS.has(key)) headers[key] = value;
+    }
+    const timer = setTimeout(() => {
+      if (entry.pending.delete(id)) {
+        try {
+          response.writeHead(504, { 'Content-Type': 'application/json' }).end('{"error":"agent timeout"}');
+        } catch { /* client vanished */ }
+      }
+    }, HOOK_TIMEOUT_MS);
+    timer.unref?.();
+    entry.pending.set(id, { response, timer });
+    try {
+      entry.socket.send(JSON.stringify({
+        type: 'http',
+        id,
+        method: request.method,
+        path: (match[2] || '/') + url.search,
+        headers,
+        body: chunks.length ? Buffer.concat(chunks).toString('base64') : '',
+      }));
+    } catch {
+      clearTimeout(timer);
+      if (entry.pending.delete(id)) {
+        try {
+          response.writeHead(502, { 'Content-Type': 'application/json' }).end('{"error":"agent unreachable"}');
+        } catch { /* client vanished */ }
+      }
+    }
+  });
+}
+
+function failHookPending(entry) {
+  for (const { response, timer } of entry.pending.values()) {
+    clearTimeout(timer);
+    try {
+      response.writeHead(502, { 'Content-Type': 'application/json' }).end('{"error":"agent disconnected"}');
+    } catch { /* client vanished */ }
+  }
+  entry.pending.clear();
+}
+
+function runHookLeg(liveHooks, deviceId, socket) {
+  const previous = liveHooks.get(deviceId);
+  if (previous) {
+    try { previous.socket.close(4000, 'superseded'); } catch { /* already gone */ }
+    failHookPending(previous);
+  }
+  const entry = { socket, pending: new Map() };
+  liveHooks.set(deviceId, entry);
+  socket.isAlive = true;
+  socket.on('pong', () => { socket.isAlive = true; });
+  socket.on('error', () => { /* surfaced as close */ });
+  socket.on('message', (raw) => {
+    socket.isAlive = true;
+    let frame;
+    try { frame = JSON.parse(raw.toString()); } catch { return; }
+    if (frame.type !== 'http-response' || typeof frame.id !== 'string') return;
+    const pending = entry.pending.get(frame.id);
+    if (!pending) return;
+    entry.pending.delete(frame.id);
+    clearTimeout(pending.timer);
+    const status = Number.isInteger(frame.status) && frame.status >= 100 && frame.status <= 599
+      ? frame.status : 502;
+    let body;
+    try { body = frame.body ? Buffer.from(String(frame.body), 'base64') : Buffer.alloc(0); }
+    catch { body = Buffer.alloc(0); }
+    const contentType = typeof frame.headers?.['content-type'] === 'string'
+      ? frame.headers['content-type'] : 'application/json';
+    try {
+      pending.response.writeHead(status, { 'Content-Type': contentType, 'Content-Length': body.length });
+      pending.response.end(body);
+    } catch { /* client vanished */ }
+  });
+  socket.on('close', () => {
+    if (liveHooks.get(deviceId)?.socket !== socket) return;
+    failHookPending(entry);
+    liveHooks.delete(deviceId);
+  });
+}
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -244,7 +376,18 @@ export async function startRelay({
   const store = new DeviceStore(resolve(dataDir));
   // deviceId -> { socket, clients: Map<clientId, phoneSocket> }
   const liveDesktops = new Map();
-  const handler = (request, response) => serveStatic(rendererDir, store, request, response);
+  // hook deviceId -> { socket, pending: Map<requestId, {response, timer}> }
+  const liveHooks = new Map();
+  const handler = (request, response) => {
+    // Public webhook ingress bypasses the pairing-token gate: callers are
+    // external services (GitHub, Stripe); authentication is the per-endpoint
+    // HMAC signature verified on the agent side.
+    if ((request.url || '').startsWith('/hook/')) {
+      handleHookRequest(liveHooks, request, response);
+      return;
+    }
+    serveStatic(rendererDir, store, request, response);
+  };
   const server = tlsCert && tlsKey
     ? createTlsServer({ cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }, handler)
     : createServer(handler);
@@ -316,13 +459,25 @@ export async function startRelay({
       wss.handleUpgrade(request, rawSocket, head, (socket) => runClientLeg(entry, sendJson, socket));
       return;
     }
+    if (url.pathname === '/hookleg') {
+      // Channel-worker webhook tunnel: same trust-on-first-use device model
+      // as the desktop leg (worker mints its own id/secret pair).
+      const deviceId = url.searchParams.get('device') || '';
+      const secret = url.searchParams.get('secret') || '';
+      if (!/^[0-9a-f-]{8,64}$/.test(deviceId) || secret.length < 16 || !store.authenticate(deviceId, secret)) {
+        reject();
+        return;
+      }
+      wss.handleUpgrade(request, rawSocket, head, (socket) => runHookLeg(liveHooks, deviceId, socket));
+      return;
+    }
     rawSocket.destroy();
   });
 
-  return finishRelayStart({ server, wss, store, liveDesktops, port, sendJson });
+  return finishRelayStart({ server, wss, store, liveDesktops, liveHooks, port, sendJson });
 }
 
-async function finishRelayStart({ server, wss, store, liveDesktops, port, sendJson }) {
+async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, port, sendJson }) {
   await new Promise((resolveListen, rejectListen) => {
     server.once('error', rejectListen);
     server.listen(port, '0.0.0.0', () => {
@@ -358,6 +513,11 @@ async function finishRelayStart({ server, wss, store, liveDesktops, port, sendJs
       }
     }
     liveDesktops.clear();
+    for (const entry of liveHooks.values()) {
+      failHookPending(entry);
+      try { entry.socket.terminate(); } catch { /* already gone */ }
+    }
+    liveHooks.clear();
     // Flush any debounced device registration before the process goes away.
     store.save();
     await new Promise((resolveClose) => wss.close(() => resolveClose()));

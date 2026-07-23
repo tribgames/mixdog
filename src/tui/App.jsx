@@ -1881,21 +1881,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
           resumeAfterChannelPrompt(channelPrompt);
           return true;
         }
-        if (channelPrompt.kind === 'webhook-token') {
-          if (!commandText) return false;
-          store.saveWebhookAuthtoken(commandText);
-          resumeAfterChannelPrompt(channelPrompt);
-          return true;
-        }
-        if (channelPrompt.kind === 'webhook-domain') {
-          if (!commandText) return false;
-          Promise.resolve(store.setWebhookConfig?.({ ngrokDomain: commandText }))
-            .then(() => resumeAfterChannelPrompt(channelPrompt))
-            .catch((e) => {
-              store.pushNotice(`webhook config update failed: ${e?.message || e}`, 'error');
-            });
-          return true;
-        }
         const parts = commandText.split('|').map((part) => part.trim());
         if (channelPrompt.kind === 'channel-add') {
           // Single-channel: the UI asks only for the channel id. Legacy

@@ -498,7 +498,7 @@ export function getTelegramToken() {
 }
 
 /**
- * Returns the ngrok/webhook authtoken.
+ * Returns the webhook authtoken.
  * Priority: MIXDOG_WEBHOOK_AUTHTOKEN → keychain('webhook.authtoken') → null
  */
 export function getWebhookAuthtoken() {

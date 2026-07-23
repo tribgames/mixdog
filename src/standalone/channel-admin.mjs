@@ -38,6 +38,7 @@ import {
   deleteEndpoint as dbDeleteEndpoint,
   setEndpointEnabled as dbSetEndpointEnabled,
 } from '../runtime/shared/webhooks-db.mjs';
+import { readHookPublicBase } from '../runtime/channels/lib/webhook/relay-tunnel.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DEFAULT_CHANNELS = Object.freeze({
@@ -199,7 +200,7 @@ export function forgetTelegramToken() {
 
 export function saveWebhookAuthtoken(token) {
   const value = String(token || '').trim();
-  if (!value) throw new Error('Webhook/ngrok authtoken is required');
+  if (!value) throw new Error('Webhook authtoken is required');
   saveSecret(SECRET_ACCOUNTS.webhookAuth, value);
   return { ok: true, configured: Boolean(getWebhookAuthtoken()) };
 }
@@ -254,7 +255,6 @@ export function setWebhookConfig(patch = {}) {
       ...(Object.prototype.hasOwnProperty.call(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
       ...(patch.port ? { port: Number(patch.port) || 3333 } : {}),
       ...(patch.domain ? { domain: String(patch.domain).trim() } : {}),
-      ...(patch.ngrokDomain ? { ngrokDomain: String(patch.ngrokDomain).trim() } : {}),
     },
   }));
 }
@@ -267,7 +267,6 @@ export async function setWebhookConfigAsync(patch = {}) {
       ...(Object.prototype.hasOwnProperty.call(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
       ...(patch.port ? { port: Number(patch.port) || 3333 } : {}),
       ...(patch.domain ? { domain: String(patch.domain).trim() } : {}),
-      ...(patch.ngrokDomain ? { ngrokDomain: String(patch.ngrokDomain).trim() } : {}),
     },
   }));
 }
@@ -549,6 +548,9 @@ export async function channelSetup(config = null) {
       authenticated: Boolean(webhookAuth),
       stored: hasStoredSecret(SECRET_ACCOUNTS.webhookAuth),
       status: webhookAuth ? 'Set' : 'Off',
+      // Relay-tunnel public base (null until the channel worker first
+      // connects and mints its hook identity).
+      publicUrl: readHookPublicBase(),
     },
     channel: getChannel(cfg),
     schedules: await listSchedules(),

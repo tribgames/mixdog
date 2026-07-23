@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -202,6 +203,56 @@ test('stays quiet with no phones and resyncs the next phone that joins', async (
     second.close();
   } finally {
     await desktop.close();
+    await relay.close();
+  }
+});
+
+test('forwards public /hook requests to the registered hook leg', async () => {
+  const relayDir = mkdtempSync(join(tmpdir(), 'mixdog-relay-'));
+  const relay = await startRelay({ port: 0, dataDir: relayDir });
+  const deviceId = randomUUID();
+  const secret = randomBytes(24).toString('hex');
+  const leg = new WebSocket(`ws://127.0.0.1:${relay.port}/hookleg?device=${deviceId}&secret=${secret}`);
+  try {
+    const seen = [];
+    leg.on('message', (raw) => {
+      const frame = JSON.parse(raw.toString());
+      if (frame.type !== 'http') return;
+      seen.push(frame);
+      // Echo back what the local webhook server would answer.
+      leg.send(JSON.stringify({
+        type: 'http-response',
+        id: frame.id,
+        status: 202,
+        headers: { 'content-type': 'application/json' },
+        body: Buffer.from('{"status":"accepted"}').toString('base64'),
+      }));
+    });
+    await new Promise((resolveOpen, rejectOpen) => {
+      leg.once('open', resolveOpen);
+      leg.once('error', rejectOpen);
+    });
+    const response = await fetch(`http://127.0.0.1:${relay.port}/hook/${deviceId}/webhook/ci?x=1`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': 'sha256=abc' },
+      body: '{"a":1}',
+    });
+    assert.equal(response.status, 202);
+    assert.deepEqual(await response.json(), { status: 'accepted' });
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].method, 'POST');
+    assert.equal(seen[0].path, '/webhook/ci?x=1');
+    // Signature headers must forward verbatim for local HMAC verification.
+    assert.equal(seen[0].headers['x-hub-signature-256'], 'sha256=abc');
+    assert.equal(Buffer.from(seen[0].body, 'base64').toString('utf8'), '{"a":1}');
+    // Unknown device → the relay answers for the offline agent.
+    const offline = await fetch(`http://127.0.0.1:${relay.port}/hook/${randomUUID()}/webhook/ci`, {
+      method: 'POST',
+      body: '{}',
+    });
+    assert.equal(offline.status, 503);
+  } finally {
+    try { leg.close(); } catch { /* already closed */ }
     await relay.close();
   }
 });

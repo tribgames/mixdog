@@ -271,46 +271,30 @@ export function createChannelPickers({
       const returnTo = typeof options.returnTo === 'function'
         ? options.returnTo
         : () => setPicker(null);
-      const domain = setup.webhook?.ngrokDomain || setup.webhook?.domain || '';
+      const publicUrl = setup.webhook?.publicUrl || '';
       const items = [
         {
-          value: 'endpoint-domain',
-          label: 'ngrok domain',
-          description: domain ? domain : 'Not set · Enter ngrok domain',
-          _action: 'endpoint-domain',
-        },
-        {
-          value: 'endpoint-authtoken',
-          label: 'authtoken',
-          description: setup.webhook?.authenticated === true ? 'Set' : 'Not set · Enter authtoken',
-          _action: 'endpoint-authtoken',
+          value: 'endpoint-url',
+          label: 'Public URL',
+          description: publicUrl
+            ? `${publicUrl}/webhook/<name>`
+            : 'Assigned when the channel worker connects to the relay',
+          _action: 'endpoint-url',
         },
       ];
       setPicker({
         title: 'Webhook endpoint',
-        description: 'ngrok domain and authtoken. Toggle individual webhooks in /webhooks.',
+        description: 'Served through the Mixdog relay — no tunnel setup needed. Toggle individual webhooks in /webhooks.',
         help: '↑/↓ Select · Enter Edit · Esc Back',
         indexMode: 'always',
         labelWidth: 18,
         items,
         onSelect: (_value, item) => {
           try {
-            if (item._action === 'endpoint-domain') {
-              openChannelPrompt({
-                kind: 'webhook-domain',
-                label: 'ngrok domain',
-                hint: 'Paste the reserved ngrok domain (e.g. my-app.ngrok-free.app).',
-                afterSave: () => void openChannelSetupPicker('webhook-endpoint', options),
-              });
-              return;
-            }
-            if (item._action === 'endpoint-authtoken') {
-              openChannelPrompt({
-                kind: 'webhook-token',
-                label: 'Webhook/ngrok authtoken',
-                hint: 'Paste the webhook/ngrok authtoken. It is stored in the OS keychain.',
-                afterSave: () => void openChannelSetupPicker('webhook-endpoint', options),
-              });
+            if (item._action === 'endpoint-url') {
+              store.pushNotice(publicUrl
+                ? `Webhook base: ${publicUrl}/webhook/<name>`
+                : 'URL not assigned yet — start channels once and reopen.', 'info');
             }
           } catch (e) {
             store.pushNotice(`webhook endpoint failed: ${e?.message || e}`, 'error');
@@ -465,20 +449,12 @@ export function createChannelPickers({
       {
         value: 'webhook-endpoint',
         label: 'Webhook endpoint',
-        meta: (() => {
-          const hasDomain = Boolean(setup.webhook?.ngrokDomain || setup.webhook?.domain);
-          const hasAuth = setup.webhook?.authenticated === true;
-          return (hasDomain && hasAuth) ? 'On' : 'Off';
-        })(),
-        description: (() => {
-          const hasDomain = Boolean(setup.webhook?.ngrokDomain || setup.webhook?.domain);
-          const hasAuth = setup.webhook?.authenticated === true;
-          const needs = [
-            ...(hasDomain ? [] : ['domain']),
-            ...(hasAuth ? [] : ['authtoken']),
-          ];
-          return needs.length ? `Needs ${needs.join(' + ')}` : 'ngrok domain and authtoken set';
-        })(),
+        // Relay tunnel: public exposure is automatic, so the endpoint is
+        // "On" whenever the webhook server itself is enabled.
+        meta: setup.webhook?.enabled === false ? 'Off' : 'On',
+        description: setup.webhook?.publicUrl
+          ? setup.webhook.publicUrl
+          : 'Mixdog relay tunnel — URL assigned on first run',
         _action: 'webhook-endpoint',
       },
     ];
