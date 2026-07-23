@@ -89,6 +89,11 @@ export function createLifecycleApi(deps) {
     return {
       id: s.id,
       updatedAt: s.updatedAt,
+      // Conversation-activity timestamp for Recent ordering. Without this the
+      // desktop falls back to updatedAt, which detach/resume bookkeeping
+      // bumps — clicking a session reshuffled the sidebar (the row just left
+      // jumped to the top).
+      lastUsedAt: Number(s.lastUsedAt) || 0,
       cwd: s.cwd || '',
       model: s.model,
       provider: s.provider,
