@@ -151,8 +151,10 @@ test('every desktop slash command resolves to an implemented GUI target', async 
     }
     if (command.surface) {
       assert.ok(implementedSurfaces.has(command.surface), `/${command.name} surface loader must exist`);
+      // Schedules/Webhooks resolve as MAIN-PANE takeovers routed in App.tsx
+      // (not CommandSurface dialogs) — both homes count as rendered content.
       assert.match(
-        surfaceSource,
+        `${surfaceSource}\n${appSource}`,
         new RegExp(`surface === ['"]${command.surface}['"]|kind=\\{surface\\}|kind === ['"]${command.surface}['"]`),
         `/${command.name} surface must resolve to rendered content`,
       );
