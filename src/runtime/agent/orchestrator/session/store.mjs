@@ -68,6 +68,9 @@ export { saveSessionAsync, saveSessionAsyncDeferred } from './store/save-worker.
 
 /** Module-level map tracking in-flight saves per session ID to prevent concurrent write corruption. */
 const _savePending = new Map();
+// Disk mtime of the summary index at the last time it was read into (or
+// refreshed as) the in-memory cache base — cross-process staleness detector.
+let _summaryIndexMtimeSeen = 0;
 
 
 /**
@@ -867,7 +870,26 @@ export function listStoredSessionSummaries(options = {}) {
             return [];
         }
     }
-    if (_summaryRowsCache !== null) return _cachedSummaryRows().slice();
+    if (_summaryRowsCache !== null) {
+        // Cross-process freshness: another live process (terminal CLI owning a
+        // session this surface only views) advances messageCount/updatedAt by
+        // rewriting the summary index FILE — an in-memory cache that never
+        // looks back at disk serves frozen rows forever (user: the unread dot
+        // never fired for terminal-owned growth). One stat per call; when the
+        // index advanced, re-read the cheap index JSON as the new cache base
+        // (local optimistic overlays stay applied on top).
+        let diskMtime = 0;
+        try { diskMtime = statSync(summaryIndexPath()).mtimeMs || 0; } catch { /* no index yet */ }
+        if (diskMtime <= _summaryIndexMtimeSeen) return _cachedSummaryRows().slice();
+        try {
+            const raw = JSON.parse(readFileSync(summaryIndexPath(), 'utf-8'));
+            if (Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION) {
+                _summaryIndexMtimeSeen = diskMtime;
+                return _setSummaryRowsCache(_normalizeSummaryIndex(raw).rows).slice();
+            }
+        } catch { /* torn concurrent write — keep serving the cache; retry next call */ }
+        return _cachedSummaryRows().slice();
+    }
 
     let indexedRows = [];
     let p;
@@ -879,6 +901,9 @@ export function listStoredSessionSummaries(options = {}) {
             const raw = JSON.parse(readFileSync(p, 'utf-8'));
             hasIndex = Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION;
             if (hasIndex) indexedRows = _normalizeSummaryIndex(raw).rows;
+            if (hasIndex) {
+                try { _summaryIndexMtimeSeen = statSync(p).mtimeMs || 0; } catch { /* stat only */ }
+            }
         }
     } catch { /* unreadable/malformed sidecar falls through to rebuild */ }
 
