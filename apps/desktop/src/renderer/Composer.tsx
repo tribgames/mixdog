@@ -389,6 +389,21 @@ export const Composer = memo(function Composer({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [focusRequest, transitioning]);
+  // First-paint focus (user): the app boot surface must land with the caret
+  // already in the composer so typing works immediately. Mount-only — later
+  // focus moves belong to the focusRequest/transition effects above, and an
+  // element the user already focused is never stolen from.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement;
+      const typing = active instanceof HTMLElement
+        && (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.isContentEditable);
+      if (typing) return;
+      textarea.current?.focus({ preventScroll: true });
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only by design
+  }, []);
 
   useEffect(() => setSlashIndex(0), [slashQuery]);
   useEffect(() => setMentionIndex(0), [mentionMatch?.query]);

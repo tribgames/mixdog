@@ -1084,6 +1084,25 @@ test("tool cards render the shared TUI derivation for every tool shape", async (
   }
 });
 
+test("the boot surface focuses the composer for immediate typing", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [],
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  assert.equal(document.activeElement,
+    document.querySelector('textarea[aria-label="Message Mixdog"]'),
+    "the boot surface must focus the composer so typing works immediately");
+});
+
 test("new task opens immediately and its first submit reuses the pending cold setup", async () => {
   installDom();
   let finishSetup;
