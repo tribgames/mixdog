@@ -10,6 +10,7 @@ import { loadConfig } from '../agent/orchestrator/config.mjs';
 import { createSession } from '../agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { askSession } from '../agent/orchestrator/session/manager/ask-session.mjs';
 import { parseScheduleModelRef } from './schedule-model-ref.mjs';
+import { reuseAutomationSession } from './automation-session-reuse.mjs';
 
 /** Resolve schedule.model into a {provider,model,effort?,fast?} route. */
 function scheduleRouteFromModelRef(modelRef, config = null) {
@@ -43,7 +44,20 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
   }
   const route = scheduleRouteFromModelRef(schedule.model, config);
   const cwd = schedule.cwd ? String(schedule.cwd) : null;
-  const session = createSession({
+  // One session per schedule name: every run stacks as a turn in the same
+  // conversation (the sidebar Automations row). A missing/closed session
+  // starts a fresh one.
+  let session = reuseAutomationSession('schedule', schedule.name, route);
+  if (session) {
+    // Keep the conversation bound to the schedule's CURRENT project scope —
+    // cwd edits between runs must not leave the row on the old project. The
+    // ask below persists these fields with its preflight save.
+    if (cwd) session.cwd = cwd;
+    session.desktopSession = cwd
+      ? { classification: 'project', projectPath: cwd }
+      : { classification: 'task', projectPath: null };
+  } else {
+  session = createSession({
     provider: route.provider,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
@@ -56,6 +70,7 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
       ? { classification: 'project', projectPath: cwd }
       : { classification: 'task', projectPath: null },
   });
+  }
   // The user message is the schedule's instructions verbatim: the desktop
   // title/preview derive from it, so no "[Scheduled task: …]" header noise.
   const result = await askSession(session.id, prompt, null, null, cwd || undefined);

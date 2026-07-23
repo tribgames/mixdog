@@ -491,6 +491,11 @@ export interface DesktopSessionSummary {
   working?: boolean;
   /** Codex-style archive: hidden from Recent, restorable; file stays on disk. */
   archived?: boolean;
+  /** Automation origin: present on schedule/webhook runner sessions so the
+   *  sidebar groups them under Automations instead of Recent. */
+  sourceType?: 'schedule' | 'webhook';
+  /** Schedule/webhook name — the Automations row label. */
+  sourceName?: string;
 }
 
 export interface DesktopProjectSummary {

@@ -63,6 +63,13 @@ export function desktopSessionSummaries(
     const working = heartbeatAt > 0 && now - heartbeatAt <= SESSION_WORKING_HEARTBEAT_MS;
     const updatedAt = Number(row.updatedAt) || 0;
     const activityAt = Number(row.lastUsedAt) || updatedAt;
+    // Automation origin survives into the summary so the sidebar can group
+    // schedule/webhook runner sessions under Automations instead of Recent.
+    const sourceType = String(row.sourceType || '').trim().toLowerCase();
+    const sourceName = String(row.sourceName || '').trim();
+    const automationType = sourceType === 'schedule' || sourceType === 'webhook'
+      ? sourceType as 'schedule' | 'webhook'
+      : null;
     // A session with no conversation preview, no manual name, and no stored
     // title is an abandoned blank ("Untitled") — opened once and never used.
     // Hide it from the sidebar instead of stacking empty rows; the active
@@ -80,6 +87,7 @@ export function desktopSessionSummaries(
       projectPath: classification === 'project' ? projectPath : null,
       currentSession: String(row.id || '') === currentId,
       ...(working ? { working: true } : {}),
+      ...(automationType ? { sourceType: automationType, ...(sourceName ? { sourceName } : {}) } : {}),
     }];
   }).filter((row) => /^[A-Za-z0-9_-]+$/.test(row.id));
 }

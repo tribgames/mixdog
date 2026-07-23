@@ -109,6 +109,10 @@ export function createLifecycleApi(deps) {
       // after a turn had already finished.
       heartbeatAt: Number(heartbeatMtimes.get(s.id)) || 0,
       desktopSession: s.desktopSession || null,
+      // Automation origin: lets the desktop group schedule/webhook runner
+      // sessions under the sidebar Automations section instead of Recent.
+      sourceType: sourceType || null,
+      sourceName: clean(s.sourceName || '') || null,
     };
     }).filter(Boolean);
   };

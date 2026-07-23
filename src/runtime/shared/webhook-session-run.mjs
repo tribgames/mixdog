@@ -9,6 +9,7 @@ import { loadConfig } from '../agent/orchestrator/config.mjs';
 import { createSession } from '../agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { askSession } from '../agent/orchestrator/session/manager/ask-session.mjs';
 import { parseScheduleModelRef } from './schedule-model-ref.mjs';
+import { reuseAutomationSession } from './automation-session-reuse.mjs';
 
 /** Endpoint model ref wins; the maintenance.webhook route is the fallback. */
 function webhookRoute(modelRef) {
@@ -30,7 +31,12 @@ export async function runWebhookSession({ name, model = null, prompt }) {
   if (!endpoint) throw new Error('runWebhookSession: endpoint name required');
   if (!body) throw new Error(`webhook "${endpoint}" has no prompt body`);
   const route = webhookRoute(model);
-  const session = createSession({
+  // One session per endpoint name: every fire stacks as a turn in the same
+  // conversation (the sidebar Automations row). A missing/closed session
+  // starts a fresh one.
+  let session = reuseAutomationSession('webhook', endpoint, route);
+  if (!session) {
+  session = createSession({
     provider: route.provider,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
@@ -40,6 +46,7 @@ export async function runWebhookSession({ name, model = null, prompt }) {
     sourceName: endpoint,
     desktopSession: { classification: 'task', projectPath: null },
   });
+  }
   // The user message leads with the endpoint's instructions, so Recent titles
   // read as the user-authored intent rather than payload noise.
   const result = await askSession(session.id, body, null, null, undefined);

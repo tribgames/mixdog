@@ -150,9 +150,28 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       return rightActivityAt - leftActivityAt || left.id.localeCompare(right.id);
     }),
   [sessions]);
-  const rows = useMemo(() => allRows.filter((session) => session.archived !== true), [allRows]);
+  // Automation runner sessions (schedule/webhook fires) live in their own
+  // Automations section — one row per name, newest session wins — and are
+  // excluded from Recent (user decision: fires must not flood the list).
+  const isAutomationRow = (session: DesktopSessionSummary) =>
+    session.sourceType === "schedule" || session.sourceType === "webhook";
+  const rows = useMemo(() => allRows.filter((session) =>
+    session.archived !== true && !isAutomationRow(session)), [allRows]);
+  const automationRows = useMemo(() => {
+    const seen = new Set<string>();
+    const out: DesktopSessionSummary[] = [];
+    for (const session of allRows) {
+      if (session.archived === true || !isAutomationRow(session)) continue;
+      const key = `${session.sourceType}:${String(session.sourceName || "").trim().toLowerCase() || session.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(session.sourceName ? { ...session, title: session.sourceName } : session);
+    }
+    return out;
+  }, [allRows]);
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived === true), [allRows]);
   const [recentOpen, setRecentOpen] = useState(true);
+  const [automationsOpen, setAutomationsOpen] = useState(true);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const prefetchedSessionIds = useRef(new Set<string>());
   const requestPrefetch = useCallback((sessionId: string) => {
@@ -267,6 +286,34 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       </nav>
 
       <div className="session-sidebar-scroll">
+        {automationRows.length > 0 && (
+          <section className="sidebar-recent sidebar-automations" aria-label="Automations">
+            <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
+              aria-expanded={automationsOpen}
+              onClick={() => setAutomationsOpen((open) => !open)}>
+              <span>Automations</span>
+              {automationsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </button>
+            {automationsOpen && (
+              <nav className="session-list automation-session-list" aria-label="Automations">
+                {automationRows.map((session) => <SessionSidebarRow key={session.id}
+                  session={session} active={selection.kind === "session" && selection.id === session.id}
+                  working={workingSessionIds?.has(session.id) === true}
+                  unread={unreadSessionIds?.has(session.id) === true}
+                  editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
+                  sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
+                  confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
+                  onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
+                  onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+                  onPrefetchSession={requestPrefetch}
+                  onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
+                  onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
+                  onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
+                  onArchiveSession={onArchiveSession} />)}
+              </nav>
+            )}
+          </section>
+        )}
         <section className="sidebar-recent" aria-label="Recent sessions">
           <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
             aria-expanded={recentOpen}
