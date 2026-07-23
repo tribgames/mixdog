@@ -315,9 +315,9 @@ test('category panes expose TUI routes, automation, memory, voice, and doctor co
   for (const [category, expected] of [
     ['Models', /Main route.*Search route/s],
     ['Workflows', /Workflow packs.*Agent routes/s],
-    // Webhook endpoints graduated to the main-pane Webhooks page; settings
-    // keeps channel wiring plus the relay-issued ingress URL row.
-    ['Channels', /Voice transcription.*Disable voice.*Webhook ingress.*Public webhook URL/s],
+    // Webhook endpoints and the relay ingress URL graduated to the main-pane
+    // Webhooks page; settings keeps messaging wiring only.
+    ['Channels', /Voice transcription.*Disable voice.*Telegram bot token/s],
     ['Memory', /Core memories/],
     ['System', /Run doctor/],
   ]) {
@@ -730,8 +730,9 @@ test('channel-setting deep link opens the Channels tab with token and target for
   assert.match(document.body.textContent, /Telegram bot token/);
   assert.match(document.body.textContent, /Main channel/);
   assert.match(document.body.textContent, /Main chat/);
-  // Relay tunnel replaced ngrok: the ingress group is a read-only URL row.
-  assert.match(document.body.textContent, /Public webhook URL/);
+  // Relay tunnel replaced ngrok, and the ingress URL lives on the Webhooks
+  // page — the settings Channels pane carries no webhook rows at all.
+  assert.doesNotMatch(document.body.textContent, /Webhook ingress|Public webhook URL/);
   assert.doesNotMatch(document.body.textContent, /ngrok/);
   for (const title of ['Discord bot token', 'Telegram bot token']) {
     const input = document.querySelector(`input[aria-label="${title}"]`);

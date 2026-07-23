@@ -655,7 +655,6 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
   const setup = record(data.channelSetup);
   const worker = record(data.channelWorker);
   const channel = record(setup.channel);
-  const webhook = record(setup.webhook);
   const voice = record(data.voice);
   const progress = record(record(snapshot).progressHint);
   const voiceComponents = record(voice.components);
@@ -720,15 +719,8 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
         placeholder="Telegram chat ID" required disabled={busy}
         onSave={(channelId) => void run('setChannel', [{ backend: 'telegram', channelId }])} />
     </Group>
-    <Group title="Webhook ingress">
-      {/* Relay tunnel replaced ngrok: the public URL is issued automatically —
-          endpoint management lives on the main-pane Webhooks page. */}
-      <ResourceRow title="Public webhook URL"
-        description={webhook.publicUrl
-          ? String(webhook.publicUrl)
-          : 'Issued automatically by the Mixdog relay once the channel runtime connects.'}
-        status={webhook.publicUrl ? 'Active' : 'Waiting'} />
-    </Group>
+    {/* No Webhook ingress group: the relay URL is issued automatically and
+        surfaces per endpoint (Copy URL) on the main-pane Webhooks page. */}
   </>;
 }
 
