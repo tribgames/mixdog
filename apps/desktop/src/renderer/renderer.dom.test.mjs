@@ -4694,14 +4694,18 @@ test("desktop composer accepts clipboard images exposed through DataTransfer ite
     });
     textarea.dispatchEvent(event);
     const deadline = Date.now() + 1_000;
-    while (!textarea.value.includes('[Image #1: clipboard.png]') && Date.now() < deadline) {
+    while (document.querySelectorAll('.composer-attachments img').length === 0 && Date.now() < deadline) {
       await new Promise((resolve) => window.setTimeout(resolve, 10));
     }
   });
 
-  assert.match(textarea.value, /\[Image #1: clipboard\.png\]/);
+  // Chip-only representation: pasting an image must NOT leave a bracket token
+  // in the draft text (user: redundant "[Image #N]" box under the thumbnail).
+  assert.doesNotMatch(textarea.value, /\[Image #/);
   assert.equal(document.querySelectorAll('.composer-attachments img').length, 1);
   assert.match(document.querySelector('.composer-attachments')?.textContent || '', /clipboard\.png/);
+  // Image-only send stays enabled despite the empty draft.
+  assert.equal(document.querySelector('.send-button')?.disabled, false);
 });
 
 test("desktop composer searches, cancels stale @ file mentions, selects by keyboard, and submits the path", async () => {
@@ -4921,7 +4925,9 @@ test("stopping a turn restores engine-owned image attachments and keeps the curr
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.equal(textarea.value, 'Inspect [Image #7: restored.png]\nKeep this steering note');
+  // Restored image tokens are stripped from the draft; the image comes back as
+  // a chip-only attachment.
+  assert.equal(textarea.value, 'Inspect\nKeep this steering note');
   assert.match(document.querySelector('.composer-attachments').textContent, /restored\.png/);
   assert.match(document.querySelector('.composer-attachments img').src, /^data:image\/png;base64,aGVsbG8=/);
 });

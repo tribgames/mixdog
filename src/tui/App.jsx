@@ -3508,7 +3508,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
         ) : null}
         <StatusLine
           sessionId={state.sessionId}
-          clientHostPid={state.clientHostPid}
+          clientHostPid={state.ownerClientHostPid || state.clientHostPid}
           provider={state.provider}
           model={state.model}
           effort={state.effort}

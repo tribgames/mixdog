@@ -11,6 +11,10 @@ const PIPE_ID = `livetest_${process.pid}_${Date.now()}`;
 const pipePath = process.platform === 'win32'
   ? `\\\\.\\pipe\\mixdog-live-${PIPE_ID}`
   : join(tmpdir(), `mixdog-live-${PIPE_ID}.sock`);
+const LIVE_PIPE_ID = `${PIPE_ID}_live`;
+const livePipePath = process.platform === 'win32'
+  ? `\\\\.\\pipe\\mixdog-live-${LIVE_PIPE_ID}`
+  : join(tmpdir(), `mixdog-live-${LIVE_PIPE_ID}.sock`);
 
 function waitFor(check, label, timeoutMs = 4000) {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -141,6 +145,94 @@ test('live-share mirrors owner deltas and routes viewer submits', async () => {
     // Owner shutdown notifies the viewer promotion path.
     owner.dispose();
     await waitFor(() => ownerClosedCount === 1, 'owner close notification');
+  } finally {
+    owner.dispose();
+    viewerShare.dispose();
+  }
+});
+
+test('live-share mirrors owner live state and forwards viewer aborts', async () => {
+  const listeners = new Set();
+  let ownerState = {
+    items: [],
+    streamingTail: null,
+    spinner: null,
+    busy: true,
+    commandBusy: false,
+    queued: [{ id: 'q1', text: 'queued follow-up', content: [{ type: 'image', data: 'x' }] }],
+    activeToolSummary: '2:100:1:200',
+    agentWorkers: [{ tag: 'worker', status: 'running', startedAt: 10 }],
+    agentJobs: [],
+    clientHostPid: 4242,
+    displayContextWindow: 200000,
+    compactBoundaryTokens: 180000,
+    autoCompactTokenLimit: 160000,
+    stats: { currentContextTokens: 50000, currentContextSource: 'last_api_request', costUsd: 1.25 },
+  };
+  let ownerAborts = 0;
+  const owner = createLiveShare({
+    ownerSessionId: () => LIVE_PIPE_ID,
+    viewerSessionId: () => '',
+    socketPathFor: () => livePipePath,
+    getPublishedState: () => ownerState,
+    listeners,
+    onRemoteSubmit: () => {},
+    onRemoteAbort: () => { ownerAborts += 1; },
+    onOwnerClosed: () => {},
+    viewerApply: null,
+  });
+  const publish = (next) => {
+    ownerState = next;
+    for (const listener of listeners) listener();
+  };
+
+  const viewer = createViewerStore();
+  viewer.store.stats = { inputTokens: 7 };
+  const viewerShare = createLiveShare({
+    ownerSessionId: () => '',
+    viewerSessionId: () => LIVE_PIPE_ID,
+    socketPathFor: () => livePipePath,
+    getPublishedState: () => ({ items: [], streamingTail: null, spinner: null }),
+    listeners: new Set(),
+    onRemoteSubmit: () => {},
+    onOwnerClosed: () => {},
+    viewerApply: viewer.apply,
+  });
+
+  try {
+    owner.ensure();
+    await waitFor(() => {
+      viewerShare.ensure();
+      return viewerShare.viewerConnected();
+    }, 'viewer connect');
+    // Initial full frame carries the live-state mirror.
+    await waitFor(() => viewer.store.busy === true, 'mirrored busy');
+    assert.equal(viewer.store.activeToolSummary, '2:100:1:200');
+    assert.equal(viewer.store.agentWorkers.length, 1);
+    assert.equal(viewer.store.ownerClientHostPid, 4242);
+    assert.equal(viewer.store.displayContextWindow, 200000);
+    // Queue entries are projected to display fields only (no content parts).
+    assert.deepEqual(viewer.store.queued, [{ id: 'q1', text: 'queued follow-up' }]);
+    // Context stats merge over local accumulator fields instead of replacing.
+    assert.equal(viewer.store.stats.currentContextTokens, 50000);
+    assert.equal(viewer.store.stats.costUsd, 1.25);
+    assert.equal(viewer.store.stats.inputTokens, 7);
+
+    // A live-state change rides the delta protocol.
+    publish({ ...ownerState, busy: false, queued: [], activeToolSummary: null });
+    await waitFor(() => viewer.store.busy === false && viewer.store.queued.length === 0
+      && viewer.store.activeToolSummary === null, 'mirrored live delta');
+
+    // Viewer stop forwards the interrupt to the owner process.
+    assert.equal(viewerShare.sendAbort(), true);
+    await waitFor(() => ownerAborts === 1, 'forwarded abort');
+
+    // Owner shutdown clears the mirrored activity so nothing freezes on.
+    publish({ ...ownerState, busy: true, agentWorkers: [{ tag: 'w2', status: 'running' }] });
+    await waitFor(() => viewer.store.busy === true, 'busy re-mirrored');
+    owner.dispose();
+    await waitFor(() => viewer.store.busy === false && viewer.store.agentWorkers.length === 0,
+      'mirrored live state cleared on owner close');
   } finally {
     owner.dispose();
     viewerShare.dispose();

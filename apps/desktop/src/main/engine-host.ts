@@ -1480,7 +1480,10 @@ export class EngineHost {
   }
 
   private async pollShellJobs(): Promise<void> {
-    const ownerPid = Number(this.engine?.getState()?.clientHostPid) || 0;
+    // Attached-viewer sessions mirror the OWNER's pid (live-share frames):
+    // shell jobs in the registry are owned by that process, not this one.
+    const engineState = this.engine?.getState();
+    const ownerPid = Number(engineState?.ownerClientHostPid || engineState?.clientHostPid) || 0;
     if (!ownerPid) {
       this.scheduleShellJobsPoll();
       return;

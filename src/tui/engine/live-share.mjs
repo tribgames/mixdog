@@ -62,6 +62,7 @@ export function createLiveShare({
   getPublishedState,
   listeners,
   onRemoteSubmit,
+  onRemoteAbort,
   onOwnerClosed,
   viewerApply,
 }) {
@@ -73,6 +74,7 @@ export function createLiveShare({
   let lastItems = null;
   let lastTail = null;
   let lastSpinner = null;
+  let lastLiveSig = '';
 
   const broadcast = (frame) => {
     if (sockets.size === 0) return;
@@ -82,12 +84,49 @@ export function createLiveShare({
     }
   };
 
+  // Live-state mirror (attach parity): the transcript alone left an attached
+  // viewer blind to the owner's activity — busy/stop state, the queued
+  // follow-up list, the Explore/Search summary, agent workers/jobs, and the
+  // context gauge stats all live in owner process state. Mirror a compact
+  // subset so viewer surfaces render them natively. queued entries are
+  // projected to display fields only (content parts may carry images).
+  const LIVE_STATS_KEYS = [
+    'currentContextSource', 'currentContextTokens', 'currentEstimatedContextTokens',
+    'currentContextUpdatedAt', 'costUsd', 'turns', 'inputTokens', 'outputTokens',
+    'latestInputTokens', 'latestPromptTokens', 'contextTokens',
+  ];
+  const liveStateOf = (st) => {
+    const stats = st.stats && typeof st.stats === 'object' ? st.stats : {};
+    const statsSubset = {};
+    for (const key of LIVE_STATS_KEYS) {
+      if (stats[key] !== undefined) statsSubset[key] = stats[key];
+    }
+    return {
+      busy: st.busy === true,
+      commandBusy: st.commandBusy === true,
+      queued: (Array.isArray(st.queued) ? st.queued : []).map((entry) => ({
+        id: entry?.id,
+        text: String(entry?.displayText ?? entry?.text ?? entry?.message ?? '').slice(0, 2000),
+        ...(entry?.enqueuedAt ? { enqueuedAt: entry.enqueuedAt } : {}),
+      })),
+      activeToolSummary: st.activeToolSummary || null,
+      agentWorkers: Array.isArray(st.agentWorkers) ? st.agentWorkers : [],
+      agentJobs: Array.isArray(st.agentJobs) ? st.agentJobs : [],
+      ownerClientHostPid: Number(st.clientHostPid) || process.pid,
+      displayContextWindow: Number(st.displayContextWindow) || 0,
+      compactBoundaryTokens: Number(st.compactBoundaryTokens) || 0,
+      autoCompactTokenLimit: Number(st.autoCompactTokenLimit) || 0,
+      stats: statsSubset,
+    };
+  };
+
   const fullFrame = (st) => ({
     t: 'full',
     sessionId: serverId,
     items: Array.isArray(st.items) ? st.items : [],
     tail: st.streamingTail || null,
     spinner: st.spinner || null,
+    live: liveStateOf(st),
   });
 
   // Runs on every frame-batched publish. With no viewers it only re-baselines
@@ -98,6 +137,7 @@ export function createLiveShare({
       lastItems = st.items;
       lastTail = st.streamingTail;
       lastSpinner = st.spinner;
+      lastLiveSig = '';
       return;
     }
     const frame = { t: 'delta' };
@@ -155,6 +195,13 @@ export function createLiveShare({
       lastSpinner = st.spinner;
       dirty = true;
     }
+    const live = liveStateOf(st);
+    const liveSig = JSON.stringify(live);
+    if (liveSig !== lastLiveSig) {
+      frame.live = live;
+      lastLiveSig = liveSig;
+      dirty = true;
+    }
     if (dirty) broadcast(frame);
   };
   listeners.add(onPublish);
@@ -190,6 +237,10 @@ export function createLiveShare({
       attachLineReader(socket, (frame) => {
         if (frame.t === 'submit' && typeof frame.text === 'string' && frame.text.trim()) {
           onRemoteSubmit(frame.text);
+        } else if (frame.t === 'abort') {
+          // Viewer stop button: interrupt the owner's active turn here — the
+          // viewer process has no turn of its own to cancel.
+          onRemoteAbort?.();
         } else if (frame.t === 'sync') {
           try { socket.write(frameLine(fullFrame(getPublishedState()))); } catch { /* close handles */ }
         }
@@ -199,6 +250,7 @@ export function createLiveShare({
         lastItems = st.items;
         lastTail = st.streamingTail;
         lastSpinner = st.spinner;
+        lastLiveSig = JSON.stringify(liveStateOf(st));
         socket.write(frameLine(fullFrame(st)));
       } catch {
         try { socket.destroy(); } catch { /* already gone */ }
@@ -275,11 +327,48 @@ export function createLiveShare({
     else viewerApply.appendItems([item]);
   };
 
+  // Mirror the owner's live-state subset into the viewer store. Context stats
+  // merge over the local stats object so unmirrored accumulator fields keep
+  // their last local values instead of vanishing.
+  const applyLiveState = (live) => {
+    if (!live || typeof live !== 'object') return;
+    const patch = {
+      busy: live.busy === true,
+      commandBusy: live.commandBusy === true,
+      queued: Array.isArray(live.queued) ? live.queued : [],
+      activeToolSummary: live.activeToolSummary || null,
+      agentWorkers: Array.isArray(live.agentWorkers) ? live.agentWorkers : [],
+      agentJobs: Array.isArray(live.agentJobs) ? live.agentJobs : [],
+      ownerClientHostPid: Number(live.ownerClientHostPid) || 0,
+    };
+    for (const key of ['displayContextWindow', 'compactBoundaryTokens', 'autoCompactTokenLimit']) {
+      if (Number(live[key]) > 0) patch[key] = Number(live[key]);
+    }
+    if (live.stats && typeof live.stats === 'object' && Object.keys(live.stats).length > 0) {
+      const current = viewerApply.getState().stats;
+      patch.stats = { ...(current && typeof current === 'object' ? current : {}), ...live.stats };
+    }
+    viewerApply.set(patch);
+  };
+
+  // Owner gone (clean close, crash, or pipe drop): the mirrored activity is
+  // no longer authoritative — clear it so the viewer never shows a frozen
+  // spinner/queue while the promotion path takes over.
+  const clearMirroredLiveState = () => {
+    try {
+      viewerApply?.set?.({
+        busy: false, commandBusy: false, spinner: null, queued: [],
+        activeToolSummary: null, agentWorkers: [], agentJobs: [], ownerClientHostPid: 0,
+      });
+    } catch { /* viewer store already disposed */ }
+  };
+
   const applyViewerFrame = (frame, socket) => {
     if (frame.t === 'full') {
       viewerApply.replaceItems(Array.isArray(frame.items) ? frame.items : []);
       if (frame.tail) viewerApply.updateStreamingTail(frame.tail.id, frame.tail);
       viewerApply.set({ spinner: frame.spinner || null });
+      applyLiveState(frame.live);
       return;
     }
     if (frame.t !== 'delta') return;
@@ -307,6 +396,7 @@ export function createLiveShare({
       else viewerApply.clearStreamingTail();
     }
     if ('spinner' in frame) viewerApply.set({ spinner: frame.spinner || null });
+    if ('live' in frame) applyLiveState(frame.live);
   };
 
   const stopClient = () => {
@@ -335,6 +425,7 @@ export function createLiveShare({
       const wasUp = clientUp && client === socket;
       if (client === socket) { client = null; clientId = ''; clientUp = false; }
       try { socket.destroy(); } catch { /* already gone */ }
+      if (wasUp) clearMirroredLiveState();
       // A live link that dropped means the owner ended or crashed: nudge the
       // promotion path instead of waiting for the next store-mtime change.
       if (wasUp) onOwnerClosed?.(id, ownerClosed);
@@ -376,6 +467,15 @@ export function createLiveShare({
       if (!clientUp || !client) return false;
       try {
         client.write(frameLine({ t: 'submit', text: String(text) }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    sendAbort() {
+      if (!clientUp || !client) return false;
+      try {
+        client.write(frameLine({ t: 'abort' }));
         return true;
       } catch {
         return false;

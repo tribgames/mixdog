@@ -383,11 +383,15 @@ export function Conversation({
       () => composerActions.current.submit(content, options),
     );
     if (accepted === true) {
-      followOutput.current = true;
-      setFollowing(true);
+      // Sending a prompt is an explicit return-to-live intent: force the
+      // bottom pin instead of only re-arming the follow flag. A stale saved
+      // scroll state or an attached-surface bulk transcript refresh could
+      // otherwise leave the view parked mid-transcript with the
+      // "Jump to latest" chip showing right after the user submits.
+      jumpToLatest("auto");
     }
     return accepted;
-  }, []);
+  }, [jumpToLatest]);
   const composerAbort = useCallback(
     () => composerActions.current.invokeResult(() => window.mixdogDesktop.abort()),
     [],
@@ -436,6 +440,12 @@ export function Conversation({
     if (!transitioning) return;
     const element = viewport.current;
     if (!element) return;
+    // When the session key changed in this same commit, the restore effect
+    // above has already repositioned the viewport (programmatic marker still
+    // armed). Saving now would record that mid-restore offset under the NEW
+    // session's key and poison its next visit (user: a fresh chat starts
+    // unpinned with the jump chip visible).
+    if (programmaticScroll.current) return;
     sessionScrollPositions.current.set(transcriptSessionKey, {
       top: element.scrollTop,
       atEnd: element.scrollHeight - element.scrollTop - element.clientHeight < 48,

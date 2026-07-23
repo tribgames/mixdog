@@ -695,6 +695,13 @@ export async function createEngineSession({
   lifecycle.runtimePulseTimer = setInterval(() => {
     if (flags.disposed) return;
     if (flags.pendingSessionReset) return;
+    // Attached viewer with a live pipe: the owner's frames are authoritative
+    // for stats/agent/tool state. Recomputing them locally here would stomp
+    // the mirror with this process's empty registries every 2s.
+    if (bag.liveShareMirroring?.()) {
+      set({ ...routeState() });
+      return;
+    }
     syncContextStats({ allowEstimated: true });
     set({
       ...routeState(),
@@ -822,6 +829,11 @@ export async function createEngineSession({
       bag.enqueue(text);
       void bag.drain();
     },
+    onRemoteAbort: () => {
+      // Forwarded viewer stop: interrupt OUR active turn (we are the owner).
+      if (flags.disposed || state.sessionRemoteAttached) return;
+      try { api.abort?.(); } catch { /* abort is best-effort */ }
+    },
     onOwnerClosed: (id) => {
       // Owner left (clean close or crash): promote via the normal quiet
       // re-resume once its final save/presence-clear has landed.
@@ -849,6 +861,9 @@ export async function createEngineSession({
   // resume() calls this right after installing the restored items so the
   // owner's full frame lands at the entry boundary instead of seconds later.
   bag.ensureLiveShare = () => { try { liveShare.ensure(); } catch { /* share tick retries */ } };
+  // Pulse guard: while this surface is an attached viewer with a live pipe,
+  // owner frames own stats/agent/tool state (see runtimePulseTimer above).
+  bag.liveShareMirroring = () => state.sessionRemoteAttached && liveShare.viewerConnected();
   // Live viewer submits ride the owner's pipe (instant user bubble + shared
   // streaming); the durable spool path below remains the fallback.
   if (typeof api.submit === 'function') {
@@ -859,6 +874,18 @@ export async function createEngineSession({
         if (text && liveShare.sendSubmit(text)) return true;
       }
       return baseSubmit(prompt, options);
+    };
+  }
+  // Viewer stop button: the local engine has no in-flight turn to cancel —
+  // forward the interrupt to the owner over the pipe. Falls back to the local
+  // abort (no-op safe) when the pipe is down.
+  if (typeof api.abort === 'function') {
+    const baseAbort = api.abort;
+    api.abort = (...args) => {
+      if (state.sessionRemoteAttached && liveShare.viewerConnected() && liveShare.sendAbort()) {
+        return true;
+      }
+      return baseAbort(...args);
     };
   }
   // Attach-time pipe fast-path: session entry (resume) reconciles the live

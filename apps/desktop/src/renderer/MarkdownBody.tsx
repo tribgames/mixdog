@@ -11,7 +11,9 @@ export default function MarkdownBody({ text, copyControl: CopyControl }: {
   text: string;
   copyControl: ComponentType<{ value: string; label: string; className: string }>;
 }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+  // singleTilde:false — GFM's single-tilde strikethrough turns ordinary range
+  // notation ("1~2개 ... 3~4개") into struck-through spans; only ~~x~~ counts.
+  return <ReactMarkdown remarkPlugins={[[remarkGfm, { singleTilde: false }]]} components={{
     a({ href, children }) {
       const external = /^https?:\/\//i.test(href || "");
       return <a href={href} onClick={external ? (event) => {

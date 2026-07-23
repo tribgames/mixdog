@@ -92,6 +92,13 @@ test('session scrolling restores once before paint and preserves per-session pos
   assert.match(renderer, /sessionScrollPositions\.current\.set\(transcriptSessionKey/);
   assert.match(renderer, /transcriptVirtualizer\.scrollToOffset\(saved\.top/);
   assert.match(renderer, /scheduleStickyBottom\(element\)/);
+  // Submitting a prompt must FORCE the bottom pin (jumpToLatest), not merely
+  // re-arm the follow flag — regression: new chat after a finished turn left
+  // the view unpinned with the "Jump to latest" chip showing.
+  assert.match(renderer, /if \(accepted === true\) \{[\s\S]{0,700}?jumpToLatest\("auto"\);/);
+  // The transition-save must not run while a programmatic restore owns the
+  // viewport, or it would poison the NEW session key's saved position.
+  assert.match(renderer, /if \(!transitioning\) return;[\s\S]{0,900}?if \(programmaticScroll\.current\) return;[\s\S]{0,400}?sessionScrollPositions\.current\.set\(transcriptSessionKey/);
   assert.match(renderer, /anchorTo:\s*"end"/);
   assert.match(renderer, /followOnAppend:\s*true/);
   assert.match(renderer, /scrollEndThreshold:\s*80/);

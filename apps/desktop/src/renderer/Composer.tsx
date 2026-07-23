@@ -481,6 +481,14 @@ export const Composer = memo(function Composer({
     attachmentsRef.current = nextAttachments;
     setAttachments(nextAttachments);
     const element = textarea.current;
+    // Chip-only attachments (images) carry no bracket token: the thumbnail
+    // chip is their sole representation, so the draft text stays untouched
+    // (user: pasting an image left a redundant "[Image #N]" box in the input).
+    if (!attachment.token) {
+      window.setTimeout(() => { textarea.current?.focus(); }, 0);
+      historyNavigation.current = { index: -1, seed: '' };
+      return true;
+    }
     setDraft((current) => {
       const rawStart = element?.selectionStart ?? current.length;
       const rawEnd = element?.selectionEnd ?? rawStart;
@@ -573,7 +581,7 @@ export const Composer = memo(function Composer({
           if (transitioningRef.current) return;
           insertAttachment({ id, name: displayName, kind: 'image', mimeType: imageMime, data: imageData,
             ...(metadataText ? { metadataText } : {}),
-            token: `[Image #${id}: ${displayName}]` });
+            token: '' });
           continue;
         }
         const mimeKind = (file.type || '').split(';', 1)[0].trim().toLowerCase();
@@ -724,12 +732,14 @@ export const Composer = memo(function Composer({
       const namedToken = `[Image #${rawId}: ${name}]`;
       const plainToken = `[Image #${rawId}]`;
       const sourceToken = textValue.includes(namedToken) ? namedToken : textValue.includes(plainToken) ? plainToken : '';
-      if (!sourceToken) continue;
-      const id = uniqueId(rawId);
-      const token = id === rawId ? sourceToken : sourceToken.replace(`#${rawId}`, `#${id}`);
-      if (token !== sourceToken) textValue = textValue.replace(sourceToken, token);
-      restored.push({ id, name, kind: 'image', mimeType: String(image.mediaType || 'image/png'),
-        data: image.content, token,
+      // Images restore as chip-only attachments (empty token). A legacy
+      // bracket token in restored text is stripped rather than re-inserted.
+      if (sourceToken) {
+        textValue = textValue.replace(sourceToken, ' ').replace(/ {2,}/g, ' ')
+          .split('\n').map((line) => line.trim()).join('\n').trim();
+      }
+      restored.push({ id: uniqueId(rawId), name, kind: 'image', mimeType: String(image.mediaType || 'image/png'),
+        data: image.content, token: '',
         ...(typeof image.metadataText === 'string' && image.metadataText
           ? { metadataText: image.metadataText }
           : {}) });
@@ -980,7 +990,10 @@ export const Composer = memo(function Composer({
 
   const send = async (slashOverride = '') => {
     const text = (slashOverride || draft).trim();
-    if (!text || submitting || transitioning) return;
+    // Chip-only image/PDF attachments carry no draft token, so an image-only
+    // send legitimately has empty text.
+    const chipOnlyAttachments = attachmentsRef.current.some((attachment) => !attachment.token);
+    if ((!text && !chipOnlyAttachments) || submitting || transitioning) return;
     setSubmitting(true);
     try {
       setComposerNotice('');
@@ -1041,7 +1054,9 @@ export const Composer = memo(function Composer({
       }
       const content: DesktopPromptContent = imageAttachments.length || pdfAttachments.length
         ? [
-          { type: 'text', text: expandedText },
+          // Image-only submits can now have an empty draft (no bracket token
+          // padding the text) — skip the empty text part for provider safety.
+          ...(expandedText ? [{ type: 'text' as const, text: expandedText }] : []),
           // TUI parity: each image carries its "[Image: WxH, displayed at …]"
           // metadata text part directly before the image block.
           ...imageAttachments.flatMap((attachment) => [
@@ -1445,7 +1460,8 @@ export const Composer = memo(function Composer({
             <MxIcon name="stop" size={16} />
           </button>
         ) : (
-          <button className="send-button" disabled={!draft.trim() || submitting || transitioning}
+          <button className="send-button"
+            disabled={(!draft.trim() && !attachments.some((attachment) => !attachment.token)) || submitting || transitioning}
             aria-label={turnBusy ? "Queue or steer active turn" : commandBusy ? "Queue after current command" : "Send message"}
             data-tooltip={turnBusy ? "Queue or steer · Enter" : commandBusy ? "Queue after command · Enter" : "Send · Enter"}
             data-tooltip-side="top">
