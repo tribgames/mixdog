@@ -18,6 +18,18 @@ const PENDING_MESSAGES_FILE = 'session-pending-messages.json';
 const PENDING_MESSAGES_MODE = 0o600;
 const PENDING_ORPHAN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PENDING_ORPHAN_GRACE_MS = 60 * 60 * 1000;
+// Replay window for genuine user/steering entries. A cross-surface submit is
+// meant for a LIVE owner; if nothing picked it up within this window, firing
+// it into a session resumed hours or days later reads as a surprise
+// self-injection (user report: stale spool messages replayed on re-entry).
+// Crash+restart recovery within the window still replays normally.
+const STALE_USER_INJECTION_TTL_MS = 30 * 60 * 1000;
+
+function isStaleUserInjection(entry, now = Date.now()) {
+    if (isCompletionNotificationEntry(entry)) return false;
+    const enqueuedAt = Number(entry?.enqueuedAt) || 0;
+    return enqueuedAt > 0 && (now - enqueuedAt) > STALE_USER_INJECTION_TTL_MS;
+}
 // Marker for deferred agent/tool *completion* notifications. Such entries must
 // never be replayed into a later turn on session resume (out-of-order delivery
 // is worse than loss — owner decision), so drain discards them. Genuine
@@ -155,11 +167,17 @@ function normalizePendingStore(raw) {
     const out = { version: 1, updatedAt: storeUpdatedAt, sessions: {}, sessionTouchedAt: {} };
     for (const [sid, value] of Object.entries(sessions)) {
         if (!isValidPendingSessionId(sid) || !Array.isArray(value)) continue;
+        // Legacy string entries carry no timestamp of their own. Age them from
+        // the session's last real enqueue (sessionTouchedAt), NOT the store's
+        // updatedAt — the store refreshes on every unrelated write, which made
+        // days-old legacy entries look permanently fresh to the stale gate.
+        const touchedAt = Number(touchedRaw[sid]);
+        const legacyEnqueuedAt = Number.isFinite(touchedAt) && touchedAt > 0 ? touchedAt : storeUpdatedAt;
         const q = isTuiSteeringPendingKey(sid)
             ? value.map(normalizeTuiSteeringQueueEntry).filter(Boolean)
             : value.map((entry, index) => normalizePersistedEntry(entry, {
                 legacyId: legacyPendingMessageId(sid, index, typeof entry === 'string' ? entry : JSON.stringify(entry)),
-                fallbackEnqueuedAt: storeUpdatedAt + index,
+                fallbackEnqueuedAt: legacyEnqueuedAt + index,
             })).filter(Boolean);
         if (q.length > 0) {
             out.sessions[sid] = q;
@@ -469,6 +487,7 @@ export function hydratePendingMessages(sessionId, options = {}) {
       let hydrated = [];
       let alreadyDelivered = [];
       let staleLedgerEntries = [];
+      const staleUserEntries = [];
       const ledgerSession = loadSession(sessionId);
       try {
         const deliveredLedger = new Set(ledgerSession?.deliveredPendingMessageIds || []);
@@ -490,7 +509,16 @@ export function hydratePendingMessages(sessionId, options = {}) {
                     alreadyDelivered.push(entry);
                     return false;
                 }
-                return id && !inDelivery.has(id) && !acked.has(id);
+                if (!id || inDelivery.has(id) || acked.has(id)) return false;
+                // Stale genuine user/steering entries must not surprise-inject
+                // into a session resumed long after they were queued (user:
+                // "re-entering the session suddenly injected old messages").
+                // Completion entries keep their own resume-drop policy.
+                if (isStaleUserInjection(entry)) {
+                    staleUserEntries.push(entry);
+                    return false;
+                }
+                return true;
             });
             // Read-only claim: durable data remains until successful delivery
             // acknowledges these exact ids. A crash here therefore redelivers.
@@ -505,6 +533,11 @@ export function hydratePendingMessages(sessionId, options = {}) {
       if (alreadyDelivered.length > 0) {
         const cleaned = await acknowledgePendingMessages(sessionId, alreadyDelivered);
         if (cleaned) cleanupConfirmed.push(...alreadyDelivered);
+      }
+      if (staleUserEntries.length > 0) {
+        try { process.stderr.write(`[session] dropped ${staleUserEntries.length} stale queued message(s) (older than ${Math.round(STALE_USER_INJECTION_TTL_MS / 60000)}m) sessionId=${sessionId}\n`); } catch {}
+        const cleaned = await acknowledgePendingMessages(sessionId, staleUserEntries);
+        if (cleaned) cleanupConfirmed.push(...staleUserEntries);
       }
       if (cleanupConfirmed.length > 0) {
         try {
@@ -710,6 +743,7 @@ export function drainForeignUserInjections(sessionId) {
         }
     } catch { /* ledger unavailable — in-memory sets still guard */ }
     const taken = [];
+    let droppedStale = 0;
     try {
         updateJsonAtomicSync(pendingMessagesPath(), (raw) => {
             const next = normalizePendingStore(raw);
@@ -723,10 +757,14 @@ export function drainForeignUserInjections(sessionId) {
                     && !isCompletionNotificationEntry(entry)
                     && !isLegacyUnmarkedCompletionNotification(text)
                     && text && !isInternalRuntimeNotificationText(text);
-                if (foreignUser) taken.push(text);
+                // Stale foreign submits are removed WITHOUT injecting: they
+                // were aimed at a live owner that no longer exists (user:
+                // stale spool messages fired on session re-entry days later).
+                if (foreignUser && isStaleUserInjection(entry)) droppedStale += 1;
+                else if (foreignUser) taken.push(text);
                 else kept.push(entry);
             }
-            if (taken.length === 0) return undefined;
+            if (taken.length === 0 && droppedStale === 0) return undefined;
             if (kept.length > 0) next.sessions[sessionId] = kept;
             else {
                 delete next.sessions[sessionId];
@@ -738,6 +776,9 @@ export function drainForeignUserInjections(sessionId) {
     } catch (err) {
         try { process.stderr.write(`[session] foreign-injection drain failed sessionId=${sessionId}: ${err?.message || err}\n`); } catch {}
         return [];
+    }
+    if (droppedStale > 0) {
+        try { process.stderr.write(`[session] dropped ${droppedStale} stale foreign submit(s) (older than ${Math.round(STALE_USER_INJECTION_TTL_MS / 60000)}m) sessionId=${sessionId}\n`); } catch {}
     }
     return taken;
 }

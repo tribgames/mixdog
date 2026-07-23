@@ -8,6 +8,11 @@ import { promptContentText } from './queue-helpers.mjs';
 
 const PENDING_MESSAGES_FILE = 'session-pending-messages.json';
 const PENDING_MESSAGES_MODE = 0o600;
+// Restore window for persisted busy-input steering rows. Rows older than this
+// are leftovers of a session that ended long ago — restoring them into a fresh
+// TUI boot reads as a surprise self-injection (user report), so they are
+// discarded at drain time instead.
+const STALE_STEERING_RESTORE_TTL_MS = 30 * 60 * 1000;
 
 // Serialize this UI process's own steering writes so append→drop→drain keep
 // their issue order even though each now waits on the lock asynchronously.
@@ -44,7 +49,9 @@ function normalizeTuiSteeringQueueEntry(entry) {
   if (typeof entry.text === 'string' && entry.text.trim()) {
     const text = entry.text.trim();
     const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : null;
-    return id ? { id, text } : text;
+    if (!id) return text;
+    const at = Number(entry.at);
+    return Number.isFinite(at) && at > 0 ? { id, text, at } : { id, text };
   }
   return null;
 }
@@ -116,7 +123,7 @@ export function appendTuiSteeringPersist(leadSessionId, entry) {
   const key = tuiSteeringSessionKey(leadSessionId);
   if (!key) return Promise.resolve();
   if (!entry.steeringPersistId) entry.steeringPersistId = newSteeringPersistId();
-  const record = { id: entry.steeringPersistId, text };
+  const record = { id: entry.steeringPersistId, text, at: Date.now() };
   return _serialize(async () => {
     try {
       await updateJsonAtomic(pendingMessagesPath(), (raw) => {
@@ -187,12 +194,23 @@ export function drainTuiSteeringPersist(leadSessionId) {
   if (!key) return Promise.resolve([]);
   return _serialize(async () => {
     let drained = [];
+    let droppedStale = 0;
     try {
       await updateJsonAtomic(pendingMessagesPath(), (raw) => {
         const next = normalizePendingStore(raw);
         const q = Array.isArray(next.sessions[key]) ? next.sessions[key] : [];
-        drained = q.map(drainedRowToRestore).filter(Boolean);
-        if (drained.length === 0) return undefined;
+        // Per-row timestamps age precisely; legacy rows without one age from
+        // the session key's last touch time.
+        const now = Date.now();
+        const touchedAt = Number(next.sessionTouchedAt?.[key]) || 0;
+        const fresh = q.filter((row) => {
+          const at = Number(row?.at) || touchedAt;
+          const stale = at > 0 && (now - at) > STALE_STEERING_RESTORE_TTL_MS;
+          if (stale) droppedStale += 1;
+          return !stale;
+        });
+        drained = fresh.map(drainedRowToRestore).filter(Boolean);
+        if (drained.length === 0 && droppedStale === 0) return undefined;
         delete next.sessions[key];
         if (next.sessionTouchedAt) delete next.sessionTouchedAt[key];
         next.updatedAt = Date.now();
@@ -200,6 +218,9 @@ export function drainTuiSteeringPersist(leadSessionId) {
       }, { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false });
     } catch (err) {
       try { process.stderr.write(`[tui] steering-queue drain failed sessionId=${leadSessionId}: ${err?.message || err}\n`); } catch {}
+    }
+    if (droppedStale > 0) {
+      try { process.stderr.write(`[tui] dropped ${droppedStale} stale steering row(s) sessionId=${leadSessionId}\n`); } catch {}
     }
     return drained;
   });
