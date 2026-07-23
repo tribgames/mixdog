@@ -119,10 +119,11 @@ function ConnectionRow({ label, value, placeholder, copied, onCopy }: {
     <span>{label}</span>
     <div className="webhook-connection-value">
       <code>{value || placeholder}</code>
-      <button type="button" className="settings-action" disabled={!value} onClick={onCopy}
-        aria-label={`Copy ${label.toLowerCase()}`}>
-        {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-        {copied ? 'Copied' : 'Copy'}</button>
+      {/* Icon-only copy (user decision): the value itself is the label. */}
+      <button type="button" className="icon-button webhook-connection-copy" disabled={!value} onClick={onCopy}
+        aria-label={`Copy ${label.toLowerCase()}`} data-tooltip={`Copy ${label.toLowerCase()}`}>
+        {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+      </button>
     </div>
   </div>;
 }
@@ -188,11 +189,10 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
         setFormError('');
         const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
         const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
-        // Replace-input wins; otherwise a NEW webhook persists the displayed
-        // pre-minted secret and an EDIT sends nothing (the store preserves
-        // the existing secret on overwrite).
-        const replacement = text('webhook-secret');
-        const effectiveSecret = replacement || (editing ? '' : secret);
+        // A NEW webhook persists the displayed pre-minted secret; an EDIT
+        // sends nothing (the store preserves the existing secret on
+        // overwrite) — no rotation field (user decision).
+        const effectiveSecret = editing ? '' : secret;
         onSave({
           name: editing ? draft.name : text('webhook-name'),
           description: draft.description,
@@ -212,22 +212,6 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
             disabled={busy || editing} maxLength={64}
             onChange={(event) => setUrlName(event.currentTarget.value)} />
         </label>
-        {/* Connection details up front (user decision): the endpoint URL and
-            signing secret are both visible with copy buttons, ready to paste
-            into the external service's webhook settings. */}
-        <div className="webhook-connection" aria-label="Connection details">
-          <ConnectionRow label="Endpoint URL"
-            value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
-            placeholder={publicBase
-              ? 'Type a name to preview the endpoint URL'
-              : 'URL appears once the runtime connects to the relay'}
-            copied={copiedField === 'url'}
-            onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)} />
-          <ConnectionRow label="Signing secret" value={secret}
-            placeholder="Secret unavailable"
-            copied={copiedField === 'secret'}
-            onCopy={() => copyField('secret', secret)} />
-        </div>
         <div className="schedules-composer">
           <textarea name="webhook-instructions" defaultValue={draft.instructions} required disabled={busy}
             placeholder="What should Mixdog do when this webhook fires?" aria-label="Webhook instructions" />
@@ -253,10 +237,22 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
             </div>
           </div>
         </div>
-        <label className="schedules-field">Replace secret
-          <input name="webhook-secret" type="password" autoComplete="off" disabled={busy}
-            placeholder="Optional — leave empty to keep the secret above" />
-        </label>
+        {/* Connection details (user decision): the endpoint URL and signing
+            secret sit below the composer, each with an icon-only copy button,
+            ready to paste into the external service's webhook settings. */}
+        <div className="webhook-connection" aria-label="Connection details">
+          <ConnectionRow label="Endpoint URL"
+            value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
+            placeholder={publicBase
+              ? 'Type a name to preview the endpoint URL'
+              : 'URL appears once the runtime connects to the relay'}
+            copied={copiedField === 'url'}
+            onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)} />
+          <ConnectionRow label="Signing secret" value={secret}
+            placeholder="Secret unavailable"
+            copied={copiedField === 'secret'}
+            onCopy={() => copyField('secret', secret)} />
+        </div>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
           <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>

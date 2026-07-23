@@ -3603,16 +3603,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .schedules-form-error { margin: 0; color: var(--mx-danger); font-size: 12px; }
 .schedules-notice { margin: 0; color: var(--mx-text-muted); font-size: 12px; }
 /* Webhook editor connection block: endpoint URL + signing secret rows with
-   copy affordances, ready to paste into the external service. */
+   icon-only copy affordances, ready to paste into the external service. */
 .webhook-connection {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--mx-bg-layer-1);
 }
-.webhook-connection-row { gap: 4px; }
+.webhook-connection-row { gap: 2px; }
+.webhook-connection-row > span { font-size: 12px; color: var(--mx-text-muted); }
 .webhook-connection-value {
   display: flex;
   align-items: center;
@@ -3625,10 +3626,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  color: var(--mx-text-muted);
+  font-size: 12.5px;
+  color: var(--mx-text);
 }
-.webhook-connection-value .settings-action { flex: 0 0 auto; }
+.webhook-connection-copy {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 5px;
+  color: var(--mx-icon-muted);
+}
+.webhook-connection-copy:hover:not(:disabled) { color: var(--mx-text); }
+.webhook-connection-copy:disabled { opacity: .45; }
 .schedules-dialog footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 /* Save-time errors sit inline with Cancel/Save, pushing the buttons right. */
 .schedules-dialog footer .schedules-form-error { flex: 1; min-width: 0; text-align: left; }
