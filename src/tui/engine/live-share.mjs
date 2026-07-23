@@ -402,6 +402,7 @@ export function createLiveShare({
   const stopClient = () => {
     const closing = client;
     const closingId = clientId;
+    const wasUp = clientUp;
     client = null;
     clientId = '';
     clientUp = false;
@@ -410,6 +411,14 @@ export function createLiveShare({
     if (closing) {
       try { closing.destroy(); } catch { /* already gone */ }
     }
+    // Deliberate teardown (session switch / role change / dispose) destroys
+    // the socket AFTER clientUp is already false, so the socket's close
+    // handler sees wasUp=false and never clears the mirror. Clear it here:
+    // otherwise the owner's mirrored busy/spinner/queue leaks into the next
+    // resumed session as a frozen working indicator (user report: finished
+    // session shows a spinner + stop button after switching away from a
+    // busy live-attached session).
+    if (wasUp) clearMirroredLiveState();
   };
 
   const startClient = (id) => {

@@ -15,6 +15,10 @@ const LIVE_PIPE_ID = `${PIPE_ID}_live`;
 const livePipePath = process.platform === 'win32'
   ? `\\\\.\\pipe\\mixdog-live-${LIVE_PIPE_ID}`
   : join(tmpdir(), `mixdog-live-${LIVE_PIPE_ID}.sock`);
+const SWITCH_PIPE_ID = `${PIPE_ID}_switch`;
+const switchPipePath = process.platform === 'win32'
+  ? `\\\\.\\pipe\\mixdog-live-${SWITCH_PIPE_ID}`
+  : join(tmpdir(), `mixdog-live-${SWITCH_PIPE_ID}.sock`);
 
 function waitFor(check, label, timeoutMs = 4000) {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -233,6 +237,74 @@ test('live-share mirrors owner live state and forwards viewer aborts', async () 
     owner.dispose();
     await waitFor(() => viewer.store.busy === false && viewer.store.agentWorkers.length === 0,
       'mirrored live state cleared on owner close');
+  } finally {
+    owner.dispose();
+    viewerShare.dispose();
+  }
+});
+
+test('switching the viewer session clears mirrored owner activity', async () => {
+  // Regression: stopClient() tears the pipe down itself (session switch), so
+  // the socket close handler sees clientUp=false and skipped the mirror
+  // clear — the owner's busy/spinner leaked into the next resumed session as
+  // a frozen working indicator.
+  const listeners = new Set();
+  const ownerState = {
+    items: [],
+    streamingTail: null,
+    spinner: { active: true, mode: 'responding' },
+    busy: true,
+    commandBusy: false,
+    queued: [{ id: 'q1', text: 'queued' }],
+    activeToolSummary: '1:5:0:0',
+    agentWorkers: [{ tag: 'w1', status: 'running' }],
+    agentJobs: [],
+    clientHostPid: 777,
+  };
+  const owner = createLiveShare({
+    ownerSessionId: () => SWITCH_PIPE_ID,
+    viewerSessionId: () => '',
+    socketPathFor: () => switchPipePath,
+    getPublishedState: () => ownerState,
+    listeners,
+    onRemoteSubmit: () => {},
+    onOwnerClosed: () => {},
+    viewerApply: null,
+  });
+
+  const viewer = createViewerStore();
+  let viewerTarget = SWITCH_PIPE_ID;
+  const viewerShare = createLiveShare({
+    ownerSessionId: () => '',
+    viewerSessionId: () => viewerTarget,
+    socketPathFor: () => switchPipePath,
+    getPublishedState: () => ({ items: [], streamingTail: null, spinner: null }),
+    listeners: new Set(),
+    onRemoteSubmit: () => {},
+    onOwnerClosed: () => {},
+    viewerApply: viewer.apply,
+  });
+
+  try {
+    owner.ensure();
+    await waitFor(() => {
+      viewerShare.ensure();
+      return viewerShare.viewerConnected();
+    }, 'viewer connect');
+    await waitFor(() => viewer.store.busy === true
+      && viewer.store.spinner?.active === true, 'mirrored busy + spinner');
+
+    // The user selects a different session: ensure() reconciles the viewer
+    // leg away from this pipe and MUST drop the mirrored activity with it.
+    viewerTarget = '';
+    viewerShare.ensure();
+    await waitFor(() => viewer.store.busy === false
+      && viewer.store.spinner === null
+      && viewer.store.queued.length === 0
+      && viewer.store.agentWorkers.length === 0
+      && viewer.store.activeToolSummary === null
+      && viewer.store.ownerClientHostPid === 0,
+    'mirrored activity cleared on session switch');
   } finally {
     owner.dispose();
     viewerShare.dispose();
