@@ -871,7 +871,7 @@ test("conversation attaches only successful turn completion to the final assista
   assert.equal(failedRow?.querySelector(".turn-retry")?.getAttribute("aria-label"), "Retry failed turn");
 });
 
-test("toggling a tool card releases bottom-follow instead of re-pinning the transcript", async () => {
+test("toggling a tool card off-bottom releases follow after the anchor hold settles", async () => {
   installDom();
   const source = {
     id: "tool-toggle-session",
@@ -919,8 +919,15 @@ test("toggling a tool card releases bottom-follow instead of re-pinning the tran
     await Promise.resolve();
   });
   assert.equal(document.querySelector(".tool-card")?.getAttribute("data-open"), "true");
+  // Follow reconciles ONCE after the two-frame anchor hold (rAF shim =
+  // setTimeout): flush timers so the resolved off-bottom state lands.
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
   assert.ok(document.querySelector(".jump-to-latest"),
-    "a tool toggle must release follow so the transcript is not re-pinned mid-read");
+    "an off-bottom tool toggle must release follow so the transcript is not re-pinned mid-read");
 });
 
 test("a + draft opened during an in-flight session switch is not stomped by the late resume", async () => {

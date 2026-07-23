@@ -566,39 +566,45 @@ export function Conversation({
           atEnd: nextFollowing,
         });
       }} onClickCapture={(event) => {
-        // Toggling a tool card is a reading intent: the resize it causes must
-        // not re-pin the transcript bottom (user: the whole script lurched
-        // with ghosting on collapse/expand). Mirrors the upward-wheel disarm,
-        // including its no-overflow guard so an unscrollable view keeps
-        // follow armed (no orphaned "Jump to latest" chip).
+        // Toggling a tool card must not re-pin the transcript bottom (lurch)
+        // — but an EAGER visible disarm flashed the "Jump to latest" chip for
+        // a few frames when the post-toggle position was still at the bottom
+        // (user report). Follow is suspended SILENTLY (ref only) for the
+        // toggle, and the visible state is reconciled exactly once after the
+        // two-frame anchor hold settles.
         const target = event.target as HTMLElement | null;
         if (!target || typeof target.closest !== "function") return;
         if (!target.closest(".tool-header")) return;
         const element = event.currentTarget;
-        const scrollable = element.scrollHeight > element.clientHeight + 1;
-        if (scrollable && followOutput.current) {
-          followOutput.current = false;
-          setFollowing(false);
-        }
+        const wasFollowing = followOutput.current;
+        followOutput.current = false;
         // Anchor the toggled card: the summary row's height change re-measures
         // the virtual row, and a tail row is BOTTOM-anchored — without a
         // correction the header (and its text) jumped from the wrong position
         // (user: "폰트가 튀듯이 올라와"). Keep the clicked card's top fixed in
         // the viewport across the next two frames.
         const card = target.closest(".tool-card") as HTMLElement | null;
-        if (!card) return;
-        const anchorTop = card.getBoundingClientRect().top;
+        const anchorTop = card ? card.getBoundingClientRect().top : 0;
         let frames = 0;
         const correct = () => {
-          if (!card.isConnected || !viewport.current) return;
-          const delta = card.getBoundingClientRect().top - anchorTop;
-          if (delta !== 0) {
-            programmaticScroll.current = true;
-            viewport.current.scrollTop += delta;
-            window.setTimeout(() => { programmaticScroll.current = false; }, 0);
+          if (!viewport.current) return;
+          if (card?.isConnected) {
+            const delta = card.getBoundingClientRect().top - anchorTop;
+            if (delta !== 0) {
+              programmaticScroll.current = true;
+              viewport.current.scrollTop += delta;
+              window.setTimeout(() => { programmaticScroll.current = false; }, 0);
+            }
           }
           frames += 1;
-          if (frames < 2) window.requestAnimationFrame(correct);
+          if (frames < 2) { window.requestAnimationFrame(correct); return; }
+          // Single reconciliation: stay live only if the user WAS following
+          // and the settled position is still at the bottom.
+          const scroller = viewport.current;
+          const atEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
+          const resolved = wasFollowing && atEnd;
+          followOutput.current = resolved;
+          setFollowing(resolved);
         };
         window.requestAnimationFrame(correct);
       }} onWheel={(event) => {
