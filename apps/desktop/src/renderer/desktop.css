@@ -350,8 +350,9 @@ button:focus-visible { outline-offset: 2.5px; }
   color: var(--mx-text);
   background: var(--mx-hover);
 }
-.icon-button:active, .toolbar-sidebar:active,
-.titlebar-new:active { background: var(--mx-pressed); }
+/* User decision: NO press-flash anywhere — the darker :active tint on click
+   read as visual noise. Hover remains the only transient affordance;
+   var(--mx-pressed) is reserved for PERSISTENT selected/toggled states. */
 .toolbar-sidebar { width: 36px; height: 36px; border-radius: 8px; }
 .toolbar-sidebar {
   position: relative;
@@ -4710,11 +4711,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   outline: 0;
   box-shadow: 0 0 0 2px var(--mx-focus);
 }
-.composer-tool:active,
-.model-trigger:active:not(:disabled),
-.route-controls > .fast-control:active:not(:disabled),
-.fast-control .mx-select-trigger:active:not(:disabled),
-.effort-control .mx-select-trigger:active:not(:disabled) { background: var(--mx-pressed); }
+/* Composer/route controls: no :active press-flash (see the press-flash
+   sweep note above) — hover styling already marks the interactive surface. */
 .route-controls {
   min-width: 0;
   max-width: calc(100% - 56px);
