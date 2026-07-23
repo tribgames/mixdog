@@ -4740,6 +4740,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Stop affordance stays a STATIC filled square sized like the send arrow —
    the old breathing pulse (scale to 1.12) made the glyph read oversized
    next to the send state (user decision). */
+/* Same contrast disc as send; only the glyph changes. The default 15px
+   square with a 2.5px stroke + fill read as an oversized foreign block next
+   to the send arrow (user: off-theme) — a smaller stroke-less rounded
+   square keeps the stop state in the app's quiet-glyph language. */
+.send-button.stop svg.lucide {
+  width: 11px;
+  height: 11px;
+  stroke: none;
+}
 .send-button:disabled {
   color: var(--mx-icon-muted);
   background: var(--mx-bg-layer-3);
