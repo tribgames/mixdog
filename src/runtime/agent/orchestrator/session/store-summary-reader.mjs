@@ -84,6 +84,10 @@ function normalizedRow(row, heartbeatAt = 0) {
     return {
         id: row.id,
         updatedAt: positiveNumber(row.updatedAt, 0),
+        // Conversation-activity timestamp (mirror of listLeadSessions):
+        // detach/resume bookkeeping bumps updatedAt in bulk on restarts, so
+        // Recent must order by lastUsedAt or every restart reshuffles rows.
+        lastUsedAt: positiveNumber(row.lastUsedAt, 0),
         createdAt: positiveNumber(row.createdAt, 0),
         lastHeartbeatAt: positiveNumber(row.lastHeartbeatAt, 0),
         // Liveness comes from the .hb sidecar mtime alone: stored row fields
@@ -164,7 +168,8 @@ function scanSessionFiles(heartbeatMtimes = sessionHeartbeatMtimes()) {
             // cold catalog; the authoritative runtime can reconcile it later.
         }
     }
-    return rows.sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+    return rows.sort((left, right) =>
+        (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0));
 }
 
 export function listStoredSessionSummaries(options = {}) {
@@ -177,7 +182,8 @@ export function listStoredSessionSummaries(options = {}) {
             const rows = (Array.isArray(index.rows) ? index.rows : [])
                 .map((row) => normalizedRow(row, heartbeatMtimes.get(row?.id) || 0))
                 .filter((row) => row && isLeadVisibleRow(row))
-                .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+                .sort((left, right) =>
+                    (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0));
             if (rows.length > 0 || options.rebuildIfMissing === false) return rows;
         }
     } catch {
