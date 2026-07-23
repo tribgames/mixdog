@@ -15,7 +15,6 @@ import {
   diagnoseDiscordTokenValue,
   getDiscordToken,
   getTelegramToken,
-  getWebhookAuthtoken,
   hasStoredSecret,
   readSection,
   saveSecret,
@@ -195,18 +194,6 @@ export function saveTelegramToken(token) {
 
 export function forgetTelegramToken() {
   deleteSecret(SECRET_ACCOUNTS.telegramToken);
-  return { ok: true };
-}
-
-export function saveWebhookAuthtoken(token) {
-  const value = String(token || '').trim();
-  if (!value) throw new Error('Webhook authtoken is required');
-  saveSecret(SECRET_ACCOUNTS.webhookAuth, value);
-  return { ok: true, configured: Boolean(getWebhookAuthtoken()) };
-}
-
-export function forgetWebhookAuthtoken() {
-  deleteSecret(SECRET_ACCOUNTS.webhookAuth);
   return { ok: true };
 }
 
@@ -525,7 +512,6 @@ export async function channelSetup(config = null) {
   const cfg = normalizeChannelsConfig(config || readSection('channels'));
   const discordToken = getDiscordToken();
   const discordProblem = diagnoseDiscordTokenValue(discordToken, cfg);
-  const webhookAuth = getWebhookAuthtoken();
   const telegramToken = getTelegramToken();
   return {
     backend: cfg.backend || 'discord',
@@ -545,9 +531,6 @@ export async function channelSetup(config = null) {
     },
     webhook: {
       ...(cfg.webhook || {}),
-      authenticated: Boolean(webhookAuth),
-      stored: hasStoredSecret(SECRET_ACCOUNTS.webhookAuth),
-      status: webhookAuth ? 'Set' : 'Off',
       // Relay-tunnel public base (null until the channel worker first
       // connects and mints its hook identity).
       publicUrl: readHookPublicBase(),
@@ -562,7 +545,7 @@ async function renderChannelStatus(config = null) {
   const setup = await channelSetup(config);
   const lines = [];
   lines.push(`discord  ${setup.discord.status}${setup.discord.problem ? ` (${setup.discord.problem})` : ''}`);
-  lines.push(`webhook  ${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · auth ${setup.webhook.status} · port ${setup.webhook.port || 3333}`);
+  lines.push(`webhook  ${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · port ${setup.webhook.port || 3333}${setup.webhook.publicUrl ? ` · ${setup.webhook.publicUrl}` : ''}`);
   lines.push(`channel  ${setup.channel.channelId || '(unset)'}`);
   lines.push('schedules');
   if (setup.schedules.length === 0) lines.push('  (none)');

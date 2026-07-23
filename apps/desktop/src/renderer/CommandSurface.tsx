@@ -289,7 +289,9 @@ function SurfaceBody({ surface, data, pending, run, onOpen }: {
       <button disabled={busy}>Apply</button></form></Group>;
   }
   if (surface === 'channels') return <ChannelsBody data={data} busy={busy} run={run} onOpen={onOpen} />;
-  return <AutomationBody kind={surface} data={data} busy={busy} run={run} />;
+  // schedules/webhooks route to their dedicated main-pane pages at the App
+  // level (openSchedules/openWebhooks); this dialog never renders them.
+  return null;
 }
 
 function finite(value: unknown): number {
@@ -371,7 +373,6 @@ function ChannelsBody({ data, busy, run, onOpen }: {
     <Group title="Authentication">{([
       ['Discord bot token', 'saveDiscordToken'],
       ['Telegram bot token', 'saveTelegramToken'],
-      ['Webhook / ngrok auth token', 'saveWebhookAuthtoken'],
     ] as const).map(([label, capability]) => <form className="command-surface-form" key={capability} onSubmit={(event) => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -379,29 +380,14 @@ function ChannelsBody({ data, busy, run, onOpen }: {
       if (secret) void run(capability, [secret]).then(() => form.reset());
     }}><label>{label}<input name="secret" type="password" autoComplete="off" required /></label>
       <button disabled={busy}>Save</button></form>)}</Group>
-    <Group title="Webhook ingress"><form className="command-surface-form" onSubmit={(event) => {
-      event.preventDefault();
-      const domain = new FormData(event.currentTarget).get('domain');
-      void run('setWebhookConfig', [{ ngrokDomain: domain }]);
-    }}><input name="domain" defaultValue={String(record(setup.webhook).ngrokDomain || '')}
-      placeholder="ngrok domain" required /><button disabled={busy}>Save</button></form></Group>
+    <Group title="Webhook ingress">
+      {/* Relay tunnel replaced ngrok: the public URL is issued automatically. */}
+      <Resource title="Public webhook URL"
+        detail={String(record(setup.webhook).publicUrl
+          || 'Issued automatically by the Mixdog relay once the channel runtime connects.')} />
+    </Group>
     <Group title="Automation"><button onClick={() => onOpen('schedules')}>Manage schedules</button>
       <button onClick={() => onOpen('webhooks')}>Manage webhooks</button></Group></>;
-}
-
-function AutomationBody({ kind, data, busy, run }: {
-  kind: 'schedules' | 'webhooks'; data: Record<string, unknown>; busy: boolean; run: SurfaceRun;
-}) {
-  const list = rows(data.getChannelSetup, kind);
-  const toggle = kind === 'schedules' ? 'setScheduleEnabled' : 'setWebhookEnabled';
-  const remoteEnabled = data.isRemoteEnabled === true;
-  return <Group title={kind === 'schedules' ? 'Scheduled prompts' : 'Inbound webhook endpoints'}>
-    {list.map((item) => <Resource key={String(item.name)} title={String(item.name)}
-      detail={`${pretty(item)}${remoteEnabled ? '' : '\nChannel off'}`} actions={<><button disabled={busy || !remoteEnabled}
-        onClick={() => void run(toggle, [item.name, item.enabled === false])}>
-        {item.enabled === false ? 'Enable' : 'Disable'}</button></>} />)}
-    {!list.length && <p>No {kind} configured.</p>}
-  </Group>;
 }
 
 function routeKey(route: Row) {

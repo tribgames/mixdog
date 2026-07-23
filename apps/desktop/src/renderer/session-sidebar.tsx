@@ -26,6 +26,7 @@ import {
   Plus,
   Settings,
   Trash2,
+  Webhook,
   X,
 } from "lucide-react";
 import { MxIcon } from "./MxIcon";
@@ -87,6 +88,7 @@ interface SessionSidebarProps {
   onNewTask(): void;
   onOpenProjects(): void;
   onOpenSchedules(): void;
+  onOpenWebhooks(): void;
   onOpenSettings(): void;
   onPrefetchSession?(sessionId: string): Promise<boolean>;
   onResumeSession(sessionId: string): void;
@@ -105,6 +107,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   onNewTask,
   onOpenProjects,
   onOpenSchedules,
+  onOpenWebhooks,
   onOpenSettings,
   onPrefetchSession,
   onResumeSession,
@@ -231,6 +234,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           aria-label="Open schedules">
           <span className="sidebar-nav-icon"><Clock size={18} /></span>
           <span>Schedules</span>
+        </button>
+        {/* Inbound webhooks: same main-pane takeover concept as Schedules. */}
+        <button type="button" className="projects-link" onClick={onOpenWebhooks}
+          aria-label="Open webhooks">
+          <span className="sidebar-nav-icon"><Webhook size={18} /></span>
+          <span>Webhooks</span>
         </button>
         {/* Settings joins the primary nav (user: no bottom footer label). */}
         <button type="button" className="projects-link sidebar-settings-button" onClick={onOpenSettings}

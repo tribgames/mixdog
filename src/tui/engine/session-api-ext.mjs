@@ -633,16 +633,6 @@ export function createEngineApiB(bag) {
       pushNotice('telegram token forgotten', 'info');
       return result;
     },
-    saveWebhookAuthtoken: (token) => {
-      const result = runtime.saveWebhookAuthtoken(token);
-      pushNotice('webhook authtoken saved', 'info');
-      return result;
-    },
-    forgetWebhookAuthtoken: () => {
-      const result = runtime.forgetWebhookAuthtoken();
-      pushNotice('webhook authtoken forgotten', 'info');
-      return result;
-    },
     setChannel: async (entry) => {
       const result = await runtime.setChannel(entry);
       pushNotice('channel saved', 'info');

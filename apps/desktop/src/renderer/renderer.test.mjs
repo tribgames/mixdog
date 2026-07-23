@@ -357,13 +357,14 @@ test('authenticated keychain providers are immediately selectable without a seco
 });
 
 test('desktop UI keeps every public TUI command and core capability represented', async () => {
-  const [app, commandSurfaces, desktopCommands, settings, onboarding, schedules, contract, tuiCommands] = await Promise.all([
+  const [app, commandSurfaces, desktopCommands, settings, onboarding, schedules, webhooks, contract, tuiCommands] = await Promise.all([
     readAppModules(),
     readFile(new URL('./CommandSurface.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./slash-commands.ts', import.meta.url), 'utf8'),
     Promise.all(['./settings/CapabilitySettings.tsx', './settings/capability-data.ts', './settings/capability-controls.tsx', './settings/capability-panels.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
     readFile(new URL('./settings/OnboardingWizard.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./SchedulesView.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('./WebhooksView.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
     readFile(new URL('../../../../src/tui/app/slash-commands.mjs', import.meta.url), 'utf8'),
   ]);
@@ -387,7 +388,7 @@ test('desktop UI keeps every public TUI command and core capability represented'
 
   const capabilityBlock = contract.match(/export const DESKTOP_CAPABILITIES = \[([\s\S]*?)\] as const/)?.[1] || '';
   const capabilities = [...capabilityBlock.matchAll(/'([^']+)'/g)].map((match) => match[1]);
-  const represented = `${app}\n${commandSurfaces}\n${settings}\n${onboarding}\n${schedules}`;
+  const represented = `${app}\n${commandSurfaces}\n${settings}\n${onboarding}\n${schedules}\n${webhooks}`;
   const capabilitiesWithoutPublicTuiControls = new Set([
     'getOutputStyle',
     'loginOAuthProvider',
@@ -415,11 +416,9 @@ test('desktop UI keeps every public TUI command and core capability represented'
     'saveOpenAIUsageSessionKey',
     'forgetDiscordToken',
     'forgetTelegramToken',
-    'forgetWebhookAuthtoken',
-    // saveSchedule/deleteSchedule graduated to the desktop Schedules page
-    // (SchedulesView.tsx) and are asserted as represented above.
-    'saveWebhook',
-    'deleteWebhook',
+    // The relay tunnel issues the public webhook URL automatically; the
+    // desktop no longer edits webhook port/domain config directly.
+    'setWebhookConfig',
   ]);
   assert.deepEqual(
     capabilities.filter((capability) => (

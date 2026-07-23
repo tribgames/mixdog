@@ -56,8 +56,6 @@ export function createSettingsApi({
   forgetDiscordToken,
   saveTelegramToken,
   forgetTelegramToken,
-  saveWebhookAuthtoken,
-  forgetWebhookAuthtoken,
   setBackend,
 }) {
   return {
@@ -377,16 +375,6 @@ export function createSettingsApi({
       }
       scheduleBackendSave(value);
       return { ok: true, backend: value };
-    },
-    saveWebhookAuthtoken(token) {
-      const result = saveWebhookAuthtoken(token);
-      reloadChannelsSoon();
-      return result;
-    },
-    forgetWebhookAuthtoken() {
-      const result = forgetWebhookAuthtoken();
-      reloadChannelsSoon();
-      return result;
     },
   };
 }

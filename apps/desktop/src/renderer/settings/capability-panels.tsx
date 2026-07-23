@@ -36,7 +36,7 @@ export function CategoryPanel({ category, context }: {
   if (category === 'models') return <ModelsPanel {...context} />;
   if (category === 'workflows') return <AgentsPanel {...context} />;
   if (category === 'providers') return <ProvidersPanel {...context} />;
-  if (category === 'channels') return <><ChannelsPanel {...context} /><AutomationPanel {...context} /></>;
+  if (category === 'channels') return <ChannelsPanel {...context} />;
   if (category === 'mcp') return <McpPanel {...context} />;
   if (category === 'plugins') return <PluginsPanel {...context} />;
   if (category === 'hooks') return <HooksPanel {...context} />;
@@ -719,12 +719,13 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
         onSave={(channelId) => void run('setChannel', [{ backend: 'telegram', channelId }])} />
     </Group>
     <Group title="Webhook ingress">
-      <SecretForm title="ngrok auth token" status={record(setup.webhook)} disabled={busy}
-        onSave={(secret) => void run('saveWebhookAuthtoken', [secret])} />
-      <AutoSaveRow title="ngrok domain" name="ngrokDomain"
-        value={String(webhook.ngrokDomain || webhook.domain || '')}
-        placeholder="my-app.ngrok-free.app" required disabled={busy}
-        onSave={(ngrokDomain) => void run('setWebhookConfig', [{ ngrokDomain }])} />
+      {/* Relay tunnel replaced ngrok: the public URL is issued automatically —
+          endpoint management lives on the main-pane Webhooks page. */}
+      <ResourceRow title="Public webhook URL"
+        description={webhook.publicUrl
+          ? String(webhook.publicUrl)
+          : 'Issued automatically by the Mixdog relay once the channel runtime connects.'}
+        status={webhook.publicUrl ? 'Active' : 'Waiting'} />
     </Group>
   </>;
 }
@@ -762,22 +763,8 @@ function SecretForm({ title, status, disabled, onSave }: {
   </FormRow>;
 }
 
-// Schedules moved to the dedicated Scheduled-tasks page (sidebar → Schedules);
-// the settings Channels pane keeps webhook endpoint management only.
-function AutomationPanel({ data, pending, run }: PanelContext) {
-  const setup = record(data.channelSetup);
-  const webhooks = rows(setup.webhooks);
-  const busy = Boolean(pending);
-  const remoteEnabled = data.remote === true;
-  return <>
-    <Group title="Webhook endpoints">{webhooks.length ? webhooks.map((webhook) => <ResourceRow key={String(webhook.name)} title={String(webhook.name)}
-      description={`${webhook.parser || 'github'} · ${webhook.route || ''} · secret:${webhook.secretSet ? 'set' : 'missing'}${remoteEnabled ? '' : ' · channel off'}`}
-      status={webhook.enabled === false ? 'Disabled' : 'Enabled'}
-      actions={<ActionButton disabled={busy || !remoteEnabled} onClick={() => void run('setWebhookEnabled', [webhook.name, webhook.enabled === false])}>
-        {webhook.enabled === false ? 'Enable' : 'Disable'}</ActionButton>} />) : <ListEmpty text="No webhook endpoints configured." />}
-    </Group>
-  </>;
-}
+// Schedules and webhook endpoints both moved to dedicated main-pane pages
+// (sidebar → Schedules / Webhooks); settings keeps channel wiring only.
 
 function DiagnosticsPanel({ data, pending, run, confirm }: PanelContext) {
   const update = record(data.update);

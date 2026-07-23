@@ -437,7 +437,6 @@ function getCapabilities() {
 export const SECRET_ACCOUNTS = Object.freeze({
   discordToken: 'discord.token',
   telegramToken: 'telegram.token',
-  webhookAuth:  'webhook.authtoken',
   agentApiKey:  (provider) => `agent.${provider}.apiKey`,
   openaiUsageSessionKey: 'agent.openai.usageSessionKey',
   opencodeGoAuthCookie: 'agent.opencode-go.authCookie',
@@ -495,14 +494,6 @@ export function getDiscordToken() {
  */
 export function getTelegramToken() {
   return _readSecret(SECRET_ACCOUNTS.telegramToken)
-}
-
-/**
- * Returns the webhook authtoken.
- * Priority: MIXDOG_WEBHOOK_AUTHTOKEN → keychain('webhook.authtoken') → null
- */
-export function getWebhookAuthtoken() {
-  return _readSecret(SECRET_ACCOUNTS.webhookAuth)
 }
 
 export function getOpenAIUsageSessionKey() {

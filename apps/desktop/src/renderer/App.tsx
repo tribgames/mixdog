@@ -143,6 +143,7 @@ const CommandSurface = lazy(() => import("./CommandSurface")
 // SchedulesPane loads statically: a lazy chunk suspends the whole main pane
 // on first entry, which flashes the New-task watermark before the page lands.
 import { SchedulesPane } from "./SchedulesView";
+import { WebhooksPane } from "./WebhooksView";
 
 function schedulePostInteractionIdle(
   task: () => void,
@@ -447,6 +448,16 @@ export function App() {
   const openSchedules = useCallback(() => {
     setSchedulesMounted(true);
     setSchedulesOpen(true);
+    setWebhooksOpen(false);
+  }, []);
+  // Inbound-webhooks page: same main-pane takeover concept as Schedules
+  // (user decision — moved out of the settings dialog).
+  const [webhooksOpen, setWebhooksOpen] = useState(false);
+  const [webhooksMounted, setWebhooksMounted] = useState(false);
+  const openWebhooks = useCallback(() => {
+    setWebhooksMounted(true);
+    setWebhooksOpen(true);
+    setSchedulesOpen(false);
   }, []);
   useEffect(() => {
     try {
@@ -473,6 +484,7 @@ export function App() {
   useEffect(() => {
     setReviewOpen(false);
     setSchedulesOpen(false);
+    setWebhooksOpen(false);
   }, [selection]);
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
     { key: "new:default", title: "New task", selection: { kind: "new" } },
@@ -1573,6 +1585,7 @@ export function App() {
       // Re-selecting the current tab while the Schedules pane owns the main
       // area returns to the workspace (the tab reads as unselected then).
       setSchedulesOpen(false);
+      setWebhooksOpen(false);
       return;
     }
     if (tab.selection.kind === "new") startTask(tab.selection);
@@ -1682,7 +1695,7 @@ export function App() {
         tabs={tabs}
         // Schedules takes over the main pane: no workspace tab is the visible
         // surface, so none may render as selected (user request).
-        activeKey={schedulesOpen ? "" : activeTabKey}
+        activeKey={schedulesOpen || webhooksOpen ? "" : activeTabKey}
         activeBusy={activeBusy}
         workingSessionIds={workingSessionIds}
         updaterState={updaterState}
@@ -1702,10 +1715,11 @@ export function App() {
           // Schedules takeover: the sidebar must not keep a session row
           // highlighted while the main pane shows Schedules (matches the tab
           // strip deselection).
-          selection={schedulesOpen ? { kind: "new" } : navigationSelection}
+          selection={schedulesOpen || webhooksOpen ? { kind: "new" } : navigationSelection}
           onNewTask={(draft?: NavigationSelection) => { closeSidebarForNavigation(); startTask(draft); }}
           onOpenProjects={() => { closeSidebarForNavigation(); setProjectPanelOpen(true); }}
           onOpenSchedules={() => { closeSidebarForNavigation(); openSchedules(); }}
+          onOpenWebhooks={() => { closeSidebarForNavigation(); openWebhooks(); }}
           onOpenSettings={() => { closeSidebarForNavigation(); openSettings(); }}
           onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
           onResumeSession={(sessionId: string) => { closeSidebarForNavigation(); resumeSession(sessionId); }}
@@ -1717,8 +1731,9 @@ export function App() {
           aria-label="Close session sidebar" />}
         <main className="main-panel">
           {schedulesMounted && <SchedulesPane active={schedulesOpen} />}
+          {webhooksMounted && <WebhooksPane active={webhooksOpen} />}
           <div className={`workspace ${transitionSessionId ? "switching-session" : ""}`
-            + (schedulesOpen ? " schedules-open" : "")}>
+            + (schedulesOpen || webhooksOpen ? " schedules-open" : "")}>
             <header className="session-header" aria-label="Current task">
               <div className="session-header-content">
                 <button type="button" className="toolbar-sidebar session-header-menu"
@@ -1810,6 +1825,10 @@ export function App() {
                   openSchedules();
                   return;
                 }
+                if (surface === "webhooks") {
+                  openWebhooks();
+                  return;
+                }
                 setCommandSurface(surface);
               }} />}
           </div>
@@ -1852,6 +1871,9 @@ export function App() {
             if (surface === "schedules") {
               setCommandSurface(null);
               openSchedules();
+            } else if (surface === "webhooks") {
+              setCommandSurface(null);
+              openWebhooks();
             } else setCommandSurface(surface);
           }} onClose={() => setCommandSurface(null)} />}
         {onboardingOpen && <OnboardingWizard api={window.mixdogDesktop} onDone={() => setOnboardingOpen(false)} />}

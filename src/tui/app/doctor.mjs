@@ -165,7 +165,6 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
     const tokens = [];
     if (setup.discord?.authenticated) tokens.push('discord');
     if (setup.telegram?.authenticated) tokens.push('telegram');
-    if (setup.webhook?.authenticated) tokens.push('webhook');
     const running = worker.running === true;
     const detail = `enabled · worker ${running ? 'running' : 'stopped'} · tokens: ${tokens.length ? tokens.join(', ') : 'none'}`;
     row(running ? 'ok' : 'warn', detail);

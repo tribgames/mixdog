@@ -65,13 +65,11 @@ import {
   deleteWebhook,
   forgetDiscordToken,
   forgetTelegramToken,
-  forgetWebhookAuthtoken,
   setChannel,
   saveDiscordToken,
   saveTelegramToken,
   saveSchedule,
   saveWebhook,
-  saveWebhookAuthtoken,
   setBackend,
   setBackendAsync,
   setScheduleEnabled,
@@ -2103,8 +2101,6 @@ export async function createMixdogSessionRuntime({
     forgetDiscordToken,
     saveTelegramToken,
     forgetTelegramToken,
-    saveWebhookAuthtoken,
-    forgetWebhookAuthtoken,
     setBackend,
   });
 

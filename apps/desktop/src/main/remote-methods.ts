@@ -47,7 +47,6 @@ const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'saveOpenCodeGoUsageAuth',
   'saveDiscordToken',
   'saveTelegramToken',
-  'saveWebhookAuthtoken',
   'loginOAuthProvider',
   'beginOAuthProviderLogin',
   'getOAuthProviderLoginStatus',

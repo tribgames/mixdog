@@ -315,7 +315,9 @@ test('category panes expose TUI routes, automation, memory, voice, and doctor co
   for (const [category, expected] of [
     ['Models', /Main route.*Search route/s],
     ['Workflows', /Workflow packs.*Agent routes/s],
-    ['Channels', /Voice transcription.*Disable voice.*Webhook endpoints.*github/s],
+    // Webhook endpoints graduated to the main-pane Webhooks page; settings
+    // keeps channel wiring plus the relay-issued ingress URL row.
+    ['Channels', /Voice transcription.*Disable voice.*Webhook ingress.*Public webhook URL/s],
     ['Memory', /Core memories/],
     ['System', /Run doctor/],
   ]) {
@@ -629,7 +631,7 @@ test('status badges stay with row titles while metadata and actions remain separ
   assert.equal(server.querySelector('.settings-resource-control .settings-status') === null, true,
     'the server resource control should not duplicate its status');
   await open('Channels');
-  for (const title of ['Discord bot token', 'Telegram bot token', 'ngrok auth token']) {
+  for (const title of ['Discord bot token', 'Telegram bot token']) {
     const form = document.querySelector(`input[aria-label="${title}"]`).closest('.settings-form-row');
     assert.ok(form.firstElementChild.classList.contains('settings-resource-title'));
     assert.equal(form.firstElementChild.querySelector('.settings-status')?.textContent, 'Saved');
@@ -728,7 +730,9 @@ test('channel-setting deep link opens the Channels tab with token and target for
   assert.match(document.body.textContent, /Telegram bot token/);
   assert.match(document.body.textContent, /Main channel/);
   assert.match(document.body.textContent, /Main chat/);
-  assert.match(document.body.textContent, /ngrok domain/);
+  // Relay tunnel replaced ngrok: the ingress group is a read-only URL row.
+  assert.match(document.body.textContent, /Public webhook URL/);
+  assert.doesNotMatch(document.body.textContent, /ngrok/);
   for (const title of ['Discord bot token', 'Telegram bot token']) {
     const input = document.querySelector(`input[aria-label="${title}"]`);
     const row = input.closest('.settings-form-row');
@@ -828,7 +832,6 @@ test('empty resource collections use full list rows across settings categories',
   const expected = new Map([
     ['Workflows', ['No workflows found.', 'No agent routes found.']],
     ['Providers', ['No OAuth providers available.', 'No API-key providers available.', 'No local providers available.']],
-    ['Channels', ['No webhook endpoints configured.']],
     ['MCP', ['No MCP servers configured.']],
     ['Plugins', ['No plugins installed.']],
     ['Hooks', ['No hook rules configured.']],

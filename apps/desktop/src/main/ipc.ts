@@ -101,8 +101,8 @@ const CAPABILITY_ARITY = {
   saveOpenAIUsageSessionKey: [1, 1], setLocalProvider: [2, 2], authenticateProvider: [2, 2],
   forgetProviderAuth: [1, 1], getChannelSetup: [0, 0], getChannelWorkerStatus: [0, 0],
   setBackend: [1, 1], saveDiscordToken: [1, 1], forgetDiscordToken: [0, 0],
-  saveTelegramToken: [1, 1], forgetTelegramToken: [0, 0], saveWebhookAuthtoken: [1, 1],
-  forgetWebhookAuthtoken: [0, 0], setChannel: [1, 1], setWebhookConfig: [1, 1],
+  saveTelegramToken: [1, 1], forgetTelegramToken: [0, 0],
+  setChannel: [1, 1], setWebhookConfig: [1, 1],
   saveSchedule: [1, 1], deleteSchedule: [1, 1], setScheduleEnabled: [2, 2], runScheduleNow: [1, 1], saveWebhook: [1, 1],
   deleteWebhook: [1, 1], setWebhookEnabled: [2, 2], clear: [0, 0], transcribeAudio: [1, 1],
   resizeImage: [1, 1],
@@ -301,7 +301,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     validateSecret(args[1], 'provider secret');
   }
   if (capability === 'saveOpenAIUsageSessionKey' || capability === 'saveDiscordToken' ||
-    capability === 'saveTelegramToken' || capability === 'saveWebhookAuthtoken') {
+    capability === 'saveTelegramToken') {
     validateSecret(args[0], 'secret');
   }
   if (capability === 'saveOpenCodeGoUsageAuth') {

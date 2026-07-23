@@ -2072,7 +2072,7 @@ test("sidebar keeps Project below New task and orders Recent by conversation act
   });
 
   assert.deepEqual(Array.from(document.querySelectorAll(".sidebar-primary-nav > button"),
-    (node) => node.textContent.trim()), ["New task", "Project", "Schedules", "Settings"]);
+    (node) => node.textContent.trim()), ["New task", "Project", "Schedules", "Webhooks", "Settings"]);
   assert.equal(document.querySelector('[aria-label="Open projects"]')?.textContent.trim(), "Project");
   assert.equal(document.querySelector(".sidebar-recent-heading")?.textContent.trim(), "Recent");
   assert.equal(document.querySelector(".sidebar-section-toggle"), null);

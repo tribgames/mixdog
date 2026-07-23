@@ -1,0 +1,390 @@
+import React, { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { Check, Copy, Plus, Search, Webhook, X } from 'lucide-react';
+
+import type { DesktopApi, DesktopCapability, DesktopModelOption } from '../shared/contract';
+import { OpenSelect } from './OpenSelect';
+import { ModelPicker } from './ModelPicker';
+import { modelDisplayName } from './provider-display';
+import { copyTextToClipboard } from './text-format';
+
+type RecordValue = Record<string, unknown>;
+export type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
+
+const PARSER_OPTIONS = [
+  { value: 'github', label: 'GitHub' },
+  { value: 'generic', label: 'Generic JSON' },
+  { value: 'stripe', label: 'Stripe' },
+  { value: 'sentry', label: 'Sentry' },
+];
+
+function record(value: unknown): RecordValue {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
+}
+
+function rows(value: unknown): RecordValue[] {
+  return Array.isArray(value) ? value.map(record) : [];
+}
+
+// webhook.model wire format matches schedules: "provider/model[@effort][+fast]".
+function parseModelRef(ref: string): { route: string; effort: string; fast: boolean } {
+  let route = String(ref || '');
+  let fast = false;
+  if (route.endsWith('+fast')) {
+    fast = true;
+    route = route.slice(0, -5);
+  }
+  let effort = '';
+  const slash = route.indexOf('/');
+  if (slash > 0) {
+    const at = route.lastIndexOf('@');
+    if (at > slash) {
+      effort = route.slice(at + 1);
+      route = route.slice(0, at);
+    }
+  }
+  return { route, effort, fast };
+}
+
+function preferredEffort(option?: DesktopModelOption): string {
+  if (!option?.effortOptions.length) return '';
+  if (option.savedEffort && option.effortOptions.some((entry) => entry.value === option.savedEffort)) {
+    return option.savedEffort;
+  }
+  for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
+    if (option.effortOptions.some((entry) => entry.value === value)) return value;
+  }
+  return option.effortOptions[0]?.value || '';
+}
+
+interface WebhookDraft {
+  name: string;
+  description: string;
+  parser: string;
+  channel: string;
+  model: string;
+  instructions: string;
+  enabled: boolean;
+}
+
+function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
+  const source = record(webhook);
+  return {
+    name: String(source.name || ''),
+    description: String(source.description || ''),
+    parser: String(source.parser || 'github'),
+    channel: String(source.channel || ''),
+    model: String(source.model || ''),
+    instructions: String(source.instructions || ''),
+    enabled: source.enabled !== false,
+  };
+}
+
+// Sub-line: parser first, then delivery route, model, and paused state.
+function webhookMeta(webhook: RecordValue): string {
+  const parts = [String(webhook.parser || 'github')];
+  parts.push(webhook.channel ? `channel ${String(webhook.channel)}` : 'session');
+  const ref = parseModelRef(String(webhook.model || ''));
+  if (ref.route) {
+    const slash = ref.route.indexOf('/');
+    parts.push(slash > 0 ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash)) : ref.route);
+  }
+  if (webhook.secretSet !== true) parts.push('secret missing');
+  if (webhook.enabled === false) parts.push('paused');
+  return parts.filter(Boolean).join(' · ');
+}
+
+function endpointUrl(publicBase: string, name: string): string {
+  return publicBase ? `${publicBase.replace(/\/+$/, '')}/webhook/${encodeURIComponent(name)}` : '';
+}
+
+function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onSave }: {
+  draft: WebhookDraft;
+  editing: boolean;
+  busy: boolean;
+  models: DesktopModelOption[];
+  error?: string;
+  onCancel(): void;
+  onSave(entry: RecordValue): void;
+}) {
+  const [parser, setParser] = useState(draft.parser);
+  const initialModel = parseModelRef(draft.model);
+  const [model, setModel] = useState(initialModel.route);
+  const [effort, setEffort] = useState(initialModel.effort);
+  const [fast, setFast] = useState(initialModel.fast);
+  const [formError, setFormError] = useState('');
+  const slash = model.indexOf('/');
+  const modelProvider = slash > 0 ? model.slice(0, slash) : '';
+  const modelId = slash > 0 ? model.slice(slash + 1) : '';
+  const modelLabel = model ? (slash > 0 ? modelDisplayName(modelId, modelProvider) : model) : 'Model';
+  const selected = models.find((option) => option.provider === modelProvider && option.model === modelId);
+  const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
+    ? effort
+    : preferredEffort(selected);
+  return <div className="schedules-dialog-layer"
+    onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
+    onKeyDown={(event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onCancel();
+      }
+    }}>
+    <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="webhooks-dialog-title">
+      <header>
+        <h2 id="webhooks-dialog-title">{editing ? 'Edit webhook' : 'Create webhook'}</h2>
+        <button type="button" aria-label="Close webhook editor" onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+      </header>
+      <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        const text = (name: string) => String(data.get(name) || '').trim();
+        const channel = text('webhook-channel');
+        if (channel && !model) {
+          setFormError('Choose a model to deliver this webhook to a channel.');
+          return;
+        }
+        setFormError('');
+        const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
+        const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
+        const secret = text('webhook-secret');
+        onSave({
+          name: editing ? draft.name : text('webhook-name'),
+          description: draft.description,
+          parser,
+          ...(channel ? { channel } : {}),
+          ...(model ? { model: `${model}${effortSuffix}${fastSuffix}` } : {}),
+          ...(secret ? { secret } : {}),
+          instructions: text('webhook-instructions'),
+          enabled: draft.enabled,
+          ...(editing ? { overwrite: true } : {}),
+        });
+      }}>
+        <label className="schedules-field">Name
+          <input name="webhook-name" defaultValue={draft.name} placeholder="github-issues" required autoFocus
+            disabled={busy || editing} maxLength={64} />
+        </label>
+        <div className="schedules-composer">
+          <textarea name="webhook-instructions" defaultValue={draft.instructions} required disabled={busy}
+            placeholder="What should Mixdog do when this webhook fires?" aria-label="Webhook instructions" />
+          <div className="schedules-composer-row">
+            <OpenSelect ariaLabel="Webhook parser" value={parser} disabled={busy}
+              options={PARSER_OPTIONS} onChange={setParser} />
+            <div className="schedules-composer-route">
+              <ModelPicker models={models} provider={modelProvider} model={modelId}
+                triggerLabel={modelLabel} ariaLabel="Webhook model"
+                triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
+                onSelect={(option) => {
+                  setModel(`${option.provider}/${option.model}`);
+                  setEffort(preferredEffort(option));
+                  setFast(option.fastCapable ? option.fastPreferred : false);
+                  setFormError('');
+                }} />
+              {selected && selected.effortOptions.length > 0 && <OpenSelect ariaLabel="Webhook reasoning effort"
+                value={effortValue} disabled={busy} options={selected.effortOptions} onChange={setEffort} />}
+              {selected?.fastCapable && <OpenSelect ariaLabel="Webhook fast mode"
+                value={fast ? 'on' : 'off'} disabled={busy}
+                options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
+                onChange={(value) => setFast(value === 'on')} />}
+            </div>
+          </div>
+        </div>
+        <label className="schedules-field">Deliver to channel
+          <input name="webhook-channel" defaultValue={draft.channel} disabled={busy}
+            placeholder="Channel / chat ID (empty runs in a session)" />
+        </label>
+        <label className="schedules-field">Signing secret
+          <input name="webhook-secret" type="password" autoComplete="off" disabled={busy}
+            placeholder={editing ? 'Leave empty to rotate the secret' : 'Leave empty to auto-generate'} />
+        </label>
+        <footer>
+          {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+          <button type="submit" disabled={busy}>Save</button>
+        </footer>
+      </form>
+    </section>
+  </div>;
+}
+
+// Inbound-webhooks page (sidebar -> Webhooks): the Schedules-page grammar —
+// a main-pane list with search, active/paused filters, and a popup editor.
+export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
+  api?: WebhooksApi;
+  active?: boolean;
+}) {
+  const [setup, setSetup] = useState<RecordValue>({});
+  const [remote, setRemote] = useState(false);
+  const [models, setModels] = useState<DesktopModelOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState('');
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<'all' | 'active' | 'paused'>('all');
+  const [editor, setEditor] = useState<{ name: string; draft: WebhookDraft } | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState('');
+  const [savedSecret, setSavedSecret] = useState<{ name: string; secret: string } | null>(null);
+  const [copied, setCopied] = useState('');
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadSequence = useRef(0);
+
+  const load = useCallback(async () => {
+    if (!api?.invokeCapability) {
+      setLoading(false);
+      return;
+    }
+    const sequence = ++loadSequence.current;
+    try {
+      const [setupResult, remoteResult, modelRows] = await Promise.all([
+        api.invokeCapability({ capability: 'getChannelSetup', args: [] }),
+        api.invokeCapability({ capability: 'isRemoteEnabled', args: [] }),
+        api.listProviderModels ? api.listProviderModels({ quick: true }).catch(() => []) : Promise.resolve([]),
+      ]);
+      if (sequence !== loadSequence.current) return;
+      setSetup(record(setupResult?.value));
+      setRemote(remoteResult?.value === true);
+      setModels(Array.isArray(modelRows) ? modelRows : []);
+      setError('');
+    } catch (reason) {
+      if (sequence !== loadSequence.current) return;
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      if (sequence === loadSequence.current) setLoading(false);
+    }
+  }, [api]);
+  useEffect(() => {
+    if (active) void load();
+    return () => { loadSequence.current += 1; };
+  }, [active, load]);
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+  }, []);
+
+  const busy = Boolean(pending) || loading;
+  const run = async (capability: DesktopCapability, args: unknown[] = []): Promise<unknown> => {
+    if (!api?.invokeCapability || pending) return undefined;
+    setPending(capability);
+    setError('');
+    try {
+      const result = await api.invokeCapability({ capability, args });
+      await load();
+      return result?.value ?? true;
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      return undefined;
+    } finally {
+      setPending('');
+    }
+  };
+
+  const webhooks = rows(setup.webhooks);
+  const publicBase = String(record(setup.webhook).publicUrl || '');
+  const text = query.trim().toLowerCase();
+  const visible = webhooks.filter((webhook) => {
+    const enabled = webhook.enabled !== false;
+    if (filter === 'active' && !enabled) return false;
+    if (filter === 'paused' && enabled) return false;
+    if (!text) return true;
+    return [webhook.name, webhook.description, webhook.parser, webhook.model, webhook.channel]
+      .map((value) => String(value || '').toLowerCase()).join(' ').includes(text);
+  });
+  const copy = (key: string, value: string) => {
+    void copyTextToClipboard(value);
+    setCopied(key);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(''), 1600);
+  };
+  const saveWebhook = async (entry: RecordValue) => {
+    const result = await run('saveWebhook', [entry]);
+    if (result === undefined) return;
+    setEditor(null);
+    // The store returns the (possibly generated/rotated) signing secret only
+    // on save — surface it once with a copy affordance.
+    const secret = String(record(result).secret || '');
+    setSavedSecret(secret ? { name: String(entry.name || ''), secret } : null);
+  };
+
+  return <div className="schedules-pane" style={active ? undefined : { display: 'none' }}>
+    <div className="schedules-page">
+      <header className="schedules-page-header">
+        <div>
+          <h1>Webhooks</h1>
+          <p>Trigger prompts from external services through the relay tunnel.</p>
+        </div>
+        <button type="button" className="settings-action schedules-new" disabled={busy}
+          onClick={() => {
+            setError('');
+            setSavedSecret(null);
+            setEditor({ name: '', draft: webhookDraft(undefined) });
+          }}>
+          <Plus size={14} aria-hidden="true" />New webhook</button>
+      </header>
+      <div className="schedules-search">
+        <Search size={14} aria-hidden="true" />
+        <input aria-label="Search webhooks" placeholder="Search webhooks…" value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)} />
+      </div>
+      <div className="schedules-filters" aria-label="Webhook filter">
+        {([['all', 'All'], ['active', 'Active'], ['paused', 'Paused']] as const).map(([value, label]) =>
+          <button key={value} type="button" className={filter === value ? 'active' : ''}
+            aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
+      </div>
+      {editor && <WebhookEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
+        busy={busy} models={models} error={error}
+        onCancel={() => {
+          setError('');
+          setEditor(null);
+        }} onSave={(entry) => void saveWebhook(entry)} />}
+      {/* No loading flash: the list area stays empty until the first snapshot
+          lands (Schedules-page grammar). */}
+      {loading ? null
+        : visible.length ? <div className="schedules-list">{visible.map((webhook) => {
+          const name = String(webhook.name);
+          const enabled = webhook.enabled !== false;
+          const url = endpointUrl(publicBase, name);
+          return <div key={name} className="schedules-row">
+            <span className={`schedules-row-dot ${enabled ? 'on' : ''}`} aria-hidden="true" />
+            <div className="schedules-row-copy">
+              <b>{name}</b>
+              <small>{webhookMeta(webhook)}</small>
+            </div>
+            <div className="schedules-row-actions">
+              <button type="button" className="settings-action" disabled={!url}
+                data-tooltip={url || 'URL appears once the channel runtime connects to the relay'}
+                onClick={() => url && copy(name, url)}>
+                {copied === name ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+                {copied === name ? 'Copied' : 'Copy URL'}</button>
+              <button type="button" className="settings-action" disabled={busy || !remote}
+                onClick={() => void run('setWebhookEnabled', [name, !enabled])}>{enabled ? 'Pause' : 'Resume'}</button>
+              <button type="button" className="settings-action" disabled={busy}
+                onClick={() => {
+                  setConfirmingDelete('');
+                  setError('');
+                  setSavedSecret(null);
+                  setEditor({ name, draft: webhookDraft(webhook) });
+                }}>Edit</button>
+              <button type="button" className="settings-action danger" disabled={busy}
+                onClick={() => {
+                  if (confirmingDelete !== name) {
+                    setConfirmingDelete(name);
+                    return;
+                  }
+                  setConfirmingDelete('');
+                  void run('deleteWebhook', [name]);
+                }}>{confirmingDelete === name ? 'Confirm delete' : 'Delete'}</button>
+            </div>
+          </div>;
+        })}</div>
+        : <div className="schedules-empty">
+          <Webhook size={40} strokeWidth={1.5} aria-hidden="true" />
+          <p>{webhooks.length ? 'No webhooks match the current filter.' : 'No inbound webhooks yet.'}</p>
+        </div>}
+      {error && !editor && <p className="mixdog-settings__error" role="alert">{error}</p>}
+      {savedSecret && !editor && <p className="schedules-notice" role="status">
+        {`"${savedSecret.name}" saved — signing secret: ${savedSecret.secret} `}
+        <button type="button" className="settings-action"
+          onClick={() => copy(`secret:${savedSecret.name}`, savedSecret.secret)}>
+          {copied === `secret:${savedSecret.name}` ? 'Copied' : 'Copy secret'}</button>
+      </p>}
+    </div>
+  </div>;
+}

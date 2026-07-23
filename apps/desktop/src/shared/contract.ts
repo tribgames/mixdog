@@ -369,8 +369,6 @@ export const DESKTOP_CAPABILITIES = [
   'forgetDiscordToken',
   'saveTelegramToken',
   'forgetTelegramToken',
-  'saveWebhookAuthtoken',
-  'forgetWebhookAuthtoken',
   'setChannel',
   'setWebhookConfig',
   'saveSchedule',

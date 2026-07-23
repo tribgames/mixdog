@@ -14,7 +14,7 @@
     "typecheck:renderer": "tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --jsx react-jsx --skipLibCheck --types vite/client src/preload/index.d.ts src/shared/contract.ts src/renderer/desktop-api.d.ts src/renderer/renderer-logic.d.mts src/renderer/App.tsx src/renderer/main.tsx",
     "test:renderer": "node --max-old-space-size=1024 --import tsx --test --test-concurrency=1 src/renderer/renderer.test.mjs src/renderer/renderer.dom.test.mjs src/main/engine-host.test.mjs src/main/desktop-diagnostics.test.mjs",
     "test:parity": "tsx --test src/renderer/tui-parity.test.mjs",
-    "test:settings": "node --max-old-space-size=1024 --import tsx --test --test-concurrency=1 src/main/settings-store.test.mjs src/renderer/settings/SettingsView.test.mjs src/renderer/SchedulesView.test.mjs",
+    "test:settings": "node --max-old-space-size=1024 --import tsx --test --test-concurrency=1 src/main/settings-store.test.mjs src/renderer/settings/SettingsView.test.mjs src/renderer/SchedulesView.test.mjs src/renderer/WebhooksView.test.mjs",
     "test:packaging": "tsx --test src/main/packaging.test.mjs src/main/window-state.test.mjs",
     "test:updater": "tsx --test src/main/updater-controller.test.mjs",
     "e2e:direct": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/direct-e2e-windows.ps1",
