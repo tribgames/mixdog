@@ -198,6 +198,18 @@ export function Conversation({
   );
   const transcriptSessionKey = String(routeSnapshot.sessionId || 'new-task');
   const virtualizingTranscript = items.length > TRANSCRIPT_VIRTUALIZE_THRESHOLD;
+  // First-upward-scroll hitch (user): the tight entry overscan (4) leaves
+  // every row above the viewport unmounted, so the FIRST wheel-up mounted and
+  // measured a burst of Markdown rows mid-scroll — the estimate corrections
+  // read as a hitch. Once the open settles, widen the overscan during idle so
+  // those rows pre-mount/measure before the user ever scrolls. Session
+  // switches reset to the tight window to keep entry fast.
+  const [warmOverscan, setWarmOverscan] = useState(false);
+  useEffect(() => {
+    setWarmOverscan(false);
+    const timer = window.setTimeout(() => setWarmOverscan(true), 450);
+    return () => window.clearTimeout(timer);
+  }, [transcriptSessionKey]);
   // Perf probe (MIXDOG_DESKTOP_PERF=1): main-process resume+first paint measure
   // fast (60-250ms) while the user still reports multi-second lag — capture the
   // POST-paint renderer story: main-thread long tasks and the transcript's
@@ -297,7 +309,7 @@ export function Conversation({
       ? 1
       : estimatedTranscriptRowHeight(items[index]),
     getItemKey: transcriptItemKey,
-    overscan: TRANSCRIPT_VIRTUAL_OVERSCAN,
+    overscan: warmOverscan ? TRANSCRIPT_VIRTUAL_OVERSCAN * 5 : TRANSCRIPT_VIRTUAL_OVERSCAN,
     initialRect: { width: 800, height: 800 },
     // The virtualizer is the only bottom-scroll authority. Grow the spacer
     // before it writes scrollTop so Chrome cannot clamp an end-anchor
