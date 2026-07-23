@@ -397,24 +397,22 @@ ${headersSummary}
 ${payload}
 <<<${_UNTRUSTED}_END>>>`;
   }
-  async _dispatchDelegate(name, role, model, fullPrompt, headers, deliveryId, res, channel) {
+  async _dispatchSessionRun(name, model, fullPrompt, headers, deliveryId, res) {
     await updateDeliveryStatus(name, deliveryId, "processing");
-    // Bridge dispatch must not be allowed to hang forever — without a
+    // Session dispatch must not be allowed to hang forever — without a
     // ceiling a stuck LLM call leaves the delivery in `processing`
     // for the lifetime of the process and dedup keeps re-running
-    // forever. 10 minutes covers the slowest delegate task we ship.
+    // forever. 10 minutes covers the slowest handler run we ship.
     const DISPATCH_TIMEOUT_MS = 10 * 60 * 1000;
     let timeoutHandle = null;
     const dispatchP = Promise.resolve(this.bridgeDispatch({
-      role,
-      preset: model,
+      model: model || null,
       prompt: fullPrompt,
       cwd: this.config?.cwd,
       context: {
         source: "webhook",
         endpoint: name,
         deliveryId,
-        channel: channel || null,
         event: headers["x-github-event"] || null,
       },
     }));
@@ -427,54 +425,28 @@ ${payload}
     Promise.race([dispatchP, timeoutP]).then(() => {
       if (timeoutHandle) clearTimeout(timeoutHandle);
       void updateDeliveryStatus(name, deliveryId, "done").catch((e) => logWebhook(`${name}: delivery status update failed: ${e?.message || e}`));
-      logWebhook(`${name}: delegate dispatched to bridge (role=${role}, id=${deliveryId})`);
+      logWebhook(`${name}: webhook session run dispatched (id=${deliveryId})`);
     }).catch((err) => {
       if (timeoutHandle) clearTimeout(timeoutHandle);
       void updateDeliveryStatus(name, deliveryId, "failed", { error: String(err?.message || err) }).catch(() => {});
-      logWebhook(`${name}: delegate dispatch failed: ${err?.message || err}`);
+      logWebhook(`${name}: webhook session run failed: ${err?.message || err}`);
     });
     res.writeHead(202, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "accepted", handler: "delegate", id: deliveryId }));
+    res.end(JSON.stringify({ status: "accepted", handler: "session", id: deliveryId }));
   }
   async handleWebhook(name, body, headers, res, deliveryId, endpoint) {
-    // A PG endpoint row is the folder-handler equivalent: routing is by
-    // channel_id presence — WITH a channel → delegate dispatch to the row's
-    // role/model and report to that channel; WITHOUT → interactive enqueue
-    // into the current (Lead) session. Parser-only endpoints (no table row)
-    // fall through to the event pipeline below.
+    // A PG endpoint row runs as a VISIBLE webhook session (user decision):
+    // no Lead injection, no channel delivery — the run lands in Recent like
+    // a schedule run, and its session content IS the result surface.
+    // Parser-only endpoints (no table row) fall through to the event
+    // pipeline below.
     if (endpoint) {
       try {
-        const { channelId, role, model, instructions } = endpoint;
+        const { model, instructions } = endpoint;
         const payloadContent = this._buildFencedPayload(body, headers);
-        if (channelId) {
-          if (!role) {
-            await updateDeliveryStatus(name, deliveryId, "failed", { error: "delegate mode requires role" });
-            logWebhook(`${name}: delegate mode requires role - rejected`);
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ status: "rejected", error: "delegate mode requires role" }));
-            return;
-          } else if (!model) {
-            await updateDeliveryStatus(name, deliveryId, "failed", { error: "delegate mode requires model" });
-            logWebhook(`${name}: delegate mode requires model - rejected`);
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ status: "rejected", error: "delegate mode requires model" }));
-            return;
-          } else if (!this.bridgeDispatch) {
-            throw new Error(`[webhook] delegate mode requires bridgeDispatch`);
-          } else {
-            const fullPrompt = `${instructions}\n\n${payloadContent}`;
-            await this._dispatchDelegate(name, role, model, fullPrompt, headers, deliveryId, res, channelId);
-            return;
-          }
-        }
-        if (this.eventPipeline) {
-          await updateDeliveryStatus(name, deliveryId, "processing");
-          this.eventPipeline.enqueueDirect(name, payloadContent, channelId, "interactive", instructions);
-          await updateDeliveryStatus(name, deliveryId, "done");
-          logWebhook(`${name}: interactive enqueued (id=${deliveryId})`);
-        }
-        res.writeHead(202, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "accepted", handler: "interactive", id: deliveryId }));
+        if (!this.bridgeDispatch) throw new Error(`[webhook] session dispatch requires bridgeDispatch`);
+        const fullPrompt = `${instructions}\n\n${payloadContent}`;
+        await this._dispatchSessionRun(name, model || null, fullPrompt, headers, deliveryId, res);
         return;
       } catch (err) {
         await updateDeliveryStatus(name, deliveryId, "failed", { error: String(err?.message || err) });

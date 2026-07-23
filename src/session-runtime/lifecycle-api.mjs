@@ -69,6 +69,9 @@ export function createLifecycleApi(deps) {
       // Recent / TUI resume next to lead sessions instead of hiding like
       // agent dispatches.
       || sourceType === 'schedule'
+      // Webhook fires run as visible sessions too (user decision: no Lead
+      // injection — the session row IS the notification).
+      || sourceType === 'webhook'
       || (!sourceType && !sourceName && !isAgentOwner(owner));
     if (!leadish) return null;
     const rawPreview = s.preview || '';

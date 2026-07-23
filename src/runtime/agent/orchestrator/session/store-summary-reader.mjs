@@ -31,6 +31,7 @@ function isLeadVisibleRow(row) {
         || sourceType === 'lead'
         || sourceType === 'cli'
         || sourceType === 'schedule'
+        || sourceType === 'webhook'
         || (!sourceType && !sourceName && owner !== 'agent');
 }
 

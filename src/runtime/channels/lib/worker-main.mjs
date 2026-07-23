@@ -456,87 +456,17 @@ scheduler.setSendHandler(async (channelId, text) => {
 function wireWebhookHandlers() {
   if (!webhookServer) return;
   webhookServer.setEventPipeline(eventPipeline);
-  webhookServer.setBridgeDispatch(async ({ role, preset, prompt, cwd, context }) => {
-    // Delegate-mode webhook → bridge orchestrator. Each bridge progress /
-    // final event is forwarded to the Lead via the same channel-notify
-    // path used by schedule & event-queue (injectAndRecord). Silent
-    // lifecycle pings keep routing only to Discord.
-    const [{ createStandaloneAgent }, cfgMod, reg, mgr] = await Promise.all([
-      import("../../../standalone/agent-tool.mjs"),
-      import("../../agent/orchestrator/config.mjs"),
-      import("../../agent/orchestrator/providers/registry.mjs"),
-      import("../../agent/orchestrator/session/manager.mjs"),
-    ]);
-    const agentTool = createStandaloneAgent({
-      cfgMod,
-      reg,
-      mgr,
-      dataDir: cfgMod.getPluginData(),
-      cwd,
+  // Webhook fires run as VISIBLE sessions (user decision, schedules parity):
+  // no Lead inject, no Discord forward — the session row in Recent (plus its
+  // unread dot) IS the notification surface.
+  webhookServer.setBridgeDispatch(async ({ prompt, model, context }) => {
+    const { runWebhookSession } = await import("../../shared/webhook-session-run.mjs");
+    return runWebhookSession({
+      name: context?.endpoint || "webhook",
+      model: model || null,
+      prompt,
     });
-    const channelId = resolveWebhookChannelId(context?.channel);
-    const endpoint = context?.endpoint || "unknown";
-    const event = context?.event || null;
-    const deliveryId = context?.deliveryId || null;
-    const label = `webhook:${endpoint}`;
-    const instruction = `Webhook review from role=${role} on endpoint "${endpoint}"`
-      + (event ? ` (event=${event})` : "")
-      + (deliveryId ? ` (delivery=${deliveryId})` : "")
-      + ". Relay the finding to the user naturally — summarize clearly, call out any issues, and note what needs a decision.";
-    const notifyFn = (text, meta = {}) => {
-      if (!text) return;
-      // Webhook skip protocol: when the agent worker emits a `[meta:silent]`
-      // marker (optionally behind model/role tag prefixes), the event is a
-      // no-op (label-only, dedup, "nothing to report"). Drop the message
-      // entirely — neither Lead inject nor Discord forward — instead of the
-      // partial `silent_to_agent` semantics that still audit to Discord.
-      const raw = String(text);
-      if (/^\s*(?:\[[^\]\n]+\]\s*)*\[meta:silent\]/.test(raw)) return;
-      // Deterministic findings-count drop. Code-review handlers emit a
-      // structured `[[findings:N]]` token (N = number of issues). The RELAY —
-      // not the worker's prose — decides: N==0 => clean review, drop entirely
-      // (no Lead inject, no Discord forward). Token absent => fail-safe forward
-      // so a real finding is never silently dropped if the worker omits it.
-      const fc = raw.match(/\[\[findings:(\d+)\]\]/i);
-      if (fc && Number(fc[1]) === 0) return;
-      // Lifecycle pings (started / iter echoes, marked silent_to_agent) are
-      // channel noise for an automated webhook review — drop them entirely so
-      // a skip stays fully silent and only the final answer reaches the
-      // channel. The final [meta:silent] skip result is already dropped above.
-      if (meta?.silent_to_agent === true) return;
-      // Strip the verdict token before surfacing (findings present, N>0).
-      const surfaced = raw.replace(/\[\[findings:\d+\]\]/gi, "").replace(/[^\S\n]{2,}/g, " ").trim();
-      injectAndRecord(channelId, label, surfaced || raw, {
-        type: "webhook",
-        instruction,
-      });
-    };
-    // Per-terminal cwd under the daemon's single channels worker. A webhook
-    // result is injected to ownerConn() — the connection whose session.leadPid
-    // equals active-instance ownerLeadPid — so the worker must run in THAT
-    // owner terminal's cwd. Read the sentinel keyed by ownerLeadPid; cwd-tool
-    // writes session-cwd-<leadPid>.txt per connection, so write and read meet
-    // on the same leadPid key no matter which terminal holds the owner seat.
-    // Falls back to the session entry position; never the plugin CACHE root.
-    const ownerPid = getActiveOwnerPid(readActiveInstance());
-    const ownerCwd = (ownerPid && readLastSessionCwd(ownerPid)) || captureOriginalUserCwd();
-    return agentTool.execute(
-      { type: "spawn", agent: role, preset, prompt, cwd: cwd || ownerCwd },
-      { callerCwd: cwd || ownerCwd, invocationSource: "webhook", notifyFn },
-    );
   });
-}
-function resolveWebhookChannelId(channelFlag) {
-  // Single main channel: the endpoint's `channel` frontmatter is a boolean-ish
-  // flag (any non-empty value except "false" → post to the main channel). A raw
-  // channel id is still honored verbatim for owner-authored overrides.
-  const main = config?.channelId || "";
-  if (channelFlag == null) return main;
-  const v = String(channelFlag).trim();
-  if (v === "" || v.toLowerCase() === "false") return "";
-  // A pure-digit / snowflake-looking value is treated as an explicit id;
-  // anything else (legacy labels like "main") maps to the main channel.
-  return /^-?\d+$/.test(v) ? v : main;
 }
 function wireEventQueueHandlers(eventQueue) {
   if (!eventQueue) return;
