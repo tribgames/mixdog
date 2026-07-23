@@ -745,6 +745,18 @@ export class EngineHost {
             String(this.engine?.getState()?.sessionId || ''),
           ).find((row) => row.id === sessionId);
         }
+        // Cross-process create race: a webhook/schedule session another
+        // process is MID-SAVE can scan as absent for one beat (atomic rename
+        // in flight). One short retry absorbs it instead of surfacing a
+        // "Session is not available." toast on a row the sidebar just showed.
+        if (!selected) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          rawSessions = this.engine?.listSessions({ refreshFromStorage: true }) || [];
+          selected = desktopSessionSummaries(
+            rawSessions,
+            String(this.engine?.getState()?.sessionId || ''),
+          ).find((row) => row.id === sessionId);
+        }
         if (!selected) throw new Error('Session is not available.');
         const rawSelected = rawSessions.find((row) => String(row.id || '') === sessionId);
         const storedDesktop = rawSelected?.desktopSession && typeof rawSelected.desktopSession === 'object'
