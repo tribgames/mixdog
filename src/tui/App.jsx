@@ -1898,38 +1898,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false }) 
             });
           return true;
         }
-        if (channelPrompt.kind === 'schedule-add') {
-          const [name, time, instructions, channel, model] = parts;
-          // saveSchedule is async (PG-backed). Only close the prompt / open the
-          // list on success; surface a failure notice and keep the prompt open
-          // so the input is not lost and the user can retry.
-          Promise.resolve(store.saveSchedule({ name, time, instructions, channel, model }))
-            .then(() => {
-              setChannelPrompt(null);
-              void openChannelSetupPicker('schedules');
-            })
-            .catch((e) => {
-              store.pushNotice(`schedule save failed: ${e?.message || e}`, 'error');
-            });
-          return true;
-        }
-        if (channelPrompt.kind === 'webhook-add') {
-          const [name, instructions, channel, model, parser] = parts;
-          // saveWebhook is async (PG-backed). Only close the prompt / open the
-          // list on success; surface a failure notice and keep the prompt open.
-          Promise.resolve(store.saveWebhook({ name, instructions, channel, model, parser }))
-            .then((result) => {
-              if (result?.secret) {
-                store.pushNotice(`webhook secret for ${result.name}: ${result.secret}`, 'info');
-              }
-              setChannelPrompt(null);
-              void openChannelSetupPicker('webhooks');
-            })
-            .catch((e) => {
-              store.pushNotice(`webhook save failed: ${e?.message || e}`, 'error');
-            });
-          return true;
-        }
+        // schedule-add / webhook-add prompt kinds retired: schedules and
+        // webhooks are managed in the desktop app (user decision).
       } catch (e) {
         store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
         return false;

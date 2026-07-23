@@ -265,10 +265,10 @@ export function createSlashDispatch({
         void openChannelSetupPicker('all');
         return true;
       case 'schedules':
-        void openChannelSetupPicker('schedules');
-        return true;
       case 'webhooks':
-        void openChannelSetupPicker('webhooks');
+        // Management surface is desktop-only (user decision): hidden from the
+        // palette, and a typed command answers instead of opening a picker.
+        store.pushNotice('Schedules and webhooks are managed in the Mixdog desktop app', 'info');
         return true;
       case 'auth':
         store.pushNotice('/auth moved to /providers', 'info');
