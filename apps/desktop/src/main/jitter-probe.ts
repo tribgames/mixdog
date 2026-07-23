@@ -232,7 +232,15 @@ export async function runJitterProbe({
   });
   await sleep(600);
   const scrollPasses = await window.webContents.executeJavaScript(`(async () => {
-    const el = document.querySelector('.transcript');
+    // The workspace may have navigated off the probe session between phases —
+    // re-enter it, then measure the transcript that actually has content.
+    const row = document.querySelector('[data-session-id="probe_session_b"]');
+    if (row instanceof HTMLElement) {
+      row.click();
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+    const el = [...document.querySelectorAll('.transcript')]
+      .sort((a, b) => b.scrollHeight - a.scrollHeight)[0];
     if (!el) return null;
     const disarmFollow = () => el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
     const stats = (frames) => {

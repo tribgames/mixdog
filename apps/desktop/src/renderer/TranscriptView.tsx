@@ -670,9 +670,11 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   // Streamed tail from the running command (engine liveOutput plumbing).
   // Only meaningful pre-settlement; the settled result supersedes it.
   const liveOutput = !done && typeof item.liveOutput === "string" ? item.liveOutput : "";
-  // Collapsed cards always show the TUI's `└ detail` row (user reconfirmed:
-  // "안 펼쳐져 있을 때 뜨던 게 떠야 함") — expansion swaps it for the body.
-  const detailRowVisible = !open && !liveOutput && Boolean(model.detailLine);
+  // Final contract (user): collapsed settled cards are a single header row;
+  // EXPANDING reveals the `└ detail` summary in its original row format,
+  // leading the full body — one 양식 for the initial info instead of two.
+  // Running cards keep the live `Running · Ns` row while collapsed.
+  const detailRowVisible = Boolean(model.detailLine) && !liveOutput && (open || !done);
   return (
     <article className={`tool-card ${failed || denied ? "failed" : ""} ${partialFailed ? "partial-failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}

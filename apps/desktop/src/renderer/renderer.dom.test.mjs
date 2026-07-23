@@ -680,10 +680,13 @@ test("failed tools expose a failed status instead of a successful completion", a
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "tool-failed", kind: "tool", name: "shell", isError: true, result: "Command failed" },
   })));
-  // TUI parity: the failure status lives on the `└ detail` row ("Failed ·
-  // cause"), not a separate header chip; the red icon carries the signal.
+  // Collapsed settled cards are a single header row; expanding reveals the
+  // `└ Failed · cause` summary in its row format above the raw body.
   const failedCard = document.querySelector(".tool-card");
   assert.ok(failedCard?.classList.contains("failed"));
+  assert.equal(failedCard?.querySelector(".tool-detail-line"), null,
+    "collapsed failed card keeps the header-only shape");
+  await act(async () => failedCard?.querySelector(".tool-header")?.click());
   assert.match(failedCard?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "",
     /^Failed · Command failed/);
   assert.equal(document.querySelector(".tool-icon svg") != null, true,
@@ -737,7 +740,8 @@ test("tool counters and hook-denial visibility mirror the TUI", async () => {
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "partial", kind: "tool", name: "read", count: 3, completedCount: 3, errorCount: 1 },
   })));
-  assert.equal(document.querySelector(".tool-detail-line .tool-detail-text")?.textContent.trim(), "Failed");
+  assert.equal(document.querySelector(".tool-detail-line"), null,
+    "settled cards collapse to the header row");
   assert.ok(document.querySelector(".tool-card")?.classList.contains("partial-failed"),
     "some-but-not-all failures keep the amber partial state");
 
@@ -748,7 +752,8 @@ test("tool counters and hook-denial visibility mirror the TUI", async () => {
     },
   })));
   // Error-only bodies collapse to the bare status word (TUI
-  // isBackgroundErrorOnlyBody contract); expanding still shows the raw error.
+  // isBackgroundErrorOnlyBody contract); the row appears on expansion.
+  await act(async () => document.querySelector(".tool-card .tool-header")?.click());
   assert.equal(document.querySelector(".tool-detail-line .tool-detail-text")?.textContent.trim(), "Failed");
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
@@ -1070,9 +1075,19 @@ test("tool cards render the shared TUI derivation for every tool shape", async (
     if (fixture.expectNoDetail) {
       assert.equal(detail, "", `${fixture.label}: collapsed detail row should be dropped`);
       assert.equal(model.detailLine, "", `${fixture.label}: model drops the detail row too`);
+    } else if (desktopDone(fixture.item)) {
+      // Final contract: settled cards collapse to the header row; expanding
+      // reveals the `└ detail` summary in its original row 양식 above the body.
+      assert.equal(detail, "", `${fixture.label}: settled cards collapse to the header row`);
+      const header = card.querySelector(".tool-header");
+      if (header && !header.disabled) {
+        await act(async () => header.click());
+        assert.equal(card.querySelector(".tool-detail-line .tool-detail-text")?.textContent ?? "",
+          model.detailLine, `${fixture.label}: expansion reveals the shared └ summary row`);
+      }
     } else {
       assert.equal(detail, model.detailLine,
-        `${fixture.label}: detail row must equal the shared TUI derivation`);
+        `${fixture.label}: running detail row must equal the shared TUI derivation`);
     }
     if (fixture.expectDetail) {
       assert.equal(model.detailLine, fixture.expectDetail, `${fixture.label}: pinned detail text`);
@@ -1236,12 +1251,13 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   assert.equal(shell?.querySelector(".tool-title")?.nextElementSibling?.classList.contains("tool-chevron"), true);
   assert.equal(shell?.querySelector(".tool-result-summary") === null, true,
     "selector .tool-result-summary should be absent");
-  // The collapsed card carries the TUI's always-visible `└ detail` row (the
-  // shared shell summarizer surfaces the exit line).
-  assert.match(shell?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "", /Exit code: 0/);
-  await act(async () => shell?.querySelector(".tool-header")?.click());
+  // Final contract: collapsed settled cards are a single header row; the
+  // `└ detail` summary appears on EXPANSION, leading the raw body.
   assert.equal(shell?.querySelector(".tool-detail-line") === null, true,
-    "the expanded card replaces the detail row with the raw body");
+    "collapsed settled shells keep no detail row");
+  await act(async () => shell?.querySelector(".tool-header")?.click());
+  assert.match(shell?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "", /Exit code: 0/,
+    "expanding reveals the └ summary in its row format above the body");
   assert.equal(shell?.querySelector('[aria-label="Copy command output"]') != null, true);
   assert.equal(shell?.querySelector(".shell-output")?.textContent, "$ npm test\n\nExit code: 0\nAll tests passed");
   assert.equal(shell?.querySelector(".detail-block") === null, true,
