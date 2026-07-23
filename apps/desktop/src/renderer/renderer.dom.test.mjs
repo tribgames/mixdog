@@ -680,15 +680,17 @@ test("failed tools expose a failed status instead of a successful completion", a
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "tool-failed", kind: "tool", name: "shell", isError: true, result: "Command failed" },
   })));
-  // v0.9.66 reference: the collapsed card shows its quiet one-line summary
-  // (here the failure cause); expanding swaps it for the raw body.
+  // Final contract: collapsed = header only; expanding reveals JUST the
+  // one-line summary (here the failure cause).
   const failedCard = document.querySelector(".tool-card");
   assert.ok(failedCard?.classList.contains("failed"));
+  assert.equal(failedCard?.querySelector(".tool-detail-line"), null,
+    "collapsed failed card keeps the header-only shape");
+  await act(async () => failedCard?.querySelector(".tool-header")?.click());
   assert.match(failedCard?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "",
     /^Failed · Command failed/);
-  await act(async () => failedCard?.querySelector(".tool-header")?.click());
-  assert.equal(failedCard?.querySelector(".tool-detail-line"), null,
-    "the expanded card swaps the summary for the raw body");
+  assert.equal(failedCard?.querySelector(".tool-content"), null,
+    "no raw body block renders on expansion");
   assert.equal(document.querySelector(".tool-icon svg") != null, true,
     "failed tools should retain their own icon");
   assert.equal(document.querySelector(".lucide-x"), null,
@@ -738,20 +740,26 @@ test("turn review bar prefers the shadow-snapshot diff so background edits surfa
 test("tool counters and hook-denial visibility mirror the TUI", async () => {
   installDom();
   await act(async () => root.render(React.createElement(TranscriptRow, {
+    key: "partial-read",
     item: { id: "partial", kind: "tool", name: "read", count: 3, completedCount: 3, errorCount: 1 },
   })));
+  assert.equal(document.querySelector(".tool-detail-line"), null,
+    "collapsed cards keep the header-only shape");
+  await act(async () => document.querySelector(".tool-card .tool-header")?.click());
   assert.equal(document.querySelector(".tool-detail-line .tool-detail-text")?.textContent.trim(), "Failed");
   assert.ok(document.querySelector(".tool-card")?.classList.contains("partial-failed"),
     "some-but-not-all failures keep the amber partial state");
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
+    key: "denied-shell",
     item: {
       id: "denied", kind: "tool", name: "shell", isError: true, errorCount: 1,
       result: 'Error: tool "shell" denied by hook: approval required',
     },
   })));
   // Error-only bodies collapse to the bare status word (TUI
-  // isBackgroundErrorOnlyBody contract).
+  // isBackgroundErrorOnlyBody contract); the row appears on expansion.
+  await act(async () => document.querySelector(".tool-card .tool-header")?.click());
   assert.equal(document.querySelector(".tool-detail-line .tool-detail-text")?.textContent.trim(), "Failed");
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
@@ -1073,9 +1081,18 @@ test("tool cards render the shared TUI derivation for every tool shape", async (
     if (fixture.expectNoDetail) {
       assert.equal(detail, "", `${fixture.label}: collapsed detail row should be dropped`);
       assert.equal(model.detailLine, "", `${fixture.label}: model drops the detail row too`);
+    } else if (desktopDone(fixture.item)) {
+      // Final contract: settled cards collapse to the header row; expanding
+      // reveals ONLY the one-line summary from the shared derivation.
+      assert.equal(detail, "", `${fixture.label}: settled cards collapse to the header row`);
+      await act(async () => card.querySelector(".tool-header")?.click());
+      assert.equal(card.querySelector(".tool-detail-line .tool-detail-text")?.textContent ?? "",
+        model.detailLine, `${fixture.label}: expansion reveals the shared summary row`);
+      assert.equal(card.querySelector(".tool-content"), null,
+        `${fixture.label}: expansion renders no raw body block`);
     } else {
       assert.equal(detail, model.detailLine,
-        `${fixture.label}: collapsed summary must equal the shared TUI derivation`);
+        `${fixture.label}: running detail row must equal the shared TUI derivation`);
     }
     if (fixture.expectDetail) {
       assert.equal(model.detailLine, fixture.expectDetail, `${fixture.label}: pinned detail text`);
@@ -1239,16 +1256,14 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   assert.equal(shell?.querySelector(".tool-title")?.nextElementSibling?.classList.contains("tool-chevron"), true);
   assert.equal(shell?.querySelector(".tool-result-summary") === null, true,
     "selector .tool-result-summary should be absent");
-  // v0.9.66 reference presentation: the collapsed card carries ONE quiet
-  // summary line (the shared shell summarizer surfaces the exit line).
-  assert.match(shell?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "", /Exit code: 0/);
-  await act(async () => shell?.querySelector(".tool-header")?.click());
+  // Final contract: collapsed = header only; expanding shows JUST the
+  // one-line summary (the shared shell summarizer surfaces the exit line).
   assert.equal(shell?.querySelector(".tool-detail-line") === null, true,
-    "expanding swaps the summary line for the raw body — never both");
-  assert.equal(shell?.querySelector('[aria-label="Copy command output"]') != null, true);
-  assert.equal(shell?.querySelector(".shell-output")?.textContent, "$ npm test\n\nExit code: 0\nAll tests passed");
-  assert.equal(shell?.querySelector(".detail-block") === null, true,
-    "selector .detail-block should be absent");
+    "collapsed cards keep the header-only shape");
+  await act(async () => shell?.querySelector(".tool-header")?.click());
+  assert.match(shell?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "", /Exit code: 0/);
+  assert.equal(shell?.querySelector(".tool-content") === null, true,
+    "no raw body block renders on expansion");
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
     key: "shared-aggregate",
@@ -1274,13 +1289,14 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   assert.equal(aggregate?.querySelector(".tool-result-summary") === null, true,
     "selector .tool-result-summary should be absent from aggregate tools");
   await act(async () => aggregate?.querySelector(".tool-header")?.click());
-  assert.equal(aggregate?.querySelector(".tool-output")?.textContent, "512 lines, 6 matches");
-  assert.equal(aggregate?.querySelector(".detail-block-heading") === null, true,
-    "selector .detail-block-heading should be absent from aggregate tools");
+  assert.equal(aggregate?.querySelector(".tool-detail-line .tool-detail-text")?.textContent, "512 lines, 6 matches",
+    "expansion reveals the aggregate's one-line summary");
+  assert.equal(aggregate?.querySelector(".tool-output") === null, true,
+    "no output body renders on expansion");
   assert.equal(aggregate?.textContent?.includes("Input"), false);
 });
 
-test("expanded tool cards render structured per-tool input rows instead of raw JSON", async () => {
+test("expanded tool cards show only the one-line summary — no input/body blocks", async () => {
   installDom();
   await act(async () => root.render(React.createElement(TranscriptRow, {
     key: "structured-grep",
@@ -1294,15 +1310,15 @@ test("expanded tool cards render structured per-tool input rows instead of raw J
     },
   })));
   const card = document.querySelector(".tool-card");
+  assert.equal(card?.querySelector(".tool-detail-line"), null,
+    "collapsed card keeps the header-only shape");
   await act(async () => card?.querySelector(".tool-header")?.click());
-  assert.equal(card?.querySelector(".detail-block-heading span")?.textContent, "Input");
-  const rows = [...(card?.querySelectorAll(".tool-args .tool-arg") ?? [])];
-  assert.deepEqual(rows.map((row) => row.querySelector('[data-slot="key"]')?.textContent),
-    ["pattern", "path", "glob"]);
-  assert.deepEqual(rows.map((row) => row.querySelector('[data-slot="value"]')?.textContent),
-    ["needle", "src", "*.mjs"]);
-  assert.equal(card?.querySelector(".detail-block > pre") === null, true,
-    "raw JSON pre dump must not render for parsed tool args");
+  // The shared summarizer counts result LINES (one "3 matches" line → 1 match).
+  assert.equal(card?.querySelector(".tool-detail-line .tool-detail-text")?.textContent, "1 match");
+  assert.equal(card?.querySelector(".tool-content"), null,
+    "no input/body block renders on expansion");
+  assert.equal(card?.querySelector(".detail-block"), null,
+    "selector .detail-block should be absent");
 });
 
 test("running tool cards tick a live elapsed readout; settled cards stay quiet", async () => {
@@ -2866,16 +2882,14 @@ test("submit, stop, and tool diff controls remain wired through the app", async 
   });
 
   await selectFirstProject();
-  // Cards default collapsed (user decision) — the engine `expanded` flag no
-  // longer forces desktop cards open; open the diff via the header chevron.
+  // Final contract: tool cards never embed diff bodies — expanding shows only
+  // the one-line summary (full diffs live in Review).
   await act(async () => document.querySelector(".tool-card .tool-header")?.click());
-  assert.equal(document.querySelector(".code-diff") != null, true, "selector .code-diff should be present");
+  assert.equal(document.querySelector(".code-diff"), null,
+    "tool cards must not embed a diff body");
+  assert.ok((document.querySelector(".tool-card .tool-detail-line .tool-detail-text")?.textContent || "").length > 0,
+    "expansion reveals the one-line summary");
   assert.equal(document.querySelectorAll(".starter-grid button").length, 0);
-  assert.match(document.querySelector(".diff-file header").textContent || "", /new\.txt/);
-  const diffToggle = document.querySelector(".diff-toggle");
-  assert.equal(diffToggle.textContent.trim(), "Show full diff");
-  await act(async () => diffToggle.click());
-  assert.equal(diffToggle.textContent.trim(), "Collapse diff");
 
   const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
   let textareaScrollHeight = 104;

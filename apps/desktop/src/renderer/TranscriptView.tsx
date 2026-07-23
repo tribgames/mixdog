@@ -656,11 +656,9 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
     headerFinalized: item.headerFinalized,
     nowMs: nowTick,
   }) as ToolCardModel, [item, done, nowTick]);
-  const patch = findPatch(item);
-  const hasInput = !item.aggregate && category !== "Shell"
-    && (parsedArgs ? Object.keys(parsedArgs).length > 0 : Boolean(surface.args));
   const hasResult = typeof rawResult === "string" ? Boolean(rawResult.trim()) : rawResult != null;
-  const hasDetails = hasInput || patch != null || hasResult || Boolean(shellCommand);
+  // Expansion reveals exactly one thing now: the summary row.
+  const hasDetails = Boolean(model.detailLine);
   const count = Math.max(1, Math.round(Number(item.count || 1)));
   // TUI parity (toolStatusColor): some-but-not-all of a group failing is the
   // amber partial state, not the red full-failure state.
@@ -670,11 +668,10 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   // Streamed tail from the running command (engine liveOutput plumbing).
   // Only meaningful pre-settlement; the settled result supersedes it.
   const liveOutput = !done && typeof item.liveOutput === "string" ? item.liveOutput : "";
-  // Reference = the released v0.9.66 presentation (user): a collapsed card
-  // reads header + ONE quiet summary line; expanding swaps the summary for
-  // the full body (never both — the row duplicated short outputs). The
-  // summary text itself still comes from the shared TUI derivation.
-  const detailRowVisible = !open && !liveOutput && Boolean(model.detailLine);
+  // User contract (final): collapsed = header ONLY; expanding shows JUST the
+  // one-line summary row — no raw body blocks. Running cards keep their
+  // progress row/live tail without a click.
+  const detailRowVisible = Boolean(model.detailLine) && !liveOutput && (open || !done);
   return (
     <article className={`tool-card ${failed || denied ? "failed" : ""} ${partialFailed ? "partial-failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
@@ -699,7 +696,7 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
         {hasDetails && <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>}
       </button>
       {detailRowVisible && (
-        <div className="tool-detail-line" data-component="tool-collapsed-summary">
+        <div className="tool-detail-line" id={contentId} data-component="tool-collapsed-summary">
           <span className="tool-detail-text"
             data-placeholder={model.detailIsPlaceholder || undefined}>
             {(splitLineDeltaTokens(model.detailLine) as DetailLinePart[]).map((part, index) => (
@@ -713,23 +710,6 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
       {liveOutput && (
         <div className="tool-content" id={contentId} data-live="true">
           <ToolOutput value={liveOutput} command={shellCommand} follow />
-        </div>
-      )}
-      {!liveOutput && hasDetails && open && (
-        <div className="tool-content" id={contentId}>
-          {/* A rendered diff already communicates the edit; raw args JSON on
-              top of it is noise no reference client shows. */}
-          {hasInput && patch == null && (parsedArgs
-            ? <ToolInputBlock name={String(surface.normalizedName || item.name || "")} args={parsedArgs} />
-            : <DetailBlock label="Input" value={surface.args} />)}
-          {patch ? <CodeDiff patch={patch} /> :
-            category === "Shell"
-              ? <ToolOutput value={rawResult} command={shellCommand} copyLabel="Copy command output" />
-              : hasResult && <ToolOutput
-                // Aggregates: expansion shows the FULL raw bodies (TUI ctrl+o
-                // parity) — `result` is only the one-line summary there.
-                value={item.aggregate ? (item.rawResult ?? item.result) : rawResult}
-                copyLabel={failed || denied ? "Copy tool error" : undefined} />}
         </div>
       )}
     </article>
