@@ -1084,6 +1084,33 @@ test("tool cards render the shared TUI derivation for every tool shape", async (
   }
 });
 
+test("primary nav mirrors the active surface as selected — New task excluded", async () => {
+  installDom();
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [],
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const nav = document.querySelector(".sidebar-primary-nav");
+  assert.equal(nav?.querySelector(".selected"), null, "no surface open → no selected nav button");
+  await act(async () => {
+    document.querySelector('[aria-label="Open schedules"]')?.click();
+    await Promise.resolve();
+  });
+  const schedules = document.querySelector('[aria-label="Open schedules"]');
+  assert.equal(schedules?.classList.contains("selected"), true,
+    "opening Schedules must mark its nav button selected");
+  assert.equal(schedules?.getAttribute("aria-current"), "page");
+  assert.equal(document.querySelector(".task-link")?.classList.contains("selected"), false,
+    "New task stays a plain action, never selected");
+});
+
 test("the boot surface focuses the composer for immediate typing", async () => {
   installDom();
   window.mixdogDesktop = {

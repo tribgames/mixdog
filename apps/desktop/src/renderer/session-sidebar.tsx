@@ -85,6 +85,10 @@ interface SessionSidebarProps {
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
   selection: NavigationSelection;
+  /** Which primary-nav surface currently owns the main pane/dialog. New task
+   *  is an action (fresh draft each press), so it never renders selected
+   *  (user decision). */
+  activeSurface?: "projects" | "schedules" | "webhooks" | "settings" | null;
   onNewTask(): void;
   onOpenProjects(): void;
   onOpenSchedules(): void;
@@ -104,6 +108,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   workingSessionIds,
   unreadSessionIds,
   selection,
+  activeSurface = null,
   onNewTask,
   onOpenProjects,
   onOpenSchedules,
@@ -224,25 +229,37 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           <span className="sidebar-nav-icon sidebar-nav-icon--new"><Plus size={18} /></span>
           <span>New task</span>
         </button>
-        <button type="button" className="projects-link" onClick={onOpenProjects}
+        <button type="button"
+          className={`projects-link ${activeSurface === "projects" ? "selected" : ""}`}
+          aria-current={activeSurface === "projects" ? "page" : undefined}
+          onClick={onOpenProjects}
           aria-label="Open projects">
           <span className="sidebar-nav-icon"><Folder size={18} /></span>
           <span>Project</span>
         </button>
         {/* Scheduled tasks joins the primary nav (Claude-style 예약됨 page). */}
-        <button type="button" className="projects-link" onClick={onOpenSchedules}
+        <button type="button"
+          className={`projects-link ${activeSurface === "schedules" ? "selected" : ""}`}
+          aria-current={activeSurface === "schedules" ? "page" : undefined}
+          onClick={onOpenSchedules}
           aria-label="Open schedules">
           <span className="sidebar-nav-icon"><Clock size={18} /></span>
           <span>Schedules</span>
         </button>
         {/* Inbound webhooks: same main-pane takeover concept as Schedules. */}
-        <button type="button" className="projects-link" onClick={onOpenWebhooks}
+        <button type="button"
+          className={`projects-link ${activeSurface === "webhooks" ? "selected" : ""}`}
+          aria-current={activeSurface === "webhooks" ? "page" : undefined}
+          onClick={onOpenWebhooks}
           aria-label="Open webhooks">
           <span className="sidebar-nav-icon"><Webhook size={18} /></span>
           <span>Webhooks</span>
         </button>
         {/* Settings joins the primary nav (user: no bottom footer label). */}
-        <button type="button" className="projects-link sidebar-settings-button" onClick={onOpenSettings}
+        <button type="button"
+          className={`projects-link sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}
+          aria-current={activeSurface === "settings" ? "page" : undefined}
+          onClick={onOpenSettings}
           aria-label="Open settings" data-tooltip="Settings">
           <span className="sidebar-nav-icon"><Settings size={18} /></span>
           <span>Settings</span>

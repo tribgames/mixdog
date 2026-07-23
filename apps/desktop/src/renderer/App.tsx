@@ -1716,6 +1716,14 @@ export function App() {
           // highlighted while the main pane shows Schedules (matches the tab
           // strip deselection).
           selection={schedulesOpen || webhooksOpen ? { kind: "new" } : navigationSelection}
+          // Primary-nav selection mirror (user request): the button for the
+          // surface that owns the screen reads as selected — New task stays a
+          // plain action.
+          activeSurface={settingsOpen ? "settings"
+            : schedulesOpen ? "schedules"
+            : webhooksOpen ? "webhooks"
+            : projectPanelOpen ? "projects"
+            : null}
           onNewTask={(draft?: NavigationSelection) => { closeSidebarForNavigation(); startTask(draft); }}
           onOpenProjects={() => { closeSidebarForNavigation(); setProjectPanelOpen(true); }}
           onOpenSchedules={() => { closeSidebarForNavigation(); openSchedules(); }}

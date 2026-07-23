@@ -903,6 +903,13 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-pressed);
   box-shadow: none;
 }
+/* Primary-nav selection mirror: the surface that owns the screen renders its
+   nav button with the same selected tone as a chosen session row. */
+.session-sidebar .projects-link.selected {
+  --session-row-action-surface: var(--mx-bg-layer-2);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
 /* Light rows: translucent hover/pressed backgrounds under OPAQUE action
    gradients rendered a visible rectangle around the row actions. Use opaque
    tones and keep the action surface identical to the row surface. */
@@ -913,6 +920,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: #e9e5e0;
 }
 :root[data-mixdog-theme="light"] .session-sidebar .session-row.selected {
+  --session-row-action-surface: #e2ddd7;
+  background: #e2ddd7;
+}
+:root[data-mixdog-theme="light"] .session-sidebar .projects-link.selected {
   --session-row-action-surface: #e2ddd7;
   background: #e2ddd7;
 }
