@@ -1,5 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
+
+// Sandbox the session store: the askSession fixture below persists real
+// session files, and without this they polluted ~/.mixdog/data/sessions with
+// visible "fixture prompt" rows in the desktop Recent list (user report).
+process.env.MIXDOG_DATA_DIR = mkdtempSync(joinPath(tmpdir(), 'mixdog-anthropic-transport-'));
 
 import {
     ANTHROPIC_RETRY_BACKOFF_MS,

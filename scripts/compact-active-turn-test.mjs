@@ -1,5 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Sandbox the session store: these tests persist real session files, and
+// without this they polluted ~/.mixdog/data/sessions with visible
+// `sess_test_*` rows in the desktop Recent list (user report).
+process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-compact-active-'));
 import {
     compactSessionMessages,
     isSessionCompactionBlocked,

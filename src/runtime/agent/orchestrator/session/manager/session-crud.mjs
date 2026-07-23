@@ -136,7 +136,17 @@ export async function clearSessionMessages(sessionId, options = {}) {
     // fresh id. Skipped for scratch sessions with no real user turn — nothing
     // worth resuming. Best-effort: any failure here must never block the
     // clear itself (mirrors the pre-compact failure handling above).
-    if (hasUserConversationMessage(messages)) {
+    // ALSO skipped when the clear carries a compact summary forward
+    // (compact_clear/auto-clear): the outgoing transcript is just the compact
+    // product whose content the live session retains via the summary, so the
+    // fork duplicated it as a confusing extra Recent row ("Re-attached after
+    // compaction…" — user report). Plain /clear (no summary kept) still forks.
+    const summaryCarriedForward = keep.some((m) => (
+        m?.role === 'user'
+        && typeof m.content === 'string'
+        && m.content.startsWith(SUMMARY_PREFIX)
+    ));
+    if (hasUserConversationMessage(messages) && !summaryCarriedForward) {
         try {
             const forkId = mintSessionId();
             const fork = {

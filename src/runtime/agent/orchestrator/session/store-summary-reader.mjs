@@ -20,6 +20,10 @@ const LEAD_OWNERS = new Set(['cli', 'user', 'mixdog', 'legacy']);
 function isLeadVisibleRow(row) {
     const owner = String(row.owner || 'user').trim().toLowerCase();
     if (owner && !LEAD_OWNERS.has(owner)) return false;
+    // Mirror listLeadSessions: a previewless zero-message row is an unusable
+    // scratch (desktop boot leftovers, crashed first turns) — resuming it
+    // shows an empty conversation, so the catalog hides it.
+    if (!row.preview && row.messageCount === 0) return false;
     const sourceType = String(row.sourceType || '').trim().toLowerCase();
     const sourceName = String(row.sourceName || '').trim().toLowerCase();
     const agent = String(row.agent || '').trim().toLowerCase();
