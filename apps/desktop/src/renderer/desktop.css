@@ -483,12 +483,61 @@ button:focus-visible { outline-offset: 2.5px; }
   -webkit-app-region: no-drag;
 }
 .workspace-tab.dragging { opacity: .35; }
-/* Chrome-parity strip: widths animate on re-layout (post-close release,
-   squeeze on overflow) instead of snapping. Drag reorder is transform-based,
-   so the width transition does not fight it. */
-.workspace-tab { transition: width 140ms ease-out; }
+/* Chrome-parity strip motion (Chromium tabstrip: 200ms standard curve):
+   widths animate on re-layout (post-close release, squeeze on overflow), a
+   NEW tab grows in from zero width, and a CLOSING tab collapses in place
+   before removal so neighbors slide instead of snapping. Drag reorder is
+   transform-based, so the width transition does not fight it. The negative
+   margins in enter/close compensate the strip's 13.5px gap slot so the
+   neighbors travel exactly one tab width. */
+.workspace-tab {
+  transition:
+    width 200ms cubic-bezier(.4, 0, .2, 1),
+    max-width 200ms cubic-bezier(.4, 0, .2, 1),
+    margin 200ms cubic-bezier(.4, 0, .2, 1),
+    padding 200ms cubic-bezier(.4, 0, .2, 1),
+    opacity 120ms linear;
+}
+.workspace-tab.entering {
+  min-width: 0;
+  overflow: hidden;
+  animation: workspace-tab-enter 200ms cubic-bezier(.4, 0, .2, 1);
+}
+@keyframes workspace-tab-enter {
+  from {
+    max-width: 0;
+    margin-left: -6.75px;
+    margin-right: -6.75px;
+    padding-left: 0;
+    padding-right: 0;
+    opacity: 0;
+  }
+  to {
+    max-width: 224px;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 6px;
+    padding-right: 6px;
+    opacity: 1;
+  }
+}
+/* !important beats the inline pinned width applied during a close streak. */
+.workspace-tab.closing {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  flex: 0 0 auto !important;
+  margin-left: -6.75px;
+  margin-right: -6.75px;
+  padding: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.workspace-tab.closing::before { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .workspace-tab { transition: none; }
+  .workspace-tab.entering { animation: none; }
 }
 .workspace-tab:active { cursor: grabbing; }
 .workspace-tab:hover,

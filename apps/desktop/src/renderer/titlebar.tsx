@@ -89,6 +89,34 @@ export function DesktopTitlebar({
   } | null>(null);
   const suppressTabClick = useRef("");
   const [draggingKey, setDraggingKey] = useState("");
+  // Chrome-parity strip motion: a tab present at first render must NOT play
+  // the grow-in animation (Chrome only animates tabs opened after startup).
+  // Keys enter `seenTabKeys` 240ms after they appear so mid-animation
+  // re-renders cannot strip the .entering class and snap the tab open.
+  const seenTabKeys = useRef<Set<string> | null>(null);
+  if (seenTabKeys.current === null) seenTabKeys.current = new Set(tabs.map((tab) => tab.key));
+  const [, bumpEnterEpoch] = useState(0);
+  useEffect(() => {
+    const seen = seenTabKeys.current;
+    if (!seen) return;
+    const currentKeys = tabs.map((tab) => tab.key);
+    const currentSet = new Set(currentKeys);
+    // A closed key is forgotten so reopening the same session animates again.
+    for (const key of [...seen]) if (!currentSet.has(key)) seen.delete(key);
+    if (!currentKeys.some((key) => !seen.has(key))) return;
+    const timer = setTimeout(() => {
+      for (const key of currentKeys) seen.add(key);
+      bumpEnterEpoch((epoch) => epoch + 1);
+    }, 240);
+    return () => clearTimeout(timer);
+  }, [tabs]);
+  // Closing collapses the tab in place (Chrome) before the parent removes it.
+  const [closingKeys, setClosingKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const closingTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => () => {
+    for (const timer of closingTimers.current.values()) clearTimeout(timer);
+    closingTimers.current.clear();
+  }, []);
   // Chrome-parity close UX: closing a tab must NOT let the survivors re-expand
   // while the pointer stays on the strip — the next close button would slide
   // out from under the cursor. Pin the current tab width on pointer-close and
@@ -101,9 +129,26 @@ export function DesktopTitlebar({
     previousTabCount.current = tabs.length;
   }, [tabs.length]);
   const closeTabPinned = useCallback((tab: WorkspaceTab) => {
+    if (closingTimers.current.has(tab.key)) return;
     const width = tabNodes.current.get(tab.key)?.getBoundingClientRect().width || 0;
     if (width > 0) setPinnedTabWidth(width);
-    onCloseTab(tab);
+    const reduceMotion = typeof matchMedia === "function" &&
+      matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (width <= 0 || reduceMotion) {
+      onCloseTab(tab);
+      return;
+    }
+    setClosingKeys((previous) => new Set(previous).add(tab.key));
+    const timer = setTimeout(() => {
+      closingTimers.current.delete(tab.key);
+      setClosingKeys((previous) => {
+        const next = new Set(previous);
+        next.delete(tab.key);
+        return next;
+      });
+      onCloseTab(tab);
+    }, 180);
+    closingTimers.current.set(tab.key, timer);
   }, [onCloseTab]);
   const windowsCaptionControls = typeof navigator !== "undefined" &&
     /Windows/i.test(navigator.userAgent);
@@ -115,7 +160,8 @@ export function DesktopTitlebar({
     tabs,
     activeKey,
     onSelectTab,
-    onCloseTab,
+    // Ctrl+W collapses through the same Chrome-style exit animation.
+    onCloseTab: closeTabPinned,
     onNewTask,
   });
 
@@ -214,10 +260,12 @@ export function DesktopTitlebar({
             const active = tab.key === activeKey;
             const working = (tab.selection.kind === "session" &&
               workingSessionIds?.has(tab.selection.id) === true) || (active && activeBusy);
+            const entering = !seenTabKeys.current?.has(tab.key);
+            const closing = closingKeys.has(tab.key);
             return (
                 <div key={tab.key}
                   ref={(node) => setTabNode(tab.key, node)}
-                  className={`workspace-tab ${active ? "active" : ""} ${draggingKey === tab.key ? "dragging" : ""}`}
+                  className={`workspace-tab ${active ? "active" : ""} ${draggingKey === tab.key ? "dragging" : ""} ${entering ? "entering" : ""} ${closing ? "closing" : ""}`}
                   data-tab-key={tab.key}
                   data-active={active}
                   data-working={working || undefined}
