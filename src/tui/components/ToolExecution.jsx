@@ -18,13 +18,9 @@ import { BULLET_OPERATOR } from '../figures.mjs';
 import {
   displayToolName as surfaceDisplayToolName,
   formatToolSurface,
-  summarizeToolResult as surfaceSummarizeToolResult,
   formatAggregateHeader,
-  formatToolActionHeader,
-  summarizeAgentSurfaceBrief,
-  AGENT_SURFACE_BRIEF_MAX,
 } from '../../runtime/shared/tool-surface.mjs';
-import { isBackgroundErrorOnlyBody, backgroundTaskFailureStatusLabel } from '../../runtime/shared/err-text.mjs';
+import { deriveToolCardModel } from '../../runtime/shared/tool-card-model.mjs';
 import {
   MIN_RESULT_LINE_CHARS,
   RESULT_LINE_HARD_MAX,
@@ -33,36 +29,13 @@ import {
   safeInlineText,
   normalizeCountMap,
   truncateToWidth,
-  shellResultElapsed,
-  normalizeTerminalStatus,
   resultTerminalStatus,
   stripLeadingStatusMarkerLines,
   stripLeadingStatusMarkerFromText,
 } from './tool-execution/text-format.mjs';
 import {
   SKILL_SURFACE_NAMES,
-  isShellTool,
-  shellDisplayStatus,
-  shellHeader,
   isAgentTool,
-  isBackgroundTaskTool,
-  agentResponseTitle,
-  agentActionTitle,
-  agentActionSummary,
-  hasAgentResponseResult,
-  resolveBackgroundTaskMeta,
-  backgroundTaskElapsed,
-  prefixElapsed,
-  mergeTerminalDetail,
-  shouldPrefixSyncElapsed,
-  backgroundTaskResultTitle,
-  backgroundTaskActionTitle,
-  backgroundTaskFailureDetail,
-  backgroundTaskDetail,
-  isBackgroundTaskResponseArgs,
-  genericCompletedDetail,
-  toolSearchLoadedSummary,
-  agentTerminalDetail,
   clampFailureCount,
   toolStatusColor,
 } from './tool-execution/surface-detail.mjs';
@@ -77,15 +50,6 @@ const TOOL_PENDING_SHOW_DELAY_MS = 1000;
 // One shared-tick cadence covers both the 500ms blink and per-second elapsed;
 // finer than either boundary so both stay crisp off a single timer.
 const TOOL_ANIM_TICK_MS = TOOL_BLINK_MS;
-function statusCopy(name, label, count, doneCount, pending, isError, args = {}) {
-  // No stableVerbWidth padding: it padded the done verb to the active ("-ing")
-  // width, which Ink trims at the line END (vendor output trimEnd) so it never
-  // stabilized the pending→done flip — it only left an UGLY mid-header gap
-  // ("Searched  1 pattern", "Read    1 file"). The header is wrap="truncate"
-  // behind a fixed gutter and the fullscreen full-clear repaints the row, so
-  // dropping the pad just normalizes the spacing.
-  return formatToolActionHeader(name, args, { pending, count });
-}
 export function ToolExecution({ name, args, result, rawResult, isError, errorCount, callErrorCount, exitErrorCount, expanded, columns = 80, attached = false, count = 1, completedCount = 0, startedAt = 0, completedAt = 0, aggregate = false, categories = {}, doneCategories = null, headerFinalized = true, deferredDisplayReady = false, agentResponseAggregate = false }) {
   const rowWidth = Math.max(1, Number(columns || 80));
   const groupCount = Math.max(1, Number(count || 1));
@@ -284,104 +248,52 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   }
 
   // ── Normal (non-aggregate) tool card ────────────────────────────
-  const { label, summary, normalizedName, args: parsedArgs } = formatToolSurface(name, args);
-  const isShellSurface = isShellTool(normalizedName, label);
-  const isSkillSurface = SKILL_SURFACE_NAMES.has(String(normalizedName || '').toLowerCase());
-  const backgroundMeta = !pending && isBackgroundTaskTool(normalizedName)
-    ? resolveBackgroundTaskMeta(parsedArgs, rt || '')
-    : null;
-  const backgroundError = backgroundMeta?.error || parsedArgs?.error || '';
-  const errorOnlyResult = Boolean(rt) && isBackgroundErrorOnlyBody(rt, backgroundError);
-  const backgroundResultText = backgroundMeta?.hasResponse ? backgroundMeta.body : '';
-  const displayedResultText = backgroundResultText || (errorOnlyResult ? '' : (rt || ''));
-  const hasDisplayResult = Boolean(String(displayedResultText || '').trim());
-  const displayedResultBodyText = stripLeadingStatusMarkerFromText(displayedResultText);
-  const hasDisplayBody = Boolean(String(displayedResultBodyText || '').trim());
-  const lines = displayedResultBodyText ? displayedResultBodyText.split('\n') : [];
-  const totalLines = lines.length;
-  // Semantic one-line summary derived purely from name/args/result text.
-  // Shown in the collapsed, non-error view in place of the raw result block.
-  // Grouped cards ("Searched N files" / "Read N files") get the same treatment
-  // as single calls: a one-line semantic summary stands in for the raw block.
-  const resultSummary = !pending && hasDisplayBody
-    ? surfaceSummarizeToolResult(name, args, displayedResultBodyText, isError)
-    : null;
-  // Same fit budget fitResultLine() uses, to detect a line that will be clipped.
+  // Single source: the shared collapsed-card derivation (labels, casing,
+  // status merging, detail row) consumed by BOTH the TUI and the desktop
+  // renderer (apps/desktop TranscriptView ToolCard). Width fitting, theme
+  // colors, blink, and expansion handling stay TUI-side below.
   const maxResultChars = Math.min(RESULT_LINE_HARD_MAX, Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7));
+  const model = deriveToolCardModel({
+    name,
+    args,
+    result,
+    rawResult,
+    isError,
+    errorCount,
+    callErrorCount,
+    exitErrorCount,
+    count: displayGroupCount,
+    completedCount: doneCount,
+    startedAt,
+    completedAt,
+    headerFinalized,
+    nowMs,
+  }, { truncate: truncateToWidth, maxResultChars });
+  const {
+    labelText,
+    summaryText,
+    headerFailureText: headerFailureStatus,
+    detailLine: collapsedDetailLine,
+    detailIsPlaceholder,
+    terminalStatus,
+    normalizedName,
+    isShellSurface,
+    isAgentSurfaceCard,
+    isAgentResponse,
+    isBackgroundMetadataResult,
+    hasDisplayResult,
+    hasDisplayBody,
+    displayedResultBodyText,
+    firstResultLine,
+    totalLines,
+    resultSummary,
+    shellCollapsedSummary,
+    toolArgPath,
+  } = model;
+  const lines = displayedResultBodyText ? displayedResultBodyText.split('\n') : [];
   const resultColor = theme.text;
-  const firstResultLine = hasDisplayResult ? String(lines[0] ?? '') : '';
   const firstResultLineClipped = hasDisplayBody && stringWidth(firstResultLine) > maxResultChars;
   const hasHiddenDetail = !pending && hasDisplayBody && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
-  const shellStatus = isShellSurface ? shellDisplayStatus({ pending, failedCount, exitFailedCount, isError, result: displayedResultText }) : '';
-  const shellElapsed = isShellSurface ? (shellResultElapsed(displayedResultText) || elapsed) : '';
-  const backgroundElapsed = backgroundMeta
-    ? backgroundTaskElapsed(backgroundMeta, elapsed)
-    : (isBackgroundTaskTool(normalizedName) ? backgroundTaskElapsed(parsedArgs, elapsed) : '');
-
-  const toolArgPath = parsedArgs?.path ?? parsedArgs?.file_path ?? parsedArgs?.file ?? '';
-  // Audit HIGH: on a FAILED view_image the path detail used to win over the
-  // error cause (nonShellDetail order puts imageDetail before genericDetail),
-  // so the card showed the filename instead of why it failed. Suppress the
-  // path detail on error; the error-cause summary/first line takes the row.
-  const imageDetail = normalizedName === 'view_image' && toolArgPath && !isError ? String(toolArgPath) : '';
-  const isBackgroundResult = !pending && isBackgroundTaskTool(normalizedName) && Boolean(backgroundMeta);
-  const isBackgroundResponse = isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
-  const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
-  const backgroundMetadataFailureLabel = isBackgroundMetadataResult
-    ? backgroundTaskFailureDetail(backgroundMeta, parsedArgs)
-    : '';
-  const backgroundMetadataHeaderFailure = Boolean(backgroundMetadataFailureLabel) && !hasDisplayResult
-    ? backgroundMetadataFailureLabel
-    : '';
-  const agentHeaderFailure = !pending && isAgentTool(normalizedName) && isError && parsedArgs?.error && !hasDisplayResult
-    ? backgroundTaskFailureStatusLabel(parsedArgs?.status, parsedArgs?.error, { surface: 'agent' })
-    : '';
-  const headerFailureStatus = backgroundMetadataHeaderFailure || agentHeaderFailure || '';
-  const agentCompletionDetail = !pending && isAgentTool(normalizedName) && !agentHeaderFailure
-    ? agentTerminalDetail(parsedArgs?.status, isError, elapsed, parsedArgs?.error)
-    : '';
-  const agentDetail = !pending && isAgentTool(normalizedName) && !hasDisplayResult
-    ? agentCompletionDetail
-    : '';
-  const genericDetail = !pending && !isShellSurface && !agentDetail && !imageDetail && !resultSummary
-    ? genericCompletedDetail({ normalizedName, label, hasResult, firstResultLine, isError })
-    : '';
-  const terminalStatus = pending
-    ? 'running'
-    : (shellStatus || normalizeTerminalStatus(backgroundMeta?.status) || normalizeTerminalStatus(parsedArgs?.status) || resultTerminalStatus(displayedResultText) || (isError || failedCount > 0 ? 'failed' : 'completed'));
-  const backgroundMetadataDetail = isBackgroundMetadataResult && !backgroundMetadataHeaderFailure
-    ? backgroundTaskDetail(backgroundMeta, backgroundElapsed, parsedArgs)
-    : '';
-  const backgroundResponseDetail = isBackgroundResponse && resultSummary
-    ? prefixElapsed(resultSummary, backgroundElapsed)
-    : resultSummary;
-  const syncElapsedDetail = !isBackgroundResponse && shouldPrefixSyncElapsed(normalizedName, label)
-    ? prefixElapsed(backgroundResponseDetail, elapsed)
-    : backgroundResponseDetail;
-  const nonShellDetail = backgroundMetadataDetail || (/^(Cancelled|Failed|Finished)$/i.test(resultSummary || '') && agentCompletionDetail
-    ? agentCompletionDetail
-    : syncElapsedDetail) || agentDetail || imageDetail || genericDetail;
-  // A pending non-aggregate tool used to drop its detail row entirely
-  // (collapsedDetail = ''), so the card rendered as a single header row. But
-  // estimateTranscriptItemRows() in App.jsx reserves 2 rows for a collapsed
-  // non-aggregate tool (1 only for skill surfaces). That left a 1-row gap that
-    // closed the instant the result landed — the surviving "line-jump". Reserve the same
-  // dim placeholder detail row the aggregate card uses (`Running`) for the whole
-  // pending lifecycle so the height stays fixed at header + one detail row and
-  // the final summary just fills in place. Skill surfaces collapse to a single
-  // row in BOTH the estimate and the render (visibleDetailLines drops the row
-  // for isSkillSurface below), so they get no placeholder.
-  const pendingDetailPlaceholder = pending && !isSkillSurface
-    ? (elapsed ? `Running · ${elapsed}` : 'Running')
-    : '';
-  const shellCollapsedSummary = isShellSurface && !pending && hasDisplayResult
-    ? (resultSummary || truncateToWidth(firstResultLine, Math.min(120, maxResultChars)))
-    : resultSummary;
-  const collapsedDetail = pending
-    ? pendingDetailPlaceholder
-    : isShellSurface
-      ? prefixElapsed(mergeTerminalDetail(shellStatus, shellCollapsedSummary), shellElapsed)
-      : mergeTerminalDetail(terminalStatus, nonShellDetail);
   const backgroundMetadataExpandable = isBackgroundMetadataResult && hasRawResult && !pending;
   const showRawResult = expanded && (hasDisplayBody || hasRawResult)
     && (!isBackgroundMetadataResult || hasRawResult);
@@ -389,47 +301,11 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
     ? (agentResponseAggregate && hasRawResult
       ? stripLeadingStatusMarkerLines(rawRt.split('\n'))
       : (hasDisplayBody ? lines : (rawRt ? stripLeadingStatusMarkerLines(rawRt.split('\n')) : [])))
-    : (collapsedDetail ? [collapsedDetail] : []);
-  const isPendingPlaceholderDetail = !showRawResult && Boolean(pendingDetailPlaceholder);
+    : (collapsedDetailLine ? [collapsedDetailLine] : []);
+  const isPendingPlaceholderDetail = !showRawResult && detailIsPlaceholder;
   const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
-
-  const isAgentResult = !isBackgroundResult && !pending && isAgentTool(normalizedName) && hasDisplayResult;
-  const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
-  const isAgentSurfaceCard = isAgentTool(normalizedName);
-  const agentSurfaceBriefRaw = isAgentSurfaceCard && !showRawResult
-    ? summarizeAgentSurfaceBrief(name, parsedArgs, displayedResultText || '', { isError, isResponse: isAgentResponse })
-    : '';
-  const agentSurfaceBrief = agentSurfaceBriefRaw
-    ? truncateToWidth(agentSurfaceBriefRaw, Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars))
-    : '';
-  // Skill loads carry the skill name in the header already
-  // ("Loaded 1 skill (name)"); the collapsed detail row just repeats it, so
-  // drop it and keep the card a single line. Expanding (ctrl+o) still shows the
-  // full skill body via the raw-result path.
-  // Agent spawn/send/response cards show a tight brief under the ⎿ gutter when
-  // collapsed; ctrl+o expand still surfaces the full body.
-  let visibleDetailLines = detailLines;
-  if (isSkillSurface && !showRawResult) {
-    // Audit HIGH: a FAILED skill load used to drop its detail row with the
-    // success path, hiding the one-line cause entirely. Keep the detail row
-    // when the call errored; only the redundant success repeat is dropped.
-    visibleDetailLines = isError && collapsedDetail ? [collapsedDetail] : [];
-  } else if (isBackgroundMetadataResult && backgroundMetadataHeaderFailure && !showRawResult) {
-    visibleDetailLines = [];
-  } else if (isAgentSurfaceCard && !showRawResult) {
-    // Agent cards collapse to a SINGLE header row like skill surfaces. Keep the
-    // ⎿ detail row ONLY when it carries failure info: the call errored, or the
-    // brief/summary reads as a failure/cancel. A header-failure-only card (no
-    // brief) shows the cause in the header, so it stays a single row too.
-    // Expanded (ctrl+o raw) still flows through the showRawResult path above.
-    const agentDetailFallback = collapsedDetail
-      || (pending ? (pendingDetailPlaceholder || 'Running') : 'Finished');
-    const agentDetailLine = agentSurfaceBrief
-      || truncateToWidth(String(agentDetailFallback), Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars));
-    const agentFailureText = /\b(Cancelled|Canceled|Failed)\b/i.test(agentSurfaceBrief || collapsedDetail || '');
-    const keepAgentDetail = (isError || agentFailureText) && !(agentHeaderFailure && !agentSurfaceBrief);
-    visibleDetailLines = keepAgentDetail ? [agentDetailLine] : [];
-  }
+  // Skill/agent collapsed gating lives in the shared model (detailLine).
+  const visibleDetailLines = detailLines;
   const finalStatusColor = toolStatusColor({ pending, groupCount, callFailedCount, exitFailedCount, terminalStatus });
   const dotColor = finalStatusColor;
   // Agent surface cards use directional markers: `←` for requests going OUT
@@ -449,31 +325,6 @@ export function ToolExecution({ name, args, result, rawResult, isError, errorCou
   const isDirectionalMarker = isAgentResponse || isAgentSurfaceCard;
   const markerText = isDirectionalMarker ? `${markerGlyph} ` : markerGlyph;
   const dotText = pending && !blinkOn ? ' ' : markerText;
-  let labelText;
-  if (isAgentResponse) labelText = agentResponseTitle(parsedArgs, displayGroupCount);
-  else if (isBackgroundResponse) labelText = backgroundTaskResultTitle(normalizedName, backgroundMeta || parsedArgs);
-  else if (isBackgroundMetadataResult) labelText = backgroundTaskActionTitle(normalizedName, backgroundMeta);
-  else if (isShellSurface) labelText = shellHeader(shellStatus, displayGroupCount);
-  else labelText = (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') || statusCopy(name, label, displayGroupCount, doneCount, headerPending, isError, parsedArgs);
-  labelText = safeInlineText(labelText);
-  // Show the parenthesized arg summary for grouped cards too, matching single
-  // calls so the header carries the same context.
-  const toolSearchSummary = !pending && normalizedName === 'load_tool' && hasResult
-    ? toolSearchLoadedSummary(displayedResultText)
-    : '';
-  const rawSummaryText = safeInlineText(isAgentResponse || isBackgroundResponse
-    ? ''
-    : toolSearchSummary || (isAgentTool(normalizedName) ? agentActionSummary(parsedArgs, summary) : summary));
-  // Drop the parenthesized arg summary when it is a bare "<n> <unit>" count
-  // that the header verb already spells out (e.g. header "Searching 6 patterns"
-  // + summary "6 patterns"). Multi-arg array calls hit this; single calls keep
-  // their descriptive summary ("pattern: \"foo\"") since it never matches the
-  // header tail. Channel surfaces are unaffected — they build the summary from
-  // summarizeToolArgs directly and never render this header verb.
-  const summaryIsHeaderCount = rawSummaryText
-    && /^\d+\s+\S+$/.test(rawSummaryText)
-    && labelText.endsWith(rawSummaryText);
-  const summaryText = summaryIsHeaderCount ? '' : rawSummaryText;
   // Agent cards hide their collapsed body but still expose ctrl+o expand only
   // when expanding would actually reveal something: an agent response body, or a
   // multiline / clipped raw result (e.g. the "agents: N …" worker list). A

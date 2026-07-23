@@ -1583,7 +1583,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-header:focus-visible .tool-chevron { color: var(--mx-icon); }
 .tool-icon { width: 16px; height: 16px; color: var(--mx-icon-muted); }
 .tool-title { min-width: 0; flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; }
-.tool-title b, .tool-title small { font-size: 13px; font-weight: 400; line-height: 16px; }
+/* TUI font parity (user): tool rows read in the terminal's mono voice —
+   bold mono header, muted mono arg summary. */
+.tool-title b, .tool-title small { font-family: var(--mx-font-mono); font-size: 12.5px; font-weight: 400; line-height: 16px; }
+.tool-title b { font-weight: 600; }
 /* Card titles carry the primary "what happened" info — medium weight so they
    do not read as secondary chrome (user: important info looks underweighted). */
 .tool-title b { font-weight: 500; }
@@ -1620,6 +1623,30 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-chevron svg { transition: transform 150ms ease-out; }
 .tool-card[data-open="true"] .tool-chevron svg { transform: rotate(90deg); }
 .tool-content { gap: 8px; border: 0; padding: 8px 0 0; background: transparent; }
+/* TUI parity: the always-visible `└ summary` detail row under a collapsed
+   card (355 lines / 87 matches / Failed · cause / Running · 12s). */
+.tool-detail-line {
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+  align-items: baseline;
+  padding: 2px 8px 0 22px;
+  font-family: var(--mx-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mx-text-muted);
+}
+.tool-detail-line .tool-detail-branch { flex: 0 0 auto; color: var(--mx-text-faint); }
+.tool-detail-line .tool-detail-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-detail-line .tool-detail-text[data-placeholder] { color: var(--mx-text-faint); }
+.tool-detail-line em { font-style: normal; }
+.tool-detail-line em[data-delta="+"] { color: var(--mx-success); }
+.tool-detail-line em[data-delta="-"] { color: var(--mx-danger); }
 .detail-block > span { color: var(--mx-text-faint); font-size: 11px; font-weight: 500; line-height: 12px; letter-spacing: .05px; text-transform: none; }
 .detail-block-heading { min-height: 24px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .detail-block-heading > span { color: var(--mx-text-faint); font-size: 11px; font-weight: 500; line-height: 12px; }

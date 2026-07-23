@@ -15,6 +15,19 @@ import {
 } from "./streaming-markdown";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory, formatAggregateHeader, formatToolSurface, summarizeToolResult } from "../../../../src/runtime/shared/tool-surface.mjs";
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { deriveToolCardModel, splitLineDeltaTokens } from "../../../../src/runtime/shared/tool-card-model.mjs";
+
+interface ToolCardModel {
+  pending: boolean;
+  labelText: string;
+  summaryText: string;
+  headerFailureText: string;
+  detailLine: string;
+  detailIsPlaceholder: boolean;
+  terminalStatus: string;
+}
+interface DetailLinePart { text: string; delta?: "+" | "-" }
 
 export const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 
@@ -598,8 +611,7 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   const done = item.completedAt != null || (item.completedCount === undefined
     ? item.result != null || item.rawResult != null
     : item.completedCount >= (item.count || 1));
-  // Live elapsed readout for running cards. Ticks
-  // only while the card is unsettled; ≥3s threshold keeps fast tools quiet.
+  // Ticking clock for the running card's shared `Running · 12s` detail row.
   const startedAt = Number(item.startedAt || 0);
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
@@ -607,10 +619,6 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
     const timer = window.setInterval(() => setNowTick(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [done, startedAt]);
-  const elapsedSeconds = !done && startedAt > 0 ? Math.floor((nowTick - startedAt) / 1000) : 0;
-  const elapsedLabel = elapsedSeconds >= 3
-    ? elapsedSeconds >= 60 ? `${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s` : `${elapsedSeconds}s`
-    : "";
   const failedCount = Math.max(0, Number(item.errorCount || 0));
   const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
   const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
@@ -619,27 +627,34 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   const exited = !failed && exitFailedCount > 0;
   const surface = formatToolSurface(item.name, item.args);
   const category = classifyToolCategory(item.name, surface.args);
-  const activeCategories = asRecord(item.categories) || {};
-  const doneCategories = asRecord(item.doneCategories);
-  const categories = done && doneCategories && Object.keys(doneCategories).length ? doneCategories : activeCategories;
-  const aggregateOrder = Array.isArray(asRecord(item.args)?.categoryOrder)
-    ? asRecord(item.args)?.categoryOrder as string[] : undefined;
-  const aggregateTitle = item.aggregate
-    ? formatAggregateHeader(categories, { pending: !done, order: aggregateOrder }) : "";
   const parsedArgs = asRecord(surface.args);
   const shellCommand = category === "Shell"
     ? String(parsedArgs?.command || parsedArgs?.cmd || parsedArgs?.script || "").trim()
     : "";
-  const shellDescription = category === "Shell" ? String(parsedArgs?.description || "").trim() : "";
-  const title = aggregateTitle || (item.aggregate
-    ? `${item.count || 1} tool operations`
-    : category === "Shell" ? "Shell" : surface.label);
-  // Shell cards: the header names the command itself when no
-  // human description exists, so running/failed rows are identifiable unopened.
-  const argumentSummary = item.aggregate ? ""
-    : category === "Shell" ? (shellDescription || shellCommand) : surface.summary;
-  const monoSummary = category === "Shell" && !shellDescription && Boolean(shellCommand);
   const rawResult = item.result ?? item.rawResult;
+  // TUI parity (user request): header label, casing, parenthesized arg
+  // summary, and the always-visible `└ detail` row all come from the SAME
+  // shared derivation the terminal consumes (deriveToolCardModel). The
+  // desktop adds only icons/chevron/expansion chrome around it.
+  const model = useMemo(() => deriveToolCardModel({
+    name: item.name,
+    args: item.args,
+    result: item.result,
+    rawResult: item.rawResult,
+    isError: item.isError,
+    errorCount: item.errorCount,
+    callErrorCount: item.callErrorCount,
+    exitErrorCount: item.exitErrorCount,
+    count: item.count,
+    completedCount: done ? Math.max(1, Math.round(Number(item.count || 1))) : 0,
+    startedAt: item.startedAt,
+    completedAt: item.completedAt,
+    aggregate: Boolean(item.aggregate),
+    categories: item.categories,
+    doneCategories: item.doneCategories,
+    headerFinalized: item.headerFinalized,
+    nowMs: nowTick,
+  }) as ToolCardModel, [item, done, nowTick]);
   const patch = findPatch(item);
   const hasInput = !item.aggregate && category !== "Shell"
     && (parsedArgs ? Object.keys(parsedArgs).length > 0 : Boolean(surface.args));
@@ -651,7 +666,6 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   const partialFailed = failed && count > 1
     && (callFailedCount > 0 ? callFailedCount < count : failedCount > 0 && failedCount < count);
   const errorCard = (failed || denied) && hasResult;
-  const exceptionalState = denied ? "Denied" : failed ? "Failed" : exited ? "Exit" : "";
   // Streamed tail from the running command (engine liveOutput plumbing).
   // Only meaningful pre-settlement; the settled result supersedes it.
   const liveOutput = !done && typeof item.liveOutput === "string" ? item.liveOutput : "";
@@ -668,19 +682,29 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
         <span className="tool-title">
           <b data-component={item.aggregate ? "tool-count-summary" : "tool-status-title"}
             data-active={!done ? "true" : "false"}>
-            <TextShimmer text={title} active={!done} />
+            <TextShimmer text={model.labelText} active={!done} />
           </b>
-          {!item.aggregate && count > 1 && <span className="tool-count-label"
-            data-component="tool-count-label">{count} calls</span>}
-          {argumentSummary && <small className={monoSummary ? "tool-command-inline" : undefined}>{argumentSummary}</small>}
+          {model.summaryText && <small>({model.summaryText})</small>}
         </span>
-        {exceptionalState && <span className={`tool-state ${failed || denied ? "failed" : ""} ${exited ? "exited" : ""}`} role="status">
-          {exceptionalState}
+        {model.headerFailureText && <span className="tool-state failed" role="status">
+          {model.headerFailureText}
         </span>}
-        {elapsedLabel && !exceptionalState && <span className="tool-elapsed" role="timer">{elapsedLabel}</span>}
-        {!done && !exceptionalState && <span className="sr-only" role="status">Running</span>}
+        {!done && <span className="sr-only" role="status">Running</span>}
         {hasDetails && <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>}
       </button>
+      {!open && !liveOutput && model.detailLine && (
+        <div className="tool-detail-line" data-component="tool-collapsed-summary">
+          <span className="tool-detail-branch" aria-hidden="true">└</span>
+          <span className="tool-detail-text"
+            data-placeholder={model.detailIsPlaceholder || undefined}>
+            {(splitLineDeltaTokens(model.detailLine) as DetailLinePart[]).map((part, index) => (
+              part.delta
+                ? <em key={index} data-delta={part.delta}>{part.text}</em>
+                : <React.Fragment key={index}>{part.text}</React.Fragment>
+            ))}
+          </span>
+        </div>
+      )}
       {liveOutput && (
         <div className="tool-content" id={contentId} data-live="true">
           <ToolOutput value={liveOutput} command={shellCommand} follow />

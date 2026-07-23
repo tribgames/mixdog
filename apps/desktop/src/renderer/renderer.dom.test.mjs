@@ -680,10 +680,12 @@ test("failed tools expose a failed status instead of a successful completion", a
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "tool-failed", kind: "tool", name: "shell", isError: true, result: "Command failed" },
   })));
-  const status = document.querySelector(".tool-state");
-  assert.equal(status?.textContent.trim(), "Failed");
-  assert.equal(status?.getAttribute("role"), "status");
-  assert.ok(status?.classList.contains("failed"));
+  // TUI parity: the failure status lives on the `└ detail` row ("Failed ·
+  // cause"), not a separate header chip; the red icon carries the signal.
+  const failedCard = document.querySelector(".tool-card");
+  assert.ok(failedCard?.classList.contains("failed"));
+  assert.match(failedCard?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "",
+    /^Failed · Command failed/);
   assert.equal(document.querySelector(".tool-icon svg") != null, true,
     "failed tools should retain their own icon");
   assert.equal(document.querySelector(".lucide-x"), null,
@@ -735,7 +737,9 @@ test("tool counters and hook-denial visibility mirror the TUI", async () => {
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "partial", kind: "tool", name: "read", count: 3, completedCount: 3, errorCount: 1 },
   })));
-  assert.equal(document.querySelector(".tool-state")?.textContent.trim(), "Failed");
+  assert.equal(document.querySelector(".tool-detail-line .tool-detail-text")?.textContent.trim(), "Failed");
+  assert.ok(document.querySelector(".tool-card")?.classList.contains("partial-failed"),
+    "some-but-not-all failures keep the amber partial state");
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: {
@@ -743,7 +747,9 @@ test("tool counters and hook-denial visibility mirror the TUI", async () => {
       result: 'Error: tool "shell" denied by hook: approval required',
     },
   })));
-  assert.equal(document.querySelector(".tool-state")?.textContent.trim(), "Denied");
+  // Error-only bodies collapse to the bare status word (TUI
+  // isBackgroundErrorOnlyBody contract); expanding still shows the raw error.
+  assert.equal(document.querySelector(".tool-detail-line .tool-detail-text")?.textContent.trim(), "Failed");
 
   await act(async () => root.render(React.createElement(TranscriptRow, {
     item: { id: "noise", kind: "tool", name: "read", isError: true, errorCount: 1, completedCount: 1 },
@@ -968,6 +974,116 @@ test("a + draft opened during an in-flight session switch is not stomped by the 
   assert.ok(document.querySelector(".thread-welcome"), "the settled draft shows the welcome surface");
 });
 
+// TUI ⇄ desktop tool-card parity: the desktop card's header label, arg
+// summary, and `└ detail` row must equal the shared deriveToolCardModel
+// output for every tool shape (single, shell, grep, aggregate, agent,
+// failure, pending) — including verb casing.
+test("tool cards render the shared TUI derivation for every tool shape", async () => {
+  installDom();
+  const { deriveToolCardModel } = await import("../../../../src/runtime/shared/tool-card-model.mjs");
+  const desktopDone = (item) => item.completedAt != null || (item.completedCount === undefined
+    ? item.result != null || item.rawResult != null
+    : item.completedCount >= (item.count || 1));
+  const toolModel = (item) => deriveToolCardModel({
+    name: item.name,
+    args: item.args,
+    result: item.result,
+    rawResult: item.rawResult,
+    isError: item.isError,
+    errorCount: item.errorCount,
+    callErrorCount: item.callErrorCount,
+    exitErrorCount: item.exitErrorCount,
+    count: item.count,
+    completedCount: desktopDone(item) ? Math.max(1, Math.round(Number(item.count || 1))) : 0,
+    startedAt: item.startedAt,
+    completedAt: item.completedAt,
+    aggregate: Boolean(item.aggregate),
+    categories: item.categories,
+    doneCategories: item.doneCategories,
+    headerFinalized: item.headerFinalized,
+  });
+  const fixtures = [
+    {
+      label: "read single",
+      item: { id: "p-read", kind: "tool", name: "read", args: JSON.stringify({ path: "C:\\repo\\notes.txt" }), result: "line one\nline two\nline three" },
+      expectLabel: "Read 1 file",
+    },
+    {
+      label: "grep single",
+      item: { id: "p-grep", kind: "tool", name: "grep", args: JSON.stringify({ pattern: "foo" }), result: "a.txt:1\nb.txt:2" },
+      expectLabel: "Searched 1 pattern",
+    },
+    {
+      label: "shell single",
+      item: { id: "p-shell", kind: "tool", name: "shell", args: JSON.stringify({ command: "npm test" }), result: "All tests passed" },
+      expectLabel: "Ran 1 command",
+    },
+    {
+      label: "failed read",
+      item: { id: "p-fail", kind: "tool", name: "read", args: JSON.stringify({ path: "C:\\repo\\gone.txt" }), result: "Error: ENOENT", isError: true, errorCount: 1, callErrorCount: 1 },
+      expectDetailPrefix: "Failed",
+    },
+    {
+      label: "pending read",
+      item: { id: "p-pending", kind: "tool", name: "read", args: JSON.stringify({ path: "C:\\repo\\slow.txt" }), count: 1, completedCount: 0 },
+      expectLabel: "Reading 1 file",
+      expectDetail: "Running",
+    },
+    {
+      label: "aggregate",
+      item: {
+        id: "p-agg", kind: "tool", name: "read", aggregate: true, count: 3, completedCount: 3,
+        args: JSON.stringify({ categoryOrder: ["Read", "Search"] }),
+        categories: {
+          Read: { category: "Read", active: "Reading", done: "Read", noun: "file", pluralNoun: "files", count: 2 },
+          Search: { category: "Search", active: "Searching", done: "Searched", noun: "pattern", pluralNoun: "patterns", count: 1 },
+        },
+        result: "512 lines, 6 matches",
+      },
+      expectLabel: "Read 2 files, Searched 1 pattern",
+      expectDetail: "512 lines, 6 matches",
+    },
+    {
+      label: "agent spawn",
+      item: { id: "p-agent", kind: "tool", name: "agent", args: JSON.stringify({ type: "spawn", agent: "explore", tag: "scan" }), result: "agent task:\ntask_id: t1\nstatus: running" },
+      expectLabel: "Spawn Explore (scan)",
+      expectNoDetail: true,
+    },
+  ];
+  for (const fixture of fixtures) {
+    await act(async () => root.render(React.createElement(TranscriptRow, {
+      key: fixture.item.id,
+      item: fixture.item,
+    })));
+    const card = document.querySelector(".tool-card");
+    assert.ok(card, `${fixture.label}: tool card should render`);
+    const model = toolModel(fixture.item);
+    assert.equal(card.querySelector(".tool-title b")?.textContent, model.labelText,
+      `${fixture.label}: header label must equal the shared TUI derivation`);
+    if (fixture.expectLabel) {
+      assert.equal(model.labelText, fixture.expectLabel, `${fixture.label}: pinned header casing`);
+    }
+    const small = card.querySelector(".tool-title small")?.textContent ?? "";
+    assert.equal(small, model.summaryText ? `(${model.summaryText})` : "",
+      `${fixture.label}: arg summary must equal the shared TUI derivation`);
+    const detail = card.querySelector(".tool-detail-line .tool-detail-text")?.textContent ?? "";
+    if (fixture.expectNoDetail) {
+      assert.equal(detail, "", `${fixture.label}: collapsed detail row should be dropped`);
+      assert.equal(model.detailLine, "", `${fixture.label}: model drops the detail row too`);
+    } else {
+      assert.equal(detail, model.detailLine,
+        `${fixture.label}: detail row must equal the shared TUI derivation`);
+    }
+    if (fixture.expectDetail) {
+      assert.equal(model.detailLine, fixture.expectDetail, `${fixture.label}: pinned detail text`);
+    }
+    if (fixture.expectDetailPrefix) {
+      assert.match(model.detailLine, new RegExp(`^${fixture.expectDetailPrefix}`),
+        `${fixture.label}: pinned detail status casing`);
+    }
+  }
+});
+
 test("new task opens immediately and its first submit reuses the pending cold setup", async () => {
   installDom();
   let finishSetup;
@@ -1065,18 +1181,21 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
 
   const shell = document.querySelector(".tool-card");
   assert.equal(shell?.dataset.category, "Shell");
-  assert.equal(shell?.querySelector(".tool-title b")?.textContent, "Shell");
-  // Description-less shell cards surface the bare command in the header so a
-  // collapsed card still identifies what ran (command-row grammar).
-  assert.equal(shell?.querySelector(".tool-title small")?.textContent, "npm test");
-  assert.equal(shell?.querySelector(".tool-title small")?.classList.contains("tool-command-inline"), true,
-    "bare command subtitle must use the mono treatment");
+  // TUI parity: the shell header uses the terminal grammar ("Ran 1 command")
+  // with the command in the parenthesized arg summary.
+  assert.equal(shell?.querySelector(".tool-title b")?.textContent, "Ran 1 command");
+  assert.equal(shell?.querySelector(".tool-title small")?.textContent, "(npm test)");
   assert.equal(shell?.querySelector(".tool-state") === null, true,
     "selector .tool-state should be absent");
   assert.equal(shell?.querySelector(".tool-title")?.nextElementSibling?.classList.contains("tool-chevron"), true);
   assert.equal(shell?.querySelector(".tool-result-summary") === null, true,
     "selector .tool-result-summary should be absent");
+  // The collapsed card carries the TUI's always-visible `└ detail` row (the
+  // shared shell summarizer surfaces the exit line).
+  assert.match(shell?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "", /Exit code: 0/);
   await act(async () => shell?.querySelector(".tool-header")?.click());
+  assert.equal(shell?.querySelector(".tool-detail-line") === null, true,
+    "the expanded card replaces the detail row with the raw body");
   assert.equal(shell?.querySelector('[aria-label="Copy command output"]') != null, true);
   assert.equal(shell?.querySelector(".shell-output")?.textContent, "$ npm test\n\nExit code: 0\nAll tests passed");
   assert.equal(shell?.querySelector(".detail-block") === null, true,
@@ -1151,8 +1270,12 @@ test("running tool cards tick a live elapsed readout; settled cards stay quiet",
   })));
   const running = document.querySelector(".tool-card");
   assert.equal(running?.classList.contains("settled"), false);
-  assert.match(running?.querySelector(".tool-elapsed")?.textContent || "", /^\d+s$/,
-    "running card must show seconds elapsed once past the 3s threshold");
+  // TUI parity: the elapsed readout lives on the detail row ("Running · 5s"),
+  // not in a header chip.
+  assert.match(running?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "",
+    /^Running · \d+s$/, "running card must show the TUI Running · Ns detail row");
+  assert.equal(running?.querySelector(".tool-detail-line .tool-detail-text")?.hasAttribute("data-placeholder"), true,
+    "the running detail row is the dim placeholder treatment");
   await act(async () => root.render(React.createElement(TranscriptRow, {
     key: "settled-shell",
     item: {
@@ -1168,6 +1291,8 @@ test("running tool cards tick a live elapsed readout; settled cards stay quiet",
   const settled = document.querySelector(".tool-card");
   assert.equal(settled?.querySelector(".tool-elapsed") === null, true,
     "settled cards must not render the elapsed readout");
+  assert.doesNotMatch(settled?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "",
+    /^Running/, "a settled card must not keep the Running placeholder");
 });
 
 test("running shell cards stream liveOutput; settled cards ignore a stale tail", async () => {
