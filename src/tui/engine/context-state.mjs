@@ -6,7 +6,7 @@
  * updateState; callers still follow with set(...) to schedule publication.
  */
 export function createContextState({ runtime, getState, updateState, getPendingSessionReset }) {
-  const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000, custom: false, providerDefault: 60 * 60 * 1000, provider: null, minContextPercent: 10 };
+  const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000, custom: false, providerDefault: 60 * 60 * 1000, provider: null, minContextPercent: 30 };
   const AGENT_STATUS_CACHE_MS = 250;
   let agentStatusCache = null;
   let agentStatusCacheAt = 0;

@@ -229,9 +229,14 @@ export function normalizeAutoClearConfig(value = {}) {
   const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
   const hasExplicitIdle = Number.isFinite(idleMs) && idleMs > 0;
   const rawMinPct = Number(raw.minContextPercent);
+  // Idle auto-clear only pays for a summarize when a MEANINGFUL share of the
+  // auto-compact budget is in use. 10% folded shallow sessions on every idle
+  // return (user: unnecessary compacts waste tokens) — 30% keeps the idle
+  // sweep for genuinely loaded sessions only. Configurable via
+  // autoClear.minContextPercent.
   const minContextPercent = Number.isFinite(rawMinPct)
     ? Math.min(100, Math.max(0, Math.round(rawMinPct)))
-    : 10;
+    : 30;
   // idleMs: null means "no explicit override" — callers resolve the
   // effective window via resolveAutoClearIdleMs/provider default. `custom`
   // tells UI whether the stored idleMs is a user override (true) or the
