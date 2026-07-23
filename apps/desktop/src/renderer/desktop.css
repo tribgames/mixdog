@@ -1657,7 +1657,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-args [data-slot="value"] {
   min-width: 0;
   font-family: var(--mx-font-mono);
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 20px;
   color: var(--mx-text-muted);
   white-space: pre-wrap;
@@ -1706,8 +1706,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .tool-output code {
   font-family: var(--mx-font-mono);
-  font-size: 13px;
-  line-height: 20px;
+  /* One mono scale across the whole tool card: expanding must not re-render
+     the same text a size larger (user: "펼치면 다른 폰트로 바뀜"). */
+  font-size: 12.5px;
+  line-height: 19px;
 }
 .shell-output {
   overflow: hidden;
