@@ -514,7 +514,7 @@ async function captureWindow(): Promise<void> {
         runningCommandVisible: Array.from(document.querySelectorAll('.tool-card:not(.settled) .tool-title small'))
           .some((node) => (node.textContent || '').includes('npm test')),
         editInputBlocks: document.querySelectorAll('.tool-card[data-category="Patch"] .detail-block').length,
-        runningElapsed: (document.querySelector('.tool-card:not(.settled) .tool-elapsed')?.textContent || '').trim(),
+        runningElapsed: (document.querySelector('.tool-card:not(.settled) .tool-detail-line .tool-detail-text')?.textContent || '').trim(),
         liveOutputVisible: Boolean(document.querySelector(
           '.tool-card:not(.settled) .tool-content[data-live="true"] .shell-output',
         )),

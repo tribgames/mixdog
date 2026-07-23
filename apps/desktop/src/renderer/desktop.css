@@ -277,7 +277,7 @@ button, input, textarea, select { color: inherit; }
 input, textarea { caret-color: var(--mx-text); }
 input::placeholder, textarea::placeholder { color: var(--mx-text-faint); opacity: 1; }
 /* No custom ::selection; native color-scheme selection applies. */
-code, pre, kbd { font-family: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace; }
+code, pre, kbd { font-family: var(--mx-font-mono); }
 button { font-weight: 500; letter-spacing: 0; }
 /* The icon set draws at ~1.5px optical weight; lucide's default 2px
    stroke reads heavier at the same sizes. Thin every lucide glyph slightly. */
@@ -1597,10 +1597,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* TUI font parity (user): tool rows read in the terminal's mono voice —
    bold mono header, muted mono arg summary. */
 .tool-title b, .tool-title small { font-family: var(--mx-font-mono); font-size: 12.5px; font-weight: 400; line-height: 16px; }
+/* Card titles carry the primary "what happened" info: one weight rule — the
+   TUI's bold header voice (a second 500 rule silently overrode 600 before). */
 .tool-title b { font-weight: 600; }
-/* Card titles carry the primary "what happened" info — medium weight so they
-   do not read as secondary chrome (user: important info looks underweighted). */
-.tool-title b { font-weight: 500; }
 /* Narrow windows: the title must ellipsize instead of shoving the elapsed
    readout/chevron sideways (user: fully narrowed, text invades the side).
    The subtitle absorbs shrink first (999), the bold label only after. */
@@ -1608,20 +1607,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .tool-title small { min-width: 0; flex-shrink: 999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Tool-card subtitles read as muted, not faint. */
 .tool-title small { color: var(--mx-text-muted); }
-/* Bare command subtitles (no human description) read in mono like the
-   reference clients' command rows. */
-.tool-title small.tool-command-inline { font-family: var(--mx-font-mono); font-size: 12px; }
 .tool-state { flex: 0 0 auto; gap: 3px; color: var(--mx-text-faint); font-size: 11px; font-weight: 500; line-height: 12px; }
-/* Running-card elapsed readout: same quiet weight as .tool-state, mono so the
-   ticking digits do not shift the header. */
-.tool-elapsed {
-  flex: 0 0 auto;
-  color: var(--mx-text-faint);
-  font-family: var(--mx-font-mono);
-  font-size: 11px;
-  line-height: 12px;
-  font-variant-numeric: tabular-nums;
-}
 .tool-chevron {
   width: 20px;
   height: 20px;
