@@ -854,6 +854,120 @@ test("conversation attaches only successful turn completion to the final assista
   assert.equal(failedRow?.querySelector(".turn-retry")?.getAttribute("aria-label"), "Retry failed turn");
 });
 
+test("toggling a tool card releases bottom-follow instead of re-pinning the transcript", async () => {
+  installDom();
+  const source = {
+    id: "tool-toggle-session",
+    title: "Tool toggle",
+    preview: "Tool toggle",
+    updatedAt: 1,
+    currentSession: false,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+  };
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [source],
+    resumeSession: async () => ({
+      sessionId: source.id,
+      items: [
+        { id: "u1", kind: "user", text: "Run the listing" },
+        { id: "t1", kind: "tool", name: "shell", args: JSON.stringify({ command: "dir" }), result: "listing output", completedAt: 5 },
+      ],
+      queued: [],
+    }),
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(`[data-session-id="${source.id}"]`).click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const transcript = document.querySelector(".transcript");
+  Object.defineProperties(transcript, {
+    scrollHeight: { value: 1200, configurable: true },
+    clientHeight: { value: 400, configurable: true },
+  });
+  assert.equal(document.querySelector(".jump-to-latest"), null,
+    "follow starts armed after a session open");
+  await act(async () => {
+    document.querySelector(".tool-header").click();
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelector(".tool-card")?.getAttribute("data-open"), "true");
+  assert.ok(document.querySelector(".jump-to-latest"),
+    "a tool toggle must release follow so the transcript is not re-pinned mid-read");
+});
+
+test("a + draft opened during an in-flight session switch is not stomped by the late resume", async () => {
+  installDom();
+  const source = {
+    id: "inflight-source",
+    title: "Inflight source",
+    preview: "Inflight source",
+    updatedAt: 1,
+    currentSession: false,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+  };
+  let finishResume;
+  let finishSetup;
+  const setup = new Promise((resolve) => {
+    finishSetup = () => resolve({ sessionId: "", items: [], queued: [] });
+  });
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({ items: [], queued: [] }),
+    subscribeState: () => () => {},
+    listProjects: async () => [],
+    listSessions: async () => [source],
+    resumeSession: () => new Promise((resolve) => {
+      finishResume = () => resolve({
+        sessionId: source.id,
+        items: [{ id: "s1", kind: "user", text: "Source transcript" }],
+        queued: [],
+      });
+    }),
+    startTask: async () => setup,
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    document.querySelector(`[data-session-id="${source.id}"]`).click();
+    await Promise.resolve();
+  });
+  // + while the switch is still in flight: the draft owns the view now.
+  await act(async () => {
+    document.querySelector(".task-link").click();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    finishResume();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Source transcript/,
+    "a late-settling switch must not resurrect the outgoing transcript in the draft");
+  assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), "New task");
+  await act(async () => {
+    finishSetup();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Source transcript/);
+  assert.ok(document.querySelector(".thread-welcome"), "the settled draft shows the welcome surface");
+});
+
 test("new task opens immediately and its first submit reuses the pending cold setup", async () => {
   installDom();
   let finishSetup;

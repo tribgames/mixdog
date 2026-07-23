@@ -8,6 +8,7 @@ import {
 } from "./desktop-state.ts";
 import {
   EngineHost,
+  ENGINE_PUBLICATION_INTERVAL_MS,
   engineModuleUrl,
   projectDesktopLiveWorkState,
   projectsModuleUrl,
@@ -2577,6 +2578,53 @@ test("desktop capabilities invoke the existing engine and serialize interactive 
     assert.equal(cancelled, 1);
   } finally {
     unsubscribe();
+    await host.dispose();
+    process.chdir(originalCwd);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a live-engine context switch publishes no mid-switch snapshot carrying the outgoing transcript", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-switch-hold-"));
+  const originalCwd = process.cwd();
+  let engineListener = null;
+  let state = {
+    sessionId: "outgoing_session",
+    items: [{ id: "m1", kind: "user", text: "outgoing transcript" }],
+  };
+  const engine = {
+    getState: () => state,
+    subscribe: (listener) => { engineListener = listener; return () => {}; },
+    listSessions: () => [],
+    newSession: async () => true,
+    resume: async () => true,
+    dispose: async () => {},
+    switchContext: async () => {
+      state = { ...state, commandBusy: true };
+      engineListener?.();
+      // Outlive the publication throttle so a scheduled mid-switch
+      // publication would fire while the old transcript is still in state.
+      await new Promise((resolve) => setTimeout(resolve, ENGINE_PUBLICATION_INTERVAL_MS + 60));
+      state = { sessionId: null, items: [] };
+      engineListener?.();
+      return true;
+    },
+  };
+  const host = new EngineHost({ userDataPath: root, createEngine: async () => engine });
+  try {
+    await host.startTask();
+    const published = [];
+    const unsubscribe = host.subscribe((snapshot) => published.push(snapshot));
+    await host.startTask();
+    await new Promise((resolve) => setTimeout(resolve, ENGINE_PUBLICATION_INTERVAL_MS + 60));
+    unsubscribe();
+    assert.ok(published.length >= 1, "the switch should publish its settled snapshot");
+    for (const snapshot of published) {
+      const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+      assert.equal(items.some((item) => String(item?.text || "").includes("outgoing transcript")), false,
+        "mid-switch publications must not resurrect the outgoing transcript");
+    }
+  } finally {
     await host.dispose();
     process.chdir(originalCwd);
     await rm(root, { recursive: true, force: true });

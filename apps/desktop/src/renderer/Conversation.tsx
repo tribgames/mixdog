@@ -563,6 +563,21 @@ export function Conversation({
           top: event.currentTarget.scrollTop,
           atEnd: nextFollowing,
         });
+      }} onClickCapture={(event) => {
+        // Toggling a tool card is a reading intent: the resize it causes must
+        // not re-pin the transcript bottom (user: the whole script lurched
+        // with ghosting on collapse/expand). Mirrors the upward-wheel disarm,
+        // including its no-overflow guard so an unscrollable view keeps
+        // follow armed (no orphaned "Jump to latest" chip).
+        const target = event.target as HTMLElement | null;
+        if (!target || typeof target.closest !== "function") return;
+        if (!target.closest(".tool-header")) return;
+        const element = event.currentTarget;
+        const scrollable = element.scrollHeight > element.clientHeight + 1;
+        if (scrollable && followOutput.current) {
+          followOutput.current = false;
+          setFollowing(false);
+        }
       }} onWheel={(event) => {
           programmaticScroll.current = false;
           scrollIntentUntil.current = performance.now() + 180;

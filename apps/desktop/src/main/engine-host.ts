@@ -1388,6 +1388,21 @@ export class EngineHost {
     desktopSession: DesktopSessionScope | null,
     reason: string,
   ): Promise<MixdogEngine> {
+    // Live-engine switches: mid-switch engine events still carry the OUTGOING
+    // session's transcript, and the publication throttle forwarded them to
+    // renderers (user: the old script flashed inside a fresh + draft before
+    // the settled snapshot replaced it). Hold publications so only the
+    // post-switch state is published. Cold boots stay unheld so first-boot
+    // progress keeps streaming.
+    if (!this.engine) return await this.replaceEngineNow(cwd, desktopSession, reason);
+    return await this.withPublicationsHeld(() => this.replaceEngineNow(cwd, desktopSession, reason));
+  }
+
+  private async replaceEngineNow(
+    cwd: string,
+    desktopSession: DesktopSessionScope | null,
+    reason: string,
+  ): Promise<MixdogEngine> {
     this.currentProject = null;
     const current = this.engine;
     const previousCwd = process.cwd();

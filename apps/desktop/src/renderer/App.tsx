@@ -490,6 +490,10 @@ export function App() {
   // a closed session and must not be frozen into the next tab's transition.
   const discardOutgoingSnapshot = useRef(false);
   const resumeSessionRef = useRef<(sessionId: string, force?: boolean) => void>(() => {});
+  // Monotonic navigation stamp: an async switch completion may only activate
+  // its target while no NEWER navigation happened in flight (user: + during a
+  // settling session switch resurrected the old transcript in the new draft).
+  const navigationEpoch = useRef(0);
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const frozenSessionSnapshot = useRef<Snapshot | null>(null);
   const sessionSnapshotCache = useRef(new Map<string, Snapshot>());
@@ -1002,6 +1006,7 @@ export function App() {
     const selected = await host.chooseProject();
     if (selected) {
       closeSidebarForNavigation();
+      navigationEpoch.current += 1;
       try {
         const next = await host.startProject(selected);
         applySnapshot(next);
@@ -1021,6 +1026,7 @@ export function App() {
   });
   const startProject = (project: Project) => {
     closeSidebarForNavigation();
+    navigationEpoch.current += 1;
     void invoke(async () => {
       try {
         const next = await window.mixdogDesktop?.startProject(project);
@@ -1041,6 +1047,7 @@ export function App() {
   };
   const startProjectTask = (project: Project) => {
     closeSidebarForNavigation();
+    navigationEpoch.current += 1;
     void invoke(async () => {
       try {
         const next = await window.mixdogDesktop.startProjectTask(project);
@@ -1061,6 +1068,7 @@ export function App() {
     });
   };
   const activateNewProjectContext = async (project: Project) => {
+    navigationEpoch.current += 1;
     const next = await window.mixdogDesktop.startProjectTask(project);
     applySnapshot(next);
     activateSelection({ kind: "new" }, "New task");
@@ -1188,6 +1196,7 @@ export function App() {
     setTabs((current) => current.filter((tab) =>
       !(tab.selection.kind === "session" && tab.selection.id === sessionId)));
     if (deletingCurrent) {
+      navigationEpoch.current += 1;
       activateSelection({ kind: "new" }, "New task");
       newTaskReady.current = true;
       setNewTaskActive(true);
@@ -1214,6 +1223,7 @@ export function App() {
   };
   const startTask = (draft?: NavigationSelection) => {
     closeSidebarForNavigation();
+    navigationEpoch.current += 1;
     const nextSelection = draft?.kind === "new" ? draft : newDraftSelection();
     const nextKey = navigationKey(nextSelection);
     // A blank task is a renderer draft until the first submit. Show its tab,
@@ -1264,6 +1274,7 @@ export function App() {
     }
     if (!force && selection.kind === "session" && selection.id === sessionId
       && String(snapshot.sessionId || "") === sessionId) return;
+    const epoch = ++navigationEpoch.current;
     // Start the shared Markdown chunk before the cached target is mounted.
     // The transcript reveal below waits for this promise or a short deadline.
     void preloadMarkdownBody().catch(() => {});
@@ -1312,7 +1323,7 @@ export function App() {
         rememberSessionSnapshot(next);
         const superseded = Boolean(
           pendingResumeTarget.current && pendingResumeTarget.current !== effectiveSessionId,
-        );
+        ) || navigationEpoch.current !== epoch;
         if (!superseded) {
           frozenSessionSnapshot.current = null;
           // resumeSession publishes the same state before its IPC result
@@ -1346,7 +1357,8 @@ export function App() {
           });
         }
       } catch (reason) {
-        if (!pendingResumeTarget.current) await synchronizeActualHost();
+        if (!pendingResumeTarget.current
+          && navigationEpoch.current === epoch) await synchronizeActualHost();
         throw reason;
       } finally {
         activeResumeTarget.current = "";
@@ -1444,6 +1456,7 @@ export function App() {
         );
         if (activeSessionId) {
           const title = promptTitle(content, options?.displayText || "") || "New task";
+          navigationEpoch.current += 1;
           activateSelection({ kind: "session", id: activeSessionId }, title, "new");
           setNewTaskActive(false);
         }
