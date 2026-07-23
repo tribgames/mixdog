@@ -152,6 +152,9 @@ export function _sessionSummary(session) {
         preview: messageProjection.preview,
         generation: typeof session.generation === 'number' ? session.generation : 0,
         implicitBashSessionId: session.implicitBashSessionId || null,
+        // Lifecycle provenance for catalog filters: resume-machinery scratch
+        // forks (detachedReason='cli-resume') must never surface in Recent.
+        detachedReason: session.detachedReason || null,
     };
 }
 
@@ -184,6 +187,7 @@ function _normalizeSummaryRow(row) {
         preview: _cleanPreview(row.preview || ''),
         generation: typeof row.generation === 'number' ? row.generation : 0,
         implicitBashSessionId: row.implicitBashSessionId || null,
+        detachedReason: row.detachedReason || null,
     };
 }
 

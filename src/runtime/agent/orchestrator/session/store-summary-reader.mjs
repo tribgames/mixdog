@@ -20,6 +20,9 @@ const LEAD_OWNERS = new Set(['cli', 'user', 'mixdog', 'legacy']);
 function isLeadVisibleRow(row) {
     const owner = String(row.owner || 'user').trim().toLowerCase();
     if (owner && !LEAD_OWNERS.has(owner)) return false;
+    // Resume-machinery scratch forks (compaction/auto-clear re-seed under
+    // pre-fix runtimes) must never paint in the cold catalog either.
+    if (String(row.detachedReason || '').trim().toLowerCase() === 'cli-resume') return false;
     // Mirror listLeadSessions: a previewless zero-message row is an unusable
     // scratch (desktop boot leftovers, crashed first turns) — resuming it
     // shows an empty conversation, so the catalog hides it.
@@ -105,6 +108,7 @@ function normalizedRow(row, heartbeatAt = 0) {
         preview: cleanText(row.preview),
         generation: typeof row.generation === 'number' ? row.generation : 0,
         implicitBashSessionId: row.implicitBashSessionId || null,
+        detachedReason: row.detachedReason || null,
     };
 }
 
