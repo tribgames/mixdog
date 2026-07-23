@@ -89,6 +89,22 @@ export function DesktopTitlebar({
   } | null>(null);
   const suppressTabClick = useRef("");
   const [draggingKey, setDraggingKey] = useState("");
+  // Chrome-parity close UX: closing a tab must NOT let the survivors re-expand
+  // while the pointer stays on the strip — the next close button would slide
+  // out from under the cursor. Pin the current tab width on pointer-close and
+  // release it (recompute + smooth transition) once the pointer leaves.
+  const [pinnedTabWidth, setPinnedTabWidth] = useState(0);
+  const previousTabCount = useRef(tabs.length);
+  useEffect(() => {
+    // Opening a tab is not a close streak: Chrome re-lays-out immediately.
+    if (tabs.length > previousTabCount.current) setPinnedTabWidth(0);
+    previousTabCount.current = tabs.length;
+  }, [tabs.length]);
+  const closeTabPinned = useCallback((tab: WorkspaceTab) => {
+    const width = tabNodes.current.get(tab.key)?.getBoundingClientRect().width || 0;
+    if (width > 0) setPinnedTabWidth(width);
+    onCloseTab(tab);
+  }, [onCloseTab]);
   const windowsCaptionControls = typeof navigator !== "undefined" &&
     /Windows/i.test(navigator.userAgent);
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
@@ -191,6 +207,7 @@ export function DesktopTitlebar({
         <nav ref={tabStrip} className="workspace-tabs" data-slot="workspace-tabs-scroll"
           aria-label="Open workspaces" onKeyDown={onTabKeyDown}
           onPointerMove={movePointerDrag}
+          onPointerLeave={() => setPinnedTabWidth(0)}
           onPointerUp={(event) => finishPointerDrag(event.pointerId || 1)}
           onPointerCancel={(event) => finishPointerDrag(event.pointerId || 1)}>
           {tabs.map((tab) => {
@@ -205,6 +222,9 @@ export function DesktopTitlebar({
                   data-active={active}
                   data-working={working || undefined}
                   aria-grabbed={draggingKey === tab.key}
+                  style={pinnedTabWidth > 0
+                    ? { width: pinnedTabWidth, minWidth: pinnedTabWidth, flex: "0 0 auto" }
+                    : undefined}
                   onPointerDown={(event) => {
                     if (event.button !== 0 || event.pointerType === "touch" ||
                       (event.target as Element | null)?.closest?.(".workspace-tab-close")) return;
@@ -223,7 +243,7 @@ export function DesktopTitlebar({
                   onMouseDown={(event) => {
                     if (event.button !== 1) return;
                     event.preventDefault();
-                    onCloseTab(tab);
+                    closeTabPinned(tab);
                   }}
                 >
                   <button
@@ -254,7 +274,7 @@ export function DesktopTitlebar({
                     className="workspace-tab-close"
                     onClick={(event) => {
                       event.stopPropagation();
-                      onCloseTab(tab);
+                      closeTabPinned(tab);
                     }}
                     aria-label={`Close ${tab.title}`}
                     data-tooltip="Close tab"

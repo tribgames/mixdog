@@ -482,6 +482,13 @@ button:focus-visible { outline-offset: 2.5px; }
   -webkit-app-region: no-drag;
 }
 .workspace-tab.dragging { opacity: .35; }
+/* Chrome-parity strip: widths animate on re-layout (post-close release,
+   squeeze on overflow) instead of snapping. Drag reorder is transform-based,
+   so the width transition does not fight it. */
+.workspace-tab { transition: width 140ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-tab { transition: none; }
+}
 .workspace-tab:active { cursor: grabbing; }
 .workspace-tab:hover,
 .workspace-tab.active,
