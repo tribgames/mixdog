@@ -570,7 +570,12 @@ export function Conversation({
           // IMMEDIATELY. Waiting for the 80px shouldAutoFollow threshold let
           // the pre-paint pin yank the view back to bottom between the first
           // small wheel ticks (user: first scroll rattles and barely moves).
-          if (event.deltaY < 0 && followOutput.current) {
+          // Only when there is actually something to scroll back through — an
+          // overflow-free view (empty New task) must never disarm follow
+          // (user: "Jump to latest" appeared on a blank conversation).
+          const scrollable = event.currentTarget.scrollHeight
+            > event.currentTarget.clientHeight + 1;
+          if (event.deltaY < 0 && followOutput.current && scrollable) {
             followOutput.current = false;
             setFollowing(false);
           }
@@ -644,7 +649,7 @@ export function Conversation({
           )}
         </div>
       </div>
-      {!following && <button type="button" className="jump-to-latest" onClick={() => jumpToLatest()}
+      {!following && items.length > 0 && <button type="button" className="jump-to-latest" onClick={() => jumpToLatest()}
         aria-label="Jump to latest message">
         <ArrowDown size={14} />Jump to latest
       </button>}

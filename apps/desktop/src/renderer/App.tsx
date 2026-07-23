@@ -378,6 +378,9 @@ export function App() {
   // Latest session clicked while another switch was still in flight.
   const pendingResumeTarget = useRef("");
   const activeResumeTarget = useRef("");
+  // Set when the ACTIVE tab is being closed: the outgoing snapshot belongs to
+  // a closed session and must not be frozen into the next tab's transition.
+  const discardOutgoingSnapshot = useRef(false);
   const resumeSessionRef = useRef<(sessionId: string, force?: boolean) => void>(() => {});
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   const frozenSessionSnapshot = useRef<Snapshot | null>(null);
@@ -1137,8 +1140,14 @@ export function App() {
     closeSidebarForNavigation();
     const switchStartedAt = performance.now();
     const session = sessions.find((item) => item.id === sessionId);
+    // Uncached target: freezing the OUTGOING snapshot keeps the old
+    // transcript up during a normal tab click, but after closing the active
+    // tab that outgoing content belongs to a CLOSED session — it must never
+    // flash inside the next tab (user report). Blank transition instead.
     frozenSessionSnapshot.current = cachedSessionSnapshot(sessionId)
-      || (selection.kind === "new" && !newTaskActive ? EMPTY_SNAPSHOT : snapshot);
+      || (selection.kind === "new" && !newTaskActive ? EMPTY_SNAPSHOT
+        : discardOutgoingSnapshot.current ? EMPTY_SNAPSHOT : snapshot);
+    discardOutgoingSnapshot.current = false;
     activeResumeTarget.current = sessionId;
     setSwitchingSessionId(sessionId);
     const timingStart = `mixdog:session-switch:${sessionId}:start`;
@@ -1422,9 +1431,11 @@ export function App() {
     const nextTabs = tabs.filter((item) => item.key !== tab.key);
     setTabs(nextTabs);
     if (tab.key !== activeTabKey) return;
+    discardOutgoingSnapshot.current = true;
     const fallback = nextTabs[Math.min(index, nextTabs.length - 1)];
     if (fallback) navigateTab(fallback);
     else startTask();
+    discardOutgoingSnapshot.current = false;
   };
   const reorderTab = useCallback((sourceKey: string, targetKey: string) => {
     setTabs((current) => {
@@ -1517,7 +1528,10 @@ export function App() {
           sessions={sessions}
           workingSessionIds={workingSessionIds}
           unreadSessionIds={unreadSessionIds}
-          selection={navigationSelection}
+          // Schedules takeover: the sidebar must not keep a session row
+          // highlighted while the main pane shows Schedules (matches the tab
+          // strip deselection).
+          selection={schedulesOpen ? { kind: "new" } : navigationSelection}
           onNewTask={(draft?: NavigationSelection) => { closeSidebarForNavigation(); startTask(draft); }}
           onOpenProjects={() => { closeSidebarForNavigation(); setProjectPanelOpen(true); }}
           onOpenSchedules={() => { closeSidebarForNavigation(); openSchedules(); }}
