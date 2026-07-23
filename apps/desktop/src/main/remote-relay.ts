@@ -89,6 +89,12 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // encoder tracks the delta stream; any client join or resync request
   // resets it, which downgrades the next push to a full snapshot for all.
   const deltaEncoder = createSnapshotDeltaEncoder();
+  // Phones currently attached through the relay (client-open/-close
+  // envelopes). With zero phones the relay would drop every broadcast on
+  // the floor anyway, so the desktop goes quiet instead of streaming state
+  // upstream 24/7 — the relay lane then costs keepalive bytes only. Each
+  // join restarts the delta lane with a full snapshot, so nothing is lost.
+  const activeClients = new Set<string>();
 
   const sendEnvelope = (payload: unknown): void => {
     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -96,6 +102,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     }
   };
   const broadcastState = (snapshot: unknown): void => {
+    if (activeClients.size === 0) return;
     sendEnvelope({
       type: 'broadcast',
       data: JSON.stringify({ event: 'state', payload: deltaEncoder.encode(snapshot) }),
@@ -130,6 +137,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     ws.on('open', () => {
       retryMs = 1_000;
       deltaEncoder.reset();
+      // A fresh desktop leg supersedes the old one and the relay closed its
+      // phone legs; phones re-open and re-announce themselves.
+      activeClients.clear();
       // Register the phone pairing token before any client leg can bind.
       sendEnvelope({ type: 'set-client-token', token });
     });
@@ -143,10 +153,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           return;
         }
         if (envelope.type === 'client-open') {
+          if (typeof envelope.clientId === 'string') activeClients.add(envelope.clientId);
           // A phone joined mid-stream: restart the delta lane with one full
           // snapshot so it has a base revision to patch against.
           deltaEncoder.reset();
           broadcastState(options.host.getSnapshot());
+          return;
+        }
+        if (envelope.type === 'client-close') {
+          if (typeof envelope.clientId === 'string') activeClients.delete(envelope.clientId);
           return;
         }
         if (envelope.type !== 'frame' || typeof envelope.clientId !== 'string') return;
@@ -165,6 +180,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     ws.on('error', () => { /* connection errors surface as close */ });
     ws.on('close', () => {
       clearInterval(heartbeat);
+      activeClients.clear();
       if (socket === ws) socket = null;
       if (closed) return;
       reconnectTimer = setTimeout(connect, retryMs);
@@ -175,8 +191,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   connect();
 
   const unsubscribeState = options.host.subscribe(broadcastState);
-  const unsubscribeTerminals = options.subscribeTerminalData?.((event) =>
-    sendEnvelope({ type: 'broadcast', data: JSON.stringify({ event: 'termData', payload: event }) })) ?? (() => {});
+  const unsubscribeTerminals = options.subscribeTerminalData?.((event) => {
+    if (activeClients.size === 0) return;
+    sendEnvelope({ type: 'broadcast', data: JSON.stringify({ event: 'termData', payload: event }) });
+  }) ?? (() => {});
 
   return {
     clientUrl: relayClientUrl(options.relayUrl, token),

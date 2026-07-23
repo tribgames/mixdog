@@ -29,6 +29,22 @@ import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
+// Slow-consumer guards: a phone that stops draining would otherwise buffer
+// the whole push stream in relay memory (1GB box, thousands of legs). Pushes
+// are recoverable (state resync + terminal repaint) so they drop first; the
+// hard limit only cuts a leg that stopped draining entirely.
+const SKIP_PUSH_BUFFER_BYTES = 1024 * 1024;
+const KILL_BUFFER_BYTES = MAX_WS_PAYLOAD_BYTES;
+
+function sendToPhone(phone, data, droppable) {
+  if (phone.readyState !== phone.OPEN) return;
+  if (phone.bufferedAmount > KILL_BUFFER_BYTES) {
+    try { phone.close(4008, 'slow consumer'); } catch { /* already gone */ }
+    return;
+  }
+  if (droppable && phone.bufferedAmount > SKIP_PUSH_BUFFER_BYTES) return;
+  try { phone.send(data); } catch { /* phone vanished */ }
+}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -59,6 +75,16 @@ function hashesMatch(expectedHex, candidate) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+function parseCookieToken(header) {
+  for (const part of String(header || '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0 && part.slice(0, eq).trim() === 'mixdog_token') {
+      try { return decodeURIComponent(part.slice(eq + 1).trim()); } catch { return ''; }
+    }
+  }
+  return '';
+}
+
 class DeviceStore {
   constructor(dataDir) {
     this.path = join(dataDir, 'devices.json');
@@ -67,9 +93,19 @@ class DeviceStore {
       const parsed = JSON.parse(readFileSync(this.path, 'utf8'));
       for (const [id, row] of Object.entries(parsed)) this.devices.set(id, row);
     } catch { /* first run */ }
+    // sha256(token) hex -> deviceId. Phone auth is on the hot path of every
+    // /ws upgrade and static GET; a linear scan over all devices would decay
+    // with fleet size. Indexing by digest keeps lookup O(1) and leaks nothing
+    // useful: matching a key requires the token preimage.
+    this.tokenIndex = new Map();
+    for (const [id, row] of this.devices) {
+      if (row.clientTokenHash) this.tokenIndex.set(row.clientTokenHash, id);
+    }
+    this.saveTimer = null;
   }
 
   save() {
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     const plain = Object.fromEntries(this.devices);
     try {
       mkdirSync(resolve(this.path, '..'), { recursive: true });
@@ -79,11 +115,20 @@ class DeviceStore {
     }
   }
 
+  // A relay restart makes the whole fleet redial at once; coalescing the
+  // (synchronous) devices.json rewrites keeps that stampede off the event
+  // loop. Registration is still durable within a beat, and close() flushes.
+  scheduleSave() {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => { this.saveTimer = null; this.save(); }, 250);
+    this.saveTimer.unref?.();
+  }
+
   authenticate(deviceId, secret) {
     const known = this.devices.get(deviceId);
     if (!known) {
       this.devices.set(deviceId, { secretHash: sha256(secret), clientTokenHash: '' });
-      this.save();
+      this.scheduleSave();
       return true;
     }
     return hashesMatch(known.secretHash, secret);
@@ -92,32 +137,47 @@ class DeviceStore {
   setClientToken(deviceId, token) {
     const known = this.devices.get(deviceId);
     if (!known) return;
-    known.clientTokenHash = sha256(token);
-    this.save();
+    const hash = sha256(token);
+    // Every desktop reconnect re-announces its (unchanged) pairing token;
+    // rewriting the store for that would turn restarts into a write storm.
+    if (known.clientTokenHash === hash) return;
+    if (known.clientTokenHash) this.tokenIndex.delete(known.clientTokenHash);
+    known.clientTokenHash = hash;
+    this.tokenIndex.set(known.clientTokenHash, deviceId);
+    this.scheduleSave();
   }
 
   deviceIdForClientToken(token) {
-    for (const [id, row] of this.devices) {
-      if (hashesMatch(row.clientTokenHash, token)) return id;
-    }
-    return null;
+    if (!token) return null;
+    return this.tokenIndex.get(sha256(token)) ?? null;
   }
 }
 
-function serveStatic(rendererDir, request, response) {
+function serveStatic(rendererDir, store, request, response) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     response.writeHead(405).end();
     return;
   }
+  let url;
   let pathname;
   try {
-    pathname = decodeURIComponent(new URL(request.url || '/', 'http://localhost').pathname);
+    url = new URL(request.url || '/', 'http://localhost');
+    pathname = decodeURIComponent(url.pathname);
   } catch {
     response.writeHead(400).end();
     return;
   }
   if (pathname === '/healthz') {
     response.writeHead(200, { 'Content-Type': 'application/json' }).end('{"status":"ok"}');
+    return;
+  }
+  // Token gate: the web app and APK are for paired phones only. The pairing
+  // QR carries ?token= on the entry URL; a cookie forwards it to asset/APK
+  // requests. Bots probing GET / see 401, never the app shell.
+  const queryToken = url.searchParams.get('token') || '';
+  const token = queryToken || parseCookieToken(request.headers.cookie);
+  if (!token || !store.deviceIdForClientToken(token)) {
+    response.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Unauthorized.');
     return;
   }
   if (!rendererDir) {
@@ -151,6 +211,12 @@ function serveStatic(rendererDir, request, response) {
   const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
   const cache = target.endsWith('index.html') ? 'no-cache' : 'public, max-age=86400';
   const headers = { 'Content-Type': type, 'Content-Length': statSync(target).size, 'Cache-Control': cache };
+  if (queryToken) {
+    // Entry navigation carried the token in the URL: persist it so the asset
+    // and APK requests that follow (no query string) pass the gate.
+    headers['Set-Cookie'] = `mixdog_token=${encodeURIComponent(queryToken)}; Path=/; Max-Age=31536000; `
+      + `HttpOnly; SameSite=Lax${request.socket.encrypted ? '; Secure' : ''}`;
+  }
   if (extname(target).toLowerCase() === '.apk') {
     // Mirror the desktop bridge: never cache the installer (a stale cached
     // copy re-installs an old/broken package) and force a download even in
@@ -178,7 +244,7 @@ export async function startRelay({
   const store = new DeviceStore(resolve(dataDir));
   // deviceId -> { socket, clients: Map<clientId, phoneSocket> }
   const liveDesktops = new Map();
-  const handler = (request, response) => serveStatic(rendererDir, request, response);
+  const handler = (request, response) => serveStatic(rendererDir, store, request, response);
   const server = tlsCert && tlsKey
     ? createTlsServer({ cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }, handler)
     : createServer(handler);
@@ -186,7 +252,15 @@ export async function startRelay({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES,
     // Relayed transcript pushes are repetitive text: deflate cuts them 5-10x.
-    perMessageDeflate: { threshold: 1024 },
+    // No-context-takeover releases each zlib context between messages so
+    // thousands of mostly idle sockets do not pin ~300KB of window each.
+    perMessageDeflate: {
+      threshold: 1024,
+      serverNoContextTakeover: true,
+      clientNoContextTakeover: true,
+      zlibDeflateOptions: { level: 6, memLevel: 6 },
+      concurrencyLimit: 8,
+    },
   });
 
   const sendJson = (socket, payload) => {
@@ -284,6 +358,8 @@ async function finishRelayStart({ server, wss, store, liveDesktops, port, sendJs
       }
     }
     liveDesktops.clear();
+    // Flush any debounced device registration before the process goes away.
+    store.save();
     await new Promise((resolveClose) => wss.close(() => resolveClose()));
     await new Promise((resolveClose) => server.close(() => resolveClose()));
   };
@@ -323,16 +399,13 @@ function runDesktopLeg(context, deviceId, socket) {
     }
     if (message.type === 'frame' && typeof message.data === 'string') {
       const phone = entry.clients.get(String(message.clientId || ''));
-      if (phone && phone.readyState === phone.OPEN) {
-        try { phone.send(message.data); } catch { /* phone vanished */ }
-      }
+      // RPC responses are not droppable: the phone awaits this exact reply.
+      if (phone) sendToPhone(phone, message.data, false);
       return;
     }
     if (message.type === 'broadcast' && typeof message.data === 'string') {
       for (const phone of entry.clients.values()) {
-        if (phone.readyState === phone.OPEN) {
-          try { phone.send(message.data); } catch { /* phone vanished */ }
-        }
+        sendToPhone(phone, message.data, true);
       }
     }
   });

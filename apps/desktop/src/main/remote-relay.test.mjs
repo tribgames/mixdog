@@ -2,7 +2,7 @@
 // a fake phone speaking the LAN-bridge wire protocol through the relay.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -123,6 +123,83 @@ test('rejects phones with a wrong token and desktops with a wrong secret', async
       });
     });
     assert.equal(refused, true);
+  } finally {
+    await desktop.close();
+    await relay.close();
+  }
+});
+
+test('gates static http behind the pairing token', async () => {
+  const relayDir = mkdtempSync(join(tmpdir(), 'mixdog-relay-'));
+  const rendererDir = mkdtempSync(join(tmpdir(), 'mixdog-relay-renderer-'));
+  writeFileSync(join(rendererDir, 'index.html'), '<!doctype html><title>mixdog</title>', 'utf8');
+  const desktopDir = mkdtempSync(join(tmpdir(), 'mixdog-relay-desktop-'));
+  const relay = await startRelay({ port: 0, dataDir: relayDir, rendererDir });
+  const host = createFakeHost();
+  const desktop = await startRemoteRelay({
+    relayUrl: `ws://127.0.0.1:${relay.port}`,
+    host,
+    userDataPath: desktopDir,
+  });
+  try {
+    // Wait until the legitimate pairing works, so the token is registered.
+    const phone = await connectPhone(relay.port, desktop.token);
+    phone.close();
+    const base = `http://127.0.0.1:${relay.port}`;
+    const [bare, health, entry] = await Promise.all([
+      fetch(`${base}/`),
+      fetch(`${base}/healthz`),
+      fetch(`${base}/?token=${encodeURIComponent(desktop.token)}`),
+    ]);
+    assert.equal(bare.status, 401);
+    assert.equal(health.status, 200);
+    assert.equal(entry.status, 200);
+    const setCookie = entry.headers.get('set-cookie') || '';
+    assert.match(setCookie, /^mixdog_token=/);
+    // Asset/APK follow-ups carry no query token; the cookie must pass the gate.
+    const viaCookie = await fetch(`${base}/index.html`, {
+      headers: { cookie: setCookie.split(';')[0] },
+    });
+    assert.equal(viaCookie.status, 200);
+    const wrongCookie = await fetch(`${base}/index.html`, {
+      headers: { cookie: 'mixdog_token=deadbeef' },
+    });
+    assert.equal(wrongCookie.status, 401);
+  } finally {
+    await desktop.close();
+    await relay.close();
+  }
+});
+
+test('stays quiet with no phones and resyncs the next phone that joins', async () => {
+  const relayDir = mkdtempSync(join(tmpdir(), 'mixdog-relay-'));
+  const desktopDir = mkdtempSync(join(tmpdir(), 'mixdog-relay-desktop-'));
+  const relay = await startRelay({ port: 0, dataDir: relayDir });
+  const host = createFakeHost();
+  const desktop = await startRemoteRelay({
+    relayUrl: `ws://127.0.0.1:${relay.port}`,
+    host,
+    userDataPath: desktopDir,
+  });
+  try {
+    const first = await connectPhone(relay.port, desktop.token);
+    first.close();
+    await delay(200); // client-close reaches the desktop leg
+    // Nobody is listening: the desktop must drop this push instead of
+    // spending relay bandwidth on it (idle installs stay keepalive-only).
+    host.emit({ items: [], busy: true });
+    const second = await connectPhone(relay.port, desktop.token);
+    // The join resync may race this listener; the emitted push after it must
+    // arrive regardless — proving the gate reopened for the new phone.
+    const gotState = new Promise((resolve) => {
+      second.on('message', (raw) => {
+        const message = JSON.parse(raw.toString());
+        if (message.event === 'state') resolve(message.payload);
+      });
+    });
+    host.emit({ items: [], busy: false });
+    assert.ok(await gotState);
+    second.close();
   } finally {
     await desktop.close();
     await relay.close();

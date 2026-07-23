@@ -46,7 +46,10 @@ export async function buildRemoteAccessInfo(
     const relayOrigin = new URL(relay.clientUrl).origin;
     info.relayBrowserUrl = `${relayOrigin}/?token=${encodeURIComponent(relay.token)}`;
     info.relayAppLink = `mixdog://pair?server=${encodeURIComponent(relayOrigin)}&token=${encodeURIComponent(relay.token)}`;
-    info.relayApkUrl = `${relayOrigin}/mixdog.apk`;
+    // Install downloads are the relay's biggest per-user bandwidth cost, so
+    // the QR points at the GitHub release asset (public CDN, no token). The
+    // relay still serves /mixdog.apk behind the pairing token as a fallback.
+    info.relayApkUrl = 'https://github.com/tribgames/mixdog/releases/latest/download/mixdog.apk';
     [info.relayBrowserQrSvg, info.relayAppQrSvg] = await Promise.all([
       qrSvg(info.relayBrowserUrl),
       qrSvg(info.relayAppLink),

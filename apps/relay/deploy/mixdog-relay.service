@@ -17,6 +17,15 @@ Environment=TLS_KEY=/etc/letsencrypt/live/RELAY_DOMAIN/privkey.pem
 ExecStart=/usr/bin/node /opt/mixdog-relay/server.mjs
 Restart=always
 RestartSec=3
+# Thousands of concurrent phones/desktops need more than the 1024 default
+# socket descriptors; per-service traffic shows up in systemctl show.
+LimitNOFILE=65535
+IPAccounting=yes
+# Runaway protection on a 1GB box: cap the node heap below the cgroup limit
+# so pressure surfaces as GC/backpressure (or a clean restart), never the
+# host OOM killer taking the whole machine down.
+Environment=NODE_OPTIONS=--max-old-space-size=512
+MemoryMax=800M
 # Bind :443 without root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
