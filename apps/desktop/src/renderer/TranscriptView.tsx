@@ -670,11 +670,11 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   // Streamed tail from the running command (engine liveOutput plumbing).
   // Only meaningful pre-settlement; the settled result supersedes it.
   const liveOutput = !done && typeof item.liveOutput === "string" ? item.liveOutput : "";
-  // Final contract (user): collapsed settled cards are a single header row;
-  // EXPANDING reveals the `└ detail` summary in its original row format,
-  // leading the full body — one 양식 for the initial info instead of two.
-  // Running cards keep the live `Running · Ns` row while collapsed.
-  const detailRowVisible = Boolean(model.detailLine) && !liveOutput && (open || !done);
+  // Reference = the released v0.9.66 presentation (user): a collapsed card
+  // reads header + ONE quiet summary line; expanding swaps the summary for
+  // the full body (never both — the row duplicated short outputs). The
+  // summary text itself still comes from the shared TUI derivation.
+  const detailRowVisible = !open && !liveOutput && Boolean(model.detailLine);
   return (
     <article className={`tool-card ${failed || denied ? "failed" : ""} ${partialFailed ? "partial-failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
@@ -700,7 +700,6 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
       </button>
       {detailRowVisible && (
         <div className="tool-detail-line" data-component="tool-collapsed-summary">
-          <span className="tool-detail-branch" aria-hidden="true">└</span>
           <span className="tool-detail-text"
             data-placeholder={model.detailIsPlaceholder || undefined}>
             {(splitLineDeltaTokens(model.detailLine) as DetailLinePart[]).map((part, index) => (
