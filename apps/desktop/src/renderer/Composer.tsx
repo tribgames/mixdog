@@ -693,7 +693,11 @@ export const Composer = memo(function Composer({
       // taxonomy across dictation errors).
       const name = reason instanceof DOMException ? reason.name : '';
       showComposerNotice(name === 'NotAllowedError'
-        ? 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.'
+        ? (document.documentElement.hasAttribute('data-mixdog-mobile')
+          // The same composer serves the phone web/app shell: pointing a
+          // phone user at Windows Settings reads as a broken feature.
+          ? 'Microphone access is blocked. Allow microphone access for Mixdog in your phone settings and reload.'
+          : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.')
         : name === 'NotFoundError' || name === 'OverconstrainedError'
           ? 'No microphone was detected. Connect one and try again.'
           : name === 'NotReadableError'

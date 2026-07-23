@@ -4745,8 +4745,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    to the send arrow (user: off-theme) — a smaller stroke-less rounded
    square keeps the stop state in the app's quiet-glyph language. */
 .send-button.stop svg.lucide {
-  width: 11px;
-  height: 11px;
+  width: 12.5px;
+  height: 12.5px;
   stroke: none;
 }
 .send-button:disabled {

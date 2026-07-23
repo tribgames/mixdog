@@ -54,4 +54,11 @@
          permission. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- Composer push-to-talk dictation (getUserMedia audio): Capacitor's
+         WebChromeClient forwards the WebView capture request to this runtime
+         permission, same as the camera QR path. Without it the in-app mic
+         button is denied outright while the mobile browser works. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 </manifest>
