@@ -39,6 +39,12 @@ const SYNTHETIC_SESSION_TEXT_PATTERNS = Object.freeze([
   /^\[mixdog-runtime\]/i,
   /^\[(?:truncated|request interrupted by user)\]$/i,
   /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
+  // Compact/auto-clear re-seed handoff variants: these lead the FIRST user
+  // message of every post-compaction session, so titling from them painted
+  // "Re-attached after compaction…" rows in Recent (user report). Skipping
+  // them titles the session from its first REAL user message instead.
+  /^re-attached after compaction\b/i,
+  /^reference files:\s/i,
   /^the async (?:agent|shell) task\b/i,
 ]);
 

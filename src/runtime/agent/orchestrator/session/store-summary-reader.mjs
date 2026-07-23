@@ -20,9 +20,6 @@ const LEAD_OWNERS = new Set(['cli', 'user', 'mixdog', 'legacy']);
 function isLeadVisibleRow(row) {
     const owner = String(row.owner || 'user').trim().toLowerCase();
     if (owner && !LEAD_OWNERS.has(owner)) return false;
-    // Resume-machinery scratch forks (compaction/auto-clear re-seed under
-    // pre-fix runtimes) must never paint in the cold catalog either.
-    if (String(row.detachedReason || '').trim().toLowerCase() === 'cli-resume') return false;
     // Mirror listLeadSessions: a previewless zero-message row is an unusable
     // scratch (desktop boot leftovers, crashed first turns) — resuming it
     // shows an empty conversation, so the catalog hides it.
@@ -52,6 +49,11 @@ function cleanText(value, maximum = 240) {
     return String(value || '')
         .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, ' ')
         .replace(/<mcp-instructions>[\s\S]*?<\/mcp-instructions>/gi, ' ')
+        // Session-context envelope (mirror of session-text.mjs
+        // stripSessionDisplayEnvelope): the "# Session / Cwd / Model /
+        // Workflow" header must never become a Recent title.
+        .replace(/^\s*# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, ' ')
+        .replace(/^\s*#\s*Session\s+Cwd:\s+\S+(?:\s+Model:[^\r\n]*?)?(?:\s+Workflow:\s+\S+)?\s*/i, ' ')
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, maximum);
@@ -116,6 +118,10 @@ function rowFromSession(session, heartbeatAt = 0) {
     const messages = Array.isArray(session?.messages) ? session.messages : [];
     const preview = messages
         .filter((message) => message?.role === 'user')
+        // Cold-path mirror of isSessionPreviewNoise's synthetic skips: compact
+        // handoffs and runtime notices must not become session titles.
+        .filter((message) => !/^\s*(?:a previous model worked on this task|re-attached after compaction\b|reference files:\s|\[mixdog-runtime\]|the async (?:agent|shell) task\b)/i
+            .test(messageText(message.content)))
         .map((message) => cleanText(messageText(message.content)))
         .find(Boolean) || '';
     return normalizedRow({

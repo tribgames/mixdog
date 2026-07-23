@@ -71,11 +71,6 @@ export function createLifecycleApi(deps) {
       || sourceType === 'schedule'
       || (!sourceType && !sourceName && !isAgentOwner(owner));
     if (!leadish) return null;
-    // Resume-machinery scratch forks (compaction/auto-clear re-seed under
-    // pre-fix runtimes) carry detachedReason='cli-resume' and read as
-    // "Re-attached after compaction…" ghosts — never catalog-visible.
-    // Genuine detach reasons (cli-react-exit, desktop-context-switch) stay.
-    if (clean(s.detachedReason || '') === 'cli-resume') return null;
     const rawPreview = s.preview || '';
     let preview = isSessionPreviewNoise(rawPreview) ? '' : cleanSessionPreview(rawPreview);
     let messageCount = Math.max(0, Number(s.messageCount) || 0);
