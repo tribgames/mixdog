@@ -126,7 +126,10 @@
     StrCpy $MixdogProgressDisplay 0
     InitPluginsDir
     File /oname=$PLUGINSDIR\progress-driver.ps1 "${BUILD_RESOURCES_DIR}\progress-driver.ps1"
-    Exec '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\progress-driver.ps1" -InstallerHwnd $MixdogProgressParent -PrimaryHwnd $MixdogProgressStock -ProgressHwnd $MixdogProgressBar'
+    File /oname=$PLUGINSDIR\progress-driver.vbs "${BUILD_RESOURCES_DIR}\progress-driver.vbs"
+    # wscript (GUI subsystem) launches PowerShell hidden: Exec'ing the console
+    # binary directly flashed a console window before the dialog revealed.
+    Exec '"$SYSDIR\wscript.exe" //B //Nologo "$PLUGINSDIR\progress-driver.vbs" "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" "$PLUGINSDIR\progress-driver.ps1" "$MixdogProgressParent" "$MixdogProgressStock" "$MixdogProgressBar"'
 
   progressShowDone:
     Pop $7
