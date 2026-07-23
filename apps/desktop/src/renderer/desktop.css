@@ -4737,20 +4737,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 64px;
 }
 .send-button { flex: 0 0 28px; margin-left: auto; }
-/* Stop affordance: the filled square breathes while a turn runs
-   (icon-button.css stop-pulse) — a static square read as a frozen glyph. */
-.send-button.stop svg rect {
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: send-stop-pulse 1.8s ease-in-out infinite;
-}
-@keyframes send-stop-pulse {
-  0%, 100% { transform: scale(0.95); }
-  50% { transform: scale(1.12); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .send-button.stop svg rect { animation: none; }
-}
+/* Stop affordance stays a STATIC filled square sized like the send arrow —
+   the old breathing pulse (scale to 1.12) made the glyph read oversized
+   next to the send state (user decision). */
 .send-button:disabled {
   color: var(--mx-icon-muted);
   background: var(--mx-bg-layer-3);

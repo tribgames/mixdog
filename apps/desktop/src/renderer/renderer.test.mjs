@@ -311,10 +311,11 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles, /\.session-context-indicator > button\s*\{[^}]*place-items:\s*center;/s);
   assert.match(styles, /\.session-header-status\s*\{[^}]*margin-left:\s*auto;/s);
   assert.match(styles, /\.live-work-status\s*\{[^}]*margin-left:\s*0;/s);
-  // The stop state shares the send-button surface; its only override is the
-  // Stop-pulse breathing on the glyph.
-  assert.match(styles, /\.send-button\.stop svg rect\s*\{[^}]*animation:\s*send-stop-pulse/s);
-  assert.match(app, /className="session-header-status"[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>\s*<ContextUsageIndicator/);
+  // The stop state shares the send-button surface verbatim: same disc, same
+  // 15px glyph scale, no pulse animation (user: match the send button).
+  assert.doesNotMatch(styles, /send-stop-pulse/);
+  assert.match(app, /className="session-header-status"[\s\S]*?<SnapshotHeaderStatus snapshotStore=\{snapshotStore\}/);
+  assert.match(app, /function SnapshotHeaderStatus[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>\s*<ContextUsageIndicator/);
   assert.equal((app.match(/<LiveWorkStatus\b/g) || []).length, 1);
   assert.match(navigation, /aria-label=\{`Delete \$\{sessionLabel\(session\)\}`\}/);
 });

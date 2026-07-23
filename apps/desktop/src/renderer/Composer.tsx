@@ -1457,7 +1457,7 @@ export const Composer = memo(function Composer({
         {turnBusy && !draft.trim() ? (
           <button type="button" className="send-button stop" onClick={() => void stop()}
             aria-label="Stop generation" data-tooltip="Stop" data-tooltip-side="top">
-            <MxIcon name="stop" size={16} />
+            <MxIcon name="stop" size={15} />
           </button>
         ) : (
           <button className="send-button"
