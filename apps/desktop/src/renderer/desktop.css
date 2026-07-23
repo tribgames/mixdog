@@ -1629,9 +1629,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: baseline;
   padding: 2px 8px 0 22px;
   font-family: var(--mx-font-mono);
-  font-size: 12px;
+  /* TUI parity: header and detail share one size and one ink — only the
+     header carries bold (user: the two rows read as different fonts when
+     size+weight+color all shifted at once). */
+  font-size: 12.5px;
   line-height: 18px;
-  color: var(--mx-text-muted);
+  color: var(--mx-text);
 }
 .tool-detail-line .tool-detail-branch { flex: 0 0 auto; color: var(--mx-text-faint); }
 .tool-detail-line .tool-detail-text {
