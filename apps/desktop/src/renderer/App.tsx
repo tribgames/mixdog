@@ -1407,7 +1407,12 @@ export function App() {
   }, [activeProjectPath]);
   const activeTabKey = navigationKey(navigationSelection);
   const navigateTab = (tab: WorkspaceTab) => {
-    if (tab.key === activeTabKey) return;
+    if (tab.key === activeTabKey) {
+      // Re-selecting the current tab while the Schedules pane owns the main
+      // area returns to the workspace (the tab reads as unselected then).
+      setSchedulesOpen(false);
+      return;
+    }
     if (tab.selection.kind === "new") startTask(tab.selection);
     else if (tab.selection.kind === "project") startProject(tab.selection.path);
     else resumeSession(tab.selection.id);
@@ -1493,7 +1498,9 @@ export function App() {
       <DesktopTitlebar
         sidebarOpen={sidebarOpen}
         tabs={tabs}
-        activeKey={activeTabKey}
+        // Schedules takes over the main pane: no workspace tab is the visible
+        // surface, so none may render as selected (user request).
+        activeKey={schedulesOpen ? "" : activeTabKey}
         activeBusy={activeBusy}
         workingSessionIds={workingSessionIds}
         updaterState={updaterState}
