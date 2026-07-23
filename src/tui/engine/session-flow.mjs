@@ -360,7 +360,7 @@ export function createSessionFlow(bag) {
       if (!activityAt) flags.lastUserActivityAt = now;
       return false;
     }
-    const minContextPercent = Number(cfg.minContextPercent ?? 30);
+    const minContextPercent = Number(cfg.minContextPercent ?? 10);
     if (minContextPercent > 0) {
       const status = runtime.contextStatus?.() || null;
       // A zero is often an unavailable/stale meter field, not an authoritative
