@@ -1634,6 +1634,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 12.5px;
   line-height: 18px;
   color: var(--mx-text-muted);
+  /* Toggle smoothness (user: the summary "pops in from a weird spot"): a
+     short fade-in settles the text in place; position stability itself comes
+     from the click-anchor scroll correction in Conversation. */
+  animation: tool-detail-enter 110ms ease-out;
+}
+@keyframes tool-detail-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-detail-line { animation: none; }
 }
 .tool-detail-line .tool-detail-text {
   min-width: 0;

@@ -580,6 +580,27 @@ export function Conversation({
           followOutput.current = false;
           setFollowing(false);
         }
+        // Anchor the toggled card: the summary row's height change re-measures
+        // the virtual row, and a tail row is BOTTOM-anchored — without a
+        // correction the header (and its text) jumped from the wrong position
+        // (user: "폰트가 튀듯이 올라와"). Keep the clicked card's top fixed in
+        // the viewport across the next two frames.
+        const card = target.closest(".tool-card") as HTMLElement | null;
+        if (!card) return;
+        const anchorTop = card.getBoundingClientRect().top;
+        let frames = 0;
+        const correct = () => {
+          if (!card.isConnected || !viewport.current) return;
+          const delta = card.getBoundingClientRect().top - anchorTop;
+          if (delta !== 0) {
+            programmaticScroll.current = true;
+            viewport.current.scrollTop += delta;
+            window.setTimeout(() => { programmaticScroll.current = false; }, 0);
+          }
+          frames += 1;
+          if (frames < 2) window.requestAnimationFrame(correct);
+        };
+        window.requestAnimationFrame(correct);
       }} onWheel={(event) => {
           programmaticScroll.current = false;
           scrollIntentUntil.current = performance.now() + 180;
