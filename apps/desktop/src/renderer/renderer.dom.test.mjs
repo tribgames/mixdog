@@ -1007,16 +1007,19 @@ test("tool cards render the shared TUI derivation for every tool shape", async (
       label: "read single",
       item: { id: "p-read", kind: "tool", name: "read", args: JSON.stringify({ path: "C:\\repo\\notes.txt" }), result: "line one\nline two\nline three" },
       expectLabel: "Read 1 file",
+      expectRowHidden: true,
     },
     {
       label: "grep single",
       item: { id: "p-grep", kind: "tool", name: "grep", args: JSON.stringify({ pattern: "foo" }), result: "a.txt:1\nb.txt:2" },
       expectLabel: "Searched 1 pattern",
+      expectRowHidden: true,
     },
     {
       label: "shell single",
       item: { id: "p-shell", kind: "tool", name: "shell", args: JSON.stringify({ command: "npm test" }), result: "All tests passed" },
       expectLabel: "Ran 1 command",
+      expectRowHidden: true,
     },
     {
       label: "failed read",
@@ -1042,6 +1045,7 @@ test("tool cards render the shared TUI derivation for every tool shape", async (
       },
       expectLabel: "Read 2 files, Searched 1 pattern",
       expectDetail: "512 lines, 6 matches",
+      expectRowHidden: true,
     },
     {
       label: "agent spawn",
@@ -1070,6 +1074,12 @@ test("tool cards render the shared TUI derivation for every tool shape", async (
     if (fixture.expectNoDetail) {
       assert.equal(detail, "", `${fixture.label}: collapsed detail row should be dropped`);
       assert.equal(model.detailLine, "", `${fixture.label}: model drops the detail row too`);
+    } else if (fixture.expectRowHidden) {
+      // Entering a session reads collapsed: settled SUCCESS cards are a
+      // single header row (the model still derives the detail text — it
+      // returns on expansion surfaces/running/failure states).
+      assert.equal(detail, "", `${fixture.label}: settled success collapses to the header row`);
+      assert.ok(model.detailLine, `${fixture.label}: shared derivation still carries the detail text`);
     } else {
       assert.equal(detail, model.detailLine,
         `${fixture.label}: detail row must equal the shared TUI derivation`);
@@ -1236,9 +1246,10 @@ test("tool cards use the shared TUI surface and expose copy for shell and diff o
   assert.equal(shell?.querySelector(".tool-title")?.nextElementSibling?.classList.contains("tool-chevron"), true);
   assert.equal(shell?.querySelector(".tool-result-summary") === null, true,
     "selector .tool-result-summary should be absent");
-  // The collapsed card carries the TUI's always-visible `└ detail` row (the
-  // shared shell summarizer surfaces the exit line).
-  assert.match(shell?.querySelector(".tool-detail-line .tool-detail-text")?.textContent || "", /Exit code: 0/);
+  // Settled SUCCESS cards collapse to the header row only (user: entering a
+  // session must read collapsed).
+  assert.equal(shell?.querySelector(".tool-detail-line") === null, true,
+    "settled success shells keep no detail row");
   await act(async () => shell?.querySelector(".tool-header")?.click());
   assert.equal(shell?.querySelector(".tool-detail-line") === null, true,
     "the expanded card replaces the detail row with the raw body");

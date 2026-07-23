@@ -670,6 +670,12 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
   // Streamed tail from the running command (engine liveOutput plumbing).
   // Only meaningful pre-settlement; the settled result supersedes it.
   const liveOutput = !done && typeof item.liveOutput === "string" ? item.liveOutput : "";
+  // Entering a session must read COLLAPSED (user): settled successful cards
+  // are a single header row. The `└ detail` row stays only where it carries
+  // live or exceptional information — running progress ("Running · 12s") and
+  // failure/cancel/exit causes that must not hide behind a click.
+  const detailRowVisible = !open && !liveOutput && Boolean(model.detailLine)
+    && (!done || /failed|cancelled|denied|exit/.test(String(model.terminalStatus || "")));
   return (
     <article className={`tool-card ${failed || denied ? "failed" : ""} ${partialFailed ? "partial-failed" : ""} ${exited ? "exited" : ""} ${done ? "settled" : ""}`}
       data-category={category} data-kind={errorCard ? "tool-error-card" : undefined}
@@ -693,7 +699,7 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
         {!done && <span className="sr-only" role="status">Running</span>}
         {hasDetails && <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>}
       </button>
-      {!open && !liveOutput && model.detailLine && (
+      {detailRowVisible && (
         <div className="tool-detail-line" data-component="tool-collapsed-summary">
           <span className="tool-detail-branch" aria-hidden="true">└</span>
           <span className="tool-detail-text"
@@ -721,7 +727,10 @@ export function ToolCard({ item }: { item: TranscriptItem }) {
           {patch ? <CodeDiff patch={patch} /> :
             category === "Shell"
               ? <ToolOutput value={rawResult} command={shellCommand} copyLabel="Copy command output" />
-              : hasResult && <ToolOutput value={rawResult}
+              : hasResult && <ToolOutput
+                // Aggregates: expansion shows the FULL raw bodies (TUI ctrl+o
+                // parity) — `result` is only the one-line summary there.
+                value={item.aggregate ? (item.rawResult ?? item.result) : rawResult}
                 copyLabel={failed || denied ? "Copy tool error" : undefined} />}
         </div>
       )}
