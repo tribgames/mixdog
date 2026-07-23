@@ -4820,7 +4820,28 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 13px;
   line-height: 19px;
   overflow-wrap: anywhere;
+  /* Immediate dismiss X (user request): text column + trailing button. */
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
+.composer-error > span,
+.composer-notice > span { flex: 1 1 auto; }
+.composer-banner-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  opacity: .7;
+}
+.composer-banner-close:hover { opacity: 1; background: var(--mx-hover); }
 .composer-error { box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 25%, transparent); }
 .composer-notice { box-shadow: inset 0 0 0 .5px var(--mx-border); }
 .composer-drop-overlay {

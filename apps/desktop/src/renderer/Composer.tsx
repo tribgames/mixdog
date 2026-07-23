@@ -1299,8 +1299,16 @@ export const Composer = memo(function Composer({
         onRemove={(id) => void discardQueued(id)} />
       {/* Error/notice banners float ABOVE the input card (user-flagged: they
           previously rendered inside the pill and read as composer content). */}
-      {(attachmentError) && <p className="composer-error" role="alert">{attachmentError}</p>}
-      {composerNotice && <p className="composer-notice" role="status">{composerNotice}</p>}
+      {(attachmentError) && <p className="composer-error" role="alert">
+        <span>{attachmentError}</span>
+        <button type="button" className="composer-banner-close" aria-label="Dismiss error"
+          onClick={() => setAttachmentError('')}><X size={14} /></button>
+      </p>}
+      {composerNotice && <p className="composer-notice" role="status">
+        <span>{composerNotice}</span>
+        <button type="button" className="composer-banner-close" aria-label="Dismiss notice"
+          onClick={() => showComposerNotice('')}><X size={14} /></button>
+      </p>}
       <form className={`composer ${draggingFiles && !transitioning ? 'dragging-files' : ''}`} onSubmit={onSubmit}
         aria-busy={transitioning} onMouseDown={(event) => {
           const target = event.target as HTMLElement;
