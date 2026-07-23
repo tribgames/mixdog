@@ -60,7 +60,6 @@ interface WebhookDraft {
   name: string;
   description: string;
   parser: string;
-  channel: string;
   model: string;
   instructions: string;
   enabled: boolean;
@@ -72,7 +71,6 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
     name: String(source.name || ''),
     description: String(source.description || ''),
     parser: String(source.parser || 'github'),
-    channel: String(source.channel || ''),
     model: String(source.model || ''),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
@@ -138,11 +136,6 @@ function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onS
         event.preventDefault();
         const data = new FormData(event.currentTarget);
         const text = (name: string) => String(data.get(name) || '').trim();
-        const channel = text('webhook-channel');
-        if (channel && !model) {
-          setFormError('Choose a model to deliver this webhook to a channel.');
-          return;
-        }
         setFormError('');
         const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
         const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
@@ -151,7 +144,9 @@ function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onS
           name: editing ? draft.name : text('webhook-name'),
           description: draft.description,
           parser,
-          ...(channel ? { channel } : {}),
+          // Session-only delivery (user decision, schedules parity): every
+          // webhook fire runs as a new agent session in Recent — no channel
+          // target, so saving a legacy channel webhook converts it.
           ...(model ? { model: `${model}${effortSuffix}${fastSuffix}` } : {}),
           ...(secret ? { secret } : {}),
           instructions: text('webhook-instructions'),
@@ -188,10 +183,6 @@ function WebhookEditor({ draft, editing, busy, models, error = '', onCancel, onS
             </div>
           </div>
         </div>
-        <label className="schedules-field">Deliver to channel
-          <input name="webhook-channel" defaultValue={draft.channel} disabled={busy}
-            placeholder="Channel / chat ID (empty runs in a session)" />
-        </label>
         <label className="schedules-field">Signing secret
           <input name="webhook-secret" type="password" autoComplete="off" disabled={busy}
             placeholder={editing ? 'Leave empty to rotate the secret' : 'Leave empty to auto-generate'} />
