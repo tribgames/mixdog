@@ -704,10 +704,12 @@ export function App() {
       // read by definition. Only MESSAGE GROWTH earns the dot afterwards —
       // housekeeping saves (resume/switch/turn bookkeeping) bump updatedAt
       // without new messages and must never re-dot a checked session.
-      // "Viewed" requires the desktop window to actually be engaged: growth
-      // that lands while the app is unfocused/hidden (user working in the
-      // terminal with this session merely selected) must still earn the dot.
-      const engaged = document.visibilityState === "visible" && document.hasFocus();
+      // "Viewed" means the window is actually on screen (visibilityState
+      // tracks native occlusion): an unfocused-but-visible desktop rendering
+      // the live transcript beside the terminal IS being watched — dotting it
+      // read as noise (user report). Only growth that lands while the window
+      // is hidden/occluded earns the dot.
+      const engaged = document.visibilityState === "visible";
       if (last === undefined || (row.id === activeId && engaged)) {
         if (last !== count) {
           seen.set(row.id, count);
@@ -1366,10 +1368,12 @@ export function App() {
   const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";
   useEffect(() => {
     if (!viewedSessionId) return;
-    // Consuming the unread marker requires the window to be engaged — a
-    // selected-but-background session keeps its dot until the user actually
-    // looks (window focus re-runs this via focusTick).
-    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+    // Consuming the unread marker requires the window to be on screen — a
+    // selected session in a hidden/occluded window keeps its dot until the
+    // window is revealed (visibilitychange re-runs this via focusTick).
+    // Focus is deliberately NOT required: a visible desktop mirroring a
+    // terminal-owned turn counts as being watched (user report).
+    if (document.visibilityState !== "visible") return;
     const seen = loadSessionLastSeen();
     const row = sessions.find((session) => session.id === viewedSessionId);
     // Seen map holds MESSAGE COUNTS (v2): viewing consumes growth by
