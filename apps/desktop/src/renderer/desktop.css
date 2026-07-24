@@ -298,7 +298,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* Buttons float the focus ring slightly further out. */
 button:focus-visible { outline-offset: 2.5px; }
 /* Dialog titles tighten 15px headings to -0.13px. */
-.model-picker-header h2, .project-switcher h1, .settings-confirm-dialog > header h3,
+.model-picker-header h2, .settings-confirm-dialog > header h3,
 .onboarding-dialog h1, .approval-heading b, .settings-section-heading h2,
 .settings-group > header h3, .onboarding-step-heading h2 { letter-spacing: -.13px; }
 
@@ -387,6 +387,9 @@ button:focus-visible { outline-offset: 2.5px; }
 /* Header cluster glyphs share ONE optical box: identical 18px frame so the
    review / remote / panel icons cannot drift in perceived weight. */
 .session-dock-toggle svg.lucide { width: 18px; height: 18px; }
+/* Optical compensation: the wifi arcs render softer than the neighbors'
+   straight lines at 1.25px — a heavier stroke restores equal crispness. */
+.remote-toggle svg.lucide { stroke-width: 1.5px; }
 .workspace-tabs { height: 28px; align-self: center; gap: 13.5px; padding: 0; }
 .titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
 .workspace-tabs-shell { align-self: center; }
@@ -2073,7 +2076,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .model-trigger:focus-visible .provider-icon,
 .model-trigger[aria-expanded="true"] .provider-icon { opacity: 1; }
 .model-trigger > span { font-size: 13px; line-height: 20px; }
-.model-picker-dialog, .slash-palette, .project-card-menu {
+.model-picker-dialog, .slash-palette {
   padding: 2px;
   border: 0;
   border-radius: 6px;
@@ -2340,7 +2343,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-size: 11px;
   line-height: 16px;
 }
-.slash-palette button, .project-card-menu button {
+.slash-palette button {
   min-height: 28px;
   height: 28px;
   padding: 0 12px;
@@ -2353,8 +2356,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   font-weight: 400;
   line-height: 1;
 }
-.slash-palette button:hover, .slash-palette button[aria-selected="true"],
-.project-card-menu button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.slash-palette button:hover,
+.slash-palette button[aria-selected="true"] { color: var(--mx-text); background: var(--mx-hover); }
 .model-loading {
   position: sticky;
   bottom: 2px;
@@ -2566,134 +2569,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .queue-edit:focus-visible { background: var(--mx-hover); outline: 0; }
 .queue-edit:disabled { opacity: .5; }
 .composer { z-index: 1; }
-
-/* Project switching follows the same raised dialog and compact list primitives. */
-.project-switcher-layer {
-  inset: 0;
-  place-items: center;
-  padding: 16px;
-  background: var(--mx-scrim);
-  backdrop-filter: none;
-}
-.project-switcher {
-  width: min(640px, calc(100vw - 32px));
-  max-height: min(512px, calc(var(--vvh, 100vh) - 32px));
-  border-radius: 8px;
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-overlay);
-}
-.project-switcher > header {
-  min-height: 56px;
-  padding: 12px 16px 12px 20px;
-  border-bottom: .5px solid var(--mx-border);
-}
-.project-switcher-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  color: var(--mx-icon);
-  background: var(--mx-bg-layer-2);
-}
-.project-switcher h1 { color: var(--mx-text); font-size: 15px; font-weight: 500; line-height: 20px; }
-.project-switcher p { color: var(--mx-text-muted); font-size: 11px; line-height: 16px; }
-.project-switcher .icon-button { width: 24px; height: 24px; border-radius: 4px; color: var(--mx-icon-muted); }
-.project-switcher .icon-button:hover { color: var(--mx-icon); background: var(--mx-hover); }
-.project-switcher-toolbar { padding: 12px 16px 4px; }
-.project-switcher .new-project, .project-switcher .projects-add {
-  width: max-content;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: 6px;
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
-  font-size: 13px;
-  font-weight: 500;
-}
-.project-switcher .new-project:hover, .project-switcher .projects-add:hover {
-  color: var(--mx-text);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
-}
-.project-grid {
-  gap: 8px;
-  padding: 12px 16px 16px;
-  scrollbar-width: thin;
-}
-.project-card {
-  height: 60px;
-  border-radius: 6px;
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-}
-.project-card:hover { background: var(--mx-hover); box-shadow: inset 0 0 0 .5px var(--mx-border); }
-.project-card .project-row { height: 60px; gap: 10px; padding: 0 36px 0 16px; border-radius: 6px; }
-.project-card .project-row > span:last-child { min-width: 0; }
-.project-avatar {
-  width: 28px;
-  height: 28px;
-  flex-basis: 28px;
-  display: grid;
-  place-items: center;
-  border-radius: 5px;
-  /* Project avatar: fixed palette chip with a top gloss, inset
-     border, and etched white initials. Falls back to the gray variant. */
-  color: var(--mx-avatar-fg);
-  background:
-    linear-gradient(180deg, var(--mx-alpha-light-16), transparent),
-    var(--project-avatar-bg, var(--mx-avatar-bg-gray));
-  box-shadow: inset 0 0 0 .5px var(--project-avatar-border, var(--mx-avatar-border-gray));
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: .05px;
-  line-height: 1;
-  text-shadow: 0 0 4px rgba(0, 0, 0, .125);
-  text-transform: uppercase;
-  user-select: none;
-}
-.project-avatar[data-avatar="orange"] { --project-avatar-bg: var(--mx-avatar-bg-orange); --project-avatar-border: var(--mx-avatar-border-orange); }
-.project-avatar[data-avatar="yellow"] { --project-avatar-bg: var(--mx-avatar-bg-yellow); --project-avatar-border: var(--mx-avatar-border-yellow); }
-.project-avatar[data-avatar="cyan"] { --project-avatar-bg: var(--mx-avatar-bg-cyan); --project-avatar-border: var(--mx-avatar-border-cyan); }
-.project-avatar[data-avatar="green"] { --project-avatar-bg: var(--mx-avatar-bg-green); --project-avatar-border: var(--mx-avatar-border-green); }
-.project-avatar[data-avatar="red"] { --project-avatar-bg: var(--mx-avatar-bg-red); --project-avatar-border: var(--mx-avatar-border-red); }
-.project-avatar[data-avatar="pink"] { --project-avatar-bg: var(--mx-avatar-bg-pink); --project-avatar-border: var(--mx-avatar-border-pink); }
-.project-avatar[data-avatar="blue"] { --project-avatar-bg: var(--mx-avatar-bg-blue); --project-avatar-border: var(--mx-avatar-border-blue); }
-.project-avatar[data-avatar="purple"] { --project-avatar-bg: var(--mx-avatar-bg-purple); --project-avatar-border: var(--mx-avatar-border-purple); }
-.project-card .project-row b { color: var(--mx-text); font-size: 14px; font-weight: 500; }
-.project-card .project-row small { color: var(--mx-text-faint); font-size: 12px; }
-.project-title-line { min-width: 0; display: flex; align-items: center; gap: 5px; }
-.project-title-line b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-pin-mark { flex: 0 0 auto; color: var(--mx-icon-muted); transform: rotate(-18deg); }
-.project-card .project-more {
-  top: 50%;
-  right: 6px;
-  width: 28px;
-  height: 28px;
-  color: var(--mx-icon-muted);
-  transform: translateY(-50%);
-}
-.project-card .project-more:hover, .project-card .project-more:focus-visible { color: var(--mx-icon); background: var(--mx-hover); }
-.project-card-menu {
-  top: 44px;
-  right: 6px;
-  width: 168px;
-  padding: 4px;
-  border-radius: 6px;
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
-}
-.project-card-menu button { height: 28px; border-radius: 4px; color: var(--mx-text); font-size: 13px; font-weight: 400; }
-.project-card-menu button:focus-visible { outline: 0; color: var(--mx-text); background: var(--mx-hover); }
-.project-card-menu button.danger { color: var(--mx-danger); }
-.project-card .project-rename { height: 60px; }
-.project-card .project-rename input { height: 28px; border-color: transparent; color: var(--mx-text); background: var(--mx-bg-deep); }
-.project-empty, .project-empty p, .project-empty small { color: var(--mx-text-muted); }
 
 /* Shared menu/select primitive used by settings and composer controls. */
 .mx-select-root { position: relative; min-width: 0; }
@@ -3772,6 +3647,23 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .schedules-empty svg { color: var(--mx-icon-muted); }
 .schedules-empty p { margin: 0; }
+/* Projects page (sidebar → Projects): Schedules-page grammar replacing the
+   popup switcher — rows reuse the schedules list skin. */
+.projects-row-icon { flex: 0 0 auto; display: grid; place-items: center; color: var(--mx-icon-muted); }
+.projects-row-open { padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.projects-rename { min-width: 0; flex: 1; display: flex; }
+.projects-rename input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--mx-text);
+  background: var(--mx-bg-deep);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
+  font-size: 13px;
+}
 .settings-metric-grid > div, .settings-action-result {
   border: 0;
   border-radius: 6px;
@@ -5938,16 +5830,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-header-content:hover .session-title-regenerate,
 .session-title-regenerate:focus-visible { opacity: 1; }
 .session-title-regenerate:hover { color: var(--mx-icon); background: var(--mx-hover); }
-
-/* Projects dialog: quiet folder chip replacing the coloured initials avatar. */
-.project-avatar.project-avatar--icon {
-  color: var(--mx-icon-muted);
-  background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  text-shadow: none;
-}
-
-
 
 /* ── Main-area Review pane ─────────── */
 /* Diff surface theming: @git-diff-view ships a GitHub palette (blue hunk
