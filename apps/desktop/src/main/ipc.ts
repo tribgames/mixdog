@@ -478,6 +478,8 @@ export function registerDesktopIpc(
     host.startProjectTask(requiredString(projectPath, 'projectPath')));
   handle(DESKTOP_IPC.startTask, () => host.startTask());
   handle(DESKTOP_IPC.listProjects, () => host.listProjects());
+  handle(DESKTOP_IPC.addProject, (_event, projectPath) =>
+    host.addProject(requiredString(projectPath, 'projectPath')));
   handle(DESKTOP_IPC.openProjectInExplorer, async (_event, projectPath) => {
     const directory = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     const failure = await shell.openPath(directory);

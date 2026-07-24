@@ -4,6 +4,7 @@ export const DESKTOP_IPC = {
   startProjectTask: 'mixdog:start-project-task',
   startTask: 'mixdog:start-task',
   listProjects: 'mixdog:list-projects',
+  addProject: 'mixdog:add-project',
   openProjectInExplorer: 'mixdog:open-project-in-explorer',
   openExternal: 'mixdog:open-external',
   renameProject: 'mixdog:rename-project',
@@ -513,6 +514,8 @@ export interface DesktopApi {
   startProjectTask(projectPath: string): Promise<EngineSnapshot>;
   startTask(): Promise<EngineSnapshot>;
   listProjects(): Promise<DesktopProjectSummary[]>;
+  /** Register a folder without entering it (Projects page add dialog). */
+  addProject(projectPath: string): Promise<void>;
   openProjectInExplorer(projectPath: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   renameProject(projectPath: string, alias: string): Promise<void>;

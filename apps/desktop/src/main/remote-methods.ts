@@ -83,6 +83,7 @@ export function createRemoteMethods(
       host.startProjectTask(requiredString(projectPath, 'projectPath')),
     startTask: () => host.startTask(),
     listProjects: () => host.listProjects(),
+    addProject: ([projectPath]) => host.addProject(requiredString(projectPath, 'projectPath')),
     renameProject: ([projectPath, alias]) =>
       host.renameProject(requiredString(projectPath, 'projectPath'), projectDisplayName(alias)),
     setProjectPinned: ([projectPath, pinned]) => {

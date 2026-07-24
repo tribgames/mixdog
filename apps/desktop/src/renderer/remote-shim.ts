@@ -519,6 +519,7 @@ const SERVER_STORAGE_KEY = 'mixdog.remote-server';
     startProjectTask: (projectPath) => call('startProjectTask', [projectPath]),
     startTask: () => call('startTask'),
     listProjects: () => call('listProjects'),
+    addProject: (projectPath) => call('addProject', [projectPath]),
     openProjectInExplorer: () => Promise.resolve(),
     openExternal: (url) => {
       try { window.open(url, '_blank', 'noopener'); } catch { /* popup blocked */ }

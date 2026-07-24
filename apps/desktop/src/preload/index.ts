@@ -20,6 +20,7 @@ const api: DesktopApi = {
   startProjectTask: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.startProjectTask, projectPath),
   startTask: () => ipcRenderer.invoke(DESKTOP_IPC.startTask),
   listProjects: () => ipcRenderer.invoke(DESKTOP_IPC.listProjects),
+  addProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.addProject, projectPath),
   openProjectInExplorer: (projectPath) =>
     ipcRenderer.invoke(DESKTOP_IPC.openProjectInExplorer, projectPath),
   openExternal: (url) => ipcRenderer.invoke(DESKTOP_IPC.openExternal, url),

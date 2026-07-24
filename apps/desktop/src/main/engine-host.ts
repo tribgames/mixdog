@@ -271,6 +271,28 @@ export class EngineHost {
     return result;
   }
 
+  /** Register a folder in the shared project store WITHOUT entering it: the
+   *  Projects page adds projects in place (user decision), so no engine
+   *  replacement or navigation happens here. */
+  async addProject(projectPath: string): Promise<void> {
+    const requestedPath = projectPath.trim();
+    if (!requestedPath) throw new TypeError('A project folder is required.');
+    await this.exclusive(async () => {
+      const projectStore = await this.loadProjectsModule();
+      const canonicalPath = await realpath(requestedPath);
+      const info = await stat(canonicalPath);
+      if (!info.isDirectory()) throw new TypeError('The selected project is not a directory.');
+      const registered = projectStore.addProject(canonicalPath);
+      if (!registered) throw new Error('Unable to register the selected project.');
+      const preferences = await this.loadProjectPreferences();
+      preferences.hidden = withoutMatchingProject(preferences.hidden, registered.path);
+      await this.saveProjectPreferences(projectStore);
+      this.recentProjects = this.registeredProjects(projectStore)
+        .map((project) => project.path)
+        .slice(0, 12);
+    });
+  }
+
   async listProjects(): Promise<DesktopProjectSummary[]> {
     let projects: DesktopProjectSummary[] = [];
     await this.exclusive(async () => {
@@ -283,10 +305,10 @@ export class EngineHost {
           path: project.path,
           alias: projectAlias(preferences.aliases, project.path),
           pinned: matchingProjectPath(preferences.pinned, project.path) !== null,
-        }))
-        // Array#sort is stable. Explicitly pinned projects move to the front,
-        // while both groups retain the core projects.json recency order.
-        .sort((a, b) => Number(b.pinned) - Number(a.pinned));
+        }));
+      // The core projects.json store already orders by most-recent use; the
+      // desktop keeps that order (pin ordering retired with the popup
+      // switcher — the flag persists but no longer reorders the page).
       this.recentProjects = registered.map((project) => project.path).slice(0, 12);
     });
     return projects;

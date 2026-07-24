@@ -107,19 +107,19 @@ function assertActiveElement(expected, message) {
   );
 }
 
-async function openProjectSwitcher() {
+async function openProjectsPane() {
   await act(async () => {
     document.querySelector('[aria-label="Open projects"]')?.click();
     await Promise.resolve();
   });
-  const dialog = document.querySelector('[role="dialog"][aria-labelledby="project-switcher-title"]');
-  assert.equal(dialog != null, true, "project switcher dialog should be present");
-  return dialog;
+  const pane = document.querySelector(".projects-pane");
+  assert.equal(pane != null, true, "projects pane should be present");
+  return pane;
 }
 
 async function selectFirstProject() {
-  const dialog = await openProjectSwitcher();
-  const row = dialog.querySelector(".project-row");
+  const pane = await openProjectsPane();
+  const row = pane.querySelector(".projects-row-open");
   assert.equal(row != null, true, "first project row should be present");
   await act(async () => {
     row.click();
@@ -1408,11 +1408,23 @@ test("running shell cards stream liveOutput; settled cards ignore a stale tail",
 test("launch selects New task and immediately shows the project-free composer", async () => {
   installDom();
   const calls = [];
+  const added = [];
+  const registered = [];
   window.mixdogDesktop = {
     getSnapshot: async () => ({ items: [], queued: [], recentProjects: ["C:\\Canonical\\Sample"] }),
     listSessions: async () => [],
     subscribeState: () => () => {},
     chooseProject: async () => "C:\\work\\sample",
+    listProjects: async () => registered.slice(),
+    addProject: async (path) => {
+      added.push(["addProject", path]);
+      registered.push({ path, alias: null, name: "sample", pinned: false });
+    },
+    renameProject: async (path, alias) => {
+      added.push(["renameProject", path, alias]);
+      const row = registered.find((entry) => entry.path === path);
+      if (row) row.alias = alias;
+    },
     startProject: async (project) => {
       calls.push(project);
       return {
@@ -1481,15 +1493,33 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.activeElement === document.querySelector(".toolbar-sidebar"), true, "sidebar toggle should retain focus after collapsing");
   await act(async () => document.querySelector(".toolbar-sidebar").click());
 
-  const projectDialog = await openProjectSwitcher();
+  const projectsPane = await openProjectsPane();
   await act(async () => {
-    projectDialog.querySelector(".new-project").click();
+    projectsPane.querySelector(".projects-add").click();
+    await Promise.resolve();
+  });
+  // Add project opens an in-place dialog (user decision): Name + folder via
+  // the native chooser — no navigation away from the Projects page.
+  const addDialog = document.querySelector('[aria-labelledby="projects-add-title"]');
+  assert.equal(addDialog != null, true, "add-project dialog should be present");
+  await act(async () => {
+    Array.from(addDialog.querySelectorAll("button"))
+      .find((button) => /Browse/.test(button.textContent || "")).click();
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert.deepEqual(calls, ["C:\\work\\sample"]);
-  assert.equal(document.querySelector(".workspace-project-trigger") === null, true, "selector .workspace-project-trigger should be absent");
-  assert.match(document.querySelector(".session-header h1")?.textContent || "", /Sample/i);
+  assert.match(addDialog.querySelector(".projects-folder-row code")?.textContent || "", /work\\sample/);
+  assert.equal(addDialog.querySelector('input[name="project-name"]').value, "sample",
+    "the name field prefills from the chosen folder");
+  await act(async () => {
+    addDialog.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.deepEqual(added, [["addProject", "C:\\work\\sample"], ["renameProject", "C:\\work\\sample", "sample"]]);
+  assert.deepEqual(calls, [], "adding a project must not navigate into it");
+  assert.equal(document.querySelector('[aria-labelledby="projects-add-title"]'), null, "dialog closes after saving");
+  assert.match(document.querySelector(".projects-list")?.textContent || "", /sample/i);
   assert.equal(document.querySelector(".sidebar").classList.contains("open"), true);
 });
 
@@ -2802,8 +2832,8 @@ test("a failed project replacement synchronizes to the empty actual host without
   // Panels start minimized: expand the session sidebar for nav assertions.
   await act(async () => document.querySelector(".toolbar-sidebar").click());
 
-  let dialog = await openProjectSwitcher();
-  let rows = dialog.querySelectorAll(".project-row");
+  let pane = await openProjectsPane();
+  let rows = pane.querySelectorAll(".projects-row-open");
   assert.equal(rows[0].getAttribute("aria-current"), "page");
   assert.equal(rows[1].hasAttribute("aria-current"), false);
   assert.equal(document.querySelector(".task-link").getAttribute("aria-current"), null);
@@ -2817,8 +2847,8 @@ test("a failed project replacement synchronizes to the empty actual host without
   assert.match(document.querySelector(".session-header h1")?.textContent || "", /old/i);
   assert.match(document.body.textContent || "", /Stale transcript/);
 
-  dialog = await openProjectSwitcher();
-  rows = dialog.querySelectorAll(".project-row");
+  pane = await openProjectsPane();
+  rows = pane.querySelectorAll(".projects-row-open");
   await act(async () => {
     Array.from(rows).find((row) => /next/i.test(row.textContent || ""))?.click();
     await Promise.resolve();
@@ -2834,8 +2864,8 @@ test("a failed project replacement synchronizes to the empty actual host without
   assert.match(alert.textContent || "", /Project switch failed/);
   assert.equal(alert.getAttribute("aria-live"), "assertive");
   assert.equal(document.querySelector(".sidebar").classList.contains("open"), true);
-  dialog = await openProjectSwitcher();
-  rows = dialog.querySelectorAll(".project-row");
+  pane = await openProjectsPane();
+  rows = pane.querySelectorAll(".projects-row-open");
   assert.equal(rows[0].hasAttribute("aria-current"), false);
   assert.equal(rows[1].hasAttribute("aria-current"), false);
 });
@@ -3205,7 +3235,7 @@ test("failed resume preserves a surviving known project session, then clears whe
   assert.match(document.querySelector('[role="alert"]').textContent || "", /Resume failed/);
 });
 
-test("flat recent sessions and separate project switcher preserve navigation and project actions", async () => {
+test("flat recent sessions and the projects page preserve navigation and project actions", async () => {
   installDom();
   const resumed = [];
   const projectActions = [];
@@ -3238,11 +3268,10 @@ test("flat recent sessions and separate project switcher preserve navigation and
       projectActions.push(["remove", path]);
       visibleProjects = visibleProjects.filter((candidate) => candidate.path !== path);
     },
-    setProjectPinned: async (path, pinned) => {
-      projectActions.push(["pin", path, pinned]);
+    renameProject: async (path, alias) => {
+      projectActions.push(["rename", path, alias]);
       visibleProjects = visibleProjects
-        .map((candidate) => candidate.path === path ? { ...candidate, pinned } : candidate)
-        .sort((left, right) => Number(right.pinned) - Number(left.pinned));
+        .map((candidate) => candidate.path === path ? { ...candidate, alias } : candidate);
     },
   };
   await act(async () => {
@@ -3259,16 +3288,17 @@ test("flat recent sessions and separate project switcher preserve navigation and
   assert.equal(document.querySelector(".sidebar [aria-label='Open projects']")?.textContent.trim(), "Project");
   assert.equal(document.querySelector(".sidebar .project-group"), null);
   assert.doesNotMatch(document.querySelector(".sidebar").textContent || "", /Legacy/);
-  let projectDialog = await openProjectSwitcher();
-  assert.match(projectDialog.querySelector(".project-list")?.textContent || "", /One alias/);
-  assert.equal(projectDialog.querySelectorAll('[data-component="project-avatar-v2"]').length, 0);
-  assert.equal(projectDialog.querySelectorAll('[aria-label="Pinned project"]').length, 0);
-  assert.equal(projectDialog.querySelectorAll(".project-row-icon").length, 0);
-  assert.equal(projectDialog.querySelector(".projects-add")?.textContent.trim(), "Add project");
-  assert.equal(document.querySelector(".sidebar .project-row, .sidebar .project-more, .sidebar .new-project") === null, true, "project management controls should remain in the switcher");
-  const firstProject = Array.from(projectDialog.querySelectorAll(".project-row"))
+  let projectsPane = await openProjectsPane();
+  assert.match(projectsPane.querySelector(".projects-list")?.textContent || "", /One alias/);
+  assert.equal(projectsPane.querySelectorAll('[aria-label="Pinned project"]').length, 0,
+    "pin/unpin is removed from the projects page");
+  assert.equal(projectsPane.querySelectorAll('.project-more, .project-card, [role="menu"]').length, 0,
+    "the projects page replaces the popup switcher and its overflow menu");
+  assert.equal(projectsPane.querySelector(".projects-add")?.textContent.trim(), "Add project");
+  assert.equal(document.querySelector(".sidebar .projects-row, .sidebar .projects-add") === null, true, "project management controls should remain on the projects page");
+  const firstProject = Array.from(projectsPane.querySelectorAll(".projects-row-open"))
     .find((row) => /One alias/.test(row.textContent || ""));
-  assert.equal(firstProject != null, true, "first project row should be present in the switcher");
+  assert.equal(firstProject != null, true, "first project row should be present on the page");
   assert.equal(firstProject.getAttribute("aria-current"), "page", "the last used project should be selected by default");
   await act(async () => {
     firstProject.click();
@@ -3287,82 +3317,45 @@ test("flat recent sessions and separate project switcher preserve navigation and
   assert.equal(document.querySelector('[data-session-id="project_new"]').getAttribute("aria-current"), "page");
   assert.equal(document.querySelector(".sidebar").closest(".app-shell").classList.contains("sidebar-collapsed"), false);
 
-  projectDialog = await openProjectSwitcher();
-  const firstProjectCard = Array.from(projectDialog.querySelectorAll(".project-card"))
-    .find((card) => /One alias/.test(card.textContent || ""));
-  const more = firstProjectCard?.querySelector(".project-more");
-  assert.equal(more != null, true, "project overflow button should be present");
-  more.focus();
+  projectsPane = await openProjectsPane();
+  const rowFor = (label) => Array.from(projectsPane.querySelectorAll(".projects-row"))
+    .find((row) => label.test(row.textContent || ""));
+  // Rename is inline (no overflow menu): the row swaps to an input seeded
+  // with the current title; Escape cancels without persisting.
+  const renameTarget = rowFor(/Two alias/);
   await act(async () => {
-    more.click();
+    Array.from(renameTarget.querySelectorAll("button"))
+      .find((button) => button.textContent === "Rename")?.click();
     await Promise.resolve();
   });
-  let menu = document.querySelector('[role="menu"]');
-  assert.equal(menu.closest(".project-card") === firstProjectCard, true, "project menu should remain inside its project card");
-  assert.deepEqual(
-    Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent),
-    ["New task", "Open in Explorer", "Pin project", "Rename", "Remove project"],
-  );
-  const menuItems = menu.querySelectorAll('[role="menuitem"]');
-  assert.equal(document.activeElement === menuItems[0], true, "opening the project menu should focus its first item");
-  await act(async () => menuItems[0].dispatchEvent(
-    new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-  ));
-  assert.equal(document.activeElement?.textContent, "Open in Explorer");
+  const renameInput = projectsPane.querySelector('input[aria-label="Project display name"]');
+  assert.equal(renameInput?.value, "Two alias");
   await act(async () => {
-    menuItems[1].dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    renameInput.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await Promise.resolve();
   });
-  assert.equal(document.querySelector('[role="menu"]') === null, true, "selector [role=\"menu\"] should be absent");
-  assert.equal(document.activeElement === more, true, "closing the project menu should restore overflow-button focus");
+  assert.equal(projectsPane.querySelector('input[aria-label="Project display name"]') === null, true,
+    "Escape must close the inline rename without saving");
+  assert.deepEqual(projectActions, []);
 
-  await act(async () => more.click());
-  menu = document.querySelector('[role="menu"]');
-  const destination = projectDialog.querySelector(".projects-add");
+  // Removal is a two-step confirm on the row itself (schedules grammar).
+  const removeTarget = rowFor(/One alias/);
+  const removeButton = Array.from(removeTarget.querySelectorAll("button"))
+    .find((button) => button.textContent === "Remove");
   await act(async () => {
-    destination.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
-    destination.focus();
-  });
-  assert.equal(document.querySelector('[role="menu"]') === null, true, "selector [role=\"menu\"] should be absent");
-  assert.equal(document.activeElement === destination, true, "outside pointer interaction should preserve destination focus");
-
-  await act(async () => more.click());
-  menu = document.querySelector('[role="menu"]');
-  assert.equal(menu != null, true, "selector [role=\"menu\"] should be present");
-  await act(async () => {
-    menu.querySelectorAll('[role="menuitem"]')[2].click();
-    await Promise.resolve();
+    removeButton.click();
     await Promise.resolve();
   });
-  assert.deepEqual(projectActions.at(-1), ["pin", "C:\\work\\one", true]);
-  const pinnedCard = Array.from(projectDialog.querySelectorAll(".project-card"))
-    .find((card) => /One alias/.test(card.textContent || ""));
-  assert.equal(pinnedCard?.classList.contains("pinned"), true);
-  assert.equal(pinnedCard?.querySelector('[aria-label="Pinned project"]') != null, true);
-  const pinnedMore = pinnedCard.querySelector(".project-more");
-  await act(async () => pinnedMore.click());
-  assert.match(document.querySelector('[role="menu"]')?.textContent || "", /Unpin project/);
+  assert.equal(removeButton.textContent, "Confirm remove");
+  assert.deepEqual(projectActions, []);
   await act(async () => {
-    projectDialog.querySelector('button[aria-label="Close projects"]').click();
-    await Promise.resolve();
-  });
-  projectDialog = await openProjectSwitcher();
-  assert.equal(document.querySelector('[role="menu"]') === null, true,
-    "closing and reopening Projects must clear its menu");
-  const reopenedCard = Array.from(projectDialog.querySelectorAll(".project-card"))
-    .find((card) => /One alias/.test(card.textContent || ""));
-  const reopenedMore = reopenedCard.querySelector(".project-more");
-  await act(async () => reopenedMore.click());
-  menu = document.querySelector('[role="menu"]');
-  await act(async () => {
-    menu.querySelectorAll('[role="menuitem"]')[4].click();
+    removeButton.click();
     await Promise.resolve();
     await Promise.resolve();
   });
   assert.deepEqual(projectActions.at(-1), ["remove", "C:\\work\\one"]);
-  assert.doesNotMatch(document.querySelector(".project-list").textContent, /One alias/);
-  assert.match(document.querySelector(".project-list").textContent, /Two alias/);
-  assert.equal(document.activeElement === document.querySelector(".project-row"), true, "removal should focus the remaining project row");
+  assert.doesNotMatch(projectsPane.querySelector(".projects-list").textContent, /One alias/);
+  assert.match(projectsPane.querySelector(".projects-list").textContent, /Two alias/);
 });
 
 test("mobile sidebar closes at the inclusive 760px breakpoint after navigation", async () => {

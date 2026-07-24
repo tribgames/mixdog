@@ -1953,9 +1953,11 @@ test("desktop projects are sourced only from the shared registered-project store
     );
 
     await host.setProjectPinned(older, true);
-    assert.deepEqual((await host.listProjects()).map((project) => project.path), [
-      resolve(older),
-      resolve(newest),
+    // Pin ordering retired with the popup switcher: the list keeps the core
+    // store's most-recently-used order; the stored flag itself persists.
+    assert.deepEqual((await host.listProjects()).map((project) => [project.path, project.pinned]), [
+      [resolve(newest), false],
+      [resolve(older), true],
     ]);
     await host.renameProject(newest, "Shared rename");
     const renamed = (await host.listProjects()).find((project) => project.path === resolve(newest));
@@ -1973,6 +1975,27 @@ test("desktop projects are sourced only from the shared registered-project store
     assert.equal(savedMetadata.version, 2);
     assert.equal("recentProjects" in savedMetadata, false);
     assert.deepEqual(savedMetadata.pinned, [resolve(older)]);
+  } finally {
+    await host.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("addProject registers a folder in place without touching the active engine", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-add-project-"));
+  const fresh = join(root, "fresh");
+  await mkdir(fresh);
+  const projectStore = createProjectStore([]);
+  const host = new EngineHost({
+    userDataPath: root,
+    createEngine: async () => { throw new Error("addProject must not create an engine"); },
+    loadProjects: async () => projectStore.module,
+  });
+  try {
+    await host.addProject(fresh);
+    assert.deepEqual(projectStore.calls.at(-1), ["addProject", resolve(fresh)]);
+    assert.deepEqual((await host.listProjects()).map((project) => project.path), [resolve(fresh)]);
+    await assert.rejects(host.addProject(join(root, "missing")));
   } finally {
     await host.dispose();
     await rm(root, { recursive: true, force: true });

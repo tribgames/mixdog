@@ -74,7 +74,6 @@ import {
 import type { TurnFailureModel } from "./renderer-logic.mjs";
 import {
   DesktopTitlebar,
-  ProjectSwitcher,
   SessionSidebar,
   type NavigationSelection,
   type WorkspaceTab,
@@ -146,6 +145,7 @@ const CommandSurface = lazy(() => import("./CommandSurface")
 // on first entry, which flashes the New-task watermark before the page lands.
 import { SchedulesPane } from "./SchedulesView";
 import { WebhooksPane } from "./WebhooksView";
+import { ProjectsPane } from "./ProjectsView";
 
 function schedulePostInteractionIdle(
   task: () => void,
@@ -310,6 +310,7 @@ function SnapshotHeaderStatus({
   const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
   return <>
     <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
+    <RemoteToggleButton snapshot={visibleSnapshot} />
   </>;
 }
 
@@ -354,40 +355,35 @@ function WifiGlyph({ size = 18 }: { size?: number }) {
   </svg>;
 }
 
-// Remote runtime on/off lives in the session header next to the context
-// indicator (user decision — the Settings toggle is gone). isRemoteEnabled
-// polls so external toggles (CLI, another window) reconcile the pressed state.
-function RemoteToggleButton() {
-  const [remote, setRemote] = useState<boolean | null>(null);
+// SESSION-SCOPED remote (user decision): the toggle reflects whether the
+// VIEWED session owns the channel relay (snapshot-driven — no polling).
+// Off → on claims for this session; owner → off; owned elsewhere → clicking
+// moves the relay seat to this session (last-wins).
+function RemoteToggleButton({ snapshot }: { snapshot: Snapshot }) {
   const [busy, setBusy] = useState(false);
-  const refresh = useCallback(async () => {
-    try {
-      const result = await window.mixdogDesktop.invokeCapability<boolean>({ capability: "isRemoteEnabled", args: [] });
-      setRemote(result?.value === true);
-    } catch { /* keep the last known state */ }
-  }, []);
-  useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 30_000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
+  const remoteEnabled = snapshot.remoteEnabled === true;
+  const owner = String(snapshot.remoteSessionId || "");
+  const current = String(snapshot.sessionId || "");
+  const on = remoteEnabled && Boolean(owner) && owner === current;
+  const elsewhere = remoteEnabled && !on;
   // On/off reads through the GLYPH, not color (user decision): Wifi waves
-  // while the remote runtime is connected, Unplug when it is stopped — same
-  // ink, stroke, and 18px frame as the panel toggle.
+  // while THIS session relays, Unplug otherwise — same ink, stroke, and 18px
+  // frame as the panel toggle.
   return <button type="button"
     className="session-dock-toggle remote-toggle"
-    aria-pressed={remote === true} disabled={busy || remote === null}
-    aria-label={remote ? "Turn remote runtime off" : "Turn remote runtime on"}
-    data-tooltip={remote ? "Remote on" : "Remote off"}
+    aria-pressed={on} disabled={busy}
+    aria-label={on ? "Turn channel relay off"
+      : elsewhere ? "Move the channel relay to this session"
+        : "Turn channel relay on"}
+    data-tooltip={on ? "Remote on" : elsewhere ? "Remote on elsewhere — click to move here" : "Remote off"}
     onClick={() => {
       if (busy) return;
       setBusy(true);
       void window.mixdogDesktop.invokeCapability({ capability: "toggleRemote", args: [] })
         .catch(() => {})
-        .then(() => refresh())
         .finally(() => setBusy(false));
     }}>
-    {remote ? <WifiGlyph size={18} /> : <Unplug size={18} aria-hidden="true" />}
+    {on ? <WifiGlyph size={18} /> : <Unplug size={18} aria-hidden="true" />}
   </button>;
 }
 
@@ -495,7 +491,10 @@ export function App() {
     try { window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen)); }
     catch { /* layout persistence is a convenience only */ }
   }, [sidebarOpen]);
-  const [projectPanelOpen, setProjectPanelOpen] = useState(false);
+  // Projects page (sidebar → Projects): main-pane takeover replacing the old
+  // popup switcher (user decision — Schedules-page grammar, no dialog).
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [projectsMounted, setProjectsMounted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Settings stays MOUNTED after first use (hidden via display:none): the
   // dialog tree costs ~330ms to mount (measured), so reopen must not repay
@@ -528,6 +527,7 @@ export function App() {
     setSchedulesMounted(true);
     setSchedulesOpen(true);
     setWebhooksOpen(false);
+    setProjectsOpen(false);
   }, []);
   // Inbound-webhooks page: same main-pane takeover concept as Schedules
   // (user decision — moved out of the settings dialog).
@@ -537,6 +537,13 @@ export function App() {
     setWebhooksMounted(true);
     setWebhooksOpen(true);
     setSchedulesOpen(false);
+    setProjectsOpen(false);
+  }, []);
+  const openProjects = useCallback(() => {
+    setProjectsMounted(true);
+    setProjectsOpen(true);
+    setSchedulesOpen(false);
+    setWebhooksOpen(false);
   }, []);
   useEffect(() => {
     try {
@@ -564,6 +571,7 @@ export function App() {
     setReviewOpen(false);
     setSchedulesOpen(false);
     setWebhooksOpen(false);
+    setProjectsOpen(false);
   }, [selection]);
   const [tabs, setTabs] = useState<WorkspaceTab[]>([
     { key: "new:default", title: "New task", selection: { kind: "new" } },
@@ -746,7 +754,6 @@ export function App() {
       return [...current, { key, title, selection: nextSelection }].slice(-10);
     });
   }, []);
-  const closeProjectPanel = useCallback(() => setProjectPanelOpen(false), []);
   // Last-project restore (user decision): a fresh launch that lands on an
   // empty engine re-enters the most recent project context automatically.
   const restoredLastProject = useRef(false);
@@ -1095,30 +1102,6 @@ export function App() {
   const closeSidebarForNavigation = () => {
     if (window.innerWidth <= 760) setSidebarOpen(false);
   };
-  const chooseProject = () => invoke(async () => {
-    const host = window.mixdogDesktop;
-    if (!host) return;
-    const selected = await host.chooseProject();
-    if (selected) {
-      closeSidebarForNavigation();
-      navigationEpoch.current += 1;
-      try {
-        const next = await host.startProject(selected);
-        applySnapshot(next);
-        const projectPath = canonicalProject(next, selected);
-        activateSelection(
-          { kind: "project", path: projectPath },
-          displayProject(projectPath).name || "Project",
-        );
-        setNewTaskActive(false);
-        await refreshProjects();
-        refreshSessionsBestEffort();
-      } catch (reason) {
-        await synchronizeActualHost();
-        throw reason;
-      }
-    }
-  });
   const startProject = (project: Project) => {
     closeSidebarForNavigation();
     navigationEpoch.current += 1;
@@ -1198,11 +1181,6 @@ export function App() {
   };
   const openProjectInExplorer = (project: Project) =>
     invoke(() => window.mixdogDesktop.openProjectInExplorer(project));
-  const setProjectPinned = (project: Project, pinned: boolean) =>
-    invoke(async () => {
-      await window.mixdogDesktop.setProjectPinned(project, pinned);
-      await refreshProjects();
-    });
   const renameProject = (project: Project, alias: string) =>
     invoke(async () => {
       await window.mixdogDesktop.renameProject(project, alias);
@@ -1786,7 +1764,7 @@ export function App() {
         tabs={tabs}
         // Schedules takes over the main pane: no workspace tab is the visible
         // surface, so none may render as selected (user request).
-        activeKey={schedulesOpen || webhooksOpen ? "" : activeTabKey}
+        activeKey={schedulesOpen || webhooksOpen || projectsOpen ? "" : activeTabKey}
         activeBusy={activeBusy}
         workingSessionIds={workingSessionIds}
         updaterState={updaterState}
@@ -1806,14 +1784,14 @@ export function App() {
           // Schedules takeover: the sidebar must not keep a session row
           // highlighted while the main pane shows Schedules (matches the tab
           // strip deselection).
-          selection={schedulesOpen || webhooksOpen ? { kind: "new" } : navigationSelection}
+          selection={schedulesOpen || webhooksOpen || projectsOpen ? { kind: "new" } : navigationSelection}
           // Primary-nav selection mirror (user request): the button for the
           // surface that owns the screen reads as selected — New task stays a
           // plain action.
           activeSurface={settingsOpen ? "settings"
             : schedulesOpen ? "schedules"
             : webhooksOpen ? "webhooks"
-            : projectPanelOpen ? "projects"
+            : projectsOpen ? "projects"
             : null}
           // Re-selecting the CURRENT session/new-task while Schedules or
           // Webhooks owns the main pane leaves `selection` unchanged, so the
@@ -1823,9 +1801,10 @@ export function App() {
             closeSidebarForNavigation();
             setSchedulesOpen(false);
             setWebhooksOpen(false);
+            setProjectsOpen(false);
             startTask(draft);
           }}
-          onOpenProjects={() => { closeSidebarForNavigation(); setProjectPanelOpen(true); }}
+          onOpenProjects={() => { closeSidebarForNavigation(); openProjects(); void refreshProjects(); }}
           onOpenSchedules={() => { closeSidebarForNavigation(); openSchedules(); }}
           onOpenWebhooks={() => { closeSidebarForNavigation(); openWebhooks(); }}
           onOpenSettings={() => { closeSidebarForNavigation(); openSettings(); }}
@@ -1834,6 +1813,7 @@ export function App() {
             closeSidebarForNavigation();
             setSchedulesOpen(false);
             setWebhooksOpen(false);
+            setProjectsOpen(false);
             resumeSession(sessionId);
           }}
           onRenameSession={renameSession}
@@ -1845,8 +1825,23 @@ export function App() {
         <main className="main-panel">
           {schedulesMounted && <SchedulesPane active={schedulesOpen} />}
           {webhooksMounted && <WebhooksPane active={webhooksOpen} />}
+          {projectsMounted && <ProjectsPane active={projectsOpen}
+            projects={projects} selectedProjectPath={selectedProjectPath}
+            onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
+            onCreateProject={async (path, name) => {
+              const host = window.mixdogDesktop;
+              if (!host) throw new Error("Desktop bridge is unavailable.");
+              await host.addProject(path);
+              if (name) await host.renameProject(path, name);
+              await refreshProjects();
+            }}
+            onOpenProject={(path) => { setProjectsOpen(false); startProject(path); }}
+            onStartProjectTask={(path) => { setProjectsOpen(false); startProjectTask(path); }}
+            onOpenExplorer={(path) => void openProjectInExplorer(path)}
+            onRename={(path, alias) => void renameProject(path, alias)}
+            onRemove={(path) => void removeProject(path)} />}
           <div className={`workspace ${transitionSessionId ? "switching-session" : ""}`
-            + (schedulesOpen || webhooksOpen ? " schedules-open" : "")}>
+            + (schedulesOpen || webhooksOpen || projectsOpen ? " schedules-open" : "")}>
             <header className="session-header" aria-label="Current task">
               <div className="session-header-content">
                 <button type="button" className="toolbar-sidebar session-header-menu"
@@ -1897,7 +1892,6 @@ export function App() {
                   <SnapshotHeaderStatus snapshotStore={snapshotStore}
                     frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot}
                     onOpen={() => setCommandSurface("context")} />
-                  <RemoteToggleButton />
                   <button type="button" className="session-dock-toggle"
                     onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
                     aria-label={reviewOpen ? "Back to chat" : "Review changes"}
@@ -1928,7 +1922,7 @@ export function App() {
               onNewTask={startTask}
               onStartProject={startProject}
               onResumeSession={resumeSession}
-              onOpenProjects={() => setProjectPanelOpen(true)}
+              onOpenProjects={() => { openProjects(); void refreshProjects(); }}
               onOpenSessions={() => setSidebarOpen(true)}
               onOpenSettings={openSettings}
               projects={projects}
@@ -1962,19 +1956,6 @@ export function App() {
           onTab={setDockTab} onResize={(value) => setDockWidth(clampDockWidth(value))}
         />}
       </div>
-      <ProjectSwitcher
-        open={projectPanelOpen}
-        projects={projects}
-        selectedProjectPath={selectedProjectPath}
-        onClose={closeProjectPanel}
-        onChooseProject={chooseProject}
-        onStartProject={startProject}
-        onStartProjectTask={startProjectTask}
-        onOpenExplorer={openProjectInExplorer}
-        onSetPinned={setProjectPinned}
-        onRename={renameProject}
-        onRemove={removeProject}
-      />
       <Suspense fallback={null}>
         {settingsMounted && <SettingsView
           open={settingsOpen}

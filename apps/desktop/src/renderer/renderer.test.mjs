@@ -194,7 +194,7 @@ test('every renderer stylesheet resolves through the shared desktop theme contra
 test('Desktop shell keeps Project and flat recent sessions inside the sidebar rail', async () => {
   const [styles, navigation] = await Promise.all([
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
-    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './project-switcher.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
+    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './ProjectsView.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
   ]);
   assert.match(styles, /--titlebar-height:\s*40px/);
   assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*center;[^}]*padding:\s*0 12px 0 13px;/s);
@@ -216,7 +216,7 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
     /\.session-row-spinner\s*\{[^}]*width:\s*12px;[^}]*display:\s*block;[^}]*margin:\s*0;[^}]*transform-origin:\s*center;/s,
     'the spinner must rotate around its centered box without adding a second margin');
   assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*10px;/s);
-  assert.match(styles, /\.project-switcher\s*\{[^}]*width:\s*min\(640px,/s);
+  assert.match(styles, /\.schedules-page\s*\{[^}]*max-width:\s*720px;/s);
   assert.match(styles, /\.thread\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   assert.match(styles, /\.composer-region\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   // Control chrome (Settings, New task, pickers) runs medium weight for
@@ -229,7 +229,7 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*\.sidebar\.session-sidebar\[data-state="open"\]\s*\{[^}]*transform:\s*none;/);
   assert.match(navigation, /aria-label="Session manager"/);
   assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);
-  assert.match(navigation, /className="project-grid project-list"/);
+  assert.match(navigation, /className="schedules-list projects-list"/);
   assert.match(navigation, /aria-label="Open projects"/);
   assert.match(navigation, /className="sidebar-primary-nav"/);
   assert.match(navigation, /<span>Project<\/span>/);
@@ -249,7 +249,7 @@ test('workspace tabs keep labels fully visible while retaining horizontal scroll
   const [layout, theme, navigation] = await Promise.all([
     readFile(new URL('./styles.css', import.meta.url), 'utf8'),
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
-    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './project-switcher.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
+    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './ProjectsView.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
   ]);
 
   assert.match(layout, /\.workspace-tabs\s*\{[^}]*overflow-x:\s*auto;/s);
@@ -289,7 +289,7 @@ test('copy hover changes only icon color while keyboard focus keeps its frame', 
 test('session title actions, message hover rows, and tool disclosures keep the desktop rhythm', async () => {
   const [styles, navigation, app] = await Promise.all([
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
-    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './project-switcher.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
+    Promise.all(['./titlebar.tsx', './session-sidebar.tsx', './ProjectsView.tsx'].map((path) => readFile(new URL(path, import.meta.url), 'utf8'))).then((parts) => parts.join('\n')),
     readAppModules(),
   ]);
   assert.match(styles, /\.session-row-menu-wrap\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);

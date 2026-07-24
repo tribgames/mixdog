@@ -31,7 +31,7 @@ button { color: inherit; }
 .workspace-tab { flex: 0 1 auto; min-width: 0; }
 .workspace-tab-main { min-width: 0; flex: 1; height: 100%; border: 0; background: transparent; color: inherit; }
 .workspace-tab-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-tab-close, .icon-button, .toolbar-sidebar, .projects-add, .project-more {
+.workspace-tab-close, .icon-button, .toolbar-sidebar {
   display: grid;
   place-items: center;
   padding: 0;
@@ -60,7 +60,7 @@ button { color: inherit; }
   pointer-events: none;
 }
 .sidebar-backdrop { display: none; }
-.task-link, .projects-link, .new-project, .project-row, .session-row {
+.task-link, .projects-link, .session-row {
   width: 100%;
   min-width: 0;
   display: flex;
@@ -69,7 +69,7 @@ button { color: inherit; }
   background: transparent;
   text-align: left;
 }
-.task-link, .projects-link, .new-project, .project-list { -webkit-app-region: no-drag; }
+.task-link, .projects-link { -webkit-app-region: no-drag; }
 .session-sidebar-scroll { min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; }
 .sidebar-primary-nav, .sidebar-recent, .sidebar-project-list, .recent-session-list, .session-list { display: grid; }
 .sidebar-section-heading, .project-group-heading { min-width: 0; display: flex; align-items: center; }
@@ -88,11 +88,6 @@ button { color: inherit; }
 .session-row-copy b {
   overflow: hidden;
   text-overflow: clip;
-  white-space: nowrap;
-}
-.project-row b, .project-row small {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .session-row-actions { display: flex; align-items: center; }
@@ -224,22 +219,6 @@ button { color: inherit; }
 .diff-toggle { width: 100%; }
 .diff-fallback { margin: 0; overflow: auto; }
 
-.project-switcher-layer { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; }
-.project-switcher { display: flex; flex-direction: column; overflow: hidden; }
-.project-switcher > header { display: flex; align-items: center; }
-.project-switcher > header > div { min-width: 0; flex: 1; }
-.project-switcher h1, .project-switcher p { margin: 0; }
-.project-grid { min-height: 0; overflow-y: auto; display: grid; }
-.project-card { position: relative; min-width: 0; }
-.project-card .project-row > span { min-width: 0; display: grid; }
-.project-more { position: absolute; opacity: 0; pointer-events: none; }
-.project-card:hover .project-more, .project-card:focus-within .project-more { opacity: 1; pointer-events: auto; }
-.project-card-menu { position: absolute; z-index: 5; }
-.project-card-menu button { width: 100%; border: 0; background: transparent; text-align: left; }
-.project-rename { display: flex; align-items: center; }
-.project-rename input { width: 100%; }
-.project-empty { grid-column: 1 / -1; display: grid; place-items: center; align-content: center; }
-
 @media (max-width: 760px) {
   .sidebar, .sidebar-collapsed .sidebar {
     position: absolute;
@@ -254,8 +233,4 @@ button { color: inherit; }
   .sidebar.open { transform: translateX(0); pointer-events: auto; visibility: visible; }
   .sidebar-backdrop { display: block; position: absolute; z-index: 3; inset: 0; border: 0; background: var(--mx-scrim); }
   .starter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .project-grid { grid-template-columns: 1fr; }
-}
-@media (hover: none), (pointer: coarse) {
-  .projects-add, .project-more { opacity: 1; pointer-events: auto; }
 }

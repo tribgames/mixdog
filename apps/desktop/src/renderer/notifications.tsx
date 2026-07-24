@@ -72,7 +72,6 @@ import {
 import type { TurnFailureModel } from "./renderer-logic.mjs";
 import {
   DesktopTitlebar,
-  ProjectSwitcher,
   SessionSidebar,
   type NavigationSelection,
   type WorkspaceTab,
