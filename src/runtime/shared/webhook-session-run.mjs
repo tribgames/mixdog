@@ -10,6 +10,7 @@ import { createSession } from '../agent/orchestrator/session/manager/session-lif
 import { askSession } from '../agent/orchestrator/session/manager/ask-session.mjs';
 import { parseScheduleModelRef } from './schedule-model-ref.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
+import { automationPromptContent } from './automation-attachments.mjs';
 
 /** Endpoint model ref wins; the maintenance.webhook route is the fallback. */
 function webhookRoute(modelRef) {
@@ -25,7 +26,7 @@ function webhookRoute(modelRef) {
   throw new Error('webhook run has no model: set one on the endpoint or configure maintenance.webhook');
 }
 
-export async function runWebhookSession({ name, model = null, prompt, cwd = null, workflow = null }) {
+export async function runWebhookSession({ name, model = null, prompt, cwd = null, workflow = null, attachments = null }) {
   const endpoint = String(name || '').trim();
   const body = String(prompt || '').trim();
   if (!endpoint) throw new Error('runWebhookSession: endpoint name required');
@@ -48,6 +49,8 @@ export async function runWebhookSession({ name, model = null, prompt, cwd = null
   });
   // The user message leads with the endpoint's instructions, so Recent titles
   // read as the user-authored intent rather than payload noise.
-  const result = await askSession(session.id, body, null, null, projectCwd || undefined);
+  // Stored attachments ride along as composer-style content parts.
+  const content = automationPromptContent(body, attachments);
+  const result = await askSession(session.id, content, null, null, projectCwd || undefined);
   return { sessionId: session.id, result: String(result?.content || '') };
 }

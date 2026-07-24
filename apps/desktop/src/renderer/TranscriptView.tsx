@@ -500,8 +500,8 @@ function extractImageMarkers(text: string): { text: string; chips: ImageMarkerCh
 
 // Webhook fires embed a trust-fencing block (directive + WEBHOOK_UNTRUSTED_DATA
 // markers around headers/payload) that the MODEL needs verbatim but the user
-// bubble should not shout: fold it into a collapsed "Webhook payload" box and
-// keep only the operator-authored instructions as the visible message text.
+// transcript hides entirely (user decision): only the operator-authored
+// instructions remain visible as the message text.
 const WEBHOOK_FENCE_RE =
   /(?:The block between the WEBHOOK_UNTRUSTED_DATA markers[^\n]*\n+)?<<<WEBHOOK_UNTRUSTED_DATA_BEGIN>>>\n?([\s\S]*?)\n?<<<WEBHOOK_UNTRUSTED_DATA_END>>>/;
 export function extractWebhookPayload(text: string): { text: string; payload: string } {
@@ -581,10 +581,6 @@ export const TranscriptRow = memo(function TranscriptRow({
               ))}
             </div>}
             {webhookFold.text ? <p>{webhookFold.text}</p> : null}
-            {webhookFold.payload ? <details className="message-webhook-payload">
-              <summary>Webhook payload</summary>
-              <pre>{webhookFold.payload}</pre>
-            </details> : null}
           </> : (
             <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
           )}

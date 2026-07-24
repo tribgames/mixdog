@@ -114,9 +114,10 @@ test('webhooks pane lists endpoints and creates webhooks with a pre-minted secre
   form.querySelector('input[name="webhook-name"]').value = 'stripe-events';
   form.querySelector('textarea[name="webhook-instructions"]').value = 'Handle the event.';
   await submit(form);
-  // The displayed pre-minted secret is exactly what gets persisted.
+  // The displayed pre-minted secret is exactly what gets persisted; the
+  // parser defaults to Generic JSON (user decision).
   assert.deepEqual(calls.filter(([name]) => name === 'saveWebhook').at(-1)[1][0], {
-    name: 'stripe-events', description: '', parser: 'github', secret: mintedSecret,
+    name: 'stripe-events', description: '', parser: 'generic', secret: mintedSecret,
     instructions: 'Handle the event.', enabled: true,
   });
   // Boolean form: a failed equality against a DOM node would serialize jsdom.

@@ -11,6 +11,7 @@ import { createSession } from '../agent/orchestrator/session/manager/session-lif
 import { askSession } from '../agent/orchestrator/session/manager/ask-session.mjs';
 import { parseScheduleModelRef } from './schedule-model-ref.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
+import { automationPromptContent } from './automation-attachments.mjs';
 
 /** Resolve schedule.model into a {provider,model,effort?,fast?} route. */
 function scheduleRouteFromModelRef(modelRef, config = null) {
@@ -63,6 +64,8 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
   });
   // The user message is the schedule's instructions verbatim: the desktop
   // title/preview derive from it, so no "[Scheduled task: …]" header noise.
-  const result = await askSession(session.id, prompt, null, null, cwd || undefined);
+  // Stored attachments ride along as composer-style content parts.
+  const content = automationPromptContent(prompt, schedule.attachments);
+  const result = await askSession(session.id, content, null, null, cwd || undefined);
   return { sessionId: session.id, result: String(result?.content || '') };
 }

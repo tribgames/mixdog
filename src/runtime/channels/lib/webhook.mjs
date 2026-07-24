@@ -412,6 +412,7 @@ ${payload}
       // cwd/workflow define the created session, not the worker's global cwd.
       cwd: extra.cwd || this.config?.cwd || null,
       workflow: extra.workflow || null,
+      attachments: extra.attachments || null,
       context: {
         source: "webhook",
         endpoint: name,
@@ -445,12 +446,12 @@ ${payload}
     // pipeline below.
     if (endpoint) {
       try {
-        const { model, instructions, cwd, workflow } = endpoint;
+        const { model, instructions, cwd, workflow, attachments } = endpoint;
         const payloadContent = this._buildFencedPayload(body, headers);
         if (!this.bridgeDispatch) throw new Error(`[webhook] session dispatch requires bridgeDispatch`);
         const fullPrompt = `${instructions}\n\n${payloadContent}`;
         await this._dispatchSessionRun(name, model || null, fullPrompt, headers, deliveryId, res,
-          { cwd: cwd || null, workflow: workflow || null });
+          { cwd: cwd || null, workflow: workflow || null, attachments: attachments || null });
         return;
       } catch (err) {
         await updateDeliveryStatus(name, deliveryId, "failed", { error: String(err?.message || err) });

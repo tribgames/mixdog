@@ -6,13 +6,19 @@ import { OpenSelect } from './OpenSelect';
 import { ModelPicker } from './ModelPicker';
 import { modelDisplayName } from './provider-display';
 import { copyTextToClipboard } from './text-format';
+import {
+  AutomationAttachButton,
+  AutomationAttachmentChips,
+  attachmentsFromRecords,
+  type AutomationAttachment,
+} from './automation-attachments';
 
 type RecordValue = Record<string, unknown>;
 export type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
 const PARSER_OPTIONS = [
-  { value: 'github', label: 'GitHub' },
   { value: 'generic', label: 'Generic JSON' },
+  { value: 'github', label: 'GitHub' },
   { value: 'stripe', label: 'Stripe' },
   { value: 'sentry', label: 'Sentry' },
 ];
@@ -63,6 +69,7 @@ interface WebhookDraft {
   model: string;
   cwd: string;
   workflow: string;
+  attachments: AutomationAttachment[];
   instructions: string;
   enabled: boolean;
 }
@@ -72,10 +79,11 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
   return {
     name: String(source.name || ''),
     description: String(source.description || ''),
-    parser: String(source.parser || 'github'),
+    parser: String(source.parser || 'generic'),
     model: String(source.model || ''),
     cwd: String(source.cwd || ''),
     workflow: String(source.workflow || ''),
+    attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
   };
@@ -148,6 +156,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   const [parser, setParser] = useState(draft.parser);
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
+  const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   // EDIT never reveals the stored secret; rotation mints a replacement that
   // only persists on Save (user decision).
   const [rotated, setRotated] = useState('');
@@ -224,6 +233,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
           ...(model ? { model: `${model}${effortSuffix}${fastSuffix}` } : {}),
           ...(cwd ? { cwd } : {}),
           ...(workflow ? { workflow } : {}),
+          ...(attachments.length ? { attachments } : {}),
           ...(effectiveSecret ? { secret: effectiveSecret } : {}),
           instructions: text('webhook-instructions'),
           enabled: draft.enabled,
@@ -238,14 +248,18 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
         <div className="schedules-composer">
           <textarea name="webhook-instructions" defaultValue={draft.instructions} required disabled={busy}
             placeholder="What should Mixdog do when this webhook fires?" aria-label="Webhook instructions" />
+          <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
+          {/* Chat-composer grammar (user decision): project → parser →
+              attach → model/effort/fast on the left, workflow on the right. */}
           <div className="schedules-composer-row">
-            <OpenSelect ariaLabel="Webhook parser" value={parser} disabled={busy}
-              options={PARSER_OPTIONS} onChange={setParser} />
             <OpenSelect ariaLabel="Webhook project" value={cwd} disabled={busy}
               options={projectOptions} onChange={setCwd} />
-            <OpenSelect ariaLabel="Webhook workflow" value={workflow} disabled={busy}
-              options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
-            <div className="schedules-composer-route">
+            <OpenSelect ariaLabel="Webhook parser" value={parser} disabled={busy}
+              options={PARSER_OPTIONS} onChange={setParser} />
+            <AutomationAttachButton attachments={attachments} disabled={busy}
+              ariaLabel="Attach files to this webhook"
+              onChange={setAttachments} onError={setFormError} />
+            <div className="schedules-composer-route inline">
               <ModelPicker models={models} provider={modelProvider} model={modelId}
                 triggerLabel={modelLabel} ariaLabel="Webhook model"
                 triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
@@ -261,6 +275,10 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
                 value={fast ? 'on' : 'off'} disabled={busy}
                 options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
                 onChange={(value) => setFast(value === 'on')} />}
+            </div>
+            <div className="schedules-composer-end">
+              <OpenSelect ariaLabel="Webhook workflow" value={workflow} disabled={busy}
+                options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
             </div>
           </div>
         </div>

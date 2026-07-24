@@ -5,6 +5,12 @@ import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectS
 import { OpenSelect } from './OpenSelect';
 import { ModelPicker } from './ModelPicker';
 import { modelDisplayName } from './provider-display';
+import {
+  AutomationAttachButton,
+  AutomationAttachmentChips,
+  attachmentsFromRecords,
+  type AutomationAttachment,
+} from './automation-attachments';
 
 type RecordValue = Record<string, unknown>;
 export type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
@@ -58,6 +64,7 @@ interface ScheduleDraft {
   at: string;
   cwd: string;
   workflow: string;
+  attachments: AutomationAttachment[];
   channel: string;
   model: string;
   instructions: string;
@@ -143,6 +150,7 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultChannel: string
     at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
     cwd: String(source.cwd || ''),
     workflow: String(source.workflow || ''),
+    attachments: attachmentsFromRecords(source.attachments),
     channel: String(source.channel || defaultChannel || ''),
     model: String(source.model || ''),
     instructions: String(source.instructions || ''),
@@ -201,6 +209,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const [fast, setFast] = useState(initialModel.fast);
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
+  const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [formError, setFormError] = useState('');
   const slash = model.indexOf('/');
   const modelProvider = slash > 0 ? model.slice(0, slash) : '';
@@ -266,6 +275,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           model: `${model}${effortSuffix}${fastSuffix}`,
           ...(cwd ? { cwd } : {}),
           ...(workflow ? { workflow } : {}),
+          ...(attachments.length ? { attachments } : {}),
           instructions: text('schedule-instructions'),
           enabled: draft.enabled,
           ...(editing ? { overwrite: true } : {}),
@@ -278,12 +288,16 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
         <div className="schedules-composer">
           <textarea name="schedule-instructions" defaultValue={draft.instructions} required disabled={busy}
             placeholder="What should Mixdog do when this schedule fires?" aria-label="Schedule instructions" />
+          <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
+          {/* Chat-composer grammar (user decision): project → attach →
+              model/effort/fast on the left, workflow on the right. */}
           <div className="schedules-composer-row">
             <OpenSelect ariaLabel="Schedule project" value={cwd} disabled={busy}
               options={projectOptions} onChange={setCwd} />
-            <OpenSelect ariaLabel="Schedule workflow" value={workflow} disabled={busy}
-              options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
-            <div className="schedules-composer-route">
+            <AutomationAttachButton attachments={attachments} disabled={busy}
+              ariaLabel="Attach files to this schedule"
+              onChange={setAttachments} onError={setFormError} />
+            <div className="schedules-composer-route inline">
             <ModelPicker models={models} provider={modelProvider} model={modelId}
               triggerLabel={modelLabel} ariaLabel="Schedule model"
               triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
@@ -299,6 +313,10 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
               value={fast ? 'on' : 'off'} disabled={busy}
               options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
               onChange={(value) => setFast(value === 'on')} />}
+            </div>
+            <div className="schedules-composer-end">
+              <OpenSelect ariaLabel="Schedule workflow" value={workflow} disabled={busy}
+                options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
             </div>
           </div>
         </div>

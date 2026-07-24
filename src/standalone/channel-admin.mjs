@@ -38,6 +38,7 @@ import {
   deleteEndpoint as dbDeleteEndpoint,
   setEndpointEnabled as dbSetEndpointEnabled,
 } from '../runtime/shared/webhooks-db.mjs';
+import { normalizeAutomationAttachments } from '../runtime/shared/automation-attachments.mjs';
 import { readHookPublicBase } from '../runtime/channels/lib/webhook/relay-tunnel.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -359,6 +360,7 @@ function scheduleToDisplay(s) {
     model: s.model || undefined,
     cwd: s.cwd || undefined,
     workflow: s.workflow || undefined,
+    attachments: s.attachments || undefined,
     enabled: s.enabled !== false,
     instructions: s.prompt,
     route: s.target === 'channel' ? `channel:${s.channelId}` : 'session',
@@ -385,6 +387,7 @@ export async function saveSchedule({
   model,
   cwd,
   workflow,
+  attachments,
   enabled,
   instructions,
   overwrite = false,
@@ -413,6 +416,7 @@ export async function saveSchedule({
     model: model ? String(model).trim() : null,
     cwd: cwd ? String(cwd).trim() : null,
     workflow: workflow ? String(workflow).trim() : null,
+    attachments: normalizeAutomationAttachments(attachments),
     prompt: body,
     enabled: enabled !== false,
   });
@@ -446,6 +450,7 @@ async function listWebhooks() {
     ...(ep.model ? { model: ep.model } : {}),
     ...(ep.cwd ? { cwd: ep.cwd } : {}),
     ...(ep.workflow ? { workflow: ep.workflow } : {}),
+    ...(ep.attachments ? { attachments: ep.attachments } : {}),
     enabled: ep.enabled,
     // The store never projects the plaintext secret through list paths; it
     // exposes a presence flag (secretSet) instead.
@@ -465,6 +470,7 @@ export async function saveWebhook({
   model,
   cwd,
   workflow,
+  attachments,
   enabled,
   instructions,
   overwrite = false,
@@ -495,6 +501,7 @@ export async function saveWebhook({
     model: model ? String(model).trim() : null,
     cwd: cwd ? String(cwd).trim() : null,
     workflow: workflow ? String(workflow).trim() : null,
+    attachments: normalizeAutomationAttachments(attachments),
     secret: secretValue,
     instructions: body,
     enabled: enabled !== false,
@@ -507,6 +514,7 @@ export async function saveWebhook({
     ...(saved.model ? { model: saved.model } : {}),
     ...(saved.cwd ? { cwd: saved.cwd } : {}),
     ...(saved.workflow ? { workflow: saved.workflow } : {}),
+    ...(saved.attachments ? { attachments: saved.attachments } : {}),
     ...(enabled === false ? { enabled: false } : {}),
     secret: secretValue,
     instructions: body,
