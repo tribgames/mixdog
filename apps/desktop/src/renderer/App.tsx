@@ -24,9 +24,9 @@ import {
   ChevronRight,
   Code2,
   Command,
+  Columns2,
   FileDiff,
   Folder,
-  GitCompare,
   Layers3,
   LoaderCircle,
   Mic,
@@ -37,9 +37,9 @@ import {
   RotateCcw,
   ShieldAlert,
   Sparkles,
+  ToggleLeft,
+  ToggleRight,
   Trash2,
-  Signal,
-  SignalLow,
   X,
 } from "lucide-react";
 import { MxIcon } from "./MxIcon";
@@ -353,10 +353,9 @@ function RemoteToggleButton() {
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
-  // On/off reads through the GLYPH, not color (user decision): full signal
-  // bars while the remote runtime is up, the single low bar when it is
-  // stopped (SignalZero's lone dot was invisible at 18px) — same ink as the
-  // neighboring dock toggles, no crossed-out X.
+  // On/off reads through the GLYPH, not color (user decision): a literal
+  // switch — ToggleRight while the remote runtime is up, ToggleLeft when it
+  // is stopped. Rounded-rect body matches the panel-toggle glyph family.
   return <button type="button"
     className="session-dock-toggle remote-toggle"
     aria-pressed={remote === true} disabled={busy || remote === null}
@@ -370,7 +369,7 @@ function RemoteToggleButton() {
         .then(() => refresh())
         .finally(() => setBusy(false));
     }}>
-    {remote ? <Signal size={18} aria-hidden="true" /> : <SignalLow size={18} aria-hidden="true" />}
+    {remote ? <ToggleRight size={18} aria-hidden="true" /> : <ToggleLeft size={18} aria-hidden="true" />}
   </button>;
 }
 
@@ -1885,7 +1884,9 @@ export function App() {
                     onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
                     aria-label={reviewOpen ? "Back to chat" : "Review changes"}
                     data-tooltip={reviewOpen ? "Back to chat" : "Review"}>
-                    <GitCompare size={18} aria-hidden="true" />
+                    {/* Split-view glyph: same rectangular family as the
+                        panel toggle on its right (user decision). */}
+                    <Columns2 size={18} aria-hidden="true" />
                   </button>
                   <button type="button" className="session-dock-toggle"
                     onClick={() => setDockOpen((value) => !value)} aria-pressed={dockOpen}
