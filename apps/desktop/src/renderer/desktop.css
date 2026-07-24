@@ -3527,6 +3527,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .automation-group-past .session-row-copy b { font-size: 12px; }
 /* Header remote runtime toggle: same quiet dock-tool ink as its neighbors —
    the on/off state reads through the Wifi/WifiOff glyph, not color. */
+/* Curved wifi arcs blur more than straight panel lines at the 18px scale:
+   a hair more stroke keeps the glyph crisp without reading bold. */
+.remote-toggle svg.lucide { stroke-width: 1.5px; }
 /* Composer chips stay flat like the model trigger: no box, no hover wash. */
 .schedules-composer-row .mx-select-trigger,
 .schedules-composer-row .mx-select-trigger:hover:not(:disabled),
