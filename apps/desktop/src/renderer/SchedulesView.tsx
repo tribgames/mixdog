@@ -439,7 +439,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
     setError('');
     try {
       await api.invokeCapability({ capability: 'runScheduleNow', args: [name] });
-      setNotice(`"${name}" ran — the session is in Recent.`);
+      setNotice(`"${name}" ran — see Automations in the sidebar.`);
       void load();
       notifySessionsRefresh();
     } catch (reason) {
