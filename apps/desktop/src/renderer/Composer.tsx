@@ -1263,7 +1263,10 @@ export const Composer = memo(function Composer({
       altKey: event.altKey,
       historyActive: historyNavigation.current.index >= 0,
     });
-    if (event.key === 'ArrowUp' && historyIntent && !event.altKey && !draft.trim() &&
+    // TUI parity: ArrowUp reclaims queued follow-ups even with a draft in
+    // progress (caret at start) — the engine merges queued text above the
+    // current draft, exactly like the terminal's up-arrow restore.
+    if (event.key === 'ArrowUp' && historyIntent && !event.altKey &&
       Array.isArray(queued) && queued.length) {
       event.preventDefault();
       void restoreQueue();
