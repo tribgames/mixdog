@@ -38,7 +38,6 @@ import {
   ShieldAlert,
   Sparkles,
   Unplug,
-  Wifi,
   Trash2,
   X,
 } from "lucide-react";
@@ -336,6 +335,19 @@ function SnapshotLiveWork({
   </div>;
 }
 
+// Lucide's Wifi draws its base dot as a 0.01-length stroke ("M12 20h.01") —
+// invisible at the header's thin 1.25px stroke. Same waves, but the dot is a
+// FILLED circle so the glyph reads complete (user: "the bottom looks empty").
+function WifiGlyph({ size = 18 }: { size?: number }) {
+  return <svg className="lucide" width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 8.82a15 15 0 0 1 20 0" />
+    <path d="M5 12.859a10 10 0 0 1 14 0" />
+    <path d="M8.5 16.429a5 5 0 0 1 7 0" />
+    <circle cx="12" cy="20" r="1.2" fill="currentColor" stroke="none" />
+  </svg>;
+}
+
 // Remote runtime on/off lives in the session header next to the context
 // indicator (user decision — the Settings toggle is gone). isRemoteEnabled
 // polls so external toggles (CLI, another window) reconcile the pressed state.
@@ -369,7 +381,7 @@ function RemoteToggleButton() {
         .then(() => refresh())
         .finally(() => setBusy(false));
     }}>
-    {remote ? <Wifi size={18} aria-hidden="true" /> : <Unplug size={18} aria-hidden="true" />}
+    {remote ? <WifiGlyph size={18} /> : <Unplug size={18} aria-hidden="true" />}
   </button>;
 }
 
