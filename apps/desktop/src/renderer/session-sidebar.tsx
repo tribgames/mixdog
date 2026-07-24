@@ -327,6 +327,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                       session={head} active={selection.kind === "session" && selection.id === head.id}
                       working={workingSessionIds?.has(head.id) === true}
                       unread={unreadSessionIds?.has(head.id) === true}
+                      expandToggle={rest.length > 0
+                        ? { expanded, count: rest.length, onToggle: () => toggleAutomationGroup(key) }
+                        : undefined}
                       editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
                       sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
                       confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
@@ -337,12 +340,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                       onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
                       onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
                       onArchiveSession={onArchiveSession} />
-                    {rest.length > 0 && <button type="button" className="automation-group-toggle"
-                      aria-expanded={expanded}
-                      onClick={() => toggleAutomationGroup(key)}>
-                      {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                      <span>Past runs · {rest.length}</span>
-                    </button>}
                     {expanded && rest.length > 0 && <div className="automation-group-past">
                       {rest.map((session) => <SessionSidebarRow key={session.id}
                         session={session} active={selection.kind === "session" && selection.id === session.id}
@@ -456,6 +453,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   active,
   working,
   unread,
+  expandToggle,
   editingSessionId,
   sessionTitleDraft,
   sessionTitleInvalid,
@@ -479,6 +477,8 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   active: boolean;
   working?: boolean;
   unread?: boolean;
+  /** Automations head row: inline chevron beside the name that discloses past runs. */
+  expandToggle?: { expanded: boolean; count: number; onToggle(): void };
   editingSessionId: string;
   sessionTitleDraft: string;
   sessionTitleInvalid: boolean;
@@ -500,6 +500,7 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
 }) {
   return <SessionRow session={session} active={active} working={working}
     unread={unread}
+    expandToggle={expandToggle}
     editing={editingSessionId === session.id}
     titleDraft={sessionTitleDraft}
     titleInvalid={sessionTitleInvalid}
@@ -539,6 +540,7 @@ const SessionRow = React.memo(function SessionRow({
   active,
   working,
   unread,
+  expandToggle,
   editing,
   titleDraft,
   titleInvalid,
@@ -562,6 +564,7 @@ const SessionRow = React.memo(function SessionRow({
   active: boolean;
   working?: boolean;
   unread?: boolean;
+  expandToggle?: { expanded: boolean; count: number; onToggle(): void };
   editing: boolean;
   titleDraft: string;
   titleInvalid: boolean;
@@ -646,6 +649,26 @@ const SessionRow = React.memo(function SessionRow({
               }}>
               <b>{sessionLabel(session)}</b>
             </span>
+            {/* Inline past-runs disclosure (Automations head): a chevron right
+                beside the name — no extra list row (user decision). span, not
+                button: it nests inside the row's main <button>. */}
+            {expandToggle && <span className="session-row-expand" role="button" tabIndex={0}
+              aria-expanded={expandToggle.expanded}
+              aria-label={`${expandToggle.count} past runs`}
+              data-tooltip={`Past runs · ${expandToggle.count}`}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                expandToggle.onToggle();
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                event.stopPropagation();
+                expandToggle.onToggle();
+              }}>
+              {expandToggle.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </span>}
             {/* Claude-style unread dot: the session advanced while it was not
                 the viewed conversation. The working spinner supersedes it. */}
             {unread && !working && <span className="session-row-unread-dot" role="status"

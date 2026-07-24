@@ -3597,24 +3597,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Attachment chips inside the automation editors reuse the composer chip
    look; the container just needs its own flow inside the dialog card. */
 .schedules-attachments { display: flex; flex-wrap: wrap; padding: 8px 12px 0; }
-/* Automations group: quiet "Past runs" disclosure under the newest fire;
-   expanded past-run rows indent one step and read as timestamps. */
-.automation-group-toggle {
-  display: flex;
+/* Automations group: inline chevron beside the head-row name discloses past
+   runs; expanded rows indent one step and read one size smaller. */
+.session-row-expand {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  width: calc(100% - 16px);
-  margin: 0 8px 2px;
-  padding: 2px 8px 2px 20px;
-  border: 0;
-  border-radius: 6px;
-  font-size: 11px;
+  flex: 0 0 auto;
+  margin-left: 2px;
+  padding: 2px;
+  border-radius: 4px;
   color: var(--mx-text-faint);
-  background: transparent;
-  cursor: pointer;
 }
-.automation-group-toggle:hover { color: var(--mx-text); background: var(--mx-hover); }
+.session-row-expand:hover { color: var(--mx-text); background: var(--mx-hover); }
 .automation-group-past { padding-left: 14px; }
+.automation-group-past .session-row-copy b { font-size: 12px; }
 /* Composer chips stay flat like the model trigger: no box, no hover wash. */
 .schedules-composer-row .mx-select-trigger,
 .schedules-composer-row .mx-select-trigger:hover:not(:disabled),
