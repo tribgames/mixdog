@@ -3597,8 +3597,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* Attachment chips inside the automation editors reuse the composer chip
    look; the container just needs its own flow inside the dialog card. */
 .schedules-attachments { display: flex; flex-wrap: wrap; padding: 8px 12px 0; }
-/* Automations group: inline chevron beside the head-row name discloses past
-   runs; expanded rows indent one step and read one size smaller. */
+/* Automations group: the header row is a PURE disclosure button — clicking
+   anywhere toggles the run list; the chevron hugs the name. Expanded rows
+   indent one step and read one size smaller. */
+.automation-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
 .session-row-expand {
   display: inline-flex;
   align-items: center;

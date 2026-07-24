@@ -161,26 +161,23 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   // older fires stay reachable behind a per-group "Past runs" toggle (user
   // decision — fires are full sessions now, so history must not vanish).
   const automationGroups = useMemo(() => {
-    const groups = new Map<string, { head: DesktopSessionSummary; rest: DesktopSessionSummary[] }>();
+    const groups = new Map<string, { name: string; runs: DesktopSessionSummary[] }>();
     for (const session of allRows) {
       if (session.archived === true || !isAutomationRow(session)) continue;
       const key = `${session.sourceType}:${String(session.sourceName || "").trim().toLowerCase() || session.id}`;
-      const entry = groups.get(key);
+      let entry = groups.get(key);
       if (!entry) {
-        groups.set(key, {
-          head: session.sourceName ? { ...session, title: session.sourceName } : session,
-          rest: [],
-        });
-      } else {
-        // Older fires keep activity order (allRows is activity-desc) and show
-        // their fire time as the row label — every run reads the same name.
-        entry.rest.push({
-          ...session,
-          title: new Date(Number(session.activityAt) || session.updatedAt).toLocaleString(undefined, {
-            month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-          }),
-        });
+        entry = { name: String(session.sourceName || sessionLabel(session)), runs: [] };
+        groups.set(key, entry);
       }
+      // Runs keep activity order (allRows is activity-desc) and show their
+      // fire time as the row label — every run reads the same name.
+      entry.runs.push({
+        ...session,
+        title: new Date(Number(session.activityAt) || session.updatedAt).toLocaleString(undefined, {
+          month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+        }),
+      });
     }
     return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
   }, [allRows]);
@@ -320,28 +317,32 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             </button>
             {automationsOpen && (
               <nav className="session-list automation-session-list" aria-label="Automations">
-                {automationGroups.map(({ key, head, rest }) => {
+                {automationGroups.map(({ key, name, runs }) => {
                   const expanded = expandedAutomations.has(key);
+                  const working = runs.some((run) => workingSessionIds?.has(run.id) === true);
+                  const unread = runs.some((run) => unreadSessionIds?.has(run.id) === true);
                   return <div className="automation-group" key={key}>
-                    <SessionSidebarRow key={head.id}
-                      session={head} active={selection.kind === "session" && selection.id === head.id}
-                      working={workingSessionIds?.has(head.id) === true}
-                      unread={unreadSessionIds?.has(head.id) === true}
-                      expandToggle={rest.length > 0
-                        ? { expanded, count: rest.length, onToggle: () => toggleAutomationGroup(key) }
-                        : undefined}
-                      editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
-                      sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
-                      confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
-                      onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
-                      onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
-                      onPrefetchSession={requestPrefetch}
-                      onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
-                      onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
-                      onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
-                      onArchiveSession={onArchiveSession} />
-                    {expanded && rest.length > 0 && <div className="automation-group-past">
-                      {rest.map((session) => <SessionSidebarRow key={session.id}
+                    {/* The group header is a PURE disclosure (user decision):
+                        clicking toggles the run list — it never renames and
+                        never opens a session itself. */}
+                    <button type="button" className="session-row automation-group-header"
+                      aria-expanded={expanded}
+                      onClick={() => toggleAutomationGroup(key)}>
+                      <span className="session-row-status" data-working={working || undefined}>
+                        {working && <LoaderCircle size={12} className="session-row-spinner" role="status"
+                          aria-label={`${name} is working`} />}
+                      </span>
+                      <span className="session-row-copy">
+                        <b>{name}</b>
+                        <span className="session-row-expand" aria-hidden="true">
+                          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        </span>
+                      </span>
+                      {unread && !working && <span className="session-row-unread-dot" role="status"
+                        aria-label={`${name} has new activity`} />}
+                    </button>
+                    {expanded && <div className="automation-group-past">
+                      {runs.map((session) => <SessionSidebarRow key={session.id}
                         session={session} active={selection.kind === "session" && selection.id === session.id}
                         working={workingSessionIds?.has(session.id) === true}
                         unread={unreadSessionIds?.has(session.id) === true}
@@ -453,7 +454,6 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   active,
   working,
   unread,
-  expandToggle,
   editingSessionId,
   sessionTitleDraft,
   sessionTitleInvalid,
@@ -477,8 +477,6 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
   active: boolean;
   working?: boolean;
   unread?: boolean;
-  /** Automations head row: inline chevron beside the name that discloses past runs. */
-  expandToggle?: { expanded: boolean; count: number; onToggle(): void };
   editingSessionId: string;
   sessionTitleDraft: string;
   sessionTitleInvalid: boolean;
@@ -500,7 +498,6 @@ const SessionSidebarRow = React.memo(function SessionSidebarRow({
 }) {
   return <SessionRow session={session} active={active} working={working}
     unread={unread}
-    expandToggle={expandToggle}
     editing={editingSessionId === session.id}
     titleDraft={sessionTitleDraft}
     titleInvalid={sessionTitleInvalid}
@@ -540,7 +537,6 @@ const SessionRow = React.memo(function SessionRow({
   active,
   working,
   unread,
-  expandToggle,
   editing,
   titleDraft,
   titleInvalid,
@@ -564,7 +560,6 @@ const SessionRow = React.memo(function SessionRow({
   active: boolean;
   working?: boolean;
   unread?: boolean;
-  expandToggle?: { expanded: boolean; count: number; onToggle(): void };
   editing: boolean;
   titleDraft: string;
   titleInvalid: boolean;
@@ -648,27 +643,6 @@ const SessionRow = React.memo(function SessionRow({
                 onStartRename(session);
               }}>
               <b>{sessionLabel(session)}</b>
-              {/* Inline past-runs disclosure (Automations head): the chevron
-                  hugs the title like the section headings — no extra list
-                  row (user decision). span, not button: it nests inside the
-                  row's main <button>. */}
-              {expandToggle && <span className="session-row-expand" role="button" tabIndex={0}
-                aria-expanded={expandToggle.expanded}
-                aria-label={`${expandToggle.count} past runs`}
-                data-tooltip={`Past runs · ${expandToggle.count}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  expandToggle.onToggle();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  expandToggle.onToggle();
-                }}>
-                {expandToggle.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              </span>}
             </span>
             {/* Claude-style unread dot: the session advanced while it was not
                 the viewed conversation. The working spinner supersedes it. */}
