@@ -140,6 +140,9 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
   onSave(entry: RecordValue): void;
 }) {
   const [parser, setParser] = useState(draft.parser);
+  // EDIT never reveals the stored secret; rotation mints a replacement that
+  // only persists on Save (user decision).
+  const [rotated, setRotated] = useState('');
   // Uncontrolled name input + shadow state so the endpoint URL previews live
   // while typing (FormData still reads the input on submit).
   const [urlName, setUrlName] = useState(draft.name);
@@ -190,9 +193,9 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
         const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
         const fastSuffix = selected?.fastCapable && fast ? '+fast' : '';
         // A NEW webhook persists the displayed pre-minted secret; an EDIT
-        // sends nothing (the store preserves the existing secret on
-        // overwrite) — no rotation field (user decision).
-        const effectiveSecret = editing ? '' : secret;
+        // sends a secret only after an explicit Regenerate (the store
+        // preserves the existing secret on plain overwrite).
+        const effectiveSecret = editing ? rotated : secret;
         onSave({
           name: editing ? draft.name : text('webhook-name'),
           description: draft.description,
@@ -237,9 +240,9 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
             </div>
           </div>
         </div>
-        {/* Connection details (user decision): the endpoint URL and signing
-            secret sit below the composer, each with an icon-only copy button,
-            ready to paste into the external service's webhook settings. */}
+        {/* Connection details (user decision): the endpoint URL stays
+            visible; the signing secret shows only when freshly minted —
+            create pre-mints it, edit offers Regenerate instead. */}
         <div className="webhook-connection" aria-label="Connection details">
           <ConnectionRow label="Endpoint URL"
             value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
@@ -248,10 +251,18 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
               : 'URL appears once the runtime connects to the relay'}
             copied={copiedField === 'url'}
             onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)} />
-          <ConnectionRow label="Signing secret" value={secret}
-            placeholder="Secret unavailable"
-            copied={copiedField === 'secret'}
-            onCopy={() => copyField('secret', secret)} />
+          {editing && !rotated
+            ? <div className="schedules-field webhook-connection-row">
+              <span>Signing secret</span>
+              <div className="webhook-connection-value">
+                <button type="button" className="settings-action" disabled={busy}
+                  onClick={() => setRotated(generateSigningSecret())}>Regenerate secret</button>
+              </div>
+            </div>
+            : <ConnectionRow label="Signing secret" value={editing ? rotated : secret}
+              placeholder="Secret unavailable"
+              copied={copiedField === 'secret'}
+              onCopy={() => copyField('secret', editing ? rotated : secret)} />}
         </div>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
@@ -278,8 +289,6 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
   const [filter, setFilter] = useState<'all' | 'active' | 'paused'>('all');
   const [editor, setEditor] = useState<{ name: string; draft: WebhookDraft; secret: string } | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState('');
-  const [copied, setCopied] = useState('');
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadSequence = useRef(0);
 
   const load = useCallback(async () => {
@@ -308,9 +317,6 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
     if (active) void load();
     return () => { loadSequence.current += 1; };
   }, [active, load]);
-  useEffect(() => () => {
-    if (copiedTimer.current) clearTimeout(copiedTimer.current);
-  }, []);
 
   const busy = Boolean(pending) || loading;
   const run = async (capability: DesktopCapability, args: unknown[] = []): Promise<unknown> => {
@@ -340,28 +346,17 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
     return [webhook.name, webhook.description, webhook.parser, webhook.model, webhook.channel]
       .map((value) => String(value || '').toLowerCase()).join(' ').includes(text);
   });
-  const copy = (key: string, value: string) => {
-    void copyTextToClipboard(value);
-    setCopied(key);
-    if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    copiedTimer.current = setTimeout(() => setCopied(''), 1600);
-  };
   const saveWebhook = async (entry: RecordValue) => {
     const result = await run('saveWebhook', [entry]);
     if (result === undefined) return;
     setEditor(null);
   };
-  // Edit opens with the STORED secret visible (copy affordance in the
-  // editor); the read stays a local-only capability.
-  const openEditor = async (name: string, draft: WebhookDraft) => {
+  // Edit never reads the stored secret (user decision): rotation via the
+  // editor's Regenerate button is the only way to obtain a copyable value.
+  const openEditor = (name: string, draft: WebhookDraft) => {
     setConfirmingDelete('');
     setError('');
-    let secret = '';
-    try {
-      const result = await api?.invokeCapability?.({ capability: 'getWebhookSecret', args: [name] });
-      secret = String(record(result?.value).secret || '');
-    } catch { /* the editor shows "Secret unavailable" */ }
-    setEditor({ name, draft, secret });
+    setEditor({ name, draft, secret: '' });
   };
 
   return <div className="schedules-pane" style={active ? undefined : { display: 'none' }}>
@@ -402,7 +397,6 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
         : visible.length ? <div className="schedules-list">{visible.map((webhook) => {
           const name = String(webhook.name);
           const enabled = webhook.enabled !== false;
-          const url = endpointUrl(publicBase, name);
           return <div key={name} className="schedules-row">
             <span className={`schedules-row-dot ${enabled ? 'on' : ''}`} aria-hidden="true" />
             <div className="schedules-row-copy">
@@ -410,17 +404,14 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
               <small>{webhookMeta(webhook)}</small>
             </div>
             <div className="schedules-row-actions">
-              <button type="button" className="settings-action" disabled={!url}
-                data-tooltip={url || 'URL appears once the channel runtime connects to the relay'}
-                onClick={() => url && copy(name, url)}>
-                {copied === name ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-                {copied === name ? 'Copied' : 'Copy URL'}</button>
+              {/* No per-row Copy URL (user decision): the endpoint URL lives
+                  in the editor's connection block. */}
               {/* Automation is decoupled from the messaging runtime: pause/
                   resume only needs the store, never the remote toggle. */}
               <button type="button" className="settings-action" disabled={busy}
                 onClick={() => void run('setWebhookEnabled', [name, !enabled])}>{enabled ? 'Pause' : 'Resume'}</button>
               <button type="button" className="settings-action" disabled={busy}
-                onClick={() => void openEditor(name, webhookDraft(webhook))}>Edit</button>
+                onClick={() => openEditor(name, webhookDraft(webhook))}>Edit</button>
               <button type="button" className="settings-action danger" disabled={busy}
                 onClick={() => {
                   if (confirmingDelete !== name) {

@@ -86,17 +86,16 @@ async function submit(form) {
   });
 }
 
-test('webhooks pane lists endpoints, exposes the relay URL, and creates webhooks', async () => {
+test('webhooks pane lists endpoints and creates webhooks with a pre-minted secret', async () => {
   mount();
   const { api, calls } = webhooksApi();
   await renderPane(api);
   assert.match(document.querySelector('.schedules-page-header h1').textContent, /Webhooks/);
   const row = document.querySelector('.schedules-row');
   assert.match(row.textContent, /gh-issues/);
-  const copyUrl = Array.from(row.querySelectorAll('button'))
-    .find((button) => button.textContent.includes('Copy URL'));
-  assert.equal(copyUrl.disabled, false);
-  assert.equal(copyUrl.dataset.tooltip, 'https://relay.example/hook/device-1/webhook/gh-issues');
+  // No per-row Copy URL (user decision): the URL lives in the editor only.
+  assert.equal(Array.from(row.querySelectorAll('button'))
+    .some((button) => button.textContent.includes('Copy URL')), false);
   // Automation is decoupled from the messaging runtime: pause works with the
   // remote/channel runtime off.
   assert.equal(Array.from(row.querySelectorAll('button'))
@@ -139,12 +138,13 @@ test('editing prefills and saves with overwrite; delete requires a two-step conf
   const nameInput = form.querySelector('input[name="webhook-name"]');
   assert.equal(nameInput.value, 'gh-issues');
   assert.equal(nameInput.disabled, true);
-  // Connection block: the endpoint URL and the STORED signing secret are both
-  // visible with copy buttons (user decision — no one-shot reveal).
+  // Connection block: the endpoint URL stays visible; the stored secret is
+  // never revealed — rotation happens behind an explicit Regenerate.
   const connection = form.querySelector('.webhook-connection');
   assert.match(connection.textContent, /https:\/\/relay\.example\/hook\/device-1\/webhook\/gh-issues/);
-  assert.match(connection.textContent, /stored-secret/);
-  assert.equal(connection.querySelectorAll('button').length, 2);
+  assert.equal(connection.textContent.includes('stored-secret'), false);
+  assert.ok(Array.from(connection.querySelectorAll('button'))
+    .some((button) => button.textContent === 'Regenerate secret'));
   const instructions = form.querySelector('textarea[name="webhook-instructions"]');
   assert.equal(instructions.value, 'Summarize the issue.');
   instructions.value = 'Triage the issue.';
@@ -155,6 +155,23 @@ test('editing prefills and saves with overwrite; delete requires a two-step conf
   assert.equal(edited.instructions, 'Triage the issue.');
   assert.equal('secret' in edited, false,
     'editing without a replacement must not send a secret (the store preserves it)');
+
+  // Rotation: reopen, regenerate, and save — the minted secret persists.
+  await act(async () => {
+    buttons().find((button) => button.textContent === 'Edit').click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const reopened = document.querySelector('.schedules-dialog form');
+  await act(async () => {
+    Array.from(reopened.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Regenerate secret').click();
+    await Promise.resolve();
+  });
+  const rotatedSecret = reopened.querySelectorAll('.webhook-connection-value code')[1].textContent;
+  assert.match(rotatedSecret, /^[0-9a-f]{48}$/, 'regenerate mints a fresh signing secret');
+  await submit(reopened);
+  assert.equal(calls.filter(([name]) => name === 'saveWebhook').at(-1)[1][0].secret, rotatedSecret);
 
   const pause = buttons().find((button) => button.textContent === 'Pause');
   assert.equal(pause.disabled, false);
