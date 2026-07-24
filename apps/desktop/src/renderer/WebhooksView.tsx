@@ -1,5 +1,5 @@
 import React, { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, Plus, Search, Webhook, X } from 'lucide-react';
+import { Check, Copy, Folder, Plus, Search, Webhook, X } from 'lucide-react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { OpenSelect } from './OpenSelect';
@@ -189,7 +189,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
     ? effort
     : preferredEffort(selected);
   const projectOptions = [
-    { value: '', label: 'No project' },
+    { value: '__none__', label: 'No project' },
     ...projects.map((project) => ({
       value: project.path,
       label: project.alias?.trim() || project.name?.trim() || project.path,
@@ -245,37 +245,51 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
             disabled={busy || editing} maxLength={64}
             onChange={(event) => setUrlName(event.currentTarget.value)} />
         </label>
+        {/* Delivery/payload format lives OUTSIDE the composer as its own
+            labeled field (user decision). */}
+        <div className="schedules-field">
+          <span>Payload format</span>
+          <div className="schedules-frequency">
+            <OpenSelect ariaLabel="Webhook payload format" value={parser} disabled={busy}
+              options={PARSER_OPTIONS} onChange={setParser} />
+          </div>
+        </div>
+        {/* Chat-composer parity (user decision): project chip above the card,
+            then the card with attach/model/effort/fast left + workflow right. */}
+        <div className="composer-context-bar schedules-context-bar">
+          <div className="composer-project-context">
+            <Folder size={13} />
+            <OpenSelect className="project-context-select" ariaLabel="Webhook project"
+              value={cwd || '__none__'}
+              displayValue={projectOptions.find((option) => option.value === (cwd || '__none__'))?.label || 'Project'}
+              disabled={busy}
+              options={projectOptions}
+              onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
+          </div>
+        </div>
         <div className="schedules-composer">
           <textarea name="webhook-instructions" defaultValue={draft.instructions} required disabled={busy}
             placeholder="What should Mixdog do when this webhook fires?" aria-label="Webhook instructions" />
           <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
-          {/* Chat-composer grammar (user decision): project → parser →
-              attach → model/effort/fast on the left, workflow on the right. */}
-          <div className="schedules-composer-row">
-            <OpenSelect ariaLabel="Webhook project" value={cwd} disabled={busy}
-              options={projectOptions} onChange={setCwd} />
-            <OpenSelect ariaLabel="Webhook parser" value={parser} disabled={busy}
-              options={PARSER_OPTIONS} onChange={setParser} />
+          <div className="composer-footer schedules-composer-footer">
             <AutomationAttachButton attachments={attachments} disabled={busy}
               ariaLabel="Attach files to this webhook"
               onChange={setAttachments} onError={setFormError} />
-            <div className="schedules-composer-route inline">
-              <ModelPicker models={models} provider={modelProvider} model={modelId}
-                triggerLabel={modelLabel} ariaLabel="Webhook model"
-                triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
-                onSelect={(option) => {
-                  setModel(`${option.provider}/${option.model}`);
-                  setEffort(preferredEffort(option));
-                  setFast(option.fastCapable ? option.fastPreferred : false);
-                  setFormError('');
-                }} />
-              {selected && selected.effortOptions.length > 0 && <OpenSelect ariaLabel="Webhook reasoning effort"
-                value={effortValue} disabled={busy} options={selected.effortOptions} onChange={setEffort} />}
-              {selected?.fastCapable && <OpenSelect ariaLabel="Webhook fast mode"
-                value={fast ? 'on' : 'off'} disabled={busy}
-                options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
-                onChange={(value) => setFast(value === 'on')} />}
-            </div>
+            <ModelPicker models={models} provider={modelProvider} model={modelId}
+              triggerLabel={modelLabel} ariaLabel="Webhook model"
+              triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
+              onSelect={(option) => {
+                setModel(`${option.provider}/${option.model}`);
+                setEffort(preferredEffort(option));
+                setFast(option.fastCapable ? option.fastPreferred : false);
+                setFormError('');
+              }} />
+            {selected && selected.effortOptions.length > 0 && <OpenSelect ariaLabel="Webhook reasoning effort"
+              value={effortValue} disabled={busy} options={selected.effortOptions} onChange={setEffort} />}
+            {selected?.fastCapable && <OpenSelect ariaLabel="Webhook fast mode"
+              value={fast ? 'on' : 'off'} disabled={busy}
+              options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
+              onChange={(value) => setFast(value === 'on')} />}
             <div className="schedules-composer-end">
               <OpenSelect ariaLabel="Webhook workflow" value={workflow} disabled={busy}
                 options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />

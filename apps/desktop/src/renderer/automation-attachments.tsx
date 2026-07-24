@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { Paperclip } from 'lucide-react';
+import { MxIcon } from './MxIcon';
 
 // Composer-parity attachments for automation editors (schedules/webhooks).
 // Persisted with the automation row (jsonb) and replayed on every fire as
@@ -95,7 +96,10 @@ export async function readAutomationFiles(files: FileList | File[], existing: Au
   return { attachments: next, error: '' };
 }
 
-/** Paperclip button + hidden input; reports the merged list via onChange. */
+// Same accept surface as the chat composer's attach button.
+const ATTACH_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql';
+
+/** Composer-style "+" attach tool + hidden input; reports the merged list via onChange. */
 export function AutomationAttachButton({ attachments, disabled, ariaLabel, onChange, onError }: {
   attachments: AutomationAttachment[];
   disabled: boolean;
@@ -105,11 +109,12 @@ export function AutomationAttachButton({ attachments, disabled, ariaLabel, onCha
 }) {
   const input = useRef<HTMLInputElement>(null);
   return <>
-    <button type="button" className="settings-action schedules-attach" disabled={disabled}
-      aria-label={ariaLabel} data-tooltip="Attach files" onClick={() => input.current?.click()}>
-      <Paperclip size={14} aria-hidden="true" />
+    <button type="button" className="composer-tool" disabled={disabled}
+      aria-label={ariaLabel} data-tooltip="Attach images, PDFs, or text files" data-tooltip-side="top"
+      onClick={() => input.current?.click()}>
+      <MxIcon name="plus" size={16} />
     </button>
-    <input ref={input} type="file" multiple hidden aria-hidden="true" tabIndex={-1}
+    <input ref={input} type="file" multiple hidden aria-hidden="true" tabIndex={-1} accept={ATTACH_ACCEPT}
       onChange={(event) => {
         const files = event.currentTarget.files;
         event.currentTarget.value = '';

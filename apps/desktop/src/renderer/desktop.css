@@ -3518,7 +3518,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .schedules-dialog {
   box-sizing: border-box;
-  width: min(560px, 100%);
+  /* Chat-composer parity (user decision): the editor card matches the main
+     composer region's width so both surfaces read as the same instrument. */
+  width: min(800px, 100%);
   max-height: calc(var(--vvh, 100vh) - 48px);
   overflow-y: auto;
   border-radius: 14px;
@@ -3568,13 +3570,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .schedules-composer:focus-within { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
 .schedules-composer textarea {
-  min-height: 120px;
+  min-height: 140px;
   padding: 12px;
   border: 0;
   outline: none;
   color: var(--mx-text);
   background: transparent;
-  font: 400 13px/20px "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  /* Same reading scale as the chat composer's typing surface. */
+  font: 400 15px/22px "Pretendard Variable", Pretendard, "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
   resize: none;
 }
 .schedules-composer-row {
@@ -3591,7 +3594,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    the workflow picker sits alone on the right edge. */
 .schedules-composer-route.inline { margin-left: 0; }
 .schedules-composer-end { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-.schedules-attach { display: inline-flex; align-items: center; padding: 6px 8px; }
+/* Composer-footer clone inside the editor card: same 44px control bar, with
+   the select chips spaced like the chat composer tools. */
+.schedules-composer-footer { gap: 6px; padding: 0 8px; }
+.schedules-context-bar { display: flex; align-items: center; }
 /* Attachment chips inside the automation editors reuse the composer chip
    look; the container just needs its own flow inside the dialog card. */
 .schedules-attachments { display: flex; flex-wrap: wrap; padding: 8px 12px 0; }

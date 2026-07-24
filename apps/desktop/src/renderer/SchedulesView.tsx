@@ -1,5 +1,5 @@
 import React, { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { AlarmClock, Plus, Search, X } from 'lucide-react';
+import { AlarmClock, Folder, Plus, Search, X } from 'lucide-react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { OpenSelect } from './OpenSelect';
@@ -220,7 +220,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
     ? effort
     : preferredEffort(selected);
   const projectOptions = [
-    { value: '', label: 'No project' },
+    { value: '__none__', label: 'No project' },
     ...projects.map((project) => ({
       value: project.path,
       label: project.alias?.trim() || project.name?.trim() || project.path,
@@ -285,19 +285,27 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           <input name="schedule-name" defaultValue={draft.name} placeholder="daily-briefing" required autoFocus
             disabled={busy || editing} maxLength={64} />
         </label>
+        {/* Chat-composer parity (user decision): project chip above the card,
+            then the card with attach/model/effort/fast left + workflow right. */}
+        <div className="composer-context-bar schedules-context-bar">
+          <div className="composer-project-context">
+            <Folder size={13} />
+            <OpenSelect className="project-context-select" ariaLabel="Schedule project"
+              value={cwd || '__none__'}
+              displayValue={projectOptions.find((option) => option.value === (cwd || '__none__'))?.label || 'Project'}
+              disabled={busy}
+              options={projectOptions}
+              onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
+          </div>
+        </div>
         <div className="schedules-composer">
           <textarea name="schedule-instructions" defaultValue={draft.instructions} required disabled={busy}
             placeholder="What should Mixdog do when this schedule fires?" aria-label="Schedule instructions" />
           <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
-          {/* Chat-composer grammar (user decision): project → attach →
-              model/effort/fast on the left, workflow on the right. */}
-          <div className="schedules-composer-row">
-            <OpenSelect ariaLabel="Schedule project" value={cwd} disabled={busy}
-              options={projectOptions} onChange={setCwd} />
+          <div className="composer-footer schedules-composer-footer">
             <AutomationAttachButton attachments={attachments} disabled={busy}
               ariaLabel="Attach files to this schedule"
               onChange={setAttachments} onError={setFormError} />
-            <div className="schedules-composer-route inline">
             <ModelPicker models={models} provider={modelProvider} model={modelId}
               triggerLabel={modelLabel} ariaLabel="Schedule model"
               triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
@@ -313,7 +321,6 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
               value={fast ? 'on' : 'off'} disabled={busy}
               options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
               onChange={(value) => setFast(value === 'on')} />}
-            </div>
             <div className="schedules-composer-end">
               <OpenSelect ariaLabel="Schedule workflow" value={workflow} disabled={busy}
                 options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
