@@ -24,6 +24,7 @@ import {
 import { OpenSelect } from '../OpenSelect';
 import { filterConfiguredModels, ModelPicker } from '../ModelPicker';
 import { modelDisplayName, modelOptionLabel, normalizeModelOptions, providerDisplayName } from '../provider-display';
+import { remoteNewTaskMode, setRemoteNewTaskMode, type RemoteNewTaskMode } from '../remote-preferences';
 
 import { type RecordValue, type CapabilityApi, type CapabilitySettingsProps, type PanelContext, type SettingsConfirmation, type CachedCapabilitySettings, SECTION_READS, getCachedCapabilitySettings, preloadCapabilitySettings, record, rows, bool, label, providerLabel, count, formatDuration, durationTextInput } from "./capability-data";
 import { Group, ToggleRow, SelectRow, QuietSelectRow, routeOption, preferredEffort, routeOptionLabel, RouteEditor, FormRow, AutoSaveRow, ActionButton, SettingsConfirmDialog, settingsStatus, type SettingsStatusTone, ResourceRow, MetricGrid, ContextStatusView, UsageDashboard, Empty, ListEmpty } from "./capability-controls";
@@ -676,6 +677,10 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
         : 'Discord and Telegram messaging is enabled.'}
         checked={channels.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setChannelsEnabled', [enabled])} />
+      {/* New-task relay default (user decision): tasks start remote OFF;
+          this dropdown flips every fresh task's channel relay ON. Desktop-
+          local preference — the header toggle stays the live control. */}
+      <NewTaskRemoteRow busy={busy} />
       <SelectRow title="Channel" description="Primary outbound channel backend." value={backend} disabled={busy}
         options={[{ value: 'discord', label: 'Discord' }, { value: 'telegram', label: 'Telegram' }]}
         onChange={(value) => {
@@ -725,6 +730,25 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
 }
 
 function SystemPanel(context: PanelContext) {
+  return SystemPanelBody(context);
+}
+
+// New-task relay dropdown: desktop-local preference row (Channel service).
+function NewTaskRemoteRow({ busy }: { busy: boolean }) {
+  const [mode, setMode] = useState<RemoteNewTaskMode>(() => remoteNewTaskMode());
+  return <SelectRow title="New task remote" value={mode} disabled={busy}
+    options={[
+      { value: 'off', label: 'Remote Off' },
+      { value: 'on', label: 'Remote On' },
+    ]}
+    onChange={(value) => {
+      const next: RemoteNewTaskMode = value === 'on' ? 'on' : 'off';
+      setMode(next);
+      setRemoteNewTaskMode(next);
+    }} />;
+}
+
+function SystemPanelBody(context: PanelContext) {
   const { data, pending, run } = context;
   const busy = Boolean(pending);
   return <>
