@@ -726,15 +726,10 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
 
 function SystemPanel(context: PanelContext) {
   const { data, pending, run } = context;
-  const worker = record(data.channelWorker);
   const busy = Boolean(pending);
   return <>
-    <Group>
-      <ToggleRow title="Remote runtime" description={worker.running
-        ? `Channel runtime running · PID ${worker.pid || '?'}`
-        : 'Channel runtime stopped.'}
-        checked={data.remote === true} disabled={busy} onChange={() => void run('toggleRemote')} />
-    </Group>
+    {/* The remote runtime toggle moved to the session header (user decision):
+        a persistent on/off button next to the context indicator. */}
     <UpdatePanel {...context} />
     <Group title="Doctor">
       <ResourceRow title="Diagnostics" description="Check the runtime, providers, integrations, and local installation."

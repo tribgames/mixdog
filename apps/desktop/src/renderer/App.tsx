@@ -34,6 +34,7 @@ import {
   PanelLeft,
   PanelRight,
   Plus,
+  Radio,
   RotateCcw,
   ShieldAlert,
   Sparkles,
@@ -310,6 +311,40 @@ function SnapshotHeaderStatus({
     <LiveWorkStatus snapshot={visibleSnapshot} />
     <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
   </>;
+}
+
+// Remote runtime on/off lives in the session header next to the context
+// indicator (user decision — the Settings toggle is gone). isRemoteEnabled
+// polls so external toggles (CLI, another window) reconcile the pressed state.
+function RemoteToggleButton() {
+  const [remote, setRemote] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(async () => {
+    try {
+      const result = await window.mixdogDesktop.invokeCapability<boolean>({ capability: "isRemoteEnabled", args: [] });
+      setRemote(result?.value === true);
+    } catch { /* keep the last known state */ }
+  }, []);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+  return <button type="button"
+    className={`session-dock-toggle remote-toggle ${remote ? "is-on" : ""}`}
+    aria-pressed={remote === true} disabled={busy || remote === null}
+    aria-label={remote ? "Turn remote runtime off" : "Turn remote runtime on"}
+    data-tooltip={remote ? "Remote on" : "Remote off"}
+    onClick={() => {
+      if (busy) return;
+      setBusy(true);
+      void window.mixdogDesktop.invokeCapability({ capability: "toggleRemote", args: [] })
+        .catch(() => {})
+        .then(() => refresh())
+        .finally(() => setBusy(false));
+    }}>
+    <Radio size={18} aria-hidden="true" />
+  </button>;
 }
 
 function SnapshotUtilityDock({
@@ -1818,6 +1853,7 @@ export function App() {
                   <SnapshotHeaderStatus snapshotStore={snapshotStore}
                     frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot}
                     onOpen={() => setCommandSurface("context")} />
+                  <RemoteToggleButton />
                   <button type="button" className="session-dock-toggle"
                     onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
                     aria-label={reviewOpen ? "Back to chat" : "Review changes"}
