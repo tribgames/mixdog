@@ -37,12 +37,13 @@ await runNpm(['ci', '--omit=dev', '--no-audit', '--no-fund'], { cwd: stagingDir 
 // assets. It is an optional memory-embedding acceleration path (its caller
 // already degrades when the package is unavailable), not part of the desktop
 // project/chat/approval runtime.
+// NOTE: discord.js MUST ship — the desktop-owned channels daemon is now the
+// machine's messaging runtime (remote toggle, schedule/webhook channel
+// delivery). Stripping it left the backend in permanent degraded mode
+// ("Cannot find package 'discord.js'").
 await Promise.all([
   rm(join(stagingDir, 'node_modules', '@huggingface'), { recursive: true, force: true }),
   rm(join(stagingDir, 'node_modules', 'onnxruntime-web'), { recursive: true, force: true }),
-  rm(join(stagingDir, 'node_modules', '@discordjs'), { recursive: true, force: true }),
-  rm(join(stagingDir, 'node_modules', 'discord.js'), { recursive: true, force: true }),
-  rm(join(stagingDir, 'node_modules', 'discord-api-types'), { recursive: true, force: true }),
 ]);
 
 const { stdout } = await runNpm(
