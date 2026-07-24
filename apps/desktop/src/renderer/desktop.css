@@ -3620,6 +3620,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 1 auto;
   white-space: nowrap;
   text-overflow: ellipsis;
+  /* The edge fade belongs to the ROW's right edge; a shrink-to-fit title box
+     must not dissolve its own last glyphs (user report). */
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .automation-group-past { padding-left: 14px; }
 .automation-group-past .session-row-copy b { font-size: 12px; }
