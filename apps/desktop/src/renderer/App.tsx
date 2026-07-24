@@ -24,7 +24,7 @@ import {
   ChevronRight,
   Code2,
   Command,
-  Columns2,
+  Diff,
   FileDiff,
   Folder,
   Layers3,
@@ -37,8 +37,8 @@ import {
   RotateCcw,
   ShieldAlert,
   Sparkles,
-  ToggleLeft,
-  ToggleRight,
+  Plug,
+  Unplug,
   Trash2,
   X,
 } from "lucide-react";
@@ -353,9 +353,9 @@ function RemoteToggleButton() {
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
-  // On/off reads through the GLYPH, not color (user decision): a literal
-  // switch — ToggleRight while the remote runtime is up, ToggleLeft when it
-  // is stopped. Rounded-rect body matches the panel-toggle glyph family.
+  // On/off reads through the GLYPH, not color (user decision): Plug while
+  // the remote runtime is connected, Unplug when it is stopped — same ink,
+  // stroke, and 18px frame as the panel toggle.
   return <button type="button"
     className="session-dock-toggle remote-toggle"
     aria-pressed={remote === true} disabled={busy || remote === null}
@@ -369,7 +369,7 @@ function RemoteToggleButton() {
         .then(() => refresh())
         .finally(() => setBusy(false));
     }}>
-    {remote ? <ToggleRight size={18} aria-hidden="true" /> : <ToggleLeft size={18} aria-hidden="true" />}
+    {remote ? <Plug size={18} aria-hidden="true" /> : <Unplug size={18} aria-hidden="true" />}
   </button>;
 }
 
@@ -1884,9 +1884,9 @@ export function App() {
                     onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
                     aria-label={reviewOpen ? "Back to chat" : "Review changes"}
                     data-tooltip={reviewOpen ? "Back to chat" : "Review"}>
-                    {/* Split-view glyph: same rectangular family as the
+                    {/* Minimal +/- diff glyph, same ink/stroke/frame as the
                         panel toggle on its right (user decision). */}
-                    <Columns2 size={18} aria-hidden="true" />
+                    <Diff size={18} aria-hidden="true" />
                   </button>
                   <button type="button" className="session-dock-toggle"
                     onClick={() => setDockOpen((value) => !value)} aria-pressed={dockOpen}
