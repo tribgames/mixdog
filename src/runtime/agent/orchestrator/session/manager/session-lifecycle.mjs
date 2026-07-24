@@ -395,6 +395,9 @@ export function createSession(opts) {
         // scheduler/daily-standup, webhook/github-push, lead/worker.
         sourceType: opts.sourceType || null,
         sourceName: opts.sourceName || null,
+        // Automation delivery mode ('app' | 'channel' | 'both'): the desktop
+        // sidebar hides channel-only runner sessions from Automations.
+        sourceDelivery: opts.sourceDelivery || null,
         // Provider-scoped unified cache key — one shard per provider,
         // shared across all roles / sources (agent/maintenance/mcp/
         // scheduler/webhook). Role or source-specific context must be

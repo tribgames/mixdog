@@ -495,6 +495,9 @@ export interface DesktopSessionSummary {
   sourceType?: 'schedule' | 'webhook';
   /** Schedule/webhook name — the Automations row label. */
   sourceName?: string;
+  /** Automation delivery mode: 'channel'-only runs hide from Automations
+   *  (they surface on the messaging channel; the session lands in Archived). */
+  sourceDelivery?: 'app' | 'channel' | 'both';
 }
 
 export interface DesktopProjectSummary {

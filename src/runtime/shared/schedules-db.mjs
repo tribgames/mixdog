@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS scheduler.schedules (
   cwd            text,
   workflow       text,
   attachments    jsonb,
+  delivery       text,
   prompt         text NOT NULL,
   enabled        boolean NOT NULL DEFAULT true,
   status         text NOT NULL DEFAULT 'active' CHECK (status IN ('active','done')),
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS scheduler.schedules (
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS cwd text;
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS workflow text;
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS attachments jsonb;
+ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS delivery text;
 `;
 
 async function getDb(dataDir = resolvePluginData()) {
@@ -88,6 +90,7 @@ function rowToDef(row) {
     cwd:           row.cwd,
     workflow:      row.workflow,
     attachments:   row.attachments || null,
+    delivery:      row.delivery || null,
     prompt:        row.prompt,
     enabled:       row.enabled,
     status:        row.status,
@@ -100,7 +103,7 @@ function rowToDef(row) {
   };
 }
 
-const COLS = 'name, description, when_at, when_cron, timezone, target, channel_id, model, cwd, workflow, attachments, prompt, enabled, status, last_fired_at, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
+const COLS = 'name, description, when_at, when_cron, timezone, target, channel_id, model, cwd, workflow, attachments, delivery, prompt, enabled, status, last_fired_at, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -138,6 +141,7 @@ export async function upsertSchedule(def, { dataDir } = {}) {
     def.cwd ?? null,
     def.workflow ?? null,
     def.attachments ? JSON.stringify(def.attachments) : null,
+    def.delivery ?? null,
     def.prompt,
     def.enabled ?? true,
     def.status ?? 'active',
@@ -145,8 +149,8 @@ export async function upsertSchedule(def, { dataDir } = {}) {
   ];
   const { rows } = await db.query(
     `INSERT INTO scheduler.schedules
-       (name, description, when_at, when_cron, timezone, target, channel_id, model, cwd, workflow, attachments, prompt, enabled, status, next_fire_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       (name, description, when_at, when_cron, timezone, target, channel_id, model, cwd, workflow, attachments, delivery, prompt, enabled, status, next_fire_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      ON CONFLICT (name) DO UPDATE SET
        description  = EXCLUDED.description,
        when_at      = EXCLUDED.when_at,
@@ -158,6 +162,7 @@ export async function upsertSchedule(def, { dataDir } = {}) {
        cwd          = EXCLUDED.cwd,
        workflow     = EXCLUDED.workflow,
        attachments  = EXCLUDED.attachments,
+       delivery     = EXCLUDED.delivery,
        prompt       = EXCLUDED.prompt,
        enabled      = EXCLUDED.enabled,
        next_fire_at = EXCLUDED.next_fire_at,

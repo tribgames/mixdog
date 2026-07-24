@@ -164,6 +164,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     const groups = new Map<string, { name: string; runs: DesktopSessionSummary[] }>();
     for (const session of allRows) {
       if (session.archived === true || !isAutomationRow(session)) continue;
+      // Channel-only runs never surface in Automations (user decision): the
+      // messaging channel is their surface; the session parks in Archived.
+      if (session.sourceDelivery === "channel") continue;
       const key = `${session.sourceType}:${String(session.sourceName || "").trim().toLowerCase() || session.id}`;
       let entry = groups.get(key);
       if (!entry) {
@@ -190,7 +193,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       return next;
     });
   }, []);
-  const archivedRows = useMemo(() => allRows.filter((session) => session.archived === true), [allRows]);
+  const archivedRows = useMemo(() => allRows.filter((session) =>
+    session.archived === true || (isAutomationRow(session) && session.sourceDelivery === "channel")),
+  [allRows]);
   const [recentOpen, setRecentOpen] = useState(true);
   const [automationsOpen, setAutomationsOpen] = useState(true);
   const [archivedOpen, setArchivedOpen] = useState(false);

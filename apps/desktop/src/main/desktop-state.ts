@@ -70,6 +70,9 @@ export function desktopSessionSummaries(
     const automationType = sourceType === 'schedule' || sourceType === 'webhook'
       ? sourceType as 'schedule' | 'webhook'
       : null;
+    const sourceDelivery = ['app', 'channel', 'both'].includes(String(row.sourceDelivery || '').trim())
+      ? String(row.sourceDelivery).trim() as 'app' | 'channel' | 'both'
+      : null;
     // A session with no conversation preview, no manual name, and no stored
     // title is an abandoned blank ("Untitled") — opened once and never used.
     // Hide it from the sidebar instead of stacking empty rows; the active
@@ -87,7 +90,11 @@ export function desktopSessionSummaries(
       projectPath: classification === 'project' ? projectPath : null,
       currentSession: String(row.id || '') === currentId,
       ...(working ? { working: true } : {}),
-      ...(automationType ? { sourceType: automationType, ...(sourceName ? { sourceName } : {}) } : {}),
+      ...(automationType ? {
+        sourceType: automationType,
+        ...(sourceName ? { sourceName } : {}),
+        ...(sourceDelivery ? { sourceDelivery } : {}),
+      } : {}),
     }];
   }).filter((row) => /^[A-Za-z0-9_-]+$/.test(row.id));
 }

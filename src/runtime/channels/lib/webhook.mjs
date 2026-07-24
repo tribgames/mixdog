@@ -413,6 +413,7 @@ ${payload}
       cwd: extra.cwd || this.config?.cwd || null,
       workflow: extra.workflow || null,
       attachments: extra.attachments || null,
+      delivery: extra.delivery || null,
       context: {
         source: "webhook",
         endpoint: name,
@@ -446,12 +447,12 @@ ${payload}
     // pipeline below.
     if (endpoint) {
       try {
-        const { model, instructions, cwd, workflow, attachments } = endpoint;
+        const { model, instructions, cwd, workflow, attachments, delivery } = endpoint;
         const payloadContent = this._buildFencedPayload(body, headers);
         if (!this.bridgeDispatch) throw new Error(`[webhook] session dispatch requires bridgeDispatch`);
         const fullPrompt = `${instructions}\n\n${payloadContent}`;
         await this._dispatchSessionRun(name, model || null, fullPrompt, headers, deliveryId, res,
-          { cwd: cwd || null, workflow: workflow || null, attachments: attachments || null });
+          { cwd: cwd || null, workflow: workflow || null, attachments: attachments || null, delivery: delivery || null });
         return;
       } catch (err) {
         await updateDeliveryStatus(name, deliveryId, "failed", { error: String(err?.message || err) });

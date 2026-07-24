@@ -117,7 +117,7 @@ test('webhooks pane lists endpoints and creates webhooks with a pre-minted secre
   // The displayed pre-minted secret is exactly what gets persisted; the
   // parser defaults to Generic JSON (user decision).
   assert.deepEqual(calls.filter(([name]) => name === 'saveWebhook').at(-1)[1][0], {
-    name: 'stripe-events', description: '', parser: 'generic', secret: mintedSecret,
+    name: 'stripe-events', description: '', parser: 'generic', delivery: 'app', secret: mintedSecret,
     workflow: 'default', instructions: 'Handle the event.', enabled: true,
   });
   // Boolean form: a failed equality against a DOM node would serialize jsdom.

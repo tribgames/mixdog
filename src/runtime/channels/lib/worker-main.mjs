@@ -456,19 +456,29 @@ scheduler.setSendHandler(async (channelId, text) => {
 function wireWebhookHandlers() {
   if (!webhookServer) return;
   webhookServer.setEventPipeline(eventPipeline);
-  // Webhook fires run as VISIBLE sessions (user decision, schedules parity):
-  // no Lead inject, no Discord forward — the session row in the sidebar
-  // Automations section (plus its unread dot) IS the notification surface.
-  webhookServer.setBridgeDispatch(async ({ prompt, model, cwd, workflow, attachments, context }) => {
+  // Webhook fires run as sessions (schedules parity). Delivery mode:
+  // 'app' (default) → the Automations session row IS the surface;
+  // 'channel'/'both' → the run result also relays to the main channel.
+  webhookServer.setBridgeDispatch(async ({ prompt, model, cwd, workflow, attachments, delivery, context }) => {
     const { runWebhookSession } = await import("../../shared/webhook-session-run.mjs");
-    return runWebhookSession({
+    const run = await runWebhookSession({
       name: context?.endpoint || "webhook",
       model: model || null,
       cwd: cwd || null,
       workflow: workflow || null,
       attachments: attachments || null,
+      delivery: delivery || null,
       prompt,
     });
+    const mode = String(delivery || "app");
+    if ((mode === "channel" || mode === "both") && run?.result && backend?.sendMessage) {
+      const target = scheduler.resolveChannel("");
+      if (target) {
+        void bindingReady.then(() => backend.sendMessage(target, run.result))
+          .catch((err) => dropTrace("send.webhook.err", { channelId: target, err: String(err) }));
+      }
+    }
+    return run;
   });
 }
 function wireEventQueueHandlers(eventQueue) {

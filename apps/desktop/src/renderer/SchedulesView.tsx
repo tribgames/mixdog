@@ -35,6 +35,14 @@ const WEEKDAY_OPTIONS = [
   { value: '0', label: 'Sunday' },
 ];
 
+// Delivery: where a fire's result surfaces — the app session, the messaging
+// channel, or both (user decision).
+const DELIVERY_OPTIONS = [
+  { value: 'app', label: 'App' },
+  { value: 'channel', label: 'Channel' },
+  { value: 'both', label: 'App + Channel' },
+];
+
 function record(value: unknown): RecordValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 }
@@ -64,6 +72,7 @@ interface ScheduleDraft {
   at: string;
   cwd: string;
   workflow: string;
+  delivery: string;
   attachments: AutomationAttachment[];
   channel: string;
   model: string;
@@ -152,6 +161,7 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultChannel: string
     // New-task parity: an automation always carries a workflow; legacy rows
     // without one edit as the Default pack.
     workflow: String(source.workflow || 'default'),
+    delivery: String(source.delivery || 'app'),
     attachments: attachmentsFromRecords(source.attachments),
     channel: String(source.channel || defaultChannel || ''),
     model: String(source.model || ''),
@@ -211,6 +221,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const [fast, setFast] = useState(initialModel.fast);
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
+  const [delivery, setDelivery] = useState(draft.delivery);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [formError, setFormError] = useState('');
   const slash = model.indexOf('/');
@@ -273,7 +284,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           ...(frequency === 'once'
             ? { at: text('schedule-at') }
             : { time: buildCron() }),
-          channel: draft.channel || 'main',
+          delivery,
           model: `${model}${effortSuffix}${fastSuffix}`,
           ...(cwd ? { cwd } : {}),
           ...(workflow ? { workflow } : {}),
@@ -287,15 +298,8 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           <input name="schedule-name" defaultValue={draft.name} placeholder="daily-briefing" required autoFocus
             disabled={busy || editing} maxLength={64} />
         </label>
-        {/* Project mirrors the webhook editor's labeled-field grammar with
-            the same select style (user decision). */}
-        <div className="schedules-field">
-          <span>Project</span>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Schedule project" value={cwd || '__none__'} disabled={busy}
-              options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
-          </div>
-        </div>
+        {/* Field order (user decision): composer right under Name, then
+            Project → Delivery → Frequency as labeled fields. */}
         <div className="schedules-composer">
           <textarea name="schedule-instructions" defaultValue={draft.instructions} required disabled={busy}
             placeholder="What should Mixdog do when this schedule fires?" aria-label="Schedule instructions" />
@@ -326,6 +330,20 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
                 options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
                 onChange={setWorkflow} />
             </div>
+          </div>
+        </div>
+        <div className="schedules-field">
+          <span>Project</span>
+          <div className="schedules-frequency">
+            <OpenSelect ariaLabel="Schedule project" value={cwd || '__none__'} disabled={busy}
+              options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
+          </div>
+        </div>
+        <div className="schedules-field">
+          <span>Delivery</span>
+          <div className="schedules-frequency">
+            <OpenSelect ariaLabel="Schedule delivery" value={delivery} disabled={busy}
+              options={DELIVERY_OPTIONS} onChange={setDelivery} />
           </div>
         </div>
         <div className="schedules-field">

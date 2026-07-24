@@ -111,7 +111,7 @@ test('schedules pane lists schedules, keeps pause available without remote, and 
   });
   await submit(form);
   assert.deepEqual(calls.filter(([name]) => name === 'saveSchedule').at(-1)[1][0], {
-    name: 'weekly', description: '', time: '30 10 * * *', channel: '111', model: 'openai/gpt-test',
+    name: 'weekly', description: '', time: '30 10 * * *', delivery: 'app', model: 'openai/gpt-test',
     workflow: 'default', instructions: 'Weekly digest.', enabled: true,
   });
   // Boolean form: a failed equality against a DOM node would make the test
@@ -142,7 +142,7 @@ test('editing a schedule prefills the form, locks the name, and saves with overw
   assert.equal(edited.name, 'daily');
   assert.equal(edited.overwrite, true);
   assert.equal(edited.time, '0 9 * * *');
-  assert.equal(edited.channel, '111');
+  assert.equal(edited.delivery, 'app');
   assert.equal(edited.model, 'openai/gpt-old');
   assert.equal(edited.instructions, 'Summarize yesterday.');
 });

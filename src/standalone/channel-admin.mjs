@@ -361,6 +361,9 @@ function scheduleToDisplay(s) {
     cwd: s.cwd || undefined,
     workflow: s.workflow || undefined,
     attachments: s.attachments || undefined,
+    // Delivery mode: legacy channel-target rows (pre-delivery) behaved as
+    // relay+visible, which maps to 'both'.
+    delivery: s.delivery || (s.target === 'channel' ? 'both' : 'app'),
     enabled: s.enabled !== false,
     instructions: s.prompt,
     route: s.target === 'channel' ? `channel:${s.channelId}` : 'session',
@@ -388,6 +391,7 @@ export async function saveSchedule({
   cwd,
   workflow,
   attachments,
+  delivery,
   enabled,
   instructions,
   overwrite = false,
@@ -396,6 +400,11 @@ export async function saveSchedule({
   const body = String(instructions || '').trim();
   if (!body) throw new Error('schedule instructions are required');
   if (channel && !model) throw new Error('model is required when channel is set');
+  // 'app' → session-only; 'channel'/'both' → the run result relays to the
+  // main channel (target 'channel', channelId resolved at fire time).
+  const mode = ['app', 'channel', 'both'].includes(String(delivery || '').trim())
+    ? String(delivery).trim()
+    : (channel ? 'both' : 'app');
   const hasTime = time != null && String(time).trim() !== '';
   const hasAt = at != null && String(at).trim() !== '';
   if (hasTime && hasAt) throw new Error('provide either `time` (recurring) or `at` (one-shot), not both');
@@ -411,12 +420,13 @@ export async function saveSchedule({
     whenCron,
     whenAt,
     timezone: timezone ? String(timezone).trim() : null,
-    target: channel ? 'channel' : 'session',
+    target: mode === 'app' ? 'session' : 'channel',
     channelId: channel ? String(channel).trim() : null,
     model: model ? String(model).trim() : null,
     cwd: cwd ? String(cwd).trim() : null,
     workflow: workflow ? String(workflow).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
+    delivery: mode,
     prompt: body,
     enabled: enabled !== false,
   });
@@ -451,6 +461,7 @@ async function listWebhooks() {
     ...(ep.cwd ? { cwd: ep.cwd } : {}),
     ...(ep.workflow ? { workflow: ep.workflow } : {}),
     ...(ep.attachments ? { attachments: ep.attachments } : {}),
+    delivery: ep.delivery || 'app',
     enabled: ep.enabled,
     // The store never projects the plaintext secret through list paths; it
     // exposes a presence flag (secretSet) instead.
@@ -471,6 +482,7 @@ export async function saveWebhook({
   cwd,
   workflow,
   attachments,
+  delivery,
   enabled,
   instructions,
   overwrite = false,
@@ -502,6 +514,9 @@ export async function saveWebhook({
     cwd: cwd ? String(cwd).trim() : null,
     workflow: workflow ? String(workflow).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
+    delivery: ['app', 'channel', 'both'].includes(String(delivery || '').trim())
+      ? String(delivery).trim()
+      : 'app',
     secret: secretValue,
     instructions: body,
     enabled: enabled !== false,
@@ -515,6 +530,7 @@ export async function saveWebhook({
     ...(saved.cwd ? { cwd: saved.cwd } : {}),
     ...(saved.workflow ? { workflow: saved.workflow } : {}),
     ...(saved.attachments ? { attachments: saved.attachments } : {}),
+    delivery: saved.delivery || 'app',
     ...(enabled === false ? { enabled: false } : {}),
     secret: secretValue,
     instructions: body,

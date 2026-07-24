@@ -23,6 +23,14 @@ const PARSER_OPTIONS = [
   { value: 'sentry', label: 'Sentry' },
 ];
 
+// Delivery: where a fire's result surfaces — the app session, the messaging
+// channel, or both (user decision).
+const DELIVERY_OPTIONS = [
+  { value: 'app', label: 'App' },
+  { value: 'channel', label: 'Channel' },
+  { value: 'both', label: 'App + Channel' },
+];
+
 function record(value: unknown): RecordValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 }
@@ -69,6 +77,7 @@ interface WebhookDraft {
   model: string;
   cwd: string;
   workflow: string;
+  delivery: string;
   attachments: AutomationAttachment[];
   instructions: string;
   enabled: boolean;
@@ -85,6 +94,7 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
     // New-task parity: an automation always carries a workflow; legacy rows
     // without one edit as the Default pack.
     workflow: String(source.workflow || 'default'),
+    delivery: String(source.delivery || 'app'),
     attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
@@ -158,6 +168,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   const [parser, setParser] = useState(draft.parser);
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
+  const [delivery, setDelivery] = useState(draft.delivery);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   // EDIT never reveals the stored secret; rotation mints a replacement that
   // only persists on Save (user decision).
@@ -235,6 +246,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
           ...(model ? { model: `${model}${effortSuffix}${fastSuffix}` } : {}),
           ...(cwd ? { cwd } : {}),
           ...(workflow ? { workflow } : {}),
+          delivery,
           ...(attachments.length ? { attachments } : {}),
           ...(effectiveSecret ? { secret: effectiveSecret } : {}),
           instructions: text('webhook-instructions'),
@@ -247,24 +259,8 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
             disabled={busy || editing} maxLength={64}
             onChange={(event) => setUrlName(event.currentTarget.value)} />
         </label>
-        {/* Delivery/payload format lives OUTSIDE the composer as its own
-            labeled field (user decision). */}
-        <div className="schedules-field">
-          <span>Payload format</span>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Webhook payload format" value={parser} disabled={busy}
-              options={PARSER_OPTIONS} onChange={setParser} />
-          </div>
-        </div>
-        {/* Project mirrors the Payload format grammar: a labeled field with
-            the same select style (user decision). */}
-        <div className="schedules-field">
-          <span>Project</span>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Webhook project" value={cwd || '__none__'} disabled={busy}
-              options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
-          </div>
-        </div>
+        {/* Field order (user decision): composer right under Name, then
+            Project → Delivery → Payload format as labeled fields. */}
         <div className="schedules-composer">
           <textarea name="webhook-instructions" defaultValue={draft.instructions} required disabled={busy}
             placeholder="What should Mixdog do when this webhook fires?" aria-label="Webhook instructions" />
@@ -295,6 +291,27 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
                 options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
                 onChange={setWorkflow} />
             </div>
+          </div>
+        </div>
+        <div className="schedules-field">
+          <span>Project</span>
+          <div className="schedules-frequency">
+            <OpenSelect ariaLabel="Webhook project" value={cwd || '__none__'} disabled={busy}
+              options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
+          </div>
+        </div>
+        <div className="schedules-field">
+          <span>Delivery</span>
+          <div className="schedules-frequency">
+            <OpenSelect ariaLabel="Webhook delivery" value={delivery} disabled={busy}
+              options={DELIVERY_OPTIONS} onChange={setDelivery} />
+          </div>
+        </div>
+        <div className="schedules-field">
+          <span>Payload format</span>
+          <div className="schedules-frequency">
+            <OpenSelect ariaLabel="Webhook payload format" value={parser} disabled={busy}
+              options={PARSER_OPTIONS} onChange={setParser} />
           </div>
         </div>
         {/* Connection details (user decision): the endpoint URL stays

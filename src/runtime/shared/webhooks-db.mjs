@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS webhooks.endpoints (
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS cwd text;
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS workflow text;
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS attachments jsonb;
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS delivery text;
 CREATE TABLE IF NOT EXISTS webhooks.deliveries (
   endpoint        text NOT NULL,
   delivery_id     text NOT NULL,
@@ -80,7 +81,7 @@ async function getDb(dataDir = resolvePluginData()) {
 // Row <-> def mapping
 // ---------------------------------------------------------------------------
 
-const ENDPOINT_COLS = 'name, description, channel_id, role, model, parser, secret, cwd, workflow, attachments, instructions, enabled, created_at, updated_at';
+const ENDPOINT_COLS = 'name, description, channel_id, role, model, parser, secret, cwd, workflow, attachments, delivery, instructions, enabled, created_at, updated_at';
 
 function rowToEndpoint(row) {
   if (!row) return null;
@@ -94,6 +95,7 @@ function rowToEndpoint(row) {
     cwd:          row.cwd,
     workflow:     row.workflow,
     attachments:  row.attachments || null,
+    delivery:     row.delivery || null,
     // Never project the plaintext secret through list/load config paths;
     // callers get a presence flag and must fetch the value via
     // readEndpointSecret (the single, explicit secret-read path).
@@ -174,13 +176,14 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
     def.cwd ?? null,
     def.workflow ?? null,
     def.attachments ? JSON.stringify(def.attachments) : null,
+    def.delivery ?? null,
     def.instructions ?? '',
     def.enabled ?? true,
   ];
   const { rows } = await db.query(
     `INSERT INTO webhooks.endpoints
-       (name, description, channel_id, role, model, parser, secret, cwd, workflow, attachments, instructions, enabled)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       (name, description, channel_id, role, model, parser, secret, cwd, workflow, attachments, delivery, instructions, enabled)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      ON CONFLICT (name) DO UPDATE SET
        description  = EXCLUDED.description,
        channel_id   = EXCLUDED.channel_id,
@@ -191,6 +194,7 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
        cwd          = EXCLUDED.cwd,
        workflow     = EXCLUDED.workflow,
        attachments  = EXCLUDED.attachments,
+       delivery     = EXCLUDED.delivery,
        instructions = EXCLUDED.instructions,
        enabled      = EXCLUDED.enabled,
        updated_at   = now()

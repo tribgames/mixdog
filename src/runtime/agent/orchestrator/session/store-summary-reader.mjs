@@ -100,6 +100,7 @@ function normalizedRow(row, heartbeatAt = 0) {
         agent: row.agent || null,
         sourceType: row.sourceType || null,
         sourceName: row.sourceName || null,
+        sourceDelivery: row.sourceDelivery || null,
         scopeKey: row.scopeKey || null,
         ownerSessionId: row.ownerSessionId || null,
         clientHostPid: positiveNumber(row.clientHostPid, 0) || null,

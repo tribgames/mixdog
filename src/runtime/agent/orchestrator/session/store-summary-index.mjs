@@ -137,6 +137,7 @@ export function _sessionSummary(session) {
         agent: session.agent || null,
         sourceType: session.sourceType || null,
         sourceName: session.sourceName || null,
+        sourceDelivery: session.sourceDelivery || null,
         scopeKey: session.scopeKey || null,
         ownerSessionId: session.ownerSessionId || null,
         clientHostPid: _positiveNumber(session.clientHostPid, 0) || null,
