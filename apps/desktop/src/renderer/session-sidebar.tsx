@@ -157,18 +157,42 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     session.sourceType === "schedule" || session.sourceType === "webhook";
   const rows = useMemo(() => allRows.filter((session) =>
     session.archived !== true && !isAutomationRow(session)), [allRows]);
-  const automationRows = useMemo(() => {
-    const seen = new Set<string>();
-    const out: DesktopSessionSummary[] = [];
+  // One GROUP per automation name: the newest session is the visible row and
+  // older fires stay reachable behind a per-group "Past runs" toggle (user
+  // decision — fires are full sessions now, so history must not vanish).
+  const automationGroups = useMemo(() => {
+    const groups = new Map<string, { head: DesktopSessionSummary; rest: DesktopSessionSummary[] }>();
     for (const session of allRows) {
       if (session.archived === true || !isAutomationRow(session)) continue;
       const key = `${session.sourceType}:${String(session.sourceName || "").trim().toLowerCase() || session.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(session.sourceName ? { ...session, title: session.sourceName } : session);
+      const entry = groups.get(key);
+      if (!entry) {
+        groups.set(key, {
+          head: session.sourceName ? { ...session, title: session.sourceName } : session,
+          rest: [],
+        });
+      } else {
+        // Older fires keep activity order (allRows is activity-desc) and show
+        // their fire time as the row label — every run reads the same name.
+        entry.rest.push({
+          ...session,
+          title: new Date(Number(session.activityAt) || session.updatedAt).toLocaleString(undefined, {
+            month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+          }),
+        });
+      }
     }
-    return out;
+    return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
   }, [allRows]);
+  const [expandedAutomations, setExpandedAutomations] = useState<ReadonlySet<string>>(new Set());
+  const toggleAutomationGroup = useCallback((key: string) => {
+    setExpandedAutomations((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived === true), [allRows]);
   const [recentOpen, setRecentOpen] = useState(true);
   const [automationsOpen, setAutomationsOpen] = useState(true);
@@ -286,7 +310,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       </nav>
 
       <div className="session-sidebar-scroll">
-        {automationRows.length > 0 && (
+        {automationGroups.length > 0 && (
           <section className="sidebar-recent sidebar-automations" aria-label="Automations">
             <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
               aria-expanded={automationsOpen}
@@ -296,20 +320,47 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             </button>
             {automationsOpen && (
               <nav className="session-list automation-session-list" aria-label="Automations">
-                {automationRows.map((session) => <SessionSidebarRow key={session.id}
-                  session={session} active={selection.kind === "session" && selection.id === session.id}
-                  working={workingSessionIds?.has(session.id) === true}
-                  unread={unreadSessionIds?.has(session.id) === true}
-                  editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
-                  sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
-                  confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
-                  onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
-                  onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
-                  onPrefetchSession={requestPrefetch}
-                  onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
-                  onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
-                  onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
-                  onArchiveSession={onArchiveSession} />)}
+                {automationGroups.map(({ key, head, rest }) => {
+                  const expanded = expandedAutomations.has(key);
+                  return <div className="automation-group" key={key}>
+                    <SessionSidebarRow key={head.id}
+                      session={head} active={selection.kind === "session" && selection.id === head.id}
+                      working={workingSessionIds?.has(head.id) === true}
+                      unread={unreadSessionIds?.has(head.id) === true}
+                      editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
+                      sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
+                      confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
+                      onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
+                      onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+                      onPrefetchSession={requestPrefetch}
+                      onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
+                      onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
+                      onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
+                      onArchiveSession={onArchiveSession} />
+                    {rest.length > 0 && <button type="button" className="automation-group-toggle"
+                      aria-expanded={expanded}
+                      onClick={() => toggleAutomationGroup(key)}>
+                      {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                      <span>Past runs · {rest.length}</span>
+                    </button>}
+                    {expanded && rest.length > 0 && <div className="automation-group-past">
+                      {rest.map((session) => <SessionSidebarRow key={session.id}
+                        session={session} active={selection.kind === "session" && selection.id === session.id}
+                        working={workingSessionIds?.has(session.id) === true}
+                        unread={unreadSessionIds?.has(session.id) === true}
+                        editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
+                        sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
+                        confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
+                        onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
+                        onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+                        onPrefetchSession={requestPrefetch}
+                        onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
+                        onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
+                        onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
+                        onArchiveSession={onArchiveSession} />)}
+                    </div>}
+                  </div>;
+                })}
               </nav>
             )}
           </section>
