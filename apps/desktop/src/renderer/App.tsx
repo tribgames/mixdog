@@ -343,8 +343,9 @@ function WifiGlyph({ size = 18 }: { size?: number }) {
   return <svg className="lucide" width={size} height={size} viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {/* The stock glyph spans y 8.8–20 (optical center ~14.4): shift up so it
-        centers in the 24px box like its neighbors (user: sat too low). */}
-    <g transform="translate(0 -2.4)">
+        centers in the 24px box like its neighbors. Integer shift keeps the
+        arcs on the pixel grid (user: -2.4 read slightly high and fuzzy). */}
+    <g transform="translate(0 -2)">
       <path d="M2 8.82a15 15 0 0 1 20 0" />
       <path d="M5 12.859a10 10 0 0 1 14 0" />
       <path d="M8.5 16.429a5 5 0 0 1 7 0" />
