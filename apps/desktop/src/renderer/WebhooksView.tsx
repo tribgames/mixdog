@@ -1,5 +1,5 @@
 import React, { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, Folder, Plus, Search, Webhook, X } from 'lucide-react';
+import { Check, Copy, Plus, Search, Webhook, X } from 'lucide-react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { OpenSelect } from './OpenSelect';
@@ -82,7 +82,9 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
     parser: String(source.parser || 'generic'),
     model: String(source.model || ''),
     cwd: String(source.cwd || ''),
-    workflow: String(source.workflow || ''),
+    // New-task parity: an automation always carries a workflow; legacy rows
+    // without one edit as the Default pack.
+    workflow: String(source.workflow || 'default'),
     attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
@@ -254,17 +256,13 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
               options={PARSER_OPTIONS} onChange={setParser} />
           </div>
         </div>
-        {/* Chat-composer parity (user decision): project chip above the card,
-            then the card with attach/model/effort/fast left + workflow right. */}
-        <div className="composer-context-bar schedules-context-bar">
-          <div className="composer-project-context">
-            <Folder size={13} />
-            <OpenSelect className="project-context-select" ariaLabel="Webhook project"
-              value={cwd || '__none__'}
-              displayValue={projectOptions.find((option) => option.value === (cwd || '__none__'))?.label || 'Project'}
-              disabled={busy}
-              options={projectOptions}
-              onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
+        {/* Project mirrors the Payload format grammar: a labeled field with
+            the same select style (user decision). */}
+        <div className="schedules-field">
+          <span>Project</span>
+          <div className="schedules-frequency">
+            <OpenSelect ariaLabel="Webhook project" value={cwd || '__none__'} disabled={busy}
+              options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
           </div>
         </div>
         <div className="schedules-composer">
@@ -290,9 +288,12 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
               value={fast ? 'on' : 'off'} disabled={busy}
               options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
               onChange={(value) => setFast(value === 'on')} />}
-            <div className="schedules-composer-end">
+            {/* Same flat, right-aligned workflow control as the chat
+                composer (effort-control/workflow-control skin). */}
+            <div className="effort-control workflow-control">
               <OpenSelect ariaLabel="Webhook workflow" value={workflow} disabled={busy}
-                options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
+                options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
+                onChange={setWorkflow} />
             </div>
           </div>
         </div>

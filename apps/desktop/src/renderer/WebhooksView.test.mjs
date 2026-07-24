@@ -118,7 +118,7 @@ test('webhooks pane lists endpoints and creates webhooks with a pre-minted secre
   // parser defaults to Generic JSON (user decision).
   assert.deepEqual(calls.filter(([name]) => name === 'saveWebhook').at(-1)[1][0], {
     name: 'stripe-events', description: '', parser: 'generic', secret: mintedSecret,
-    instructions: 'Handle the event.', enabled: true,
+    workflow: 'default', instructions: 'Handle the event.', enabled: true,
   });
   // Boolean form: a failed equality against a DOM node would serialize jsdom.
   assert.equal(document.querySelector('.schedules-dialog') === null, true,

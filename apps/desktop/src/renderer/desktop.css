@@ -3590,14 +3590,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 /* Chat-composer grammar: project chip left, model/effort/fast group right. */
 .schedules-composer-route { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
-/* New grammar (user decision): project/parser/attach/model group stays left,
-   the workflow picker sits alone on the right edge. */
-.schedules-composer-route.inline { margin-left: 0; }
-.schedules-composer-end { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 /* Composer-footer clone inside the editor card: same 44px control bar, with
-   the select chips spaced like the chat composer tools. */
+   the select chips spaced like the chat composer tools (workflow-control
+   owns the right-edge push, exactly like the chat composer). */
 .schedules-composer-footer { gap: 6px; padding: 0 8px; }
-.schedules-context-bar { display: flex; align-items: center; }
 /* Attachment chips inside the automation editors reuse the composer chip
    look; the container just needs its own flow inside the dialog card. */
 .schedules-attachments { display: flex; flex-wrap: wrap; padding: 8px 12px 0; }
@@ -3608,6 +3604,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: transparent;
   box-shadow: none;
 }
+/* The editor's composer-footer clone uses the same flat chip skin as the
+   chat composer (model/effort/fast/workflow read as quiet text triggers). */
+.schedules-composer-footer .mx-select-trigger,
+.schedules-composer-footer .mx-select-trigger:hover:not(:disabled),
+.schedules-composer-footer .mx-select-trigger[aria-expanded="true"] {
+  background: transparent;
+  box-shadow: none;
+}
+.schedules-composer-footer .mx-select-trigger:hover:not(:disabled) { background: var(--mx-hover); }
 .schedules-frequency { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .schedules-frequency .mx-select-trigger { height: 32px; border-radius: 8px; }
 .schedules-frequency input { flex: 1; min-width: 130px; }

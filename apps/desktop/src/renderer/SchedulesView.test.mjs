@@ -112,7 +112,7 @@ test('schedules pane lists schedules, keeps pause available without remote, and 
   await submit(form);
   assert.deepEqual(calls.filter(([name]) => name === 'saveSchedule').at(-1)[1][0], {
     name: 'weekly', description: '', time: '30 10 * * *', channel: '111', model: 'openai/gpt-test',
-    instructions: 'Weekly digest.', enabled: true,
+    workflow: 'default', instructions: 'Weekly digest.', enabled: true,
   });
   // Boolean form: a failed equality against a DOM node would make the test
   // reporter serialize the entire jsdom tree (observed as an OOM crash).

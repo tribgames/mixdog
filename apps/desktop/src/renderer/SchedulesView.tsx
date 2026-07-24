@@ -1,5 +1,5 @@
 import React, { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { AlarmClock, Folder, Plus, Search, X } from 'lucide-react';
+import { AlarmClock, Plus, Search, X } from 'lucide-react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { OpenSelect } from './OpenSelect';
@@ -149,7 +149,9 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultChannel: string
     weekday: parsed.weekday,
     at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
     cwd: String(source.cwd || ''),
-    workflow: String(source.workflow || ''),
+    // New-task parity: an automation always carries a workflow; legacy rows
+    // without one edit as the Default pack.
+    workflow: String(source.workflow || 'default'),
     attachments: attachmentsFromRecords(source.attachments),
     channel: String(source.channel || defaultChannel || ''),
     model: String(source.model || ''),
@@ -285,17 +287,13 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           <input name="schedule-name" defaultValue={draft.name} placeholder="daily-briefing" required autoFocus
             disabled={busy || editing} maxLength={64} />
         </label>
-        {/* Chat-composer parity (user decision): project chip above the card,
-            then the card with attach/model/effort/fast left + workflow right. */}
-        <div className="composer-context-bar schedules-context-bar">
-          <div className="composer-project-context">
-            <Folder size={13} />
-            <OpenSelect className="project-context-select" ariaLabel="Schedule project"
-              value={cwd || '__none__'}
-              displayValue={projectOptions.find((option) => option.value === (cwd || '__none__'))?.label || 'Project'}
-              disabled={busy}
-              options={projectOptions}
-              onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
+        {/* Project mirrors the webhook editor's labeled-field grammar with
+            the same select style (user decision). */}
+        <div className="schedules-field">
+          <span>Project</span>
+          <div className="schedules-frequency">
+            <OpenSelect ariaLabel="Schedule project" value={cwd || '__none__'} disabled={busy}
+              options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
           </div>
         </div>
         <div className="schedules-composer">
@@ -321,9 +319,12 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
               value={fast ? 'on' : 'off'} disabled={busy}
               options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
               onChange={(value) => setFast(value === 'on')} />}
-            <div className="schedules-composer-end">
+            {/* Same flat, right-aligned workflow control as the chat
+                composer (effort-control/workflow-control skin). */}
+            <div className="effort-control workflow-control">
               <OpenSelect ariaLabel="Schedule workflow" value={workflow} disabled={busy}
-                options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
+                options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
+                onChange={setWorkflow} />
             </div>
           </div>
         </div>
