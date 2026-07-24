@@ -308,9 +308,31 @@ function SnapshotHeaderStatus({
   );
   const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
   return <>
-    <LiveWorkStatus snapshot={visibleSnapshot} />
     <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
   </>;
+}
+
+// Background-activity chip floats over the chat's top-right corner (user
+// decision — moved out of the header cluster); the breakdown still reveals
+// on hover via the chip's own popover.
+function SnapshotLiveWork({
+  snapshotStore,
+  frozenSnapshot,
+  hidden,
+}: {
+  snapshotStore: DesktopSnapshotStore;
+  frozenSnapshot: Snapshot | null;
+  hidden: boolean;
+}) {
+  const selectedSnapshot = useSelectedDesktopSnapshot(
+    snapshotStore,
+    frozenSnapshot,
+    desktopHeaderSnapshotsEqual,
+  );
+  const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
+  return <div className="chat-live-work">
+    <LiveWorkStatus snapshot={visibleSnapshot} />
+  </div>;
 }
 
 // Remote runtime on/off lives in the session header next to the context
@@ -1871,7 +1893,10 @@ export function App() {
             </header>
             {reviewOpen
               ? <ReviewPane cwd={String(visibleSnapshot.currentProject || visibleSnapshot.project || "") || null} />
-              : <LiveConversation snapshotStore={snapshotStore}
+              : <>
+              <SnapshotLiveWork snapshotStore={snapshotStore}
+                frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot} />
+              <LiveConversation snapshotStore={snapshotStore}
               frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot}
               invoke={invoke} invokeResult={invokeResult}
               errors={errors} submit={submit} applySnapshot={applySnapshot}
@@ -1900,7 +1925,8 @@ export function App() {
                   return;
                 }
                 setCommandSurface(surface);
-              }} />}
+              }} />
+              </>}
           </div>
         </main>
         {/* Phone: the dock floats over the thread, so give it the same

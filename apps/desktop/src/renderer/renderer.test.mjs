@@ -315,7 +315,9 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   // 15px glyph scale, no pulse animation (user: match the send button).
   assert.doesNotMatch(styles, /send-stop-pulse/);
   assert.match(app, /className="session-header-status"[\s\S]*?<SnapshotHeaderStatus snapshotStore=\{snapshotStore\}/);
-  assert.match(app, /function SnapshotHeaderStatus[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>\s*<ContextUsageIndicator/);
+  // Background-activity chip floats over the chat top-right (user decision):
+  // the header keeps only the context indicator.
+  assert.match(app, /function SnapshotLiveWork[\s\S]*?className="chat-live-work"[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>/);
   assert.equal((app.match(/<LiveWorkStatus\b/g) || []).length, 1);
   assert.match(navigation, /aria-label=\{`Delete \$\{sessionLabel\(session\)\}`\}/);
 });
