@@ -3609,6 +3609,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text-faint);
 }
 .session-row-expand:hover { color: var(--mx-text); background: var(--mx-hover); }
+/* Head rows with a disclosure: title + chevron sit inline (section-heading
+   grammar) instead of the block title pushing the chevron to a new line. */
+.session-row-copy:has(.session-row-expand) {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.session-row-copy:has(.session-row-expand) b {
+  flex: 0 1 auto;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .automation-group-past { padding-left: 14px; }
 .automation-group-past .session-row-copy b { font-size: 12px; }
 /* Composer chips stay flat like the model trigger: no box, no hover wash. */

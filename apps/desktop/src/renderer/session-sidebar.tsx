@@ -648,27 +648,28 @@ const SessionRow = React.memo(function SessionRow({
                 onStartRename(session);
               }}>
               <b>{sessionLabel(session)}</b>
+              {/* Inline past-runs disclosure (Automations head): the chevron
+                  hugs the title like the section headings — no extra list
+                  row (user decision). span, not button: it nests inside the
+                  row's main <button>. */}
+              {expandToggle && <span className="session-row-expand" role="button" tabIndex={0}
+                aria-expanded={expandToggle.expanded}
+                aria-label={`${expandToggle.count} past runs`}
+                data-tooltip={`Past runs · ${expandToggle.count}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  expandToggle.onToggle();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  expandToggle.onToggle();
+                }}>
+                {expandToggle.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              </span>}
             </span>
-            {/* Inline past-runs disclosure (Automations head): a chevron right
-                beside the name — no extra list row (user decision). span, not
-                button: it nests inside the row's main <button>. */}
-            {expandToggle && <span className="session-row-expand" role="button" tabIndex={0}
-              aria-expanded={expandToggle.expanded}
-              aria-label={`${expandToggle.count} past runs`}
-              data-tooltip={`Past runs · ${expandToggle.count}`}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                expandToggle.onToggle();
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                event.stopPropagation();
-                expandToggle.onToggle();
-              }}>
-              {expandToggle.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            </span>}
             {/* Claude-style unread dot: the session advanced while it was not
                 the viewed conversation. The working spinner supersedes it. */}
             {unread && !working && <span className="session-row-unread-dot" role="status"
