@@ -1,4 +1,5 @@
 import React, {
+// Lucide's Wifi draws its base dot as a 0.01-length stroke ("M12 20h.01") —
   Component,
   lazy,
   Suspense,
@@ -341,10 +342,14 @@ function SnapshotLiveWork({
 function WifiGlyph({ size = 18 }: { size?: number }) {
   return <svg className="lucide" width={size} height={size} viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M2 8.82a15 15 0 0 1 20 0" />
-    <path d="M5 12.859a10 10 0 0 1 14 0" />
-    <path d="M8.5 16.429a5 5 0 0 1 7 0" />
-    <circle cx="12" cy="20" r="1.2" fill="currentColor" stroke="none" />
+    {/* The stock glyph spans y 8.8–20 (optical center ~14.4): shift up so it
+        centers in the 24px box like its neighbors (user: sat too low). */}
+    <g transform="translate(0 -2.4)">
+      <path d="M2 8.82a15 15 0 0 1 20 0" />
+      <path d="M5 12.859a10 10 0 0 1 14 0" />
+      <path d="M8.5 16.429a5 5 0 0 1 7 0" />
+      <circle cx="12" cy="20" r="1.2" fill="currentColor" stroke="none" />
+    </g>
   </svg>;
 }
 
@@ -1911,11 +1916,10 @@ export function App() {
             </header>
             {reviewOpen
               ? <ReviewPane cwd={String(visibleSnapshot.currentProject || visibleSnapshot.project || "") || null} />
-              : <>
-              <SnapshotLiveWork snapshotStore={snapshotStore}
-                frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot} />
-              <LiveConversation snapshotStore={snapshotStore}
+              : <LiveConversation snapshotStore={snapshotStore}
               frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot}
+              liveWork={<SnapshotLiveWork snapshotStore={snapshotStore}
+                frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot} />}
               invoke={invoke} invokeResult={invokeResult}
               errors={errors} submit={submit} applySnapshot={applySnapshot}
               transitioning={Boolean(transitionSessionId)}
@@ -1943,8 +1947,7 @@ export function App() {
                   return;
                 }
                 setCommandSurface(surface);
-              }} />
-              </>}
+              }} />}
           </div>
         </main>
         {/* Phone: the dock floats over the thread, so give it the same

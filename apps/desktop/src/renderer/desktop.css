@@ -2391,20 +2391,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 /* TUI L2 activity lives beside Context in the session header. */
 .composer-region { position: relative; }
-/* Background-activity chip floats over the chat's TOP-RIGHT corner (user
-   decision): right-aligned, hover reveals the breakdown popover below it. */
-.chat-live-work {
-  position: absolute;
-  z-index: 30;
-  top: 52px;
-  right: 14px;
-  display: flex;
-  justify-content: flex-end;
-}
+/* Background-activity chip sits right ABOVE the composer, right-aligned —
+   the same band the project chip occupies (user decision). The breakdown
+   popover flips UPWARD so it never covers the input. */
+.chat-live-work { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.chat-live-work:empty { display: none; }
 .chat-live-work .live-work-status {
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-raised);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--mx-border);
 }
+.chat-live-work .live-work-popover { top: auto; bottom: calc(100% + 6px); }
 /* Aggregate activity chip (user decision): spinner + count, breakdown in a
    hover/focus popover — the header stays quiet. */
 .live-work-status {

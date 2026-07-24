@@ -146,6 +146,7 @@ export function Conversation({
   onSelectProject,
   onChooseProject,
   onOpenCommandSurface,
+  liveWork,
 }: {
   snapshot: Snapshot;
   routeSnapshot: Snapshot;
@@ -169,6 +170,9 @@ export function Conversation({
   onSelectProject: (path: string) => void;
   onChooseProject: () => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
+  /** Background-activity chip rendered right above the composer (own
+   *  snapshot subscription — the conversation memo ignores agent workers). */
+  liveWork?: ReactNode;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -718,6 +722,9 @@ export function Conversation({
           activePath={activeProjectPath} activeLabel={activeProjectLabel}
           disabled={transitioning || Boolean(snapshot.busy)}
           onClear={onNewTask} onSelect={onSelectProject} onChoose={onChooseProject} />}
+        {/* Background-activity chip hugs the composer's top-right corner —
+            same band as the project chip (user decision). */}
+        {liveWork}
         <InlineErrors messages={errors} />
         <TurnReviewBar items={items}
           cwd={String(snapshot.currentProject || snapshot.project || snapshot.cwd || "")} />
