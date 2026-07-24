@@ -337,6 +337,7 @@ export const DESKTOP_CAPABILITIES = [
   'setWorkflow',
   'toggleRemote',
   'claimRemote',
+  'releaseRemote',
   'isRemoteEnabled',
   'listThemes',
   'getTheme',

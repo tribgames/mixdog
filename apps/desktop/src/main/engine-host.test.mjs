@@ -14,6 +14,8 @@ import {
   projectsModuleUrl,
   sessionStoreModuleUrl,
   shellJobsPollDelay,
+  channelRemoteStatePath,
+  normalizedChannelRemoteState,
 } from "./engine-host.ts";
 import { searchProjectDirectory } from "./project-file-search.ts";
 import { registerDesktopIpc } from "./ipc.ts";
@@ -240,6 +242,57 @@ test("desktop live-work projection removes terminal history and trims IPC record
     search: { count: 1, startedAt: 200 },
   });
   assert.equal(state.remoteEnabled, false);
+});
+
+test("desktop mirrors the machine-global remote owner without polling", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-desktop-remote-owner-"));
+  const host = new EngineHost({
+    runtimeRoot: root,
+    createEngine: async () => {
+      throw new Error("remote owner projection must not boot the engine");
+    },
+  });
+  const published = [];
+  const unsubscribe = host.subscribe((snapshot) => published.push(snapshot));
+  try {
+    assert.deepEqual(normalizedChannelRemoteState({
+      enabled: true,
+      sessionId: "remote_cli",
+      daemonPid: process.pid,
+    }), {
+      enabled: true,
+      sessionId: "remote_cli",
+      daemonPid: process.pid,
+    });
+    await writeFile(channelRemoteStatePath(root), JSON.stringify({
+      enabled: true,
+      sessionId: "remote_cli",
+      daemonPid: process.pid,
+      updatedAt: Date.now(),
+    }));
+    for (let i = 0; i < 30 && host.getSnapshot()?.remoteSessionId !== "remote_cli"; i++) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+    assert.equal(host.getSnapshot()?.remoteEnabled, true);
+    assert.equal(host.getSnapshot()?.remoteSessionId, "remote_cli");
+    assert.equal(published.some((snapshot) => snapshot?.remoteSessionId === "remote_cli"), true);
+
+    await writeFile(channelRemoteStatePath(root), JSON.stringify({
+      enabled: false,
+      sessionId: null,
+      daemonPid: process.pid,
+      updatedAt: Date.now(),
+    }));
+    for (let i = 0; i < 30 && host.getSnapshot()?.remoteEnabled === true; i++) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+    assert.equal(host.getSnapshot()?.remoteEnabled, false);
+    assert.equal(host.getSnapshot()?.remoteSessionId, null);
+  } finally {
+    unsubscribe();
+    await host.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("shell polling backs off while idle and accelerates for engine or shell activity", () => {

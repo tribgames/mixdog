@@ -107,14 +107,16 @@ export function workingSessionIdsForSnapshot(
   sessions: readonly DesktopSessionSummary[],
   activeSessionId: string,
   activeBusy: boolean,
+  activeRemoteAttached = false,
 ): Set<string> {
   const ids = new Set(sessions.filter((session) => session.working === true).map((session) => session.id));
   if (activeSessionId) {
-    // The attached live snapshot is authoritative for the selected session.
-    // This also releases stale heartbeats from pre-fix external TUI owners
-    // without hiding real work in other, non-selected sessions.
+    // A local live snapshot is authoritative for its selected session and can
+    // release a stale heartbeat. A remote-attached viewer is intentionally
+    // idle while the external owner works, so its catalog heartbeat remains
+    // authoritative instead of disappearing merely because the row was opened.
     if (activeBusy) ids.add(activeSessionId);
-    else ids.delete(activeSessionId);
+    else if (!activeRemoteAttached) ids.delete(activeSessionId);
   }
   return ids;
 }

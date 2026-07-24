@@ -147,7 +147,11 @@ export async function attachToDaemon({
       token: serverToken,
       method: 'POST',
       path: '/client/register',
-      body: { leadPid, cwd },
+      // Initial attachment is transport-only. Mark it with the legacy
+      // non-stealing registration intent as well as relying on the current
+      // daemon contract, so a newly updated desktop cannot supersede a
+      // terminal still served by an older machine-global daemon.
+      body: { leadPid, cwd, reattach: true },
       timeoutMs: 3000,
     });
   } catch (err) {

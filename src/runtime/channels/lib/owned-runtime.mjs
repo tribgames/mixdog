@@ -52,6 +52,7 @@ export function createOwnedRuntime({
   // failed/absent messaging backend: it is tracked separately so teardown and
   // reload know it is running even while bridgeRuntimeConnected stays false.
   let automationRunning = false;
+  let automationStartPromise = null;
   // Promise that resolves when the current startOwnedRuntime() run fully
   // settles (bridgeRuntimeStarting -> false). reloadRuntimeConfig awaits this
   // before issuing a restart so a backend swap that lands mid-start is not
@@ -135,6 +136,34 @@ function syncOwnedWebhookAndEventRuntime({ reload = false } = {}) {
   } else if (getWebhookServer()) {
     getWebhookServer().stop();
     setWebhookServer(null);
+  }
+}
+async function startAutomationRuntime() {
+  if (automationRunning) {
+    syncOwnedWebhookAndEventRuntime();
+    return;
+  }
+  if (automationStartPromise) return automationStartPromise;
+  if (!bridgeRuntimeStarting) _ownedRuntimeStopRequested = false;
+  const run = (async () => {
+    try {
+      const agentCfg = loadAgentConfig();
+      await initProviders(agentCfg.providers || {});
+    } catch (e) {
+      process.stderr.write(`mixdog: initProviders failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+    if (_ownedRuntimeStopRequested) return;
+    scheduler.start();
+    startSnapshotWriter(scheduler);
+    syncOwnedWebhookAndEventRuntime();
+    automationRunning = true;
+    process.stderr.write('mixdog: automation runtime up without messaging backend\n');
+  })();
+  automationStartPromise = run;
+  try {
+    return await run;
+  } finally {
+    if (automationStartPromise === run) automationStartPromise = null;
   }
 }
 let _ownedRuntimeSelfHealing = false;
@@ -324,17 +353,7 @@ async function startOwnedRuntime(options = {}) {
         return;
       }
       try {
-        const agentCfg = loadAgentConfig();
-        await initProviders(agentCfg.providers || {});
-      } catch (e2) {
-        process.stderr.write(`mixdog: initProviders failed (non-fatal): ${e2 instanceof Error ? e2.message : String(e2)}\n`);
-      }
-      try {
-        scheduler.start();
-        startSnapshotWriter(scheduler);
-        syncOwnedWebhookAndEventRuntime();
-        automationRunning = true;
-        process.stderr.write('mixdog: automation runtime up without messaging backend (degraded mode)\n');
+        await startAutomationRuntime();
       } catch (e3) {
         process.stderr.write(`mixdog: degraded automation start failed: ${e3 instanceof Error ? e3.message : String(e3)}\n`);
       }
@@ -354,12 +373,15 @@ async function stopOwnedRuntime(reason) {
   // during that window (bridgeRuntimeStarting=true, getBridgeRuntimeConnected()
   // still false) we still need to tear that partial state down — otherwise
   // the port stays bound and active-instance.json stays stale.
-  if (!getBridgeRuntimeConnected() && !bridgeRuntimeStarting && !automationRunning) return;
+  if (!getBridgeRuntimeConnected() && !bridgeRuntimeStarting && !automationRunning && !automationStartPromise) return;
   // If a start is in flight (bridgeRuntimeStarting=true), signal the in-flight
   // startOwnedRuntime() to abort right after its getBackend().connect() resolves.
   // Without this the in-flight start re-marks connected and re-launches
   // scheduler/webhook/heartbeat after we tear them down here.
-  if (bridgeRuntimeStarting) _ownedRuntimeStopRequested = true;
+  if (bridgeRuntimeStarting || automationStartPromise) _ownedRuntimeStopRequested = true;
+  if (automationStartPromise) {
+    try { await automationStartPromise; } catch {}
+  }
   const wasConnected = getBridgeRuntimeConnected();
   stopServerTyping();
   // Release the transcript fs.watch handle plus the forwarder's debounce/retry
@@ -506,6 +528,7 @@ async function reloadRuntimeConfig() {
   }
 }
   return {
+    startAutomationRuntime,
     startOwnedRuntime,
     stopOwnedRuntime,
     refreshBridgeOwnership,

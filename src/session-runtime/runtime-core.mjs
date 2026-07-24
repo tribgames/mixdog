@@ -1956,19 +1956,58 @@ export async function createMixdogSessionRuntime({
         else process.env.MIXDOG_REMOTE_INTENT = _prevIntent;
       }
       if ((!remoteEnabled && !remoteClaimPending) || closeRequested) { remoteClaimPending = false; return; }
-      // Explicit start: unconditional claim + forwarder rebind (last-wins seat
-      // overwrite + transcript rebind onto this session). AUTO start SKIPS this
-      // — the freshly-forked worker already ran its claim-if-vacant boot claim,
-      // and forcing activate here would steal a live owner that autoStart is
-      // meant to yield to. The worker's acquire notification drives remote ON.
-      if (intent !== 'auto') {
-        await channels.execute('activate_channel_bridge', { active: true });
-      }
+      // Explicit claims are unconditional. Auto-start dispatches the same
+      // activation as claim-if-vacant so it can promote an existing
+      // automation-only daemon without stealing a live remote owner.
+      await channels.execute('activate_channel_bridge', {
+        active: true,
+        claimIfVacant: intent === 'auto',
+        sessionId: session?.id || remoteSessionId || null,
+        transcriptPath: _transcriptWriter?.transcriptPath || null,
+      });
       // Claim attempt dispatched; the worker's acquire/supersede notification
       // now owns the remoteEnabled transition. Drop the transient marker.
       remoteClaimPending = false;
-    })().catch((error) => { remoteClaimPending = false; bootProfile('channels:claim-failed', { error: error?.message || String(error) }); });
+    })().catch((error) => {
+      remoteClaimPending = false;
+      if (remoteEnabled) {
+        remoteEnabled = false;
+        remoteSessionId = null;
+        channels.stop('remote-claim-failed').catch(() => {});
+        emitRemoteStateChange(false, 'claim-failed');
+      }
+      bootProfile('channels:claim-failed', { error: error?.message || String(error) });
+    });
     return true;
+  }
+
+  // Explicit user OFF is a desired-state command, not a toggle retry. Ask the
+  // daemon to deactivate the machine-global bridge before detaching this
+  // client; the call runs in the background so the UI never waits through a
+  // daemon spawn/reconnect window. Repeated releases remain idempotent.
+  function releaseRemote(reason) {
+    const releasingSessionId = remoteSessionId || session?.id || null;
+    remoteEnabled = false;
+    remoteSessionId = null;
+    remoteClaimPending = false;
+    if (prewarmTimers.channelStartTimer) {
+      clearTimeout(prewarmTimers.channelStartTimer);
+      prewarmTimers.channelStartTimer = null;
+    }
+    void (async () => {
+      try {
+        await channels.execute('activate_channel_bridge', {
+          active: false,
+          sessionId: releasingSessionId,
+        });
+      } catch (error) {
+        bootProfile('channels:release-failed', { error: error?.message || String(error) });
+        emitRemoteStateChange(false, 'release-failed');
+      } finally {
+        await channels.stop(reason || 'remote-disabled').catch(() => {});
+      }
+    })();
+    return false;
   }
 
   function stopRemote(reason) {
@@ -2028,8 +2067,11 @@ export async function createMixdogSessionRuntime({
   // Channels are opt-in: only boot the worker when this session started in (or
   // was toggled into) remote mode. Non-remote sessions never contend for the
   // channel; see startRemote()/stopRemote() and the `/remote` toggle.
-  // `remote.autoStart` in mixdog-config.json makes every session claim remote
-  // at boot (same force-takeover semantics as `mixdog --remote` / `/remote`).
+  // `remote.autoStart` in mixdog-config.json makes terminal sessions attempt a
+  // remote claim at boot. Desktop sessions are explicit-only: opening the app
+  // must never claim or spawn the channel bridge until its Remote button is
+  // pressed, while the shared owner-state watcher still reflects a terminal
+  // that already owns it.
   // The flag lives in the TOP-LEVEL `remote` section of mixdog-config.json
   // (sibling of agent/ui/channels), not inside the agent section that
   // cfgMod.loadConfig returns — read it via the shared whole-file reader.
@@ -2042,7 +2084,7 @@ export async function createMixdogSessionRuntime({
   // known to have won). Track it as a separate deferred auto request; the
   // worker's acquire notification flips remoteEnabled if/when it wins the seat.
   let remoteAutoStartRequested = false;
-  if (!remoteEnabled) {
+  if (!remoteEnabled && !desktopSession) {
     try {
       if (config?.remote?.autoStart === true
         || sharedCfgMod?.readSection?.('remote')?.autoStart === true) {
@@ -2074,9 +2116,9 @@ export async function createMixdogSessionRuntime({
     prewarmTimers.channelStartTimer.unref?.();
   } else {
     // Automation decoupling (user decision): enabled schedules/webhooks boot
-    // the worker on their own — no remote flag, no remote.autoStart, no
-    // messaging backend required. Claim-if-vacant auto intent reuses the
-    // exact autoStart semantics (a live owner elsewhere wins silently).
+    // the worker on their own — no remote flag, no remote.autoStart, and no
+    // messaging backend. A later explicit/auto Remote claim promotes the same
+    // daemon without restarting schedules or webhooks.
     prewarmTimers.channelStartTimer = setTimeout(() => {
       prewarmTimers.channelStartTimer = null;
       if (closeRequested || remoteEnabled) return;
@@ -2084,7 +2126,7 @@ export async function createMixdogSessionRuntime({
         .then((active) => {
           if (!active || closeRequested || remoteEnabled) return;
           bootProfile('channels:automation-autostart');
-          startRemote({ intent: 'auto' });
+          void invokeChannelStart();
         })
         .catch(() => { /* automation probe is best-effort */ });
     }, remoteAutoStartDelayMs);
@@ -2430,6 +2472,9 @@ export async function createMixdogSessionRuntime({
     },
     stopRemote(reason) {
       return stopRemote(reason);
+    },
+    releaseRemote(reason) {
+      return releaseRemote(reason);
     },
     isRemoteEnabled() {
       return isRemoteEnabled();

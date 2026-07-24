@@ -187,10 +187,12 @@ async function main() {
   }
   log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
 
-  // Boot the owned channels runtime (Discord connect, transcript bind) AFTER
-  // the ready signal. Fire-and-forget — failure is non-fatal (the daemon still
-  // serves tool calls and can reconnect later) and must not delay ready.
-  void Promise.resolve().then(() => channels.start())
+  // Boot messaging only for an explicit/auto remote request. Automation may
+  // spawn the shared daemon with no remote intent; keep schedules/webhooks live
+  // without connecting the channel backend until a Remote claim arrives.
+  const remoteIntent = String(process.env.MIXDOG_REMOTE_INTENT || '');
+  const messaging = remoteIntent === 'explicit' || remoteIntent === 'auto';
+  void Promise.resolve().then(() => channels.start({ messaging }))
     .catch((e) => log(`channels.start failed (non-fatal): ${e?.message || e}`));
 
   // Fold memory startup in: eagerly ensure the memory runtime is up under the

@@ -427,7 +427,7 @@ export function createEngineApiB(bag) {
         set({ remoteEnabled: true, remoteSessionId: runtime.getRemoteSessionId?.() || null });
         return true;
       }
-      if (enabled) runtime.stopRemote?.();
+      if (enabled) runtime.releaseRemote?.();
       else runtime.startRemote?.();
       const next = runtime.isRemoteEnabled?.() === true;
       set({ remoteEnabled: next, remoteSessionId: runtime.getRemoteSessionId?.() || null });
@@ -442,6 +442,13 @@ export function createEngineApiB(bag) {
       const next = runtime.isRemoteEnabled?.() === true;
       set({ remoteEnabled: next, remoteSessionId: runtime.getRemoteSessionId?.() || null });
       return next;
+    },
+    // Idempotent desired-state OFF for desktop controls. Unlike toggleRemote,
+    // a delayed/replayed request can never turn remote back on.
+    releaseRemote: () => {
+      runtime.releaseRemote?.();
+      set({ remoteEnabled: false, remoteSessionId: null });
+      return false;
     },
     isRemoteEnabled: () => runtime.isRemoteEnabled?.() === true,
     getVoiceStatus: () => getVoiceStatus(),

@@ -390,6 +390,11 @@ button:focus-visible { outline-offset: 2.5px; }
 /* Optical compensation: the wifi arcs render softer than the neighbors'
    straight lines at 1.25px — a heavier stroke restores equal crispness. */
 .remote-toggle svg.lucide { stroke-width: 1.5px; }
+@keyframes remote-toggle-spin { to { transform: rotate(360deg); } }
+.remote-toggle-spinner { animation: remote-toggle-spin 800ms linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .remote-toggle-spinner { animation: none; }
+}
 .workspace-tabs { height: 28px; align-self: center; gap: 13.5px; padding: 0; }
 .titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
 .workspace-tabs-shell { align-self: center; }

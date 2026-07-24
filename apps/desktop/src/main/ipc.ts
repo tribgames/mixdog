@@ -91,7 +91,7 @@ const CAPABILITY_ARITY = {
   setModel: [1, 1],
   getSearchRoute: [0, 0], listSearchModels: [0, 1], setSearchRoute: [1, 1], listAgents: [0, 0],
   listWorkflows: [0, 0], getOutputStyle: [0, 0], listOutputStyles: [0, 0], setOutputStyle: [1, 1],
-  setWorkflow: [1, 1], toggleRemote: [0, 0], claimRemote: [0, 0], isRemoteEnabled: [0, 0],
+  setWorkflow: [1, 1], toggleRemote: [0, 0], claimRemote: [0, 0], releaseRemote: [0, 0], isRemoteEnabled: [0, 0],
   listThemes: [0, 0], getTheme: [0, 0], setTheme: [1, 2], setAgentRoute: [2, 2],
   setDefaultProvider: [1, 1], listProviders: [0, 0], getProviderSetup: [0, 1],
   getUsageDashboard: [0, 1], getTurnReviewDiff: [0, 0], getOnboardingStatus: [0, 0], skipOnboarding: [0, 0],

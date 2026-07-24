@@ -331,6 +331,7 @@ const {
 // flags + ownership timer + memory-drain timer; shares config/backend/
 // bridgeRuntimeConnected/webhookServer/eventPipeline with the worker via get/set.
 const {
+  startAutomationRuntime,
   startOwnedRuntime,
   stopOwnedRuntime,
   refreshBridgeOwnership,
@@ -612,6 +613,7 @@ const {
         recoverUnsyncedTail: true,
       });
     },
+    startChannelBridge: () => start({ messaging: true }),
     stopOwnedRuntime,
     reloadRuntimeConfig,
   },
@@ -650,7 +652,24 @@ async function init(_sharedMcp) {
     injectAndRecord(channelId, name, content, options);
   });
 }
-async function start() {
+function ensureConfigWatcher() {
+  if (_configWatcher) return;
+  try {
+    _configWatcher = fs.watch(path.join(DATA_DIR, "mixdog-config.json"), () => {
+      invalidateConfigReadCache();
+      if (_reloadDebounce) clearTimeout(_reloadDebounce);
+      _reloadDebounce = setTimeout(() => { reloadRuntimeConfig().catch(() => {}); }, 500);
+    });
+  } catch {}
+}
+async function start(options = {}) {
+  if (options?.messaging === false) {
+    channelBridgeActive = false;
+    writeBridgeState(false);
+    await startAutomationRuntime();
+    ensureConfigWatcher();
+    return;
+  }
   channelBridgeActive = true;
   writeBridgeState(true);
   // Daemon model: this runtime is the machine-global singleton bridge owner
@@ -672,18 +691,9 @@ async function start() {
   // ownership timer — the singleton daemon guarantees exactly one owner.
   armBridgeOwnershipTimer();
   // Hot-reload config on file change (schedules/webhooks/events).
-  if (!_configWatcher) {
-    try {
-      _configWatcher = fs.watch(path.join(DATA_DIR, "mixdog-config.json"), () => {
-        // Cross-process edit landed on disk; drop this process's short-TTL raw
-        // config cache synchronously so the debounced reload (and any readAll
-        // in between) sees the fresh file immediately, not up to TTL stale.
-        invalidateConfigReadCache();
-        if (_reloadDebounce) clearTimeout(_reloadDebounce);
-        _reloadDebounce = setTimeout(() => { reloadRuntimeConfig().catch(() => {}); }, 500);
-      });
-    } catch {}
-  }
+  // Cross-process edits invalidate the raw config cache before the debounced
+  // reload so both messaging and automation-only daemon modes stay current.
+  ensureConfigWatcher();
   // Pre-warm the whisper-server manager once at owner startup so the first
   // voice transcription does not pay cold-start cost. Non-blocking: failures
   // (e.g. runtime not installed) are swallowed; per-request ensureReady retries.

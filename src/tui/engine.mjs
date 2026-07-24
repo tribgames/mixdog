@@ -767,6 +767,10 @@ export async function createEngineSession({
       });
       if (reason === 'superseded') {
         pushNotice('Remote mode OFF — another session took over remote.', 'warn');
+      } else if (reason === 'claim-failed') {
+        pushNotice('Remote mode could not start. Check the channel connection and try again.', 'error');
+      } else if (reason === 'release-failed') {
+        pushNotice('Remote mode could not be stopped cleanly. The shared state will reconcile automatically.', 'error');
       }
     });
   }

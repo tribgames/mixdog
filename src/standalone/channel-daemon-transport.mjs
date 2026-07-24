@@ -15,6 +15,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { readBody, sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
 
@@ -47,9 +48,12 @@ export function createChannelDaemonTransport({
   getStatus = () => ({}),
   dispatchBind = null,
   registrationReplayTtlMs = 60_000,
+  remoteStatePath = null,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
+  const resolvedRemoteStatePath = remoteStatePath
+    || (discoveryPath ? join(dirname(discoveryPath), 'channel-remote-state.json') : null);
   // token -> { token, leadPid, cwd, sse, lastSeen, registeredAt }
   const clients = new Map();
   // leadPid of the last client to claim the bridge / repoint the transcript.
@@ -68,6 +72,8 @@ export function createChannelDaemonTransport({
   // (notifications/claude/channel) stay pointer-targeted, never broadcast.
   const REMOTE_STATE_METHOD = 'notifications/mixdog/remote';
   let stickyRemoteFrame = null;
+  let remoteAcquired = false;
+  let remoteStateSignature = '';
   // Idempotency cache: callId -> { promise }. A retried /call with the SAME
   // callId awaits/returns the ORIGINAL run's result, so a transport-failure
   // retry never double-runs a non-idempotent tool (e.g. reply). Short TTL.
@@ -85,6 +91,44 @@ export function createChannelDaemonTransport({
   let closed = false;
 
   function nowMs() { return Date.now(); }
+
+  function remoteSessionIdFromBinding(name, args) {
+    if (!POINTER_TOOLS.has(name) || !args || typeof args !== 'object') return null;
+    const explicit = String(args.sessionId || '').trim();
+    if (/^[A-Za-z0-9_-]+$/.test(explicit)) return explicit;
+    const transcriptPath = String(args.transcriptPath || '').trim();
+    if (!transcriptPath) return null;
+    const inferred = basename(transcriptPath).replace(/\.[^.]+$/, '');
+    return /^[A-Za-z0-9_-]+$/.test(inferred) ? inferred : null;
+  }
+
+  function publishRemoteOwnerState() {
+    if (!resolvedRemoteStatePath) return;
+    const owner = pointerToken ? clients.get(pointerToken) : null;
+    const sessionId = String(owner?.remoteSessionId || '');
+    const state = {
+      enabled: remoteAcquired === true && Boolean(owner) && Boolean(sessionId),
+      sessionId: remoteAcquired === true && owner && sessionId ? sessionId : null,
+      ownerLeadPid: owner?.leadPid ?? null,
+      cwd: owner?.cwd ?? null,
+      daemonPid: process.pid,
+      updatedAt: nowMs(),
+    };
+    const signature = JSON.stringify([
+      state.enabled,
+      state.sessionId,
+      state.ownerLeadPid,
+      state.cwd,
+      state.daemonPid,
+    ]);
+    if (signature === remoteStateSignature) return;
+    remoteStateSignature = signature;
+    try {
+      writeJsonAtomicSync(resolvedRemoteStatePath, state, { compact: true });
+    } catch (err) {
+      log(`remote owner state write failed: ${err?.message || err}`);
+    }
+  }
 
   function pruneDeadClients() {
     for (const [token, c] of clients) {
@@ -117,6 +161,7 @@ export function createChannelDaemonTransport({
     // during stop()/close (grace shutdown owns teardown) and when no live client
     // remains (grace shutdown path).
     if (wasPointer && !closed) failoverPointer(reason);
+    publishRemoteOwnerState();
     maybeArmGrace('client removed');
   }
 
@@ -187,6 +232,7 @@ export function createChannelDaemonTransport({
       if (!best || c.lastSeen > best.lastSeen) best = c;
     }
     if (!best) return; // no live clients — let grace shutdown run
+    remoteAcquired = true;
     movePointer(best.token, 'failover');
     // Persist the acquired badge as the sticky frame so a later attachSse (or a
     // reconnect that follows the pointer) can replay it — matters when the
@@ -296,11 +342,16 @@ export function createChannelDaemonTransport({
   // re-binding to itself — it never "lost").
   function movePointer(newToken, reason) {
     const oldToken = pointerToken;
-    if (oldToken === newToken) { pointerToken = newToken; return; }
+    if (oldToken === newToken) {
+      pointerToken = newToken;
+      publishRemoteOwnerState();
+      return;
+    }
     pointerToken = newToken;
     const oldClient = oldToken ? clients.get(oldToken) : null;
     const newClient = clients.get(newToken);
     log(`routing pointer -> token=${newToken} lead=${newClient?.leadPid ?? '?'} via ${reason}`);
+    publishRemoteOwnerState();
     if (!oldClient || oldClient === newClient) return;
     if (newClient && oldClient.leadPid === newClient.leadPid) return; // same TUI
     if (isPidAlive(oldClient.leadPid)) {
@@ -326,7 +377,9 @@ export function createChannelDaemonTransport({
         // a late attach that IS the pointer can replay it. Under last-wins the
         // owner is exactly the pointer client, so deliver ONLY there — a
         // broadcast would light the badge on displaced/non-owner TUIs.
+        remoteAcquired = true;
         stickyRemoteFrame = frame;
+        publishRemoteOwnerState();
         const target = resolveTarget();
         if (!target?.sse) { log('remote-state acquired not delivered (no live pointer SSE); sticky set'); return false; }
         try { target.sse.write(`data: ${frame}\n\n`); return true; }
@@ -336,7 +389,9 @@ export function createChannelDaemonTransport({
       // other transition CLEAR the sticky and broadcast to every live client —
       // whoever holds the badge must drop it; replaying it to a future attach
       // would wrongly stop a fresh remote client.
+      remoteAcquired = false;
       stickyRemoteFrame = null;
+      publishRemoteOwnerState();
       let delivered = false;
       for (const [, c] of liveClients()) {
         if (!c.sse) continue;
@@ -420,6 +475,7 @@ export function createChannelDaemonTransport({
       // A non-owner can hold a buffered superseded frame or stored bind intent.
       if (replaced.pending?.length) fresh.pending.push(...replaced.pending.splice(0));
       if (replaced.lastBind) fresh.lastBind = replaced.lastBind;
+      if (replaced.remoteSessionId) fresh.remoteSessionId = replaced.remoteSessionId;
       if (replacedWasPointer) pointerToken = token;
       removeClientRecord(replaced.token);
       log(`client reconnect replaced token=${replaced.token} -> ${token} lead=${pid}`);
@@ -434,13 +490,14 @@ export function createChannelDaemonTransport({
     // token, migrate its buffered pending frames + last bind intent, and remove
     // the old entry WITHOUT a failover or a self-'superseded'. A live-stream
     // pointer that happens to share the pid (e.g. co-located clients) is left
-    // alone — last-wins handles a genuine fresh register below.
+    // alone — a genuine fresh attach remains an observer until it binds.
     if (pointerToken && pointerToken !== token) {
       const old = clients.get(pointerToken);
       if (old && old.leadPid === pid && !old.sse) {
         const fresh = clients.get(token);
         if (old.pending?.length) fresh.pending.push(...old.pending.splice(0));
         if (old.lastBind) fresh.lastBind = old.lastBind;
+        if (old.remoteSessionId) fresh.remoteSessionId = old.remoteSessionId;
         removeClientRecord(pointerToken);
         pointerToken = token;
         log(`pointer follows reconnect -> token=${token} lead=${pid} (old entry dropped)`);
@@ -451,15 +508,16 @@ export function createChannelDaemonTransport({
         return rememberReplacement(token);
       }
     }
-    if (reattach) {
-      // SSE-reconnect re-register: a pruned client re-registers with a FRESH
-      // token but it is NOT a new terminal — it must never steal ownership.
-      // Only adopt the pointer when none exists (avoid a notify blackhole).
-      if (!pointerToken) pointerToken = token;
-    } else {
-      // Last-wins: the NEWEST registered TUI (fresh terminal) always steals the
-      // ownership seat, and the displaced owner is told it lost (superseded).
-      movePointer(token, 'register');
+    // Registration establishes transport connectivity only. Desktop engine
+    // prewarm, automation, and remote auto-start may all attach to an existing
+    // daemon without claiming its active terminal's relay seat. Only an
+    // explicit pointer tool (/remote claim or transcript bind) may move an
+    // occupied pointer and supersede its owner. Adopt a vacant pointer so the
+    // first client still receives daemon notifications without a blackhole.
+    if (!pointerToken) {
+      pointerToken = token;
+      publishRemoteOwnerState();
+      log(`routing pointer initialized -> token=${token} lead=${pid}`);
     }
     return rememberReplacement(token);
   }
@@ -563,11 +621,28 @@ export function createChannelDaemonTransport({
         }
         c.lastSeen = nowMs();
         const name = String(body.name || '');
+        const pointerCall = Boolean(c && POINTER_TOOLS.has(name));
+        const pointerOwner = pointerToken ? clients.get(pointerToken) : null;
+        const claimIfVacant = name === 'activate_channel_bridge'
+          && body.args?.active === true
+          && body.args?.claimIfVacant === true;
+        const claimBlocked = claimIfVacant
+          && pointerToken !== clientToken
+          && remoteAcquired === true
+          && Boolean(pointerOwner?.remoteSessionId);
+        const pointerMove = pointerCall && !claimBlocked;
+        const previousRemoteSessionId = c?.remoteSessionId || null;
+        const previousRemoteAcquired = remoteAcquired;
         // Bind-intent calls re-point routing at the caller BEFORE dispatch, so a
         // notify emitted synchronously during the call already targets it.
-        if (c && POINTER_TOOLS.has(name)) {
-          // Last-wins bind claim (/remote or boot). Steals the seat AND tells
-          // the displaced owner it lost (targeted superseded).
+        if (pointerMove) {
+          const bindingSessionId = remoteSessionIdFromBinding(name, body.args);
+          if (bindingSessionId) c.remoteSessionId = bindingSessionId;
+          if (name === 'activate_channel_bridge' && body.args?.active === false) {
+            remoteAcquired = false;
+          }
+          // Explicit bind claims are last-wins. Auto claims reach here only
+          // when no live bound remote owner occupies the pointer.
           movePointer(clientToken, name);
         }
         const callId = body.callId ? String(body.callId) : null;
@@ -577,11 +652,16 @@ export function createChannelDaemonTransport({
           // side-effect) instead of dispatching handleCall a second time.
           dispatch = callCache.get(callId).promise;
         } else {
-          dispatch = Promise.resolve().then(() => handleCall(name, body.args || {}, {
-            clientToken,
-            leadPid: c?.leadPid ?? null,
-            cwd: c?.cwd ?? null,
-          }));
+          dispatch = claimBlocked
+            ? Promise.resolve({
+              content: [{ type: 'text', text: 'channel bridge claim skipped: live remote owner' }],
+              claimSkipped: true,
+            })
+            : Promise.resolve().then(() => handleCall(name, body.args || {}, {
+              clientToken,
+              leadPid: c?.leadPid ?? null,
+              cwd: c?.cwd ?? null,
+            }));
           if (callId) {
             callCache.set(callId, { promise: dispatch, at: nowMs() });
             // Start the TTL only once the call SETTLES: an in-flight call can
@@ -598,9 +678,17 @@ export function createChannelDaemonTransport({
           const result = await dispatch;
           // Record the caller's last bind intent so a failover can rebind the
           // output forwarder to THIS client's transcript when it becomes owner.
-          if (c && POINTER_TOOLS.has(name)) c.lastBind = { name, args: body.args || {} };
+          if (pointerMove) {
+            c.lastBind = { name, args: body.args || {} };
+            publishRemoteOwnerState();
+          }
           sendJson(res, { result });
         } catch (err) {
+          if (pointerMove) {
+            c.remoteSessionId = previousRemoteSessionId;
+            remoteAcquired = previousRemoteAcquired;
+            publishRemoteOwnerState();
+          }
           sendJson(res, { error: err?.message || String(err) }, 200);
         }
         return;
@@ -640,6 +728,7 @@ export function createChannelDaemonTransport({
         boundPort = server.address().port;
         server.on('error', (err) => log(`server error: ${err?.message || err}`));
         writeDiscovery();
+        publishRemoteOwnerState();
         log(`daemon transport listening on 127.0.0.1:${boundPort} pid=${process.pid}`);
         resolve({ port: boundPort, token: serverToken });
       });
@@ -651,6 +740,9 @@ export function createChannelDaemonTransport({
     cancelGrace();
     if (sweepTimer) { try { clearInterval(sweepTimer); } catch {} sweepTimer = null; }
     for (const [token] of clients) dropClient(token, 'transport stop');
+    remoteAcquired = false;
+    pointerToken = null;
+    publishRemoteOwnerState();
     clearRegistrationReplays();
     if (discoveryPath) { try { rmSync(discoveryPath, { force: true }); } catch {} }
     if (server) {

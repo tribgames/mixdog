@@ -1,6 +1,6 @@
 {
   "name": "@mixdog/desktop",
-  "version": "0.9.67",
+  "version": "0.9.68",
   "private": true,
   "description": "Mixdog desktop host for Windows and macOS",
   "type": "module",

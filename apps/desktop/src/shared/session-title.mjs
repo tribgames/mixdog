@@ -13,6 +13,12 @@ const GENERATED_TITLE_NOISE = Object.freeze([
   /^\[mixdog-runtime\]/i,
   /^\[(?:truncated|request interrupted by user)\]$/i,
   /^a previous model worked on this task and produced the compacted handoff summary below\b/i,
+  // Compact/auto-clear re-seed variants (mirror of the core
+  // SYNTHETIC_SESSION_TEXT_PATTERNS): the file re-attach block leads the
+  // post-compaction transcript, so titling from it painted
+  // "Re-attached after compaction…" rows in the sidebar (user report).
+  /^re-attached after compaction\b/i,
+  /^reference files:\s/i,
   /^the async (?:agent|shell) task\b/i,
   /^#\s*permission\b/i,
   /^permission:\s*/i,

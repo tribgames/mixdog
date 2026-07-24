@@ -200,6 +200,10 @@ test("selected live snapshot overrides a stale catalog heartbeat", () => {
 
   const active = workingSessionIdsForSnapshot(sessions, "selected", true);
   assert.equal(active.has("selected"), true);
+
+  const attached = workingSessionIdsForSnapshot(sessions, "selected", false, true);
+  assert.equal(attached.has("selected"), true,
+    "an idle remote-attached viewer must preserve the external owner's heartbeat");
 });
 
 test("streaming-only state patches preserve settled item array identity", async () => {

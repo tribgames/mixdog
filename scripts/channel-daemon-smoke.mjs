@@ -14,7 +14,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createChannelDaemonTransport } from '../src/standalone/channel-daemon-transport.mjs';
 import { attachToDaemon } from '../src/standalone/channel-daemon-client.mjs';
@@ -44,6 +44,7 @@ function check(label, cond) {
 async function main() {
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'mixdog-daemon-smoke-'));
   const discoveryPath = path.join(tmp, 'channel-daemon.json');
+  const remoteStatePath = path.join(tmp, 'channel-remote-state.json');
   let clientsEmptyFired = false;
   let sideEffects = 0; // counts non-idempotent 'reply' dispatches
 
@@ -79,20 +80,19 @@ async function main() {
   const rB = await clientB.call('fetch', { q: 2 });
   check('client B call round-trips', rB?.ok === true && rB?.name === 'fetch');
 
-  // (3) LAST-WINS register: the NEWEST registrant (B) steals the ownership seat,
-  // so an inbound notify targets B — NOT the first registrant. (Under the old
-  // first-wins model this went to A.)
-  transport.notify('notifications/claude/channel', { content: 'to-B' });
-  await delay(120);
-  check('notify #1 targets newest registrant (B) only',
-    notB.length === 1 && notB[0]?.params?.content === 'to-B' && notA.length === 0);
-
-  // (4) bind-intent call moves the pointer back to A.
-  await clientA.call('rebind_current_transcript', { transcriptPath: '/tmp/a.jsonl' });
+  // (3) Registration is transport-only: a later observer (B) must not steal
+  // the occupied pointer from A merely by attaching.
   transport.notify('notifications/claude/channel', { content: 'to-A' });
   await delay(120);
-  check('notify #2 delivered to A only after rebind',
-    notA.length === 1 && notA[0]?.params?.content === 'to-A' && notB.length === 1);
+  check('notify #1 remains with first owner (A) after B only attaches',
+    notA.length === 1 && notA[0]?.params?.content === 'to-A' && notB.length === 0);
+
+  // (4) A bind-intent call is the explicit ownership transition.
+  await clientB.call('rebind_current_transcript', { transcriptPath: '/tmp/b.jsonl' });
+  transport.notify('notifications/claude/channel', { content: 'to-B' });
+  await delay(120);
+  check('notify #2 delivered to B only after explicit rebind',
+    notB.length === 1 && notB[0]?.params?.content === 'to-B' && notA.length === 1);
 
   // (fix 1) idempotent replay: two /call with the SAME callId (a retried
   // transport failure) must run the non-idempotent side-effect exactly once.
@@ -104,7 +104,7 @@ async function main() {
   check('idempotent replay: same callId → exactly one side-effect',
     sideEffects === 1 && d1?.ok === true && d2?.ok === true);
 
-  // (targeted) the 'acquired' badge goes ONLY to the current owner (pointer=A
+  // (targeted) the 'acquired' badge goes ONLY to the current owner (pointer=B
   // after the rebind), never broadcast — a displaced/non-owner TUI (B) must not
   // light its remote badge. Still sticky for a late owner attach (below).
   const remoteBefore = { A: notA.length, B: notB.length };
@@ -112,16 +112,20 @@ async function main() {
   await delay(120);
   const gotA = notA.slice(remoteBefore.A).filter((m) => m?.method === 'notifications/mixdog/remote');
   const gotB = notB.slice(remoteBefore.B).filter((m) => m?.method === 'notifications/mixdog/remote');
-  check('remote-state acquired targets owner (A) only, not broadcast',
-    gotA.length === 1 && gotB.length === 0);
+  check('remote-state acquired targets owner (B) only, not broadcast',
+    gotB.length === 1 && gotA.length === 0);
+  const remoteOwner = JSON.parse(readFileSync(remoteStatePath, 'utf8'));
+  check('remote owner state publishes the bound session without polling',
+    remoteOwner.enabled === true && remoteOwner.sessionId === 'b');
 
-  // A late client that registers becomes the NEWEST owner (steals the pointer),
-  // so on attach it replays the sticky 'acquired' badge for itself.
+  // A late observer must neither steal the pointer nor replay the owner's
+  // sticky acquired badge merely by attaching.
   const notC = [];
   const clientC = await attachToDaemon({ discovery, leadPid: process.pid, cwd: 'C', onNotify: (m) => notC.push(m) });
-  await waitFor(() => notC.some((m) => m?.method === 'notifications/mixdog/remote'), 1000);
-  check('late owner receives replayed remote-state on attach',
-    notC.filter((m) => m?.method === 'notifications/mixdog/remote' && m?.params?.state === 'acquired').length === 1);
+  await delay(150);
+  check('late observer receives no remote-state replay and does not steal',
+    notC.filter((m) => m?.method === 'notifications/mixdog/remote').length === 0 &&
+    transport._resolveTargetForTest()?.token === clientB.clientToken);
   await clientC.close();
 
   // (replay) 'superseded' CLEARS the sticky: a client attaching after it must
@@ -138,18 +142,17 @@ async function main() {
   // (sink) daemon-mode wiring: owned-runtime routes remote-state through the
   // parent bridge's sendNotifyToParent (NOT raw process.send). The daemon
   // installs a sink -> transport.notify (channel-daemon.mjs:106). Assert an
-  // 'acquired' emitted via that sink reaches the transport and replays to a
-  // late client — the exact daemon-mode path a raw process.send would drop.
+  // 'acquired' emitted via that sink reaches the current owner — the exact
+  // daemon-mode path a raw process.send would drop.
   const { sendNotifyToParent } = createParentBridge({ getInstanceId: () => 'smoke' });
   setChannelNotifySink((method, params) => transport.notify(method, params));
+  const sinkBefore = notB.length;
   sendNotifyToParent('notifications/mixdog/remote', { state: 'acquired' });
-  await delay(60);
-  const notE = [];
-  const clientE = await attachToDaemon({ discovery, leadPid: process.pid, cwd: 'E', onNotify: (m) => notE.push(m) });
-  await waitFor(() => notE.some((m) => m?.method === 'notifications/mixdog/remote'), 1000);
-  check('daemon-mode acquire via notify sink reaches transport + replays',
-    notE.filter((m) => m?.method === 'notifications/mixdog/remote' && m?.params?.state === 'acquired').length === 1);
-  await clientE.close();
+  await waitFor(() => notB.slice(sinkBefore).some((m) =>
+    m?.method === 'notifications/mixdog/remote' && m?.params?.state === 'acquired'), 1000);
+  check('daemon-mode acquire via notify sink reaches current owner',
+    notB.slice(sinkBefore).filter((m) =>
+      m?.method === 'notifications/mixdog/remote' && m?.params?.state === 'acquired').length === 1);
   setChannelNotifySink(null);
 
   // (5) deregister both → self-shutdown fires after the client grace window.
@@ -157,6 +160,9 @@ async function main() {
   await clientB.close();
   await delay(600);
   check('daemon self-shutdown fired after last client left', clientsEmptyFired === true);
+  const releasedOwner = JSON.parse(readFileSync(remoteStatePath, 'utf8'));
+  check('remote owner state clears when the last client leaves',
+    releasedOwner.enabled === false && releasedOwner.sessionId === null);
 
   await transport.stop();
   try { rmSync(tmp, { recursive: true, force: true }); } catch {}
@@ -239,9 +245,9 @@ async function flipTest() {
   try { rmSync(tmp, { recursive: true, force: true }); } catch {}
 }
 
-// Last-wins ownership steal coverage with DISTINCT alive leadPids (two sleeper
-// child processes) — the only way to observe the targeted 'superseded' frame,
-// which is skipped when old/new client share a leadPid (same-TUI rebind).
+// Explicit ownership steal coverage with DISTINCT alive leadPids (two sleeper
+// child processes): registration is non-owning, while a bind call emits the
+// targeted 'superseded' frame to the displaced owner.
 async function pointerStealTest() {
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'mixdog-steal-smoke-'));
   const discoveryPath = path.join(tmp, 'channel-daemon.json');
@@ -267,28 +273,49 @@ async function pointerStealTest() {
   const clientA = await attachToDaemon({ discovery, leadPid: sleeperA.pid, cwd: 'A', onNotify: (m) => notA.push(m) });
   await delay(100); // A registers → A is the owner
   const clientB = await attachToDaemon({ discovery, leadPid: sleeperB.pid, cwd: 'B', onNotify: (m) => notB.push(m) });
-  await delay(150); // B registers → steals the seat, A gets targeted superseded
+  await delay(150); // B registers as an observer; A keeps the seat
 
-  check('steal: newest registrant (B) becomes the owner pointer',
-    transport._resolveTargetForTest()?.leadPid === sleeperB.pid);
-  check('steal: displaced owner (A) got a TARGETED superseded on register',
-    notA.filter((m) => m?.method === REMOTE && m?.params?.state === 'superseded').length === 1);
-  check('steal: new owner (B) got no superseded',
+  check('steal: observer registration leaves owner pointer on A',
+    transport._resolveTargetForTest()?.leadPid === sleeperA.pid);
+  check('steal: observer registration sends no superseded',
+    notA.filter((m) => m?.method === REMOTE && m?.params?.state === 'superseded').length === 0);
+  check('steal: observer (B) got no remote-state',
     notB.filter((m) => m?.method === REMOTE).length === 0);
 
-  // 'acquired' now targets the owner (B) only — never broadcast to A.
+  // Bind A to a real remote session, then publish acquired. The badge still
+  // targets owner A only — never the observer B.
+  await clientA.call('activate_channel_bridge', { active: true, sessionId: 'a' });
   transport.notify(REMOTE, { state: 'acquired' });
   await delay(120);
-  check('steal: acquired targets owner (B) only, not broadcast',
-    notB.filter((m) => m?.params?.state === 'acquired').length === 1 &&
-    notA.filter((m) => m?.params?.state === 'acquired').length === 0);
+  check('steal: acquired targets owner (A) only, not observer B',
+    notA.filter((m) => m?.params?.state === 'acquired').length === 1 &&
+    notB.filter((m) => m?.params?.state === 'acquired').length === 0);
 
-  // A bind-intent /call from A steals the seat back → B (displaced) superseded.
-  await clientA.call('activate_channel_bridge', {});
+  // Auto-start is claim-if-vacant: with A actively owning a bound session,
+  // B must remain an observer and must not dispatch bridge activation.
+  const blocked = await clientB.call('activate_channel_bridge', {
+    active: true, claimIfVacant: true, sessionId: 'b-auto',
+  });
   await delay(120);
-  check('steal: bind /call moves pointer back to A',
+  check('steal: auto claim yields to the live owner without superseding it',
+    blocked?.claimSkipped === true &&
+    transport._resolveTargetForTest()?.leadPid === sleeperA.pid &&
+    notA.filter((m) => m?.params?.state === 'superseded').length === 0);
+
+  // B's explicit claim steals the seat → A (displaced) gets superseded.
+  await clientB.call('activate_channel_bridge', { active: true, sessionId: 'b' });
+  await delay(120);
+  check('steal: explicit bind /call moves pointer to B',
+    transport._resolveTargetForTest()?.leadPid === sleeperB.pid);
+  check('steal: displaced owner (A) got targeted superseded on bind /call',
+    notA.filter((m) => m?.method === REMOTE && m?.params?.state === 'superseded').length === 1);
+
+  // A can explicitly reclaim the seat, targeting B with superseded.
+  await clientA.call('activate_channel_bridge', { active: true, sessionId: 'a' });
+  await delay(120);
+  check('steal: explicit reclaim moves pointer back to A',
     transport._resolveTargetForTest()?.leadPid === sleeperA.pid);
-  check('steal: displaced owner (B) got targeted superseded on bind /call',
+  check('steal: displaced owner (B) got targeted superseded on explicit reclaim',
     notB.filter((m) => m?.method === REMOTE && m?.params?.state === 'superseded').length === 1);
 
   // superseded via notify() (seat lost to another daemon) still BROADCASTS to
@@ -428,6 +455,10 @@ async function tokenReplacementRetirementTest() {
   const oldA = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
   await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
   const ownerC = await rawPost(port, token, '/client/register', { leadPid: c.pid, cwd: 'C' });
+  await rawPost(port, token, '/call', {
+    token: ownerC.token, name: 'rebind_current_transcript',
+    args: { transcriptPath: '/tmp/owner-c.jsonl' }, callId: 'owner-c-bind',
+  });
   const oldBufferedBeforeReplace = transport._clientsForTest.get(oldA.token)?.pending?.length === 1;
   const freshA = await rawPost(port, token, '/client/register', {
     leadPid: a.pid, cwd: 'A', reattach: true, replaceToken: oldA.token,
@@ -444,6 +475,7 @@ async function tokenReplacementRetirementTest() {
     token: oldA.token, name: 'rebind_current_transcript',
     args: { transcriptPath: '/tmp/stale-a.jsonl' }, callId: 'late-old-dedup',
   });
+  const dispatchesBeforeFreshCall = dispatches;
   const [live1, live2] = await Promise.all([
     rawPost(port, token, '/call', {
       token: freshA.token, name: 'rebind_current_transcript',
@@ -465,7 +497,7 @@ async function tokenReplacementRetirementTest() {
     beforeFreshClose === 3 &&
     pointerBeforeFreshClose === freshA.token &&
     live1?.result?.ok === true && live2?.result?.ok === true &&
-    dispatches === 1 &&
+    dispatches === dispatchesBeforeFreshCall + 1 &&
     !transport._clientsForTest.has(freshA.token) &&
     transport._clientsForTest.size === 2 &&
     ownerC.token !== freshA.token);
@@ -489,6 +521,10 @@ async function tokenReplacementReplayTest() {
   await delay(80);
   const oldA = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
   const ownerB = await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
+  await rawPost(port, token, '/call', {
+    token: ownerB.token, name: 'rebind_current_transcript',
+    args: { transcriptPath: '/tmp/owner-b.jsonl' }, callId: 'replay-owner-b-bind',
+  });
   const replacement = {
     leadPid: a.pid, cwd: 'A', reattach: true, replaceToken: oldA.token,
     registrationId: 'response-loss-replacement-1',
@@ -530,6 +566,10 @@ async function tokenReplacementResponseLossCloseTest() {
   await delay(80);
   const oldA = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
   const ownerB = await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
+  await rawPost(port, token, '/call', {
+    token: ownerB.token, name: 'rebind_current_transcript',
+    args: { transcriptPath: '/tmp/owner-b.jsonl' }, callId: 'close-owner-b-bind',
+  });
   const cancellation = {
     token: oldA.token, replaceToken: oldA.token, leadPid: a.pid, cwd: 'A',
     registrationId: 'response-loss-immediate-close-1',
@@ -573,7 +613,11 @@ async function registrationReplayTtlTest() {
   const b = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: 'ignore' });
   await delay(80);
   const oldA = await rawPost(port, token, '/client/register', { leadPid: a.pid, cwd: 'A' });
-  await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
+  const ownerB = await rawPost(port, token, '/client/register', { leadPid: b.pid, cwd: 'B' });
+  await rawPost(port, token, '/call', {
+    token: ownerB.token, name: 'rebind_current_transcript',
+    args: { transcriptPath: '/tmp/owner-b.jsonl' }, callId: 'ttl-owner-b-bind',
+  });
   const valid = await rawPost(port, token, '/client/register', {
     leadPid: a.pid, cwd: 'A', reattach: true, replaceToken: oldA.token, registrationId: 'ttl-valid',
   });
@@ -849,11 +893,13 @@ async function workerAttachSafetyTest() {
   const authDiscovery = path.join(authTmp, 'channel-daemon.json');
   const goodToken = 'good-discovery-token';
   let rejectedRegisters = 0;
+  let observerOnlyRegisters = true;
   const authServer = await startTestServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     if (url.pathname === '/health') return sendTestJson(res, 200, { status: 'ok', pid: process.pid });
     if (url.pathname === '/client/register') {
-      await readJsonBody(req);
+      const body = await readJsonBody(req);
+      observerOnlyRegisters &&= body.reattach === true;
       if (req.headers['x-mixdog-daemon-token'] !== goodToken) {
         rejectedRegisters++;
         return sendTestJson(res, 403, { error: 'forbidden' });
@@ -875,7 +921,8 @@ async function workerAttachSafetyTest() {
   }, 250);
   await authWorker.start();
   clearTimeout(publishGoodDiscovery);
-  check('worker: initial register 403 re-reads discovery and attaches', rejectedRegisters > 0);
+  check('worker: initial observer register 403 re-reads discovery and attaches without claim intent',
+    rejectedRegisters > 0 && observerOnlyRegisters);
   await authWorker.stop();
   await stopTestServer(authServer);
   try { rmSync(authTmp, { recursive: true, force: true }); } catch {}
@@ -976,11 +1023,18 @@ async function reattachBufferTest() {
     transport._resolveTargetForTest()?.token === regReconnect.token &&
     !transport._clientsForTest.has(regX.token));
 
-  // (2) X's current entry never opened a stream; a fresh register Y steals the
-  // seat → X's targeted 'superseded' is BUFFERED, then delivered on late attach.
+  // (2) X's current entry never opened a stream; fresh register Y is only an
+  // observer. Its explicit bind steals the seat, so X's targeted 'superseded'
+  // is BUFFERED and delivered on late attach.
   const regY = await rawPost(port, token, '/client/register', { leadPid: s2.pid, cwd: 'Y' });
   await delay(40);
-  check('reattach: fresh Y steals the seat from X',
+  check('reattach: fresh Y registration leaves the seat on X',
+    transport._resolveTargetForTest()?.token === regReconnect.token);
+  await rawPost(port, token, '/call', {
+    token: regY.token, name: 'rebind_current_transcript',
+    args: { transcriptPath: '/tmp/y.jsonl' }, callId: 'reattach-y-bind',
+  });
+  check('reattach: explicit Y bind steals the seat from X',
     transport._resolveTargetForTest()?.token === regY.token);
   const notX = [];
   const sseX = rawSse(port, token, regReconnect.token, (m) => notX.push(m));

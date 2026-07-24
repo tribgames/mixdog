@@ -79,6 +79,19 @@ test('renderer uses the preload bridge name', async () => {
   assert.match(renderer, new RegExp(`window\\.${bridgeName}\\b`));
 });
 
+test('desktop startup and automation never implicitly activate the remote bridge', async () => {
+  const [runtime, daemon] = await Promise.all([
+    readFile(new URL('../../../../src/session-runtime/runtime-core.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../../../../src/standalone/channel-daemon.mjs', import.meta.url), 'utf8'),
+  ]);
+  assert.match(runtime,
+    /let remoteAutoStartRequested = false;[\s\S]{0,160}?if \(!remoteEnabled && !desktopSession\)/);
+  assert.match(runtime,
+    /bootProfile\('channels:automation-autostart'\);[\s\S]{0,80}?void invokeChannelStart\(\);/);
+  assert.match(daemon,
+    /const messaging = remoteIntent === 'explicit' \|\| remoteIntent === 'auto';[\s\S]{0,100}?channels\.start\(\{ messaging \}\)/);
+});
+
 test('the stable composer placeholder does not schedule idle rerenders', async () => {
   const renderer = await readAppModules();
   assert.doesNotMatch(renderer, /placeholderIndex|setPlaceholderIndex/);
@@ -315,6 +328,9 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   // 15px glyph scale, no pulse animation (user: match the send button).
   assert.doesNotMatch(styles, /send-stop-pulse/);
   assert.match(app, /className="session-header-status"[\s\S]*?<SnapshotHeaderStatus snapshotStore=\{snapshotStore\}/);
+  assert.match(app, /capability:\s*enabled \? "claimRemote" : "releaseRemote"/);
+  assert.match(app, /if \(result\?\.snapshot !== undefined\) applySnapshot\(result\.snapshot\)/);
+  assert.doesNotMatch(app, /capability:\s*"toggleRemote"[\s\S]{0,160}\.catch\(\(\) => \{\}\)/);
   // Background-activity chip floats over the chat top-right (user decision):
   // the header keeps only the context indicator.
   assert.match(app, /function SnapshotLiveWork[\s\S]*?className="chat-live-work"[\s\S]*?<LiveWorkStatus snapshot=\{visibleSnapshot\} \/>/);
@@ -424,7 +440,9 @@ test('desktop UI keeps every public TUI command and core capability represented'
   ]);
   assert.deepEqual(
     capabilities.filter((capability) => (
-      !represented.includes(`'${capability}'`) && !capabilitiesWithoutPublicTuiControls.has(capability)
+      !represented.includes(`'${capability}'`)
+      && !represented.includes(`"${capability}"`)
+      && !capabilitiesWithoutPublicTuiControls.has(capability)
     )),
     [],
   );
@@ -479,6 +497,16 @@ test('desktop session titles strip runtime envelopes and prompt payload markup',
   );
   assert.equal(
     generatedSessionTitle('A previous model worked on this task and produced the compacted handoff summary below.', ''),
+    '',
+  );
+  // Post-compaction re-seed blocks must never become sidebar titles: the
+  // file re-attach message leads the transcript after every auto-compact.
+  assert.equal(
+    generatedSessionTitle('Re-attached after compaction (fresh reads of files the summarized history was working with):', ''),
+    '',
+  );
+  assert.equal(
+    generatedSessionTitle('Reference files:\n\nRe-attached after compaction (fresh reads of files):', ''),
     '',
   );
   assert.equal(generatedSessionTitle('[truncated]', ''), '');

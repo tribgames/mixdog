@@ -2260,6 +2260,94 @@ test("sidebar shows the working spinner for live spinner activity even when busy
   assert.equal(document.querySelector(`[data-session-id="${idleSession.id}"] .session-row-status`)?.childElementCount, 0);
 });
 
+test("sidebar preserves an attached session spinner and turns completion into an unread dot", async () => {
+  installDom();
+  let publishSessions = null;
+  const workingSession = {
+    id: "attached-working",
+    preview: "Attached working",
+    title: "Attached working",
+    updatedAt: 2,
+    activityAt: 2,
+    messageCount: 1,
+    working: true,
+    cwd: "C:\\work",
+    classification: "task",
+    projectPath: null,
+    currentSession: true,
+  };
+  const otherSession = {
+    ...workingSession,
+    id: "other-session",
+    preview: "Other session",
+    title: "Other session",
+    updatedAt: 1,
+    activityAt: 1,
+    working: false,
+    currentSession: false,
+  };
+  const rows = [workingSession, otherSession];
+  window.mixdogDesktop = {
+    getSnapshot: async () => ({
+      sessionId: workingSession.id,
+      sessionRemoteAttached: true,
+      items: [],
+      queued: [],
+      busy: false,
+    }),
+    subscribeState: () => () => {},
+    subscribeSessions: (listener) => {
+      publishSessions = listener;
+      return () => {};
+    },
+    listProjects: async () => [],
+    listSessions: async () => rows,
+    resumeSession: async (id) => ({
+      sessionId: id,
+      sessionRemoteAttached: id === workingSession.id,
+      items: [],
+      queued: [],
+      busy: false,
+    }),
+  };
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const workingRow = () => document.querySelector(`[data-session-id="${workingSession.id}"]`);
+  assert.ok(workingRow()?.querySelector(".session-row-spinner"),
+    "catalog heartbeat should show before selection");
+
+  await act(async () => {
+    workingRow().click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(workingRow()?.querySelector(".session-row-spinner"),
+    "opening an attached viewer must not clear the external spinner");
+
+  await act(async () => {
+    document.querySelector(`[data-session-id="${otherSession.id}"]`).click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.ok(workingRow()?.querySelector(".session-row-spinner"),
+    "switching away must preserve the still-working session spinner");
+
+  await act(async () => {
+    publishSessions([
+      { ...workingSession, working: false },
+      otherSession,
+    ]);
+    await Promise.resolve();
+  });
+  assert.equal(workingRow()?.querySelector(".session-row-spinner"), null);
+  assert.ok(workingRow()?.querySelector(".session-row-unread-dot"),
+    "a background working -> completed transition must become unread even before messageCount advances");
+});
+
 test("sidebar omits the runtime status trigger", async () => {
   installDom();
   window.mixdogDesktop = {

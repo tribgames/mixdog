@@ -96,6 +96,7 @@ import {
   type CommandSurface as CommandSurfaceName,
   type SettingsSection,
 } from "./slash-commands";
+import { remoteNewTaskMode } from "./remote-preferences";
 import { promptTitle, sessionSummaryTitle } from "../shared/session-title.mjs";
 // The desktop transcript deliberately consumes the same semantic tool labels,
 // categories, and result summaries as the terminal UI. Keeping this import at
@@ -296,11 +297,13 @@ function SnapshotHeaderStatus({
   frozenSnapshot,
   hidden,
   onOpen,
+  onRemoteChange,
 }: {
   snapshotStore: DesktopSnapshotStore;
   frozenSnapshot: Snapshot | null;
   hidden: boolean;
   onOpen(): void;
+  onRemoteChange(enabled: boolean): Promise<void>;
 }) {
   const selectedSnapshot = useSelectedDesktopSnapshot(
     snapshotStore,
@@ -310,7 +313,7 @@ function SnapshotHeaderStatus({
   const visibleSnapshot = hidden ? EMPTY_SNAPSHOT : selectedSnapshot;
   return <>
     <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
-    <RemoteToggleButton snapshot={visibleSnapshot} />
+    <RemoteToggleButton snapshot={visibleSnapshot} onChange={onRemoteChange} />
   </>;
 }
 
@@ -359,31 +362,60 @@ function WifiGlyph({ size = 18 }: { size?: number }) {
 // VIEWED session owns the channel relay (snapshot-driven — no polling).
 // Off → on claims for this session; owner → off; owned elsewhere → clicking
 // moves the relay seat to this session (last-wins).
-function RemoteToggleButton({ snapshot }: { snapshot: Snapshot }) {
+function RemoteToggleButton({
+  snapshot,
+  onChange,
+}: {
+  snapshot: Snapshot;
+  onChange(enabled: boolean): Promise<void>;
+}) {
   const [busy, setBusy] = useState(false);
+  // No configured channel → no relay to toggle: the button hides entirely
+  // (user decision). Probed from channel setup; re-checked on an interval so
+  // finishing setup in Settings reveals the button without a restart.
+  const [channelReady, setChannelReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const result = await window.mixdogDesktop.invokeCapability<RecordValue>({ capability: "getChannelSetup", args: [] });
+        const setup = asRecord(result?.value) || {};
+        const channel = asRecord(setup.channel) || {};
+        const backend = String(setup.backend || "discord");
+        const ready = backend === "telegram"
+          ? asRecord(setup.telegram)?.authenticated === true && Boolean(channel.telegramChatId || channel.channelId)
+          : asRecord(setup.discord)?.authenticated === true && Boolean(channel.discordChannelId || channel.channelId);
+        if (!cancelled) setChannelReady(ready === true);
+      } catch { if (!cancelled) setChannelReady(false); }
+    };
+    void probe();
+    const timer = window.setInterval(() => void probe(), 60_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
   const remoteEnabled = snapshot.remoteEnabled === true;
   const owner = String(snapshot.remoteSessionId || "");
   const current = String(snapshot.sessionId || "");
   const on = remoteEnabled && Boolean(owner) && owner === current;
   const elsewhere = remoteEnabled && !on;
+  if (channelReady !== true) return null;
   // On/off reads through the GLYPH, not color (user decision): Wifi waves
   // while THIS session relays, Unplug otherwise — same ink, stroke, and 18px
   // frame as the panel toggle.
   return <button type="button"
     className="session-dock-toggle remote-toggle"
-    aria-pressed={on} disabled={busy}
+    aria-pressed={on} aria-busy={busy || undefined} disabled={busy}
     aria-label={on ? "Turn channel relay off"
       : elsewhere ? "Move the channel relay to this session"
         : "Turn channel relay on"}
-    data-tooltip={on ? "Remote on" : elsewhere ? "Remote on elsewhere — click to move here" : "Remote off"}
+    data-tooltip={busy ? "Updating remote…" : on ? "Remote on" : elsewhere ? "Remote on elsewhere — click to move here" : "Remote off"}
     onClick={() => {
       if (busy) return;
       setBusy(true);
-      void window.mixdogDesktop.invokeCapability({ capability: "toggleRemote", args: [] })
-        .catch(() => {})
-        .finally(() => setBusy(false));
+      void onChange(!on).finally(() => setBusy(false));
     }}>
-    {on ? <WifiGlyph size={18} /> : <Unplug size={18} aria-hidden="true" />}
+    {busy
+      ? <LoaderCircle size={18} className="remote-toggle-spinner" aria-hidden="true" />
+      : on ? <WifiGlyph size={18} /> : <Unplug size={18} aria-hidden="true" />}
   </button>;
 }
 
@@ -565,6 +597,10 @@ export function App() {
   // Recent-list unread dots: session ids whose stored updatedAt advanced while
   // the session was not the viewed selection (Claude-style activity marker).
   const [unreadSessionIds, setUnreadSessionIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Completion is an activity signal even when a final catalog push races the
+  // assistant-message count update. Track working -> settled transitions so a
+  // background completion reliably becomes an unread dot.
+  const previousWorkingSessionIds = useRef<ReadonlySet<string>>(new Set());
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
   const [selection, setSelection] = useState<NavigationSelection>({ kind: "new" });
   useEffect(() => {
@@ -735,6 +771,7 @@ export function App() {
   ) => {
     const key = navigationKey(nextSelection);
     selectionRef.current = nextSelection;
+    viewedSessionRef.current = nextSelection.kind === "session" ? nextSelection.id : "";
     setSelection(nextSelection);
     setTabs((current) => {
       const existing = current.findIndex((tab) => tab.key === key);
@@ -845,6 +882,13 @@ export function App() {
       return undefined;
     }
   }, [setError]);
+  const setRemoteEnabled = useCallback(async (enabled: boolean): Promise<void> => {
+    const result = await invokeResult(() => window.mixdogDesktop.invokeCapability({
+      capability: enabled ? "claimRemote" : "releaseRemote",
+      args: [],
+    }));
+    if (result?.snapshot !== undefined) applySnapshot(result.snapshot);
+  }, [applySnapshot, invokeResult]);
   const openDesktopUpdate = useCallback(() => {
     if (updaterState.status === "ready") setUpdateDialogOpen(true);
   }, [updaterState.status]);
@@ -908,6 +952,13 @@ export function App() {
     const seen = loadSessionLastSeen();
     const activeId = viewedSessionRef.current;
     const liveIds = new Set(rows.map((row) => row.id));
+    const workingIds = new Set(rows
+      .filter((row) => row.working === true)
+      .map((row) => row.id));
+    const completedIds = new Set([...previousWorkingSessionIds.current]
+      .filter((id) => liveIds.has(id) && !workingIds.has(id)));
+    previousWorkingSessionIds.current = workingIds;
+    const engaged = document.visibilityState === "visible";
     let dirty = false;
     for (const id of [...seen.keys()]) {
       if (liveIds.has(id)) continue;
@@ -927,7 +978,15 @@ export function App() {
       // the live transcript beside the terminal IS being watched — dotting it
       // read as noise (user report). Only growth that lands while the window
       // is hidden/occluded earns the dot.
-      const engaged = document.visibilityState === "visible";
+      // Automation fires are BORN in the background (every fire is a fresh
+      // session now): their first sighting IS the notification, so they skip
+      // the read-by-definition baseline until actually viewed (user report:
+      // Automations/Remote rows never showed the dot).
+      const automationBorn = row.sourceType === "schedule" || row.sourceType === "webhook";
+      if (last === undefined && automationBorn && !(row.id === activeId && engaged)) {
+        if (count > 0) unread.add(row.id);
+        continue;
+      }
       if (last === undefined || (row.id === activeId && engaged)) {
         if (last !== count) {
           seen.set(row.id, count);
@@ -939,6 +998,16 @@ export function App() {
     }
     if (dirty) persistSessionLastSeen(seen);
     setUnreadSessionIds((current) => {
+      // Preserve completion-only dots across later catalog pushes until the
+      // row is actually viewed. Message-count unread remains derivable from
+      // `seen`; completion unread may be the only signal when save ordering
+      // exposes heartbeat removal before the final assistant count.
+      for (const id of current) {
+        if (liveIds.has(id) && !(id === activeId && engaged)) unread.add(id);
+      }
+      for (const id of completedIds) {
+        if (!(id === activeId && engaged)) unread.add(id);
+      }
       if (current.size === unread.size && [...unread].every((id) => current.has(id))) {
         return current;
       }
@@ -1540,6 +1609,13 @@ export function App() {
           navigationEpoch.current += 1;
           activateSelection({ kind: "session", id: activeSessionId }, title, "new");
           setNewTaskActive(false);
+          // Channel option (user decision): tasks default remote OFF; the
+          // "New task remote" dropdown flips every fresh task's relay ON.
+          // Desired-state claim is idempotent: a delayed/replayed response can
+          // never turn the just-created session back off.
+          if (remoteNewTaskMode() === "on") {
+            void setRemoteEnabled(true);
+          }
         }
       }
       refreshSettledSession();
@@ -1552,7 +1628,7 @@ export function App() {
       };
     }
     return accepted;
-  }, [activateSelection, isBusy, refreshSettledSession, selection.kind, snapshot.sessionId]);
+  }, [activateSelection, isBusy, refreshSettledSession, selection.kind, setRemoteEnabled, snapshot.sessionId]);
   const selectedSnapshot = switchingSessionId && frozenSessionSnapshot.current
     ? frozenSessionSnapshot.current
     : snapshot;
@@ -1568,10 +1644,16 @@ export function App() {
   const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : "";
   const workingSessionIds = useMemo(() => {
     const activeSessionId = String(sidebarSnapshot.sessionId || "");
-    return workingSessionIdsForSnapshot(sessions, activeSessionId, activeBusy);
-  }, [activeBusy, sessions, sidebarSnapshot.sessionId]);
+    return workingSessionIdsForSnapshot(
+      sessions,
+      activeSessionId,
+      activeBusy,
+      sidebarSnapshot.sessionRemoteAttached === true,
+    );
+  }, [activeBusy, sessions, sidebarSnapshot.sessionId, sidebarSnapshot.sessionRemoteAttached]);
   // Viewing a session consumes its unread marker.
   const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";
+  viewedSessionRef.current = viewedSessionId;
   useEffect(() => {
     if (!viewedSessionId) return;
     // Consuming the unread marker requires the window to be on screen — a
@@ -1781,6 +1863,9 @@ export function App() {
           sessions={sessions}
           workingSessionIds={workingSessionIds}
           unreadSessionIds={unreadSessionIds}
+          remoteSessionId={sidebarSnapshot.remoteEnabled === true
+            ? String(sidebarSnapshot.remoteSessionId || "")
+            : ""}
           // Schedules takeover: the sidebar must not keep a session row
           // highlighted while the main pane shows Schedules (matches the tab
           // strip deselection).
@@ -1891,7 +1976,8 @@ export function App() {
                 <div className="session-header-status">
                   <SnapshotHeaderStatus snapshotStore={snapshotStore}
                     frozenSnapshot={frozenSnapshot} hidden={hideLiveSnapshot}
-                    onOpen={() => setCommandSurface("context")} />
+                    onOpen={() => setCommandSurface("context")}
+                    onRemoteChange={setRemoteEnabled} />
                   <button type="button" className="session-dock-toggle"
                     onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
                     aria-label={reviewOpen ? "Back to chat" : "Review changes"}

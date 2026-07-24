@@ -27,6 +27,7 @@ function createToolDispatch({
     refreshBridgeOwnership,
     bindPersistedTranscriptIfAny,
     rebindCurrentTranscript,
+    startChannelBridge,
     stopOwnedRuntime,
     reloadRuntimeConfig,
   } = lifecycle;
@@ -60,7 +61,11 @@ function createToolDispatch({
                 notifyRemoteAcquired?.();
               }
               try {
-                await refreshBridgeOwnership({ restoreBinding: true });
+                if (typeof startChannelBridge === 'function') {
+                  await startChannelBridge();
+                } else {
+                  await refreshBridgeOwnership({ restoreBinding: true });
+                }
                 // An already-connected owner returns early from
                 // startOwnedRuntime(), so rebind explicitly to follow the
                 // current (parent-chain) session transcript.

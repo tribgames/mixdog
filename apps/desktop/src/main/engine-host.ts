@@ -1,6 +1,7 @@
 import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { appendFileSync, watch, type FSWatcher } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { appendFileSync, mkdirSync, readFileSync, watch, type FSWatcher } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type {
@@ -35,6 +36,43 @@ import type { MixdogEngine, SnapshotListener, EngineFactory, EngineHostOptions, 
 import { EMPTY_PROJECT_PREFERENCES, DESKTOP_CAPABILITY_SET, ENGINE_PUBLICATION_INTERVAL_MS, SESSIONS_CHANGED_DEBOUNCE_MS, DESKTOP_PERF_ENABLED, ENGINE_PREWARM_DELAY_MS, DESKTOP_TRANSCRIPT_ITEM_LIMIT, SHELL_JOBS_ACTIVE_POLL_INTERVAL_MS, SHELL_JOBS_IDLE_POLL_INTERVAL_MS, normalizedProviderModels, engineModuleUrl, projectsModuleUrl, sessionStoreModuleUrl, statuslineSegmentsModuleUrl, requiredApplicationPath, normalizedProjectKey, matchingProjectPath, withoutMatchingProject, projectAlias, recordValue, normalizedMarker, hasExplicitInternalMarker, isInternalTranscriptItem, removeInternalToolDisplayMetadata, sanitizeTranscriptItem, sanitizedItemClone, activeToolsFromSummary, projectedAgentEntry, projectDesktopLiveWorkState, copySnapshot, shellJobsPollDelay, copyCapabilityValue, TERMINAL_AGENT_STATUS } from "./engine-host-support";
 export * from "./engine-host-support";
 
+const CHANNEL_REMOTE_STATE_FILE = 'channel-remote-state.json';
+
+export function channelRemoteStatePath(runtimeRoot?: string): string {
+  const root = runtimeRoot
+    ? resolve(runtimeRoot)
+    : process.env.MIXDOG_RUNTIME_ROOT
+      ? resolve(process.env.MIXDOG_RUNTIME_ROOT)
+      : join(tmpdir(), 'mixdog');
+  return join(root, CHANNEL_REMOTE_STATE_FILE);
+}
+
+export function normalizedChannelRemoteState(value: unknown): {
+  enabled: boolean;
+  sessionId: string;
+  daemonPid: number | null;
+} {
+  const source = recordValue(value);
+  const sessionId = String(source?.sessionId || '').trim();
+  const daemonPid = Number(source?.daemonPid);
+  const validSessionId = /^[A-Za-z0-9_-]+$/.test(sessionId) ? sessionId : '';
+  return {
+    enabled: source?.enabled === true && Boolean(validSessionId),
+    sessionId: source?.enabled === true ? validSessionId : '',
+    daemonPid: Number.isInteger(daemonPid) && daemonPid > 0 ? daemonPid : null,
+  };
+}
+
+function liveProcess(pid: number | null): boolean {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === 'EPERM';
+  }
+}
+
 export class EngineHost {
   private engine: MixdogEngine | null = null;
   private currentProject: string | null = null;
@@ -45,6 +83,12 @@ export class EngineHost {
   private sessionsWatcher: FSWatcher | null = null;
   private sessionsWatchedDir: string | null = null;
   private sessionsChangedTimer: ReturnType<typeof setTimeout> | null = null;
+  private remoteStateWatcher: FSWatcher | null = null;
+  private remoteStateChangedTimer: ReturnType<typeof setTimeout> | null = null;
+  private remoteStateInitialized = false;
+  private remoteState = { enabled: false, sessionId: '' };
+  private readonly remoteStatePath: string;
+  private disposed = false;
   private transition: Promise<void> = Promise.resolve();
   private readonly userDataPath: string | null;
   private readonly getUserDataPath: (() => string) | null;
@@ -84,6 +128,7 @@ export class EngineHost {
     this.packaged = options.packaged === true;
     this.resourcesPath = options.resourcesPath ?? process.resourcesPath;
     this.appPath = options.appPath;
+    this.remoteStatePath = channelRemoteStatePath(options.runtimeRoot);
     this.searchProjectDirectory = options.searchProjectDirectory ?? searchProjectDirectory;
     this.loadSessionStoreOverride = options.loadSessionStore ?? null;
     this.loadProjectsModule = options.loadProjects ?? (async () => import(
@@ -97,7 +142,11 @@ export class EngineHost {
 
   subscribe(listener: SnapshotListener): () => void {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    this.ensureRemoteStateWatcher();
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0) this.stopRemoteStateWatcher();
+    };
   }
 
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void {
@@ -162,7 +211,60 @@ export class EngineHost {
     }
   }
 
+  private ensureRemoteStateWatcher(): void {
+    if (this.disposed || this.remoteStateWatcher) return;
+    const dir = dirname(this.remoteStatePath);
+    try {
+      mkdirSync(dir, { recursive: true });
+      this.refreshRemoteState(false);
+      const watcher = watch(dir, { persistent: false }, (_event, filename) => {
+        const changed = String(filename || '');
+        if (changed && changed !== CHANNEL_REMOTE_STATE_FILE) return;
+        if (this.remoteStateChangedTimer) clearTimeout(this.remoteStateChangedTimer);
+        this.remoteStateChangedTimer = setTimeout(() => {
+          this.remoteStateChangedTimer = null;
+          this.refreshRemoteState(true);
+        }, 20);
+        this.remoteStateChangedTimer.unref?.();
+      });
+      watcher.on('error', () => this.stopRemoteStateWatcher());
+      this.remoteStateWatcher = watcher;
+    } catch {
+      // The next snapshot/subscription retries after runtime-root creation.
+    }
+  }
+
+  private stopRemoteStateWatcher(): void {
+    try { this.remoteStateWatcher?.close(); } catch { /* already closed */ }
+    this.remoteStateWatcher = null;
+    if (this.remoteStateChangedTimer) {
+      clearTimeout(this.remoteStateChangedTimer);
+      this.remoteStateChangedTimer = null;
+    }
+  }
+
+  private refreshRemoteState(publishOnChange: boolean): void {
+    let next = { enabled: false, sessionId: '' };
+    try {
+      const parsed = normalizedChannelRemoteState(JSON.parse(readFileSync(this.remoteStatePath, 'utf8')));
+      if (parsed.enabled && liveProcess(parsed.daemonPid)) {
+        next = { enabled: true, sessionId: parsed.sessionId };
+      }
+    } catch {
+      // Missing/torn/retired state is remote OFF. Atomic writer events retry
+      // through the debounce above, avoiding a long-running poll loop.
+    }
+    const changed = !this.remoteStateInitialized
+      || next.enabled !== this.remoteState.enabled
+      || next.sessionId !== this.remoteState.sessionId;
+    this.remoteStateInitialized = true;
+    this.remoteState = next;
+    if (changed && publishOnChange) this.publish();
+  }
+
   getSnapshot(): EngineSnapshot {
+    this.ensureRemoteStateWatcher();
+    if (!this.remoteStateInitialized) this.refreshRemoteState(false);
     const cloneStarted = DESKTOP_PERF_ENABLED ? performance.now() : 0;
     const snapshot = desktopSnapshot(copySnapshot(this.engine), this.currentProject, this.recentProjects);
     if (DESKTOP_PERF_ENABLED) {
@@ -176,10 +278,19 @@ export class EngineHost {
     const desktopSessionTitle = sessionId
       ? this.sessionNames?.[sessionId] || this.sessionTitles?.[sessionId]
       : '';
+    const localRemoteEnabled = snapshot?.remoteEnabled === true;
+    const localRemoteSessionId = String(snapshot?.remoteSessionId || '');
+    const remoteSessionId = localRemoteEnabled && localRemoteSessionId
+      ? localRemoteSessionId
+      : this.remoteState.enabled
+        ? this.remoteState.sessionId
+        : '';
     const decorated = {
       ...snapshot,
       ...(desktopSessionTitle ? { desktopSessionTitle } : {}),
       shellJobs: { ...this.shellJobs },
+      remoteEnabled: Boolean(remoteSessionId),
+      remoteSessionId: remoteSessionId || null,
     };
     if (this.pendingFastPreference === null) return decorated;
     // Engine session state can lag one event-loop turn behind an applied Fast
@@ -1026,6 +1137,7 @@ export class EngineHost {
   }
 
   async dispose(): Promise<void> {
+    this.disposed = true;
     if (this.engineWarmupTimer) {
       clearTimeout(this.engineWarmupTimer);
       this.engineWarmupTimer = null;
@@ -1035,6 +1147,7 @@ export class EngineHost {
     this.cancelScheduledPublication();
     this.stopShellJobsPolling();
     this.publish();
+    this.stopRemoteStateWatcher();
     this.listeners.clear();
     this.sessionListeners.clear();
   }

@@ -69,6 +69,7 @@ export interface EngineHostOptions {
   packaged?: boolean;
   resourcesPath?: string;
   appPath?: string;
+  runtimeRoot?: string;
   searchProjectDirectory?: typeof searchProjectDirectory;
 }
 
