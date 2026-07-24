@@ -761,12 +761,21 @@ export async function createEngineSession({
   if (typeof runtime.onRemoteStateChange === 'function') {
     lifecycle.unsubscribeRemoteState = runtime.onRemoteStateChange(({ enabled, reason }) => {
       if (flags.disposed) return;
-      set({ remoteEnabled: enabled === true });
+      set({
+        remoteEnabled: enabled === true,
+        remoteSessionId: runtime.getRemoteSessionId?.() || null,
+      });
       if (reason === 'superseded') {
         pushNotice('Remote mode OFF — another session took over remote.', 'warn');
       }
     });
   }
+  // Seed the session-scoped remote fields so the desktop header button shows
+  // the real state before the first toggle/notification.
+  set({
+    remoteEnabled: runtime.isRemoteEnabled?.() === true,
+    remoteSessionId: runtime.getRemoteSessionId?.() || null,
+  });
 
   const { patchToolCardResult, flushToolResults } = createToolCardResults({
     getState: () => state,

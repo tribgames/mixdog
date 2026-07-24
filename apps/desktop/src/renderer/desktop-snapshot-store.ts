@@ -126,6 +126,8 @@ export function desktopHeaderSnapshotsEqual(left: Snapshot, right: Snapshot): bo
     snapshot.agentJobs,
     snapshot.activeTools,
     snapshot.shellJobs,
+    snapshot.remoteEnabled,
+    snapshot.remoteSessionId,
   ];
   return signature(headerSignatureCache, left, values(left))
     === signature(headerSignatureCache, right, values(right));

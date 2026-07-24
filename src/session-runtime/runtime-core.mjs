@@ -329,6 +329,11 @@ export async function createMixdogSessionRuntime({
   // past its remoteEnabled guards without prematurely showing this session as
   // remote (single-holder: a live owner must not be stolen by autoStart).
   let remoteClaimPending = false;
+  // SESSION-SCOPED remote (user decision): the session that toggled remote
+  // OWNS the channel relay. Other sessions' turns never rebind or relay; a
+  // dead/replaced owner (clear, delete) hands the seat to the next current
+  // session that asks.
+  let remoteSessionId = null;
   // Remote-mode transcript writer (Discord outbound). Lazily created per
   // session.id + cwd inside ask(); only active while remoteEnabled.
   let _transcriptWriter = null;
@@ -1032,6 +1037,7 @@ export async function createMixdogSessionRuntime({
         // would re-fork/activate). Idempotent: no-op when already enabled.
         if (msg?.params?.state === 'acquired' && !remoteEnabled) {
           remoteEnabled = true;
+          if (!remoteSessionId) remoteSessionId = session?.id || null;
           ensureRemoteTranscriptWriter();
           // Auto-acquire: the worker restored yesterday's transcript from
           // persisted status and we just created the CURRENT writer. Push the
@@ -1719,6 +1725,16 @@ export async function createMixdogSessionRuntime({
   // when a writer is bound.
   function ensureRemoteTranscriptWriter() {
     if (!remoteEnabled || !session?.id) return false;
+    // Owner gate: late adopt covers lazy create (owner unknown at /remote
+    // time); a live owner blocks every other session; a dead owner (cleared
+    // or deleted session) hands the relay to the current session.
+    if (!remoteSessionId) {
+      remoteSessionId = session.id;
+    } else if (session.id !== remoteSessionId) {
+      const owner = mgr.getSession(remoteSessionId);
+      if (owner && owner.closed !== true && owner.status !== 'closed') return false;
+      remoteSessionId = session.id;
+    }
     const twKey = `${session.id}\u0000${currentCwd}`;
     if (_twKey !== twKey) {
       try {
@@ -1826,6 +1842,9 @@ export async function createMixdogSessionRuntime({
       remoteClaimPending = true;
     } else {
       remoteEnabled = true;
+      // Explicit toggle: the CURRENT session owns the relay (lazy create
+      // adopts inside ensureRemoteTranscriptWriter when no session exists yet).
+      remoteSessionId = session?.id || null;
     }
     // Boot the memory daemon eagerly. The channels worker forwards
     // transcript ingests/entries to the memory HTTP service, whose port is
@@ -1954,6 +1973,7 @@ export async function createMixdogSessionRuntime({
 
   function stopRemote(reason) {
     remoteEnabled = false;
+    remoteSessionId = null;
     // A pending auto-claim is abandoned by an explicit stop/supersede.
     remoteClaimPending = false;
     // Cancel any pending deferred start so it can't fire after remote is off.
@@ -2413,6 +2433,20 @@ export async function createMixdogSessionRuntime({
     },
     isRemoteEnabled() {
       return isRemoteEnabled();
+    },
+    // Session-scoped remote: the owning session id (null when off/unassigned).
+    getRemoteSessionId() {
+      return remoteSessionId;
+    },
+    // Move the relay seat to the CURRENT session (last-wins within this
+    // engine): rebind the transcript writer + forwarder without restarting
+    // the worker. No-op when remote is off or no session exists.
+    claimRemoteForCurrentSession() {
+      if (!remoteEnabled || !session?.id) return false;
+      remoteSessionId = session.id;
+      ensureRemoteTranscriptWriter();
+      pushTranscriptRebind();
+      return true;
     },
     // Subscribe to non-user-initiated remote flips (seat superseded). Returns
     // an unsubscribe function. TUI uses this to sync its Remote indicator and

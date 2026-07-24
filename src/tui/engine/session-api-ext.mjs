@@ -403,15 +403,23 @@ export function createEngineApiB(bag) {
         set({ commandBusy: false });
       }
     },
-    // Toggle Discord remote mode for this session. Flips the runtime's
-    // remoteEnabled flag (booting/stopping the channel worker) and returns the
-    // NEW enabled getState() so the caller can render an ON/OFF notice.
+    // Toggle channel remote mode for the CURRENT session (session-scoped,
+    // user decision). Off → on claims for this session; on + this session
+    // owns → off; on + ANOTHER session owns → move the relay seat here
+    // (last-wins) without restarting the worker.
     toggleRemote: () => {
       const enabled = runtime.isRemoteEnabled?.() === true;
+      const owner = String(runtime.getRemoteSessionId?.() || '');
+      const currentId = String(getState().sessionId || '');
+      if (enabled && owner && currentId && owner !== currentId) {
+        runtime.claimRemoteForCurrentSession?.();
+        set({ remoteEnabled: true, remoteSessionId: runtime.getRemoteSessionId?.() || null });
+        return true;
+      }
       if (enabled) runtime.stopRemote?.();
       else runtime.startRemote?.();
       const next = runtime.isRemoteEnabled?.() === true;
-      set({ remoteEnabled: next });
+      set({ remoteEnabled: next, remoteSessionId: runtime.getRemoteSessionId?.() || null });
       return next;
     },
     // Force-claim remote for this session (single-holder, last-wins). Always
@@ -421,7 +429,7 @@ export function createEngineApiB(bag) {
     claimRemote: () => {
       runtime.startRemote?.();
       const next = runtime.isRemoteEnabled?.() === true;
-      set({ remoteEnabled: next });
+      set({ remoteEnabled: next, remoteSessionId: runtime.getRemoteSessionId?.() || null });
       return next;
     },
     isRemoteEnabled: () => runtime.isRemoteEnabled?.() === true,
