@@ -39,7 +39,7 @@ import {
   Sparkles,
   Trash2,
   Signal,
-  SignalZero,
+  SignalLow,
   X,
 } from "lucide-react";
 import { MxIcon } from "./MxIcon";
@@ -354,8 +354,9 @@ function RemoteToggleButton() {
     return () => window.clearInterval(timer);
   }, [refresh]);
   // On/off reads through the GLYPH, not color (user decision): full signal
-  // bars while the remote runtime is up, the empty baseline bar when it is
-  // stopped — same ink as the neighboring dock toggles, no crossed-out X.
+  // bars while the remote runtime is up, the single low bar when it is
+  // stopped (SignalZero's lone dot was invisible at 18px) — same ink as the
+  // neighboring dock toggles, no crossed-out X.
   return <button type="button"
     className="session-dock-toggle remote-toggle"
     aria-pressed={remote === true} disabled={busy || remote === null}
@@ -369,7 +370,7 @@ function RemoteToggleButton() {
         .then(() => refresh())
         .finally(() => setBusy(false));
     }}>
-    {remote ? <Signal size={18} aria-hidden="true" /> : <SignalZero size={18} aria-hidden="true" />}
+    {remote ? <Signal size={18} aria-hidden="true" /> : <SignalLow size={18} aria-hidden="true" />}
   </button>;
 }
 
