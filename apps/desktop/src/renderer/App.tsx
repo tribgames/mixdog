@@ -37,8 +37,8 @@ import {
   RotateCcw,
   ShieldAlert,
   Sparkles,
-  Plug,
   Unplug,
+  Wifi,
   Trash2,
   X,
 } from "lucide-react";
@@ -353,9 +353,9 @@ function RemoteToggleButton() {
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
-  // On/off reads through the GLYPH, not color (user decision): Plug while
-  // the remote runtime is connected, Unplug when it is stopped — same ink,
-  // stroke, and 18px frame as the panel toggle.
+  // On/off reads through the GLYPH, not color (user decision): Wifi waves
+  // while the remote runtime is connected, Unplug when it is stopped — same
+  // ink, stroke, and 18px frame as the panel toggle.
   return <button type="button"
     className="session-dock-toggle remote-toggle"
     aria-pressed={remote === true} disabled={busy || remote === null}
@@ -369,7 +369,7 @@ function RemoteToggleButton() {
         .then(() => refresh())
         .finally(() => setBusy(false));
     }}>
-    {remote ? <Plug size={18} aria-hidden="true" /> : <Unplug size={18} aria-hidden="true" />}
+    {remote ? <Wifi size={18} aria-hidden="true" /> : <Unplug size={18} aria-hidden="true" />}
   </button>;
 }
 
