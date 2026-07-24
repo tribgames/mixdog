@@ -251,7 +251,8 @@ export function SettingsView({
             })}
           </div>)}
         </nav>
-        <footer><strong>Mixdog</strong><span>{version ? `v${version}` : 'Desktop'}</span></footer>
+        {/* No brand/version footer (user decision): the nav ends with its
+            last category. */}
       </aside>
       <div className="mixdog-settings__panel">
         <header className="mixdog-settings__header">

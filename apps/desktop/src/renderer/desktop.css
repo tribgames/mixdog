@@ -2413,6 +2413,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text-muted);
   font-size: 13px;
   font-weight: 500;
+  /* Same 20px line as the thinking/tool status row (.live-activity-status)
+     so the two read on one baseline (user request). */
+  height: 20px;
+  padding: 0 4px;
 }
 .chat-live-work .live-work-status:hover,
 .chat-live-work .live-work-status:focus { color: var(--mx-text); }

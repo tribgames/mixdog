@@ -411,6 +411,17 @@ export function createEngineApiB(bag) {
       const enabled = runtime.isRemoteEnabled?.() === true;
       const owner = String(runtime.getRemoteSessionId?.() || '');
       const currentId = String(getState().sessionId || '');
+      // Stale-enabled guard: boot auto-acquire can leave remote reading ON
+      // while the channels worker already self-shut (no live clients). A
+      // toggle in that state must BOOT the worker for this session, not
+      // no-op into a claim or flip a dead relay "off".
+      const workerRunning = runtime.getChannelWorkerStatus?.()?.running === true;
+      if (enabled && !workerRunning) {
+        runtime.startRemote?.();
+        const next = runtime.isRemoteEnabled?.() === true;
+        set({ remoteEnabled: next, remoteSessionId: runtime.getRemoteSessionId?.() || null });
+        return next;
+      }
       if (enabled && owner && currentId && owner !== currentId) {
         runtime.claimRemoteForCurrentSession?.();
         set({ remoteEnabled: true, remoteSessionId: runtime.getRemoteSessionId?.() || null });
