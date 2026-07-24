@@ -2394,15 +2394,28 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 
 /* TUI L2 activity lives beside Context in the session header. */
 .composer-region { position: relative; }
-/* Background-activity chip sits right ABOVE the composer, right-aligned —
-   the same band the project chip occupies (user decision). The breakdown
+/* Background-activity chip floats right ABOVE the composer, right-aligned.
+   Absolute overlay (user decision): appearing/disappearing must NOT push the
+   transcript up. Flat chip — no plate — with the composer-control text voice
+   (13px medium, muted ink like the model/effort triggers). The breakdown
    popover flips UPWARD so it never covers the input. */
-.chat-live-work { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.chat-live-work {
+  position: absolute;
+  right: 32px;
+  bottom: 100%;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
 .chat-live-work:empty { display: none; }
 .chat-live-work .live-work-status {
-  background: var(--mx-bg-layer-1);
-  box-shadow: 0 0 0 .5px var(--mx-border);
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  font-weight: 500;
 }
+.chat-live-work .live-work-status:hover,
+.chat-live-work .live-work-status:focus { color: var(--mx-text); }
 .chat-live-work .live-work-popover { top: auto; bottom: calc(100% + 6px); }
 /* Aggregate activity chip (user decision): spinner + count, breakdown in a
    hover/focus popover — the header stays quiet. */
