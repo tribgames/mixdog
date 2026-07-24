@@ -77,7 +77,9 @@ export function desktopSidebarSnapshotsEqual(left: Snapshot, right: Snapshot): b
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
   return String(left.sessionId || "") === String(right.sessionId || "")
-    && hasActiveSnapshotWork(left) === hasActiveSnapshotWork(right);
+    && hasActiveSnapshotWork(left) === hasActiveSnapshotWork(right)
+    // The sidebar's Remote section follows the relay owner.
+    && String(left.remoteSessionId || "") === String(right.remoteSessionId || "");
 }
 
 export function desktopConversationSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {

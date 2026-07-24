@@ -84,6 +84,9 @@ interface SessionSidebarProps {
   sessions: DesktopSessionSummary[];
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
+  /** Session-scoped channel relay owner: shown as its own single-row Remote
+   *  section between Automations and Recent (user decision). */
+  remoteSessionId?: string;
   selection: NavigationSelection;
   /** Which primary-nav surface currently owns the main pane/dialog. New task
    *  is an action (fresh draft each press), so it never renders selected
@@ -107,6 +110,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   sessions,
   workingSessionIds,
   unreadSessionIds,
+  remoteSessionId = "",
   selection,
   activeSurface = null,
   onNewTask,
@@ -155,8 +159,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   // excluded from Recent (user decision: fires must not flood the list).
   const isAutomationRow = (session: DesktopSessionSummary) =>
     session.sourceType === "schedule" || session.sourceType === "webhook";
+  // The relay-owning session lives in its own Remote section, not Recent.
+  const remoteRow = useMemo(() => (remoteSessionId
+    ? allRows.find((session) => session.id === remoteSessionId && session.archived !== true) || null
+    : null), [allRows, remoteSessionId]);
   const rows = useMemo(() => allRows.filter((session) =>
-    session.archived !== true && !isAutomationRow(session)), [allRows]);
+    session.archived !== true && !isAutomationRow(session) && session.id !== remoteSessionId),
+  [allRows, remoteSessionId]);
   // One GROUP per automation name: the newest session is the visible row and
   // older fires stay reachable behind a per-group "Past runs" toggle (user
   // decision — fires are full sessions now, so history must not vanish).
@@ -198,6 +207,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   [allRows]);
   const [recentOpen, setRecentOpen] = useState(true);
   const [automationsOpen, setAutomationsOpen] = useState(true);
+  const [remoteOpen, setRemoteOpen] = useState(true);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const prefetchedSessionIds = useRef(new Set<string>());
   const requestPrefetch = useCallback((sessionId: string) => {
@@ -364,6 +374,34 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                     </div>}
                   </div>;
                 })}
+              </nav>
+            )}
+          </section>
+        )}
+        {remoteRow && (
+          <section className="sidebar-recent sidebar-remote" aria-label="Remote">
+            <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
+              aria-expanded={remoteOpen}
+              onClick={() => setRemoteOpen((open) => !open)}>
+              <span>Remote</span>
+              {remoteOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            </button>
+            {remoteOpen && (
+              <nav className="session-list remote-session-list" aria-label="Remote">
+                <SessionSidebarRow key={remoteRow.id}
+                  session={remoteRow} active={selection.kind === "session" && selection.id === remoteRow.id}
+                  working={workingSessionIds?.has(remoteRow.id) === true}
+                  unread={unreadSessionIds?.has(remoteRow.id) === true}
+                  editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
+                  sessionTitleInvalid={sessionTitleInvalid} menuSessionId={menuSessionId}
+                  confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
+                  onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
+                  onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
+                  onPrefetchSession={requestPrefetch}
+                  onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
+                  onSetMenu={setMenuSessionId} onSetConfirming={setConfirmingSessionId}
+                  onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
+                  onArchiveSession={onArchiveSession} />
               </nav>
             )}
           </section>
