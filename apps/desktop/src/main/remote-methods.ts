@@ -47,8 +47,6 @@ const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'saveOpenCodeGoUsageAuth',
   'saveDiscordToken',
   'saveTelegramToken',
-  // Plaintext HMAC secret read stays on the desktop machine.
-  'getWebhookSecret',
   'loginOAuthProvider',
   'beginOAuthProviderLogin',
   'getOAuthProviderLoginStatus',

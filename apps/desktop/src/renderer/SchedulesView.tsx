@@ -57,6 +57,7 @@ interface ScheduleDraft {
   weekday: string;
   at: string;
   cwd: string;
+  workflow: string;
   channel: string;
   model: string;
   instructions: string;
@@ -141,6 +142,7 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultChannel: string
     weekday: parsed.weekday,
     at: parsedAt && !Number.isNaN(parsedAt.getTime()) ? datetimeLocalValue(parsedAt) : '',
     cwd: String(source.cwd || ''),
+    workflow: String(source.workflow || ''),
     channel: String(source.channel || defaultChannel || ''),
     model: String(source.model || ''),
     instructions: String(source.instructions || ''),
@@ -180,12 +182,13 @@ function preferredEffort(option?: DesktopModelOption): string {
   return option.effortOptions[0]?.value || '';
 }
 
-function ScheduleEditor({ draft, editing, busy, models, projects, error = '', onCancel, onSave }: {
+function ScheduleEditor({ draft, editing, busy, models, projects, workflows, error = '', onCancel, onSave }: {
   draft: ScheduleDraft;
   editing: boolean;
   busy: boolean;
   models: DesktopModelOption[];
   projects: DesktopProjectSummary[];
+  workflows: Array<{ value: string; label: string }>;
   error?: string;
   onCancel(): void;
   onSave(entry: RecordValue): void;
@@ -197,6 +200,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, error = '', on
   const [effort, setEffort] = useState(initialModel.effort);
   const [fast, setFast] = useState(initialModel.fast);
   const [cwd, setCwd] = useState(draft.cwd);
+  const [workflow, setWorkflow] = useState(draft.workflow);
   const [formError, setFormError] = useState('');
   const slash = model.indexOf('/');
   const modelProvider = slash > 0 ? model.slice(0, slash) : '';
@@ -261,6 +265,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, error = '', on
           channel: draft.channel || 'main',
           model: `${model}${effortSuffix}${fastSuffix}`,
           ...(cwd ? { cwd } : {}),
+          ...(workflow ? { workflow } : {}),
           instructions: text('schedule-instructions'),
           enabled: draft.enabled,
           ...(editing ? { overwrite: true } : {}),
@@ -276,6 +281,8 @@ function ScheduleEditor({ draft, editing, busy, models, projects, error = '', on
           <div className="schedules-composer-row">
             <OpenSelect ariaLabel="Schedule project" value={cwd} disabled={busy}
               options={projectOptions} onChange={setCwd} />
+            <OpenSelect ariaLabel="Schedule workflow" value={workflow} disabled={busy}
+              options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
             <div className="schedules-composer-route">
             <ModelPicker models={models} provider={modelProvider} model={modelId}
               triggerLabel={modelLabel} ariaLabel="Schedule model"
@@ -335,6 +342,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
   const [setup, setSetup] = useState<RecordValue>({});
   const [models, setModels] = useState<DesktopModelOption[]>([]);
   const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
+  const [workflows, setWorkflows] = useState<Array<{ value: string; label: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
@@ -353,15 +361,19 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
     }
     const sequence = ++loadSequence.current;
     try {
-      const [setupResult, modelRows, projectRows] = await Promise.all([
+      const [setupResult, modelRows, projectRows, workflowRows] = await Promise.all([
         api.invokeCapability({ capability: 'getChannelSetup', args: [] }),
         api.listProviderModels ? api.listProviderModels({ quick: true }).catch(() => []) : Promise.resolve([]),
         api.listProjects ? api.listProjects().catch(() => []) : Promise.resolve([]),
+        api.invokeCapability({ capability: 'listWorkflows', args: [] }).catch(() => null),
       ]);
       if (sequence !== loadSequence.current) return;
       setSetup(record(setupResult?.value));
       setModels(Array.isArray(modelRows) ? modelRows : []);
       setProjects(Array.isArray(projectRows) ? projectRows : []);
+      setWorkflows(rows(workflowRows?.value)
+        .map((row) => ({ value: String(row.id || ''), label: String(row.name || row.id || '') }))
+        .filter((option) => option.value));
       setError('');
     } catch (reason) {
       if (sequence !== loadSequence.current) return;
@@ -451,7 +463,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true }: {
             aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
       </div>
       {editor && <ScheduleEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
-        busy={busy} models={models} projects={projects} error={error}
+        busy={busy} models={models} projects={projects} workflows={workflows} error={error}
         onCancel={() => {
           setError('');
           setEditor(null);

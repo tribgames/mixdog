@@ -558,10 +558,10 @@ ${Scheduler.INSTANCE_UUID}`;
 `);
       return false;
     }
-    // target 'channel' (non-interactive) → dispatch to the schedule's
-    // channel_id, falling back to the resolved main channel. target 'session'
-    // (interactive) → inject into the Lead session with no channel id.
-    const channelId = type === "non-interactive"
+    // target 'channel' → relay the run result to the schedule's channel_id
+    // (falling back to the resolved main channel). target 'session' → no
+    // channel relay; the visible session run IS the surface.
+    const channelId = schedule.target === "channel"
       ? this.resolveChannel(schedule.channelId)
       : "";
     return await this.fireTimedPrompt(schedule, type, prompt, channelId, opts);
@@ -570,16 +570,8 @@ ${Scheduler.INSTANCE_UUID}`;
   async fireTimedPrompt(schedule, type, prompt, channelId, { awaitDispatch = false } = {}) {
     logSchedule(`firing ${schedule.name} (${type})
 `);
-    if (type === "interactive") {
-      if (this.injectFn) {
-        this.injectFn(channelId, schedule.name, " ", {
-          instruction: prompt,
-          type: "schedule"
-        });
-        return true;
-      }
-      return false;
-    }
+    // Legacy interactive Lead-session inject is retired: every schedule fire
+    // runs as its own visible session below (New-task parity, user decision).
     if (this.running.has(schedule.name)) return false;
     this.running.add(schedule.name);
     const presetId = schedule.model;
@@ -598,7 +590,7 @@ ${Scheduler.INSTANCE_UUID}`;
     const dispatch = runScheduleSession(schedule, { prompt })
       .then(({ result }) => {
         this.running.delete(schedule.name);
-        if (result && this.sendFn) {
+        if (result && channelId && this.sendFn) {
           this.sendFn(channelId, result).catch(
             (err) => process.stderr.write(`mixdog scheduler: ${schedule.name} relay failed: ${err}\n`)
           );

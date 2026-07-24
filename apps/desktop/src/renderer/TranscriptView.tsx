@@ -498,6 +498,20 @@ function extractImageMarkers(text: string): { text: string; chips: ImageMarkerCh
   return { text: kept.join("\n").trim(), chips };
 }
 
+// Webhook fires embed a trust-fencing block (directive + WEBHOOK_UNTRUSTED_DATA
+// markers around headers/payload) that the MODEL needs verbatim but the user
+// bubble should not shout: fold it into a collapsed "Webhook payload" box and
+// keep only the operator-authored instructions as the visible message text.
+const WEBHOOK_FENCE_RE =
+  /(?:The block between the WEBHOOK_UNTRUSTED_DATA markers[^\n]*\n+)?<<<WEBHOOK_UNTRUSTED_DATA_BEGIN>>>\n?([\s\S]*?)\n?<<<WEBHOOK_UNTRUSTED_DATA_END>>>/;
+export function extractWebhookPayload(text: string): { text: string; payload: string } {
+  const match = WEBHOOK_FENCE_RE.exec(text);
+  if (!match) return { text, payload: "" };
+  const stripped = (text.slice(0, match.index) + text.slice(match.index + match[0].length))
+    .replace(/\n{3,}/g, "\n\n").trim();
+  return { text: stripped, payload: (match[1] || "").trim() };
+}
+
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   completion,
@@ -535,6 +549,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   const userDisplayText = attachedImages.length > 0
     ? stripImageTokens(imageMarkers.text)
     : imageMarkers.text;
+  const webhookFold = user ? extractWebhookPayload(userDisplayText) : { text: userDisplayText, payload: "" };
   return (
     <>
       <article className={`message ${user ? "user" : "assistant"} ${item.streaming ? "streaming" : "settled"} ${user && attachedUser ? "attached-user" : ""}`}
@@ -565,7 +580,11 @@ export const TranscriptRow = memo(function TranscriptRow({
                 </span>
               ))}
             </div>}
-            {userDisplayText ? <p>{userDisplayText}</p> : null}
+            {webhookFold.text ? <p>{webhookFold.text}</p> : null}
+            {webhookFold.payload ? <details className="message-webhook-payload">
+              <summary>Webhook payload</summary>
+              <pre>{webhookFold.payload}</pre>
+            </details> : null}
           </> : (
             <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
           )}

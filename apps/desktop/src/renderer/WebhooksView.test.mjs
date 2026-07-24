@@ -53,8 +53,8 @@ function webhooksApi({ remote = false, publicUrl = 'https://relay.example/hook/d
     invokeCapability: async ({ capability, args = [] }) => {
       if (capability === 'getChannelSetup') return { value: setup };
       if (capability === 'isRemoteEnabled') return { value: remote };
-      if (capability === 'getWebhookSecret') {
-        return { value: { name: args[0], secret: 'stored-secret' } };
+      if (capability === 'listWorkflows') {
+        return { value: [{ id: 'default', name: 'Solo' }, { id: 'squad', name: 'Squad' }] };
       }
       calls.push([capability, args]);
       if (capability === 'saveWebhook') {

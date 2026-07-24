@@ -457,13 +457,15 @@ function wireWebhookHandlers() {
   if (!webhookServer) return;
   webhookServer.setEventPipeline(eventPipeline);
   // Webhook fires run as VISIBLE sessions (user decision, schedules parity):
-  // no Lead inject, no Discord forward — the session row in Recent (plus its
-  // unread dot) IS the notification surface.
-  webhookServer.setBridgeDispatch(async ({ prompt, model, context }) => {
+  // no Lead inject, no Discord forward — the session row in the sidebar
+  // Automations section (plus its unread dot) IS the notification surface.
+  webhookServer.setBridgeDispatch(async ({ prompt, model, cwd, workflow, context }) => {
     const { runWebhookSession } = await import("../../shared/webhook-session-run.mjs");
     return runWebhookSession({
       name: context?.endpoint || "webhook",
       model: model || null,
+      cwd: cwd || null,
+      workflow: workflow || null,
       prompt,
     });
   });

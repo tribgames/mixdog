@@ -1,14 +1,14 @@
 import React, { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Copy, Plus, Search, Webhook, X } from 'lucide-react';
 
-import type { DesktopApi, DesktopCapability, DesktopModelOption } from '../shared/contract';
+import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { OpenSelect } from './OpenSelect';
 import { ModelPicker } from './ModelPicker';
 import { modelDisplayName } from './provider-display';
 import { copyTextToClipboard } from './text-format';
 
 type RecordValue = Record<string, unknown>;
-export type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
+export type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
 const PARSER_OPTIONS = [
   { value: 'github', label: 'GitHub' },
@@ -61,6 +61,8 @@ interface WebhookDraft {
   description: string;
   parser: string;
   model: string;
+  cwd: string;
+  workflow: string;
   instructions: string;
   enabled: boolean;
 }
@@ -72,6 +74,8 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
     description: String(source.description || ''),
     parser: String(source.parser || 'github'),
     model: String(source.model || ''),
+    cwd: String(source.cwd || ''),
+    workflow: String(source.workflow || ''),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
   };
@@ -128,11 +132,13 @@ function ConnectionRow({ label, value, placeholder, copied, onCopy }: {
   </div>;
 }
 
-function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error = '', onCancel, onSave }: {
+function WebhookEditor({ draft, editing, busy, models, projects, workflows, publicBase, secret, error = '', onCancel, onSave }: {
   draft: WebhookDraft;
   editing: boolean;
   busy: boolean;
   models: DesktopModelOption[];
+  projects: DesktopProjectSummary[];
+  workflows: Array<{ value: string; label: string }>;
   publicBase: string;
   secret: string;
   error?: string;
@@ -140,6 +146,8 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
   onSave(entry: RecordValue): void;
 }) {
   const [parser, setParser] = useState(draft.parser);
+  const [cwd, setCwd] = useState(draft.cwd);
+  const [workflow, setWorkflow] = useState(draft.workflow);
   // EDIT never reveals the stored secret; rotation mints a replacement that
   // only persists on Save (user decision).
   const [rotated, setRotated] = useState('');
@@ -171,6 +179,16 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
   const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
     ? effort
     : preferredEffort(selected);
+  const projectOptions = [
+    { value: '', label: 'No project' },
+    ...projects.map((project) => ({
+      value: project.path,
+      label: project.alias?.trim() || project.name?.trim() || project.path,
+    })),
+  ];
+  if (cwd && !projectOptions.some((option) => option.value === cwd)) {
+    projectOptions.push({ value: cwd, label: cwd });
+  }
   return <div className="schedules-dialog-layer"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
     onKeyDown={(event) => {
@@ -201,9 +219,11 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
           description: draft.description,
           parser,
           // Session-only delivery (user decision, schedules parity): every
-          // webhook fire runs as a new agent session in Recent — no channel
+          // webhook fire runs as a fresh New-task session — no channel
           // target, so saving a legacy channel webhook converts it.
           ...(model ? { model: `${model}${effortSuffix}${fastSuffix}` } : {}),
+          ...(cwd ? { cwd } : {}),
+          ...(workflow ? { workflow } : {}),
           ...(effectiveSecret ? { secret: effectiveSecret } : {}),
           instructions: text('webhook-instructions'),
           enabled: draft.enabled,
@@ -221,6 +241,10 @@ function WebhookEditor({ draft, editing, busy, models, publicBase, secret, error
           <div className="schedules-composer-row">
             <OpenSelect ariaLabel="Webhook parser" value={parser} disabled={busy}
               options={PARSER_OPTIONS} onChange={setParser} />
+            <OpenSelect ariaLabel="Webhook project" value={cwd} disabled={busy}
+              options={projectOptions} onChange={setCwd} />
+            <OpenSelect ariaLabel="Webhook workflow" value={workflow} disabled={busy}
+              options={[{ value: '', label: 'Default workflow' }, ...workflows]} onChange={setWorkflow} />
             <div className="schedules-composer-route">
               <ModelPicker models={models} provider={modelProvider} model={modelId}
                 triggerLabel={modelLabel} ariaLabel="Webhook model"
@@ -282,6 +306,8 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
 }) {
   const [setup, setSetup] = useState<RecordValue>({});
   const [models, setModels] = useState<DesktopModelOption[]>([]);
+  const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
+  const [workflows, setWorkflows] = useState<Array<{ value: string; label: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
@@ -298,13 +324,19 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
     }
     const sequence = ++loadSequence.current;
     try {
-      const [setupResult, modelRows] = await Promise.all([
+      const [setupResult, modelRows, projectRows, workflowRows] = await Promise.all([
         api.invokeCapability({ capability: 'getChannelSetup', args: [] }),
         api.listProviderModels ? api.listProviderModels({ quick: true }).catch(() => []) : Promise.resolve([]),
+        api.listProjects ? api.listProjects().catch(() => []) : Promise.resolve([]),
+        api.invokeCapability({ capability: 'listWorkflows', args: [] }).catch(() => null),
       ]);
       if (sequence !== loadSequence.current) return;
       setSetup(record(setupResult?.value));
       setModels(Array.isArray(modelRows) ? modelRows : []);
+      setProjects(Array.isArray(projectRows) ? projectRows : []);
+      setWorkflows(rows(workflowRows?.value)
+        .map((row) => ({ value: String(row.id || ''), label: String(row.name || row.id || '') }))
+        .filter((option) => option.value));
       setError('');
     } catch (reason) {
       if (sequence !== loadSequence.current) return;
@@ -386,7 +418,8 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true }: {
             aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
       </div>
       {editor && <WebhookEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
-        busy={busy} models={models} publicBase={publicBase} secret={editor.secret} error={error}
+        busy={busy} models={models} projects={projects} workflows={workflows}
+        publicBase={publicBase} secret={editor.secret} error={error}
         onCancel={() => {
           setError('');
           setEditor(null);

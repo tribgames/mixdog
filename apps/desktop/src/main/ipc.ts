@@ -104,7 +104,7 @@ const CAPABILITY_ARITY = {
   saveTelegramToken: [1, 1], forgetTelegramToken: [0, 0],
   setChannel: [1, 1], setWebhookConfig: [1, 1],
   saveSchedule: [1, 1], deleteSchedule: [1, 1], setScheduleEnabled: [2, 2], runScheduleNow: [1, 1], saveWebhook: [1, 1],
-  deleteWebhook: [1, 1], setWebhookEnabled: [2, 2], getWebhookSecret: [1, 1], clear: [0, 0], transcribeAudio: [1, 1],
+  deleteWebhook: [1, 1], setWebhookEnabled: [2, 2], clear: [0, 0], transcribeAudio: [1, 1],
   resizeImage: [1, 1],
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
 

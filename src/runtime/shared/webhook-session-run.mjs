@@ -1,15 +1,15 @@
 /**
  * Run an inbound webhook as a VISIBLE Mixdog session (schedules parity, user
- * decision): no Lead-context injection, no channel forward — the fire leaves
- * a resumable session with owner 'user' + sourceType 'webhook' that surfaces
- * in desktop Recent / TUI resume with the normal unread marker. Invoked from
- * the channels worker's webhook dispatch.
+ * decision): no Lead-context injection, no channel forward — every fire is a
+ * fresh New task with the endpoint's prompt/model/workflow/project, owned by
+ * 'user' + sourceType 'webhook' (sidebar Automations section, newest per
+ * name). Invoked from the channels worker's webhook dispatch.
  */
 import { loadConfig } from '../agent/orchestrator/config.mjs';
 import { createSession } from '../agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { askSession } from '../agent/orchestrator/session/manager/ask-session.mjs';
 import { parseScheduleModelRef } from './schedule-model-ref.mjs';
-import { reuseAutomationSession } from './automation-session-reuse.mjs';
+import { automationWorkflowOpts } from './automation-workflow.mjs';
 
 /** Endpoint model ref wins; the maintenance.webhook route is the fallback. */
 function webhookRoute(modelRef) {
@@ -25,18 +25,14 @@ function webhookRoute(modelRef) {
   throw new Error('webhook run has no model: set one on the endpoint or configure maintenance.webhook');
 }
 
-export async function runWebhookSession({ name, model = null, prompt }) {
+export async function runWebhookSession({ name, model = null, prompt, cwd = null, workflow = null }) {
   const endpoint = String(name || '').trim();
   const body = String(prompt || '').trim();
   if (!endpoint) throw new Error('runWebhookSession: endpoint name required');
   if (!body) throw new Error(`webhook "${endpoint}" has no prompt body`);
   const route = webhookRoute(model);
-  // One session per endpoint name: every fire stacks as a turn in the same
-  // conversation (the sidebar Automations row). A missing/closed session
-  // starts a fresh one.
-  let session = reuseAutomationSession('webhook', endpoint, route);
-  if (!session) {
-  session = createSession({
+  const projectCwd = cwd ? String(cwd) : null;
+  const session = createSession({
     provider: route.provider,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
@@ -44,11 +40,14 @@ export async function runWebhookSession({ name, model = null, prompt }) {
     owner: 'user',
     sourceType: 'webhook',
     sourceName: endpoint,
-    desktopSession: { classification: 'task', projectPath: null },
+    ...(projectCwd ? { cwd: projectCwd } : {}),
+    desktopSession: projectCwd
+      ? { classification: 'project', projectPath: projectCwd }
+      : { classification: 'task', projectPath: null },
+    ...automationWorkflowOpts(workflow),
   });
-  }
   // The user message leads with the endpoint's instructions, so Recent titles
   // read as the user-authored intent rather than payload noise.
-  const result = await askSession(session.id, body, null, null, undefined);
+  const result = await askSession(session.id, body, null, null, projectCwd || undefined);
   return { sessionId: session.id, result: String(result?.content || '') };
 }

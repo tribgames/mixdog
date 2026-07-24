@@ -4578,6 +4578,24 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
 }
 .message-image-chip img { display: block; width: 56px; height: 56px; object-fit: cover; }
+/* Collapsed webhook payload box on user bubbles: the trust-fencing block is
+   model-facing; the transcript shows instructions + a folded payload. */
+.message-webhook-payload { margin-top: 8px; font-size: .92em; }
+.message-webhook-payload summary {
+  cursor: pointer;
+  color: var(--mx-text-muted, #6b6b6b);
+  user-select: none;
+}
+.message-webhook-payload pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .message-image-fallback {
   display: inline-flex;
   align-items: center;

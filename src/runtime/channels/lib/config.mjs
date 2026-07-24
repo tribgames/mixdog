@@ -69,11 +69,12 @@ async function loadConfig({ freshSecrets = false } = {}) {
     // are no longer read. Done one-shots are dropped so they never re-arm.
     const scheduleEntries = (await listSchedules())
       .filter((s) => s.enabled !== false && s.status !== "done");
-    // `target` drives routing: 'channel' → non-interactive dispatch to the
-    // schedule's channel_id; 'session' → inject into the current (Lead)
-    // session. Mirrors the webhook model.
-    raw.nonInteractive = scheduleEntries.filter((s) => s.target === "channel");
-    raw.interactive = scheduleEntries.filter((s) => s.target === "session");
+    // Every schedule fires as a visible session run (runScheduleSession)
+    // through the non-interactive dispatch path; `target` only decides
+    // whether the RESULT is relayed to the schedule's channel. The legacy
+    // interactive bucket (Lead-session inject) is retired.
+    raw.nonInteractive = scheduleEntries;
+    raw.interactive = [];
     const accessChannels = { ...raw.access?.channels ?? {} };
     // voice config lives at the top level of mixdog-config.json (peer of
     // channels), so readSection("channels") never sees it. Pull it explicitly.

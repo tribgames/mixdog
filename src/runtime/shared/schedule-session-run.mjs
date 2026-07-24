@@ -10,7 +10,7 @@ import { loadConfig } from '../agent/orchestrator/config.mjs';
 import { createSession } from '../agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { askSession } from '../agent/orchestrator/session/manager/ask-session.mjs';
 import { parseScheduleModelRef } from './schedule-model-ref.mjs';
-import { reuseAutomationSession } from './automation-session-reuse.mjs';
+import { automationWorkflowOpts } from './automation-workflow.mjs';
 
 /** Resolve schedule.model into a {provider,model,effort?,fast?} route. */
 function scheduleRouteFromModelRef(modelRef, config = null) {
@@ -44,20 +44,10 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
   }
   const route = scheduleRouteFromModelRef(schedule.model, config);
   const cwd = schedule.cwd ? String(schedule.cwd) : null;
-  // One session per schedule name: every run stacks as a turn in the same
-  // conversation (the sidebar Automations row). A missing/closed session
-  // starts a fresh one.
-  let session = reuseAutomationSession('schedule', schedule.name, route);
-  if (session) {
-    // Keep the conversation bound to the schedule's CURRENT project scope —
-    // cwd edits between runs must not leave the row on the old project. The
-    // ask below persists these fields with its preflight save.
-    if (cwd) session.cwd = cwd;
-    session.desktopSession = cwd
-      ? { classification: 'project', projectPath: cwd }
-      : { classification: 'task', projectPath: null };
-  } else {
-  session = createSession({
+  // Every fire is a fresh New task (user decision): one prompt, the
+  // schedule's model/workflow/project, a brand-new session in the sidebar
+  // Automations section (newest per name wins there).
+  const session = createSession({
     provider: route.provider,
     model: route.model,
     ...(route.effort ? { effort: route.effort } : {}),
@@ -69,8 +59,8 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
     desktopSession: cwd
       ? { classification: 'project', projectPath: cwd }
       : { classification: 'task', projectPath: null },
+    ...automationWorkflowOpts(schedule.workflow),
   });
-  }
   // The user message is the schedule's instructions verbatim: the desktop
   // title/preview derive from it, so no "[Scheduled task: …]" header noise.
   const result = await askSession(session.id, prompt, null, null, cwd || undefined);
