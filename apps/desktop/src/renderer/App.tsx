@@ -26,7 +26,6 @@ import {
   Command,
   FileDiff,
   Folder,
-  GitCompare,
   Layers3,
   LoaderCircle,
   Mic,
@@ -34,11 +33,12 @@ import {
   PanelLeft,
   PanelRight,
   Plus,
-  Radio,
   RotateCcw,
   ShieldAlert,
   Sparkles,
   Trash2,
+  Wifi,
+  WifiOff,
   X,
 } from "lucide-react";
 import { MxIcon } from "./MxIcon";
@@ -352,8 +352,11 @@ function RemoteToggleButton() {
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+  // On/off reads through the GLYPH, not color (user decision): Wifi when the
+  // remote runtime is up, WifiOff when it is stopped — same ink as the
+  // neighboring dock toggles.
   return <button type="button"
-    className={`session-dock-toggle remote-toggle ${remote ? "is-on" : ""}`}
+    className="session-dock-toggle remote-toggle"
     aria-pressed={remote === true} disabled={busy || remote === null}
     aria-label={remote ? "Turn remote runtime off" : "Turn remote runtime on"}
     data-tooltip={remote ? "Remote on" : "Remote off"}
@@ -365,7 +368,7 @@ function RemoteToggleButton() {
         .then(() => refresh())
         .finally(() => setBusy(false));
     }}>
-    <Radio size={18} aria-hidden="true" />
+    {remote ? <Wifi size={18} aria-hidden="true" /> : <WifiOff size={18} aria-hidden="true" />}
   </button>;
 }
 
@@ -1880,7 +1883,9 @@ export function App() {
                     onClick={() => setReviewOpen((value) => !value)} aria-pressed={reviewOpen}
                     aria-label={reviewOpen ? "Back to chat" : "Review changes"}
                     data-tooltip={reviewOpen ? "Back to chat" : "Review"}>
-                    <GitCompare size={18} aria-hidden="true" />
+                    {/* Same rectangular glyph family as the panel toggle
+                        (user decision: the header icons read as one set). */}
+                    <FileDiff size={18} aria-hidden="true" />
                   </button>
                   <button type="button" className="session-dock-toggle"
                     onClick={() => setDockOpen((value) => !value)} aria-pressed={dockOpen}

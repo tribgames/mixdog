@@ -3651,9 +3651,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .automation-group-past { padding-left: 14px; }
 .automation-group-past .session-row-copy b { font-size: 12px; }
-/* Header remote runtime toggle: quiet dock-tool ghost that lights accent
-   while the channel runtime is on. */
-.remote-toggle.is-on { color: var(--mx-accent); }
+/* Header remote runtime toggle: same quiet dock-tool ink as its neighbors —
+   the on/off state reads through the Wifi/WifiOff glyph, not color. */
 /* Composer chips stay flat like the model trigger: no box, no hover wash. */
 .schedules-composer-row .mx-select-trigger,
 .schedules-composer-row .mx-select-trigger:hover:not(:disabled),
