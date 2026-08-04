@@ -45,10 +45,6 @@ import {
   turnPromptText,
   type TranscriptRowModel,
 } from "./transcript-rows";
-import {
-  readTranscriptVirtualSnapshot,
-  rememberTranscriptVirtualOffset,
-} from "./transcript-virtual-cache";
 import { LiveActivity, resetToolDisclosureScope, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
 import { useTranscriptFollow } from "./use-transcript-follow";
@@ -207,19 +203,24 @@ export function Conversation({
   // React port of OpenCode's createAutoScroll + message-gesture split.
   const {
     following,
-    followingRef,
     showJump,
     handleScroll: handleTranscriptScroll,
     handleWheel: handleTranscriptWheel,
     handlePointerDown: handleTranscriptPointerDown,
+    handlePointerMove: handleTranscriptPointerMove,
     handleTouchStart: handleTranscriptTouchStart,
     handleTouchMove: handleTranscriptTouchMove,
     handleTouchEnd: handleTranscriptTouchEnd,
     handleInteraction: handleTranscriptInteraction,
     handleKeyDown: handleTranscriptKeyDown,
-    pause: pauseFollow,
     resume: resumeFollow,
-  } = useTranscriptFollow({ viewport, content });
+  } = useTranscriptFollow({
+    viewport,
+    content,
+    sessionKey: draftMode
+      ? "new-task"
+      : String(routeSnapshot.sessionId || "new-task"),
+  });
   const [optimisticPrompts, setOptimisticPrompts] = useState<PendingPromptItem[]>([]);
   // A first submit already replaced the blank watermark with its optimistic
   // user row. Re-applying the watermark during draft -> session promotion
@@ -395,9 +396,15 @@ export function Conversation({
     failedTurns,
     pendingItems: pendingPromptItems,
     liveItem: activeStreamingTail,
-    thinking: Boolean(snapshot.busy || snapshot.commandBusy || activeStreamingTail),
+    thinking: Boolean(
+      snapshot.busy
+      || snapshot.commandBusy
+      || activeStreamingTail
+      || optimisticActivityStartedAt
+    ),
   }), [
     failedTurns,
+    optimisticActivityStartedAt,
     pendingPromptItems,
     settledRowItems,
     settledTurnKeys,
@@ -456,28 +463,20 @@ export function Conversation({
   }, [currentCompletionAnimationKeys, transcriptSessionKey, transcriptHydrated]);
   const jumpToLatest = useCallback(() => {
     resumeFollow();
-    scrollToEndRef.current("smooth");
+    scrollToEndRef.current();
   }, [resumeFollow]);
-  // A session brings its OWN follow state: entering one that was left mid-read
-  // keeps the reader's position, and every other entry is pinned to the end.
-  // A transient empty frame (focus swaps re-source a pane's snapshot) owns no
-  // position, so it must never re-arm the follow of the session on screen.
+  // OpenCode resumes at the latest row on a session route change. Measurement
+  // snapshots survive re-entry, but a stale per-session scroll offset does not.
   const armedFollowSessionKey = useRef("");
   useLayoutEffect(() => {
     if (armedFollowSessionKey.current === transcriptSessionKey) return;
-    if (transcriptRows.length === 0 && !activeStreamingTail) return;
     armedFollowSessionKey.current = transcriptSessionKey;
-    const restored = readTranscriptVirtualSnapshot(transcriptSessionKey);
-    if (restored && !restored.atEnd) {
-      // The reader left this session mid-transcript: their offset is the entry
-      // position, and the virtualizer already rendered that window.
-      pauseFollow();
-      return;
-    }
     resumeFollow();
-  }, [activeStreamingTail, pauseFollow, resumeFollow, transcriptRows, transcriptSessionKey]);
-  // Submit only re-arms follow; the content observer owns the bottom write
-  // once the optimistic row changes the thread's geometry.
+  }, [resumeFollow, transcriptSessionKey]);
+  const shouldAnchorTranscriptBottom = following
+    || armedFollowSessionKey.current !== transcriptSessionKey;
+  // Submit mirrors OpenCode resumeScroll: re-arm auto-scroll, then ask the
+  // virtual timeline—not the DOM observer—to resolve the final row.
   const resumeFollowOnSubmitRef = useRef(resumeFollow);
   resumeFollowOnSubmitRef.current = resumeFollow;
   const composerSubmit = useCallback(async (
@@ -658,26 +657,17 @@ export function Conversation({
           const selection = window.getSelection();
           if (selection && !selection.isCollapsed) selection.removeAllRanges();
         }}
-        onScroll={(event) => {
-          handleTranscriptScroll();
-          // Follow is the authority for "was this session left at the end?" —
-          // a distance threshold would call a reader who stopped just above the
-          // bottom pinned, and re-entry would yank them to the latest row.
-          rememberTranscriptVirtualOffset(
-            transcriptSessionKey,
-            event.currentTarget.scrollTop,
-            followingRef.current,
-          );
-        }}
+        onScroll={handleTranscriptScroll}
         onWheel={handleTranscriptWheel}
         onPointerDown={handleTranscriptPointerDown}
+        onPointerMove={handleTranscriptPointerMove}
         onTouchStart={handleTranscriptTouchStart}
         onTouchMove={handleTranscriptTouchMove}
         onTouchEnd={handleTranscriptTouchEnd}
         onTouchCancel={handleTranscriptTouchEnd}
         onClick={handleTranscriptInteraction}
         onKeyDown={handleTranscriptKeyDown}>
-        <div className="thread" ref={content}>
+        <div className="thread">
           {/* An EMPTY draft carries ONLY the centered brand watermark (user:
               VS Code grammar — shortcuts live solely on the fully empty
               workspace; secondary surfaces keep the quiet letterpress).
@@ -691,21 +681,9 @@ export function Conversation({
             </div>
           )}
           <TranscriptList key={transcriptSessionKey} sessionKey={transcriptSessionKey}
-            rows={transcriptRows} viewport={viewport}
+            rows={transcriptRows} viewport={viewport} content={content}
+            shouldAnchorBottom={shouldAnchorTranscriptBottom}
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />
-          {!readOnly && snapshot.toolApproval && (
-            <ApprovalCard key={approvalInstanceKey(snapshot.toolApproval.id)}
-              approval={snapshot.toolApproval}
-              resolve={(approved) => {
-                const host = window.mixdogDesktop;
-                const sessionId = routeSessionIdRef.current;
-                const approvalId = String(snapshot.toolApproval?.id || "");
-                return sessionId
-                  && typeof host.resolveToolApprovalForSession === "function"
-                  ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
-                  : host.resolveToolApproval(approvalId, { approved });
-              }} />
-          )}
         </div>
       </div>
       {showJump && itemCount > 0 && <button type="button" className="jump-to-latest" onClick={() => jumpToLatest()}
@@ -717,6 +695,21 @@ export function Conversation({
         {Boolean(asRecord(snapshot.progressHint)?.text) && <div className="runtime-progress" role="status">
           {String(asRecord(snapshot.progressHint)?.text)}
         </div>}
+        {snapshot.toolApproval && (
+          <div className="composer-approval-row">
+            <ApprovalCard key={approvalInstanceKey(snapshot.toolApproval.id)}
+              approval={snapshot.toolApproval}
+              resolve={(approved) => {
+                const host = window.mixdogDesktop;
+                const sessionId = routeSessionIdRef.current;
+                const approvalId = String(snapshot.toolApproval?.id || "");
+                return sessionId
+                  && typeof host.resolveToolApprovalForSession === "function"
+                  ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
+                  : host.resolveToolApproval(approvalId, { approved });
+              }} />
+          </div>
+        )}
         {/* Draft-only context bar leaves with a 140ms collapse instead of an
             instant unmount: removing its 34px in the promotion frame dropped
             the composer in one visible jerk (measured layout shift; user:

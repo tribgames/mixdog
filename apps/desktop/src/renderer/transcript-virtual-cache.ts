@@ -10,13 +10,16 @@ import type { VirtualItem } from "@tanstack/react-virtual";
  */
 export const TRANSCRIPT_ROW_ESTIMATE = 60;
 export const TRANSCRIPT_VIRTUAL_OVERSCAN = 20;
-export const TRANSCRIPT_BOTTOM_SPACER = 64;
+// OpenCode reserves 64px because its prompt dock FLOATS over the scroll view
+// (the padding is dock clearance behind a translucent overlay). Mixdog's
+// composer sits in flow BELOW the viewport, so the same 64px rendered as pure
+// empty space above the composer (user: 하단 여백이 많다). 24px keeps the
+// last message's breathing room without a dead band.
+export const TRANSCRIPT_BOTTOM_SPACER = 24;
 export const TRANSCRIPT_VIRTUAL_CACHE_LIMIT = 16;
 
 export interface TranscriptVirtualSnapshot {
   measurements?: VirtualItem[];
-  offset: number;
-  atEnd: boolean;
 }
 
 const snapshots = new Map<string, TranscriptVirtualSnapshot>();
@@ -37,21 +40,6 @@ export function readTranscriptVirtualSnapshot(
   return sessionKey ? snapshots.get(sessionKey) : undefined;
 }
 
-/** Scroll ownership while the session is on screen. */
-export function rememberTranscriptVirtualOffset(
-  sessionKey: string,
-  offset: number,
-  atEnd: boolean,
-): void {
-  if (!sessionKey) return;
-  const current = snapshots.get(sessionKey);
-  remember(sessionKey, {
-    measurements: current?.measurements,
-    offset: Math.max(0, Number(offset) || 0),
-    atEnd,
-  });
-}
-
 /** Final geometry handed over when the session leaves the screen. */
 export function rememberTranscriptVirtualMeasurements(
   sessionKey: string,
@@ -62,8 +50,6 @@ export function rememberTranscriptVirtualMeasurements(
   const measured = measurements.length > 0;
   remember(sessionKey, {
     measurements: measured ? measurements : current?.measurements,
-    offset: current?.offset ?? 0,
-    atEnd: current?.atEnd ?? true,
   });
 }
 

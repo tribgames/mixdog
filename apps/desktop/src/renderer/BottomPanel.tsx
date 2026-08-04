@@ -40,6 +40,8 @@ export interface BottomPanelState {
   tab: string;
 }
 
+export type BottomPanelMotion = "animated" | "instant";
+
 export function useBottomPanelState(defaultTab = "") {
   const [state, setState] = useState<BottomPanelState>(() => {
     try {
@@ -55,6 +57,7 @@ export function useBottomPanelState(defaultTab = "") {
       return { open: false, height: BOTTOM_PANEL_DEFAULT_HEIGHT, tab: defaultTab };
     }
   });
+  const [motion, setMotion] = useState<BottomPanelMotion>("animated");
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
@@ -65,13 +68,28 @@ export function useBottomPanelState(defaultTab = "") {
     }, 120);
     return () => window.clearTimeout(timer);
   }, [state]);
-  const setOpen = useCallback((open: boolean) => setState((prev) => ({ ...prev, open })), []);
-  const toggle = useCallback(() => setState((prev) => ({ ...prev, open: !prev.open })), []);
+  const setOpen = useCallback((
+    open: boolean,
+    nextMotion: BottomPanelMotion = "animated",
+  ) => {
+    setMotion(nextMotion);
+    setState((prev) => ({ ...prev, open }));
+  }, []);
+  const toggle = useCallback((nextMotion: BottomPanelMotion = "animated") => {
+    setMotion(nextMotion);
+    setState((prev) => ({ ...prev, open: !prev.open }));
+  }, []);
   const setHeight = useCallback((height: number) => {
     setState((prev) => ({ ...prev, height: clampBottomPanelHeight(height, window.innerHeight) }));
   }, []);
-  const setTab = useCallback((tab: string) => setState((prev) => ({ ...prev, tab, open: true })), []);
-  return { ...state, setOpen, toggle, setHeight, setTab };
+  const setTab = useCallback((
+    tab: string,
+    nextMotion: BottomPanelMotion = "animated",
+  ) => {
+    setMotion(nextMotion);
+    setState((prev) => ({ ...prev, tab, open: true }));
+  }, []);
+  return { ...state, motion, setOpen, toggle, setHeight, setTab };
 }
 
 export function BottomPanel({
@@ -82,8 +100,10 @@ export function BottomPanel({
   activeTab,
   onSelectTab,
   onClose,
+  headerActions,
   actions,
   children,
+  motion = "animated",
 }: {
   open: boolean;
   height: number;
@@ -92,8 +112,10 @@ export function BottomPanel({
   activeTab: string;
   onSelectTab: (id: string) => void;
   onClose: () => void;
+  headerActions?: React.ReactNode;
   actions?: React.ReactNode;
   children?: React.ReactNode;
+  motion?: BottomPanelMotion;
 }): React.JSX.Element | null {
   const [dragging, setDragging] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -204,12 +226,12 @@ export function BottomPanel({
   if (!open) return null;
   return (
     <div className="bottom-panel" ref={panelRef} style={{ height }} data-testid="bottom-panel"
-      data-settled={settled ? "true" : undefined}>
+      data-settled={settled ? "true" : undefined} data-motion={motion}>
       <div
         className={`bottom-panel-resize${dragging ? " is-dragging" : ""}`}
         onPointerDown={onPointerDown}
       />
-      <div className="bottom-panel-tabs">
+      <div className={`bottom-panel-tabs${actions ? " has-toolbar" : ""}`}>
         <div className="bottom-panel-tab-region">
           <div className="bottom-panel-tab-list" role="tablist">
             {tabs.map((tab) => <button key={tab.id} type="button" role="tab"
@@ -221,10 +243,12 @@ export function BottomPanel({
           </div>
         </div>
         <div className="bottom-panel-tabs-spacer" />
-        {actions}
+        {headerActions &&
+          <div className="bottom-panel-header-actions">{headerActions}</div>}
         <IconButton icon="close-small" label={t("Close panel")}
           className="bottom-panel-close" onClick={onClose} />
       </div>
+      {actions && <div className="bottom-panel-toolbar">{actions}</div>}
       <div className="bottom-panel-body">{children}</div>
     </div>
   );

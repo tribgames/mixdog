@@ -3131,6 +3131,22 @@ test("conversation attaches only successful turn completion to the final assista
 
 test("toggling a tool card keeps a pinned view followed and holds the anchor once released", async () => {
   installDom();
+  const resizeObservers = [];
+  class TestResizeObserver {
+    constructor(callback) {
+      this.callback = callback;
+      this.active = true;
+      this.targets = [];
+      resizeObservers.push(this);
+    }
+    observe(target) { this.targets.push(target); }
+    unobserve(target) {
+      this.targets = this.targets.filter((candidate) => candidate !== target);
+    }
+    disconnect() { this.active = false; }
+  }
+  window.ResizeObserver = TestResizeObserver;
+  globalThis.ResizeObserver = TestResizeObserver;
   // The tool card body is lazy Markdown: without an explicit preload the
   // `.tool-header` never mounts when this test runs in cold isolation.
   await preloadMarkdownBody();
@@ -3177,6 +3193,16 @@ test("toggling a tool card keeps a pinned view followed and holds the anchor onc
     clientHeight: { value: 400, configurable: true },
     scrollTop: { value: 800, writable: true, configurable: true },
   });
+  const deliverContentResize = () => {
+    const virtualContent = transcript.querySelector(".transcript-virtual-space");
+    for (const observer of resizeObservers) {
+      if (!observer.active || !observer.targets.includes(virtualContent)) continue;
+      observer.callback([{
+        target: virtualContent,
+        borderBoxSize: [{ inlineSize: 640, blockSize: 1_200 }],
+      }]);
+    }
+  };
   const clickToolWithLayoutScroll = async () => {
     const header = document.querySelector(".tool-header");
     await act(async () => {
@@ -3198,7 +3224,11 @@ test("toggling a tool card keeps a pinned view followed and holds the anchor onc
       }));
       header.click();
       await Promise.resolve();
+      // Chromium applies disclosure geometry before ResizeObserver delivery.
+      // OpenCode's content observer restores the followed bottom before paint;
+      // the subsequent scroll event must therefore see the auto-written value.
       transcript.scrollTop = 790;
+      deliverContentResize();
       transcript.dispatchEvent(new window.Event("scroll", { bubbles: true }));
       await Promise.resolve();
     });
@@ -3227,8 +3257,15 @@ test("toggling a tool card keeps a pinned view followed and holds the anchor onc
   const wheel = new window.Event("wheel", { bubbles: true });
   Object.defineProperty(wheel, "deltaY", { value: -1 });
   await act(async () => { transcript.dispatchEvent(wheel); });
+  assert.equal(transcript.getAttribute("data-following"), "false",
+    "an upward wheel must disarm bottom follow immediately");
+  await act(async () => {
+    transcript.scrollTop = 200;
+    transcript.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  });
   assert.ok(document.querySelector(".jump-to-latest"),
-    "an upward wheel must disarm bottom follow");
+    "the jump control appears after the wheel actually moves far from the bottom");
   await act(async () => {
     document.querySelector(".tool-header").click();
     await Promise.resolve();
@@ -3980,8 +4017,9 @@ test("rail destinations swap the session panel while the workspace stays mounted
       "a visited rail destination keeps its tree across a collapse");
     assert.equal(document.querySelector(".session-panel-title")?.textContent, "Sessions",
       "the hidden panel area returns to Sessions for the next expand");
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 230)));
     await act(async () => {
-      document.querySelector('[aria-label="Sessions"]')?.click();
+      document.querySelector(".topbar .toolbar-sidebar")?.click();
       await Promise.resolve();
     });
     await settleStableSurfaceSwitch();
@@ -4542,6 +4580,9 @@ test("collapsing the sidebar closes panel portals and cancels a pending cold swa
   };
   const panelTitle = () => document.querySelector(".session-panel-title")?.textContent;
   const appShell = () => Array.from(document.querySelectorAll(".app-shell")).at(-1);
+  const waitForToggleWindow = async () => {
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 230)));
+  };
   await railClick("Open workflows");
   await settleStableSurfaceSwitch();
   await waitForDom(() => panelTitle() === "Workflows", "Workflows should present");
@@ -4560,9 +4601,14 @@ test("collapsing the sidebar closes panel portals and cancels a pending cold swa
   assert.ok(document.querySelector(".workflows-pane"),
     "closing the sidebar keeps the panel itself mounted");
 
-  // Reopening keeps the unchanged request and stays warm.
+  // A collapse resets the visible destination to Sessions. The retained,
+  // already-warm Workflows tree returns immediately when explicitly selected.
+  await waitForToggleWindow();
   await clickElement(".toolbar-sidebar");
-  assert.equal(panelTitle(), "Workflows");
+  assert.equal(panelTitle(), "Sessions");
+  await railClick("Open workflows");
+  await settleStableSurfaceSwitch();
+  await waitForDom(() => panelTitle() === "Workflows", "Workflows should re-present warm");
   await act(async () => {
     document.querySelector('[aria-label="New workflow"]')?.click();
     await Promise.resolve();
@@ -4575,8 +4621,10 @@ test("collapsing the sidebar closes panel portals and cancels a pending cold swa
 
   // A cold request that is still pending when the sidebar collapses is
   // cancelled, and re-settles from scratch on reopen.
+  await waitForToggleWindow();
   await clickElement(".toolbar-sidebar");
   await railClick("Open schedules");
+  await waitForToggleWindow();
   await act(async () => {
     document.querySelector(".toolbar-sidebar")?.click();
     await Promise.resolve();
@@ -4588,13 +4636,18 @@ test("collapsing the sidebar closes panel portals and cancels a pending cold swa
   assert.equal(appShell()?.classList.contains("sidebar-collapsed"), true);
   assert.notEqual(panelTitle(), "Schedules",
     "a collapse must cancel the pending cold swap");
+  await waitForToggleWindow();
   await clickElement(".toolbar-sidebar");
+  assert.equal(panelTitle(), "Sessions",
+    "reopening after a cancelled cold swap starts from Sessions");
   await act(async () => {
     releaseSchedules();
     await Promise.resolve();
   });
+  await railClick("Open schedules");
+  await settleStableSurfaceSwitch();
   await waitForDom(() => panelTitle() === "Schedules",
-    "reopening re-settles the still-requested destination");
+    "explicitly reselecting the resolved destination presents it");
   delete window.__mixdogSidebarPanelLoader;
 });
 
@@ -7792,6 +7845,9 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.doesNotMatch(document.body.textContent || "", /No project selected|\bReady\b/);
 
   const toggle = document.querySelector(".toolbar-sidebar");
+  const waitForToggleWindow = async () => {
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 230)));
+  };
   await act(async () => toggle.click());
   const collapsedSidebar = document.querySelector(".sidebar");
   assert.ok(collapsedSidebar, "a collapsed sidebar keeps its tree so visited panels survive");
@@ -7801,6 +7857,7 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Expand session sidebar");
   assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon").dataset.state, "closed");
   assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon-active") === null, true, "selector .toolbar-sidebar .sidebar-toggle-icon-active should be absent");
+  await waitForToggleWindow();
   await act(async () => toggle.click());
   const sidebar = document.querySelector(".sidebar");
   assert.equal(sidebar.classList.contains("open"), true);
@@ -7809,10 +7866,12 @@ test("launch selects New task and immediately shows the project-free composer", 
   assert.equal(document.querySelector(".toolbar-sidebar").getAttribute("aria-label"), "Collapse session sidebar");
   assert.equal(document.querySelector(".toolbar-sidebar .sidebar-toggle-icon").dataset.state, "open");
   toggle.focus();
+  await waitForToggleWindow();
   await act(async () => toggle.click());
   assert.equal(document.querySelector(".sidebar")?.dataset.state, "closed");
   assert.equal(document.querySelector(".sidebar")?.getAttribute("aria-hidden"), "true");
   assert.equal(document.activeElement === document.querySelector(".toolbar-sidebar"), true, "sidebar toggle should retain focus after collapsing");
+  await waitForToggleWindow();
   await act(async () => toggle.click());
 
   const projectsPane = await openProjectsPane();
@@ -8808,6 +8867,7 @@ test("virtualized session entry lands at the end and pins growth with one write"
     resumeSession: async () => ({
       sessionId: "measured-target",
       items: targetItems,
+      busy: true,
       queued: [],
     }),
   };
@@ -8820,6 +8880,7 @@ test("virtualized session entry lands at the end and pins growth with one write"
   const transcript = document.querySelector(".transcript");
   let transcriptHeight = 480;
   let transcriptClientHeight = 320;
+  let contentInlineSize = 640;
   let simulatedScrollTop = 0;
   let rawScrollWrites = 0;
   Object.defineProperties(transcript, {
@@ -8836,11 +8897,34 @@ test("virtualized session entry lands at the end and pins growth with one write"
     },
   });
   const bottom = () => transcriptHeight - transcriptClientHeight;
-  const deliverResize = async (passes = 1) => {
+  const deliverResize = async (passes = 1, contentOnly = false) => {
     await act(async () => {
       for (let pass = 0; pass < passes; pass += 1) {
         for (const observer of resizeObservers) {
-          if (observer.active) observer.callback([{ target: transcript }]);
+          if (!observer.active) continue;
+          const entries = observer.targets.flatMap((target) => {
+            if (target === transcript) {
+              if (contentOnly) return [];
+              return [{
+                target,
+                borderBoxSize: [{
+                  inlineSize: 640,
+                  blockSize: transcriptClientHeight,
+                }],
+              }];
+            }
+            if (target === virtualContent) {
+              return [{
+                target,
+                borderBoxSize: [{
+                  inlineSize: contentInlineSize,
+                  blockSize: transcriptHeight,
+                }],
+              }];
+            }
+            return [];
+          });
+          if (entries.length > 0) observer.callback(entries);
         }
       }
       await Promise.resolve();
@@ -8851,8 +8935,9 @@ test("virtualized session entry lands at the end and pins growth with one write"
     await Promise.resolve();
     await Promise.resolve();
   });
+  const virtualContent = transcript.querySelector(".transcript-virtual-space");
 
-  assert.ok(document.querySelector(".transcript-virtual-space"));
+  assert.ok(virtualContent);
   await waitForDom(
     () => simulatedScrollTop === bottom(),
     "the end-anchor virtualizer must commit its initial position",
@@ -8870,7 +8955,16 @@ test("virtualized session entry lands at the end and pins growth with one write"
     "a burst of content growth settles with one DOM write");
   assert.equal(simulatedScrollTop, bottom(), "content growth pins the current bottom");
 
-  transcriptHeight = 1_120;
+  const beforeInlineResize = rawScrollWrites;
+  contentInlineSize = 489;
+  transcriptHeight = 1_400;
+  await deliverResize(3, true);
+  assert.equal(rawScrollWrites, beforeInlineResize + 1,
+    "OpenCode content observation resolves a pane reflow with one bottom write");
+  assert.equal(simulatedScrollTop, bottom(),
+    "active narrow-pane reflow stays pinned after the one geometry transaction");
+
+  transcriptHeight = 1_480;
   transcriptClientHeight = 280;
   await deliverResize();
   assert.equal(simulatedScrollTop, bottom(), "a viewport resize keeps the pinned bottom");
@@ -9647,8 +9741,13 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
   });
   Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', {
     get() {
-      if (!this.classList?.contains('transcript-virtual-row-content')) return 0;
-      return this.dataset.tag === 'TurnGap' ? 20 : 96;
+      // The measured element is the positioned OUTER row; its content child
+      // carries the tag that decides the fixture height.
+      const tagged = this.classList?.contains('transcript-virtual-row')
+        ? (this.firstElementChild ?? this)
+        : this;
+      if (!tagged?.classList?.contains('transcript-virtual-row-content')) return 0;
+      return tagged.dataset.tag === 'TurnGap' ? 20 : 96;
     },
     configurable: true,
   });
@@ -11566,14 +11665,14 @@ test("model control styles keep the reference compact geometry and bounded list"
     /\.model-option-row\s*\{[^}]*min-height:\s*48px;[^}]*padding:\s*6px 8px;/s,
     "model rows should leave room for stable secondary metadata");
   assert.match(themeCss, /\.model-row-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-items:\s*flex-start;/s);
-  assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--mx-text-faint\);[^}]*font-size:\s*11px;/s);
+  assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--mx-text-faint\);[^}]*font-size:\s*var\(--mx-font-meta\);/s);
   assert.match(themeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
   assert.doesNotMatch(themeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
-  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/s);
+  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*400;/s);
   assert.doesNotMatch(themeCss, /\.model-tag\s*\{/);
   assert.match(themeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
   assert.match(themeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
-  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 16px;/s,
+  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 16px;/s,
     "the composer should sit close to the workspace bottom edge");
   assert.match(themeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s,
     "the composer should use the solid desktop base and its subtle raised elevation");
@@ -12107,15 +12206,15 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   // Panel-specific title rows keep the cleaner, mixed-case heading below the
   // independent Orca activity strip.
   assert.match(themeCss,
-    /\.utility-dock-header\s*\{[^}]*flex:\s*0 0 32px;[^}]*height:\s*32px;[^}]*margin-top:\s*4px;[^}]*padding:\s*0 8px 0 14px;[^}]*color:\s*var\(--mx-text\);/s);
+    /\.utility-dock-header\s*\{[^}]*flex:\s*0 0 32px;[^}]*height:\s*32px;[^}]*margin-top:\s*4px;[^}]*padding:\s*0 12px;[^}]*color:\s*var\(--mx-text\);/s);
   assert.match(themeCss,
-    /\.utility-dock-title\s*\{[^}]*font-size:\s*14px;[^}]*line-height:\s*20px;/s);
+    /\.utility-dock-title\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*20px;/s);
   assert.match(themeCss,
     /\.utility-dock-title b,[\s\S]*?\.utility-dock-header > b\s*\{[^}]*font-weight:\s*600;/s);
   assert.doesNotMatch(themeCss, /\.utility-dock-header b\s*\{[^}]*text-transform:/s,
     "dock titles remain mixed case");
   assert.match(themeCss,
-    /\.session-sidebar \.task-link,\s*\.session-sidebar \.projects-link\s*\{\s*font-size:\s*13px;\s*font-weight:\s*500;/s,
+    /\.session-sidebar \.task-link,\s*\.session-sidebar \.projects-link\s*\{\s*font-size:\s*var\(--mx-font-ui\);\s*font-weight:\s*500;/s,
     'the left rail tier the dock title mirrors must stay put');
   assert.doesNotMatch(themeCss,
     /\.utility-dock:has\([^}]*utility-dock-empty[^}]*\)\s*\.utility-dock-title/,
@@ -12259,6 +12358,12 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.workspace-tab\s*\{[^}]*height:\s*35px;[^}]*min-width:\s*var\(--workspace-tab-current-width,\s*50px\);[^}]*max-width:\s*var\(--workspace-tab-current-width,\s*160px\);[^}]*flex:\s*1 0 0;/s);
   assert.match(themeCss,
+    /html\[data-mixdog-mobile\] \.workspace-tab\s*\{[^}]*min-width:\s*104px;[^}]*max-width:\s*144px;[^}]*flex:\s*0 0 auto;/s,
+    "phone-only tab sizing must not replace equal desktop pane labels at narrow window widths");
+  assert.doesNotMatch(themeCss,
+    /@media \(max-width:\s*760px\)\s*\{[\s\S]*?\n\s{2}\.workspace-tab\s*\{\s*min-width:\s*104px;/s,
+    "viewport width alone must never switch desktop pane labels to fixed unequal sizing");
+  assert.match(themeCss,
     /\.workspace-tab:not\(:first-child\) > \.workspace-tab-main\s*\{[^}]*padding-left:\s*4px;/s);
   assert.match(themeCss,
     /\.workspace-tab-main > svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*flex:\s*0 0 14px;[^}]*color:\s*currentColor;[^}]*stroke-width:\s*1\.75px;/s);
@@ -12274,25 +12379,25 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.desktop-body > \.utility-dock\[data-side="right"\]\s*\{[^}]*margin-left:\s*0;/s);
   assert.match(themeCss, /\.session-header\s*\{[^}]*border-bottom:\s*0;/s);
-  assert.match(themeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 36px;/s);
+  assert.match(themeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 16px;/s);
   // Conversation title runs one step above tab chrome (user: important info
   // read underweighted at 14px/500).
-  assert.match(themeCss, /\.session-header h1\s*\{[^}]*font-size:\s*15px;[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);
+  assert.match(themeCss, /\.session-header h1\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);
   assert.match(themeCss,
-    /\.thread\s*\{[^}]*padding:\s*20px calc\(36px - var\(--mx-scrollbar-size\)\) 20px 36px;[^}]*gap:\s*20px;/s);
+    /\.thread\s*\{[^}]*width:\s*100%;[^}]*padding:\s*20px 0 0;[^}]*gap:\s*0;/s);
   assert.doesNotMatch(themeCss, /\.conversation:has\(\.turn-review-bar\) \.thread/);
   assert.match(themeCss, /\.turn-review-slot\s*\{[^}]*position:\s*relative;[^}]*width:\s*100%;/s);
   assert.doesNotMatch(themeCss, /\.turn-review-slot\s*\{[^}]*position:\s*absolute;/s);
   assert.match(themeCss, /\.turn-review-slot:has\(\.turn-review-bar\)\s*\{[^}]*margin-bottom:\s*8px;/s);
   assert.match(themeCss, /\.turn-review-summary\s*\{[^}]*min-height:\s*28px;/s);
-  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 16px;/s);
+  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 12px 16px;/s);
   assert.match(themeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
   assert.match(themeCss, /\.activity-rail > button\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;/s);
   assert.doesNotMatch(themeCss, /\.workspace-tab-divider\s*\{/);
   // VS Code grammar: inactive tabs hide the close glyph until hover.
   assert.match(baseCss, /\.workspace-tab-close\s*\{[^}]*opacity:\s*0;/s);
   assert.match(themeCss,
-    /\.workspace-tab-main span\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*400;/s);
+    /\.workspace-tab-main span\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*400;/s);
   assert.match(themeCss,
     /\.workspace-tab-close\s*\{[^}]*color:\s*color-mix\(in srgb,\s*var\(--mx-text\) 92%,\s*transparent\);/s);
   assert.doesNotMatch(themeCss,
@@ -12405,7 +12510,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   ));
   assert.equal(resize.getAttribute("aria-valuenow"), "420");
   await act(async () => resize.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true })));
-  assert.equal(resize.getAttribute("aria-valuenow"), "260");
+  assert.equal(resize.getAttribute("aria-valuenow"), "300");
   assert.equal(shell?.classList.contains("sidebar-collapsed"), false);
   assert.equal(toggle?.getAttribute("aria-label"), "Collapse session sidebar");
   assert.equal(document.querySelector(".titlebar-home") === null, true, "selector .titlebar-home should be absent");
@@ -12419,6 +12524,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.equal(document.querySelector(".sidebar")?.hasAttribute("inert"), true);
   assert.equal(document.querySelector(".sidebar")?.getAttribute("aria-hidden"), "true");
   assert.equal(toggle?.getAttribute("aria-label"), "Expand session sidebar");
+  await act(async () => new Promise((resolve) => window.setTimeout(resolve, 230)));
   await act(async () => toggle?.click());
   const reopenedSidebar = document.querySelector(".sidebar");
   assert.equal(shell?.classList.contains("sidebar-collapsed"), false);
@@ -13389,17 +13495,19 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
   const paneNewButton = document.querySelector(".workspace-tab-new");
   assert.ok(paneNewButton,
     "each pane strip keeps the new-tab affordance beside its tabs");
-  assert.equal(paneNewButton.parentElement, document.querySelector(".workspace-tabs"),
-    "the new-tab affordance stays inside the tab run instead of at the pane edge");
-  assert.equal(paneNewButton.previousElementSibling, compressedTabs.at(-1),
-    "the new-tab affordance sits immediately after the final tab");
+  assert.equal(paneNewButton.parentElement, document.querySelector(".workspace-tabs-shell"),
+    "the new-tab affordance owns a fixed slot beside the scrolling viewport");
+  assert.equal(paneNewButton.previousElementSibling, document.querySelector(".workspace-tabs"),
+    "minimum-width labels can scroll but never paint beneath the new-tab slot");
+  assert.equal(document.querySelector(".workspace-tabs").contains(paneNewButton), false);
   assert.equal(document.querySelector(".titlebar-new"), null);
   assert.equal(document.querySelector(".titlebar-update"), null);
 });
 
-test("workspace tabs use VS Code flex sizing and reveal an appended tab without observers", async () => {
+test("workspace tabs use VS Code flex sizing and relayout active labels with their pane", async () => {
   installDom();
   const observers = [];
+  let stripWidth = 0;
   class TestResizeObserver {
     constructor(callback) {
       this.callback = callback;
@@ -13410,6 +13518,10 @@ test("workspace tabs use VS Code flex sizing and reveal an appended tab without 
     disconnect() {}
   }
   globalThis.ResizeObserver = TestResizeObserver;
+  Object.defineProperty(window.HTMLElement.prototype, "clientWidth", {
+    get() { return this.classList?.contains("workspace-tabs") ? stripWidth : 0; },
+    configurable: true,
+  });
   Object.defineProperty(window.HTMLElement.prototype, "scrollWidth", {
     get() { return this.classList?.contains("workspace-tabs") ? 640 : 0; },
     configurable: true,
@@ -13430,7 +13542,9 @@ test("workspace tabs use VS Code flex sizing and reveal an appended tab without 
     trailing: React.createElement("div", null, "Task actions"),
   };
   await act(async () => root.render(React.createElement(WorkspaceTabStrip, props)));
-  assert.equal(observers.length, 0, "VS Code flex sizing needs no ResizeObserver loop");
+  assert.equal(observers.length, 1,
+    "each pane strip observes only its own width, matching VS Code's explicit layout call");
+  assert.equal(observers[0].targets[0], document.querySelector(".workspace-tabs"));
   assert.ok(Array.from(document.querySelectorAll(".workspace-tab"))
     .every((tab) => tab.style.width === ""));
 
@@ -13446,6 +13560,17 @@ test("workspace tabs use VS Code flex sizing and reveal an appended tab without 
   })));
   assert.equal(document.querySelector(".workspace-tabs").scrollLeft, 640,
     "an appended active tab reveals the end of the VS Code tab strip");
+  const strip = document.querySelector(".workspace-tabs");
+  const active = document.querySelector('[data-tab-key="from-source-control"]');
+  Object.defineProperties(active, {
+    offsetLeft: { get: () => 540, configurable: true },
+    offsetWidth: { get: () => 100, configurable: true },
+  });
+  strip.scrollLeft = 0;
+  stripWidth = 300;
+  await act(async () => observers.at(-1).callback());
+  assert.equal(strip.scrollLeft, 340,
+    "pane resize uses the viewport width already reserved beside the fixed new-tab slot");
 });
 
 test("draft materialization and appended tabs render without width animation classes", async () => {

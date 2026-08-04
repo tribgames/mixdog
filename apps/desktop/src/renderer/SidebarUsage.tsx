@@ -391,7 +391,9 @@ export function SidebarUsage({
             <span className="sidebar-usage-meters">
               {windows.map((window, index) => {
                 const percent = usedPercent(window);
-                return <span className="sidebar-usage-meter"
+                const tone = percent !== null && percent >= 90 ? " tone-danger"
+                  : percent !== null && percent >= 70 ? " tone-warning" : "";
+                return <span className={`sidebar-usage-meter${tone}`}
                   key={quotaWindowKey(window, index)}>
                   <small>{windowLabel(window)}</small>
                   <i><i style={{ width: `${percent ?? 0}%` }} /></i>

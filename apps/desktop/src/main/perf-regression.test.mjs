@@ -15,7 +15,6 @@ import { mergeSessionCatalogRows } from "../shared/session-catalog.ts";
 import {
   readTranscriptVirtualSnapshot,
   rememberTranscriptVirtualMeasurements,
-  rememberTranscriptVirtualOffset,
   TRANSCRIPT_VIRTUAL_CACHE_LIMIT,
 } from "../renderer/transcript-virtual-cache.ts";
 import { hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "../renderer/desktop-types.ts";
@@ -345,18 +344,17 @@ test("TranscriptRow keeps semantically unchanged rows memoized", () => {
   assert.equal(serialized, 0, "the growing streaming tail must never be JSON-stringified for memo equality");
 });
 
-test("session virtual geometry survives re-entry and stays bounded", () => {
-  rememberTranscriptVirtualOffset("perf-session", 1_240, false);
+test("session virtual measurements survive re-entry and stay bounded", () => {
   rememberTranscriptVirtualMeasurements("perf-session", [
     { index: 0, key: "perf-session:a", start: 0, end: 212, size: 212, lane: 0 },
   ]);
   const restored = readTranscriptVirtualSnapshot("perf-session");
-  assert.equal(restored.offset, 1_240, "re-entry paints at the exact previous offset");
-  assert.equal(restored.atEnd, false);
   assert.equal(restored.measurements.length, 1,
     "real measurements replace estimates on the next mount");
   for (let index = 0; index < TRANSCRIPT_VIRTUAL_CACHE_LIMIT + 4; index += 1) {
-    rememberTranscriptVirtualOffset(`overflow-${index}`, index, true);
+    rememberTranscriptVirtualMeasurements(`overflow-${index}`, [
+      { index: 0, key: `overflow-${index}:a`, start: 0, end: 60, size: 60, lane: 0 },
+    ]);
   }
   assert.equal(readTranscriptVirtualSnapshot("perf-session"), undefined,
     "the geometry cache stays bounded to the most recent sessions");

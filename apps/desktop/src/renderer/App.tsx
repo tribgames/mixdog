@@ -147,8 +147,9 @@ import {
 import {
   DEFAULT_PROBLEMS_PANEL_FILTER,
   ProjectProblemCount,
+  WorkbenchProblemsFilter,
   WorkbenchProblemsPane,
-  WorkbenchProblemsToolbar,
+  WorkbenchProblemsSeverityActions,
   type ProblemsPanelFilter,
 } from "./WorkbenchProblems";
 
@@ -509,6 +510,27 @@ export function App() {
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
   }, []);
+  useEffect(() => {
+    // CSS media queries update before React can commit their matching state.
+    // Arm a DOM-level guard on the first resize event so a 763→760px drag
+    // cannot start one decorative frame before the responsive effects run.
+    const root = document.documentElement;
+    let settleTimer = 0;
+    const onResize = (): void => {
+      root.classList.add("mx-window-resizing");
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        root.classList.remove("mx-window-resizing");
+        settleTimer = 0;
+      }, 180);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.clearTimeout(settleTimer);
+      root.classList.remove("mx-window-resizing");
+    };
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (activeSidePanelLayout.sidebarLockedOpen) return true;
     try {
@@ -562,8 +584,13 @@ export function App() {
   // rendered state or let an older close completion reverse the newest input.
   const sidebarOpenIntent = useRef(sidebarOpen);
   const dockOpenIntent = useRef(dockOpen);
-  const applySidebarOpen = useCallback((open: boolean) => {
+  const [sidebarMotion, setSidebarMotion] = useState<"animated" | "instant">("animated");
+  const applySidebarOpen = useCallback((
+    open: boolean,
+    motion: "animated" | "instant" = "animated",
+  ) => {
     sidebarOpenIntent.current = open;
+    setSidebarMotion(motion);
     setSidebarOpen(open);
   }, []);
   const applyDockOpen = useCallback((open: boolean) => {
@@ -638,7 +665,8 @@ export function App() {
   const lastSidePanelToggle = useRef(0);
   const sidePanelToggleReady = useCallback((stamp?: number) => {
     const now = typeof stamp === "number" && stamp > 0 ? stamp : performance.now();
-    if (now - lastSidePanelToggle.current < 220) return false;
+    if (lastSidePanelToggle.current > 0
+      && now - lastSidePanelToggle.current < 220) return false;
     lastSidePanelToggle.current = now;
     return true;
   }, []);
@@ -690,11 +718,11 @@ export function App() {
     if (wasNarrowShell.current === narrowShell) return;
     wasNarrowShell.current = narrowShell;
     if (narrowShell) {
-      if (sidebarOpenIntent.current) applySidebarOpen(false);
+      if (sidebarOpenIntent.current) applySidebarOpen(false, "instant");
       return;
     }
     if (desktopSidebarOpen.current !== sidebarOpenIntent.current) {
-      applySidebarOpen(desktopSidebarOpen.current);
+      applySidebarOpen(desktopSidebarOpen.current, "instant");
     }
     if (desktopDockOpen.current !== dockOpenIntent.current) {
       applyDockOpen(desktopDockOpen.current);
@@ -722,12 +750,15 @@ export function App() {
   useEffect(() => {
     if (wasBottomSheetBand.current === bottomSheetBand) return;
     wasBottomSheetBand.current = bottomSheetBand;
+    // A 940px mode crossing must never replay the right Dock's sheet
+    // animation, even when it happens inside the initial settle window.
+    if (dockOpenIntent.current) setDockSettled(true);
     if (bottomSheetBand) {
-      if (bottomPanel.open) bottomPanel.setOpen(false);
+      if (bottomPanel.open) bottomPanel.setOpen(false, "instant");
       return;
     }
     if (desktopBottomPanelOpen.current !== bottomPanel.open) {
-      bottomPanel.setOpen(desktopBottomPanelOpen.current);
+      bottomPanel.setOpen(desktopBottomPanelOpen.current, "instant");
     }
   }, [bottomSheetBand, bottomPanel]);
   // Workflow and agent configuration panel (rail → Workflows).
@@ -4958,7 +4989,10 @@ export function App() {
         updaterState={updaterState}
         onOpenUpdate={openDesktopUpdate} />
       <div className="desktop-body">
-        <ActivityRail
+        <div className="sidebar-drawer-frame"
+          data-state={sidebarOpen ? "open" : "closed"}
+          data-motion={sidebarMotion}>
+          <ActivityRail
           sidebarOpen={sidebarOpen && !sidebarPanel}
           activeWorkbenchSurface={dockOpen
             && (["files", "source-control"] as string[]).includes(dockTab)
@@ -5040,6 +5074,7 @@ export function App() {
         >
           {sidebarPanelChildren}
         </SessionSidebar>}
+        </div>
         {/* The scrim stays mounted so it can FADE with the drawer instead of
             blinking out the moment the slide starts (CSS shows it only on
             narrow viewports). */}
@@ -5137,6 +5172,9 @@ export function App() {
           <BottomPanel
             open={bottomPanel.open}
             height={bottomPanel.height}
+            motion={wasBottomSheetBand.current !== bottomSheetBand
+              ? "instant"
+              : bottomPanel.motion}
             onHeightChange={bottomPanel.setHeight}
             tabs={WORKBENCH_PANEL_REGISTRY.map((panel) => ({
               id: panel.id,
@@ -5148,8 +5186,13 @@ export function App() {
             activeTab={activeBottomPanelTab}
             onSelectTab={bottomPanel.setTab}
             onClose={() => bottomPanel.setOpen(false)}
+            headerActions={activeBottomPanelTab === "problems"
+              ? <WorkbenchProblemsFilter
+                  filter={problemsFilter}
+                  onFilter={setProblemsFilter} />
+              : undefined}
             actions={activeBottomPanelTab === "problems"
-              ? <WorkbenchProblemsToolbar
+              ? <WorkbenchProblemsSeverityActions
                   projectPath={quickAccessProjectPath}
                   filter={problemsFilter}
                   onFilter={setProblemsFilter}
@@ -5185,8 +5228,8 @@ export function App() {
           aria-hidden={!dockOpen}
           tabIndex={dockOpen ? 0 : -1}
           onClick={() => applyDockOpen(false)} aria-label="Close utility panel" />
-        {/* Bottom sheet band: same dismiss scrim grammar as the side sheets
-            (user: 하단 탭도 좌우 탭과 같은 취급). */}
+        {/* Bottom sheet band keeps outside-tap dismissal without dimming the
+            work surface, matching both side sheets. */}
         <button className="panel-backdrop"
           data-state={bottomPanel.open ? "open" : "closed"}
           aria-hidden={!bottomPanel.open}
@@ -5200,7 +5243,7 @@ export function App() {
           workspaceFolders={workbenchWorkspace.workspace.folders as DesktopWorkspaceFolder[]}
           onSelectProject={selectToolProject}
           metricSurface="dock"
-          entering={dockSettled} contentReady
+          entering={dockSettled || wasBottomSheetBand.current !== bottomSheetBand} contentReady
           onTab={setDockTab} onResize={resizeDock}
           onClose={toggleDock}
           activeFileKey={activeFileKey}

@@ -371,16 +371,25 @@ export async function runJitterProbe({
       ...baseSnapshot,
       toasts: [],
       sessionId: 'probe_session_cold',
-      busy: false,
-      spinner: null,
+      busy: true,
+      spinner: {
+        active: true,
+        mode: 'responding',
+        startedAt: Date.now(),
+      },
       // Real sessions carry multi-hundred-line fenced answers: those rows are
       // the ones whose rewrap moves the viewport by hundreds of pixels.
       // 200 rows also leaves most of the timeline UNMEASURED (flat estimate),
       // which is the state a long working session is really in.
       items: probeItems(200),
-      streamingTail: null,
+      streamingTail: {
+        id: 'probe-width-live',
+        kind: 'assistant',
+        text: paragraph(203, 50),
+        streaming: true,
+      },
     };
-    window.setBounds({ ...window.getBounds(), width: 1_280, height: 900 });
+    window.setBounds({ ...window.getBounds(), width: 1_920, height: 900 });
     await sleep(400);
     prepareColdResume(widthSnapshot);
     await window.webContents.executeJavaScript(`(async () => {
@@ -421,8 +430,10 @@ export async function runJitterProbe({
     const install = `(() => {
       const w = window;
       const transcript = [...document.querySelectorAll('.transcript')]
-        .find((node) => node.getBoundingClientRect().height > 0);
+        .find((node) => node.getBoundingClientRect().height > 0
+          && node.querySelectorAll('.transcript-virtual-row').length > 3);
       if (!transcript) return { error: 'no transcript' };
+      const sessionKey = transcript.getAttribute('data-session-key') || '';
       if (!w.__widthTraceInstalled) {
         w.__widthTraceInstalled = true;
         const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
@@ -449,7 +460,7 @@ export async function runJitterProbe({
       w.__widthTrace = { writes: [], samples: [], raf: 0 };
       const sample = () => {
         const node = [...document.querySelectorAll('.transcript')]
-          .find((candidate) => candidate.getBoundingClientRect().height > 0);
+          .find((candidate) => candidate.getAttribute('data-session-key') === sessionKey);
         if (node) {
           const box = node.getBoundingClientRect();
           const rows = [...node.querySelectorAll('.transcript-virtual-row')]
@@ -457,14 +468,37 @@ export async function runJitterProbe({
             .filter((entry) => entry.rect.bottom > box.top + 1)
             .sort((a, b) => a.rect.top - b.rect.top);
           const top = rows[0];
+          const tail = rows[rows.length - 1];
+          const frame = node.querySelector(
+            '.transcript-virtual-row-content[data-tag="AssistantPart"],'
+              + '.transcript-virtual-row-content[data-tag="UserMessage"]',
+          );
+          const frameBox = frame?.getBoundingClientRect();
+          const frameStyle = frame ? getComputedStyle(frame) : null;
+          const paddingLeft = Number.parseFloat(frameStyle?.paddingLeft || '0') || 0;
+          const paddingRight = Number.parseFloat(frameStyle?.paddingRight || '0') || 0;
+          const pane = node.closest('.workspace');
+          const composer = pane?.querySelector('.composer-region');
+          const header = pane?.querySelector('.session-header-content');
+          const composerBox = composer?.getBoundingClientRect();
+          const headerBox = header?.getBoundingClientRect();
           w.__widthTrace.samples.push({
             t: Math.round(performance.now()),
             width: Math.round(box.width),
+            paneWidth: Math.round(pane?.getBoundingClientRect().width || box.width),
             scrollTop: Math.round(node.scrollTop),
             bottom: Math.round(node.scrollHeight - node.clientHeight),
+            distance: Math.round(node.scrollHeight - node.clientHeight - node.scrollTop),
             following: node.getAttribute('data-following'),
             index: top ? Number(top.row.getAttribute('data-index')) : null,
             offset: top ? Math.round(top.rect.top - box.top) : null,
+            tailIndex: tail ? Number(tail.row.getAttribute('data-index')) : null,
+            tailOffset: tail ? Math.round(tail.rect.bottom - box.bottom) : null,
+            frameWidth: frameBox ? Math.round(frameBox.width) : null,
+            framePadding: Math.round((paddingLeft + paddingRight) * 10) / 10,
+            textWidth: frameBox ? Math.round((frameBox.width - paddingLeft - paddingRight) * 10) / 10 : null,
+            composerWidth: composerBox ? Math.round(composerBox.width) : null,
+            headerWidth: headerBox ? Math.round(headerBox.width) : null,
             space: Math.round(node.querySelector('.transcript-virtual-space')?.getBoundingClientRect().height || 0),
           });
         }
@@ -482,15 +516,61 @@ export async function runJitterProbe({
       cancelAnimationFrame(w.__widthTrace.raf);
       const trace = w.__widthTrace;
       const byIndex = new Map();
+      const byTailIndex = new Map();
+      const byPaneWidth = new Map();
       for (const sample of trace.samples) {
-        if (sample.index === null || sample.offset === null) continue;
-        const bucket = byIndex.get(sample.index) || [];
-        bucket.push(sample.offset);
-        byIndex.set(sample.index, bucket);
+        if (sample.index !== null && sample.offset !== null) {
+          const bucket = byIndex.get(sample.index) || [];
+          bucket.push(sample.offset);
+          byIndex.set(sample.index, bucket);
+        }
+        if (sample.tailIndex !== null && sample.tailOffset !== null) {
+          const bucket = byTailIndex.get(sample.tailIndex) || [];
+          bucket.push(sample.tailOffset);
+          byTailIndex.set(sample.tailIndex, bucket);
+        }
+        if (sample.paneWidth !== null) {
+          const bucket = byPaneWidth.get(sample.paneWidth) || [];
+          bucket.push(sample);
+          byPaneWidth.set(sample.paneWidth, bucket);
+        }
       }
       let worstDrift = 0;
       for (const offsets of byIndex.values()) {
         worstDrift = Math.max(worstDrift, Math.max(...offsets) - Math.min(...offsets));
+      }
+      let worstTailDrift = 0;
+      for (const offsets of byTailIndex.values()) {
+        worstTailDrift = Math.max(worstTailDrift, Math.max(...offsets) - Math.min(...offsets));
+      }
+      let sameWidthFrameRange = 0;
+      let sameWidthPaddingRange = 0;
+      const widthProfile = [];
+      for (const [paneWidth, samples] of [...byPaneWidth.entries()].sort((a, b) => a[0] - b[0])) {
+        const values = (key) => samples.map((sample) => sample[key]).filter(Number.isFinite);
+        const frames = values('frameWidth');
+        const paddings = values('framePadding');
+        const texts = values('textWidth');
+        if (frames.length) sameWidthFrameRange = Math.max(sameWidthFrameRange, Math.max(...frames) - Math.min(...frames));
+        if (paddings.length) sameWidthPaddingRange = Math.max(sameWidthPaddingRange, Math.max(...paddings) - Math.min(...paddings));
+        widthProfile.push({
+          paneWidth,
+          frameWidth: frames.length ? frames[frames.length - 1] : null,
+          framePadding: paddings.length ? paddings[paddings.length - 1] : null,
+          textWidth: texts.length ? texts[texts.length - 1] : null,
+        });
+      }
+      let maxFrameWidthRegression = 0;
+      let maxTextWidthRegression = 0;
+      for (let index = 1; index < widthProfile.length; index += 1) {
+        const previous = widthProfile[index - 1];
+        const current = widthProfile[index];
+        if (previous.frameWidth !== null && current.frameWidth !== null) {
+          maxFrameWidthRegression = Math.max(maxFrameWidthRegression, previous.frameWidth - current.frameWidth);
+        }
+        if (previous.textWidth !== null && current.textWidth !== null) {
+          maxTextWidthRegression = Math.max(maxTextWidthRegression, previous.textWidth - current.textWidth);
+        }
       }
       const tops = trace.samples.map((sample) => sample.scrollTop);
       let reversals = 0;
@@ -503,21 +583,46 @@ export async function runJitterProbe({
         .map((write) => ({ ...write, delta: write.to - write.from, offBottom: write.to - write.bottom }))
         .filter((write) => Math.abs(write.delta) > 8);
       let maxFrameAnchorJump = 0;
+      let maxFrameTailJump = 0;
       let maxFrameScrollJump = 0;
       for (let i = 1; i < trace.samples.length; i++) {
         const previous = trace.samples[i - 1];
         const current = trace.samples[i];
         maxFrameScrollJump = Math.max(maxFrameScrollJump, Math.abs(current.scrollTop - previous.scrollTop));
         if (current.index === null || previous.index === null) continue;
-        if (current.index !== previous.index) continue;
-        maxFrameAnchorJump = Math.max(maxFrameAnchorJump, Math.abs(current.offset - previous.offset));
+        if (current.index === previous.index) {
+          maxFrameAnchorJump = Math.max(maxFrameAnchorJump, Math.abs(current.offset - previous.offset));
+        }
+        if (current.tailIndex === previous.tailIndex
+          && current.tailOffset !== null && previous.tailOffset !== null) {
+          maxFrameTailJump = Math.max(maxFrameTailJump, Math.abs(current.tailOffset - previous.tailOffset));
+        }
       }
       return {
         frames: trace.samples.length,
         writes: trace.writes.length,
         worstAnchorDrift: worstDrift,
+        worstTailDrift,
         maxFrameAnchorJump,
+        maxFrameTailJump,
         maxFrameScrollJump,
+        maxBottomDistance: trace.samples.length
+          ? Math.max(...trace.samples.map((sample) => Math.abs(sample.distance)))
+          : 0,
+        maxNarrowBottomDistance: trace.samples.length
+          ? Math.max(0, ...trace.samples
+              .filter((sample) => sample.paneWidth <= 520)
+              .map((sample) => Math.abs(sample.distance)))
+          : 0,
+        sameWidthFrameRange,
+        sameWidthPaddingRange,
+        maxFrameWidthRegression,
+        maxTextWidthRegression,
+        widthProfile: widthProfile.filter((sample, index) =>
+          index === 0
+            || index === widthProfile.length - 1
+            || sample.framePadding !== widthProfile[index - 1].framePadding
+            || sample.frameWidth !== widthProfile[index - 1].frameWidth),
         scrollReversals: reversals,
         scrollRange: tops.length ? Math.max(...tops) - Math.min(...tops) : 0,
         biggestWrites: jumps.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 8),
@@ -529,14 +634,18 @@ export async function runJitterProbe({
       await sleep(400);
       const setup = await window.webContents.executeJavaScript(install);
       const bounds = window.getBounds();
+      const narrowWidth = 489;
       // A real drag delivers a new width almost every frame: step in small
       // increments so the rewrap path is exercised the way a pointer does it.
-      for (let step = 0; step >= -30; step -= 1) {
-        window.setBounds({ ...bounds, width: Math.max(720, bounds.width + step * 12) });
+      // 1920 -> 489 crosses OpenCode's 2xl/md frame boundaries and the narrow
+      // working-pane range from the user report. The physical sash pass below
+      // continues down to the 324px pane floor.
+      for (let width = bounds.width; width >= narrowWidth; width -= 12) {
+        window.setBounds({ ...bounds, width: Math.max(narrowWidth, width) });
         await sleep(30);
       }
-      for (let step = -30; step <= 0; step += 1) {
-        window.setBounds({ ...bounds, width: Math.max(720, bounds.width + step * 12) });
+      for (let width = narrowWidth; width <= bounds.width; width += 12) {
+        window.setBounds({ ...bounds, width: Math.min(bounds.width, width) });
         await sleep(30);
       }
       window.setBounds(bounds);
@@ -554,17 +663,240 @@ export async function runJitterProbe({
     })()`);
     const following = await sweep('following', `(() => {
       const node = [...document.querySelectorAll('.transcript')]
-        .find((candidate) => candidate.getBoundingClientRect().height > 0);
+        .find((candidate) => candidate.getBoundingClientRect().height > 0
+          && candidate.querySelectorAll('.transcript-virtual-row').length > 3);
       const jump = document.querySelector('.jump-to-latest');
       if (jump instanceof HTMLElement) jump.click();
       node.scrollTop = node.scrollHeight - node.clientHeight;
       node.dispatchEvent(new Event('scroll', { bubbles: true }));
       return true;
     })()`);
-    const summary = { widthSweeps: [reading, following] };
+    // Create a real row split through the product shortcut, then drive its
+    // physical resize handle with Electron input events. This crosses the
+    // OpenCode md frame/inset boundary in both directions without changing the
+    // window, so window media queries cannot hide pane-owned width defects.
+    // The split needs enough physical range for one pane to cross both 768px
+    // and the 800px centered-frame cap while preserving the sibling's 320px
+    // floor. The normal 1280px capture window leaves only ~284px of sash
+    // travel, so widen the probe host before creating the split.
+    window.setBounds({ ...window.getBounds(), width: 1_920, height: 900 });
+    await sleep(600);
+    window.webContents.sendInputEvent({
+      type: 'keyDown',
+      keyCode: '\\',
+      modifiers: ['control'],
+    });
+    window.webContents.sendInputEvent({
+      type: 'keyUp',
+      keyCode: '\\',
+      modifiers: ['control'],
+    });
+    await sleep(800);
+    type SashGeometry = { x: number; y: number; minX: number; maxX: number };
+    const readSash = async (): Promise<SashGeometry | null> =>
+      window.webContents.executeJavaScript(`(() => {
+        const transcript = [...document.querySelectorAll('.transcript')]
+          .find((candidate) => candidate.getBoundingClientRect().height > 0
+            && candidate.querySelectorAll('.transcript-virtual-row').length > 3);
+        const handle = document.querySelector('.pane-split-row > .pane-resize-handle');
+        const split = handle?.parentElement;
+        if (!transcript || !handle || !split) return null;
+        const handleBox = handle.getBoundingClientRect();
+        const splitBox = split.getBoundingClientRect();
+        return {
+          x: handleBox.left + handleBox.width / 2,
+          y: handleBox.top + handleBox.height / 2,
+          minX: Math.round(splitBox.left + 324),
+          maxX: Math.round(splitBox.right - 324),
+        };
+      })()`) as Promise<SashGeometry | null>;
+    const initialSash = await readSash();
+    if (!initialSash || initialSash.maxX - initialSash.minX < 480) {
+      throw new Error(`width probe: real pane sash unavailable ${JSON.stringify(initialSash)}`);
+    }
+    const dragSash = async () => {
+      // CDP dispatches the browser's real mouse/pointer sequence. Electron's
+      // sendInputEvent mouseDown does not start React's pointer-capture path
+      // consistently, which leaves the sash visually present but stationary.
+      // Re-acquire the one-pixel handle for each 12px segment: Chromium can
+      // end synthetic pointer capture when the flex preview moves that handle
+      // under a debugger-driven pointer, and a stale starting coordinate then
+      // exercises the pane surface instead of the product's resize path.
+      const debug = window.webContents.debugger;
+      const wasAttached = debug.isAttached();
+      if (!wasAttached) debug.attach('1.3');
+      try {
+        const start = (await readSash())?.x;
+        if (start === undefined) throw new Error('width probe: pane sash disappeared before drag');
+        const moveTo = async (targetX: number) => {
+          let geometry = await readSash();
+          while (geometry && Math.abs(targetX - geometry.x) > 1) {
+            const direction = Math.sign(targetX - geometry.x);
+            let next: SashGeometry | null = null;
+            let requested = geometry.x;
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              const current = await readSash();
+              if (!current) break;
+              geometry = current;
+              const step = Math.max(4, 12 - attempt * 4);
+              requested = direction > 0
+                ? Math.min(targetX, geometry.x + step)
+                : Math.max(targetX, geometry.x - step);
+              // Move onto the freshly measured one-pixel handle before the
+              // press. A renderer commit can otherwise leave CDP's pointer on
+              // the adjacent pane even though the next press uses the new x.
+              await debug.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mouseMoved',
+                x: geometry.x,
+                y: geometry.y,
+                button: 'none',
+                buttons: 0,
+                pointerType: 'mouse',
+              });
+              await sleep(8);
+              await debug.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mousePressed',
+                x: geometry.x,
+                y: geometry.y,
+                button: 'left',
+                buttons: 1,
+                clickCount: 1,
+                pointerType: 'mouse',
+              });
+              await sleep(8);
+              await debug.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mouseMoved',
+                x: requested,
+                y: geometry.y,
+                button: 'left',
+                buttons: 1,
+                pointerType: 'mouse',
+              });
+              await debug.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mouseReleased',
+                x: requested,
+                y: geometry.y,
+                button: 'left',
+                buttons: 0,
+                clickCount: 1,
+                pointerType: 'mouse',
+              });
+              await sleep(30);
+              next = await readSash();
+              if (next && Math.abs(next.x - geometry.x) >= 1) break;
+            }
+            if (!next || Math.abs(next.x - geometry.x) < 1) {
+              // pane-layout clamps against the 4px model handle while the CSS
+              // sash consumes one visual pixel. At the far floor this leaves
+              // the synthetic target up to 4px beyond the reachable center.
+              if (Math.abs(targetX - geometry.x) <= 4.5) break;
+              throw new Error(`width probe: pane sash stalled ${JSON.stringify({
+                from: geometry.x,
+                requested,
+                actual: next?.x,
+              })}`);
+            }
+            geometry = next;
+          }
+          if (!geometry) throw new Error('width probe: pane sash disappeared during drag');
+        };
+        await moveTo(initialSash.minX);
+        await moveTo(initialSash.maxX);
+        await moveTo(start);
+        const restored = await readSash();
+        if (!restored || Math.abs(restored.x - start) > 2) {
+          throw new Error(`width probe: pane sash did not restore ${JSON.stringify({ start, restored })}`);
+        }
+        /*
+         * One final no-op move leaves CDP's mouse position on the restored
+         * handle without creating another product gesture.
+         */
+        if (restored) {
+          await debug.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: restored.x,
+            y: restored.y,
+            button: 'none',
+            buttons: 0,
+            pointerType: 'mouse',
+          });
+        }
+      } finally {
+        if (!wasAttached) {
+          try { debug.detach(); } catch { /* target closed with the probe */ }
+        }
+      }
+      await sleep(400);
+    };
+    const sashSweep = async (label: string, prepare: string) => {
+      await window.webContents.executeJavaScript(prepare);
+      await sleep(400);
+      const setup = await window.webContents.executeJavaScript(install);
+      await dragSash();
+      const report = await window.webContents.executeJavaScript(collect);
+      return { label, setup, ...(report as Record<string, unknown>) };
+    };
+    const sashReading = await sashSweep('sash-reading', `(() => {
+      const node = [...document.querySelectorAll('.transcript')]
+        .find((candidate) => candidate.getBoundingClientRect().height > 0
+          && candidate.querySelectorAll('.transcript-virtual-row').length > 3);
+      node.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -120 }));
+      node.scrollTop = Math.round((node.scrollHeight - node.clientHeight) * 0.5);
+      node.dispatchEvent(new Event('scroll', { bubbles: true }));
+      return true;
+    })()`);
+    const sashFollowing = await sashSweep('sash-following', `(() => {
+      const node = [...document.querySelectorAll('.transcript')]
+        .find((candidate) => candidate.getBoundingClientRect().height > 0
+          && candidate.querySelectorAll('.transcript-virtual-row').length > 3);
+      const jump = node.closest('.conversation')?.querySelector('.jump-to-latest');
+      if (jump instanceof HTMLElement) jump.click();
+      node.scrollTop = node.scrollHeight - node.clientHeight;
+      node.dispatchEvent(new Event('scroll', { bubbles: true }));
+      return true;
+    })()`);
+    const summary = {
+      widthSweeps: [reading, following],
+      sashSweeps: [sashReading, sashFollowing],
+    };
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, JSON.stringify({ summary }, null, 1));
     console.log(`[jitter-probe] ${JSON.stringify(summary)}`);
+    const followReports = [following, sashFollowing]
+      .map((report) => report as unknown as Record<string, unknown>);
+    const unstableFollow = followReports.filter((report) => {
+      const sash = String(report.label).startsWith('sash-');
+      const writes = Number(report.writes);
+      const reversals = Number(report.scrollReversals);
+      const writeStacks = Array.isArray(report.writeStacks)
+        ? report.writeStacks.map(String)
+        : [];
+      // OpenCode's content observer may resolve the discrete 768px row-inset
+      // reflow with ONE pin per crossing, and the down-then-up window sweep
+      // crosses that breakpoint twice. The pin lands in the same pre-paint
+      // ResizeObserver transaction, so no frame ever shows the gap. A physical
+      // pane drag has no viewport breakpoint, so it must remain entirely
+      // write-free. More writes, another reversal, or any non-observer writer
+      // means two scroll authorities are competing.
+      const stableWrites = sash
+        ? writes === 0 && reversals === 0
+        : (writes === 0 && reversals === 0)
+          || (writes <= 2
+            // Each observer write can yield two sampled direction changes:
+            // pre-write → requested scrollHeight → Chromium-clamped bottom.
+            && reversals <= 2 * writes
+            && writeStacks.length === 1
+            && writeStacks[0].includes('ResizeObserver.'));
+      return !stableWrites
+        || Number(report.maxNarrowBottomDistance) > 2
+        // The window sweep crosses the discrete 768px row-inset transition.
+        // The content transaction may expose its one-way 24px rewrap for one
+        // frame, but the actual pane drag and reported <=520px range stay strict.
+        || Number(report.maxBottomDistance) > (sash ? 2 : 24);
+    });
+    if (unstableFollow.length > 0) {
+      throw new Error(`width probe: active follow unstable ${JSON.stringify(unstableFollow)}`);
+    }
     return { reversals: 0 } as { reversals: number };
   }
 

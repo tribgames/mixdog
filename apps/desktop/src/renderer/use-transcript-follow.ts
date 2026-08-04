@@ -1,18 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 /**
- * OpenCode-style user-scroll state for the transcript.
+ * React port of OpenCode's createAutoScroll + session scroll-gesture grammar.
  *
- * Contract (opencode's `createAutoScroll` + scroll-gesture grammar):
- *  - Following is the default; only an explicit gesture leaves it, and the
- *    10px bottom band restores it.
- *  - A scroll event is honoured only inside a short gesture window. Layout
- *    movement — a tool disclosure, a lane reconcile, a pane focus swap — is
- *    never mistaken for the reader taking over.
- *  - Content ResizeObserver follow, auto-write suppression, and nested
- *    `[data-scrollable]` boundaries mirror OpenCode's `createAutoScroll`.
- * Virtual-core still owns row geometry, append anchoring, and reflow
- * compensation; this hook owns only the outer viewport's bottom follow.
+ * The hook owns userScrolled, the 250ms gesture window, auto-write suppression,
+ * the 10px return band, and the content ResizeObserver. TranscriptList mirrors
+ * OpenCode MessageTimeline and owns virtual row geometry, append following, and
+ * measured-size anchoring. No pane-width or viewport observer adapter sits
+ * between those two owners.
  */
 const GESTURE_WINDOW_MS = 250;
 const BOTTOM_THRESHOLD_PX = 10;
@@ -27,6 +22,7 @@ type WheelLike = {
 type PointerLike = {
   target: EventTarget | null;
   currentTarget: HTMLDivElement;
+  buttons?: number;
 };
 type TouchLike = {
   target: EventTarget | null;
@@ -78,9 +74,11 @@ export interface TranscriptFollow {
   following: boolean;
   followingRef: RefObject<boolean>;
   showJump: boolean;
+  hasScrollGesture(): boolean;
   handleScroll(): void;
   handleWheel(event: WheelLike): void;
   handlePointerDown(event: PointerLike): void;
+  handlePointerMove(event: PointerLike): void;
   handleTouchStart(event: TouchLike): void;
   handleTouchMove(event: TouchLike): void;
   handleTouchEnd(): void;
@@ -93,9 +91,11 @@ export interface TranscriptFollow {
 export function useTranscriptFollow({
   viewport,
   content,
+  sessionKey,
 }: {
   viewport: RefObject<HTMLDivElement | null>;
   content: RefObject<HTMLDivElement | null>;
+  sessionKey: string;
 }): TranscriptFollow {
   const [following, setFollowing] = useState(true);
   const [showJump, setShowJump] = useState(false);
@@ -130,7 +130,7 @@ export function useTranscriptFollow({
       auto.current = undefined;
       autoTimer.current = 0;
     }, 1_500);
-  }, [publish]);
+  }, []);
 
   const isAuto = useCallback((element: HTMLElement) => {
     const value = auto.current;
@@ -177,7 +177,7 @@ export function useTranscriptFollow({
     publish(false);
   }, [publish, viewport]);
 
-  const pause = useCallback(() => publish(false), [publish]);
+  const pause = stop;
 
   const updateScrollState = useCallback((element: HTMLDivElement) => {
     const max = element.scrollHeight - element.clientHeight;
@@ -240,7 +240,16 @@ export function useTranscriptFollow({
   }, [markGesture, stop]);
 
   const handlePointerDown = useCallback((event: PointerLike) => {
-    if (event.target === event.currentTarget) markGesture();
+    if (boundaryTarget(event.currentTarget, event.target) === event.currentTarget) {
+      markGesture();
+    }
+  }, [markGesture]);
+
+  const handlePointerMove = useCallback((event: PointerLike) => {
+    if (event.buttons !== 1) return;
+    if (boundaryTarget(event.currentTarget, event.target) === event.currentTarget) {
+      markGesture();
+    }
   }, [markGesture]);
 
   const handleTouchStart = useCallback((event: TouchLike) => {
@@ -268,11 +277,16 @@ export function useTranscriptFollow({
     if (window.getSelection()?.toString()) stop();
   }, [stop]);
 
-  const handleKeyDown = useCallback((event: { key: string }) => {
+  const handleKeyDown = useCallback((event: {
+    key: string;
+    target?: EventTarget | null;
+    currentTarget?: HTMLDivElement;
+  }) => {
     if (!SCROLL_KEYS.includes(event.key)) return;
+    const root = event.currentTarget ?? viewport.current;
+    if (!root || boundaryTarget(root, event.target ?? root) !== root) return;
     markGesture();
-    if (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home") stop();
-  }, [markGesture, stop]);
+  }, [markGesture, viewport]);
 
   const resume = useCallback(() => {
     publish(true);
@@ -283,29 +297,43 @@ export function useTranscriptFollow({
 
   useEffect(() => {
     const target = content.current;
-    if (!target) return undefined;
+    const element = viewport.current;
+    if (!target || !element) return undefined;
+    // OpenCode's virtual timeline is the sole browser-anchor authority.
+    element.style.overflowAnchor = "none";
     // Chromium always provides ResizeObserver. The renderer's jsdom harness
     // intentionally omits it in tests that do not exercise layout delivery.
     if (typeof ResizeObserver !== "function") return undefined;
-    const observer = new ResizeObserver(() => {
-      const element = viewport.current;
-      if (!element) return;
-      scheduleScrollState(element);
-      if (!canScroll(element)) {
+    let viewportHeight = Math.round(element.getBoundingClientRect().height);
+    const observer = new ResizeObserver((entries) => {
+      const root = viewport.current;
+      if (!root) return;
+      scheduleScrollState(root);
+      const contentResized = entries.some((entry) => entry.target !== root);
+      const height = Math.round(root.getBoundingClientRect().height);
+      const viewportHeightChanged = height !== viewportHeight;
+      viewportHeight = height;
+      if (!canScroll(root)) {
         if (!followingRef.current) publish(true);
         return;
       }
       if (!followingRef.current) return;
+      // A width-only viewport resize (pane sash / window edge drag) belongs to
+      // the virtual timeline: its end anchor absorbs every rewrap delta
+      // pre-paint. Writing scrollTop here too made two scroll authorities race
+      // mid-drag — exactly the up/down bounce while narrowing.
+      if (!contentResized && !viewportHeightChanged) return;
       scrollToBottom(false);
     });
     observer.observe(target);
-    // OpenCode's prompt dock does not shrink its ScrollView, while Mixdog's
-    // review/composer stack does. Observe that viewport with the same
-    // createAutoScroll callback so a bottom-stack resize stays pre-paint.
-    const element = viewport.current;
-    if (element && element !== target) observer.observe(element);
+    // OpenCode's prompt dock never shrinks its ScrollView, so createAutoScroll
+    // only watches content. Mixdog's composer/bottom-panel stack DOES shrink
+    // this viewport (a dock drag changes clientHeight with no content resize),
+    // so the same callback watches the viewport too — the bottom re-pins in
+    // the same pre-paint ResizeObserver transaction.
+    if (element !== target) observer.observe(element);
     return () => observer.disconnect();
-  }, [content, publish, scheduleScrollState, scrollToBottom, viewport]);
+  }, [content, publish, scheduleScrollState, scrollToBottom, sessionKey, viewport]);
 
   useEffect(() => () => {
     window.clearTimeout(autoTimer.current);
@@ -316,9 +344,11 @@ export function useTranscriptFollow({
     following,
     followingRef,
     showJump,
+    hasScrollGesture: hasGesture,
     handleScroll,
     handleWheel,
     handlePointerDown,
+    handlePointerMove,
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,

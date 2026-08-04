@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 import {
@@ -41,6 +42,41 @@ import {
 import { clampBottomPanelHeight, BOTTOM_PANEL_MIN_HEIGHT } from "./BottomPanel.tsx";
 
 const session = (id) => ({ kind: "session", id });
+
+test("bottom panel uses a header row and a dedicated active-panel toolbar row", async () => {
+  const [component, app, problems, styles] = await Promise.all([
+    readFile(new URL("./BottomPanel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./App.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./WorkbenchProblems.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./pane-layout.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(component,
+    /className=\{`bottom-panel-tabs\$\{actions \? " has-toolbar" : ""\}`\}[\s\S]*?\{headerActions &&[\s\S]*?className="bottom-panel-header-actions"[\s\S]*?className="bottom-panel-close"[\s\S]*?\{actions && <div className="bottom-panel-toolbar">\{actions\}<\/div>\}/,
+    "row one owns the filter slot while row two owns the severity-action slot");
+  assert.doesNotMatch(component, /^\s*\{actions\}\s*$/m,
+    "the complete Problems toolbar must never render in both rows");
+  assert.match(app,
+    /headerActions=\{activeBottomPanelTab === "problems"[\s\S]*?<WorkbenchProblemsFilter[\s\S]*?actions=\{activeBottomPanelTab === "problems"[\s\S]*?<WorkbenchProblemsSeverityActions/,
+    "App must send the filter and severity controls to separate rows");
+  assert.match(problems,
+    /WorkbenchProblemsFilter[\s\S]*?className="problems-panel-filter"[\s\S]*?WorkbenchProblemsSeverityActions[\s\S]*?className="problems-panel-actions"/,
+    "Problems controls must expose distinct filter and severity components");
+  assert.match(styles,
+    /\.bottom-panel-tab\s*\{[^}]*height:\s*36px;[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*600;[^}]*text-transform:\s*none;/s,
+    "Terminal and Problems must use the panel-header type tier");
+  assert.match(styles,
+    /\.bottom-panel-toolbar\s*\{[^}]*height:\s*30px;[^}]*flex:\s*0 0 30px;[^}]*padding:\s*0 6px 0 12px;[^}]*border-bottom:\s*\.5px solid var\(--mx-border-muted\);[^}]*background:\s*var\(--mx-window-band\);/s,
+    "Problems actions must match the Terminal profile strip");
+  assert.doesNotMatch(styles,
+    /\.bottom-panel-tab\.is-active\s*\{[^}]*border-bottom-color:/s,
+    "bottom panel tabs use the full-width strip divider, never a short active underline");
+  assert.doesNotMatch(styles,
+    /\.bottom-panel-tabs\.has-toolbar\s*\{[^}]*border-bottom:\s*0;/s,
+    "Problems must preserve the same full-width header divider as Terminal");
+  assert.match(styles,
+    /\.bottom-panel-header-actions\s*\{[^}]*width:\s*clamp\(140px,\s*22vw,\s*240px\);[^}]*flex:\s*0 1 240px;[^}]*justify-content:\s*flex-end;[\s\S]*?\.bottom-panel-toolbar\s*\{[^}]*justify-content:\s*flex-end;/s,
+    "the compact header filter and lower severity controls must both align right");
+});
 
 test("splitPaneLeaf replaces the leaf with a split and keeps reading order", () => {
   const a = createPaneLeaf(session("a"), "leaf_a");
@@ -429,6 +465,20 @@ test("distributePaneRatios evens the grid along each axis", () => {
   const stacked = distributePaneRatios(splitPaneLeaf(even, "leaf_c", "column", d));
   assert.ok(Math.abs(stacked.ratio - 1 / 3) < 1e-9,
     "stacking inside one column must not steal width from the others");
+
+  const unevenNested = {
+    type: "split",
+    direction: "column",
+    ratio: 0.7,
+    first: setPaneSplitRatio(root, "", 0.7),
+    second: d,
+  };
+  const nestedRows = distributePaneRatiosAlong(unevenNested, "row");
+  assert.equal(nestedRows.ratio, 0.7,
+    "axis distribution preserves an orthogonal manual ratio");
+  assert.ok(Math.abs(nestedRows.first.ratio - 1 / 3) < 1e-9);
+  assert.equal(nestedRows.first.second.ratio, 0.5,
+    "matching-axis tracks are equalized even below an orthogonal split");
 });
 
 test("parsePaneLayout roundtrips a valid tree and rejects corrupt ones", () => {

@@ -21,6 +21,7 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
+import { acquireTitleBarDim } from '../titlebar-dim';
 import { CapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
 import { preloadConnectionInfo } from './connection-info';
 import { preloadGitPanelInfo } from './git-panel-info';
@@ -111,6 +112,12 @@ export function SettingsView({
     setCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general');
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [open, initialSection]);
+  // Windows caption controls are native chrome, outside the DOM backdrop.
+  // Hold their matching composited colors for the full settings lifetime.
+  useEffect(() => {
+    if (!open) return undefined;
+    return acquireTitleBarDim();
+  }, [open]);
   // Warm the Connection pairing card as soon as the dialog opens (one cached
   // IPC): entering Connection later paints the complete QR card instead of
   // flashing the empty placeholder square first (user: 커넥션 들어갈 때 빈
