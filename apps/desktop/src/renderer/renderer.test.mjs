@@ -1986,10 +1986,10 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles,
     /\.utility-dock-header-actions > button,[\s\S]*?\.utility-dock-header-actions \.row-overflow-trigger\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*flex:\s*0 0 28px;/s,
     "dock title actions share the pane-sized click target");
-  assert.match(styles, /\.sidebar-recent-heading\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*600;/s,
+  assert.match(styles, /\.sidebar-recent-heading\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s,
     "section headings sit on the single 13px chrome scale");
   assert.match(styles,
-    /\.sidebar-recent-heading\.sidebar-heading-toggle\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*600;[^}]*color:\s*color-mix\(in srgb, var\(--mx-text\) 68%, transparent\);/s,
+    /\.sidebar-recent-heading\.sidebar-heading-toggle\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*color:\s*color-mix\(in srgb, var\(--mx-text\) 68%, transparent\);/s,
     "collapsible rail section names should sit on the 14/600 68%-ink category tier");
   assert.match(styles,
     /\.session-sidebar-scroll > \.sidebar-recent \+ \.sidebar-recent\s*\{\s*margin-top:\s*2px;/s,
@@ -2253,9 +2253,9 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles,
     /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*--text-shimmer-duration:\s*2600ms;/s);
   assert.match(styles,
-    /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*font-weight:\s*600;/s);
+    /\.live-activity \[data-component="text-shimmer"\]\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.match(styles,
-    /\.turn-status\.complete,[\s\S]*?\.turn-status\.interrupted\s*\{[^}]*font-weight:\s*600;/s);
+    /\.turn-status\.complete,[\s\S]*?\.turn-status\.interrupted\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.match(styles,
     /\.turn-status\.complete,\s*\.turn-status\.success\s*\{[^}]*color:\s*var\(--mx-accent\);/s);
   assert.match(styles,
@@ -2263,11 +2263,11 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles,
     /\.turn-status\.failed\s*\{[^}]*display:\s*inline-flex;[^}]*align-items:\s*center;/s);
   const retryRule = styles.match(/\.turn-retry\s*\{([^}]*)\}/s)?.[1] || "";
-  assert.match(retryRule, /font-weight:\s*600;/);
+  assert.match(retryRule, /font-weight:\s*var\(--mx-weight-semibold\);/);
   assert.doesNotMatch(retryRule, /grid-row:\s*2/,
     "Retry must stay to the right of Failed on the same row");
   assert.match(styles,
-    /\.compaction-divider\s*\{[^}]*color:\s*var\(--mx-accent\);[^}]*font-weight:\s*600;/s);
+    /\.compaction-divider\s*\{[^}]*color:\s*var\(--mx-accent\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.match(styles,
     /\[data-component="text-shimmer"\]\[data-active="true"\] \[data-slot="text-shimmer-char"\]\s*\{[^}]*animation:\s*transcript-text-shimmer var\(--text-shimmer-duration\) linear infinite;/s,
     'active status and running tool titles must retain their shimmer feedback');

@@ -62,7 +62,7 @@ test("bottom panel uses a header row and a dedicated active-panel toolbar row", 
     /WorkbenchProblemsFilter[\s\S]*?className="problems-panel-filter"[\s\S]*?WorkbenchProblemsSeverityActions[\s\S]*?className="problems-panel-actions"/,
     "Problems controls must expose distinct filter and severity components");
   assert.match(styles,
-    /\.bottom-panel-tab\s*\{[^}]*height:\s*36px;[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*600;[^}]*text-transform:\s*none;/s,
+    /\.bottom-panel-tab\s*\{[^}]*height:\s*36px;[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*text-transform:\s*none;/s,
     "Terminal and Problems must use the panel-header type tier");
   assert.match(styles,
     /\.bottom-panel-toolbar\s*\{[^}]*height:\s*30px;[^}]*flex:\s*0 0 30px;[^}]*padding:\s*0 6px 0 12px;[^}]*border-bottom:\s*\.5px solid var\(--mx-border-muted\);[^}]*background:\s*var\(--mx-window-band\);/s,

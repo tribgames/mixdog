@@ -225,7 +225,7 @@
   font: inherit;
   height: 36px;
   font-size: var(--mx-font-ui);
-  font-weight: 600;
+  font-weight: var(--mx-weight-semibold);
   padding: 0 8px;
   text-transform: none;
   white-space: nowrap;
@@ -465,7 +465,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.problem-tree-row b { font-weight: 400; }
+.problem-tree-row b { font-weight: var(--mx-weight-regular); }
 .problem-tree-row small { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
 .problem-tree-row em { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-style: normal; }
 .problem-quick-fix {
