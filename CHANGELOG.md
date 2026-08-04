@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.93 - 2026-08-04
+
 - Dependency audit to zero across core and desktop: `npm audit fix` for
   fast-uri, ip-address, hono/@hono/node-server, root undici, and
   brace-expansion; discord.js nested undici override raised to 6.28.0;
