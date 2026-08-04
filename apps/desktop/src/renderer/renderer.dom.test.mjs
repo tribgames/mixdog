@@ -12399,7 +12399,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.workspace-tab-main span\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-regular\);/s);
   assert.match(themeCss,
-    /\.workspace-tab-close\s*\{[^}]*color:\s*color-mix\(in srgb,\s*var\(--mx-text\) 92%,\s*transparent\);/s);
+    /\.workspace-tab-close\s*\{[^}]*color:\s*var\(--mx-text\);/s);
   assert.doesNotMatch(themeCss,
     /animation:\s*utility-dock-in\b/,
     'dock mount must commit final width instantly (VS Code grammar)');
