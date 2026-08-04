@@ -162,6 +162,7 @@ test('settings backdrop dims the native Windows caption band', async () => {
   const style = document.createElement('style');
   style.textContent = '.mixdog-settings-layer { background-color: rgba(0, 0, 0, .32); opacity: 1; }';
   document.head.appendChild(style);
+  window.HTMLElement.prototype.getClientRects = () => [{ width: 1, height: 1 }];
   const topbar = document.createElement('header');
   topbar.className = 'topbar';
   topbar.style.backgroundColor = 'rgb(240, 240, 240)';

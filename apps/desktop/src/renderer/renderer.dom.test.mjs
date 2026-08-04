@@ -11668,7 +11668,7 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.match(themeCss, /\.model-row-copy > small\s*\{[^}]*color:\s*var\(--mx-text-faint\);[^}]*font-size:\s*var\(--mx-font-meta\);/s);
   assert.match(themeCss, /\.model-provider-add\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/s);
   assert.doesNotMatch(themeCss, /\.model-provider-row|\.model-provider-chevron|\.model-list-heading/);
-  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*400;/s);
+  assert.match(themeCss, /\.model-row-copy strong\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-regular\);/s);
   assert.doesNotMatch(themeCss, /\.model-tag\s*\{/);
   assert.match(themeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
   assert.match(themeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
@@ -12210,11 +12210,11 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.utility-dock-title\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*line-height:\s*20px;/s);
   assert.match(themeCss,
-    /\.utility-dock-title b,[\s\S]*?\.utility-dock-header > b\s*\{[^}]*font-weight:\s*600;/s);
+    /\.utility-dock-title b,[\s\S]*?\.utility-dock-header > b\s*\{[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s);
   assert.doesNotMatch(themeCss, /\.utility-dock-header b\s*\{[^}]*text-transform:/s,
     "dock titles remain mixed case");
   assert.match(themeCss,
-    /\.session-sidebar \.task-link,\s*\.session-sidebar \.projects-link\s*\{\s*font-size:\s*var\(--mx-font-ui\);\s*font-weight:\s*500;/s,
+    /\.session-sidebar \.task-link,\s*\.session-sidebar \.projects-link\s*\{\s*font-size:\s*var\(--mx-font-ui\);\s*font-weight:\s*var\(--mx-weight-medium\);/s,
     'the left rail tier the dock title mirrors must stay put');
   assert.doesNotMatch(themeCss,
     /\.utility-dock:has\([^}]*utility-dock-empty[^}]*\)\s*\.utility-dock-title/,
@@ -12228,7 +12228,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
     /\.workbench-search-mode,\s*\.dock-scm-tab-bar\s*\{[^}]*height:\s*30px;[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s,
     "Names and Contents must remain equal-width buttons below the query field");
   assert.match(themeCss,
-    /\.workbench-search-mode button\[aria-selected="true"\],\s*\.dock-scm-tab\[aria-checked="true"\]\s*\{[^}]*color:\s*var\(--mx-text\);[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;[^}]*font-weight:\s*600;/s,
+    /\.workbench-search-mode button\[aria-selected="true"\],\s*\.dock-scm-tab\[aria-checked="true"\]\s*\{[^}]*color:\s*var\(--mx-text\);[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s,
     "the selected search mode must use full ink and the shared underline state");
   assert.doesNotMatch(themeCss, /\.workbench-search-(?:options|details|filters)\s*\{/,
     "the dock search must not expose wildcard, regex, or include/exclude controls");
@@ -12348,7 +12348,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.doesNotMatch(themeCss, /\.dock-scm-repositories\s*\{/,
     "Git surfaces use one quiet project/branch context row instead of a repository pane");
   assert.match(themeCss,
-    /\.dock-scm-group-toggle > span\s*\{[^}]*background:\s*transparent;[^}]*font-weight:\s*400;/s,
+    /\.dock-scm-group-toggle > span\s*\{[^}]*background:\s*transparent;[^}]*font-weight:\s*var\(--mx-weight-regular\);/s,
     "SCM and PR counts remain plain section metadata rather than custom pills");
   assert.match(themeCss,
     /\.dock-scm-commit\s*\{\s*position:\s*relative;/s,
@@ -12382,7 +12382,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss, /\.session-header-content\s*\{[^}]*padding:\s*12px 16px;/s);
   // Conversation title runs one step above tab chrome (user: important info
   // read underweighted at 14px/500).
-  assert.match(themeCss, /\.session-header h1\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*font-weight:\s*600;[^}]*line-height:\s*22px;/s);
+  assert.match(themeCss, /\.session-header h1\s*\{[^}]*font-size:\s*var\(--mx-font-body\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*line-height:\s*22px;/s);
   assert.match(themeCss,
     /\.thread\s*\{[^}]*width:\s*100%;[^}]*padding:\s*20px 0 0;[^}]*gap:\s*0;/s);
   assert.doesNotMatch(themeCss, /\.conversation:has\(\.turn-review-bar\) \.thread/);
@@ -12397,7 +12397,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   // VS Code grammar: inactive tabs hide the close glyph until hover.
   assert.match(baseCss, /\.workspace-tab-close\s*\{[^}]*opacity:\s*0;/s);
   assert.match(themeCss,
-    /\.workspace-tab-main span\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*400;/s);
+    /\.workspace-tab-main span\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-regular\);/s);
   assert.match(themeCss,
     /\.workspace-tab-close\s*\{[^}]*color:\s*color-mix\(in srgb,\s*var\(--mx-text\) 92%,\s*transparent\);/s);
   assert.doesNotMatch(themeCss,
