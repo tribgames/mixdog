@@ -5,6 +5,7 @@
 import { Folder, X } from "lucide-react";
 
 import type { DesktopProjectSummary } from "../shared/contract";
+import { MxIcon } from "./MxIcon";
 import { OpenSelect } from "./OpenSelect";
 import { asRecord, displayProject, queueText } from "./text-format";
 
@@ -51,6 +52,16 @@ export function readPromptHistory(scope: string) {
 
 export function queuedFollowupPreview(entry: unknown) {
   return queueText(entry).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "[Attachment]";
+}
+
+export function queuedImageCount(entry: unknown) {
+  const record = asRecord(entry);
+  const images = Array.isArray(record?.images)
+    ? record.images.filter(Boolean).length
+    : 0;
+  if (images > 0) return images;
+  const pastedImages = asRecord(record?.pastedImages);
+  return pastedImages ? Object.values(pastedImages).filter(Boolean).length : 0;
 }
 
 // Text sniffing: accept any file whose first 4 KB has no NUL byte and a low
@@ -120,8 +131,14 @@ export function QueueList({ queued, restoring, onEdit, onRemove }: {
         {queued.map((entry, index) => {
           const id = String(asRecord(entry)?.id || "");
           const text = queuedFollowupPreview(entry);
+          const imageCount = queuedImageCount(entry);
           return <div className="queue-item" role="listitem" key={id || index}>
             <span className="queue-item-text" title={text}>{text}</span>
+            {imageCount > 0 && <span className="queue-item-attachments"
+              aria-label={`${imageCount} attached image${imageCount === 1 ? "" : "s"}`}>
+              <MxIcon name="photo" size={13} />
+              <span>{imageCount}</span>
+            </span>}
             <button type="button" className="queue-edit" disabled={restoring || !id}
               onClick={() => onEdit(id)} aria-label={`Edit queued follow-up: ${text}`}>
               {restoring ? "Editing…" : "Edit"}

@@ -58,6 +58,7 @@ export interface SettingsViewProps {
 
 const CATEGORY_ICONS = {
   general: SlidersHorizontal,
+  context: Brain,
   'output-style': PenLine,
   providers: Cable,
   git: GitBranch,
@@ -67,7 +68,6 @@ const CATEGORY_ICONS = {
   plugins: Blocks,
   hooks: Webhook,
   skills: Sparkles,
-  memory: Brain,
   system: Wrench,
   shortcuts: Keyboard,
   about: Heart,

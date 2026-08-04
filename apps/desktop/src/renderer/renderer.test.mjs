@@ -381,12 +381,22 @@ test('optimistic prompts end when host acknowledgement transfers presentation ow
     [{ ...prompt, accepted: true }],
     [],
     [{ id: prompt.id }],
-  ).length, 0, 'the authoritative engine queue replaces an acknowledged renderer row');
+  ).length, 1, 'an acknowledged queue entry stays in the transcript without moving the layout');
   assert.equal(pendingPromptTranscriptItems(
     [{ ...prompt, accepted: true }],
     [],
     [],
   ).length, 0, 'an accepted prompt absent from the queue is no longer renderer-owned');
+  assert.equal(pendingPromptTranscriptItems(
+    [{ ...prompt, accepted: true, queuedBehindTurn: true, queueAcknowledged: false }],
+    [],
+    [],
+  ).length, 1, 'a queued submit survives an RPC acknowledgement that beats queue publication');
+  assert.equal(pendingPromptTranscriptItems(
+    [{ ...prompt, accepted: true, queuedBehindTurn: true, queueAcknowledged: true }],
+    [],
+    [],
+  ).length, 0, 'an observed queued submit releases after its queue entry drains');
   assert.deepEqual(pendingPromptTranscriptItems(
     [{ ...prompt, accepted: true }],
     [{ id: prompt.id, kind: 'user', text: prompt.text }],
@@ -611,7 +621,8 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   // bar — language stays as a read-only indicator only.
   assert.doesNotMatch(editor, /Select Encoding|Select End of Line|Select Indentation/);
   assert.match(editor, /editor-statusbar-language/);
-  assert.match(editor, /mixdog:navigate-history/);
+  assert.doesNotMatch(editor, /KeyMod\.Alt \| monaco\.KeyCode\.(Left|Right)Arrow/,
+    "Alt+Arrow belongs to pane focus, so the editor keeps no history binding there");
   assert.match(editor, /KeyCode\.KeyW/);
   assert.match(editor, /KeyCode\.KeyQ[\s\S]*?mixdog:close-active-tab/);
   assert.doesNotMatch(editor, /addCommand\([^)]*KeyCode\.F12/);
@@ -753,10 +764,11 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   assert.match(quickDiffDecorations,
     /overviewRuler:\s*\{[\s\S]*?OverviewRulerLane\.Left[\s\S]*?minimap:\s*\{[\s\S]*?MinimapPosition\.Gutter/,
     "Quick Diff must use VS Code's default gutter, overview ruler, and minimap locations");
-  assert.match(shortcuts, /event\.key === "PageDown" \|\| event\.key === "PageUp"/);
-  assert.doesNotMatch(shortcuts,
-    /event\.key === "ArrowRight" \|\| event\.key === "ArrowLeft"/,
-    "Ctrl+Arrow must remain editor word navigation");
+  assert.match(shortcuts, /event\.key === "PageUp" \|\| event\.key === "PageDown"/);
+  assert.match(shortcuts, /window\.addEventListener\("keydown", onShortcutCapture, true\)/,
+    "the workbench keymap must resolve in the capture phase on every surface");
+  assert.doesNotMatch(shortcuts, /window\.addEventListener\("keydown", \w+\);/,
+    "no bubble-phase shortcut listener may survive — surfaces would swallow it");
   for (const method of ["gitStage", "gitUnstage", "gitIgnore", "gitCommit", "gitPush", "gitShow", "gitShowDiff"]) {
     assert.match(sourceControl, new RegExp(`api\\?\\.${method}|api\\.${method}`));
   }
@@ -800,7 +812,7 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   assert.match(overlays, />Cancel<[\s\S]*?>Don’t Save<[\s\S]*?\{busy \? "Saving…" : "Save"\}/);
   assert.match(shortcuts, /key === "p"/);
   assert.match(shortcuts, /key === "w"/);
-  assert.match(shortcuts, /key === "q" && event\.ctrlKey/);
+  assert.match(shortcuts, /key === "w" \|\| key === "q"/);
   assert.match(shortcuts, /navigateBack/);
   assert.match(shortcuts, /navigateForward/);
   assert.match(app, /workbench\.action\.navigateBack/);
@@ -1382,7 +1394,7 @@ test('visible workbench streams stay live while the composer is isolated', async
     readFile(new URL('./StudioView.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./EditorPane.lazy.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(conversation, /const jumpToLatestRef = useRef\(jumpToLatest\)/);
+  assert.match(conversation, /const resumeFollowOnSubmitRef = useRef\(resumeFollow\)/);
   assert.match(conversation, /const composerSubmit = useCallback\([\s\S]*?\n  \}, \[\]\);/);
   assert.match(terminal, /if \(event\.id === view\.id\) view\.writer\.push\(event\.id, event\.data\)/,
     'PTY bytes must reach the single-flight writer regardless of pane focus');
@@ -1753,10 +1765,12 @@ test('session scrolling restores once before paint and preserves per-session pos
     /if \(!programmaticScroll\.current\) \{[\s\S]{0,220}?rememberSessionScrollPosition\(/,
     "programmatic restoration must not overwrite the session's authoritative saved position");
   assert.match(renderer, /scheduleStickyBottom\(element\)/);
-  // Submitting a prompt must FORCE the bottom pin (jumpToLatest), not merely
-  // re-arm the follow flag — regression: new chat after a finished turn left
-  // the view unpinned with the "Jump to latest" chip showing.
-  assert.match(renderer, /if \(accepted === true\) \{[\s\S]{0,700}?jumpToLatestRef\.current\("auto"\);/);
+  // Submit re-arms follow once; the aggregate observer owns the one bottom
+  // write after the optimistic row changes geometry. A second immediate
+  // jump visibly kicked every script row on Enter.
+  assert.match(renderer, /resumeFollowOnSubmitRef\.current\(\);/);
+  assert.doesNotMatch(renderer, /jumpToLatestRef|jumpToLatest\("auto"\)/,
+    "submit must not retain a second bottom-scroll authority");
   // The transition-save must not run while a programmatic restore owns the
   // viewport, or it would poison the NEW session key's saved position.
   assert.match(renderer, /if \(!transitioning\) return;[\s\S]{0,900}?if \(programmaticScroll\.current\) return;[\s\S]{0,500}?rememberSessionScrollPosition\(\s*sessionScrollPositions\.current,\s*transcriptSessionKey/);

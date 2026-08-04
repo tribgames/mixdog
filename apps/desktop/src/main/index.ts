@@ -45,6 +45,14 @@ import {
 } from './renderer-recovery';
 
 const desktopProcessStartedAt = Date.now();
+// The launcher's stdio pipe can close while the app keeps running (started
+// from a terminal or script that exits). Every later console write then
+// raises EPIPE, and an unhandled stream error becomes Electron's fatal
+// "A JavaScript error occurred in the main process" dialog. Logging is never
+// worth a crash, so dead-pipe writes fail silently.
+for (const stream of [process.stdout, process.stderr]) {
+  stream?.on?.('error', () => { /* dead stdio pipe: logging is best-effort */ });
+}
 // V8 compile cache for the main process's dynamic imports (remote bridge/
 // relay, dialogs) and the in-main engine fallback. Best-effort no-op when the
 // running Node build lacks the API.

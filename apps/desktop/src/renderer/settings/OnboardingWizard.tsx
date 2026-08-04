@@ -89,9 +89,9 @@ const STEPS = [
   },
   {
     id: 'memory',
-    label: 'Memory',
-    title: 'Give Mixdog a memory',
-    subtitle: 'Recap recent sessions and keep curated core memories across projects.',
+    label: 'Context',
+    title: 'Keep context under control',
+    subtitle: 'Auto-compact long chats, auto-clear idle sessions, and keep curated memories across projects.',
   },
   {
     id: 'channels',
@@ -196,6 +196,8 @@ export function OnboardingWizard({ api, onDone }: {
   const [profile, setProfile] = useState<RecordValue>({});
   const [workflows, setWorkflows] = useState<RecordValue[]>([]);
   const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [autoClearOn, setAutoClearOn] = useState(true);
+  const [compactAuto, setCompactAuto] = useState(true);
   const [channelSetup, setChannelSetup] = useState<RecordValue>({});
   const [themeMode, setThemeMode] = useState<DesktopThemePreference>(
     () => getDesktopThemePreference() || 'system');
@@ -276,6 +278,8 @@ export function OnboardingWizard({ api, onDone }: {
         { capability: 'listWorkflows' },
         { capability: 'getMemorySettings' },
         { capability: 'getChannelSetup' },
+        { capability: 'getAutoClear' },
+        { capability: 'getCompactionSettings' },
       ];
       const [readResults, modelResult, snapshotResult] = await Promise.all([
         readCapabilityBatch(api, readRequests),
@@ -296,6 +300,8 @@ export function OnboardingWizard({ api, onDone }: {
       setWorkflows(rows(values[6]));
       setMemoryEnabled(record(values[7]).enabled !== false);
       setChannelSetup(record(values[8]));
+      setAutoClearOn(record(values[9]).enabled !== false);
+      setCompactAuto(record(values[10]).auto !== false);
       const snapshot = record(snapshotResult);
       if (snapshot.provider && snapshot.model) {
         setMainRoute({
@@ -519,8 +525,9 @@ export function OnboardingWizard({ api, onDone }: {
             onChange={(id) => setWorkflows((list) => list.map((workflow) =>
               ({ ...workflow, active: String(workflow.id) === id })))} />}
           {meta.id === 'git' && <GitStep api={api} />}
-          {meta.id === 'memory' && <MemoryStep enabled={memoryEnabled} pending={pending} run={run}
-            onChange={setMemoryEnabled} />}
+          {meta.id === 'memory' && <ContextStep memoryEnabled={memoryEnabled} autoClearOn={autoClearOn}
+            compactAuto={compactAuto} pending={pending} run={run}
+            onMemory={setMemoryEnabled} onAutoClear={setAutoClearOn} onCompact={setCompactAuto} />}
           {meta.id === 'channels' && <ChannelsStep setup={channelSetup} pending={pending} run={run}
             onReload={() => void load(true)} />}
           {meta.id === 'theme' && <ThemeStep mode={themeMode} onSelect={(next) => {
@@ -1131,39 +1138,71 @@ function WorkflowStep({ workflows, pending, run, onChange }: {
   })}</div>;
 }
 
-function MemoryStep({ enabled, pending, run, onChange }: {
-  enabled: boolean;
+// Context step: the memory choice plus the session-lifecycle toggles
+// (auto-compact / auto-clear) — the onboarding face of Settings → Context.
+function ContextStep({ memoryEnabled, autoClearOn, compactAuto, pending, run, onMemory, onAutoClear, onCompact }: {
+  memoryEnabled: boolean;
+  autoClearOn: boolean;
+  compactAuto: boolean;
   pending: string;
   run: RunCapability;
-  onChange(next: boolean): void;
+  onMemory(next: boolean): void;
+  onAutoClear(next: boolean): void;
+  onCompact(next: boolean): void;
 }) {
   // On/Off as two radio cards (user request) instead of a state pill + toggle.
-  const options = [
+  const memoryOptions = [
     { value: true, label: 'Memory on', hint: 'Recap recent sessions and keep curated core memories.' },
     { value: false, label: 'Memory off', hint: 'Start every session clean — nothing carries over.' },
   ];
-  return <div className="onboarding-star-card onboarding-connect-card">
+  const lifecycle = [
+    { key: 'compact', label: 'Auto-compact', hint: 'Compact automatically as the context reaches its limit',
+      value: compactAuto, apply: onCompact,
+      save: (next: boolean) => run('setCompactionSettings', [{ auto: next }], 'onboarding-autocompact') },
+    { key: 'clear', label: 'Auto-clear', hint: 'Clear idle sessions after the provider default window',
+      value: autoClearOn, apply: onAutoClear,
+      save: (next: boolean) => run('setAutoClear', [{ enabled: next }], 'onboarding-autoclear') },
+  ];
+  return <>
+  <div className="onboarding-star-card onboarding-connect-card">
     <span className="onboarding-connect-icon" aria-hidden="true"><Brain size={26} /></span>
     <div>
       <span className="onboarding-connect-title">Memory</span>
       <p>Mixdog recaps recent sessions and keeps user-curated core memories, so new sessions start with context.</p>
     </div>
     <div className="onboarding-memory-options" role="radiogroup" aria-label="Memory">
-      {options.map(({ value, label, hint }) => <button type="button" key={label} role="radio"
-        aria-checked={enabled === value} className={enabled === value ? 'selected' : ''}
+      {memoryOptions.map(({ value, label, hint }) => <button type="button" key={label} role="radio"
+        aria-checked={memoryEnabled === value} className={memoryEnabled === value ? 'selected' : ''}
         disabled={Boolean(pending)}
         onClick={() => {
-          if (enabled === value) return;
+          if (memoryEnabled === value) return;
           void run('setMemoryEnabled', [value], 'onboarding-memory').then((result) => {
-            if (result !== undefined) onChange(value);
+            if (result !== undefined) onMemory(value);
           });
         }}>
         <i aria-hidden="true" />
         <span><b>{label}</b><small>{hint}</small></span>
       </button>)}
     </div>
-    <small>Core memories live in Settings → Memory.</small>
-  </div>;
+    <small>Core memories live in Settings → Context.</small>
+  </div>
+  <div className="onboarding-model-section">
+    <h3>Session lifecycle</h3>
+    <div className="onboarding-provider-list">
+      {lifecycle.map((row) => <div className="onboarding-provider-row onboarding-provider-row--plain" key={row.key}>
+        <div><b>{row.label}</b><small>{row.hint}</small></div>
+        <div className="onboarding-backend-toggle" role="group" aria-label={row.label}>
+          {([[true, 'On'], [false, 'Off']] as const).map(([value, name]) => <button key={name} type="button"
+            className={row.value === value ? 'active' : ''} disabled={Boolean(pending)}
+            onClick={() => {
+              if (row.value === value) return;
+              void row.save(value).then((result) => { if (result !== undefined) row.apply(value); });
+            }}>{name}</button>)}
+        </div>
+      </div>)}
+    </div>
+  </div>
+  </>;
 }
 
 function ChannelsStep({ setup, pending, run, onReload }: {

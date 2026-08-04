@@ -3837,10 +3837,8 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
             new CustomEvent("mixdog:tab-switcher", { detail: offset }));
           editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab, () => switchTab(1));
           editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => switchTab(-1));
-          const navigateHistory = (offset: number) => window.dispatchEvent(
-            new CustomEvent("mixdog:navigate-history", { detail: offset }));
-          editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => navigateHistory(-1));
-          editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => navigateHistory(1));
+          // Alt+←/→ belongs to pane focus (user), so the editor keeps no
+          // history binding there; Go Back/Forward stay palette commands.
           editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () =>
             window.dispatchEvent(new CustomEvent("mixdog:close-active-tab")));
           editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyQ, () =>

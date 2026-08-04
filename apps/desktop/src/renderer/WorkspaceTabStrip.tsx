@@ -218,7 +218,6 @@ export function WorkspaceTabStrip({
     activeKey,
     onSelectTab,
     onCloseTab: closeTab,
-    onNewTask,
   });
 
   // Global Ctrl+W close shortcut (App owns the key handler). Keep this path
@@ -761,10 +760,12 @@ function useWorkspaceTabCommands({
   activeKey,
   onSelectTab,
   onCloseTab,
-  onNewTask,
-}: Pick<WorkspaceTabStripProps, "tabs" | "activeKey" | "onSelectTab" | "onCloseTab" | "onNewTask">) {
+}: Pick<WorkspaceTabStripProps, "tabs" | "activeKey" | "onSelectTab" | "onCloseTab">) {
   return useCallback((event: KeyboardEvent<HTMLElement>) => {
-    if ((!event.metaKey && !event.ctrlKey) || event.shiftKey) return;
+    // Strip-scoped commands only. Arrows are owned globally (Ctrl+←/→ cycles
+    // tabs, Alt+←/→ moves pane focus) and Ctrl+T opens the terminal panel, so
+    // no Alt-modified binding may live here.
+    if ((!event.metaKey && !event.ctrlKey) || event.shiftKey || event.altKey) return;
     const activeIndex = tabs.findIndex((tab) => tab.key === activeKey);
     const select = (index: number) => {
       const tab = tabs[index];
@@ -774,23 +775,16 @@ function useWorkspaceTabCommands({
     };
     let handled = false;
 
-    if (!event.altKey && event.key.toLocaleLowerCase() === "t") {
-      onNewTask();
-      handled = true;
-    } else if (!event.altKey && event.key.toLocaleLowerCase() === "w") {
+    if (event.key.toLocaleLowerCase() === "w") {
       const tab = tabs[activeIndex];
       if (tab) {
         onCloseTab(tab);
         handled = true;
       }
-    } else if (event.altKey && tabs.length > 0 && event.key === "ArrowLeft") {
-      handled = select((activeIndex - 1 + tabs.length) % tabs.length);
-    } else if (event.altKey && tabs.length > 0 && event.key === "ArrowRight") {
-      handled = select((activeIndex + 1) % tabs.length);
-    } else if (!event.altKey && /^[1-9]$/.test(event.key)) {
+    } else if (/^[1-9]$/.test(event.key)) {
       handled = select(Number(event.key) - 1);
     }
 
     if (handled) event.preventDefault();
-  }, [activeKey, onCloseTab, onNewTask, onSelectTab, tabs]);
+  }, [activeKey, onCloseTab, onSelectTab, tabs]);
 }

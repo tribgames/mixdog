@@ -1958,10 +1958,10 @@ test("composer renders a pending user card before a slow submit resolves", async
     resolveSubmit(true);
     await Promise.resolve();
   });
-  assert.equal(document.querySelector(".message.user.pending"), null);
-  assert.equal(document.querySelectorAll(".message.user").length, 0,
-    "host acknowledgement removes the optimistic row even before a differently-id'd transcript arrives");
-  assert.equal(document.querySelector(".queue-item-text")?.textContent, "queued before setup");
+  assert.equal(document.querySelector(".message.user.pending"), pending,
+    "host acknowledgement must keep the same queued transcript card mounted");
+  assert.equal(document.querySelector(".queue-list"), null,
+    "the matching composer queue row stays hidden while its transcript card is mounted");
   assert.equal(document.querySelector(".live-activity"), optimisticActivity,
     "host acknowledgement must not clear activity already owned by the engine");
   await act(async () => root.render(React.createElement(Conversation, {
@@ -6325,6 +6325,159 @@ test("atomic draft submit keeps local route and workflow isolated after navigati
   assert.equal(document.querySelector(".session-header h1")?.textContent.trim(), source.title);
   assert.match(document.querySelector(".transcript")?.textContent || "", /Source transcript/);
   assert.doesNotMatch(document.querySelector(".transcript")?.textContent || "", /Atomic prompt/);
+});
+
+test("a split New task materializes independently without replaying the blank watermark", async () => {
+  installDom();
+  await preloadMarkdownBody();
+  let publishState = () => {};
+  let current = { sessionId: "", items: [], queued: [] };
+  let sessionSequence = 0;
+  let directSessionSubmits = 0;
+  const submittedNewTasks = [];
+  const catalog = [];
+  window.mixdogDesktop = {
+    getSnapshot: async () => current,
+    subscribeState: (listener) => {
+      publishState = listener;
+      return () => {};
+    },
+    listProjects: async () => [],
+    listSessions: async () => catalog,
+    submitNewTask: async (prompt, options = {}) => {
+      const text = typeof prompt === "string"
+        ? prompt
+        : prompt.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      const sessionId = `split-materialized-${++sessionSequence}`;
+      submittedNewTasks.push(text);
+      current = {
+        sessionId,
+        items: [{
+          id: options.id || `submitted-${sessionSequence}`,
+          kind: "user",
+          text,
+        }],
+        queued: [],
+        busy: true,
+      };
+      for (const row of catalog) row.currentSession = false;
+      catalog.push({
+        id: sessionId,
+        title: text,
+        preview: text,
+        updatedAt: sessionSequence,
+        currentSession: true,
+        cwd: "C:\\work",
+        classification: "task",
+        projectPath: null,
+      });
+      publishState(current);
+      return { accepted: true, sessionId, snapshot: current };
+    },
+    submit: async () => {
+      directSessionSubmits += 1;
+      return true;
+    },
+  };
+
+  await act(async () => {
+    root.render(React.createElement(App));
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+
+  const queuedFrames = new Map();
+  let frameSequence = 0;
+  Object.defineProperties(window, {
+    requestAnimationFrame: {
+      configurable: true,
+      value(callback) {
+        const handle = ++frameSequence;
+        queuedFrames.set(handle, callback);
+        return handle;
+      },
+    },
+    cancelAnimationFrame: {
+      configurable: true,
+      value(handle) {
+        queuedFrames.delete(handle);
+      },
+    },
+  });
+  const setValue = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  ).set;
+  const sendFocused = async (text) => {
+    const focusedPane = document.querySelector(".pane-cell.is-focused");
+    const textarea = focusedPane.querySelector('textarea[aria-label="Message Mixdog"]');
+    await act(async () => {
+      setValue.call(textarea, text);
+      textarea.dispatchEvent(new window.InputEvent("input", {
+        bubbles: true,
+        data: text,
+      }));
+    });
+    await act(async () => {
+      focusedPane.querySelector(".send-button").click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+
+  await sendFocused("First independent session");
+  await waitForDom(
+    () => Boolean(document.querySelector('[data-tab-key="session:split-materialized-1"]')),
+    "the first draft should materialize",
+  );
+  assert.equal(document.querySelector(".thread-welcome-paint-handoff"), null,
+    "a first submit must not flash the blank New task watermark over its optimistic row");
+  const firstFrames = [...queuedFrames.values()];
+  queuedFrames.clear();
+  await act(async () => {
+    firstFrames.forEach((callback) => callback(window.performance.now()));
+    await Promise.resolve();
+  });
+
+  const focusedPane = document.querySelector(".pane-cell.is-focused");
+  focusedPane.getBoundingClientRect = () => ({
+    x: 0, y: 0, left: 0, top: 0, right: 1_400, bottom: 900,
+    width: 1_400, height: 900, toJSON: () => ({}),
+  });
+  await act(async () => {
+    window.dispatchEvent(new window.KeyboardEvent("keydown", {
+      key: "\\",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert.equal(document.querySelectorAll(".pane-cell").length, 2,
+    "Ctrl+\\ should open an independent New task pane");
+
+  await sendFocused("Second independent session");
+  await waitForDom(
+    () => Boolean(document.querySelector('[data-tab-key="session:split-materialized-2"]')),
+    "the split draft should materialize",
+  );
+  assert.deepEqual(submittedNewTasks, [
+    "First independent session",
+    "Second independent session",
+  ]);
+  assert.equal(directSessionSubmits, 0,
+    "a fresh split must never submit into the session that created it");
+  assert.equal(
+    document.querySelectorAll('[data-tab-key="session:split-materialized-1"]').length,
+    1,
+    "the original session must not be copied into the split pane",
+  );
+  assert.equal(
+    document.querySelectorAll('[data-tab-key="session:split-materialized-2"]').length,
+    1,
+  );
 });
 
 test("sidebar sessions park the New task tab and reuse open session tabs without duplication", async () => {
@@ -13258,20 +13411,23 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
     "the working spinner must supersede the unread marker");
   assert.equal(document.querySelector('.workspace-tab-divider'), null);
   const strip = document.querySelector(".workspace-tabs");
-  await act(async () => strip.dispatchEvent(
-    new window.KeyboardEvent("keydown", { key: "t", ctrlKey: true, bubbles: true }),
-  ));
+  const stripCtrlT = new window.KeyboardEvent("keydown", {
+    key: "t", ctrlKey: true, bubbles: true, cancelable: true,
+  });
+  await act(async () => strip.dispatchEvent(stripCtrlT));
+  assert.equal(stripCtrlT.defaultPrevented, false,
+    "Ctrl+T opens the terminal panel globally; the strip must not create a task");
   await act(async () => strip.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "w", ctrlKey: true, bubbles: true }),
   ));
-  await act(async () => strip.dispatchEvent(
-    new window.KeyboardEvent("keydown", { key: "ArrowLeft", ctrlKey: true, altKey: true, bubbles: true }),
-  ));
   await act(async () => root.render(React.createElement(WorkspaceTabStrip, { ...props, activeKey: "one" })));
   const updatedStrip = document.querySelector(".workspace-tabs");
-  await act(async () => updatedStrip.dispatchEvent(
-    new window.KeyboardEvent("keydown", { key: "ArrowRight", ctrlKey: true, altKey: true, bubbles: true }),
-  ));
+  const stripCtrlAltArrow = new window.KeyboardEvent("keydown", {
+    key: "ArrowRight", ctrlKey: true, altKey: true, bubbles: true, cancelable: true,
+  });
+  await act(async () => updatedStrip.dispatchEvent(stripCtrlAltArrow));
+  assert.equal(stripCtrlAltArrow.defaultPrevented, false,
+    "Alt-modified arrows belong to pane focus, never to strip tab selection");
   await act(async () => updatedStrip.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "1", ctrlKey: true, bubbles: true }),
   ));
@@ -13303,9 +13459,9 @@ test("workspace tabs reveal the active tab and handle scoped tab commands", asyn
     }));
   });
   assert.deepEqual(dragCapture, [1], "pointer capture should begin only after the drag threshold");
-  assert.equal(newTasks, 1);
+  assert.equal(newTasks, 0, "the strip owns no keyboard route to New task (Ctrl+N does)");
   assert.deepEqual(closed, ["two"]);
-  assert.deepEqual(selected, ["one", "two", "one", "two"]);
+  assert.deepEqual(selected, ["one", "two"]);
   assert.deepEqual(reordered, [["one", 2]],
     "VS Code drop index: the right half of the pointed tab inserts after it, committed on drop");
   const newButton = document.querySelector(".workspace-tab-new");
@@ -13881,6 +14037,79 @@ test("Ctrl+Q capture closes from Composer, xterm and Monaco while modal confirma
   window.removeEventListener("mixdog:close-active-tab", onClose);
 });
 
+test("the workbench keymap is captured on every surface (xterm, Monaco, composer)", async () => {
+  installDom();
+  const calls = [];
+  const actions = {
+    tabs: [],
+    activeTabKey: "",
+    navigateTab() {},
+    startTask() { calls.push("task"); },
+    openSettings() { calls.push("settings"); },
+    toggleSidebar() { calls.push("sidebar"); },
+    toggleDock() { calls.push("dock"); },
+    togglePanel() { calls.push("panel"); },
+    openTerminalPanel() { calls.push("terminal"); },
+    openQuickAccess() { calls.push("quick"); },
+    openCommandPalette() { calls.push("palette"); },
+    openFindInFiles() { calls.push("find"); },
+    openTabSwitcher() { calls.push("switcher"); },
+    focusSiblingPane() { calls.push("pane"); },
+    navigateBack() {},
+    navigateForward() {},
+  };
+  function ShortcutHarness({ modal = false }) {
+    useWorkspaceShortcuts(actions);
+    // Every surface consumes keydown at its own target; capture must win.
+    const consumeAtTarget = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    return React.createElement(React.Fragment, null,
+      React.createElement("div", { className: "xterm" },
+        React.createElement("textarea", { "data-key-owner": "xterm", onKeyDown: consumeAtTarget })),
+      React.createElement("div", { className: "monaco-editor" },
+        React.createElement("textarea", { "data-key-owner": "monaco", onKeyDown: consumeAtTarget })),
+      React.createElement("textarea", { "data-key-owner": "composer", onKeyDown: consumeAtTarget }),
+      modal && React.createElement("div", { role: "dialog", "aria-modal": "true" },
+        React.createElement("input", { "data-key-owner": "modal" })),
+    );
+  }
+  await act(async () => root.render(React.createElement(ShortcutHarness)));
+  const pressAt = (owner, key, init = {}) => {
+    const event = new window.KeyboardEvent("keydown", {
+      key, ctrlKey: true, bubbles: true, cancelable: true, ...init,
+    });
+    (owner ? document.querySelector(`[data-key-owner="${owner}"]`) : window).dispatchEvent(event);
+    return event;
+  };
+  assert.equal(pressAt(null, "t").defaultPrevented, true, "Ctrl+T toggles the bottom terminal panel");
+  assert.equal(pressAt(null, "b").defaultPrevented, true, "Ctrl+B toggles the left side bar");
+  assert.equal(pressAt(null, "b", { altKey: true }).defaultPrevented, true,
+    "Ctrl+Alt+B toggles the right utility dock");
+  assert.equal(pressAt(null, "b", { shiftKey: true }).defaultPrevented, false,
+    "Ctrl+Shift+B no longer owns the utility dock");
+  assert.deepEqual(calls, ["terminal", "sidebar", "dock"]);
+  calls.length = 0;
+  // The SAME table applies inside the terminal, the editor and the composer:
+  // no surface may swallow a workbench binding (user: 다 인터셉트).
+  for (const owner of ["xterm", "monaco", "composer"]) {
+    for (const [key, init] of [["t", {}], ["p", {}], ["p", { shiftKey: true }], ["n", {}],
+      ["j", {}], ["w", {}], ["ArrowLeft", { ctrlKey: false, altKey: true }]]) {
+      assert.equal(pressAt(owner, key, init).defaultPrevented, true,
+        `${owner} must not swallow the workbench shortcut ${key}`);
+    }
+  }
+  assert.deepEqual(calls, [
+    "terminal", "quick", "palette", "task", "panel", "pane",
+    "terminal", "quick", "palette", "task", "panel", "pane",
+    "terminal", "quick", "palette", "task", "panel", "pane",
+  ], "Ctrl+W routes through the close event, so it adds no action call");
+  await act(async () => root.render(React.createElement(ShortcutHarness, { modal: true })));
+  assert.equal(pressAt("modal", "p").defaultPrevented, false,
+    "an open modal still outranks the workbench keymap");
+});
+
 test("desktop update confirmation uses the themed modal and protects install behind confirmation", async () => {
   const shell = installDom();
   let cancelled = 0;
@@ -14010,7 +14239,11 @@ test("desktop composer restores queued work, recalls engine history, and execute
   const snapshot = {
     sessionId: 'session-1',
     items: [],
-    queued: [{ id: 'queued-1', displayText: 'Queued request' }],
+    queued: [{
+      id: 'queued-1',
+      displayText: 'Queued request',
+      images: [{ id: 7, name: 'queued.png', mimeType: 'image/png', bytes: 12 }],
+    }],
     promptHistoryList: ['Previous engine prompt'],
   };
   window.mixdogDesktop = {
@@ -14048,6 +14281,8 @@ test("desktop composer restores queued work, recalls engine history, and execute
   );
   assert.equal(document.querySelector('.queue-summary'), null);
   assert.equal(document.querySelector('.queue-item-text')?.textContent, 'Queued request');
+  assert.equal(document.querySelector('.queue-item-attachments')?.textContent, '1');
+  assert.equal(document.querySelector('.queue-item-attachments')?.getAttribute('aria-label'), '1 attached image');
   assert.equal(document.querySelector('.queue-item small'), null);
   assert.equal(document.querySelectorAll('.queue-list [role="listitem"]').length, 1);
   await act(async () => {
@@ -14200,7 +14435,9 @@ test("composer separates turn and command activity, mirrors TUI slash acceptance
   getTextarea().setSelectionRange(getTextarea().value.length, getTextarea().value.length);
   await press('u', { ctrlKey: true });
   assert.equal(getTextarea().value, 'alpha\n');
-  await press('j', { ctrlKey: true });
+  // Ctrl+J belongs to the workbench keymap (toggle panel) on EVERY surface;
+  // the composer keeps Shift/Ctrl+Enter for newlines.
+  await press('Enter', { shiftKey: true });
   assert.equal(getTextarea().value, 'alpha\n\n');
 
   await press('Tab');

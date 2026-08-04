@@ -487,6 +487,27 @@ export function paneLeafRelativeRect(
   return walk(root, { left: 0, top: 0, width: 1, height: 1 });
 }
 
+/** Visual row-major order: traverse panes left-to-right within the topmost
+ *  lane before continuing downward. The binary tree's DFS order becomes
+ *  column-major when each side of a row split is split vertically. */
+export function paneLeavesInVisualOrder(root: PaneNode): PaneLeaf[] {
+  const leaves = paneLeaves(root);
+  const fallbackOrder = new Map(leaves.map((leaf, index) => [leaf.id, index]));
+  const rects = new Map(leaves.map((leaf) => [leaf.id, paneLeafRelativeRect(root, leaf.id)]));
+  return [...leaves].sort((left, right) => {
+    const leftRect = rects.get(left.id);
+    const rightRect = rects.get(right.id);
+    if (!leftRect || !rightRect) {
+      return (fallbackOrder.get(left.id) ?? 0) - (fallbackOrder.get(right.id) ?? 0);
+    }
+    const vertical = leftRect.top - rightRect.top;
+    if (Math.abs(vertical) > Number.EPSILON) return vertical;
+    const horizontal = leftRect.left - rightRect.left;
+    if (Math.abs(horizontal) > Number.EPSILON) return horizontal;
+    return (fallbackOrder.get(left.id) ?? 0) - (fallbackOrder.get(right.id) ?? 0);
+  });
+}
+
 function replacePaneNodeAtPath(root: PaneNode, path: string, replacement: PaneNode): PaneNode {
   if (!path) return replacement;
   const [head, ...rest] = path.split(".");
