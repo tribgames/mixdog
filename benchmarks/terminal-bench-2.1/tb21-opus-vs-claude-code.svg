@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="t d" font-family="Styrene A,Segoe UI Variable Display,Segoe UI,Inter,Helvetica Neue,Arial,sans-serif">
+  <title id="t">Terminal-Bench 2.1: mixdog with Claude Opus 5 versus Claude Code</title>
+  <desc id="d">Across 89 tasks in matched-model solo runs, mixdog scored 78 of 89 versus Claude Code at 77 of 89, ran at 1.43 times the speed, finished tasks with a 40 percent smaller median context, and cost 29 percent less.</desc>
+  <defs>
+    <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+      <rect width="6" height="6" fill="#FBFAF7"/>
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#B8B4A7" stroke-width="1.4"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="600" fill="#F0EEE6"/>
+  <text x="64" y="62" font-size="11" letter-spacing="2" font-weight="600" fill="#7A776C">TERMINAL-BENCH 2.1 · 89 TASKS · K=1 SELF-REPORTED</text>
+  <text x="64" y="98" font-size="28" font-weight="650" letter-spacing="-0.3" fill="#191919">mixdog vs Claude Code</text>
+  <text x="64" y="124" font-size="13.5" fill="#6E6B60">Claude Opus 5 · same model, same reasoning level · solo loop</text>
+  <rect x="922" y="82" width="14" height="14" fill="#D97706"/>
+  <text x="944" y="94" font-size="13" fill="#191919">mixdog</text>
+  <rect x="1014" y="82" width="14" height="14" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="1036" y="94" font-size="13" fill="#6E6B60">Claude Code</text>
+
+  <text x="64" y="184" font-size="15" font-weight="650" fill="#191919">Score</text>
+  <text x="64" y="204" font-size="11.5" fill="#8A8779">78 vs 77 of 89 tasks · +1 task</text>
+  <rect x="88" y="250" width="72" height="270" fill="#D97706"/>
+  <text x="124" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">87.6%</text>
+  <rect x="184" y="253.4" width="72" height="266.6" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="220" y="239.4" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">86.5%</text>
+  <line x1="64" y1="520" x2="296" y2="520" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="124" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
+  <text x="220" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Claude Code</text>
+
+  <text x="340" y="184" font-size="15" font-weight="650" fill="#191919">Speed</text>
+  <text x="340" y="204" font-size="11.5" fill="#8A8779">relative agent elapsed · 1.43&#215; faster</text>
+  <rect x="364" y="250" width="72" height="270" fill="#D97706"/>
+  <text x="400" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">1.43&#215;</text>
+  <rect x="460" y="331.2" width="72" height="188.8" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="496" y="317.2" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">1.00&#215;</text>
+  <line x1="340" y1="520" x2="572" y2="520" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="400" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
+  <text x="496" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Claude Code</text>
+
+  <text x="616" y="184" font-size="15" font-weight="650" fill="#191919">Final context</text>
+  <text x="616" y="204" font-size="11.5" fill="#8A8779">median tokens at task end · 40% less</text>
+  <rect x="640" y="358.9" width="72" height="161.1" fill="#D97706"/>
+  <text x="676" y="344.9" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">22.8K</text>
+  <rect x="736" y="250" width="72" height="270" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="772" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">38.2K</text>
+  <line x1="616" y1="520" x2="848" y2="520" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="676" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
+  <text x="772" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Claude Code</text>
+
+  <text x="892" y="184" font-size="15" font-weight="650" fill="#191919">Priced cost</text>
+  <text x="892" y="204" font-size="11.5" fill="#8A8779">index, Claude Code = 100 · 29% less</text>
+  <rect x="916" y="328.3" width="72" height="191.7" fill="#D97706"/>
+  <text x="952" y="314.3" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">71</text>
+  <rect x="1012" y="250" width="72" height="270" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="1048" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">100</text>
+  <line x1="892" y1="520" x2="1124" y2="520" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="952" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
+  <text x="1048" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Claude Code</text>
+</svg>

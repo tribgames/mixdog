@@ -1,0 +1,647 @@
+/* Split-pane workspace chrome. Kept out of desktop.css so the pane layout is
+   self-contained and the shell integration lands as one import. */
+.pane-split {
+  display: flex;
+  flex: 1 1 0%;
+  /* Side panels resize the available workbench width. Split chains must
+     accept that final width instead of propagating intrinsic transcript/code
+     widths outside the task panel. */
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-split-row { flex-direction: row; }
+.pane-split-column { flex-direction: column; }
+.pane-split-cell {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-leaf {
+  display: flex;
+  flex: 1 1 0%;
+  /* Chat-appropriate floor (the composer needs more than VS Code's 220x70).
+     Height floor is 1.5x the width floor (user: 200px panes were too short
+     to read a conversation). */
+  min-width: min(var(--pane-min-width, 320px), 100%);
+  min-height: min(var(--pane-min-height, 480px), 100%);
+  /* The floor is the ONLY intrinsic size: without size containment the
+     composer's content min-width bubbled up and overflowed the window even
+     when the floors fit (user report). */
+  contain: size;
+  overflow: hidden;
+  position: relative;
+}
+.pane-resize-handle {
+  position: relative;
+  /* Consume one visual pixel; the transparent pseudo-element below preserves
+     a forgiving seven-pixel drag target without opening a dark gutter. */
+  flex: 0 0 1px;
+  z-index: 3;
+  background: transparent;
+}
+.pane-split-row > .pane-resize-handle { cursor: col-resize; }
+.pane-split-column > .pane-resize-handle { cursor: row-resize; }
+.pane-resize-handle::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  background: transparent;
+}
+.pane-split-row > .pane-resize-handle::before {
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
+}
+.pane-split-column > .pane-resize-handle::before {
+  left: 0;
+  right: 0;
+  top: -3px;
+  bottom: -3px;
+}
+.pane-resize-handle::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--mx-border-muted);
+  transition: background 120ms ease, width 120ms ease, height 120ms ease;
+}
+.pane-split-row > .pane-resize-handle::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+.pane-split-column > .pane-resize-handle::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+.pane-split-row > .pane-resize-handle:hover::after,
+.pane-split-row > .pane-resize-handle.is-dragging::after {
+  width: 2px;
+}
+.pane-split-column > .pane-resize-handle:hover::after,
+.pane-split-column > .pane-resize-handle.is-dragging::after {
+  height: 2px;
+}
+.pane-resize-handle:hover,
+.pane-resize-handle.is-dragging {
+  background: transparent;
+}
+.pane-resize-handle:hover::after,
+.pane-resize-handle.is-dragging::after {
+  background: var(--mx-focus);
+}
+
+/* VS Code-style bottom panel shell (BottomPanel.tsx). */
+.bottom-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: hidden;
+  /* One seam token for every workbench boundary (rail/sidebar/tab strip):
+     the stronger --mx-border here read as a visibly heavier line (user:
+     테두리 굵기 중구난방). */
+  border-top: 1px solid var(--mx-border-muted);
+  position: relative;
+  color: var(--mx-text);
+  background: var(--mx-workspace-sheet);
+}
+/* Floor-overlap state: the panel rides OVER the pane bottom once the pane is
+   at its floor — lift it above the workspace and read as a covering sheet. */
+.bottom-panel[data-overlaying="true"] {
+  z-index: 7;
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.28);
+}
+.bottom-panel-resize {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: row-resize;
+  z-index: 4;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.bottom-panel-resize:hover,
+.bottom-panel-resize.is-dragging {
+  background: var(--mx-focus);
+}
+.bottom-panel-tabs {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  height: 35px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.bottom-panel-tab-region {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+  height: 100%;
+  display: flex;
+  flex: 1 1 auto;
+  overflow: visible;
+}
+.bottom-panel-tab-list {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  /* Tabs are the panel's navigation — they never truncate ("TERMIN…");
+     the Problems filter box is the element that yields width instead. */
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+.bottom-panel-tab {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  font: inherit;
+  height: 35px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition: opacity 100ms ease-out, border-color 100ms ease-out;
+}
+.bottom-panel-tab-count {
+  min-width: 16px;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--mx-grey-50);
+  background: var(--mx-accent-bg);
+  font-style: normal;
+  font-size: 10px;
+  line-height: 16px;
+}
+.bottom-panel-tab:hover {
+  opacity: 0.9;
+}
+.bottom-panel-tab.is-active {
+  opacity: 1;
+  /* VS Code panelTitle.activeBorder follows the FOREGROUND, not focus blue
+     (refs) — matches the workspace tab underline grammar. */
+  border-bottom-color: currentColor;
+}
+.bottom-panel-tabs-spacer {
+  flex: 0 0 0;
+}
+.bottom-panel-close {
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  font: inherit;
+  min-height: 24px;
+  width: 28px;
+  font-size: 14px;
+  padding: 0;
+  cursor: pointer;
+}
+.bottom-panel-close:hover {
+  opacity: 1;
+}
+.problems-panel-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.problems-panel-actions > button,
+.problems-panel-filter > button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.problems-panel-actions > button:hover,
+.problems-panel-actions > button[aria-pressed="true"],
+.problems-panel-filter > button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.problems-panel-filter {
+  /* Preferred width with a hard shrink floor: in a narrow pane the filter
+     gives way first so tabs, counters, and the "…" menu all stay visible. */
+  width: auto;
+  flex: 0 1 clamp(160px, 26vw, 380px);
+  min-width: 90px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 5px;
+  border: 1px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-base);
+}
+.problems-panel-filter:focus-within { border-color: var(--mx-focus); }
+.problems-panel-filter input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+.problems-filter-toggle {
+  width: auto !important;
+  grid-auto-flow: column;
+  gap: 3px;
+  padding-inline: 4px !important;
+  font-size: 10px;
+}
+.problems-filter-toggle[data-severity="error"] svg { color: var(--mx-danger); }
+/* The "…" trigger sits on the same 24px control grammar as its siblings. */
+.problems-panel-actions .row-overflow-trigger {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.problems-panel-actions .row-overflow-trigger:hover { color: var(--mx-text); background: var(--mx-hover); }
+.problems-panel-actions .row-overflow-trigger svg { width: 16px; height: 16px; }
+.problems-filter-toggle[data-severity="warning"] svg { color: var(--mx-warning); }
+.problems-filter-toggle[data-severity="info"] svg { color: var(--mx-focus); }
+.bottom-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  contain: paint;
+}
+.bottom-panel-body > .stable-surface-layer {
+  width: 100%;
+  height: 100%;
+}
+.workbench-panel-surface {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workbench-panel-surface.utility-dock-pane {
+  position: relative;
+  inset: auto;
+  padding: 0;
+}
+.workbench-terminal-panel .dock-terminal { width: 100%; height: 100%; }
+.problems-tree,
+.problems-table {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0 12px;
+  outline: 0;
+}
+.problems-file-row,
+.problem-tree-row,
+.problem-table-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  cursor: pointer;
+}
+.problems-file-row:hover,
+.problems-file-row:focus-visible,
+.problem-tree-row:hover,
+.problem-tree-row:focus-visible,
+.problem-table-row:hover,
+.problem-table-row:focus-visible { background: var(--mx-hover); outline: 0; }
+.problems-file-row {
+  height: 22px;
+  gap: 5px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.problems-file-row[aria-expanded="true"] > svg:first-child { transform: rotate(90deg); }
+.problems-file-row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problems-file-row small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.problems-file-row i {
+  margin-left: 3px;
+  color: var(--mx-text-muted);
+  font-style: normal;
+  font-size: 10px;
+}
+.problem-tree-row {
+  min-height: 22px;
+  gap: 6px;
+  padding: 1px 8px 1px 31px;
+  font-size: 12px;
+}
+.problem-tree-row > svg { flex: 0 0 auto; }
+.problem-tree-row[data-severity="1"] > svg { color: var(--mx-danger); }
+.problem-tree-row[data-severity="2"] > svg { color: var(--mx-warning); }
+.problem-tree-row[data-severity="3"] > svg,
+.problem-tree-row[data-severity="4"] > svg { color: var(--mx-focus); }
+.problem-tree-row > span {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+}
+.problem-tree-row b,
+.problem-tree-row small,
+.problem-tree-row em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.problem-tree-row b { font-weight: 400; }
+.problem-tree-row small { color: var(--mx-text-muted); font-size: 11px; }
+.problem-tree-row em { color: var(--mx-text-muted); font-size: 11px; font-style: normal; }
+.problem-quick-fix {
+  width: 22px;
+  height: 20px;
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  color: var(--mx-warning);
+  background: transparent;
+  opacity: 0;
+}
+.problem-tree-row:hover .problem-quick-fix,
+.problem-tree-row:focus-within .problem-quick-fix { opacity: 1; }
+.problem-quick-fix:hover { background: var(--mx-hover); }
+.problems-table-header,
+.problem-table-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(140px, .45fr) 90px;
+}
+.problems-table-header {
+  height: 24px;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: 11px;
+}
+.problem-table-row { min-height: 24px; padding: 0 10px; font-size: 12px; }
+.problem-table-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem-table-row > span:first-child { display: flex; align-items: center; gap: 6px; }
+
+/* Pane cells: chrome around each leaf inside the split workspace. */
+.pane-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-surface-stack {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-surface-handoff-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--mx-workspace-sheet);
+}
+.pane-surface-handoff-layer[data-pane-surface-handoff="true"] {
+  z-index: 2;
+  pointer-events: none;
+}
+.pane-surface-handoff-layer > .workspace {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+}
+.pane-surface-handoff-layer > .stable-pane-surface[data-surface-active="false"] {
+  position: absolute;
+  /* The handoff layer already starts below the 35px tab strip. Inactive
+     Studio/terminal/diff slots must stay mounted without consuming flex
+     height or applying the strip offset a second time. */
+  inset: 0;
+}
+.pane-surface-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-chat-surface {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-chat-surface > .conversation {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.pane-conversation-slot {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-conversation-slot[data-conversation-parked="true"] {
+  z-index: 0;
+  pointer-events: none;
+}
+.pane-conversation-slot > .conversation-persistent-surface > .workspace {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+}
+.pane-placeholder {
+  flex: 1 1 auto;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.pane-placeholder-title { font-size: 14px; opacity: 0.85; }
+.pane-placeholder-hint { font-size: 12px; opacity: 0.5; }
+.pane-placeholder:hover .pane-placeholder-hint { opacity: 0.8; }
+
+/* Non-focused panes sit on the same floating workspace sheet as the
+   interactive surface — bare band-colored cells read as dead black panes. */
+.pane-cell > .pane-placeholder {
+  border-radius: 0;
+  background: var(--mx-workspace-sheet);
+  box-shadow: none;
+}
+/* Responsive chat gutters (user request): the paddings step down with the
+   SURFACE width, not the window — a narrow split pane on a big monitor gets
+   the compact gutters, and phones/tablets fall out of the same scale. */
+.workspace { container-type: inline-size; }
+@container chat-pane (max-width: 620px) {
+  .thread {
+    padding: 18px calc(24px - var(--mx-scrollbar-size)) 18px 24px;
+  }
+  .composer-region { padding: 0 20px 8px; }
+  .session-header-content { padding: 12px 24px; }
+}
+@container chat-pane (max-width: 420px) {
+  .thread {
+    padding: 14px calc(16px - var(--mx-scrollbar-size)) 14px 16px;
+  }
+  .composer-region { padding: 0 12px 6px; }
+  .session-header-content { padding: 10px 16px; }
+}
+
+/* Integration with the app shell: the split workspace fills the main panel
+   and each cell stretches the standard .workspace sheet. */
+.main-panel > .pane-split,
+.main-panel > .pane-leaf {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.pane-cell > .workspace,
+.pane-conversation-slot > .conversation-persistent-surface > .workspace {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  /* Narrow pane cells must squeeze the sheet, not grow a horizontal
+     scrollbar out of composer/thread minimum widths. */
+  overflow-x: hidden;
+}
+
+/* Drag-to-split drop preview: the highlighted half of the hovered pane. */
+.pane-drop-overlay {
+  position: fixed;
+  z-index: 240;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--mx-focus) 22%, transparent);
+  border-radius: 0;
+  opacity: 1;
+  /* VS Code editordroptarget grammar: borderless wash (outline is a
+     high-contrast-only affordance), 150ms fade-in per fresh overlay and a
+     70ms glide between zones. The element remounts per pane, so the
+     highlight never slides across panes. */
+  transition: left 70ms ease-out, top 70ms ease-out,
+    width 70ms ease-out, height 70ms ease-out, opacity 150ms ease-out;
+}
+@starting-style {
+  .pane-drop-overlay { opacity: 0; }
+}
+/* Foreign-strip insertion caret (VS Code tabs-drop index feedback). */
+.pane-drop-overlay.pane-drop-insert {
+  background: var(--mx-focus);
+  border-radius: 1px;
+}
+
+/* Per-pane tab strips (VS Code editor groups): each pane cell stacks its own
+   strip above its chat or file-editor surface. Full-page sidebar destinations
+   hide pane strips entirely. The titlebar is a bare drag band again. */
+.main-panel > .pane-cell {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+/* The workspace column refuses to shrink below one pane floor — but ONLY
+   while the bottom panel is actually competing for height; past the floor the
+   panel overlays (BottomPanel syncOverlay) instead of squeezing the panes
+   into nothing (user decision). Scoping the floor to an open panel keeps
+   full-page takeover surfaces (settings/workflows) free to collapse the pane
+   region exactly as before. */
+.main-panel:has(> .bottom-panel) > .pane-split,
+.main-panel:has(> .bottom-panel) > .pane-leaf,
+.main-panel:has(> .bottom-panel) > .pane-cell {
+  min-height: var(--pane-min-height, 480px);
+}
+.pane-cell > .workspace-tabs-shell,
+.pane-strip-row > .workspace-tabs-shell {
+  /* The shell's titlebar-era flex would grow it along the cell column. */
+  flex: 0 0 auto;
+  align-self: stretch;
+  /* VS Code strip: tabs sit flush in a square band — no inset. */
+  padding: 0;
+  /* The tab band sits one step darker than the sheet and closes with a
+     hairline, so the ACTIVE (sheet-colored) tab visibly connects to its
+     surface below — the VS Code editor-group look. */
+  background: var(--mx-window-band);
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.pane-strip-row {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.pane-strip-row > .workspace-tabs-shell { flex: 1 1 auto; }
+/* Workspace scrollbars follow the shell-wide square grammar (desktop.css). */
+
+/* Empty-state card for a parked non-session pane (draft / project / file). */
+.pane-placeholder {
+  font-size: 15px;
+  opacity: 0.45;
+}

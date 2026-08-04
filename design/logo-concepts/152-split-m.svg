@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <clipPath id="up152"><path d="M0 0h256v92L0 172z"/></clipPath>
+    <clipPath id="dn152"><path d="M0 172 256 92v164H0z"/></clipPath>
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#101216"/>
+  <g clip-path="url(#up152)"><path d="M56 192V64h34l38 52 38-52h34v128h-30v-84l-42 58-42-58v84z" fill="#f4f6f9"/></g>
+  <g clip-path="url(#dn152)" transform="translate(12 6)"><path d="M56 192V64h34l38 52 38-52h34v128h-30v-84l-42 58-42-58v84z" fill="#8b93ff"/></g>
+</svg>

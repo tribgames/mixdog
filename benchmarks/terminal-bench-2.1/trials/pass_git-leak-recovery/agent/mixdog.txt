@@ -1,0 +1,9 @@
+(node:5521) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5521_1783259229990_1783259230144_4319d16015c59bfd95e7b1c6ca292922
+Secret recovered from an unreachable commit. Now writing it out and scrubbing the repo.Done — secret recovered and the repo is clean.
+
+- **Recovered:** `secret[lost_and_found_in_git]` from unreachable commit `6b4c75c` (blob `52d18a0`), written to `/app/secret.txt`.
+- **Scrubbed:** expired all reflogs, removed `.git/lost-found`, ran `git gc --aggressive --prune=now`; `git fsck` shows no unreachable objects and no reachable object or file contains `secret[` anymore.
+- **Untouched:** both original commits (`c6d9997`, `7a2420e`) and `README.md` remain intact with a clean working tree.

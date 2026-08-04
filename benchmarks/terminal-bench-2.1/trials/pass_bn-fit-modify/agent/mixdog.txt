@@ -1,0 +1,9 @@
+(node:5345) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5345_1783259555378_1783259555534_a9e0ea47ab6a62e9eff9dbed02320766
+Structure search found exactly 6 edges with U as a root — matching the hints. Verifying outputs:Done — DAG recovered, BN fit, intervention applied, and all artifacts written.
+
+- **Learned DAG (6 edges, U root):** U→Y, U→R, U→M, U→D, R→M, Y→D via exhaustive BIC order search; the two Markov-ambiguous edges (R–M, Y–D) were oriented with the alphabet rule (earlier letter = child), saved to `/app/learned_dag.csv` in `to,from` format.
+- **Intervention do(Y=0):** edges into Y removed (U→Y dropped), Y fixed at exactly 0.0; intervened structure saved to `/app/intervened_dag.csv`.
+- **Sampling:** 10k draws from the intervened linear-Gaussian BN in topological order, saved to `/app/final_bn_sample.csv` with original column names — verified Y is exactly 0 while downstream D shifts as expected.

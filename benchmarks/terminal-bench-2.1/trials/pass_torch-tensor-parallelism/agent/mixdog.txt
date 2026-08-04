@@ -1,0 +1,10 @@
+(node:3374) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_3374_1783250453042_1783250453196_f855d2f49a0f7536b39de6363b28a70a injected pre-send user message (merged=1 len=1400)
+models: ["claude-fable-5"]
+sessionId: sess_3374_1783250453042_1783250453196_f855d2f49a0f7536b39de6363b28a70a
+File created and syntactically valid. Now I'll try to get torch installed so I can actually run a distributed test.While torch downloads, I'll write the verification script.torch 2.12.1+cpu installed. Running the distributed verification across world sizes 1, 2, 4:Done — `/app/parallel_linear.py` implemented and verified against a reference `nn.Linear` at world sizes 1, 2, and 4 (gloo backend): all sharding, forward, and gradient checks pass.
+
+- **ColumnParallelLinear**: shards `master_weight` and a zero-init bias along the output dim; forward gathers partial outputs along the last dim via an autograd-aware all_gather (backward takes the local slice), plus an identity/all-reduce function so input gradients stay correct.
+- **RowParallelLinear**: shards `master_weight` along the input dim, consumes the pre-scattered input, all-reduces partial outputs (identity backward), then adds a full zero-init bias per rank.
+- **Verified**: weight/bias shard equality per rank, zero bias init, output match vs full linear, and weight/bias/input gradient parity; `bias=False` path also exercised. torch 2.12.1+cpu was installed in-container to run the checks.

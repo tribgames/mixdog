@@ -1,0 +1,446 @@
+# Reusable application release worker. Deploy computes and commits the version,
+# then calls this workflow with an immutable tag + SHA. Every npm/desktop asset
+# is built and smoke-tested into Actions artifacts first; publishing starts only
+# after the complete five-platform matrix succeeds. Deploy is the only release
+# entry point; there is no direct tag-push trigger.
+# Requires the NPM_TOKEN repo secret (npm automation token).
+
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Strict vMAJOR.MINOR.PATCH release tag"
+        required: true
+        type: string
+      ref:
+        description: "Immutable commit SHA to build and publish"
+        required: true
+        type: string
+    secrets:
+      NPM_TOKEN:
+        required: true
+
+permissions:
+  contents: write # version commit, tag push, release creation
+  id-token: write # npm --provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Verify release tag matches package version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+
+          const tag = process.env.RELEASE_TAG || '';
+          const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+          const coreVersion = '(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)';
+          if (!new RegExp(`^${coreVersion}$`).test(version)) {
+            throw new Error(`package.json version is not strict MAJOR.MINOR.PATCH: ${version}`);
+          }
+          if (!new RegExp(`^v${coreVersion}$`).test(tag)) {
+            throw new Error(`Release tag is not strict vMAJOR.MINOR.PATCH: ${tag}`);
+          }
+          if (tag !== `v${version}`) {
+            throw new Error(`Release tag ${tag} does not match package.json version ${version}`);
+          }
+          console.log(`Verified release identity ${tag}.`);
+          NODE
+
+      # Validate every bundled native manifest before install or publish.
+      - name: Verify bundled release assets
+        run: node scripts/verify-release-assets.mjs
+
+      - name: Install
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      # Smoke's routing corpus exercises the real grep tool, which shells out
+      # to ripgrep; the ubuntu runner image does not ship rg by default.
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      # src/tui/dist is gitignored; smoke imports it. prepack rebuilds it
+      # again at publish time, but the smoke gate needs it present first.
+      - name: Build TUI
+        run: npm run build:tui
+
+      - name: Execute code graph from a clean cache
+        run: npm run test:code-graph-clean-cache
+
+      - name: Focused release regressions
+        run: npm run test:release-focused
+
+      - name: Smoke
+        run: npm run smoke
+
+      - name: Pack staged npm release
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE=$(npm pack --silent | tail -n 1)
+          test -n "$PACKAGE"
+          echo "file=$PACKAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Stage npm package
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-package
+          path: ${{ steps.pack.outputs.file }}
+          if-no-files-found: error
+          retention-days: 2
+
+  # main/preload/renderer output is platform-neutral. Build it once, cache it
+  # by the exact desktop/shared source inputs, then feed the same verified
+  # artifact to every native packager instead of running Vite five times.
+  desktop-build:
+    name: build-desktop-once
+    runs-on: ubuntu-22.04
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Restore unchanged desktop output
+        id: desktop-out
+        uses: actions/cache@v6
+        with:
+          path: apps/desktop/out
+          key: >-
+            desktop-out-v1-${{ hashFiles(
+              'apps/desktop/src/**',
+              'apps/desktop/electron.vite.config.ts',
+              'apps/desktop/tsconfig*.json',
+              'apps/desktop/package-lock.json',
+              'src/runtime/shared/**'
+            ) }}
+
+      - uses: actions/setup-node@v6
+        if: steps.desktop-out.outputs.cache-hit != 'true'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+
+      - name: Install build dependencies
+        if: steps.desktop-out.outputs.cache-hit != 'true'
+        run: |
+          npm ci --prefer-offline --no-audit --no-fund
+          npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
+
+      - name: Build platform-neutral desktop output
+        if: steps.desktop-out.outputs.cache-hit != 'true'
+        run: npm run build --prefix apps/desktop
+
+      - name: Stage common desktop output
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-out
+          path: apps/desktop/out
+          if-no-files-found: error
+          retention-days: 2
+
+  # Desktop update feed. electron-updater reads latest.yml from the LATEST
+  # GitHub release, so a tag without these assets leaves every installed app
+  # stranded on its current version ("no update available" forever).
+  desktop-windows:
+    needs: desktop-build
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    env:
+      ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
+      MIXDOG_RUNTIME_DEPENDENCY_CACHE: ${{ github.workspace }}/.cache/runtime-dependencies/win32-x64
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+
+      - name: Restore Electron downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.ELECTRON_CACHE }}
+            ${{ env.ELECTRON_BUILDER_CACHE }}
+          key: desktop-electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
+          restore-keys: desktop-electron-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Resolve runtime dependency cache key
+        id: runtime-dependencies
+        shell: pwsh
+        run: |
+          $key = node scripts/runtime-dependency-cache-key.mjs --platform=win32 --arch=x64
+          "key=$key" >> $env:GITHUB_OUTPUT
+
+      - name: Restore pruned runtime dependencies
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
+          key: desktop-${{ steps.runtime-dependencies.outputs.key }}
+
+      - name: Install desktop dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+        working-directory: apps/desktop
+
+      - name: Download common desktop output
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-out
+          path: apps/desktop/out
+
+      # No signing certificate in CI: electron-builder emits an unsigned NSIS
+      # installer, which the updater accepts (verifyUpdateCodeSignature: false).
+      - name: Build Windows installer
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          $env:MIXDOG_RUNTIME_NPM_CACHE = (npm config get cache).Trim()
+          npm run prepare:runtime -- --platform=win32 --arch=x64
+          npm run brand:win
+          npx --no-install electron-builder --win --x64 --publish never
+
+      - name: Verify packaged Windows runtime
+        run: npm run test:packaging
+        working-directory: apps/desktop
+
+      - name: Smoke packaged Windows memory runtime
+        run: npm run verify:packaged-runtime
+        working-directory: apps/desktop
+
+      - name: Stage Windows installer and update feed
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-win32-x64
+          path: |
+            apps/desktop/dist/mixdog-desktop-win-x64.exe
+            apps/desktop/dist/mixdog-desktop-win-x64.exe.blockmap
+            apps/desktop/dist/latest.yml
+          if-no-files-found: error
+          retention-days: 2
+
+  # Native macOS/Linux desktop packages. Each runner's postinstall keeps only
+  # its own Transformers.js Node bundle and ONNX platform/architecture payload.
+  desktop-unix:
+    needs: desktop-build
+    permissions:
+      contents: write
+    env:
+      ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
+      MIXDOG_RUNTIME_DEPENDENCY_CACHE: >-
+        ${{ github.workspace }}/.cache/runtime-dependencies/${{ matrix.platform }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: darwin, arch: arm64, runner: macos-14, target: mac }
+          # Keep x64 on Intel: packaged-runtime verification launches host
+          # Electron against x64-only native embedding binaries.
+          - { platform: darwin, arch: x64, runner: macos-15-intel, target: mac }
+          - { platform: linux, arch: x64, runner: ubuntu-22.04, target: linux }
+          - { platform: linux, arch: arm64, runner: ubuntu-22.04-arm, target: linux }
+    name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+
+      - name: Restore Electron downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.ELECTRON_CACHE }}
+            ${{ env.ELECTRON_BUILDER_CACHE }}
+          key: desktop-electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
+          restore-keys: desktop-electron-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Resolve runtime dependency cache key
+        id: runtime-dependencies
+        shell: bash
+        run: |
+          echo "key=$(node scripts/runtime-dependency-cache-key.mjs \
+            --platform=${{ matrix.platform }} --arch=${{ matrix.arch }})" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pruned runtime dependencies
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
+          key: desktop-${{ steps.runtime-dependencies.outputs.key }}
+
+      - name: Install desktop dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+        working-directory: apps/desktop
+
+      - name: Download common desktop output
+        uses: actions/download-artifact@v8
+        with:
+          name: desktop-out
+          path: apps/desktop/out
+
+      - name: Build desktop package
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          MIXDOG_RUNTIME_NPM_CACHE="$(npm config get cache)" \
+          npm run prepare:runtime -- --platform=${{ matrix.platform }} --arch=${{ matrix.arch }}
+          npx --no-install electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
+
+      - name: Verify packaged desktop runtime
+        run: npm run test:packaging
+        working-directory: apps/desktop
+
+      - name: Smoke packaged desktop memory runtime
+        run: npm run verify:packaged-runtime
+        working-directory: apps/desktop
+
+      - name: Stage macOS packages
+        if: matrix.platform == 'darwin'
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            apps/desktop/dist/mixdog-desktop-*.dmg
+            apps/desktop/dist/mixdog-desktop-*.zip
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Stage Linux package
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            apps/desktop/dist/mixdog-desktop-*.AppImage
+          if-no-files-found: error
+          retention-days: 2
+
+  publish:
+    name: publish-staged-release
+    needs: [validate, desktop-windows, desktop-unix]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download staged npm package
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-package
+          path: staged-npm
+
+      - name: Download staged desktop packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: staged-desktop
+          merge-multiple: true
+
+      - name: Verify complete staged release
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readdirSync } from 'node:fs';
+          import { readFileSync } from 'node:fs';
+
+          const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+          if (process.env.RELEASE_TAG !== `v${version}`) {
+            throw new Error(`Staged ref version ${version} does not match ${process.env.RELEASE_TAG}`);
+          }
+          const npm = readdirSync('staged-npm').filter(name => name.endsWith('.tgz'));
+          const desktop = readdirSync('staged-desktop');
+          const count = suffix => desktop.filter(name => name.endsWith(suffix)).length;
+          const expected = {
+            npm: npm.length,
+            exe: count('.exe'),
+            blockmap: count('.exe.blockmap'),
+            yml: desktop.filter(name => name === 'latest.yml').length,
+            dmg: count('.dmg'),
+            zip: count('.zip'),
+            appImage: count('.AppImage'),
+          };
+          if (JSON.stringify(expected) !== JSON.stringify({
+            npm: 1, exe: 1, blockmap: 1, yml: 1, dmg: 2, zip: 2, appImage: 2,
+          })) {
+            throw new Error(`Incomplete staged release: ${JSON.stringify({ expected, desktop, npm })}`);
+          }
+          console.log(`Verified staged release ${process.env.RELEASE_TAG}: 1 npm + ${desktop.length} desktop assets.`);
+          NODE
+
+      - name: Publish staged npm package
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CI: "true"
+          MIXDOG_MODE: "ship"
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION=${RELEASE_TAG#v}
+          if npm view "mixdog@${VERSION}" version --silent 2>/dev/null | grep -qxF "$VERSION"; then
+            echo "mixdog@${VERSION} is already published; resuming finalization."
+          else
+            npm publish ./staged-npm/*.tgz --provenance --access public
+          fi
+
+      - name: Publish one complete GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ inputs.ref || github.sha }}
+          files: staged-desktop/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          generate_release_notes: true
+          make_latest: true

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160">
+  <defs>
+    <linearGradient id="v98" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3ad7ff"/><stop offset="1" stop-color="#b46bff"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="160" rx="28" fill="#0b0d10"/>
+  <g transform="translate(44,18) scale(.48)">
+    <path fill="#e9edf3" d="M54 40 108 70q20-7 40 0L202 40l-6 74q0 66-68 96-68-30-68-96z"/>
+    <rect x="74" y="110" width="108" height="28" rx="14" fill="url(#v98)"/>
+  </g>
+  <text x="182" y="108" font-family="'Segoe UI','Arial Black',sans-serif" font-size="76" font-weight="800" letter-spacing="-2" fill="#f2f3f5">mixdog</text>
+</svg>

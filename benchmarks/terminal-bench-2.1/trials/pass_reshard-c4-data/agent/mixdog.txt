@@ -1,0 +1,12 @@
+(node:1143) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_1143_1783263032111_1783263032257_da392c8f568f9c31f881bf30509bfbda injected pre-send user message (merged=1 len=823)
+models: ["claude-fable-5"]
+sessionId: sess_1143_1783263032111_1783263032257_da392c8f568f9c31f881bf30509bfbda
+Environment ready. Now running the full roundtrip test:Done — both scripts are in /app with a working uv project, and the full roundtrip verifies clean.
+
+- **Design**: `compress.py` packs files into gzip tars (`shard-NNNNNN.tar.gz`) capped at a 14MB uncompressed payload plus per-entry overhead, so shards stay under 15MB even with incompressible data; shards are laid out in a base-30 directory tree so no directory exceeds 30 entries. A JSON manifest per shard records original paths, split parts, and all directories, which `decompress.py` uses to rebuild the tree in-place.
+
+- **Verified on c4_sample**: 9,898 files (817MB) → 58 shards (349MB, largest file 6.4MB, all dirs ≤30 entries) in ~13s; decompress + `diff -r` against the original is byte-identical.
+
+- **Edge cases verified**: nested/empty directories, zero-byte files, filenames with spaces, and a 40MB file split across shards all roundtrip exactly; `uv sync` (stdlib-only, `package = false`) and `uv run` work with no extra installs.

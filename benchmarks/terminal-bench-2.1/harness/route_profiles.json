@@ -1,0 +1,665 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "sol-high": {
+      "routes": {
+        "lead": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "high",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "high",
+          "fast": false
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "high",
+          "fast": false
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "high",
+          "fast": false
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "sol-xhigh-nofast": {
+      "routes": {
+        "lead": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "high",
+          "fast": false
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "opus5-solo": {
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "heavy-worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "debugger": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "explorer": {
+          "provider": "anthropic-oauth",
+          "model": "claude-haiku-4-5-20251001",
+          "effort": "low",
+          "fast": false
+        }
+      },
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "high",
+        "fast": false
+      }
+    },
+    "sol-luna-terra-max": {
+      "routes": {
+        "lead": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "max",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "max",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "opus-xhigh": {
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "fast": false
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "sol-xhigh": {
+      "routes": {
+        "lead": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "fable-xhigh": {
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "fast": false
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-fable-5",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "fable-opus-heavy-xhigh": {
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "fast": false
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-fable-5",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "fable-sol-heavy-opus-reviewer-xhigh": {
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "fast": false
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-fable-5",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "fable-opus-heavy-sol-reviewer-xhigh": {
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "fast": false
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-fable-5",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "fable-high": {
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "fast": false
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-fable-5",
+          "effort": "high",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "high",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "fable-sol-workers-xhigh": {
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "fast": false
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-fable-5",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "heavy-worker": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "fable-opus-workers-xhigh": {
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "xhigh",
+        "fast": false
+      },
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-fable-5",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "heavy-worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "xhigh",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "xhigh",
+          "fast": true
+        },
+        "debugger": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-sol",
+          "effort": "max",
+          "fast": true
+        },
+        "explorer": {
+          "provider": "openai-oauth",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "opus48-solo": {
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "high",
+          "fast": false
+        },
+        "worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "high",
+          "fast": false
+        },
+        "heavy-worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "high",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "high",
+          "fast": false
+        },
+        "debugger": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "high",
+          "fast": false
+        },
+        "explorer": {
+          "provider": "anthropic-oauth",
+          "model": "claude-haiku-4-5-20251001",
+          "effort": "low",
+          "fast": false
+        }
+      }
+    },
+    "opus5-solo-med": {
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "medium",
+          "fast": false
+        },
+        "worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "heavy-worker": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "reviewer": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "debugger": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "effort": "high",
+          "fast": false
+        },
+        "explorer": {
+          "provider": "anthropic-oauth",
+          "model": "claude-haiku-4-5-20251001",
+          "effort": "low",
+          "fast": false
+        }
+      },
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "effort": "high",
+        "fast": false
+      }
+    }
+  }
+}

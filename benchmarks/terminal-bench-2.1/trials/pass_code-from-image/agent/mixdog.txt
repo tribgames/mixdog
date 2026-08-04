@@ -1,0 +1,8 @@
+(node:1142) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1142_1783258971284_1783258971432_313ac0a0ec43ab5a48f0117e0dbf64fa
+Done — result written to `/app/output.txt`.
+
+- **Logic**: `H = sha256(sha256(code.png) || h0[:10] || b"0000TBENCH-SALT")`, using the raw digest bytes of `h0`.
+- **Output**: `bee26a133f103b9ecda444c70ec22cafef6e31a3de7af6d047974dc90ce3defe`, matching the `bee26a` hint prefix.

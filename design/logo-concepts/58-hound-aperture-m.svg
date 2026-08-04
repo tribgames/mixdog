@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <mask id="eyes">
+      <rect width="256" height="256" fill="#fff"/>
+      <circle cx="101" cy="108" r="8" fill="#000"/>
+      <circle cx="155" cy="108" r="8" fill="#000"/>
+      <path d="m119 145 9-7 9 7-9 10z" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#111317"/>
+  <path mask="url(#eyes)" fill="#f4f4f5" d="M52 190V99l39-49 37 68 37-68 39 49v91h-34v-62l-42 67-42-67v62z"/>
+</svg>

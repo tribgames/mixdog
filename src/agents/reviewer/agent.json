@@ -1,0 +1,6 @@
+{
+  "id": "reviewer",
+  "name": "Reviewer",
+  "description": "Use when an implementation finishes: cross-verify the change for correctness and risk before reporting.",
+  "entry": "AGENT.md"
+}

@@ -1,0 +1,727 @@
+/* Lazy settings structure only. The unlayered desktop visual layer owns all
+   color, typography, density, radii, states, and elevation. */
+@layer settings-base {
+  .mixdog-settings { display: grid; overflow: hidden; }
+  .mixdog-settings button { color: inherit; font: inherit; }
+  .mixdog-settings__panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .mixdog-settings__header { display: flex; align-items: center; justify-content: space-between; }
+  .mixdog-settings__header-title { min-width: 0; display: flex; align-items: center; }
+  .mixdog-settings__close {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .mixdog-settings__header h1, .mixdog-settings__section h2 { margin: 0; }
+  .mixdog-settings__body { display: flex; flex-direction: column; overflow-y: auto; }
+  .mixdog-settings__list, .settings-group-body { overflow: hidden; }
+  .mixdog-settings__row, .settings-route-editor,
+  .settings-form-row, .settings-resource {
+    width: 100%;
+    display: flex;
+    align-items: center;
+  }
+  .mixdog-settings__copy,
+  .settings-route-editor > div:first-child, .settings-form-row > div:first-child {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+  }
+  .settings-resource-title,
+  .settings-form-row > div.settings-resource-title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .settings-resource-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mixdog-settings__section, .settings-group { display: flex; flex-direction: column; }
+  .settings-section-heading { display: flex; align-items: flex-start; }
+  .settings-section-heading > div { min-width: 0; flex: 1; }
+  .settings-section-heading h2, .settings-section-heading p,
+  .settings-group > header h3, .settings-group > header p { margin: 0; }
+  .settings-group > header { display: grid; }
+  .mixdog-settings__switch { position: relative; display: inline-flex; flex: 0 0 auto; }
+  .mixdog-settings__switch input { position: absolute; opacity: 0; pointer-events: none; }
+  .mixdog-settings__switch span::after { display: block; content: ""; }
+  .settings-notice, .mixdog-settings__error, .settings-empty, .settings-loading { margin: 0; }
+  .capability-settings-content,
+  .command-surface-content,
+  .onboarding-ready-content { min-width: 0; }
+  .settings-route-controls, .settings-form-controls, .settings-resource-actions,
+  .settings-provider-secret,
+  .settings-button-row,
+  .settings-oauth-code, .settings-oauth-dialog > footer {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .settings-route-controls, .settings-form-controls { justify-content: flex-end; }
+  .settings-route-editor:not(.compact) .settings-route-controls { min-width: 0; flex: 1.4; }
+  .settings-route-editor.compact .settings-route-controls { justify-content: flex-start; }
+  .settings-check { display: inline-flex; align-items: center; white-space: nowrap; }
+  .settings-form-controls { flex: 1.2; }
+  .settings-form-controls input, .settings-form-controls select { min-width: 100px; flex: 1; }
+  .settings-resource > div:first-child { min-width: 0; flex: 1; }
+  .settings-resource p { margin: 0; overflow-wrap: anywhere; }
+  .settings-resource-actions { flex: 0 0 auto; }
+  .settings-provider-secret { gap: 8px; }
+  .settings-provider-secret input { min-width: 0; width: 150px; }
+  .settings-resource-control { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+  .settings-domain-form { display: grid; }
+  .settings-domain-form > header { display: flex; align-items: flex-start; }
+  .settings-domain-form > header > div { display: grid; }
+  .settings-domain-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-domain-grid > label { min-width: 0; display: grid; align-content: start; }
+  .settings-domain-grid > label.wide { grid-column: 1 / -1; }
+  .settings-domain-grid input:not([type="checkbox"]),
+  .settings-domain-grid select, .settings-domain-grid textarea { width: 100%; min-width: 0; }
+  .settings-domain-form > footer { display: flex; justify-content: flex-end; gap: 8px; }
+  .settings-status-stack, .settings-sublist, .settings-alert-list,
+  .core-memory-manager, .core-memory-add-card, .core-memory-add-card > header,
+  .core-memory-add, .core-memory-list, .core-memory-row, .core-memory-edit { display: grid; }
+  .settings-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .settings-metric-grid > div { min-width: 0; display: grid; }
+  .settings-context-meter { position: relative; overflow: hidden; }
+  .settings-context-meter > span { position: absolute; inset: 0 auto 0 0; }
+  .settings-context-meter > small { position: relative; z-index: 1; height: 100%; display: grid; place-items: center; }
+  .settings-alert-list p { margin: 0; }
+  .core-memory-add input, .core-memory-edit input { min-width: 0; }
+  .core-memory-copy { min-width: 0; display: grid; }
+  .settings-action-result { overflow: hidden; }
+  .settings-action-result pre { margin: 0; overflow: auto; white-space: pre-wrap; }
+  .settings-oauth-layer, .settings-confirm-layer {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+  }
+  .settings-oauth-dialog > header { display: flex; align-items: flex-start; }
+  .settings-oauth-dialog > header > div { min-width: 0; flex: 1; display: grid; }
+  .settings-oauth-url { display: grid; }
+  .settings-oauth-code input { min-width: 0; flex: 1; }
+  .settings-oauth-dialog > footer { justify-content: flex-end; }
+
+  .onboarding-layer { position: fixed; inset: 0; display: grid; place-items: center; }
+  .onboarding-dialog { display: flex; flex-direction: column; overflow: hidden; }
+  .onboarding-dialog > header,
+  .onboarding-dialog > footer { display: flex; align-items: center; justify-content: space-between; }
+  .onboarding-top-actions, .onboarding-top-actions > nav, .onboarding-dialog > footer > div,
+  .onboarding-star-actions { display: flex; align-items: center; }
+  .onboarding-top-actions > button,
+  .onboarding-star-icon { display: grid; place-items: center; }
+  .onboarding-dialog h1, .onboarding-dialog h2, .onboarding-dialog p { margin: 0; }
+  .onboarding-body { min-height: 0; flex: 1; overflow: auto; }
+  .onboarding-step-view, .onboarding-theme-grid, .onboarding-star-card,
+  .onboarding-workflow-grid, .onboarding-pair { display: grid; }
+  .onboarding-provider-list, .onboarding-model-grid, .onboarding-theme-preview { overflow: hidden; }
+  .onboarding-provider-list > form, .onboarding-provider-row,
+  .onboarding-model-grid > label { display: flex; align-items: center; }
+  .onboarding-provider-list form > div, .onboarding-provider-row > div,
+  .onboarding-model-grid label > span { min-width: 150px; flex: 1; display: grid; }
+  .onboarding-provider-list form > input { flex: 0 1 260px; }
+  .onboarding-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .onboarding-choice-grid > button, .onboarding-theme-grid > button,
+  .onboarding-workflow-grid > button { display: grid; text-align: left; }
+
+  @media (max-width: 860px) {
+    .settings-form-row, .settings-route-editor:not(.compact) { align-items: stretch; flex-direction: column; }
+    .settings-form-controls, .settings-route-controls { justify-content: flex-start; }
+    .settings-domain-grid { grid-template-columns: 1fr; }
+    .settings-domain-grid > label.wide { grid-column: auto; }
+    .settings-resource { align-items: flex-start; flex-wrap: wrap; }
+    .settings-resource-control { width: 100%; justify-content: flex-start; }
+  }
+  @media (max-width: 640px) {
+    .onboarding-choice-grid { grid-template-columns: 1fr; }
+    .onboarding-provider-list > form, .onboarding-provider-row,
+    .onboarding-model-grid > label { align-items: stretch; flex-direction: column; }
+    .onboarding-provider-list form > input, .onboarding-provider-list input { width: 100%; }
+  }
+}
+
+/* Settings v2 ownership block: two-pane dialog shell, category rail, and flat pane flow. */
+/* UNLAYERED on purpose: desktop.css's unlayered .pane-surface-gate{,-content}
+   (display:flex, height:100%) outranks any @layer rule, so these gate
+   corrections must live outside settings-base. Inside the layer the gate
+   content stayed a flex row and .capability-settings-content shrank to
+   fit-content (~512px), leaving a dead right margin (user: 옵션창 레이아웃
+   망가짐). */
+.mixdog-settings__category-stage .pane-surface-gate,
+.command-surface .mixdog-settings__body > .pane-surface-gate {
+  min-height: 100%;
+  overflow: visible;
+  background: transparent;
+}
+.mixdog-settings__category-stage .pane-surface-gate > .pane-surface-gate-content,
+.command-surface .mixdog-settings__body > .pane-surface-gate > .pane-surface-gate-content {
+  height: auto;
+  min-height: 100%;
+  display: block;
+}
+.mixdog-settings-v2 {
+  width: min(980px, calc(100vw - 32px));
+  height: min(650px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  grid-template-columns: 240px minmax(0, 1fr);
+}
+.mixdog-settings__rail {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 16px 16px;
+  overflow: hidden;
+  border-right: .5px solid var(--mx-border);
+  background: var(--mx-bg-layer-1);
+}
+.mixdog-settings__rail nav {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+.mixdog-settings__rail-group {
+  display: grid;
+  gap: 4px;
+  /* Single evenly spaced run: no headings, no block gaps — every row sits on
+     the same 4px rhythm (user decision). */
+  margin-bottom: 0;
+}
+.mixdog-settings__rail-group button {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  /* Sidebar row grammar: 14px medium, full ink. */
+  color: var(--mx-text);
+  font-size: 14px;
+  font-weight: 500;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 100ms ease-out,
+    background-color 100ms ease-out,
+    box-shadow 100ms ease-out;
+}
+.mixdog-settings__rail-group button:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.mixdog-settings__rail-group button.active {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.mixdog-settings__rail-group button svg { color: inherit; }
+.mixdog-settings__rail-group button.active svg { color: var(--mx-icon); }
+.mixdog-settings__rail footer {
+  display: grid;
+  gap: 4px;
+  padding: 12px 10px 0;
+  border-top: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-faint);
+  font-size: 11px;
+  line-height: 16px;
+}
+.mixdog-settings__rail footer strong { color: var(--mx-text-muted); font-weight: 530; }
+.mixdog-settings-v2 .mixdog-settings__header {
+  height: 64px;
+  min-height: 64px;
+  flex-basis: 64px;
+  padding-inline: 32px 20px;
+}
+.mixdog-settings-v2 .mixdog-settings__body {
+  gap: 28px;
+  padding: 28px 40px 40px;
+  overflow-x: hidden;
+}
+/* The category stage sits BETWEEN the gapped body and the .settings-group
+   sections (stage → gate → gate-content → .capability-settings-content), so
+   the body's 28px section rhythm must be recreated on the capability content
+   column — without it every group heading glues onto the previous card
+   (user: 옵션창 상하정렬 틀어짐 / 레이아웃 다 틀어짐). The stage stopped
+   being a StableContentSwap, so this rhythm lives on the content host now,
+   never on stale .stable-content-swap selectors. */
+/* The stage must also stay a NON-shrinking, unclipped flow child, or the
+   body viewport swallows the overflow and kills body scrolling
+   (user: 옵션창 스크롤이 안 된다). */
+.mixdog-settings__category-stage {
+  flex: 0 0 auto;
+  min-height: min-content;
+  overflow: visible;
+}
+.mixdog-settings__category-stage .capability-settings-content,
+.command-surface .mixdog-settings__body .capability-settings-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+/* Command-surface capability panes keep their wider 36px rhythm
+   (desktop.css: .command-surface .mixdog-settings__body { gap: 36px }). */
+.command-surface .mixdog-settings__body .capability-settings-content { gap: 36px; }
+.mixdog-settings-v2 .settings-group {
+  min-width: 0;
+  min-height: min-content;
+  flex: 0 0 auto;
+  margin: 0;
+  overflow: visible;
+}
+.mixdog-settings-v2 .settings-group + .settings-group { margin-top: 0; }
+.mixdog-settings-v2 .settings-group-body {
+  min-width: 0;
+  overflow: visible;
+}
+/* Resource tags (Providers, Skills, MCP…) sit UNDER the name on every
+   platform (user decision) — long names never squeeze the badge inline. */
+.mixdog-settings-v2 .settings-resource-title {
+  flex-direction: column;
+  align-items: flex-start;
+  row-gap: 4px;
+}
+.mixdog-settings-v2 .settings-resource-title b { max-width: 100%; }
+.settings-row-control > .settings-model-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  margin-left: 0;
+  justify-content: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+.settings-row-control > .effort-control,
+.settings-row-control > .fast-control {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  flex: 0 0 100%;
+}
+.settings-row-control > .effort-control .mx-select-root,
+.settings-row-control > .fast-control .mx-select-root,
+.settings-row-control > .effort-control .mx-select-trigger,
+.settings-row-control > .fast-control .mx-select-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+.settings-row-control > .effort-control .mx-select-value,
+.settings-row-control > .fast-control .mx-select-value {
+  text-align: right;
+}
+.settings-model-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.mixdog-settings-v2 .settings-resource.settings-agent-route { align-items: start; }
+.mixdog-settings-v2 .settings-agent-route > div:first-child { padding-top: 7px; }
+.settings-agent-route .settings-resource-control,
+.settings-agent-route .settings-resource-actions,
+.settings-agent-route .settings-route-editor.compact,
+.settings-agent-route .settings-route-controls { width: 100%; }
+.settings-agent-route .settings-route-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  justify-items: end;
+}
+.settings-agent-route .settings-route-controls > *,
+.settings-agent-route .effort-control,
+.settings-agent-route .fast-control,
+.settings-agent-route .mx-select-root,
+.settings-agent-route .mx-select-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.settings-agent-route .settings-model-trigger,
+.settings-agent-route .effort-control .mx-select-trigger,
+.settings-agent-route .fast-control .mx-select-trigger {
+  height: 28px;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 5px 0 8px;
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 20px;
+  text-align: right;
+}
+.settings-agent-route .effort-control,
+.settings-agent-route .fast-control {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.settings-agent-route .settings-model-trigger > span,
+.settings-agent-route .mx-select-value { text-align: right; }
+.settings-agent-route .settings-model-trigger:hover,
+.settings-agent-route .settings-model-trigger[aria-expanded="true"],
+.settings-agent-route .mx-select-trigger:hover:not(:disabled),
+.settings-agent-route .mx-select-trigger[aria-expanded="true"] {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.settings-row-control > .effort-control .mx-select-trigger,
+.settings-row-control > .fast-control .mx-select-trigger {
+  color: var(--mx-text);
+  font-weight: 530;
+}
+
+/* ModelPicker and OpenSelect use different primitives. Settings routes own one
+   shared closed-state chevron, value column, and right edge for both. */
+.settings-row-control > .settings-model-trigger,
+.settings-row-control > .effort-control .mx-select-trigger,
+.settings-row-control > .fast-control .mx-select-trigger,
+.settings-agent-route .settings-model-trigger,
+.settings-agent-route .effort-control .mx-select-trigger,
+.settings-agent-route .fast-control .mx-select-trigger {
+  height: 28px;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 5px 0 8px;
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 530;
+  line-height: 20px;
+  text-align: right;
+}
+.settings-row-control > .settings-model-trigger > svg,
+.settings-row-control > .effort-control .mx-select-trigger > svg,
+.settings-row-control > .fast-control .mx-select-trigger > svg,
+.settings-agent-route .settings-model-trigger > svg,
+.settings-agent-route .effort-control .mx-select-trigger > svg,
+.settings-agent-route .fast-control .mx-select-trigger > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  padding: 0;
+  color: var(--mx-icon-muted);
+  background: transparent;
+  opacity: 1;
+  stroke-width: 2;
+  transition: transform 90ms ease-out;
+}
+.settings-model-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.settings-empty-list {
+  box-sizing: border-box;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+}
+
+/* Narrow DESKTOP window: keep the compact two-pane dialog (capture-ui pins
+   this geometry); only touch devices get the phone layout below. */
+@media (max-width: 760px) {
+  .mixdog-settings-layer {
+    --settings-layer-safe-top: max(8px, calc(env(titlebar-area-height, 0px) + 8px));
+    --settings-layer-safe-bottom: 8px;
+    padding: var(--settings-layer-safe-top) 8px var(--settings-layer-safe-bottom);
+  }
+  .mixdog-settings-v2 {
+    width: calc(100vw - 16px);
+    height: calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 8px) - var(--settings-layer-safe-bottom, 8px));
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+  .mixdog-settings__rail { padding: 20px 10px 12px; }
+  .mixdog-settings-v2 .mixdog-settings__header { padding-inline: 20px 12px; }
+  .mixdog-settings-v2 .mixdog-settings__body { padding: 24px 20px 32px; }
+}
+
+/* Phone: full-screen settings — a THIN icon-only rail on the LEFT (user
+   decision, replacing the chip row) with the category title + X living in
+   the panel header. Keyed off html[data-mixdog-mobile] (mobile-shell.ts:
+   coarse pointer OR Capacitor) rather than a pointer media query — some
+   WebViews misreport coarseness. */
+html[data-mixdog-mobile] .mixdog-settings-layer {
+  --settings-layer-safe-top: 0px;
+  --settings-layer-safe-bottom: 0px;
+  padding: 0;
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 {
+  width: 100vw;
+  height: var(--vvh, 100vh);
+  max-height: none;
+  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  border-radius: 0;
+}
+html[data-mixdog-mobile] .mixdog-settings__rail {
+  flex-direction: column;
+  align-items: center;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 6px 8px;
+  border-right: .5px solid var(--mx-border);
+}
+html[data-mixdog-mobile] .mixdog-settings__rail nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+html[data-mixdog-mobile] .mixdog-settings__rail nav::-webkit-scrollbar { display: none; }
+html[data-mixdog-mobile] .mixdog-settings__rail-group { display: contents; }
+html[data-mixdog-mobile] .mixdog-settings__rail-group h2 { display: none; }
+html[data-mixdog-mobile] .mixdog-settings__rail-group button {
+  /* Icon-only 40px squares; the label lives in the panel header instead. */
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+  border-radius: 10px;
+}
+html[data-mixdog-mobile] .mixdog-settings__rail-group button span { display: none; }
+html[data-mixdog-mobile] .mixdog-settings__rail-group button svg {
+  width: 18px;
+  height: 18px;
+}
+html[data-mixdog-mobile] .mixdog-settings__rail footer { display: none; }
+html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__header {
+  height: 52px;
+  min-height: 52px;
+  flex-basis: 52px;
+  padding: calc(env(safe-area-inset-top, 0px)) 8px 0 16px;
+  box-sizing: content-box;
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__body {
+  gap: 24px;
+  padding: 20px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+}
+html[data-mixdog-mobile] .mixdog-settings__category-stage .capability-settings-content { gap: 24px; }
+/* Pairing cards stack instead of squeezing two 168px QRs side by side. */
+html[data-mixdog-mobile] .settings-connection-grid { flex-wrap: wrap; }
+/* Phone settings keep the desktop grammar: one label column, one shared value
+   column, and a common right edge. Narrow-only exceptions stack controls
+   inside that value column instead of moving the column itself. */
+html[data-mixdog-mobile] .mixdog-settings-v2 {
+  --settings-phone-value-column: minmax(0, 45%);
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 .settings-group-body {
+  padding-inline: 14px;
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__close {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+}
+html[data-mixdog-mobile] .mixdog-settings-v2 .mixdog-settings__row,
+html[data-mixdog-mobile] .mixdog-settings-v2 .settings-form-row,
+html[data-mixdog-mobile] .mixdog-settings-v2 .settings-resource {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--settings-phone-value-column);
+  align-items: center;
+  column-gap: 12px;
+}
+html[data-mixdog-mobile] .mixdog-settings__row-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-mixdog-mobile] .mixdog-settings__copy,
+html[data-mixdog-mobile] .settings-form-row > div:first-child,
+html[data-mixdog-mobile] .settings-resource > div:first-child {
+  width: 100%;
+  min-width: 0;
+  justify-self: start;
+}
+/* Resource rows (Providers, Skills, MCP, Plugins…): the status tag sits on
+   its own line UNDER the name (user decision) — long names never squeeze
+   the badge inline. */
+html[data-mixdog-mobile] .settings-resource-title {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  row-gap: 4px;
+  white-space: normal;
+}
+html[data-mixdog-mobile] .settings-resource-title b { max-width: 100%; }
+html[data-mixdog-mobile] .settings-resource-title b,
+html[data-mixdog-mobile] .settings-form-row > div:first-child b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-mixdog-mobile] .settings-resource-title .settings-status {
+  flex: 0 0 auto;
+}
+html[data-mixdog-mobile] .settings-row-control,
+html[data-mixdog-mobile] .settings-form-controls,
+html[data-mixdog-mobile] .settings-resource-control {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  justify-self: stretch;
+  justify-content: flex-end;
+}
+html[data-mixdog-mobile] .settings-form-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+html[data-mixdog-mobile] .settings-form-controls > input:not([type="checkbox"]),
+html[data-mixdog-mobile] .settings-provider-secret input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  flex: none;
+}
+html[data-mixdog-mobile] .settings-form-controls > button,
+html[data-mixdog-mobile] .settings-form-controls > .settings-action {
+  justify-self: end;
+}
+html[data-mixdog-mobile] .settings-resource-actions {
+  width: 100%;
+  max-width: 100%;
+  justify-content: flex-end;
+}
+
+/* Settings → About: equal-width link buttons (user request). */
+.settings-about-row .settings-action {
+  min-width: 104px;
+  text-align: center;
+}
+html[data-mixdog-mobile] .settings-provider-secret {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+}
+html[data-mixdog-mobile] .settings-provider-secret button { justify-self: end; }
+html[data-mixdog-mobile] .settings-row-control > .settings-select.mx-select-root,
+html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
+html[data-mixdog-mobile] .settings-row-control > .effort-control,
+html[data-mixdog-mobile] .settings-row-control > .fast-control,
+html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-root,
+html[data-mixdog-mobile] .settings-row-control > .fast-control .mx-select-root,
+html[data-mixdog-mobile] .settings-row-control > .effort-control .mx-select-trigger,
+html[data-mixdog-mobile] .settings-row-control > .fast-control .mx-select-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: 0;
+}
+html[data-mixdog-mobile] .settings-row-control .mx-select-value,
+html[data-mixdog-mobile] .settings-model-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-mixdog-mobile] .settings-row-control .effort-control,
+html[data-mixdog-mobile] .settings-row-control .fast-control {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+html[data-mixdog-mobile] .settings-row-control > .settings-model-trigger,
+html[data-mixdog-mobile] .settings-row-control .mx-select-trigger,
+html[data-mixdog-mobile] .settings-agent-route .settings-model-trigger,
+html[data-mixdog-mobile] .settings-agent-route .mx-select-trigger {
+  justify-content: flex-end;
+  text-align: right;
+}
+html[data-mixdog-mobile] .settings-row-control .mx-select-value,
+html[data-mixdog-mobile] .settings-row-control .settings-model-trigger > span,
+html[data-mixdog-mobile] .settings-agent-route .mx-select-value,
+html[data-mixdog-mobile] .settings-agent-route .settings-model-trigger > span {
+  flex: 0 1 auto;
+  text-align: right;
+}
+html[data-mixdog-mobile] .settings-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--settings-phone-value-column);
+  align-items: center;
+  column-gap: 12px;
+}
+html[data-mixdog-mobile] .settings-shortcut-row kbd {
+  max-width: 100%;
+  justify-self: end;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-align: right;
+}
+html[data-mixdog-mobile] .core-memory-add-card,
+html[data-mixdog-mobile] .core-memory-list {
+  padding-inline: 14px;
+}
+
+/* Settings → Connection: phone pairing card. */
+.settings-connection-grid { display: flex; gap: 14px; }
+.settings-connection-card {
+  flex: 1;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 14px 10px;
+  border-radius: 10px;
+  background: var(--mx-bg-layer-1);
+}
+.settings-connection-card svg { width: 168px; height: 168px; border-radius: 8px; }
+.settings-connection-qr-placeholder {
+  width: 168px;
+  height: 168px;
+  border-radius: 8px;
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.settings-connection-card--loading .settings-connection-qr-placeholder {
+  animation: settings-connection-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes settings-connection-pulse {
+  from { opacity: .45; }
+  to { opacity: .9; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-connection-card--loading .settings-connection-qr-placeholder { animation: none; }
+}
+.settings-connection-card figcaption { display: grid; gap: 2px; justify-items: center; }
+.settings-connection-card b { font-size: 13px; }
+.settings-connection-card small { color: var(--settings-muted); font-size: 11px; }
+.settings-connection-note { margin: 0; color: var(--settings-muted); font-size: 12.5px; line-height: 18px; }
+/* Settings row grammar: label left, value + copy right, divided rows. */
+.settings-connection-links { display: grid; }
+.settings-connection-links > div {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block: 6px;
+}
+.settings-connection-links > div + div { border-top: .5px solid var(--mx-border-muted); }
+.settings-connection-links span { flex: 0 0 132px; color: var(--settings-muted); font-size: 12px; }
+.settings-connection-links code {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  background: var(--mx-pressed);
+  font-size: 11px;
+  user-select: text;
+}

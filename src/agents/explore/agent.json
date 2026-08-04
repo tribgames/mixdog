@@ -1,0 +1,6 @@
+{
+  "id": "explore",
+  "name": "Explore",
+  "description": "Use when targets are unknown: broad codebase exploration and narrowing.",
+  "entry": "AGENT.md"
+}

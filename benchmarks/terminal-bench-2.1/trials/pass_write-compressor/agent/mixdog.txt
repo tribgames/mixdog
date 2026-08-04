@@ -1,0 +1,9 @@
+(node:3329) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_3329_1783249928352_1783249928488_0f4f00bfa45c6f52a4ac27e9c3b2740a
+Encoder converged at 2250 bytes and the Python replica round-trips. Now verify against the real binary.Done — `/app/data.comp` is written and verified: `cat data.comp | /app/decomp` reproduces `data.txt` byte-for-byte (`cmp` identical).
+
+- **Size**: 2250 bytes, under the 2500-byte limit (4868 → 2250).
+- **Approach**: mirrored the decoder's adaptive base-255 arithmetic coder in Python (`/app/compress.py`), with an LZ77 optimal-parse DP whose bit costs are refined over iterations from the coder's own adaptive context counts.
+- **Verification**: self-checked with a Python replica of the decoder, then confirmed with the actual `/app/decomp` binary.

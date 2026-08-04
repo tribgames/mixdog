@@ -1,0 +1,312 @@
+// MCP config/status/connect glue. Mutable runtime state is dependency-injected
+// through accessors and the caller-owned `state` object.
+import { resolve } from 'node:path';
+import { statSync } from 'node:fs';
+import { clean } from './session-text.mjs';
+import { normalizeMcpProjectPathKey, readProjectMcpServers } from './plugin-mcp.mjs';
+import { envFlag } from './env.mjs';
+
+// Cache project-local `.mcp.json` reads by path + mtime so repeated mcpStatus()
+// calls skip existsSync+readFileSync+JSON.parse when the file is unchanged.
+// Invalidated automatically on any mtime change (or create/delete via mtime=0).
+const projectMcpCache = new Map();
+const PROJECT_MCP_CACHE_MAX = 32;
+export function invalidateProjectMcpCache(cwd) {
+  projectMcpCache.delete(resolve(cwd || '.', '.mcp.json'));
+}
+function cachedProjectMcpServers(cwd) {
+  const path = resolve(cwd || '.', '.mcp.json');
+  let mtimeMs = 0;
+  try { mtimeMs = statSync(path).mtimeMs; } catch { mtimeMs = 0; }
+  const hit = projectMcpCache.get(path);
+  if (hit && hit.mtimeMs === mtimeMs) return hit.value;
+  const value = readProjectMcpServers(cwd);
+  // Bound the cache: Map preserves insertion order, so drop the oldest entry.
+  if (!projectMcpCache.has(path) && projectMcpCache.size >= PROJECT_MCP_CACHE_MAX) {
+    projectMcpCache.delete(projectMcpCache.keys().next().value);
+  }
+  projectMcpCache.set(path, { mtimeMs, value });
+  return value;
+}
+
+export function createMcpGlue({
+  mcpClient,
+  getConfig,
+  getCurrentCwd,
+  state,
+}) {
+  function mcpTransportLabel(cfg = {}) {
+    if (cfg.autoDetect) return `autoDetect:${cfg.autoDetect}`;
+    try {
+      return mcpClient.resolveMcpTransportKind(cfg);
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  // Merge mixdog-config `agent.mcpServers` with project-local `.mcp.json`.
+  // On name collision the project-local `.mcp.json` entry WINS
+  // (precedence: project > user config). `sources[name]` records each server's
+  // origin ('config' | 'project') for status reporting.
+  function resolveEffectiveMcpServers() {
+    // Benchmark/embedding guard: do not even inspect project `.mcp.json`.
+    if (envFlag('MIXDOG_DISABLE_MCP')) return { servers: {}, sources: {} };
+    const config = getConfig();
+    const configured = config?.mcpServers && typeof config.mcpServers === 'object'
+      ? config.mcpServers
+      : {};
+    const projectKey = normalizeMcpProjectPathKey(getCurrentCwd());
+    const overrides = config?.mcpProjectOverrides?.[projectKey];
+    const foldedConfigured = {};
+    for (const [name, cfg] of Object.entries(configured)) {
+      const override = overrides?.[name];
+      foldedConfigured[name] = typeof override?.enabled === 'boolean'
+        ? { ...cfg, enabled: override.enabled }
+        : cfg;
+    }
+    const project = cachedProjectMcpServers(getCurrentCwd());
+    const servers = { ...foldedConfigured, ...project };
+    const sources = {};
+    for (const name of Object.keys(configured)) sources[name] = 'config';
+    for (const name of Object.keys(project)) sources[name] = 'project';
+    return { servers, sources };
+  }
+
+  function mcpStatus() {
+    if (envFlag('MIXDOG_DISABLE_MCP')) {
+      return { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };
+    }
+    const { servers: configured, sources } = resolveEffectiveMcpServers();
+    const connected = new Map((mcpClient.getMcpServerStatus?.() || []).map((row) => [row.name, row]));
+    const failures = new Map((state.mcpFailures || []).map((row) => [row.name, row]));
+    const servers = [];
+    for (const [name, cfg] of Object.entries(configured)) {
+      const live = connected.get(name);
+      const fail = failures.get(name);
+      servers.push({
+        name,
+        configured: true,
+        enabled: cfg?.enabled !== false,
+        connected: Boolean(live),
+        status: cfg?.enabled === false ? 'disabled' : live ? 'connected' : fail ? 'failed' : 'disconnected',
+        transport: mcpTransportLabel(cfg),
+        toolCount: live?.toolCount || 0,
+        tools: live?.tools || [],
+        error: fail?.msg || null,
+        source: sources[name] || 'config',
+      });
+      connected.delete(name);
+    }
+    for (const live of connected.values()) {
+      servers.push({ ...live, configured: false, status: 'connected' });
+    }
+    servers.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return {
+      servers,
+      configuredCount: Object.keys(configured).length,
+      connectedCount: servers.filter((row) => row.connected).length,
+      failedCount: servers.filter((row) => row.status === 'failed').length,
+    };
+  }
+
+  // Connect/disconnect exactly one server in the live registry, leaving all
+  // others untouched. Used by the enable/disable toggle so a single-server
+  // change never triggers a full disconnectAll()/reconnect freeze.
+  async function applyMcpServerConnection(name, enabled) {
+    const target = clean(name);
+    if (!target) return;
+    const { servers } = resolveEffectiveMcpServers();
+    // The toggle is applied to whichever source drives this name: project
+    // `.mcp.json` entries persist their `enabled` flag in that file (project >
+    // config precedence) and config entries in mixdog-config, so acting on the
+    // effective entry here keeps live state in sync with the durable flag.
+    // Changing this server's state clears any stale failure record for it.
+    if (Array.isArray(state.mcpFailures)) {
+      state.mcpFailures = state.mcpFailures.filter((row) => row.name !== target);
+    }
+    if (enabled === false) {
+      await mcpClient.disconnectMcpServer?.(target);
+      return;
+    }
+    const cfg = servers[target];
+    if (!cfg) return;
+    // Drop any existing live entry first so connectMcpServers doesn't overwrite
+    // the registry Map entry and leak the old transport/process.
+    await mcpClient.disconnectMcpServer?.(target);
+    try {
+      await mcpClient.connectMcpServers({ [target]: cfg });
+    } catch (error) {
+      const failures = Array.isArray(error?.failures)
+        ? error.failures
+        : [{ name: target, msg: error?.message || String(error) }];
+      state.mcpFailures = [...(state.mcpFailures || []), ...failures];
+    }
+  }
+
+  async function connectConfiguredMcp({ reset = false, only = null, enabled = true } = {}) {
+    if (envFlag('MIXDOG_DISABLE_MCP')) {
+      ++state.mcpConnectGeneration;
+      state.mcpFailures = [];
+      if (only) await mcpClient.disconnectMcpServer?.(only);
+      else await mcpClient.disconnectAll?.();
+      return mcpStatus();
+    }
+    // Scoped single-server toggle: non-superseding. It must NEVER cancel a
+    // pending full {reset} (cwd-change/boot). So do not bump the generation;
+    // just wait for any in-flight run, then bail if a newer full reset has
+    // been requested in the meantime. Registering as in-flight makes a later
+    // reset serialize behind us instead of interleaving disconnect/connect.
+    if (only) {
+      // Atomically capture the current generation AND the prior in-flight
+      // promise in the same synchronous step, then chain our op onto it. No
+      // await sits between the capture and the `state.mcpConnectInFlight = run`
+      // assignment, so concurrent {only} calls queue FIFO instead of resuming
+      // together and clobbering the in-flight slot. We never bump the
+      // generation; a {reset} does, so any {only} queued behind a reset sees
+      // the newer generation when its turn comes and bails.
+      const gen = state.mcpConnectGeneration;
+      const prev = state.mcpConnectInFlight;
+      const run = (async () => {
+        if (prev) { try { await prev; } catch { /* prior run's failures already captured */ } }
+        if (gen !== state.mcpConnectGeneration) return;
+        await applyMcpServerConnection(only, enabled);
+      })();
+      state.mcpConnectInFlight = run;
+      try {
+        await run;
+      } finally {
+        if (state.mcpConnectInFlight === run) state.mcpConnectInFlight = null;
+      }
+      return mcpStatus();
+    }
+    // Serialize reconnects: boot connect, cwd-change reset, and rapid cwd
+    // switches must never interleave their disconnect/connect phases, or an
+    // older run finishing after a newer reset could re-add stale servers into
+    // the shared client registry. Approach: a generation token + a single
+    // in-flight promise. Each call bumps the generation, waits for any prior
+    // run to finish, then bails if a newer call has superseded it — leaving the
+    // latest requested effective-server-set in the registry.
+    const gen = ++state.mcpConnectGeneration;
+    if (state.mcpConnectInFlight) {
+      try { await state.mcpConnectInFlight; } catch { /* prior run's failures already captured */ }
+    }
+    if (gen !== state.mcpConnectGeneration) return mcpStatus();
+    const run = (async () => {
+      if (reset) await mcpClient.disconnectAll?.();
+      state.mcpFailures = [];
+      const { servers } = resolveEffectiveMcpServers();
+      if (Object.keys(servers).length === 0) return;
+      try {
+        await mcpClient.connectMcpServers(servers);
+      } catch (error) {
+        state.mcpFailures = Array.isArray(error?.failures)
+          ? error.failures
+          : [{ name: 'mcp', msg: error?.message || String(error) }];
+      }
+    })();
+    state.mcpConnectInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (state.mcpConnectInFlight === run) state.mcpConnectInFlight = null;
+    }
+    return mcpStatus();
+  }
+
+  function normalizeMcpServerInput(input = {}) {
+    const currentCwd = getCurrentCwd();
+    const name = clean(input.name).toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!name) throw new Error('MCP server name is required');
+    const coerceStringRecord = (value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      const out = {};
+      for (const [key, val] of Object.entries(value)) {
+        if (val === undefined || val === null) continue;
+        out[String(key)] = String(val);
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    };
+    const withOptionalHeaders = (config) => {
+      const headers = coerceStringRecord(input.headers);
+      if (headers) config.headers = headers;
+      return config;
+    };
+    const url = clean(input.url);
+    const type = clean(input.type).toLowerCase();
+    if (url) {
+      if (type === 'sse') {
+        if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
+        return { name, config: withOptionalHeaders({ type: 'sse', url }) };
+      }
+      if (type === 'ws') {
+        if (!/^(?:wss?|https?):\/\//i.test(url)) {
+          throw new Error('MCP WebSocket URL must start with ws://, wss://, http://, or https://');
+        }
+        return { name, config: withOptionalHeaders({ type: 'ws', url }) };
+      }
+      if (type === 'http' || type === 'streamable-http') {
+        if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
+        return { name, config: withOptionalHeaders({ type: 'http', url }) };
+      }
+      if (/^wss?:\/\//i.test(url)) {
+        return { name, config: withOptionalHeaders({ type: 'ws', url }) };
+      }
+      if (!/^https?:\/\//i.test(url)) throw new Error('MCP URL must start with http:// or https://');
+      return { name, config: withOptionalHeaders({ type: 'http', url }) };
+    }
+    const command = clean(input.command);
+    if (!command) throw new Error('MCP server command or URL is required');
+    const args = Array.isArray(input.args)
+      ? input.args.map((v) => String(v)).filter(Boolean)
+      : clean(input.args).split(/\s+/).filter(Boolean);
+    const requestedCwd = clean(input.cwd);
+    const cwdForServer = requestedCwd ? resolve(currentCwd, requestedCwd) : currentCwd;
+    const root = resolve(currentCwd);
+    const resolvedCwd = resolve(cwdForServer);
+    if (resolvedCwd !== root && !resolvedCwd.startsWith(`${root}\\`) && !resolvedCwd.startsWith(`${root}/`)) {
+      throw new Error('MCP server cwd must stay under the current project');
+    }
+    const config = { type: 'stdio', command, args, cwd: resolvedCwd };
+    const env = coerceStringRecord(input.env);
+    if (env) config.env = env;
+    return { name, config };
+  }
+
+  // First-turn gate: await the in-flight INITIAL connect, bounded by the global
+  // startup budget. Boot/UI never call this; only the first ask awaits so
+  // servers that connect within the budget land in THIS request's tool surface.
+  // Resolves (never rejects): a server still connecting after the budget flows
+  // through the existing late-tool deferred announcement path unchanged.
+  async function awaitInitialMcpConnect() {
+    const inFlight = state.mcpConnectInFlight;
+    if (!inFlight) return;
+    let budgetMs = 10000;
+    try {
+      const resolved = mcpClient.resolveMcpStartupTimeoutMs?.({});
+      if (Number.isFinite(resolved)) budgetMs = resolved;
+    } catch { /* fall back to default budget */ }
+    // Swallow the in-flight rejection: failures are already captured in
+    // state.mcpFailures, and this gate must never reject the turn.
+    const settled = Promise.resolve(inFlight).catch(() => {});
+    // Budget disabled (0/off) = no per-server startup timeout, so the connect
+    // promise may never settle; never gate the turn on it — fall back to the
+    // legacy fire-and-forget behavior (late servers use the deferred path).
+    if (!(budgetMs > 0)) return;
+    let timer = null;
+    const budget = new Promise((resolveBudget) => { timer = setTimeout(resolveBudget, budgetMs); });
+    try {
+      await Promise.race([settled, budget]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  return {
+    mcpTransportLabel,
+    resolveEffectiveMcpServers,
+    mcpStatus,
+    connectConfiguredMcp,
+    awaitInitialMcpConnect,
+    normalizeMcpServerInput,
+  };
+}

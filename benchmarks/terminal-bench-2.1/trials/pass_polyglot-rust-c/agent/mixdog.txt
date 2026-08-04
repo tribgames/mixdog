@@ -1,0 +1,8 @@
+(node:3355) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_3355_1783258202691_1783258202853_66f1de118d13ca58e50f14ba3b405304
+Done — `/app/polyglot/main.rs` compiles under both rustc 1.75 and g++ 13.2 and prints matching Fibonacci values (verified n=0..20 for both binaries, f(0)=1, f(1)=1, f(2)=2…).
+
+- **Trick:** `/*/*/` opens a depth-2 nested Rust comment (a plain comment for C++), hiding the C++ program from rustc; then a C++ raw string `R"(` swallows the Rust code, with `// */ */` re-opening Rust land and `// )";` closing the raw string invisibly to rustc.
+- **Verified:** `rustc /app/polyglot/main.rs && /app/polyglot/main N` and `g++ -x c++ /app/polyglot/main.rs -o /app/polyglot/cmain && /app/polyglot/cmain N` both succeed with identical stdout; both compiled binaries remain in `/app/polyglot/`.

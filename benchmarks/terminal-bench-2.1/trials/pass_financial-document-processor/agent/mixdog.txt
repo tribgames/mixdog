@@ -1,0 +1,10 @@
+(node:3374) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_3374_1783256607772_1783256607936_e16ee013718b0b8ccecf7689c2de0812 injected pre-send user message (merged=1 len=1091)
+models: ["claude-fable-5"]
+sessionId: sess_3374_1783256607772_1783256607936_e16ee013718b0b8ccecf7689c2de0812
+Tesseract and poppler are installed. Extracting all text now:Done — all 17 documents classified, moved, and summarized; `/app/documents/` is empty.
+
+- **Invoices (10 → /app/invoices/):** 7 JPGs OCR'd with tesseract + 3 text PDFs, all containing invoice numbers/totals. For the two Stripe-style invoices where "Total" and "Amount due" differed (`2lgKzDuI4E4g.jpg`, `KrJiw0OZx7jf.jpg`), the "Total" value was used per the special-case rule.
+- **Other (7 → /app/other/):** a CV, two office memos, a handwritten note, a purchase order, a stock report, and a shipping/order detail sheet — none labeled as invoices.
+- **summary.csv** written with `filename, total_amount, vat_amount`; VAT taken from the invoice VAT column where present (0 otherwise), final `total` row sums to 81315.2 / 5402.48, verified against per-row values.

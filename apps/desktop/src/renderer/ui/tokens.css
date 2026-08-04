@@ -1,0 +1,140 @@
+:root {
+  /* Component-scale registry layered over desktop.css semantic color tokens. */
+  --mx-space-1: 4px;
+  --mx-space-2: 8px;
+  --mx-space-3: 12px;
+  --mx-space-4: 16px;
+  --mx-space-5: 20px;
+  --mx-space-6: 24px;
+  --mx-radius-sm: 3px;
+  --mx-radius-md: 6px;
+  --mx-radius-lg: 10px;
+  --mx-control-xs: 24px;
+  --mx-control-sm: 28px;
+  --mx-control-md: 32px;
+  --mx-font-xs: 11px;
+  --mx-font-sm: 12px;
+  --mx-font-md: 13px;
+  --mx-icon-xs: 12px;
+  --mx-icon-sm: 14px;
+  --mx-icon-md: 16px;
+  --mx-color-panel: var(--mx-workspace-sheet);
+  --mx-color-control: var(--mx-bg-base);
+  --mx-color-control-hover: var(--mx-bg-layer-1);
+  --mx-color-selected: var(--mx-bg-layer-2);
+  --mx-color-fg: var(--mx-text);
+  --mx-color-fg-muted: var(--mx-text-muted);
+  --mx-color-separator: var(--mx-border-muted);
+  --mx-color-focus: var(--mx-focus);
+}
+
+.mx-button,
+.mx-icon-button,
+.mx-input,
+.mx-select {
+  min-height: var(--mx-control-sm);
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  font: inherit;
+}
+.mx-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mx-space-1);
+  padding: 0 var(--mx-space-2);
+  cursor: pointer;
+}
+.mx-button:hover:not(:disabled),
+.mx-icon-button:hover:not(:disabled) { background: var(--mx-bg-layer-1); }
+.mx-button:disabled,
+.mx-icon-button:disabled { opacity: .45; cursor: default; }
+.mx-button.is-primary { color: #fff; border-color: transparent; background: var(--mx-accent-bg); }
+.mx-button.is-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mx-accent-bg) 86%, white);
+}
+.mx-button.is-ghost { border-color: transparent; background: transparent; }
+.mx-button.is-danger { color: var(--mx-danger); border-color: var(--mx-danger); background: var(--mx-danger-bg); }
+.mx-button.is-xs { min-height: var(--mx-control-xs); padding-inline: 6px; font-size: var(--mx-font-xs); }
+.mx-button.is-md { min-height: var(--mx-control-md); padding-inline: var(--mx-space-3); }
+.mx-icon-button {
+  width: var(--mx-control-sm);
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+.mx-input,
+.mx-select {
+  padding: 0 var(--mx-space-2);
+  outline: none;
+}
+.mx-input:focus,
+.mx-select:focus { border-color: var(--mx-focus); }
+.mx-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--mx-space-2);
+  min-width: 0;
+}
+.mx-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-1);
+  font-size: var(--mx-font-xs);
+}
+.mx-status-badge.is-info { color: var(--mx-focus); }
+.mx-status-badge.is-success { color: var(--mx-success); background: var(--mx-success-bg); }
+.mx-status-badge.is-warning { color: var(--mx-warning); background: var(--mx-warning-bg); }
+.mx-status-badge.is-danger { color: var(--mx-danger); background: var(--mx-danger-bg); }
+.mx-empty-state {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--mx-space-2);
+  padding: var(--mx-space-6);
+  color: var(--mx-text-muted);
+  text-align: center;
+}
+.mx-empty-state p { max-width: 480px; margin: 0; }
+.mx-tabs { display: flex; align-items: center; }
+.mx-tab { color: inherit; }
+.mx-tree,
+.mx-menu { min-width: 0; }
+.mx-dialog-layer {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--mx-scrim);
+}
+.mx-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(720px, calc(100dvh - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-overlay);
+}
+.mx-dialog > header,
+.mx-dialog > footer {
+  display: flex;
+  align-items: center;
+  gap: var(--mx-space-2);
+  padding: var(--mx-space-3);
+}
+.mx-dialog > header { border-bottom: 1px solid var(--mx-border-muted); }
+.mx-dialog > header > strong { flex: 1; }
+.mx-dialog > footer { justify-content: flex-end; border-top: 1px solid var(--mx-border-muted); }
+.mx-dialog-body { min-height: 0; overflow: auto; padding: var(--mx-space-3); }

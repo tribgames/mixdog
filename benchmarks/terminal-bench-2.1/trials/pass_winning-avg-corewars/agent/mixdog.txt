@@ -1,0 +1,11 @@
+(node:523) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_523_1783259100609_1783259100743_1fa02c170c58528bf50b074448ac6522
+Several variants pass all five bars. Refining around the best region to maximize the stone margin (the tightest metric).Diagnosing the stone gap: testing a brain variant where all three slots jump to paper, isolating whether the embedded paper underperforms or the switching dynamics cost the wins.Embedded paper is fine (~90 vs stone); the gap is switching dynamics. Retuning: measuring true rates of promising clear variants with 500-round runs to pick brain slots.[3500 2905] holds the best margins. Validating true (random-series) performance with 500-round runs.True rates clear every bar (81/99/84/38/44). Installing as `my_warrior.red` and running the exact verification commands.Done — `my_warrior.red` ("Chimera") beats all five bars with the exact test command.
+
+**Design:** a P-space brain reads last round's result and rotates between three components on any non-win — two G2-style spl/dat core-clears (dec 3500 / 2905, cover paper, snake, g2-clear) and a silk paper with DAT bombs (covers stone, vampire).
+
+**Verified with `pmars -b -r 100 -f my_warrior.red warriors/<opp>.red`:** stone 89, vampire 95, paper 80 (bar 75); snake 37, g2-clear 44 (bar 33).
+
+**Robustness check** on random position series (500 rounds each): 81% / 99% / 84% / 38% / 44% — every bar also clears without the fixed seed, so the result isn't seed-overfit. Opponent files were not touched.

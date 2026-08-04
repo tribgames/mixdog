@@ -1,0 +1,395 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Application version increment"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      native:
+        description: "Native assets: auto detects changes, force rebuilds, skip reuses manifests"
+        required: true
+        type: choice
+        options: [auto, force, skip]
+        default: auto
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: plan-incremental-deploy
+    runs-on: ubuntu-22.04
+    outputs:
+      app_version: ${{ steps.plan.outputs.app_version }}
+      app_tag: ${{ steps.plan.outputs.app_tag }}
+      patch_build: ${{ steps.plan.outputs.patch_build }}
+      patch_bump: ${{ steps.plan.outputs.patch_bump }}
+      patch_version: ${{ steps.plan.outputs.patch_version }}
+      patch_tag: ${{ steps.plan.outputs.patch_tag }}
+      graph_build: ${{ steps.plan.outputs.graph_build }}
+      graph_bump: ${{ steps.plan.outputs.graph_bump }}
+      graph_version: ${{ steps.plan.outputs.graph_version }}
+      graph_tag: ${{ steps.plan.outputs.graph_tag }}
+      token_build: ${{ steps.plan.outputs.token_build }}
+      token_bump: ${{ steps.plan.outputs.token_bump }}
+      token_version: ${{ steps.plan.outputs.token_version }}
+      token_tag: ${{ steps.plan.outputs.token_tag }}
+      runtime_tag: ${{ steps.plan.outputs.runtime_tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Require the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH"
+          git fetch --tags --force origin
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${DEFAULT_BRANCH}")"
+
+      - name: Resolve app version and changed native components
+        id: plan
+        env:
+          BUMP: ${{ inputs.bump }}
+          NATIVE_MODE: ${{ inputs.native }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { execFileSync, spawnSync } from 'node:child_process';
+
+          const output = process.env.GITHUB_OUTPUT;
+          const mode = process.env.NATIVE_MODE;
+          const strict = /^\d+\.\d+\.\d+$/;
+          const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
+          const cargoVersion = path => {
+            const value = readFileSync(path, 'utf8').match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+            if (!strict.test(value || '')) throw new Error(`Invalid Cargo version in ${path}`);
+            return value;
+          };
+          const increment = (version, bump = 'patch') => {
+            const parts = version.split('.').map(Number);
+            if (bump === 'major') return `${parts[0] + 1}.0.0`;
+            if (bump === 'minor') return `${parts[0]}.${parts[1] + 1}.0`;
+            return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+          };
+          const tagExists = tag => spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`]).status === 0;
+          const releaseExists = tag => spawnSync(
+            'gh', ['release', 'view', tag, '--json', 'tagName'], { stdio: 'ignore', env: process.env },
+          ).status === 0;
+          const changedSince = (tag, paths) => {
+            if (!tagExists(tag)) return true;
+            const result = spawnSync('git', ['diff', '--quiet', `${tag}..HEAD`, '--', ...paths]);
+            if (result.status === 0) return false;
+            if (result.status === 1) return true;
+            throw new Error(`git diff failed for ${tag}: ${result.stderr?.toString() || result.status}`);
+          };
+          const compare = (a, b) => {
+            const left = a.split('.').map(Number);
+            const right = b.split('.').map(Number);
+            for (let index = 0; index < 3; index++) {
+              if (left[index] !== right[index]) return left[index] - right[index];
+            }
+            return 0;
+          };
+
+          const currentApp = readJson('package.json').version;
+          if (!strict.test(currentApp)) throw new Error(`Invalid app version ${currentApp}`);
+          const currentTag = `v${currentApp}`;
+          const resume = tagExists(currentTag) && !releaseExists(currentTag);
+          const appVersion = resume ? currentApp : increment(currentApp, process.env.BUMP);
+
+          // Release gate: a fresh release requires changelog entries.
+          const changelog = readFileSync('CHANGELOG.md', 'utf8');
+          const unreleasedSection = changelog.split(/^## /m).find(section => section.startsWith('Unreleased'));
+          const unreleasedBody = unreleasedSection ? unreleasedSection.replace(/^Unreleased[^\n]*\n?/, '').trim() : '';
+          if (!resume && !unreleasedBody) {
+            throw new Error('CHANGELOG.md: the Unreleased section is empty - a release requires changelog entries');
+          }
+
+          function component({ name, manifestPath, cargoPath, tagPrefix, paths }) {
+            const manifestVersion = readJson(manifestPath).version;
+            const currentCargo = cargoVersion(cargoPath);
+            if (!strict.test(manifestVersion)) throw new Error(`Invalid ${name} manifest version`);
+            if (compare(currentCargo, manifestVersion) < 0) {
+              throw new Error(`${name} Cargo version ${currentCargo} is older than manifest ${manifestVersion}`);
+            }
+            const pending = currentCargo !== manifestVersion;
+            const changed = changedSince(`${tagPrefix}${manifestVersion}`, paths);
+            const build = mode === 'force' || (mode === 'auto' && (pending || changed));
+            const bump = build && !pending;
+            const version = bump ? increment(manifestVersion) : currentCargo;
+            return { build, bump, version, tag: `${tagPrefix}${version}` };
+          }
+
+          const patch = component({
+            name: 'patch',
+            manifestPath: 'src/runtime/agent/orchestrator/tools/patch-manifest.json',
+            cargoPath: 'native/mixdog-patch/Cargo.toml',
+            tagPrefix: 'patch-v',
+            paths: ['native/mixdog-patch'],
+          });
+          const graph = component({
+            name: 'graph',
+            manifestPath: 'src/runtime/agent/orchestrator/tools/graph-manifest.json',
+            cargoPath: 'native/mixdog-graph/Cargo.toml',
+            tagPrefix: 'graph-v',
+            paths: ['native/mixdog-graph'],
+          });
+          const token = component({
+            name: 'token',
+            manifestPath: 'src/runtime/agent/orchestrator/tools/token-manifest.json',
+            cargoPath: 'native/mixdog-token/Cargo.toml',
+            tagPrefix: 'token-v',
+            paths: ['native/mixdog-token'],
+          });
+          const runtimeTag = readJson('src/runtime/memory/data/runtime-manifest.json').release_tag;
+          if (!/^runtime-v\d+\.\d+\.\d+$/.test(runtimeTag)) throw new Error(`Invalid runtime tag ${runtimeTag}`);
+
+          const values = {
+            app_version: appVersion,
+            app_tag: `v${appVersion}`,
+            patch_build: String(mode !== 'skip' && patch.build),
+            patch_bump: String(mode !== 'skip' && patch.bump),
+            patch_version: patch.version,
+            patch_tag: patch.tag,
+            graph_build: String(mode !== 'skip' && graph.build),
+            graph_bump: String(mode !== 'skip' && graph.bump),
+            graph_version: graph.version,
+            graph_tag: graph.tag,
+            token_build: String(mode !== 'skip' && token.build),
+            token_bump: String(mode !== 'skip' && token.bump),
+            token_version: token.version,
+            token_tag: token.tag,
+            runtime_tag: runtimeTag,
+          };
+          for (const [key, value] of Object.entries(values)) appendFileSync(output, `${key}=${value}\n`);
+          console.log(JSON.stringify({ mode, resume, ...values }, null, 2));
+          NODE
+
+  prepare-native:
+    name: prepare-native-tags
+    needs: plan
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Bump changed native components and create immutable tags
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PATCH_BUILD: ${{ needs.plan.outputs.patch_build }}
+          PATCH_BUMP: ${{ needs.plan.outputs.patch_bump }}
+          PATCH_VERSION: ${{ needs.plan.outputs.patch_version }}
+          PATCH_TAG: ${{ needs.plan.outputs.patch_tag }}
+          GRAPH_BUILD: ${{ needs.plan.outputs.graph_build }}
+          GRAPH_BUMP: ${{ needs.plan.outputs.graph_bump }}
+          GRAPH_VERSION: ${{ needs.plan.outputs.graph_version }}
+          GRAPH_TAG: ${{ needs.plan.outputs.graph_tag }}
+          TOKEN_BUILD: ${{ needs.plan.outputs.token_build }}
+          TOKEN_BUMP: ${{ needs.plan.outputs.token_bump }}
+          TOKEN_VERSION: ${{ needs.plan.outputs.token_version }}
+          TOKEN_TAG: ${{ needs.plan.outputs.token_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin "$DEFAULT_BRANCH"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          function setCargoVersion(name, directory, version) {
+            const tomlPath = `${directory}/Cargo.toml`;
+            const lockPath = `${directory}/Cargo.lock`;
+            const toml = readFileSync(tomlPath, 'utf8').replace(
+              /(^version\s*=\s*")[^"]+(")/m, `$1${version}$2`,
+            );
+            let lock = readFileSync(lockPath, 'utf8');
+            const block = new RegExp(`(\\[\\[package\\]\\]\\nname = "${name}"\\nversion = ")[^"]+(")`);
+            if (!block.test(lock)) throw new Error(`Missing ${name} package entry in ${lockPath}`);
+            lock = lock.replace(block, `$1${version}$2`);
+            writeFileSync(tomlPath, toml);
+            writeFileSync(lockPath, lock);
+          }
+          if (process.env.PATCH_BUMP === 'true') {
+            setCargoVersion('mixdog-patch', 'native/mixdog-patch', process.env.PATCH_VERSION);
+          }
+          if (process.env.GRAPH_BUMP === 'true') {
+            setCargoVersion('mixdog-graph', 'native/mixdog-graph', process.env.GRAPH_VERSION);
+          }
+          if (process.env.TOKEN_BUMP === 'true') {
+            setCargoVersion('mixdog-token', 'native/mixdog-token', process.env.TOKEN_VERSION);
+          }
+          NODE
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add native/mixdog-patch/Cargo.toml native/mixdog-patch/Cargo.lock \
+            native/mixdog-graph/Cargo.toml native/mixdog-graph/Cargo.lock \
+            native/mixdog-token/Cargo.toml native/mixdog-token/Cargo.lock
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(native): prepare incremental release assets"
+            git push origin "HEAD:${DEFAULT_BRANCH}"
+          fi
+
+          create_tag() {
+            local enabled="$1" tag="$2"
+            if [[ "$enabled" != true ]]; then return; fi
+            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+              echo "${tag} already exists; resuming its worker."
+            else
+              git tag "$tag"
+              git push origin "refs/tags/${tag}"
+            fi
+          }
+          create_tag "$PATCH_BUILD" "$PATCH_TAG"
+          create_tag "$GRAPH_BUILD" "$GRAPH_TAG"
+          create_tag "$TOKEN_BUILD" "$TOKEN_TAG"
+
+  runtime:
+    name: incremental-runtime
+    needs: [plan, prepare-native]
+    if: ${{ inputs.native != 'skip' }}
+    uses: ./.github/workflows/build-runtime.yml
+    with:
+      tag: ${{ needs.plan.outputs.runtime_tag }}
+      force_rebuild: ${{ inputs.native == 'force' }}
+      refresh_manifest: false
+    secrets: inherit
+
+  patch:
+    name: incremental-patch
+    needs: [plan, prepare-native]
+    if: ${{ needs.plan.outputs.patch_build == 'true' }}
+    uses: ./.github/workflows/patch-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.patch_tag }}
+    secrets: inherit
+
+  graph:
+    name: incremental-graph
+    needs: [plan, prepare-native]
+    if: ${{ needs.plan.outputs.graph_build == 'true' }}
+    uses: ./.github/workflows/graph-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.graph_tag }}
+    secrets: inherit
+
+  token:
+    name: incremental-token
+    needs: [plan, prepare-native]
+    if: ${{ needs.plan.outputs.token_build == 'true' }}
+    uses: ./.github/workflows/token-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.token_tag }}
+    secrets: inherit
+
+  prepare-app:
+    name: prepare-app-release
+    needs: [plan, prepare-native, runtime, patch, graph, token]
+    if: >-
+      ${{
+        always()
+        && needs.plan.result == 'success'
+        && needs.prepare-native.result == 'success'
+        && (needs.runtime.result == 'success' || needs.runtime.result == 'skipped')
+        && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
+        && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
+        && (needs.token.result == 'success' || needs.token.result == 'skipped')
+      }}
+    runs-on: ubuntu-22.04
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Commit synchronized app version and tag
+        id: release
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION: ${{ needs.plan.outputs.app_version }}
+          TAG: ${{ needs.plan.outputs.app_tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git pull --ff-only origin "$DEFAULT_BRANCH"
+          CURRENT=$(node -p "require('./package.json').version")
+          if [[ "$CURRENT" != "$VERSION" ]]; then
+            npm version "$VERSION" --no-git-tag-version --ignore-scripts
+            npm --prefix apps/desktop version "$VERSION" --no-git-tag-version --ignore-scripts
+            npm --prefix apps/mobile version "$VERSION" --no-git-tag-version --ignore-scripts
+            npm --prefix apps/relay version "$VERSION" --no-git-tag-version --ignore-scripts
+          fi
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const version = process.env.VERSION;
+          const date = new Date().toISOString().slice(0, 10);
+          let text = readFileSync('CHANGELOG.md', 'utf8');
+          if (!text.includes(`\n## v${version}`)) {
+            text = text.replace(/^## Unreleased[^\n]*$/m, `## Unreleased\n\n## v${version} - ${date}`);
+            writeFileSync('CHANGELOG.md', text);
+          }
+          NODE
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json CHANGELOG.md \
+            apps/desktop/package.json apps/desktop/package-lock.json \
+            apps/mobile/package.json apps/mobile/package-lock.json \
+            apps/relay/package.json
+          if ! git diff --cached --quiet; then
+            git commit -m "mixdog ${TAG}"
+            git push origin "HEAD:${DEFAULT_BRANCH}"
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            REMOTE=$(git ls-remote --tags origin "refs/tags/${TAG}" | awk 'NR == 1 { print $1 }')
+            if [[ "$REMOTE" != "$(git rev-parse HEAD)" ]]; then
+              if gh release view "$TAG" >/dev/null 2>&1; then
+                echo "::error::Published tag ${TAG} is immutable and does not match main."
+                exit 1
+              fi
+              echo "Moving unpublished recovery tag ${TAG} to the synchronized release commit."
+              git tag --force "$TAG"
+              git push --force origin "refs/tags/${TAG}"
+            fi
+          else
+            git tag "$TAG"
+            git push origin "refs/tags/${TAG}"
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: release-all-platforms
+    needs: [plan, prepare-app]
+    # prepare-app intentionally accepts skipped incremental workers. GitHub's
+    # implicit success() still sees those transitive skips and would skip this
+    # reusable call, so gate only on the two direct release dependencies.
+    if: ${{ always() && needs.plan.result == 'success' && needs.prepare-app.result == 'success' }}
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.plan.outputs.app_tag }}
+      ref: ${{ needs.prepare-app.outputs.sha }}
+    secrets: inherit

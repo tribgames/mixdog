@@ -1,0 +1,731 @@
+{
+  "count-dataset-tokens": {
+    "reward": 1.0,
+    "t": 91.0,
+    "out": 2385.0,
+    "unc": 15.0,
+    "cr": 178186.0,
+    "cw": 11463.0,
+    "calls": 16.0
+  },
+  "path-tracing-reverse": {
+    "reward": 1.0,
+    "t": 517.0,
+    "out": 41493.0,
+    "unc": 40.0,
+    "cr": 1040990.0,
+    "cw": 101726.0,
+    "calls": 37.0
+  },
+  "dna-assembly": {
+    "reward": 1.0,
+    "t": 524.0,
+    "out": 35554.0,
+    "unc": 5080.0,
+    "cr": 1032211.0,
+    "cw": 53555.0,
+    "calls": 42.0
+  },
+  "fix-git": {
+    "reward": 1.0,
+    "t": 50.0,
+    "out": 2827.0,
+    "unc": 19.0,
+    "cr": 218624.0,
+    "cw": 11826.0,
+    "calls": 20.0
+  },
+  "qemu-startup": {
+    "reward": 1.0,
+    "t": 325.0,
+    "out": 16278.0,
+    "unc": 38.0,
+    "cr": 529041.0,
+    "cw": 21999.0,
+    "calls": 35.0
+  },
+  "regex-chess": {
+    "reward": 1.0,
+    "t": 2659.0,
+    "out": 120133.0,
+    "unc": 69.0,
+    "cr": 2368340.0,
+    "cw": 67156.0,
+    "calls": 61.0
+  },
+  "filter-js-from-html": {
+    "reward": 0.0,
+    "t": 1633.0,
+    "out": 80110.0,
+    "unc": 105.0,
+    "cr": 4888965.0,
+    "cw": 116829.0,
+    "calls": 105.0
+  },
+  "sanitize-git-repo": {
+    "reward": 1.0,
+    "t": 168.0,
+    "out": 9317.0,
+    "unc": 28.0,
+    "cr": 562009.0,
+    "cw": 40611.0,
+    "calls": 42.0
+  },
+  "merge-diff-arc-agi-task": {
+    "reward": 1.0,
+    "t": 142.0,
+    "out": 8210.0,
+    "unc": 26.0,
+    "cr": 337969.0,
+    "cw": 14594.0,
+    "calls": 32.0
+  },
+  "pytorch-model-cli": {
+    "reward": 0.0,
+    "t": 289.0,
+    "out": 15633.0,
+    "unc": 36.0,
+    "cr": 500799.0,
+    "cw": 21422.0,
+    "calls": 36.0
+  },
+  "constraints-scheduling": {
+    "reward": 1.0,
+    "t": 62.0,
+    "out": 4386.0,
+    "unc": 13.0,
+    "cr": 160801.0,
+    "cw": 10535.0,
+    "calls": 16.0
+  },
+  "openssl-selfsigned-cert": {
+    "reward": 1.0,
+    "t": 81.0,
+    "out": 5323.0,
+    "unc": 19.0,
+    "cr": 211625.0,
+    "cw": 6345.0,
+    "calls": 17.0
+  },
+  "chess-best-move": {
+    "reward": 1.0,
+    "t": 85.0,
+    "out": 5183.0,
+    "unc": 19.0,
+    "cr": 213956.0,
+    "cw": 8663.0,
+    "calls": 18.0
+  },
+  "build-pov-ray": {
+    "reward": 1.0,
+    "t": 512.0,
+    "out": 23696.0,
+    "unc": 93.0,
+    "cr": 2407367.0,
+    "cw": 52561.0,
+    "calls": 109.0
+  },
+  "modernize-scientific-stack": {
+    "reward": 1.0,
+    "t": 64.0,
+    "out": 4018.0,
+    "unc": 10.0,
+    "cr": 104757.0,
+    "cw": 8952.0,
+    "calls": 13.0
+  },
+  "log-summary-date-ranges": {
+    "reward": 1.0,
+    "t": 46.0,
+    "out": 2382.0,
+    "unc": 12.0,
+    "cr": 120699.0,
+    "cw": 6012.0,
+    "calls": 11.0
+  },
+  "financial-document-processor": {
+    "reward": 1.0,
+    "t": 88.0,
+    "out": 4944.0,
+    "unc": 20.0,
+    "cr": 542893.0,
+    "cw": 63820.0,
+    "calls": 33.0
+  },
+  "compile-compcert": {
+    "reward": 1.0,
+    "t": 1799.0,
+    "out": 11247.0,
+    "unc": 53.0,
+    "cr": 769260.0,
+    "cw": 20681.0,
+    "calls": 52.0
+  },
+  "torch-pipeline-parallelism": {
+    "reward": 1.0,
+    "t": 385.0,
+    "out": 30963.0,
+    "unc": 28.0,
+    "cr": 575997.0,
+    "cw": 36761.0,
+    "calls": 33.0
+  },
+  "sqlite-with-gcov": {
+    "reward": 1.0,
+    "t": 267.0,
+    "out": 7786.0,
+    "unc": 42.0,
+    "cr": 546815.0,
+    "cw": 15809.0,
+    "calls": 41.0
+  },
+  "regex-log": {
+    "reward": 1.0,
+    "t": 119.0,
+    "out": 9155.0,
+    "unc": 14.0,
+    "cr": 160473.0,
+    "cw": 11064.0,
+    "calls": 15.0
+  },
+  "feal-linear-cryptanalysis": {
+    "reward": 1.0,
+    "t": 149.0,
+    "out": 11696.0,
+    "unc": 12.0,
+    "cr": 156243.0,
+    "cw": 18297.0,
+    "calls": 14.0
+  },
+  "git-leak-recovery": {
+    "reward": 1.0,
+    "t": 82.0,
+    "out": 5063.0,
+    "unc": 21.0,
+    "cr": 233414.0,
+    "cw": 9565.0,
+    "calls": 24.0
+  },
+  "protein-assembly": {
+    "reward": 0.0,
+    "t": 533.0,
+    "out": 23933.0,
+    "unc": 1388.0,
+    "cr": 558000.0,
+    "cw": 43768.0,
+    "calls": 40.0
+  },
+  "llm-inference-batching-scheduler": {
+    "reward": 1.0,
+    "t": 474.0,
+    "out": 34099.0,
+    "unc": 4039.0,
+    "cr": 810696.0,
+    "cw": 61086.0,
+    "calls": 39.0
+  },
+  "model-extraction-relu-logits": {
+    "reward": 1.0,
+    "t": 162.0,
+    "out": 9849.0,
+    "unc": 19.0,
+    "cr": 249273.0,
+    "cw": 14717.0,
+    "calls": 20.0
+  },
+  "hf-model-inference": {
+    "reward": 1.0,
+    "t": 142.0,
+    "out": 2906.0,
+    "unc": 17.0,
+    "cr": 182708.0,
+    "cw": 6275.0,
+    "calls": 14.0
+  },
+  "build-pmars": {
+    "reward": 1.0,
+    "t": 161.0,
+    "out": 6615.0,
+    "unc": 43.0,
+    "cr": 637255.0,
+    "cw": 21789.0,
+    "calls": 46.0
+  },
+  "build-cython-ext": {
+    "reward": 1.0,
+    "t": 598.0,
+    "out": 29763.0,
+    "unc": 119.0,
+    "cr": 3528352.0,
+    "cw": 79391.0,
+    "calls": 107.0
+  },
+  "reshard-c4-data": {
+    "reward": 1.0,
+    "t": 1115.0,
+    "out": 38770.0,
+    "unc": 70.0,
+    "cr": 1620150.0,
+    "cw": 47827.0,
+    "calls": 72.0
+  },
+  "feal-differential-cryptanalysis": {
+    "reward": 1.0,
+    "t": 188.0,
+    "out": 10947.0,
+    "unc": 14.0,
+    "cr": 163739.0,
+    "cw": 14596.0,
+    "calls": 15.0
+  },
+  "rstan-to-pystan": {
+    "reward": 1.0,
+    "t": 622.0,
+    "out": 8190.0,
+    "unc": 32.0,
+    "cr": 483645.0,
+    "cw": 19251.0,
+    "calls": 29.0
+  },
+  "sparql-university": {
+    "reward": 1.0,
+    "t": 128.0,
+    "out": 8523.0,
+    "unc": 17.0,
+    "cr": 243061.0,
+    "cw": 17757.0,
+    "calls": 19.0
+  },
+  "extract-elf": {
+    "reward": 0.0,
+    "t": 317.0,
+    "out": 21611.0,
+    "unc": 21.0,
+    "cr": 323557.0,
+    "cw": 28483.0,
+    "calls": 26.0
+  },
+  "bn-fit-modify": {
+    "reward": 1.0,
+    "t": 112.0,
+    "out": 5267.0,
+    "unc": 21.0,
+    "cr": 237375.0,
+    "cw": 10938.0,
+    "calls": 19.0
+  },
+  "configure-git-webserver": {
+    "reward": 1.0,
+    "t": 211.0,
+    "out": 8364.0,
+    "unc": 38.0,
+    "cr": 466638.0,
+    "cw": 13132.0,
+    "calls": 36.0
+  },
+  "large-scale-text-editing": {
+    "reward": 1.0,
+    "t": 375.0,
+    "out": 18091.0,
+    "unc": 26.0,
+    "cr": 380109.0,
+    "cw": 22268.0,
+    "calls": 32.0
+  },
+  "kv-store-grpc": {
+    "reward": 1.0,
+    "t": 58.0,
+    "out": 3105.0,
+    "unc": 17.0,
+    "cr": 190457.0,
+    "cw": 3982.0,
+    "calls": 14.0
+  },
+  "crack-7z-hash": {
+    "reward": 1.0,
+    "t": 235.0,
+    "out": 10385.0,
+    "unc": 42.0,
+    "cr": 558331.0,
+    "cw": 19599.0,
+    "calls": 44.0
+  },
+  "polyglot-rust-c": {
+    "reward": 1.0,
+    "t": 251.0,
+    "out": 18072.0,
+    "unc": 19.0,
+    "cr": 300872.0,
+    "cw": 22039.0,
+    "calls": 20.0
+  },
+  "dna-insert": {
+    "reward": 1.0,
+    "t": 270.0,
+    "out": 19374.0,
+    "unc": 27.0,
+    "cr": 429025.0,
+    "cw": 32055.0,
+    "calls": 24.0
+  },
+  "make-mips-interpreter": {
+    "reward": 1.0,
+    "t": 1543.0,
+    "out": 84472.0,
+    "unc": 169.0,
+    "cr": 9499489.0,
+    "cw": 145580.0,
+    "calls": 147.0
+  },
+  "cancel-async-tasks": {
+    "reward": 1.0,
+    "t": 137.0,
+    "out": 10165.0,
+    "unc": 14.0,
+    "cr": 164928.0,
+    "cw": 12615.0,
+    "calls": 13.0
+  },
+  "caffe-cifar-10": {
+    "reward": 1.0,
+    "t": 2657.0,
+    "out": 17599.0,
+    "unc": 67.0,
+    "cr": 1292984.0,
+    "cw": 35342.0,
+    "calls": 74.0
+  },
+  "nginx-request-logging": {
+    "reward": 1.0,
+    "t": 64.0,
+    "out": 2816.0,
+    "unc": 19.0,
+    "cr": 208622.0,
+    "cw": 7607.0,
+    "calls": 18.0
+  },
+  "tune-mjcf": {
+    "reward": 1.0,
+    "t": 345.0,
+    "out": 15078.0,
+    "unc": 28.0,
+    "cr": 432142.0,
+    "cw": 23377.0,
+    "calls": 34.0
+  },
+  "custom-memory-heap-crash": {
+    "reward": 1.0,
+    "t": 116.0,
+    "out": 6073.0,
+    "unc": 229.0,
+    "cr": 360471.0,
+    "cw": 17880.0,
+    "calls": 25.0
+  },
+  "fix-code-vulnerability": {
+    "reward": 1.0,
+    "t": 37.0,
+    "out": 1740.0,
+    "unc": 12.0,
+    "cr": 120972.0,
+    "cw": 9591.0,
+    "calls": 11.0
+  },
+  "gcode-to-text": {
+    "reward": 1.0,
+    "t": 271.0,
+    "out": 16448.0,
+    "unc": 37.0,
+    "cr": 690566.0,
+    "cw": 39377.0,
+    "calls": 46.0
+  },
+  "git-multibranch": {
+    "reward": 1.0,
+    "t": 234.0,
+    "out": 13127.0,
+    "unc": 56.0,
+    "cr": 776037.0,
+    "cw": 18705.0,
+    "calls": 55.0
+  },
+  "torch-tensor-parallelism": {
+    "reward": 1.0,
+    "t": 95.0,
+    "out": 7495.0,
+    "unc": 12.0,
+    "cr": 124136.0,
+    "cw": 7116.0,
+    "calls": 11.0
+  },
+  "portfolio-optimization": {
+    "reward": 1.0,
+    "t": 154.0,
+    "out": 10282.0,
+    "unc": 19.0,
+    "cr": 275384.0,
+    "cw": 18578.0,
+    "calls": 22.0
+  },
+  "sqlite-db-truncate": {
+    "reward": 1.0,
+    "t": 92.0,
+    "out": 6408.0,
+    "unc": 13.0,
+    "cr": 148329.0,
+    "cw": 9939.0,
+    "calls": 15.0
+  },
+  "mailman": {
+    "reward": 1.0,
+    "t": 725.0,
+    "out": 22169.0,
+    "unc": 70.0,
+    "cr": 1973337.0,
+    "cw": 57385.0,
+    "calls": 76.0
+  },
+  "video-processing": {
+    "reward": 1.0,
+    "t": 1252.0,
+    "out": 40275.0,
+    "unc": 95.0,
+    "cr": 2625246.0,
+    "cw": 70335.0,
+    "calls": 86.0
+  },
+  "vulnerable-secret": {
+    "reward": 1.0,
+    "t": 78.0,
+    "out": 4369.0,
+    "unc": 21.0,
+    "cr": 244340.0,
+    "cw": 13097.0,
+    "calls": 27.0
+  },
+  "pytorch-model-recovery": {
+    "reward": 1.0,
+    "t": 111.0,
+    "out": 4155.0,
+    "unc": 8.0,
+    "cr": 82780.0,
+    "cw": 8839.0,
+    "calls": 9.0
+  },
+  "query-optimize": {
+    "reward": 0.0,
+    "t": 310.0,
+    "out": 4950.0,
+    "unc": 17.0,
+    "cr": 204639.0,
+    "cw": 10635.0,
+    "calls": 16.0
+  },
+  "code-from-image": {
+    "reward": 1.0,
+    "t": 17.0,
+    "out": 678.0,
+    "unc": 8.0,
+    "cr": 76261.0,
+    "cw": 4428.0,
+    "calls": 7.0
+  },
+  "overfull-hbox": {
+    "reward": 1.0,
+    "t": 128.0,
+    "out": 7705.0,
+    "unc": 23.0,
+    "cr": 311856.0,
+    "cw": 19044.0,
+    "calls": 25.0
+  },
+  "password-recovery": {
+    "reward": 1.0,
+    "t": 191.0,
+    "out": 12447.0,
+    "unc": 30.0,
+    "cr": 436365.0,
+    "cw": 24213.0,
+    "calls": 32.0
+  },
+  "path-tracing": {
+    "reward": 1.0,
+    "t": 238.0,
+    "out": 17544.0,
+    "unc": 38.0,
+    "cr": 668840.0,
+    "cw": 52085.0,
+    "calls": 36.0
+  },
+  "multi-source-data-merger": {
+    "reward": 1.0,
+    "t": 56.0,
+    "out": 4616.0,
+    "unc": 10.0,
+    "cr": 101196.0,
+    "cw": 8435.0,
+    "calls": 9.0
+  },
+  "winning-avg-corewars": {
+    "reward": 1.0,
+    "t": 2307.0,
+    "out": 150987.0,
+    "unc": 90.0,
+    "cr": 5415024.0,
+    "cw": 176092.0,
+    "calls": 81.0
+  },
+  "prove-plus-comm": {
+    "reward": 1.0,
+    "t": 33.0,
+    "out": 1823.0,
+    "unc": 12.0,
+    "cr": 113398.0,
+    "cw": 7363.0,
+    "calls": 11.0
+  },
+  "cobol-modernization": {
+    "reward": 1.0,
+    "t": 559.0,
+    "out": 40437.0,
+    "unc": 53.0,
+    "cr": 1220271.0,
+    "cw": 55723.0,
+    "calls": 56.0
+  },
+  "raman-fitting": {
+    "reward": 0.0,
+    "t": 273.0,
+    "out": 15570.0,
+    "unc": 40.0,
+    "cr": 559851.0,
+    "cw": 24717.0,
+    "calls": 35.0
+  },
+  "mteb-retrieve": {
+    "reward": 0.0,
+    "t": 151.0,
+    "out": 4004.0,
+    "unc": 23.0,
+    "cr": 249533.0,
+    "cw": 8265.0,
+    "calls": 19.0
+  },
+  "polyglot-c-py": {
+    "reward": 1.0,
+    "t": 213.0,
+    "out": 11502.0,
+    "unc": 23.0,
+    "cr": 299671.0,
+    "cw": 15304.0,
+    "calls": 24.0
+  },
+  "sam-cell-seg": {
+    "reward": 1.0,
+    "t": 5188.0,
+    "out": 64830.0,
+    "unc": 139.0,
+    "cr": 5418050.0,
+    "cw": 100139.0,
+    "calls": 132.0
+  },
+  "headless-terminal": {
+    "reward": 1.0,
+    "t": 231.0,
+    "out": 12804.0,
+    "unc": 36.0,
+    "cr": 491001.0,
+    "cw": 17650.0,
+    "calls": 34.0
+  },
+  "write-compressor": {
+    "reward": 1.0,
+    "t": 359.0,
+    "out": 27456.0,
+    "unc": 23.0,
+    "cr": 436409.0,
+    "cw": 29465.0,
+    "calls": 26.0
+  },
+  "break-filter-js-from-html": {
+    "reward": 1.0,
+    "t": 164.0,
+    "out": 10456.0,
+    "unc": 11.0,
+    "cr": 147106.0,
+    "cw": 12898.0,
+    "calls": 17.0
+  },
+  "distribution-search": {
+    "reward": 1.0,
+    "t": 147.0,
+    "out": 10707.0,
+    "unc": 15.0,
+    "cr": 201261.0,
+    "cw": 14297.0,
+    "calls": 16.0
+  },
+  "qemu-alpine-ssh": {
+    "reward": 1.0,
+    "t": 420.0,
+    "out": 8980.0,
+    "unc": 40.0,
+    "cr": 894596.0,
+    "cw": 36190.0,
+    "calls": 37.0
+  },
+  "pypi-server": {
+    "reward": 1.0,
+    "t": 73.0,
+    "out": 3451.0,
+    "unc": 21.0,
+    "cr": 236000.0,
+    "cw": 5343.0,
+    "calls": 21.0
+  },
+  "circuit-fibsqrt": {
+    "reward": 1.0,
+    "t": 514.0,
+    "out": 29086.0,
+    "unc": 21.0,
+    "cr": 465893.0,
+    "cw": 37059.0,
+    "calls": 22.0
+  },
+  "fix-ocaml-gc": {
+    "reward": 1.0,
+    "t": 631.0,
+    "out": 11565.0,
+    "unc": 87.0,
+    "cr": 1403752.0,
+    "cw": 66308.0,
+    "calls": 48.0
+  },
+  "mteb-leaderboard": {
+    "reward": 1.0,
+    "t": 842.0,
+    "out": 8609.0,
+    "unc": 44.0,
+    "cr": 691934.0,
+    "cw": 29070.0,
+    "calls": 43.0
+  },
+  "mcmc-sampling-stan": {
+    "reward": 1.0,
+    "t": 1800.0,
+    "out": 15888.0,
+    "unc": 40.0,
+    "cr": 881105.0,
+    "cw": 50399.0,
+    "calls": 63.0
+  },
+  "db-wal-recovery": {
+    "reward": 0.0,
+    "t": 260.0,
+    "out": 17943.0,
+    "unc": 37.0,
+    "cr": 587890.0,
+    "cw": 27618.0,
+    "calls": 50.0
+  }
+}

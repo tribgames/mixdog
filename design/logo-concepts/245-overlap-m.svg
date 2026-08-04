@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="60" fill="#0e1013"/>
+  <g style="mix-blend-mode:screen">
+    <path d="M36 192l56-92 56 92z" fill="#3f6bff" opacity=".9"/>
+    <path d="M108 192l56-92 56 92z" fill="#f4f6f9" opacity=".85"/>
+  </g>
+</svg>

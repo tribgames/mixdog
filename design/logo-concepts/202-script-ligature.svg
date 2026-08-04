@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 160">
+  <rect width="560" height="160" rx="28" fill="#12141a"/>
+  <text x="46" y="106" font-family="'Segoe Script','Brush Script MT','Ink Free',cursive" font-size="82" fill="#f2f4f7">mixdog</text>
+  <path d="M46 124c86 16 210 14 300-6" fill="none" stroke="#5b8cff" stroke-width="6" stroke-linecap="round"/>
+</svg>

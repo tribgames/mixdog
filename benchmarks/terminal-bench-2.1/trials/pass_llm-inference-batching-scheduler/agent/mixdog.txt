@@ -1,0 +1,11 @@
+(node:1143) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1143_1783252341350_1783252341520_226e419a73f210731b350655ecab03fb
+Done — both plans are written and pass every threshold and constraint against the exact evaluation cost model.
+
+- **Approach**: nested DP — cluster requests by gen_len with a padding penalty λ, split each cluster by aligned prompt length, and weight each batch's max latency by μ to trade cost slack for sequential timecost; grid-searched (λ, μ) and picked the plan maximizing the worst relative margin. One shape per bucket (2048 and 704, 2 unique ≤ 8) minimizes compile cost since batch metrics only depend on request alignment.
+
+- **Results**: `plan_b1.jsonl` cost 2.88e11 (<3.0e11), pad 0.0517 (<0.055), p95 2.04e6 (<2.1e6), seq 2.22e8 (<2.7e8); `plan_b2.jsonl` cost 4.30e10 (<4.8e10), pad 0.1377 (<0.15), p95 1.92e5 (<2.1e5), seq 3.04e7 (<3.2e7).
+
+- **Verified**: full request coverage with no duplicates, identical shapes within each batch, seq_align multiples of 64 ≥ each aligned prompt, and input files untouched; solver kept at `scripts/solve.py` for reproducibility.

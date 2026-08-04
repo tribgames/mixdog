@@ -1,0 +1,2 @@
+jobs=jobs-quick4-opus5-20260803-172106
+log=quick4-opus5-20260803-172106.log

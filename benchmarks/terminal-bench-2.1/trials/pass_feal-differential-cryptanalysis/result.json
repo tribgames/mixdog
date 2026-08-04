@@ -1,0 +1,110 @@
+{
+    "id": "ac3900d2-2a9a-40ae-8a81-0712820032cd",
+    "task_name": "terminal-bench/feal-differential-cryptanalysis",
+    "trial_name": "feal-differential-cryptanalysis__zn6ogEV",
+    "trial_uri": "file:///C:/Project/mixdog/bench/harbor/jobs-21-infra-retry/2026-07-05__23-08-26/feal-differential-cryptanalysis__zn6ogEV",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "feal-differential-cryptanalysis",
+        "ref": "sha256:8ea56995fcc43fb94f0e4e15adb12dd28836bf3e9c766b2cc7ae78a7ce90341f"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "edacb57935c0b4181a115ac309d3b0e7c26c7cf49ccadf69762822068445df78",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/feal-differential-cryptanalysis",
+            "ref": "sha256:8ea56995fcc43fb94f0e4e15adb12dd28836bf3e9c766b2cc7ae78a7ce90341f",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "feal-differential-cryptanalysis__zn6ogEV",
+        "trials_dir": "bench\\harbor\\jobs-21-infra-retry\\2026-07-05__23-08-26",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "bench.harbor.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "96810f0f-b046-47fb-96bc-681256286817"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.18",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-07-05T14:49:15.581195Z",
+    "finished_at": "2026-07-05T14:56:12.187400Z",
+    "environment_setup": {
+        "started_at": "2026-07-05T14:49:15.876894Z",
+        "finished_at": "2026-07-05T14:49:19.273088Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-07-05T14:49:19.273103Z",
+        "finished_at": "2026-07-05T14:50:25.456189Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-07-05T14:50:25.456229Z",
+        "finished_at": "2026-07-05T14:55:29.250391Z"
+    },
+    "verifier": {
+        "started_at": "2026-07-05T14:55:29.251549Z",
+        "finished_at": "2026-07-05T14:56:07.470229Z"
+    },
+    "step_results": null
+}

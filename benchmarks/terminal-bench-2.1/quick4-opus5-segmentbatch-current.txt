@@ -1,0 +1,2 @@
+jobs=jobs-quick4-opus5-segmentbatch-20260803-182650
+snapshot=C:\Users\tempe\AppData\Local\Temp\mixdog-tb-src-segmentbatch-40a546341f14472585e8bece86fa80b1
