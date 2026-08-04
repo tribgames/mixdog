@@ -24,6 +24,7 @@ import {
   paneActiveSelection,
   paneLeafRelativeRect,
   paneLeaves,
+  paneLeavesInVisualOrder,
   paneNodeMinimumSize,
   parsePaneLayout,
   pinTabInPaneLeaf,
@@ -59,6 +60,33 @@ test("splitPaneLeaf replaces the leaf with a split and keeps reading order", () 
   assert.equal(root.second.ratio, 0.3);
   // Missing leaf ids leave the tree untouched (same reference).
   assert.equal(splitPaneLeaf(root, "missing", "row", createPaneLeaf(session("x"))), root);
+});
+
+test("visual pane order crosses the current lane before moving downward", () => {
+  const topLeft = createPaneLeaf(session("top-left"), "leaf_top_left");
+  const bottomLeft = createPaneLeaf(session("bottom-left"), "leaf_bottom_left");
+  const topRight = createPaneLeaf(session("top-right"), "leaf_top_right");
+  const bottomRight = createPaneLeaf(session("bottom-right"), "leaf_bottom_right");
+  const left = splitPaneLeaf(topLeft, topLeft.id, "column", bottomLeft);
+  const right = splitPaneLeaf(topRight, topRight.id, "column", bottomRight);
+  const grid = {
+    type: "split",
+    direction: "row",
+    ratio: 0.5,
+    first: left,
+    second: right,
+  };
+
+  assert.deepEqual(
+    paneLeaves(grid).map((leaf) => leaf.id),
+    ["leaf_top_left", "leaf_bottom_left", "leaf_top_right", "leaf_bottom_right"],
+    "binary-tree order is column-major for independently stacked columns",
+  );
+  assert.deepEqual(
+    paneLeavesInVisualOrder(grid).map((leaf) => leaf.id),
+    ["leaf_top_left", "leaf_top_right", "leaf_bottom_left", "leaf_bottom_right"],
+    "pane focus must follow visual row-major order",
+  );
 });
 
 test("splitPaneLeaf has no product-level pane ceiling", () => {

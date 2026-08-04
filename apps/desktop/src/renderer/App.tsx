@@ -48,6 +48,7 @@ import {
 import {
   canSplitPaneSize,
   paneActiveSelection,
+  paneLeavesInVisualOrder,
   type PaneLeaf,
 } from "./pane-layout";
 import { usePaneWorkspace } from "./pane-workspace-state";
@@ -62,7 +63,11 @@ import {
   shouldPromoteDraftMaterialization,
   startupRestorePlan
 } from "./renderer-logic.mjs";
-import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store";
+import {
+  applyFocusedSnapshotToSessionLane,
+  defaultSessionLaneStore,
+  useSessionLane,
+} from "./session-lane-store";
 import {
   getSidePanelMode,
   sidePanelLayout,
@@ -1170,7 +1175,10 @@ export function App() {
   const frozenSeedFor = (targetSessionId: string): Snapshot =>
     availableFrozenSeedFor(targetSessionId)
     || { ...EMPTY_SNAPSHOT, sessionId: targetSessionId };
-  const newTaskReady = useRef(false);
+  // The prepared host route belongs to ONE draft. A process-wide boolean let
+  // a fresh split inherit an older draft's readiness and submit into the
+  // currently active session instead of materializing its own session.
+  const newTaskReady = useRef("");
   const newTaskSetup = useRef<{
     key: string;
     promise: Promise<EngineSnapshot>;
@@ -1691,7 +1699,7 @@ export function App() {
     }
     resetNewTaskDraft(storedProject);
     activateSelection({ kind: "new" }, "New task");
-    newTaskReady.current = false;
+    newTaskReady.current = "";
     setNewTaskActive(false);
     settleStartup();
   }, [
@@ -1826,7 +1834,7 @@ export function App() {
         { kind: "session", id: actualSessionId },
         sessionSummaryTitle(actualSession),
       );
-      newTaskReady.current = false;
+      newTaskReady.current = "";
       setNewTaskActive(false);
     } else if (actualProject) {
       const project = projects.find((item) => item.path === actualProject);
@@ -1834,16 +1842,16 @@ export function App() {
         { kind: "project", path: actualProject },
         project?.alias?.trim() || project?.name?.trim() || displayProject(actualProject).name || "Project",
       );
-      newTaskReady.current = false;
+      newTaskReady.current = "";
       setNewTaskActive(false);
     } else if (actualSessionId) {
       activateSelection({ kind: "new" }, "New task");
       clearNewTaskPreferences();
-      newTaskReady.current = true;
+      newTaskReady.current = navigationKey(selectionRef.current);
       setNewTaskActive(true);
     } else {
       activateSelection({ kind: "new" }, "New task");
-      newTaskReady.current = false;
+      newTaskReady.current = "";
       setNewTaskActive(false);
     }
   };
@@ -1874,7 +1882,9 @@ export function App() {
     refreshSessionsBestEffort,
     beginNavigation: () => { navigationEpoch.current += 1; },
     setNewTaskActive,
-    markNewTaskReady: (ready) => { newTaskReady.current = ready; },
+    markNewTaskReady: (ready) => {
+      newTaskReady.current = ready ? navigationKey(selectionRef.current) : "";
+    },
     stageNewTaskProject,
     focusComposer: () => setComposerFocusRequest((value) => value + 1),
   });
@@ -1961,7 +1971,7 @@ export function App() {
       // Only the draft this navigation lands on is disarmed; another draft's
       // in-flight submit keeps its own record.
       releaseDraftMaterializationsFor(navigationKey({ kind: "new" }));
-      newTaskReady.current = true;
+      newTaskReady.current = navigationKey(selectionRef.current);
       setNewTaskActive(true);
       setRequestedSessionId("");
       activeResumeTarget.current = "";
@@ -2065,7 +2075,7 @@ export function App() {
     // engine when the boot draft has never been prepared.
     if (revisit || alreadyActive) return;
     releaseDraftMaterializationsFor(navigationKey(nextSelection));
-    newTaskReady.current = false;
+    newTaskReady.current = "";
     setNewTaskActive(false);
     // A parked draft tab survives session switches (user decision): pressing
     // New task again opens a fresh tab that inherits its staged
@@ -2246,7 +2256,7 @@ export function App() {
           // switching sessions must not close New task). Any prepared draft
           // engine state now belongs to the resumed session, so the parked
           // draft reverts to an unprepared one.
-          newTaskReady.current = false;
+          newTaskReady.current = "";
           setNewTaskActive(false);
           if (resumedSessionId && resumedSessionId !== sessionId) refreshSessionsBestEffort();
         }
@@ -2354,6 +2364,7 @@ export function App() {
     const host = window.mixdogDesktop;
     if (!host) return false;
     const draftKey = selection.kind === "new" ? navigationKey(selection) : "";
+    const draftReady = Boolean(draftKey) && newTaskReady.current === draftKey;
     const submitEpoch = navigationEpoch.current;
     const draftStillSelected = () => selectionRef.current.kind === "new"
       && navigationKey(selectionRef.current) === draftKey
@@ -2385,7 +2396,7 @@ export function App() {
       : "";
     let atomicNewTask = false;
     try {
-      if (selection.kind === "new" && !newTaskReady.current && host.submitNewTask) {
+      if (selection.kind === "new" && !draftReady && host.submitNewTask) {
         atomicNewTask = true;
         const result = await host.submitNewTask(content, options, {
           ...(newTaskProjectPathRef.current
@@ -2401,6 +2412,55 @@ export function App() {
         });
         accepted = result.accepted;
         startedSessionId = result.accepted ? result.sessionId : "";
+        // Seed the materialized session's lane with the acknowledgement frame
+        // BEFORE the pane switches its route onto the new sessionId. Without
+        // it the promoted pane has no lane for one publication interval and
+        // the "Loading conversation…" cover flashes over the first prompt
+        // (user: 첫 프롬 치면 로딩이 한 번 들어옴).
+        // The engine acknowledges BEFORE the user item lands in its
+        // transcript, so an empty-items ack seeded a blank thread for the
+        // first publication interval (measured ~2s: optimistic row cleared on
+        // the key switch, nothing behind it — user: 첫 프롬 직후 잠시 빈
+        // 화면). Synthesize the submitted user row into the seed; the first
+        // authoritative lane frame replaces it wholesale.
+        if (result.accepted && String(asRecord(result.snapshot)?.sessionId || "")) {
+          const ackRecord = asRecord(result.snapshot) || {};
+          const ackItems = Array.isArray(ackRecord.items) ? ackRecord.items : [];
+          const seededText = String(options?.displayText
+            || (typeof content === "string" ? content : "")).trim();
+          const ackSpinner = asRecord(ackRecord.spinner);
+          const spinnerActive = Boolean(ackSpinner) && ackSpinner?.active !== false;
+          const needsItems = ackItems.length === 0 && Boolean(seededText);
+          // The spinner must survive the promotion frame too: a seed without
+          // an active spinner unmounted the thinking indicator for one
+          // publication interval and it visibly re-created itself (user:
+          // 띵킹 스피너가 사라졌다 다시 생성됨).
+          const seed = !needsItems && spinnerActive
+            ? result.snapshot
+            : {
+              ...ackRecord,
+              ...(needsItems
+                ? {
+                  items: [{
+                    id: String(options?.id || `desktop-seed-${Date.now()}`),
+                    kind: "user",
+                    text: seededText,
+                  }],
+                }
+                : {}),
+              busy: true,
+              ...(spinnerActive ? {} : {
+                spinner: {
+                  active: true,
+                  mode: "requesting",
+                  startedAt: Number(options?.submittedAt) || Date.now(),
+                },
+              }),
+            };
+          applyFocusedSnapshotToSessionLane(seed as Snapshot, defaultSessionLaneStore, {
+            source: "renderer-result",
+          });
+        }
         if (result.accepted && draftStillSelected()) {
           // Only adopt the acknowledgement snapshot when it already carries
           // the materialized session. A rare id-wait timeout returns a blank
@@ -2410,12 +2470,12 @@ export function App() {
             applySnapshot(result.snapshot);
           }
           clearNewTaskPreferences();
-          newTaskReady.current = true;
+          newTaskReady.current = draftKey;
           setNewTaskActive(true);
           setNewTaskDeferred(false);
         }
       } else {
-        if (selection.kind === "new" && !newTaskReady.current) {
+        if (selection.kind === "new" && !draftReady) {
           const activeKey = navigationKey(selectionRef.current);
           let pendingSetup = newTaskSetup.current?.key === activeKey
             ? newTaskSetup.current
@@ -2446,8 +2506,16 @@ export function App() {
             && (startedRecord?.items as unknown[]).length > 0
             && Boolean(startedRecord?.sessionId);
           applySnapshot(staleSetup ? null : started);
+          // Same lane seed for the legacy two-step path: the fresh session's
+          // (possibly empty) frame counts as surface-ready — there is nothing
+          // else to load behind a cover.
+          if (!staleSetup && String(startedRecord?.sessionId || "")) {
+            applyFocusedSnapshotToSessionLane(started as Snapshot, defaultSessionLaneStore, {
+              source: "renderer-result",
+            });
+          }
           clearNewTaskPreferences();
-          newTaskReady.current = true;
+          newTaskReady.current = draftKey;
           setNewTaskActive(true);
           setNewTaskDeferred(false);
         } else if (selection.kind === "new") {
@@ -2552,6 +2620,67 @@ export function App() {
     }
     return accepted;
   }, [activateSelection, applySnapshot, clearNewTaskPreferences, isBusy, refreshSettledSession, selection, setRemoteEnabled, snapshot.sessionId, snapshotStore]);
+  // Split panes: a session pane's prompt path is addressed by ITS sessionId,
+  // never by the globally active selection. Snapshot lanes are already
+  // pane-local; routing every submit through the active route made a focused
+  // pane's Enter land in — or promote onto — another pane's session, or stall
+  // silently when selection and focus disagreed (user: 다른 세션이 복사됨 /
+  // 간헐적으로 입력이 안 먹음).
+  const submitToPaneSession = useCallback(async (
+    sessionId: string,
+    content: DesktopPromptContent,
+    options?: DesktopSubmitOptions,
+  ): Promise<unknown> => {
+    const host = window.mixdogDesktop;
+    if (!host) return false;
+    if (typeof host.submitToSession !== "function") {
+      // Legacy host without session-addressed submit: the active route is the
+      // only possible target, so the global path remains correct.
+      return submit(content, options);
+    }
+    // Watchdog: a session-addressed submit that never acknowledges must fail
+    // loudly — the composer then restores the exact draft — instead of eating
+    // the prompt behind an endless "Requesting" state.
+    const PANE_SUBMIT_ACK_TIMEOUT_MS = 15_000;
+    let watchdog: number | undefined;
+    let accepted: unknown;
+    try {
+      accepted = await Promise.race([
+        host.submitToSession(sessionId, content, options),
+        new Promise<never>((_, reject) => {
+          watchdog = window.setTimeout(() => reject(new Error(
+            "The session did not acknowledge the prompt in time. Your message was restored — try again.",
+          )), PANE_SUBMIT_ACK_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (watchdog !== undefined) window.clearTimeout(watchdog);
+    }
+    if (accepted === true) refreshSettledSession();
+    return accepted;
+  }, [refreshSettledSession, submit]);
+  // Stable per-session submit identity so memoised pane trees do not
+  // re-render from a fresh closure on every App commit.
+  const paneSessionSubmitCache = useRef(new Map<string, (
+    content: DesktopPromptContent,
+    options?: DesktopSubmitOptions,
+  ) => Promise<unknown>>());
+  const submitToPaneSessionRef = useRef(submitToPaneSession);
+  submitToPaneSessionRef.current = submitToPaneSession;
+  const paneSubmitFor = (sessionId: string) => {
+    let fn = paneSessionSubmitCache.current.get(sessionId);
+    if (!fn) {
+      fn = (content, options) =>
+        submitToPaneSessionRef.current(sessionId, content, options);
+      paneSessionSubmitCache.current.set(sessionId, fn);
+      while (paneSessionSubmitCache.current.size > 32) {
+        const oldest = paneSessionSubmitCache.current.keys().next().value;
+        if (oldest === undefined) break;
+        paneSessionSubmitCache.current.delete(oldest);
+      }
+    }
+    return fn;
+  };
   const visibleSnapshot = selection.kind === "new" && !newTaskActive
     ? EMPTY_SNAPSHOT
     : snapshot;
@@ -3419,6 +3548,42 @@ export function App() {
     };
   }, [tabSwitcher, focusedLeafTabs, focusedActiveTabKey, navigateFocusedPaneTab]);
   // Global workspace shortcuts live in app-workspace-shortcuts.ts.
+  // Ctrl+T and Ctrl+` are a TOGGLE: pressing again closes the bottom terminal
+  // and hands the caret back to the focused pane (user: 다시 눌러서 닫히는 게
+  // 안 됨 — 커서가 터미널에 잡혀 있어서).
+  // Opening must land the caret INSIDE the panel terminal so typing starts
+  // immediately (user: 인터셉트는 하되 타이핑은 바로 되었으면), even though the
+  // pane-scoped focus helper cannot reach the bottom panel.
+  const panelTerminalFocusGeneration = useRef(0);
+  const focusPanelTerminal = () => {
+    const generation = ++panelTerminalFocusGeneration.current;
+    // A cold panel rebuilds xterm; retry until a VERIFIED caret lands.
+    let tries = 600;
+    const attempt = () => {
+      if (generation !== panelTerminalFocusGeneration.current) return;
+      const target = document.querySelector<HTMLTextAreaElement>(
+        ".workbench-terminal-panel .xterm-helper-textarea");
+      if (target && target.getClientRects().length > 0) {
+        target.focus({ preventScroll: true });
+        if (document.activeElement === target) return;
+      }
+      if (tries-- > 0) window.requestAnimationFrame(attempt);
+    };
+    window.requestAnimationFrame(attempt);
+  };
+  const toggleTerminalPanel = () => {
+    if (bottomPanel.open && bottomPanel.tab === "terminal") {
+      bottomPanel.setOpen(false);
+      // Cancel any pending panel focus so it cannot steal the caret back.
+      panelTerminalFocusGeneration.current += 1;
+      const leaf = paneWorkspace.leaves.find((item) => item.id === paneWorkspace.focusedLeafId);
+      if (leaf) focusPaneTypingSurface(leaf.id, paneActiveSelection(leaf));
+      return;
+    }
+    void prefetchTerminalPane().catch(() => {});
+    bottomPanel.setTab("terminal");
+    focusPanelTerminal();
+  };
   useWorkspaceShortcuts({
     tabs: focusedLeafTabs,
     // File-editor tabs live in the same strip: cycling and mod+W must anchor
@@ -3428,7 +3593,7 @@ export function App() {
     navigateTab: navigateFocusedPaneTab,
     // Alt+Left/Right: reading-order pane focus cycle across every group.
     focusSiblingPane: (offset: number) => {
-      const leaves = paneWorkspace.leaves;
+      const leaves = paneLeavesInVisualOrder(paneWorkspace.layout);
       if (leaves.length < 2) return;
       const index = leaves.findIndex((leaf) => leaf.id === paneWorkspace.focusedLeafId);
       const next = leaves[(index + offset + leaves.length) % leaves.length];
@@ -3445,10 +3610,7 @@ export function App() {
     toggleSidebar,
     toggleDock,
     togglePanel: bottomPanel.toggle,
-    openTerminalPanel: () => {
-      void prefetchTerminalPane().catch(() => {});
-      bottomPanel.setTab("terminal");
-    },
+    openTerminalPanel: toggleTerminalPanel,
     openQuickAccess: () => setQuickAccessMode("files"),
     openCommandPalette: () => setQuickAccessMode("commands"),
     openFindInFiles: () => {
@@ -3481,7 +3643,6 @@ export function App() {
       id: "workbench.action.navigateBack",
       category: "Go",
       label: "Go Back",
-      shortcut: "Alt+Left",
       enabled: editorNavigationHistory.current.index > 0,
       run: () => navigateEditorHistory(-1),
     },
@@ -3489,7 +3650,6 @@ export function App() {
       id: "workbench.action.navigateForward",
       category: "Go",
       label: "Go Forward",
-      shortcut: "Alt+Right",
       enabled: editorNavigationHistory.current.index >= 0
         && editorNavigationHistory.current.index < editorNavigationHistory.current.entries.length - 1,
       run: () => navigateEditorHistory(1),
@@ -3587,11 +3747,8 @@ export function App() {
       id: "workbench.action.terminal.toggleTerminal",
       category: "Terminal",
       label: "Toggle Terminal",
-      shortcut: "Ctrl+`",
-      run: () => {
-        if (bottomPanel.open && bottomPanel.tab === "terminal") bottomPanel.setOpen(false);
-        else bottomPanel.setTab("terminal");
-      },
+      shortcut: "Ctrl+` / Ctrl+T",
+      run: toggleTerminalPanel,
     },
     {
       id: "editor.action.revealDefinition",
@@ -3775,7 +3932,7 @@ export function App() {
       id: "workbench.action.toggleUtilityPanel",
       category: "View",
       label: "Toggle Utility Panel",
-      shortcut: "Ctrl+Shift+B",
+      shortcut: "Ctrl+Alt+B",
       run: toggleDock,
     },
     {
@@ -4280,7 +4437,11 @@ export function App() {
               && paneSessionId !== requestedSessionId}
             sessionScope={focused ? conversationSessionScope : undefined}
             invokeResult={invokeResult}
-            errors={errors} submit={submit} applySnapshot={applySnapshot}
+            // Session panes always submit to THEIR session; only a draft pane
+            // uses the selection-driven materialization path.
+            errors={errors}
+            submit={paneSessionId ? paneSubmitFor(paneSessionId) : submit}
+            applySnapshot={applySnapshot}
             // Pane focus is not a loading mode: the already-mounted surface
             // remains interactive while its engine route catches up.
             transitioning={false}

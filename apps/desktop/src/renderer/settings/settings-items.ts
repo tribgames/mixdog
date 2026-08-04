@@ -39,8 +39,8 @@ export const SETTINGS_ITEMS = [
 export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];
 
 export type SettingsCategory =
-  | 'general' | 'output-style'
-  | 'providers' | 'git' | 'channels' | 'connection' | 'mcp' | 'plugins' | 'hooks' | 'skills' | 'memory'
+  | 'general' | 'context' | 'output-style'
+  | 'providers' | 'git' | 'channels' | 'connection' | 'mcp' | 'plugins' | 'hooks' | 'skills'
   | 'system' | 'shortcuts' | 'about';
 
 export interface SettingsCategoryItem {
@@ -55,7 +55,16 @@ export const SETTINGS_CATEGORIES = [
     value: 'general',
     label: 'General',
     group: 'Mixdog',
-    items: ['profile', 'theme', 'autocompact', 'autoclear', 'compact-type'],
+    items: ['profile', 'theme'],
+  },
+  // Context management (user decision): auto-compact, auto-clear, and memory
+  // merged into ONE category — everything about how a session's context
+  // evolves (compaction, idle clearing, what carries over) lives here.
+  {
+    value: 'context',
+    label: 'Context',
+    group: 'Mixdog',
+    items: ['autocompact', 'compact-type', 'autoclear', 'memory'],
   },
   {
     value: 'providers',
@@ -70,12 +79,6 @@ export const SETTINGS_CATEGORIES = [
     label: 'Git',
     group: 'Integrations',
     items: [],
-  },
-  {
-    value: 'memory',
-    label: 'Memory',
-    group: 'Integrations',
-    items: ['memory'],
   },
   {
     value: 'skills',

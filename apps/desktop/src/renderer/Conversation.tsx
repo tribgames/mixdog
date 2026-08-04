@@ -58,6 +58,8 @@ export type PendingPromptItem = TranscriptItem & {
   pending: boolean;
   accepted: boolean;
   submittedAt: number;
+  queuedBehindTurn?: boolean;
+  queueAcknowledged?: boolean;
 };
 
 export type SessionScrollPosition = {
@@ -146,10 +148,14 @@ function pendingPromptImages(options?: DesktopSubmitOptions): NonNullable<Transc
 export function pendingPromptTranscriptItems(
   optimistic: PendingPromptItem[],
   settled: TranscriptItem[],
-  _queued: unknown[] = [],
+  queued: unknown[] = [],
 ): PendingPromptItem[] {
   const settledIds = new Set(settled
     .map((item) => item?.id)
+    .filter((id) => id !== undefined && id !== null)
+    .map(String));
+  const queuedIds = new Set(queued
+    .map((item) => asRecord(item)?.id)
     .filter((id) => id !== undefined && id !== null)
     .map(String));
   const byId = new Map<string, PendingPromptItem>();
@@ -159,13 +165,14 @@ export function pendingPromptTranscriptItems(
   }
   return [...byId.entries()]
     .filter(([id]) => !settledIds.has(id))
-    // Host acknowledgement transfers presentation ownership to the real
-    // transcript/engine queue. Keeping this renderer row until a matching
-    // transcript id arrived duplicated prompts when the host normalized ids.
-    .filter(([, item]) => item.accepted !== true)
-    // Before host acknowledgement the optimistic row is still pending. After
-    // a queue publication it remains the single temporary row only until the
-    // submit RPC acknowledges; the authoritative queue then takes over.
+    // A queued follow-up stays in the transcript across host acknowledgement:
+    // moving it into the composer queue changed both boxes at once and visibly
+    // kicked every script row. Once the observed queue entry drains, the
+    // authoritative user transcript takes over (even if the runtime normalized
+    // its durable id). Idle submits still release on acknowledgement.
+    .filter(([id, item]) => item.accepted !== true
+      || queuedIds.has(id)
+      || (item.queuedBehindTurn === true && item.queueAcknowledged !== true))
     .map(([, item]) => ({
       ...item,
       pending: true,
@@ -281,6 +288,24 @@ export function Conversation({
   const sessionScrollPositions = useRef(new Map<string, SessionScrollPosition>());
   const restoredTranscriptSessionKey = useRef("");
   const [optimisticPrompts, setOptimisticPrompts] = useState<PendingPromptItem[]>([]);
+  // A first submit already replaced the blank watermark with its optimistic
+  // user row. Re-applying the watermark during draft -> session promotion
+  // flashes one full-pane frame; ordinary New task -> warm session navigation
+  // still uses the compositor handoff.
+  const suppressDraftSubmitPaintHandoff = useRef(false);
+  const draftModeRef = useRef(draftMode);
+  draftModeRef.current = draftMode;
+  // Pane-local engine addressing: abort and tool approvals always target the
+  // session THIS surface renders, never the globally active route.
+  const routeSessionIdRef = useRef("");
+  routeSessionIdRef.current = String(routeSnapshot.sessionId || "");
+  const visibleWarmPaintHandoff = warmPaintHandoff
+    && !suppressDraftSubmitPaintHandoff.current;
+  useEffect(() => {
+    if (!draftMode && !warmPaintHandoff) {
+      suppressDraftSubmitPaintHandoff.current = false;
+    }
+  }, [draftMode, warmPaintHandoff]);
   const composerActions = useRef({
     submit, invokeResult, applySnapshot, onNewTask, onResumeSession,
     onOpenSessions, onOpenSettings, onOpenCommandSurface,
@@ -321,6 +346,13 @@ export function Conversation({
     disclosureVisitKey.current = transcriptSessionKey;
     resetToolDisclosureScope(transcriptSessionKey);
   }
+  const queuedPromptIds = useMemo(
+    () => new Set((Array.isArray(snapshot.queued) ? snapshot.queued : [])
+      .map((item) => asRecord(item)?.id)
+      .filter((id) => id !== undefined && id !== null)
+      .map(String)),
+    [snapshot.queued],
+  );
   const pendingPromptItems = useMemo(
     () => pendingPromptTranscriptItems(
       optimisticPrompts,
@@ -361,6 +393,18 @@ export function Conversation({
     previousTranscriptSessionKey.current = transcriptSessionKey;
     setOptimisticPrompts([]);
   }, [transcriptSessionKey]);
+  useEffect(() => {
+    if (queuedPromptIds.size === 0) return;
+    setOptimisticPrompts((current) => {
+      let changed = false;
+      const next = current.map((item) => {
+        if (item.queueAcknowledged === true || !queuedPromptIds.has(String(item.id))) return item;
+        changed = true;
+        return { ...item, queueAcknowledged: true };
+      });
+      return changed ? next : current;
+    });
+  }, [queuedPromptIds]);
   useEffect(() => {
     // Queue acknowledgement is not settlement: keep the optimistic card
     // visible (and hide only its duplicate queue row) until the same id lands
@@ -767,11 +811,10 @@ export function Conversation({
     if (!element) return;
     scrollToBottom(element, behavior);
   }, [resumeFollow, scrollToBottom]);
-  // The virtualizer object changes with streamed geometry. Route the latest
-  // jump implementation through a ref so Composer's submit callback retains
-  // identity and a 20 Hz transcript stream cannot re-render the typing tree.
-  const jumpToLatestRef = useRef(jumpToLatest);
-  jumpToLatestRef.current = jumpToLatest;
+  // Submit only re-arms follow. The aggregate ResizeObserver owns the single
+  // post-commit bottom write after the optimistic row changes DOM geometry.
+  const resumeFollowOnSubmitRef = useRef(resumeFollow);
+  resumeFollowOnSubmitRef.current = resumeFollow;
   const composerSubmit = useCallback(async (
     content: DesktopPromptContent,
     options?: DesktopSubmitOptions,
@@ -792,12 +835,14 @@ export function Conversation({
       queuedBehindTurn: queuedBehindTurnAtSubmit.current,
       ...(images.length ? { images } : {}),
     };
+    const materializingDraft = draftModeRef.current;
+    if (materializingDraft) suppressDraftSubmitPaintHandoff.current = true;
     setOptimisticPrompts((current) => [
       ...current.filter((item) => item.id !== submissionId),
       optimistic,
     ]);
     window.mixdogDesktop?.perfLog?.(`prompt-submit phase=renderer-queued id=${submissionId}`);
-    jumpToLatestRef.current("auto");
+    resumeFollowOnSubmitRef.current();
     const acceptedStartedAt = performance.now();
     let accepted: unknown;
     try {
@@ -808,30 +853,35 @@ export function Conversation({
           submittedAt: trackedSubmittedAt,
         }),
       );
-    } finally {
-      // The RPC boundary is the end of renderer ownership, whether accepted,
-      // rejected, or thrown. The host transcript/queue is authoritative from
-      // here and may intentionally use a different durable message id.
+    } catch (error) {
+      if (materializingDraft) suppressDraftSubmitPaintHandoff.current = false;
       setOptimisticPrompts((current) =>
         current.filter((item) => String(item.id) !== submissionId));
+      throw error;
     }
+    if (accepted !== true && materializingDraft) {
+      suppressDraftSubmitPaintHandoff.current = false;
+    }
+    setOptimisticPrompts((current) => current.flatMap((item) => {
+      if (String(item.id) !== submissionId) return [item];
+      return accepted === true ? [{ ...item, accepted: true }] : [];
+    }));
     window.mixdogDesktop?.perfLog?.(
       `prompt-submit phase=renderer-host-ack id=${submissionId}`
       + ` accepted=${accepted === true ? 1 : 0}`
       + ` wait=${(performance.now() - acceptedStartedAt).toFixed(0)}ms`,
     );
-    if (accepted === true) {
-      // Sending a prompt is an explicit return-to-live intent: force the
-      // bottom pin instead of only re-arming the follow flag. A stale saved
-      // scroll state or an attached-surface bulk transcript refresh could
-      // otherwise leave the view parked mid-transcript with the
-      // "Jump to latest" chip showing right after the user submits.
-      jumpToLatestRef.current("auto");
-    }
     return accepted;
   }, []);
   const composerAbort = useCallback(
-    () => composerActions.current.invokeResult(() => window.mixdogDesktop.abort()),
+    () => composerActions.current.invokeResult(() => {
+      const host = window.mixdogDesktop;
+      const sessionId = routeSessionIdRef.current;
+      if (sessionId && typeof host.abortSession === "function") {
+        return host.abortSession(sessionId);
+      }
+      return host.abort();
+    }),
     [],
   );
   const composerInvokeResult = useCallback(
@@ -856,6 +906,13 @@ export function Conversation({
 
   useLayoutEffect(() => {
     if (restoredTranscriptSessionKey.current === transcriptSessionKey) return;
+    // Invalidate the PREVIOUS key's recorded restore success the moment the
+    // route changes. A failed restore on an intermediate route (an empty New
+    // task draft has nothing to restore) used to leave the old session marked
+    // restored — returning to it skipped this pre-paint bottom write entirely
+    // and the thread painted at the top until the entry hold released ~100ms
+    // later (user: 세션 재진입/최초 진입 순간 스크립트가 위아래로 튐).
+    restoredTranscriptSessionKey.current = "";
     const element = viewport.current;
     if (!element) return;
     const saved = sessionScrollPositions.current.get(transcriptSessionKey);
@@ -1218,7 +1275,22 @@ export function Conversation({
   };
 
   return (
-    <section className={`conversation${readOnly ? " conversation-read-only" : ""}`} ref={conversation}>
+    <section className={`conversation${readOnly ? " conversation-read-only" : ""}`} ref={conversation}
+      onKeyDownCapture={readOnly ? undefined : (event) => {
+        // Typing must always land in the composer: a printable key (or the
+        // IME "Process" key starting a Korean composition) pressed while
+        // focus sits on the transcript or tool chrome refocuses the input
+        // BEFORE the character/composition commits, so keystrokes are never
+        // silently dropped (user: 간헐적으로 채팅 입력이 안 됨).
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.key.length !== 1 && event.key !== "Process") return;
+        const target = event.target as HTMLElement | null;
+        if (!target || typeof target.closest !== "function") return;
+        if (target.closest('textarea, input, select, [contenteditable="true"]')) return;
+        event.currentTarget
+          .querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Mixdog"]')
+          ?.focus({ preventScroll: true });
+      }}>
       <div className="transcript-shell">
       <div className="transcript" ref={viewport} role="log" aria-label="Conversation transcript"
         data-session-key={transcriptSessionKey}
@@ -1432,8 +1504,8 @@ export function Conversation({
               Sessions and transitions never show it. */}
           {(((draftMode || (!routeSnapshot.sessionId && Boolean(activeProjectPath)))
             && itemCount === 0 && pendingPromptItems.length === 0
-            && !streamingTail && !transitioning) || warmPaintHandoff) && (
-            <div className={`thread-welcome thread-welcome-task${warmPaintHandoff
+            && !streamingTail && !transitioning) || visibleWarmPaintHandoff) && (
+            <div className={`thread-welcome thread-welcome-task${visibleWarmPaintHandoff
               ? " thread-welcome-paint-handoff" : ""}`} aria-hidden="true">
               <span className="welcome-logo"><BrandTile crop /></span>
             </div>
@@ -1540,9 +1612,15 @@ export function Conversation({
           {!readOnly && snapshot.toolApproval && (
             <ApprovalCard key={approvalInstanceKey(snapshot.toolApproval.id)}
               approval={snapshot.toolApproval}
-              resolve={(approved) => window.mixdogDesktop.resolveToolApproval(
-                String(snapshot.toolApproval?.id || ""), { approved },
-              )} />
+              resolve={(approved) => {
+                const host = window.mixdogDesktop;
+                const sessionId = routeSessionIdRef.current;
+                const approvalId = String(snapshot.toolApproval?.id || "");
+                return sessionId
+                  && typeof host.resolveToolApprovalForSession === "function"
+                  ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
+                  : host.resolveToolApproval(approvalId, { approved });
+              }} />
           )}
         </div>
       </div>

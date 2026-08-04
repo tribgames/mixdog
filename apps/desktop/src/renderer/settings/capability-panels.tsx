@@ -46,7 +46,7 @@ export function CategoryPanel({ category, context }: {
   if (category === 'plugins') return <PluginsPanel {...context} />;
   if (category === 'hooks') return <HooksPanel {...context} />;
   if (category === 'skills') return <SkillsPanel {...context} />;
-  if (category === 'memory') return <MemoryPanel {...context} />;
+  if (category === 'context') return <ContextPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
   if (category === 'shortcuts') return <ShortcutsPanel />;
   if (category === 'connection') return <ConnectionPanel api={context.api} />;
@@ -64,8 +64,10 @@ const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [s
     ['Ctrl+W', 'Close tab'],
     ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous tab'],
     ['Ctrl+← / →', 'Switch tab'],
-    ['Ctrl+B', 'Toggle sidebar'],
-    ['Ctrl+Shift+B', 'Toggle utility panel'],
+    ['Alt+← / →', 'Switch pane'],
+    ['Ctrl+B', 'Toggle left side bar'],
+    ['Ctrl+Alt+B', 'Toggle right utility panel'],
+    ['Ctrl+` / Ctrl+T', 'Toggle terminal panel'],
     ['Ctrl+,', 'Open settings'],
     ['Esc', 'Close menus and popovers'],
   ]],
@@ -384,9 +386,6 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
 
 function GeneralPanel({ data, pending, run }: PanelContext) {
   const profile = record(data.profile);
-  const autoClear = record(data.autoClear);
-  const compaction = record(data.compaction);
-  const providerDefaults = rows(autoClear.providerDefaults);
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const busy = Boolean(pending);
   return <>
@@ -398,20 +397,6 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
         options={languageOptions} onChange={(language) => void run('setProfile', [{ language }])} />
     </Group>
         <ThemeChoices data={data} pending={pending} />
-    <Group title="Session lifecycle">
-      <ToggleRow title="Auto-compact" description="Compact automatically as the active context reaches its limit."
-        checked={compaction.auto !== false} disabled={busy} onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])} />
-      <ToggleRow title="Auto-clear" description={`Clear idle sessions after ${formatDuration(autoClear.idleMs) || 'the provider default'}.`}
-        checked={autoClear.enabled !== false} disabled={busy} onChange={(enabled) => void run('setAutoClear', [{ enabled }])} />
-      {providerDefaults.map((entry) => <AutoSaveRow key={String(entry.provider)}
-        title={`${providerDisplayName(String(entry.provider || 'default'))} idle window`}
-        name="duration" value={durationTextInput(entry.idleMs)} placeholder={durationTextInput(entry.builtInMs)}
-        required disabled={busy}
-        onSave={(duration) => void run('setAutoClear', [{ provider: entry.provider, duration }], `autoclear-${entry.provider}`)}
-        actions={Boolean(entry.custom) && <ActionButton disabled={busy} onClick={() => void run('setAutoClear', [
-          { provider: entry.provider, resetProvider: true },
-        ], `autoclear-reset-${entry.provider}`)}>Reset</ActionButton>} />)}
-    </Group>
     <SidePanelChoices pending={pending} />
   </>;
 }
@@ -685,11 +670,30 @@ function HooksPanel({ data, pending, run }: PanelContext) {
   </>;
 }
 
-function MemoryPanel({ data, pending, run, confirm }: PanelContext) {
+// Context management (user decision): ONE page owns how a session's context
+// evolves — auto-compact, idle auto-clear, and the memory that carries over.
+function ContextPanel({ data, pending, run, confirm }: PanelContext) {
   const memory = record(data.memory);
+  const autoClear = record(data.autoClear);
+  const compaction = record(data.compaction);
+  const providerDefaults = rows(autoClear.providerDefaults);
   const busy = Boolean(pending);
   return <>
-    <Group><ToggleRow title="Memory enabled" description="Enable memory recap and curated core memories."
+    <Group title="Session lifecycle">
+      <ToggleRow title="Auto-compact" description="Compact automatically as the active context reaches its limit."
+        checked={compaction.auto !== false} disabled={busy} onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])} />
+      <ToggleRow title="Auto-clear" description={`Clear idle sessions after ${formatDuration(autoClear.idleMs) || 'the provider default'}.`}
+        checked={autoClear.enabled !== false} disabled={busy} onChange={(enabled) => void run('setAutoClear', [{ enabled }])} />
+      {providerDefaults.map((entry) => <AutoSaveRow key={String(entry.provider)}
+        title={`${providerDisplayName(String(entry.provider || 'default'))} idle window`}
+        name="duration" value={durationTextInput(entry.idleMs)} placeholder={durationTextInput(entry.builtInMs)}
+        required disabled={busy}
+        onSave={(duration) => void run('setAutoClear', [{ provider: entry.provider, duration }], `autoclear-${entry.provider}`)}
+        actions={Boolean(entry.custom) && <ActionButton disabled={busy} onClick={() => void run('setAutoClear', [
+          { provider: entry.provider, resetProvider: true },
+        ], `autoclear-reset-${entry.provider}`)}>Reset</ActionButton>} />)}
+    </Group>
+    <Group title="Memory"><ToggleRow title="Memory enabled" description="Enable memory recap and curated core memories."
       checked={memory.enabled !== false} disabled={busy} onChange={(enabled) => void run('setMemoryEnabled', [enabled])} /></Group>
     <section className="settings-group core-memory-section">
       <header><h3>Core memories</h3><p>User-curated memories shared across Mixdog sessions.</p></header>

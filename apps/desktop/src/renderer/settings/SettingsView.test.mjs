@@ -353,9 +353,9 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
     'the settings rail renders without category headings');
   assert.deepEqual(SETTINGS_CATEGORIES.map((item) => item.label), [
     'General',
+    'Context',
     'Providers',
     'Git',
-    'Memory',
     'Skills',
     'MCP',
     'Plugins',
@@ -394,14 +394,8 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
   });
   assert.equal(window.localStorage.getItem('mixdog.desktop.side-panel-mode.v1'), 'keep-open');
   assert.equal(document.querySelector('.settings-theme-choice'), null);
-  assert.ok(document.querySelector('input[aria-label="Auto-clear"]'));
-  assert.ok(document.querySelector('input[aria-label="Auto-compact"]'));
-  assert.deepEqual(
-    Array.from(document.querySelectorAll('.mixdog-settings__row-title'), (node) => node.textContent)
-      .filter((title) => title === 'Auto-compact' || title === 'Auto-clear'),
-    ['Auto-compact', 'Auto-clear'],
-  );
-  assert.doesNotMatch(document.body.textContent, /Compaction strategy|Recall fast-track/);
+  assert.equal(document.querySelector('input[aria-label="Auto-clear"]'), null,
+    'session lifecycle toggles moved to the Context category');
   assert.doesNotMatch(document.body.textContent, /Zoom/);
   const title = document.querySelector('input[name="title"]');
   assert.equal(title.closest('.settings-form-row').querySelector('button') === null, true,
@@ -413,6 +407,20 @@ test('settings renders the flat settings-v2 rail and inline General groups', asy
     await Promise.resolve();
   });
   assert.ok(calls.some(([name, args]) => name === 'setProfile' && args[0]?.title === 'Builder'));
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Context').click();
+    await Promise.resolve();
+  });
+  assert.ok(document.querySelector('input[aria-label="Auto-clear"]'));
+  assert.ok(document.querySelector('input[aria-label="Auto-compact"]'));
+  assert.deepEqual(
+    Array.from(document.querySelectorAll('.mixdog-settings__row-title'), (node) => node.textContent)
+      .filter((title) => title === 'Auto-compact' || title === 'Auto-clear'),
+    ['Auto-compact', 'Auto-clear'],
+  );
+  assert.doesNotMatch(document.body.textContent, /Compaction strategy|Recall fast-track/);
+  assert.match(document.body.textContent, /Core memories/);
 });
 
 test('rail tabs swap the pane for every depth surface without subpages', async () => {
@@ -448,7 +456,7 @@ test('rail tabs swap the pane for every depth surface without subpages', async (
     ['Plugins', /Install plugin/],
     ['Hooks', /No hook rules configured/],
     ['Skills', /No skills found/],
-    ['Memory', /Core memories/],
+    ['Context', /Core memories/],
     ['System', /Run doctor/],
   ]) {
     await open(label);
@@ -512,7 +520,7 @@ test('category panes expose TUI routes, automation, memory, voice, and doctor co
     // Webhook endpoints and the relay ingress URL graduated to the main-pane
     // Webhooks page; settings keeps messaging wiring only.
     ['Channels', /Voice transcription.*Disable voice.*Telegram bot token/s],
-    ['Memory', /Core memories/],
+    ['Context', /Core memories/],
     ['System', /Run doctor/],
   ]) {
     await act(async () => {
@@ -825,6 +833,11 @@ test('inline toggles and channel cycle use the TUI capability semantics', async 
   const { api, calls } = capabilityApi();
   await renderSettings({ api });
   await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Context').click();
+    await Promise.resolve();
+  });
+  await act(async () => {
     document.querySelector('input[aria-label="Auto-compact"]').click();
     await Promise.resolve();
   });
@@ -863,7 +876,7 @@ test('channel backend change surfaces restart guidance while the remote worker r
   assert.match(document.querySelector('[role="status"]')?.textContent || '', /Channel set to Telegram\. Restart remote to apply\./);
 });
 
-test('General keeps the Auto-clear switch and provider idle windows inline', async () => {
+test('Context keeps the Auto-clear switch and provider idle windows inline', async () => {
   mount();
   const { api, calls } = capabilityApi({
     getAutoClear: {
@@ -873,6 +886,11 @@ test('General keeps the Auto-clear switch and provider idle windows inline', asy
     },
   });
   await renderSettings({ api });
+  await act(async () => {
+    Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
+      .find((button) => button.textContent === 'Context').click();
+    await Promise.resolve();
+  });
   assert.equal(document.querySelector('button[aria-label="Open Auto-clear options"]') === null, true,
     'selector button[aria-label="Open Auto-clear options"] should be absent');
   assert.match(document.body.textContent, /idle window/);
@@ -1052,7 +1070,7 @@ test('Memory separates input from rows, hides ids, sorts newest first, and reloa
   await renderSettings({ api });
   await act(async () => {
     Array.from(document.querySelectorAll('.mixdog-settings__rail button'))
-      .find((button) => button.textContent === 'Memory').click();
+      .find((button) => button.textContent === 'Context').click();
     await Promise.resolve();
     await Promise.resolve();
   });

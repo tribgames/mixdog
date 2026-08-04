@@ -37,6 +37,13 @@ test('packaged preload path matches electron-vite output', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));
 });
 
+test('a closed stdio pipe cannot crash the main process', async () => {
+  const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
+  // EPIPE from a launcher that already exited must never reach Electron's
+  // fatal main-process dialog.
+  assert.match(main, /\[process\.stdout, process\.stderr\][\s\S]{0,120}?on\?\.\('error'/);
+});
+
 test('production engine host runs in a packaged utility-process entry with an emergency fallback', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
