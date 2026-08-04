@@ -5,8 +5,9 @@
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 Standalone coding agent that runs an orchestrated, multi-provider agent
-workflow from one terminal — or from a full desktop workbench — built for
-maximum performance at minimum cost.
+workflow from one terminal — or from a full desktop workbench — built to
+get the same quality out of the same models with less time, cost, and
+context.
 
 Mixdog combines an Ink-based terminal UI, per-role model routing across
 providers, workflow agents, MCP/plugin/skill/hook support, lightweight
@@ -29,9 +30,13 @@ workflow setup.
 
 ## Terminal-Bench 2.1 — controlled full-run comparisons
 
-On the same 89 tasks, mixdog beat Claude Code on score (**78/89 vs 77/89**)
-and tied Codex CLI (**75/89**) while using substantially less time and
-context. Each comparison matches the primary model and reasoning level on
+**Same model, same quality — in a fraction of the time, context, and
+cost.** On the same 89 tasks, mixdog scored on par with both native
+harnesses — **78/89** vs Claude Code's **77/89** (within single-run noise)
+and **75/89** matching Codex CLI — while finishing faster, ending leaner,
+and costing less.
+
+Each comparison matches the primary model and reasoning level on
 both sides, comparing each product as shipped: mixdog routes scoped
 read-only Explorer lookups to a smaller model, mirroring Claude Code's
 built-in Explore subagent (Haiku 4.5 by default in the 2.1.x baseline).
