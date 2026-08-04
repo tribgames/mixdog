@@ -5,6 +5,7 @@
 // Styling lives in pane-layout.css, imported once at the renderer entry
 // (repo convention — components never import css, keeping node tests clean).
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { t } from "./i18n";
 import { IconButton } from "./ui/primitives";
 import {
   cancelLayoutFrame,
@@ -191,9 +192,19 @@ export function BottomPanel({
     handle.addEventListener("lostpointercapture", stop);
     cleanupRef.current = dispose;
   }, [onHeightChange, syncOverlay]);
+  // Mount-once animation flag (mirrors the dock's data-entering): once the
+  // open animation has run, band crossings re-applying the sheet media
+  // rules must not replay it (user rule: 해상도 전환엔 애니 없음).
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (!open) { setSettled(false); return undefined; }
+    const timer = window.setTimeout(() => setSettled(true), 400);
+    return () => window.clearTimeout(timer);
+  }, [open]);
   if (!open) return null;
   return (
-    <div className="bottom-panel" ref={panelRef} style={{ height }} data-testid="bottom-panel">
+    <div className="bottom-panel" ref={panelRef} style={{ height }} data-testid="bottom-panel"
+      data-settled={settled ? "true" : undefined}>
       <div
         className={`bottom-panel-resize${dragging ? " is-dragging" : ""}`}
         onPointerDown={onPointerDown}
@@ -205,13 +216,13 @@ export function BottomPanel({
               aria-selected={tab.id === activeTab}
               className={`bottom-panel-tab${tab.id === activeTab ? " is-active" : ""}`}
               onClick={() => onSelectTab(tab.id)}>
-              {tab.label}{tab.badge}
+              {t(tab.label)}{tab.badge}
             </button>)}
           </div>
         </div>
         <div className="bottom-panel-tabs-spacer" />
         {actions}
-        <IconButton icon="close-small" label="Close panel"
+        <IconButton icon="close-small" label={t("Close panel")}
           className="bottom-panel-close" onClick={onClose} />
       </div>
       <div className="bottom-panel-body">{children}</div>

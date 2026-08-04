@@ -5,6 +5,11 @@
 // tsx test loader uses classic JSX, so expose the same development React
 // instance without keeping otherwise-unused default imports in source files.
 process.env.NODE_ENV = 'development';
+// Deterministic UI language: Node 22's built-in navigator.language reports
+// the OS locale (ko-KR on Korean hosts), which would flip the renderer's
+// i18n into Korean and break every English-asserting suite. Tests always run
+// English unless a suite opts into another language explicitly.
+process.env.MIXDOG_UI_LANGUAGE ||= 'en';
 const reactModule = await import('react');
 globalThis.React = reactModule.default ?? reactModule;
 // Bounded assertion rendering is NOT installed here on purpose: a preload-only

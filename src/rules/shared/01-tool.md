@@ -4,8 +4,8 @@
   artifact, and failure checks — in one bounded tool message. Use one shortest
   route per facet: broad/uncertain→`explore` (roles without it: `find`);
   partial path/name→`find`; verified root+wildcard→`glob`;
-  quoted/non-identifier literal or regex→`grep`; exact code
-  identifier/relation→`code_graph` before grep; known file/span→`read`
+  text/code location→`grep`; symbol body/relation→`code_graph`;
+  known file/span→`read`
   directly without `grep`; verified directory→`list`; known
   edit→`apply_patch`; program/state change→`shell`; web/current external
   info→`search`.

@@ -13,7 +13,9 @@ import {
   X
 } from "lucide-react";
 import { createPortal } from "react-dom";
+import { t } from "./i18n";
 import { acquireModalLayer } from "./modal-layer";
+import { acquireTitleBarDim } from "./titlebar-dim";
 
 import { type Toast } from "./desktop-types";
 
@@ -32,6 +34,8 @@ export function DesktopUpdateDialog({ version, onCancel, onConfirm }: {
     const layer = acquireModalLayer(shell ? [shell] : []);
     layer.attachSurface(surfaceRef.current);
     cancelRef.current?.focus({ preventScroll: true });
+    // The scrim cannot reach the NATIVE caption band; this claim dims it.
+    const captionDim = acquireTitleBarDim();
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!layer.isTop()) return;
       if (event.key === "Escape") {
@@ -60,6 +64,7 @@ export function DesktopUpdateDialog({ version, onCancel, onConfirm }: {
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
       layer.release();
+      captionDim();
       prior?.focus({ preventScroll: true });
     };
   }, [onCancel]);
@@ -73,17 +78,17 @@ export function DesktopUpdateDialog({ version, onCancel, onConfirm }: {
       aria-describedby="desktop-update-description" tabIndex={-1}
       data-desktop-update-dialog>
       <header>
-        <h3 id="desktop-update-title">Install Mixdog {version}?</h3>
-        <button type="button" aria-label="Close update confirmation" onClick={onCancel}>
+        <h3 id="desktop-update-title">{t("Install Mixdog {{version}}?", { version })}</h3>
+        <button type="button" aria-label={t("Close update confirmation")} onClick={onCancel}>
           <X aria-hidden="true" size={15} />
         </button>
       </header>
       <p id="desktop-update-description">
-        Mixdog will close while the update is installed, then reopen automatically.
+        {t("Mixdog will close while the update is installed, then reopen automatically.")}
       </p>
       <footer>
-        <button ref={cancelRef} type="button" onClick={onCancel}>Cancel</button>
-        <button type="button" className="primary" onClick={onConfirm}>Install and restart</button>
+        <button ref={cancelRef} type="button" onClick={onCancel}>{t("Cancel")}</button>
+        <button type="button" className="primary" onClick={onConfirm}>{t("Install and restart")}</button>
       </footer>
     </section>
   </div>, document.body);
@@ -204,12 +209,12 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
     };
   }, []);
   if (!entries.length) return null;
-  return createPortal(<section className="mx-toast-region" aria-label="Notifications" aria-live="polite"
+  return createPortal(<section className="mx-toast-region" aria-label={t("Notifications")} aria-live="polite"
     data-count={entries.length} style={placement}>
     {entries.map((entry) => {
-      const title = entry.tone === 'error' ? 'Something went wrong'
-        : entry.tone === 'success' ? 'Completed'
-          : entry.tone === 'warn' || entry.tone === 'warning' ? 'Attention' : 'Mixdog';
+      const title = entry.tone === 'error' ? t('Something went wrong')
+        : entry.tone === 'success' ? t('Completed')
+          : entry.tone === 'warn' || entry.tone === 'warning' ? t('Attention') : 'Mixdog';
       const dismissEntry = () => {
         if (entry.tone === 'error' && !entry.bridge) {
           setRetainedErrors((current) => current.filter((retained) => retained.signature !== entry.signature));
@@ -226,7 +231,7 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
         {entry.tone === 'error' ? <ShieldAlert size={16} />
           : entry.tone === 'success' ? <Check size={16} /> : <Sparkles size={16} />}
         <span className="mx-toast-copy"><b>{title}</b><span>{entry.text}</span></span>
-        <button type="button" className="mx-toast-close" aria-label="Dismiss notification"
+        <button type="button" className="mx-toast-close" aria-label={t("Dismiss notification")}
           onClick={dismissEntry}><X size={16} /></button>
       </article>;
     })}

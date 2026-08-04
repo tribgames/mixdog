@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { MxIcon } from './MxIcon';
 import { useSurfaceActive } from './surface-activity';
@@ -323,7 +324,7 @@ export function OpenSelect({
       onPointerCancel={clickGuard.clearPointerActivation}
       onKeyDown={onKeyDown}>
       {leading && <span className="mx-select-leading">{leading}</span>}
-      <span className="mx-select-value">{displayValue || selected?.label || options[0]?.label || 'Select…'}</span>
+      <span className="mx-select-value">{t(displayValue || selected?.label || options[0]?.label || 'Select…')}</span>
       {routeStyle
         ? <MxIcon name="chevron-down" size={13} />
         : settingsStyle
@@ -337,7 +338,7 @@ export function OpenSelect({
         id={`${listboxId}-option-${index}`} disabled={option.disabled}
         aria-selected={option.value === current} data-active={index === active} tabIndex={index === active ? 0 : -1}
         key={option.value} onMouseEnter={() => setActive(index)} onClick={() => select(option.value)}>
-        <span>{option.label}</span>{option.value === current && <MxIcon name="check-small" size={16} />}
+        <span>{t(option.label)}</span>{option.value === current && <MxIcon name="check-small" size={16} />}
       </button>)}
     </div>, document.body)}
   </div>;

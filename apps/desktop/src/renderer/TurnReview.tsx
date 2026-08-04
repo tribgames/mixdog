@@ -1,5 +1,6 @@
 import { Check, FileDiff, RotateCcw, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t } from "./i18n";
 import { GitDiffBody } from "./ReviewPane";
 import { findPatch, PATCH_CACHE_LIMIT } from "./TranscriptView";
 import { REVIEW_DIFF_STYLE_KEY, type TranscriptItem } from "./desktop-types";
@@ -311,7 +312,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   ], [transcriptSummary, agentSources]);
   if (summary.files.size === 0) return null;
   return (
-    <section ref={barElement} className="turn-review-bar" aria-label="Files changed this turn"
+    <section ref={barElement} className="turn-review-bar" aria-label={t("Files changed this turn")}
       data-expanded={expanded ? "true" : "false"}>
       <div className="turn-review-head">
         <button type="button" className="turn-review-summary" aria-expanded={expanded}
@@ -323,20 +324,20 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             return next;
           })}>
           <FileDiff size={14} aria-hidden="true" />
-          <strong>{summary.files.size} file{summary.files.size === 1 ? "" : "s"} changed</strong>
+          <strong>{summary.files.size === 1 ? t("1 file changed") : t("{{count}} files changed", { count: summary.files.size })}</strong>
           {/* The counters belong to the TITLE, not to the (now removed)
               expander side of the row. */}
           <span className="diff-stats"><i>+{summary.additions}</i><em>-{summary.deletions}</em></span>
           {agentSources.length > 0 && <span className="turn-review-attribution">
-            Lead {transcriptSummary.files.size} · Agents {agentSummary.files.size}
+            {t("Lead {{lead}} · Agents {{agents}}", { lead: transcriptSummary.files.size, agents: agentSummary.files.size })}
           </span>}
         </button>
         {expanded && <div className="review-style-toggle turn-review-style" role="radiogroup"
-          aria-label="Diff style">
+          aria-label={t("Diff style")}>
           <button type="button" aria-pressed={diffStyle === "unified"}
-            onClick={() => setDiffStyle("unified")}>Unified</button>
+            onClick={() => setDiffStyle("unified")}>{t("Unified")}</button>
           <button type="button" aria-pressed={diffStyle === "split"}
-            onClick={() => setDiffStyle("split")}>Split</button>
+            onClick={() => setDiffStyle("split")}>{t("Split")}</button>
         </div>}
       </div>
       <div className="turn-review-collapse" inert={!expanded} aria-hidden={!expanded}>
@@ -345,8 +346,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         {sources.flatMap((source) => {
           const sourceHeader = (
             <li key={`${source.key}:source`} className="turn-review-source">
-              <strong>{source.label}</strong>
-              <span>{source.summary.files.size} file{source.summary.files.size === 1 ? "" : "s"}</span>
+              <strong>{t(source.label)}</strong>
+              <span>{source.summary.files.size === 1 ? t("1 file") : t("{{count}} files", { count: source.summary.files.size })}</span>
               <span className="diff-stats">
                 <i>+{source.summary.additions}</i><em>-{source.summary.deletions}</em>
               </span>
@@ -373,14 +374,14 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             </button>
             {Boolean(cwd) && !isReverted && (confirming ? (
               <span className="turn-review-confirm" role="group"
-                aria-label={`Confirm reverting ${rel} (discards ALL working-tree changes in the file)`}>
+                aria-label={t("Confirm reverting {{file}} (discards ALL working-tree changes in the file)", { file: rel })}>
                 <button type="button" className="turn-review-revert"
-                  aria-label="Cancel revert" data-tooltip="Cancel"
+                  aria-label={t("Cancel revert")} data-tooltip={t("Cancel")}
                   onClick={() => setConfirmFile("")}>
                   <X size={12} />
                 </button>
                 <button type="button" className="turn-review-revert danger"
-                  aria-label={`Confirm revert of ${rel}`} data-tooltip="Revert to HEAD"
+                  aria-label={t("Confirm revert of {{file}}", { file: rel })} data-tooltip={t("Revert to HEAD")}
                   onClick={() => {
                     setConfirmFile("");
                     void window.mixdogDesktop.gitRevert?.(cwd as string, rel, false)
@@ -392,7 +393,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
               </span>
             ) : (
               <button type="button" className="turn-review-revert"
-                aria-label={`Revert ${rel}`} data-tooltip="Revert file (working tree → HEAD)"
+                aria-label={t("Revert {{file}}", { file: rel })} data-tooltip={t("Revert file (working tree → HEAD)")}
                 onClick={() => setConfirmFile(name)}>
                 <RotateCcw size={12} />
               </button>

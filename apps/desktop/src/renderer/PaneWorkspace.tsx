@@ -8,6 +8,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { t } from "./i18n";
 import { PaneSplitLayout } from "./PaneSplitLayout";
 import { PersistentPanePortal } from "./PaneSurfaceGate";
 import type { NavigationSelection, WorkspaceSelection } from "./nav-types";
@@ -22,6 +23,8 @@ import {
   movePaneTabToNodeEdge,
   paneActiveSelection,
   paneLeafRelativeRect,
+  paneLeavesInVisualOrder,
+  paneNodeMinimumSize,
   type PaneLeaf,
 } from "./pane-layout";
 import type { PaneDropZone, usePaneWorkspace } from "./pane-workspace-state";
@@ -36,9 +39,9 @@ function paneConversationSlotId(leafId: string): string {
 }
 
 function selectionLabel(selection: WorkspaceSelection | null): string {
-  if (!selection) return "Empty pane";
+  if (!selection) return t("Empty pane");
   switch (selection.kind) {
-    case "new": return "New task";
+    case "new": return t("New task");
     case "project": return selection.path;
     case "session": return selection.id;
     case "agent-session": return selection.title;
@@ -517,6 +520,49 @@ export function PaneWorkspace({
     // interactive surface there (resume for sessions, editor for files).
     focusSelectionRef.current(frame.selection);
   }), []);
+  // Narrow shell (≤760px, phone composition): the split grid cannot hold two
+  // panes above their floors, so the tree renders as ONE full-size pane at a
+  // time — single-session mode (user decision) — and the strip-row pager
+  // steps left/right through the panes in visual order.
+  const [narrowShell, setNarrowShell] = useState(
+    () => window.matchMedia?.("(max-width: 760px)").matches === true,
+  );
+  useEffect(() => {
+    const query = window.matchMedia?.("(max-width: 760px)");
+    if (!query) return undefined;
+    const onChange = (): void => setNarrowShell(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  // The band check alone is not enough: on a mid-width window the panel can
+  // shrink under the TREE's aggregate floors (side panels open, column
+  // splits taller than the window) and the overflow buried panes past the
+  // right or BOTTOM edge (user: 하단이 묻히는 케이스 — 올라와야 해). Track
+  // the panel box and fall back to single-pane mode whenever the floors do
+  // not fit either axis.
+  const [panelSize, setPanelSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const panel = document.querySelector<HTMLElement>(".main-panel");
+    if (!panel || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      setPanelSize((current) => {
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        return current.width === width && current.height === height
+          ? current : { width, height };
+      });
+    });
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
+  const treeMinimum = workspace.layout.type === "split"
+    ? paneNodeMinimumSize(workspace.layout)
+    : null;
+  const singlePaneMode = narrowShell || (treeMinimum !== null
+    && panelSize.width > 0 && panelSize.height > 0
+    && (treeMinimum.width > panelSize.width || treeMinimum.height > panelSize.height));
   const overlay = dropPreview
     ? createPortal(
       // VS Code creates one DropOverlay per editor group: the highlight
@@ -745,7 +791,7 @@ export function PaneWorkspace({
       {utilityTabs}
       {!handoff && <button type="button" className="pane-placeholder" onClick={focusPane}>
         <span className="pane-placeholder-title">{selectionLabel(active)}</span>
-        <span className="pane-placeholder-hint">Click to work in this pane</span>
+        <span className="pane-placeholder-hint">{t("Click to work in this pane")}</span>
       </button>}
     </>;
   };
@@ -774,6 +820,30 @@ export function PaneWorkspace({
         {overlay}
       </div>
       {conversationPortals}
+    </>);
+  }
+  if (singlePaneMode) {
+    const ordered = paneLeavesInVisualOrder(workspace.layout);
+    const activeIndex = Math.max(0, ordered.findIndex((leaf) => leaf.id === focusedLeafId));
+    return (<>
+      <div className="pane-carousel">
+        {ordered.map((leaf, index) => {
+          const focused = index === activeIndex;
+          return (
+            <div key={leaf.id}
+              className={`pane-cell pane-carousel-item${focused ? " is-focused has-siblings" : ""}`}
+              data-pane-id={leaf.id}
+              data-carousel-active={focused ? "true" : "false"}
+              inert={focused ? undefined : true}
+              aria-hidden={focused ? undefined : true}>
+              {renderStrip?.(leaf)}
+              {renderPaneSurfaceStack(leaf, focused)}
+            </div>
+          );
+        })}
+      </div>
+      {conversationPortals}
+      {overlay}
     </>);
   }
   return (

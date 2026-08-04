@@ -3,6 +3,7 @@ import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
+import { t } from './i18n';
 import { useSurfaceActive } from './surface-activity';
 
 export type RowOverflowMenuItem = {
@@ -127,8 +128,8 @@ export function RowOverflowMenu({
 
   return <div className="row-overflow">
     <button ref={trigger} type="button" className="row-overflow-trigger"
-      aria-label={label} aria-haspopup="menu" aria-expanded={menuOpen}
-      data-tooltip="Actions"
+      aria-label={t(label)} aria-haspopup="menu" aria-expanded={menuOpen}
+      data-tooltip={t("Actions")}
       onPointerEnter={(event) => rememberAnchor(event.currentTarget)}
       onFocus={(event) => rememberAnchor(event.currentTarget)}
       // Pointer users see the menu on PRESS instead of waiting for release.
@@ -147,12 +148,12 @@ export function RowOverflowMenu({
       <MoreHorizontal size={18} aria-hidden="true" />
     </button>
     {menuOpen && createPortal(<div ref={panel} className="row-overflow-menu" role="menu"
-      aria-label={`${label} menu`} onKeyDown={onMenuKeyDown}
+      aria-label={t("{{label}} menu", { label: t(label) })} onKeyDown={onMenuKeyDown}
       style={{ left, top, width }}>
       {path.length > 0 && <button type="button" role="menuitem" className="row-overflow-back"
         onClick={() => setPath((current) => current.slice(0, -1))}>
         <ChevronLeft size={14} aria-hidden="true" />
-        <span>{path.length === 1 ? label : "Back"}</span>
+        <span>{path.length === 1 ? t(label) : t("Back")}</span>
       </button>}
       {menuItems.map((item, index) => {
         const submenu = Boolean(item.children?.length);
@@ -181,7 +182,7 @@ export function RowOverflowMenu({
           <span className="row-overflow-check">
             {item.checked && <Check size={13} aria-hidden="true" />}
           </span>
-          <span className="row-overflow-label">{item.label}</span>
+          <span className="row-overflow-label">{t(item.label)}</span>
           {submenu && <ChevronRight className="row-overflow-submenu" size={14} aria-hidden="true" />}
         </button>;
       })}

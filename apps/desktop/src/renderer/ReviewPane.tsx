@@ -1,5 +1,6 @@
 import { ChevronDown, FileDiff } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t } from "./i18n";
 import { DiffBoundary } from "./TranscriptView";
 import { REVIEW_DIFF_STYLE_KEY } from "./desktop-types";
 import { DiffView } from "./lazy-widgets";
@@ -42,7 +43,7 @@ export function GitDiffBody({ file, mode, hideHunkHeader }: {
   const fallback = <pre className="diff-fallback">{file.patch}</pre>;
   if (!file.renderable) return fallback;
   return <DiffBoundary fallback={fallback}>
-    <Suspense fallback={<div className="diff-loading" role="status" aria-label="Rendering diff…">
+    <Suspense fallback={<div className="diff-loading" role="status" aria-label={t("Rendering diff…")}>
       <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
     </div>}>
       <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.renderPatch || file.patch] }}
@@ -107,7 +108,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   const refresh = useCallback(async () => {
     if (!cwd) { setStatus(null); return; }
     if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
-      setError("Review needs an app restart to finish updating.");
+      setError(t("Review needs an app restart to finish updating."));
       return;
     }
     try {
@@ -173,10 +174,10 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
-  if (!cwd) return <div className="review-pane"><p className="review-empty">Select a project to review changes.</p></div>;
+  if (!cwd) return <div className="review-pane"><p className="review-empty">{t("Select a project to review changes.")}</p></div>;
   if (error) return <div className="review-pane"><p className="review-empty">{error}</p></div>;
-  if (!status) return <div className="review-pane"><p className="review-empty">Loading review…</p></div>;
-  if (!status.repository) return <div className="review-pane"><p className="review-empty">Not a git repository.</p></div>;
+  if (!status) return <div className="review-pane"><p className="review-empty">{t("Loading review…")}</p></div>;
+  if (!status.repository) return <div className="review-pane"><p className="review-empty">{t("Not a git repository.")}</p></div>;
   const changed = review?.files ?? [];
   const base = review?.base || "HEAD";
   const totalAdditions = changed.reduce((sum, file) => sum + (file.additions || 0), 0);
@@ -197,7 +198,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   return <div className="review-pane">
     <header className="review-header">
       <div className="review-title">
-        <h2>Review</h2>
+        <h2>{t("Review")}</h2>
         <span className="review-branch"><b>{status.branch}</b>{base !== "HEAD" ? ` → ${base}` : ""}</span>
         {(totalAdditions > 0 || totalDeletions > 0) && <span className="diff-stats review-total">
           <i>+{totalAdditions}</i><em>-{totalDeletions}</em>
@@ -209,20 +210,20 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
         </button>}
       </div>
       <div className="review-actions">
-        {changed.length > 0 && <div className="review-style-toggle" role="radiogroup" aria-label="Diff style">
+        {changed.length > 0 && <div className="review-style-toggle" role="radiogroup" aria-label={t("Diff style")}>
           <button type="button" aria-pressed={diffStyle === "unified"}
-            onClick={() => setDiffStyle("unified")}>Unified</button>
+            onClick={() => setDiffStyle("unified")}>{t("Unified")}</button>
           <button type="button" aria-pressed={diffStyle === "split"}
-            onClick={() => setDiffStyle("split")}>Split</button>
+            onClick={() => setDiffStyle("split")}>{t("Split")}</button>
         </div>}
       </div>
     </header>
     <div className="review-scroll">
     {changed.length === 0 && <div className="review-empty-state">
-      <p className="review-empty">{base === "HEAD" ? "Working tree clean." : `No changes vs ${base}.`}</p>
+      <p className="review-empty">{base === "HEAD" ? t("Working tree clean.") : t("No changes vs {{base}}.", { base })}</p>
       {showPush && <button type="button" className="dock-git-clean-push" disabled={busy}
         onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}>
-        {status.upstream ? `Push ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : "Publish Branch"}
+        {status.upstream ? `${t("Push")} ${status.ahead ? `↑${status.ahead}` : ""}`.trim() : t("Publish Branch")}
       </button>}
     </div>}
     <div className="review-list">
@@ -253,8 +254,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                 <b>{name}</b>
               </span>
               <span className="review-file-meta">
-                {added && <em className="review-change-label" data-type="added">Added</em>}
-                {deleted && <em className="review-change-label" data-type="removed">Removed</em>}
+                {added && <em className="review-change-label" data-type="added">{t("Added")}</em>}
+                {deleted && <em className="review-change-label" data-type="removed">{t("Removed")}</em>}
                 {(file.additions > 0 || file.deletions > 0) && <span className="diff-stats">
                   <i>+{file.additions}</i><em>-{file.deletions}</em>
                 </span>}
@@ -265,19 +266,19 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
           {open && <div className="review-file-body">
             {tooLarge
               ? <div className="review-large-diff">
-                <b>Large diff</b>
-                <span>{(file.additions + file.deletions).toLocaleString()} changed lines exceed the 500-line render limit.</span>
+                <b>{t("Large diff")}</b>
+                <span>{t("{{count}} changed lines exceed the 500-line render limit.", { count: (file.additions + file.deletions).toLocaleString() })}</span>
                 <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
                   Render anyway
                 </button>
               </div>
               : patch === undefined || patch === null
-                ? <p className="review-empty">Loading diff…</p>
+                ? <p className="review-empty">{t("Loading diff…")}</p>
                 : patch.startsWith("Error:")
                   ? <p className="review-empty">{patch}</p>
                   : patch
                     ? <GitFileDiff patch={patch} mode={diffStyle} />
-                    : <p className="review-empty">No textual diff for this file.</p>}
+                    : <p className="review-empty">{t("No textual diff for this file.")}</p>}
           </div>}
         </section>;
       })}
@@ -287,16 +288,16 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       <button type="button" role="menuitem" onClick={() => {
         setMenu(null);
         void window.mixdogDesktop.openFilePath?.(cwd, menu.file.path).catch(() => {});
-      }}>Open file</button>
+      }}>{t("Open file")}</button>
       <button type="button" role="menuitem" onClick={() => {
         setMenu(null);
         void window.mixdogDesktop.revealFile?.(cwd, menu.file.path).catch(() => {});
-      }}>Reveal in Explorer</button>
+      }}>{t("Reveal in Explorer")}</button>
       <button type="button" role="menuitem" onClick={() => {
         setMenu(null);
         const sep = cwd.includes("\\") ? "\\" : "/";
         void copyTextToClipboard(cwd.replace(/[\\/]+$/, "") + sep + menu.file.path.split("/").join(sep));
-      }}>Copy path</button>
+      }}>{t("Copy path")}</button>
       {menu.file.uncommitted && <button type="button" role="menuitem" data-danger
         onClick={() => {
           const target = menu.file;
@@ -308,7 +309,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
           if (openFile === target.path) setOpenFile("");
           void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, "all"));
         }}>
-        {menu.file.untracked ? "Delete file" : "Revert changes"}
+        {menu.file.untracked ? t("Delete file") : t("Revert changes")}
       </button>}
     </div>}
   </div>;

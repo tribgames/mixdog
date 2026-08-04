@@ -2,6 +2,7 @@ import { Check, ChevronRight, Code2, FileDiff, Layers3, X } from "lucide-react";
 import React, { Component, Suspense, lazy, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
+import { t } from "./i18n";
 import { DiffView } from "./lazy-widgets";
 import {
   containsFencedCodeMarkdown,
@@ -150,19 +151,19 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
     {elapsed && <small>{elapsed}</small>}
   </div>;
   return <div className="live-work-status" role="status" tabIndex={0}
-    aria-label={`Background activity: ${total} running`}>
+    aria-label={t("Background activity: {{count}} running", { count: total })}>
     {/* 16px matches the optical weight of the neighboring 18–20px controls;
         13px read as vertically off next to them (user). */}
     <ProgressSpinner className="live-work-spinner" size={16} aria-hidden="true" />
     <span className="live-work-count">{total}</span>
     <div className="live-work-popover" role="tooltip">
-      {runningCount > 0 && row("agents", `Agent${runningCount === 1 ? "" : "s"} ${runningCount}`,
+      {runningCount > 0 && row("agents", `${runningCount === 1 ? t("Agent") : t("Agents")} ${runningCount}`,
         Number.isFinite(oldestAgentStart) ? formatWorkElapsed(clock - oldestAgentStart) : "")}
-      {exploreCount > 0 && row("explore", "Explore",
+      {exploreCount > 0 && row("explore", t("Explore"),
         tools.explore?.startedAt ? formatWorkElapsed(clock - Number(tools.explore.startedAt)) : "")}
-      {searchCount > 0 && row("search", "Web search",
+      {searchCount > 0 && row("search", t("Web search"),
         tools.search?.startedAt ? formatWorkElapsed(clock - Number(tools.search.startedAt)) : "")}
-      {shellCount > 0 && row("shells", `Shell ${shellCount}`,
+      {shellCount > 0 && row("shells", `${t("Shell")} ${shellCount}`,
         String(snapshot.shellJobs?.elapsedLabel || ""))}
     </div>
   </div>;
@@ -230,7 +231,7 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
         keyboardFocusIntent.current = false;
         setPopoverOpen(true);
       }
-    }} aria-label="Open context details"
+    }} aria-label={t("Open context details")}
       aria-describedby={descriptionId}>
       <svg viewBox="0 0 20 20" aria-hidden="true">
         <circle className="context-usage-track" cx="10" cy="10" r="7" />
@@ -239,14 +240,14 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
       </svg>
     </button>
     <div className="session-context-popover" id={descriptionId} role="tooltip">
-      <div><span>Usage</span><b>{context.percent}%</b></div>
-      <div><span>{context.estimated ? "Tokens (est.)" : "Tokens"}</span><b>{context.limit > 0
+      <div><span>{t("Usage")}</span><b>{context.percent}%</b></div>
+      <div><span>{context.estimated ? t("Tokens (est.)") : t("Tokens")}</span><b>{context.limit > 0
         ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
         : context.used.toLocaleString()}</b></div>
       {(() => {
         const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
         return cost > 0
-          ? <div><span>Cost</span><b>${cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}</b></div>
+          ? <div><span>{t("Cost")}</span><b>${cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}</b></div>
           : null;
       })()}
       {/* Compact action removed from the hover popover by user decision —
@@ -254,6 +255,18 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
     </div>
   </div>;
 }
+
+// Verb pools mirrored from src/tui/components/Spinner.jsx MODE_VERBS — keep
+// both lists in sync so TUI and GUI rotate through the same phrases.
+const LIVE_ACTIVITY_VERBS: Record<string, readonly string[]> = {
+  requesting: ["Requesting"],
+  compacting: ["Compacting conversation"],
+  "auto-clear": ["Auto-clearing conversation"],
+  thinking: ["Thinking", "Considering", "Organizing"],
+  "tool-use": ["Working", "Running tools", "Reviewing output"],
+  "tool-input": ["Working", "Running tools", "Reviewing output"],
+  responding: ["Writing", "Wrapping up"],
+};
 
 export function LiveActivity({
   snapshot,
@@ -289,22 +302,19 @@ export function LiveActivity({
     heldVerb.current = { text: "", at: 0 };
     return null;
   }
-  const canonicalVerb: Record<string, string> = {
-    requesting: "Requesting",
-    responding: "Responding",
-    thinking: "Thinking",
-    "tool-use": "Using tools",
-    "tool-input": "Using tools",
-    compacting: "Compacting conversation",
-    "auto-clear": "Auto-clearing conversation",
-  };
-  // Mirror Spinner's MODE_VERBS boundary: only those modes have a stable
-  // canonical first phrase. Other modes carry engine-authored status detail.
-  const rawVerb = canonicalVerb[mode] || String(activity?.verb || "Working");
   const nowMs = Date.now();
+  // Mirror the TUI Spinner's MODE_VERBS pools: the verb rotates through its
+  // mode pool on a fixed 30s cadence (user decision), anchored to the turn
+  // start so TUI and GUI advance on the same clock. Other modes carry
+  // engine-authored status detail unchanged.
+  const pool = LIVE_ACTIVITY_VERBS[mode];
+  const slot = pool && pool.length > 1
+    ? Math.floor(Math.max(0, nowMs - (startedAt || nowMs)) / 30_000) % pool.length
+    : 0;
+  const rawVerb = pool ? t(pool[slot]) : String(activity?.verb || t("Working"));
   // Engine-authored statuses (retry countdowns, compaction detail) must break
   // through immediately; only the canonical stream verbs dwell.
-  const canonicalMode = Boolean(canonicalVerb[mode]);
+  const canonicalMode = Boolean(pool);
   if (!heldVerb.current.text
     || !canonicalMode
     || (rawVerb !== heldVerb.current.text && nowMs - heldVerb.current.at >= 3_000)) {
@@ -327,8 +337,8 @@ export function LiveActivity({
       <TextShimmer text={activityText} />
     </div>
     {reasoning && <details className="thinking-disclosure">
-      <summary>View reasoning</summary>
-      <pre>{reasoning}</pre>
+      <summary>{t("View reasoning")}</summary>
+      <pre data-scrollable>{reasoning}</pre>
     </details>}
   </div>;
 }
@@ -373,7 +383,7 @@ export function CompletionStatus({
     return <div className="compaction-divider" role="status"
       data-animate={animate ? "true" : undefined}>
       <Layers3 className="compaction-icon" size={15} aria-hidden="true" />
-      <span>{label || "Conversation compacted"}</span>
+      <span>{label || t("Conversation compacted")}</span>
       {item.detail && <small>{item.detail}</small>}
     </div>;
   }
@@ -409,8 +419,8 @@ export function CopyControl({ value, label, className, tooltipSide = "top" }: {
     }
   };
   return <button type="button" className={className} onClick={() => void copy()}
-    aria-label={copied ? "Copied" : label} data-copied={copied || undefined}
-    data-tooltip={copied ? "Copied" : "Copy"} data-tooltip-side={tooltipSide}>
+    aria-label={copied ? t("Copied") : t(label)} data-copied={copied || undefined}
+    data-tooltip={copied ? t("Copied") : t("Copy")} data-tooltip-side={tooltipSide}>
     {copied ? <MxIcon name="check" size={13} /> : <MxIcon name="copy" size={13} />}
   </button>;
 }
@@ -606,7 +616,7 @@ function extractImageMarkers(text: string): { text: string; chips: ImageMarkerCh
   // Refs that never got a metadata/omitted line (e.g. plain "[Image #N]" from
   // an old history) still surface as generic chips so the count is honest.
   for (let index = 0; index < pendingRefs; index += 1) {
-    chips.push({ name: "Image", dims: "", title: "Attached image" });
+    chips.push({ name: t("Image"), dims: "", title: t("Attached image") });
   }
   return { text: kept.join("\n").trim(), chips };
 }
@@ -623,6 +633,42 @@ function extractWebhookPayload(text: string): { text: string; payload: string } 
   const stripped = (text.slice(0, match.index) + text.slice(match.index + match[0].length))
     .replace(/\n{3,}/g, "\n\n").trim();
   return { text: stripped, payload: (match[1] || "").trim() };
+}
+
+export function userTranscriptDisplayText(item: TranscriptItem): string {
+  return stripInjectedDisplayText(stripSessionEnvelope(String(item.text || "")))
+    .replace(/[ \t]+\r?\n/g, "\n")
+    .replace(/\r?\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * The one visibility contract for a transcript item. The row projection uses
+ * it to keep invisible rows out of the virtual list entirely (opencode's
+ * `renderable(part)`), so the timeline never carries zero-height placeholders.
+ */
+export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boolean {
+  if (!item) return false;
+  if (item.kind === "tool") return !shouldSuppressFullyFailedToolItem(item);
+  if (item.kind === "statusdone" || item.kind === "turndone" || item.kind === "notice") return true;
+  if (item.kind === "assistant") return true;
+  if (item.kind !== "user") return false;
+  const metadataRecord = item.metadata && typeof item.metadata === "object"
+    ? item.metadata as Record<string, unknown>
+    : null;
+  const sourceText = String(item.text || "");
+  const text = userTranscriptDisplayText(item);
+  return !(
+    (Boolean(sourceText.trim()) && !text && !(Array.isArray(item.images) && item.images.length > 0))
+    || /^(?:system|developer|synthetic|internal|hidden)$/i.test(String(item.role || item.kind || ""))
+    || item.internal === true
+    || item.hidden === true
+    || item.synthetic === true
+    || metadataRecord?.internal === true
+    || metadataRecord?.hidden === true
+    || metadataRecord?.synthetic === true
+    || isInternalTranscriptDisplayText(text)
+  );
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -656,27 +702,20 @@ export const TranscriptRow = memo(function TranscriptRow({
   }
   if (item.kind !== "user" && item.kind !== "assistant") return null;
   const user = item.kind === "user";
-  const sourceText = String(item.text || "");
-  const text = user
-    ? stripInjectedDisplayText(stripSessionEnvelope(sourceText))
-      .replace(/[ \t]+\r?\n/g, "\n")
-      .replace(/\r?\n{3,}/g, "\n\n")
-      .trim()
-    : sourceText;
-  const metadataRecord = item.metadata && typeof item.metadata === "object"
-    ? item.metadata as Record<string, unknown>
-    : null;
-  if (user && (
-    (Boolean(sourceText.trim()) && !text && !(Array.isArray(item.images) && item.images.length > 0))
-    || /^(?:system|developer|synthetic|internal|hidden)$/i.test(String(item.role || item.kind || ""))
-    || item.internal === true
-    || item.hidden === true
-    || item.synthetic === true
-    || metadataRecord?.internal === true
-    || metadataRecord?.hidden === true
-    || metadataRecord?.synthetic === true
-    || isInternalTranscriptDisplayText(text)
-  )) return null;
+  const text = user ? userTranscriptDisplayText(item) : String(item.text || "");
+  // Crash-recovery control row: persisted as a plain user message so the next
+  // model step sees where a force-killed turn stopped, but it is not human
+  // chat — render the standard interrupted status row instead of leaking the
+  // raw "[Request interrupted by process restart]" marker into the thread.
+  if (user && /^\[request interrupted by process restart\]$/i.test(text)) {
+    return <div className="turn-status interrupted" role="status">
+      <X className="turn-status-icon" size={15} aria-hidden="true" />
+      <span>{t("Interrupted by app restart")}</span>
+    </div>;
+  }
+  // The projection already dropped hidden rows; this is the final guard for a
+  // row rendered outside it (the live tail, an optimistic prompt).
+  if (!isVisibleTranscriptItem(item)) return null;
   const metadata = messageMetadata(item);
   // User bubbles: fold literal image markers into chips; the composer-attached
   // images (item.images) keep their thumbnail chips and win over marker chips.
@@ -695,13 +734,13 @@ export const TranscriptRow = memo(function TranscriptRow({
         <div className="message-body" onDragStart={(event) => event.preventDefault()}>
           {user ? <>
             {(attachedImages.length > 0 || markerChips.length > 0) && <div className="message-image-chips"
-              aria-label="Attached images">
+              aria-label={t("Attached images")}>
               {attachedImages.map((image, index) => {
                 const preview = imagePreviewCache.get(imagePreviewKey(image.id, image.bytes));
                 return <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`}
-                  title={image.name || 'Attached image'}>
+                  title={image.name || t('Attached image')}>
                   {preview
-                    ? <img src={preview} alt={image.name || 'Attached image'} />
+                    ? <img src={preview} alt={image.name || t('Attached image')} />
                     : <span className="message-image-fallback">
                 <MxIcon name="photo" size={14} />
                       <span>{image.name || 'Image'}</span>
@@ -730,21 +769,21 @@ export const TranscriptRow = memo(function TranscriptRow({
           Queued
         </span>}
         {user && !item.pending && !item.streaming && text && <footer className="message-meta-line"
-          aria-label="Message details">
+          aria-label={t("Message details")}>
           {metadata.details.length > 0 && <span className="message-meta">
             {metadata.details.join("\u00A0\u00B7\u00A0")}
           </span>}
-          <CopyControl value={text} label="Copy message"
+          <CopyControl value={text} label={t("Copy message")}
             className="message-actions user-copy" />
         </footer>}
         {!user && !item.streaming && (text || completion) && <footer className="response-footer"
-          aria-label="Response details">
+          aria-label={t("Response details")}>
           {completion && <CompletionStatus item={completion} animate={completionAnimate} />}
           {/* Timestamp marks the END of a turn: mid-turn assistant paragraphs
               (tool calls still running) must not carry a clock (user). */}
           {Boolean(completion) && metadata.shortTime &&
             <time className="message-time">{metadata.shortTime}</time>}
-          {text && <CopyControl value={text} label="Copy response"
+          {text && <CopyControl value={text} label={t("Copy response")}
             className="message-actions response-copy" />}
         </footer>}
       </article>
@@ -871,7 +910,7 @@ export function ToolCard({
         {model.headerFailureText && <span className="tool-state failed" role="status">
           {model.headerFailureText}
         </span>}
-        {!done && <span className="sr-only" role="status">Running</span>}
+        {!done && <span className="sr-only" role="status">{t("Running")}</span>}
         {hasDetails && <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>}
       </button>
       {detailRowVisible && (
@@ -992,7 +1031,7 @@ export function CodeDiff({ patch }: { patch: string }) {
                   className="tool-detail-copy diff-copy" />
               </header>
               {file.renderable ? (
-                <Suspense fallback={<div className="diff-loading" role="status" aria-label="Rendering diff…">
+                <Suspense fallback={<div className="diff-loading" role="status" aria-label={t("Rendering diff…")}>
                   <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
                 </div>}>
                   {/* The library's parser requires the ---/+++ header in each
@@ -1008,7 +1047,7 @@ export function CodeDiff({ patch }: { patch: string }) {
       {lineCount > 14 && (
         <button type="button" className="diff-toggle" onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}>
-          {expanded ? "Collapse diff" : "Show full diff"}
+          {expanded ? t("Collapse diff") : t("Show full diff")}
         </button>
       )}
     </section>

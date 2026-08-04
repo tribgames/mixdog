@@ -11,6 +11,7 @@ import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopModelOption } from '../shared/contract';
+import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { focusTrapIndex } from './renderer-logic.mjs';
 import {
@@ -102,7 +103,7 @@ export function ModelPicker({
   provider,
   model,
   triggerLabel,
-  ariaLabel = 'Choose model',
+  ariaLabel = '',
   triggerClassName = 'model-trigger',
   popoverId,
   disabled = false,
@@ -110,7 +111,7 @@ export function ModelPicker({
   catalogRefreshing = false,
   catalogError = '',
   providerSetupError = '',
-  tooltip = 'Choose model',
+  tooltip = '',
   onOpen,
   onSelect,
   onOpenProviders,
@@ -348,8 +349,8 @@ export function ModelPicker({
 
   return <>
     <button ref={trigger} type="button" className={triggerClassName}
-      disabled={disabled} aria-label={ariaLabel} aria-haspopup="dialog" aria-expanded={open}
-      aria-controls={dialogId} data-tooltip={tooltip} data-tooltip-side="top"
+      disabled={disabled} aria-label={ariaLabel || t('Choose model')} aria-haspopup="dialog" aria-expanded={open}
+      aria-controls={dialogId} data-tooltip={tooltip || t('Choose model')} data-tooltip-side="top"
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         clickGuard.markPointerActivation();
@@ -372,9 +373,9 @@ export function ModelPicker({
           data-component="dialog" role="dialog" aria-modal="true"
           aria-labelledby={`${dialogId}-title`} tabIndex={-1}>
           <header className="model-picker-header" data-slot="dialog-header">
-            <h2 id={`${dialogId}-title`} data-slot="dialog-title">Select model</h2>
-            {onOpenProviders && <button type="button" className="model-provider-add" aria-label="Add provider"
-              data-tooltip="Add provider" onClick={() => {
+            <h2 id={`${dialogId}-title`} data-slot="dialog-title">{t('Select model')}</h2>
+            {onOpenProviders && <button type="button" className="model-provider-add" aria-label={t('Add provider')}
+              data-tooltip={t('Add provider')} onClick={() => {
                 close();
                 onOpenProviders();
               }}>
@@ -382,40 +383,40 @@ export function ModelPicker({
             </button>}
           </header>
           <div className="model-picker-body" data-slot="dialog-body">
-            <PaneSurfaceGate ready={catalogLoaded || openModels.length > 0} label="Loading models…">
+            <PaneSurfaceGate ready={catalogLoaded || openModels.length > 0} label={t('Loading models…')}>
             <div className="model-picker-list" data-component="list">
               <div className="model-search-wrapper" data-slot="list-search-wrapper">
                 <div className="model-search" data-slot="list-search">
                   <div className="model-search-container" data-slot="list-search-container">
                     <Search size={16} aria-hidden="true" />
                     <input ref={search} type="text" value={query} data-slot="list-search-input"
-                      placeholder="Search models…"
-                      aria-label="Search models"
+                      placeholder={t('Search models…')}
+                      aria-label={t('Search models')}
                       autoComplete="off" spellCheck={false}
                       onInput={(event) => setQuery(event.currentTarget.value)}
                       onKeyDown={(event) => navigateRows(event, true)} />
                   </div>
                   {query && <button type="button" data-component="icon-button"
-                    onClick={() => { setQuery(''); search.current?.focus(); }} aria-label="Clear picker search">
+                    onClick={() => { setQuery(''); search.current?.focus(); }} aria-label={t('Clear picker search')}>
                     <X size={14} />
                   </button>}
                 </div>
               </div>
               <div ref={modelList} className="model-list" data-slot="list-scroll" role="listbox"
-                aria-label="Available models">
+                aria-label={t('Available models')}>
                 {catalogError && <p className="model-notice model-notice--error" role="alert">
-                  Model catalog unavailable: {catalogError}
+                  {t('Model catalog unavailable: {{error}}', { error: catalogError })}
                 </p>}
                 {providerSetupError && <p className="model-notice" role="status">
                   Provider status unavailable: {providerSetupError}
                 </p>}
                 {renderedKeys.length === 0 && <p className="model-empty">
                   {catalogRefreshing || !catalogLoaded
-                    ? 'Loading models…'
-                    : normalizedQuery ? 'No matching models.' : 'No connected provider models.'}
+                    ? t('Loading models…')
+                    : normalizedQuery ? t('No matching models.') : t('No connected provider models.')}
                 </p>}
                 {recentModels.length > 0 && <section className="model-group model-group--recent">
-                  <h3>Recent</h3>
+                  <h3>{t('Recent')}</h3>
                   <div className="model-items" data-slot="list-items">
                     {recentModels.map((option) => renderModelOption(option, 'recent:'))}
                   </div>
@@ -428,7 +429,7 @@ export function ModelPicker({
                     </div>
                   </section>)}
                 {catalogRefreshing && renderedKeys.length > 0 &&
-                  <p className="model-loading" role="status">Updating model catalog…</p>}
+                  <p className="model-loading" role="status">{t('Updating model catalog…')}</p>}
               </div>
             </div>
             </PaneSurfaceGate>

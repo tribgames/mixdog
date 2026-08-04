@@ -23,6 +23,7 @@ import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 import { displayWidth } from './display-width.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 import { localPackageVersion } from '../runtime/shared/update-checker.mjs';
+import { touchProjectSelected } from '../standalone/projects.mjs';
 
 // Trailing `\x1b[>0s` restores XTSHIFTESCAPE (shift-to-select-extend) to its
 // terminal default; MOUSE_TRACKING_ON opts into `\x1b[>1s`, so every mouse/alt
@@ -505,6 +506,12 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     const outcome = await storeOutcomePromise;
     if (outcome.error) throw outcome.error;
     store = outcome.store;
+    // Launching mixdog INSIDE a registered folder is an "open" too: without
+    // this, a project entered straight from the shell never moved in the
+    // picker's most-recent-first order. Unregistered folders are ignored.
+    try {
+      touchProjectSelected(store.getState?.()?.cwd || process.cwd());
+    } catch { /* best-effort recency */ }
     bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
     splash.stop();

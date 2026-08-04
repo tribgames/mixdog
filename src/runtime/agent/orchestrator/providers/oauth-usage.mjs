@@ -18,6 +18,10 @@ const FETCH_TIMEOUT_MS = 4500;
 const WARN_TTL_MS = 5 * 60_000;
 const CODEX_RESET_CREDITS_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits';
 const CODEX_RESET_CONSUME_URL = `${CODEX_RESET_CREDITS_URL}/consume`;
+// Redeeming a reset credit is an explicit user action, not a poll: it gets the
+// generous budget the orca client uses (REDEEM_BACKEND_TIMEOUT_MS) so a slow
+// backend cannot abort a request the server is already applying.
+const CODEX_REDEEM_TIMEOUT_MS = 30_000;
 
 const memoryCache = new Map();
 const inflight = new Map();
@@ -97,6 +101,38 @@ try {
   process.on('exit', flushSnapshotCache);
 } catch {
   // Embedded runtimes may not expose process lifecycle hooks.
+}
+
+/** Drops every cached usage snapshot of one provider (memory, queued disk
+ *  writes and the persisted routes). A mutation that changes quota state
+ *  server-side — redeeming a Codex reset credit — must not keep serving the
+ *  pre-mutation meters from a 60s/10min cache. */
+export function invalidateOAuthUsageSnapshots(provider) {
+  const providerOnly = String(provider || '').toLowerCase();
+  if (!providerOnly) return;
+  const routePrefix = `${providerOnly}\u0001`;
+  const owned = (key) => key === providerOnly || String(key).startsWith(routePrefix);
+  for (const key of [...memoryCache.keys()]) {
+    if (owned(key)) memoryCache.delete(key);
+  }
+  for (const key of [...pendingDiskSnapshots.keys()]) {
+    if (owned(key)) pendingDiskSnapshots.delete(key);
+  }
+  try {
+    updateJsonAtomicSync(cachePath(), (curRaw) => {
+      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+      const routes = cur.routes && typeof cur.routes === 'object' ? cur.routes : {};
+      return {
+        version: 1,
+        updatedAt: Date.now(),
+        routes: Object.fromEntries(
+          Object.entries(routes).filter(([key]) => !owned(key)),
+        ),
+      };
+    }, { compact: true, fsync: false, fsyncDir: false });
+  } catch {
+    // Usage display must never break the reset path.
+  }
 }
 
 function isContentfulSnapshot(snapshot) {
@@ -253,11 +289,15 @@ function normalizeOpenAICodexResetCredits(data, accountId = '') {
     .filter((value) => Number.isFinite(value) && value > 0);
   const nextExpiresAt = resetAtMs(data.next_expires_at ?? data.nextExpiresAt)
     || (expiryCandidates.length ? Math.min(...expiryCandidates) : null);
+  // Identity of the OFFER, not of one payload shape: the detail endpoint and
+  // the counts embedded in /wham/usage describe the same credits with
+  // different fields, so hashing the raw rows made the same offer produce two
+  // revisions — and the desktop scopes its durable idempotency key by
+  // revision. Count + soonest expiry is what a user is offered.
   const offerRevision = `v1:${createHash('sha256').update(JSON.stringify({
     accountId,
     availableCount,
     nextExpiresAt,
-    credits,
   })).digest('hex')}`;
   return {
     availableCount,
@@ -290,6 +330,32 @@ function codexResetOutcome(code) {
   throw new Error(`Unknown Codex reset outcome: ${cleanString(code) || 'missing'}`);
 }
 
+async function postOpenAICodexResetConsume(auth, idempotencyKey) {
+  return await fetch(CODEX_RESET_CONSUME_URL, {
+    ...fetchOptions({
+      ...codexHeaders(auth),
+      'Content-Type': 'application/json',
+    }, CODEX_REDEEM_TIMEOUT_MS),
+    method: 'POST',
+    body: JSON.stringify({ redeem_request_id: idempotencyKey }),
+  });
+}
+
+async function redeemOpenAICodexResetCredit(auth, idempotencyKey) {
+  // A transport failure (abort, dropped socket) leaves the outcome unknown
+  // while the credit may already be spent. redeem_request_id makes the request
+  // idempotent, so ONE replay turns that unknown into the server's real answer
+  // instead of reporting "could not be confirmed" over a consumed credit.
+  let response;
+  try {
+    response = await postOpenAICodexResetConsume(auth, idempotencyKey);
+  } catch {
+    response = await postOpenAICodexResetConsume(auth, idempotencyKey);
+  }
+  if (!response.ok) throw new Error(`Codex reset failed: HTTP ${response.status}`);
+  return codexResetOutcome((await response.json())?.code);
+}
+
 export async function consumeOpenAICodexResetCredit(providerObj, options = {}) {
   const expectedOfferRevision = cleanString(options?.expectedOfferRevision);
   const idempotencyKey = cleanString(options?.idempotencyKey);
@@ -301,20 +367,14 @@ export async function consumeOpenAICodexResetCredit(providerObj, options = {}) {
   }
   const auth = await resolveOpenAICodexAuth(providerObj);
   if (!auth) throw new Error('Codex is not signed in');
-  const current = await fetchOpenAICodexResetCreditsWithAuth(auth);
-  if (!current || current.availableCount < 1 || current.offerRevision !== expectedOfferRevision) {
-    return { status: 'offerChanged', resetCredits: current };
-  }
-  const response = await fetch(CODEX_RESET_CONSUME_URL, {
-    ...fetchOptions({
-      ...codexHeaders(auth),
-      'Content-Type': 'application/json',
-    }, 15_000),
-    method: 'POST',
-    body: JSON.stringify({ redeem_request_id: idempotencyKey }),
-  });
-  if (!response.ok) throw new Error(`Codex reset failed: HTTP ${response.status}`);
-  const outcome = codexResetOutcome((await response.json())?.code);
+  // The SERVER decides the outcome (orca parity): redeem_request_id makes the
+  // call idempotent and `already_redeemed`/`no_credit` are real answers. The
+  // old client-side offer gate ran before every attempt, so retrying an
+  // unconfirmed redeem — whose credit was already spent, hence a changed
+  // revision — could only ever report "offer changed" and never the truth.
+  const outcome = await redeemOpenAICodexResetCredit(auth, idempotencyKey);
+  // Quota meters just changed server-side; cached snapshots are now wrong.
+  invalidateOAuthUsageSnapshots('openai-oauth');
   const resetCredits = await fetchOpenAICodexResetCreditsWithAuth(auth).catch(() => null);
   return { outcome, resetCredits };
 }

@@ -16,6 +16,7 @@ import type {
   DesktopModelSelection,
 } from '../shared/contract';
 import { agentIcon } from './agent-icons';
+import { t } from './i18n';
 import { filterConfiguredModels } from './ModelPicker';
 import { OpenSelect } from './OpenSelect';
 import { RowOverflowMenu } from './RowOverflowMenu';
@@ -148,8 +149,8 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
     }}>
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true" aria-labelledby="workflows-dialog-title">
       <header>
-        <h2 id="workflows-dialog-title">{editing ? 'Edit workflow' : 'Create workflow'}</h2>
-        <button type="button" aria-label="Close workflow editor" onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+        <h2 id="workflows-dialog-title">{editing ? t('Edit workflow') : t('Create workflow')}</h2>
+        <button type="button" aria-label={t("Close workflow editor")} onClick={onCancel}><X size={15} aria-hidden="true" /></button>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -171,16 +172,16 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
           body,
         });
       }}>
-        <label className="schedules-field">Name
+        <label className="schedules-field">{t('Name')}
           <input name="workflow-name" defaultValue={String(pack?.name || '')}
-            placeholder="Workflow name" required autoFocus={!editing} disabled={busy} maxLength={64} />
+            placeholder={t("Workflow name")} required autoFocus={!editing} disabled={busy} maxLength={64} />
         </label>
-        <label className="schedules-field">Description
+        <label className="schedules-field">{t('Description')}
           <input name="workflow-description" defaultValue={String(pack?.description || '')}
-            placeholder="One-line summary" disabled={busy} maxLength={160} />
+            placeholder={t("One-line summary")} disabled={busy} maxLength={160} />
         </label>
         <div className="schedules-field">
-          <span>Agents</span>
+          <span>{t('Agents')}</span>
           <div className="workflows-agent-list">
             {selected.map((id) => {
               const agent = agents.find((option) => option.id === id)
@@ -193,7 +194,7 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
                   <small>{agent.description}</small>
                 </span>
                 <button type="button" className="workflows-agent-remove" disabled={busy}
-                  aria-label={`Remove ${agent.label}`}
+                  aria-label={t("Remove {{name}}", { name: agent.label })}
                   onClick={() => setSelected((current) => current.filter((entry) => entry !== id))}>
                   <X size={13} aria-hidden="true" />
                 </button>
@@ -201,15 +202,15 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
             })}
             {selected.length === 0 && <div className="workflows-agent-empty-row">
               <p className="workflows-agent-empty">{agentsConfigured
-                ? 'No agents — this workflow delegates to none.'
-                : 'No agents added — every default agent stays available.'}</p>
+                ? t('No agents — this workflow delegates to none.')
+                : t('No agents added — every default agent stays available.')}</p>
               <button type="button" className="workflows-agent-mode" disabled={busy}
                 onClick={() => setAgentsConfigured((current) => !current)}>
-                {agentsConfigured ? 'Allow every default agent' : 'Use no agents'}
+                {agentsConfigured ? t('Allow every default agent') : t('Use no agents')}
               </button>
             </div>}
             {available.length > 0 && <div className="workflows-agent-add">
-              <OpenSelect ariaLabel="Add agent" value="" displayValue="Add agent…" disabled={busy}
+              <OpenSelect ariaLabel={t("Add agent")} value="" displayValue="Add agent…" disabled={busy}
                 options={[
                   { value: '', label: 'Add agent…', disabled: true },
                   ...available.map((agent) => ({ value: agent.id, label: agent.label })),
@@ -228,8 +229,8 @@ function WorkflowEditorDialog({ pack, agents, busy, error = '', onCancel, onSave
         </label>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
-          <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button type="submit" disabled={busy}>Save</button>
+          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
@@ -260,8 +261,8 @@ function AgentEditorDialog({ agent, models, busy, error = '', onCancel, onSave }
     }}>
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-dialog-title">
       <header>
-        <h2 id="agent-dialog-title">{editing ? 'Edit agent' : 'Create agent'}</h2>
-        <button type="button" aria-label="Close agent editor" onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+        <h2 id="agent-dialog-title">{editing ? t('Edit agent') : t('Create agent')}</h2>
+        <button type="button" aria-label={t("Close agent editor")} onClick={onCancel}><X size={15} aria-hidden="true" /></button>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -281,18 +282,18 @@ function AgentEditorDialog({ agent, models, busy, error = '', onCancel, onSave }
           body,
         });
       }}>
-        <label className="schedules-field">Name
+        <label className="schedules-field">{t('Name')}
           <input name="agent-name" defaultValue={String(agent?.name || '')}
-            placeholder="Agent name" required autoFocus={!editing} disabled={busy} maxLength={64} />
+            placeholder={t("Agent name")} required autoFocus={!editing} disabled={busy} maxLength={64} />
         </label>
-        <label className="schedules-field">Description
+        <label className="schedules-field">{t('Description')}
           <input name="agent-description" defaultValue={String(agent?.description || '')}
-            placeholder="One-line summary" disabled={busy} maxLength={160} />
+            placeholder={t("One-line summary")} disabled={busy} maxLength={160} />
         </label>
         <div className="schedules-field">
-          <span>Model</span>
+          <span>{t('Model')}</span>
           <div className="workflows-dialog-route">
-            <RouteControls label="Agent model" route={route} models={models} disabled={busy}
+            <RouteControls label={t("Agent model")} route={route} models={models} disabled={busy}
               onChange={(selection) => setRoute(selection as unknown as RecordValue)} />
           </div>
         </div>
@@ -302,8 +303,8 @@ function AgentEditorDialog({ agent, models, busy, error = '', onCancel, onSave }
         </label>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
-          <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button type="submit" disabled={busy}>Save</button>
+          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
@@ -331,8 +332,8 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true"
       aria-labelledby="route-dialog-title">
       <header>
-        <h2 id="route-dialog-title">Edit {target.label}</h2>
-        <button type="button" aria-label="Close route editor" onClick={onCancel}>
+        <h2 id="route-dialog-title">{t('Edit {{name}}', { name: target.label })}</h2>
+        <button type="button" aria-label={t("Close route editor")} onClick={onCancel}>
           <X size={15} aria-hidden="true" />
         </button>
       </header>
@@ -343,19 +344,19 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
         {target.readOnlyDefinition && <>
           <div className="schedules-field workflows-readonly-field">
             <div className="workflows-readonly-label">
-              <span>Name</span><small>Read-only</small>
+              <span>{t('Name')}</span><small>{t('Read-only')}</small>
             </div>
             <p className="workflows-readonly-value">{target.label}</p>
           </div>
           <div className="schedules-field workflows-readonly-field">
             <div className="workflows-readonly-label">
-              <span>Description</span><small>Read-only</small>
+              <span>{t('Description')}</span><small>{t('Read-only')}</small>
             </div>
             <p className="workflows-readonly-value">{target.description}</p>
           </div>
         </>}
         <div className="schedules-field">
-          <span>Model</span>
+          <span>{t('Model')}</span>
           <div className="workflows-dialog-route">
             <RouteControls label={`${target.label} model`} route={route} models={models} disabled={busy}
               onChange={(selection) => setRoute(selection as unknown as RecordValue)} />
@@ -363,8 +364,8 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
         </div>
         <footer>
           {error && <p className="schedules-form-error" role="alert">{error}</p>}
-          <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button type="submit" disabled={busy}>Save</button>
+          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
@@ -391,24 +392,24 @@ function AgentDeleteDialog({ target, busy, error = '', onCancel, onDelete }: {
     <section className="schedules-dialog workflows-dialog workflows-delete-dialog"
       role={inUse ? 'alertdialog' : 'dialog'} aria-modal="true" aria-labelledby="agent-delete-dialog-title">
       <header>
-        <h2 id="agent-delete-dialog-title">{inUse ? 'Agent is in use' : 'Delete agent'}</h2>
-        <button type="button" aria-label="Close agent delete dialog" onClick={onCancel}>
+        <h2 id="agent-delete-dialog-title">{inUse ? t('Agent is in use') : t('Delete agent')}</h2>
+        <button type="button" aria-label={t("Close agent delete dialog")} onClick={onCancel}>
           <X size={15} aria-hidden="true" />
         </button>
       </header>
       <div className="workflows-delete-dialog-body">
         {inUse
           ? <>
-            <p><b>{target.label}</b> cannot be deleted while a workflow uses it.</p>
-            <p>Remove it from {target.workflowNames.length === 1 ? 'this workflow' : 'these workflows'} first:</p>
+            <p>{t('{{name}} cannot be deleted while a workflow uses it.', { name: target.label })}</p>
+            <p>{target.workflowNames.length === 1 ? t('Remove it from this workflow first:') : t('Remove it from these workflows first:')}</p>
             <ul>{target.workflowNames.map((name) => <li key={name}>{name}</li>)}</ul>
           </>
-          : <p>Delete <b>{target.label}</b> permanently? This cannot be undone.</p>}
+          : <p>{t('Delete {{name}} permanently? This cannot be undone.', { name: target.label })}</p>}
       </div>
       <footer>
         {error && <p className="schedules-form-error" role="alert">{error}</p>}
-        <button type="button" disabled={busy} onClick={onCancel}>{inUse ? 'Close' : 'Cancel'}</button>
-        {!inUse && <button type="button" className="danger" disabled={busy} onClick={onDelete}>Delete</button>}
+        <button type="button" disabled={busy} onClick={onCancel}>{inUse ? t('Close') : t('Cancel')}</button>
+        {!inUse && <button type="button" className="danger" disabled={busy} onClick={onDelete}>{t('Delete')}</button>}
       </footer>
     </section>
   </div>, document.body);
@@ -629,11 +630,11 @@ export function WorkflowsPane({
           setAgentDeleteTarget(null);
         }}
         onDelete={() => void deleteAgent(agentDeleteTarget.id)} />}
-      <section className="workflows-models workflows-packs" aria-label="Workflows">
+      <section className="workflows-models workflows-packs" aria-label={t("Workflows")}>
       <div className="workflows-section-head">
-        <h2>Workflows</h2>
+        <h2>{t('Workflows')}</h2>
         <button type="button" className="session-panel-action schedules-new" disabled={busy}
-          aria-label="New workflow" data-tooltip="New workflow"
+          aria-label={t("New workflow")} data-tooltip={t("New workflow")}
           onClick={() => {
             setError('');
             setNotice('');
@@ -650,7 +651,7 @@ export function WorkflowsPane({
           return <div key={id} className="schedules-row">
             <span className="projects-row-icon"><Layers3 size={16} aria-hidden="true" /></span>
             <button type="button" className="schedules-row-copy projects-row-open"
-              aria-label={`Edit workflow ${name}`}
+              aria-label={t("Edit workflow {{name}}", { name })}
               onClick={() => void openEditor(id)}>
               <b>{name}</b>
               <small>{[String(workflow.description || ''), custom ? 'Custom' : '']
@@ -678,17 +679,17 @@ export function WorkflowsPane({
         })}</div>
         : <div className="schedules-empty">
           <Layers3 size={40} strokeWidth={1.5} aria-hidden="true" />
-          <p>No workflow packs found.</p>
+          <p>{t('No workflow packs found.')}</p>
         </div>}
       </section>
-      <section className="workflows-models" aria-label="Default agents">
-        <h2>Default agents</h2>
-        <p>Shared models without editable agent definitions.</p>
+      <section className="workflows-models" aria-label={t("Default agents")}>
+        <h2>{t('Default agents')}</h2>
+        <p>{t('Shared models without editable agent definitions.')}</p>
         <div className="schedules-list">
           <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row">
             <span className="projects-row-icon"><Globe size={16} aria-hidden="true" /></span>
             <div className="schedules-row-copy" title="Search-tool requests">
-              <b>Web search</b><small>{agentRouteSummary(searchRoute, searchModels)}</small>
+              <b>{t('Web search')}</b><small>{agentRouteSummary(searchRoute, searchModels)}</small>
             </div>
             <RowOverflowMenu label="Actions for Web search" items={[{
               id: 'edit',
@@ -749,13 +750,13 @@ export function WorkflowsPane({
           </div>}
         </div>
       </section>
-      <section className="workflows-models" aria-label="Agents">
+      <section className="workflows-models" aria-label={t("Agents")}>
         <div className="workflows-section-head">
-          <h2>Agents</h2>
+          <h2>{t('Agents')}</h2>
           {/* Section action mirrors the panel-header "+" grammar (icon-only,
               24px) instead of a one-off text pill inside the list. */}
           <button type="button" className="session-panel-action schedules-new" disabled={busy}
-            aria-label="New agent" data-tooltip="New agent"
+            aria-label={t("New agent")} data-tooltip={t("New agent")}
             onClick={() => {
               setError('');
               setNotice('');
@@ -764,7 +765,7 @@ export function WorkflowsPane({
             <Plus size={16} aria-hidden="true" />
           </button>
         </div>
-        <p>Built-in and custom roles with editable definitions and models.</p>
+        <p>{t('Built-in and custom roles with editable definitions and models.')}</p>
         <div className="schedules-list">
           {editableAgents.map(renderAgentRow)}
         </div>

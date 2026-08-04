@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
+import { t } from './i18n';
 import { filterConfiguredModels, ModelPicker } from './ModelPicker';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -154,7 +155,7 @@ function ConnectionRow({ label, value, placeholder, copied, onCopy }: {
       <code>{value || placeholder}</code>
       {/* Icon-only copy (user decision): the value itself is the label. */}
       <button type="button" className="icon-button webhook-connection-copy" disabled={!value} onClick={onCopy}
-        aria-label={`Copy ${label.toLowerCase()}`} data-tooltip={`Copy ${label.toLowerCase()}`}>
+        aria-label={t("Copy {{name}}", { name: t(label) })} data-tooltip={t("Copy {{name}}", { name: t(label) })}>
         {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
       </button>
     </div>
@@ -233,8 +234,8 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
     }}>
     <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="webhooks-dialog-title">
       <header>
-        <h2 id="webhooks-dialog-title">{editing ? 'Edit webhook' : 'Create webhook'}</h2>
-        <button type="button" aria-label="Close webhook editor" onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+        <h2 id="webhooks-dialog-title">{editing ? t('Edit webhook') : t('Create webhook')}</h2>
+        <button type="button" aria-label={t("Close webhook editor")} onClick={onCancel}><X size={15} aria-hidden="true" /></button>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -265,7 +266,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
           ...(editing ? { overwrite: true } : {}),
         });
       }}>
-        <label className="schedules-field">Name
+        <label className="schedules-field">{t('Name')}
           <input name="webhook-name" defaultValue={draft.name} placeholder="github-issues" required autoFocus
             disabled={busy || editing} maxLength={64}
             onChange={(event) => setUrlName(event.currentTarget.value)} />
@@ -274,14 +275,14 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
             Project → Delivery → Payload format as labeled fields. */}
         <div className="schedules-composer">
           <textarea name="webhook-instructions" defaultValue={draft.instructions} required disabled={busy}
-            placeholder="What should Mixdog do when this webhook fires?" aria-label="Webhook instructions" />
+            placeholder={t("What should Mixdog do when this webhook fires?")} aria-label={t("Webhook instructions")} />
           <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
           <div className="composer-footer schedules-composer-footer">
             <AutomationAttachButton attachments={attachments} disabled={busy}
-              ariaLabel="Attach files to this webhook"
+              ariaLabel={t("Attach files to this webhook")}
               onChange={setAttachments} onError={setFormError} />
             <ModelPicker models={models} provider={modelProvider} model={modelId}
-              triggerLabel={modelLabel} ariaLabel="Webhook model"
+              triggerLabel={modelLabel} ariaLabel={t("Webhook model")}
               triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
               onSelect={(option) => {
                 setModel(`${option.provider}/${option.model}`);
@@ -289,70 +290,70 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
                 setFast(option.fastCapable ? option.fastPreferred : false);
                 setFormError('');
               }} />
-            {selected && selected.effortOptions.length > 0 && <OpenSelect ariaLabel="Webhook reasoning effort"
+            {selected && selected.effortOptions.length > 0 && <OpenSelect ariaLabel={t("Webhook reasoning effort")}
               value={effortValue} disabled={busy} options={selected.effortOptions} onChange={setEffort} />}
-            {selected?.fastCapable && <OpenSelect ariaLabel="Webhook fast mode"
+            {selected?.fastCapable && <OpenSelect ariaLabel={t("Webhook fast mode")}
               value={fast ? 'on' : 'off'} disabled={busy}
               options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
               onChange={(value) => setFast(value === 'on')} />}
             {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
             <div className="effort-control workflow-control">
-              <OpenSelect ariaLabel="Webhook workflow" value={workflow} disabled={busy}
+              <OpenSelect ariaLabel={t("Webhook workflow")} value={workflow} disabled={busy}
                 options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
                 onChange={setWorkflow} />
             </div>
           </div>
         </div>
         <div className="schedules-field">
-          <span>Project</span>
+          <span>{t('Project')}</span>
           <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Webhook project" value={cwd || '__none__'} disabled={busy}
+            <OpenSelect ariaLabel={t("Webhook project")} value={cwd || '__none__'} disabled={busy}
               options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
           </div>
         </div>
         <div className="schedules-field">
-          <span>Delivery</span>
+          <span>{t('Delivery')}</span>
           <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Webhook delivery" value={delivery} disabled={busy}
+            <OpenSelect ariaLabel={t("Webhook delivery")} value={delivery} disabled={busy}
               options={DELIVERY_OPTIONS} onChange={setDelivery} />
           </div>
         </div>
         <div className="schedules-field">
-          <span>Payload format</span>
+          <span>{t('Payload format')}</span>
           <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Webhook payload format" value={parser} disabled={busy}
+            <OpenSelect ariaLabel={t("Webhook payload format")} value={parser} disabled={busy}
               options={PARSER_OPTIONS} onChange={setParser} />
           </div>
         </div>
         {/* Connection details (user decision): the endpoint URL stays
             visible; the signing secret shows only when freshly minted —
             create pre-mints it, edit offers Regenerate instead. */}
-        <div className="webhook-connection" aria-label="Connection details">
-          <ConnectionRow label="Endpoint URL"
+        <div className="webhook-connection" aria-label={t("Connection details")}>
+          <ConnectionRow label={t("Endpoint URL")}
             value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
             placeholder={publicBase
-              ? 'Type a name to preview the endpoint URL'
-              : 'URL appears once the runtime connects to the relay'}
+              ? t('Type a name to preview the endpoint URL')
+              : t('URL appears once the runtime connects to the relay')}
             copied={copiedField === 'url'}
             onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)} />
           {editing && !rotated
             ? <div className="schedules-field webhook-connection-row">
-              <span>Signing secret</span>
+              <span>{t('Signing secret')}</span>
               <div className="webhook-connection-value">
                 <button type="button" className="settings-action" disabled={busy}
-                  onClick={() => setRotated(generateSigningSecret())}>Regenerate secret</button>
+                  onClick={() => setRotated(generateSigningSecret())}>{t('Regenerate secret')}</button>
               </div>
             </div>
-            : <ConnectionRow label="Signing secret" value={editing ? rotated : secret}
-              placeholder="Secret unavailable"
+            : <ConnectionRow label={t("Signing secret")} value={editing ? rotated : secret}
+              placeholder={t("Secret unavailable")}
               copied={copiedField === 'secret'}
               onCopy={() => copyField('secret', editing ? rotated : secret)} />}
         </div>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
-          <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button type="submit" disabled={busy}>Save</button>
+          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
@@ -452,7 +453,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
     <div className="schedules-page">
       {/* Title and primary action live in the sidebar panel header. */}
-      <SidebarPanelAction active={active} label="New webhook" icon={Plus}
+      <SidebarPanelAction active={active} label={t("New webhook")} icon={Plus}
         className="webhooks-add" disabled={busy}
         onClick={() => {
           setError('');
@@ -462,13 +463,13 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
         }} />
       <div className="schedules-search">
         <Search size={14} aria-hidden="true" />
-        <input aria-label="Search webhooks" placeholder="Search webhooks…" value={query}
+        <input aria-label={t("Search webhooks")} placeholder={t("Search webhooks…")} value={query}
           onChange={(event) => setQuery(event.currentTarget.value)} />
       </div>
-      <div className="schedules-filters" aria-label="Webhook filter">
+      <div className="schedules-filters" aria-label={t("Webhook filter")}>
         {([['all', 'All'], ['active', 'Active'], ['paused', 'Paused']] as const).map(([value, label]) =>
           <button key={value} type="button" className={filter === value ? 'active' : ''}
-            aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
+            aria-pressed={filter === value} onClick={() => setFilter(value)}>{t(label)}</button>)}
       </div>
       {active && editor && <WebhookEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
         busy={busy} models={models} projects={projects} workflows={workflows}
@@ -486,7 +487,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
           const running = runningNames?.has(name) === true;
           return <div key={name} className="schedules-row">
             <span className="schedules-row-status" role={running ? 'status' : undefined}
-              aria-label={running ? `${name} is running` : undefined} aria-hidden={running ? undefined : true}>
+              aria-label={running ? t("{{name}} is running", { name }) : undefined} aria-hidden={running ? undefined : true}>
               {running
                 ? <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
                 : <span className={`schedules-row-dot ${enabled ? 'on' : ''}`} />}
@@ -528,7 +529,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
         })}</div>
         : <div className="schedules-empty">
           <Webhook size={40} strokeWidth={1.5} aria-hidden="true" />
-          <p>{webhooks.length ? 'No webhooks match the current filter.' : 'No inbound webhooks yet.'}</p>
+          <p>{webhooks.length ? t('No webhooks match the current filter.') : t('No inbound webhooks yet.')}</p>
         </div>}
       <div className="schedules-feedback-slot">
         {(error || referenceError) && !editor

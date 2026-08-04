@@ -971,7 +971,7 @@ test('General exposes the classic modes plus every registry theme with persisten
     await Promise.resolve();
   });
   assert.deepEqual(Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'),
-    (node) => node.textContent.trim()), ['System', 'White', 'Dark', 'Indigo', 'Warm', 'Teal',
+    (node) => node.textContent.trim()), ['System', 'White', 'Dark', 'Gray', 'Indigo', 'Warm', 'Teal',
     'One Dark', 'Tokyo Night', 'Kanagawa', 'Catppuccin', 'Dracula', 'Rosé Pine', 'Nord',
     'Gruvbox', 'Everforest']);
   const white = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))

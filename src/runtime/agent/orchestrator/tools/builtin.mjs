@@ -472,7 +472,12 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             return formatUnknownBuiltinToolMessage(name, args);
     }
     })();
-    return capToolOutput(_appendClampNotices(args, _toolResult), options);
+    // Read owns a call-level 50KB ceiling even when path[] aggregates several
+    // independently bounded child windows. Preserve explicit tighter caps.
+    const _capOptions = toolName === 'read' && !(Number(options?.toolOutputMaxBytes) > 0)
+        ? { ...options, toolOutputMaxBytes: READ_MAX_OUTPUT_BYTES }
+        : options;
+    return capToolOutput(_appendClampNotices(args, _toolResult), _capOptions);
 }
 
 // Surface arg-guard clamp notices (args._clampNotices, see pushClampNotice in

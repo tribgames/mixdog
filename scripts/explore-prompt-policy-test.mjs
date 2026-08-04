@@ -47,7 +47,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
   const policy = rule.replace(/\s+/g, ' ');
   assert.match(policy, /one shortest route per facet/i);
-  assert.match(policy, /broad\/uncertain→\s*`explore`.*partial path\/name→\s*`find`.*verified root\+wildcard→\s*`glob`.*quoted\/non-identifier literal or regex→\s*`grep`.*exact code identifier\/relation→\s*`code_graph` before grep/i);
+  assert.match(policy, /broad\/uncertain→\s*`explore`.*partial path\/name→\s*`find`.*verified root\+wildcard→\s*`glob`.*text\/code location→\s*`grep`.*symbol body\/relation→\s*`code_graph`/i);
   assert.match(policy, /shortest total calls, maximum batching.*every determined call in one concurrent message \(mix `shell` in\), merged per tool — one `shell` chain, one `read`, one `apply_patch` carrying full verification in `post_shell`; a later turn only for steps needing unseen output/i);
   assert.doesNotMatch(policy, /shell that tests\/checks the edit|runtime starts that shell only after/i);
   assert.match(policy, /verify changes in proportion to risk with one decisive batched boundary probe/i);

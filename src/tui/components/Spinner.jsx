@@ -44,19 +44,25 @@ const GLIMMER_SPEED_MS = { requesting: 70, reconnecting: 70, compacting: 120, 'a
 const GLIMMER_TRAIL = 4;
 const THINKING_GLIMMER_SPEED_MS = 120;
 const THINKING_GLIMMER_TRAIL = 4;
-const VERB_ROTATE_MIN_MS = 10000;
-const VERB_ROTATE_SPREAD_MS = 10000;
-const VERB_CHANGE_PROBABILITY = 0.65;
+// Fixed 30s cadence (user decision): the verb rotates deterministically every
+// 30 seconds instead of the earlier randomized 10–20s / 65% coin flip that
+// often never visibly fired.
+const VERB_ROTATE_MIN_MS = 30000;
+const VERB_ROTATE_SPREAD_MS = 0;
+const VERB_CHANGE_PROBABILITY = 1;
 
 const MODE_VERBS = {
-  requesting: ['Requesting', 'Preparing', 'Routing'],
+  requesting: ['Requesting'],
   compacting: ['Compacting conversation'],
   'auto-clear': ['Auto-clearing conversation'],
   resuming: ['Resuming conversation'],
-  thinking: ['Thinking', 'Reasoning', 'Mapping'],
-  'tool-use': ['Using tools', 'Checking files', 'Running tools', 'Reading output'],
-  'tool-input': ['Using tools', 'Checking files', 'Running tools', 'Reading output'],
-  responding: ['Responding', 'Composing', 'Writing', 'Wrapping up'],
+  // Conservative phrasing (user decision): each pool only rotates through
+  // synonyms of what the mode ACTUALLY means — never a concrete action the
+  // engine may not be doing (no "Checking files" during a web search).
+  thinking: ['Thinking', 'Considering', 'Organizing'],
+  'tool-use': ['Working', 'Running tools', 'Reviewing output'],
+  'tool-input': ['Working', 'Running tools', 'Reviewing output'],
+  responding: ['Writing', 'Wrapping up'],
 };
 
 function interpolateColor(a, b, t) {
@@ -232,7 +238,10 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   // --- Verb shimmer (traveling highlight) ---
   if (!displayVerbRef.current || displayVerbModeRef.current !== mode) {
     displayVerbRef.current = stableModeVerb(mode, verb);
-    nextVerbCheckRef.current = nextVerbCheckAt(now);
+    // Mode flips (thinking→tool-use→responding…) must NOT re-arm the timer:
+    // frequent flips otherwise reset the countdown forever and the rotation
+    // never fires. The cadence holds from the first mount of the turn.
+    if (!nextVerbCheckRef.current) nextVerbCheckRef.current = nextVerbCheckAt(now);
   }
   displayVerbModeRef.current = mode;
   if (now >= nextVerbCheckRef.current) {

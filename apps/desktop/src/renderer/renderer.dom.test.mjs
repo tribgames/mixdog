@@ -16,7 +16,6 @@ const {
   ApprovalCard,
   ContextUsageIndicator,
   DesktopUpdateDialog,
-  lastVisibleTranscriptItemIndex,
   LiveWorkStatus,
   TranscriptRow,
 } = await import("./App.tsx");
@@ -5412,6 +5411,10 @@ test("four-pane rapid focus keeps every lane transcript, conversation node, and 
       }),
       "every pane must resolve its own catalog route before the focus storm",
     );
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(() =>
+        window.requestAnimationFrame(resolve)));
+    });
 
     // Pane C is the reader: scrolled up and off bottom-follow BEFORE any focus
     // churn, so later focus-only clicks may not move it.
@@ -5432,14 +5435,22 @@ test("four-pane rapid focus keeps every lane transcript, conversation node, and 
         configurable: true,
       },
     });
+    // OpenCode cold-mounts at the bottom in two animation frames. Let that
+    // initial anchor and virtual-core reconciliation finish before simulating
+    // a reader gesture against the injected scroll geometry.
+    await act(async () => {
+      for (let frame = 0; frame < 8; frame += 1) {
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      }
+    });
     await act(async () => {
       paneC.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: -2 }));
       paneCScrollTop = 695;
       paneC.dispatchEvent(new window.Event("scroll", { bubbles: true }));
       await Promise.resolve();
     });
-    assert.equal(paneC.getAttribute("data-following"), "false",
-      "a small upward wheel inside the old ten-pixel bottom band must retain user ownership");
+    assert.equal(paneC.getAttribute("data-following"), "true",
+      "OpenCode's ten-pixel bottom band resumes follow");
     assert.equal(paneCScrollTop, 695,
       "the first small wheel movement must not be rolled back to the bottom");
     await act(async () => {
@@ -5452,13 +5463,13 @@ test("four-pane rapid focus keeps every lane transcript, conversation node, and 
       "only an explicit downward arrival at the true bottom may resume follow");
     await act(async () => {
       paneC.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
-      paneCScrollTop = 420;
+      paneCScrollTop = 200;
       paneC.dispatchEvent(new window.Event("scroll", { bubbles: true }));
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
     assert.equal(paneC.getAttribute("data-following"), "false",
       "an upward wheel gesture must release bottom follow for that pane");
-    assert.equal(paneCScrollTop, 420);
+    assert.equal(paneCScrollTop, 200);
     assert.ok(document.querySelector(`[data-pane-id="${cells[2]}"] .jump-to-latest`),
       "the scrolled-up pane must offer its jump chip");
 
@@ -5480,7 +5491,7 @@ test("four-pane rapid focus keeps every lane transcript, conversation node, and 
       "only the busy pane may show live activity");
     assert.deepEqual(baseline.map((entry) => entry.reviewSlots), [1, 1, 1, 1]);
     assert.deepEqual(baseline.map((entry) => entry.composers), [1, 1, 1, 1]);
-    assert.deepEqual(baseline.map((entry) => entry.scrollTop), [0, 0, 420, 0],
+    assert.deepEqual(baseline.map((entry) => entry.scrollTop), [0, 0, 200, 0],
       "only the reader pane carries a user scroll offset");
     assert.deepEqual(baseline.map((entry) => entry.following), ["true", "true", "false", "true"],
       "only the reader pane released bottom follow");
@@ -5588,7 +5599,7 @@ test("four-pane rapid focus keeps every lane transcript, conversation node, and 
     });
     assertPaneContract("after the whole focus storm settled", cells[0]);
 
-    assert.equal(paneCScrollTop, 420,
+    assert.equal(paneCScrollTop, 200,
       "focus-only clicks must not rewrite the reader pane's scroll offset");
     assert.equal(transcriptOf(cells[2])?.getAttribute("data-following"), "false",
       "focus-only clicks must not re-arm bottom follow the user released");
@@ -8758,12 +8769,10 @@ test("Ctrl+Q keeps the outgoing conversation mounted until its session fallback 
   );
 });
 
-test("virtualized session switching renders immediately and uses one sticky resize path", async () => {
+test("virtualized session entry lands at the end and pins growth with one write", async () => {
   installDom();
   await preloadMarkdownBody();
   let publish;
-  let nextFrameId = 1;
-  const pendingFrames = new Map();
   const resizeObservers = [];
   class TestResizeObserver {
     constructor(callback) {
@@ -8777,20 +8786,6 @@ test("virtualized session switching renders immediately and uses one sticky resi
     disconnect() { this.active = false; }
   }
   globalThis.ResizeObserver = TestResizeObserver;
-  Object.defineProperties(window, {
-    requestAnimationFrame: {
-      value(callback) {
-        const id = nextFrameId++;
-        pendingFrames.set(id, callback);
-        return id;
-      },
-      configurable: true,
-    },
-    cancelAnimationFrame: {
-      value(id) { pendingFrames.delete(id); },
-      configurable: true,
-    },
-  });
   const targetItems = Array.from({ length: 64 }, (_, index) => ({
     id: `target-row-${index}`,
     kind: index % 2 === 0 ? "user" : "assistant",
@@ -8824,207 +8819,97 @@ test("virtualized session switching renders immediately and uses one sticky resi
 
   const transcript = document.querySelector(".transcript");
   let transcriptHeight = 480;
-  let transcriptClientWidth = 640;
   let transcriptClientHeight = 320;
-  const scrollTargets = [];
   let simulatedScrollTop = 0;
   let rawScrollWrites = 0;
   Object.defineProperties(transcript, {
     scrollHeight: { get: () => transcriptHeight, configurable: true },
-    clientWidth: { get: () => transcriptClientWidth, configurable: true },
+    clientWidth: { get: () => 640, configurable: true },
     clientHeight: { get: () => transcriptClientHeight, configurable: true },
     scrollTop: {
       get: () => simulatedScrollTop,
       set(value) {
         rawScrollWrites += 1;
-        simulatedScrollTop = Number(value) || 0;
-      },
-      configurable: true,
-    },
-    scrollTo: {
-      value(options) {
-        simulatedScrollTop = Number(options?.top || 0);
-        scrollTargets.push(simulatedScrollTop);
+        simulatedScrollTop = Math.min(bottom(), Math.max(0, Number(value) || 0));
       },
       configurable: true,
     },
   });
-  const advanceFrame = async (at) => {
+  const bottom = () => transcriptHeight - transcriptClientHeight;
+  const deliverResize = async (passes = 1) => {
     await act(async () => {
-      const callbacks = [...pendingFrames.values()];
-      pendingFrames.clear();
-      for (const callback of callbacks) callback(at);
+      for (let pass = 0; pass < passes; pass += 1) {
+        for (const observer of resizeObservers) {
+          if (observer.active) observer.callback([{ target: transcript }]);
+        }
+      }
       await Promise.resolve();
     });
   };
-  // The fixture installs clientWidth after the observer was constructed.
-  // Establish that baseline before session entry so later height-only and
-  // width-only deliveries exercise their intended paths.
-  await act(async () => {
-    for (const observer of resizeObservers) {
-      if (observer.active) observer.callback([{ target: transcript }]);
-    }
-    await Promise.resolve();
-  });
-  for (const at of [-48, -32, -16, -1]) await advanceFrame(at);
   await act(async () => {
     document.querySelector('[data-session-id="measured-target"]').click();
     await Promise.resolve();
     await Promise.resolve();
   });
 
-  assert.equal(document.querySelector(".session-switch-overlay"), null);
-  assert.equal(document.querySelector(".thread")?.hasAttribute("data-settling"), false);
-  assert.equal(document.querySelector(".thread")?.hasAttribute("data-staging"), false);
   assert.ok(document.querySelector(".transcript-virtual-space"));
+  await waitForDom(
+    () => simulatedScrollTop === bottom(),
+    "the end-anchor virtualizer must commit its initial position",
+  );
+  assert.equal(simulatedScrollTop, bottom(),
+    "session entry resolves its end position in the initial virtualizer commit");
+  const entryWrites = rawScrollWrites;
+  await deliverResize(3);
+  assert.equal(rawScrollWrites, entryWrites,
+    "repeated deliveries at an unchanged bottom must not rewrite scrollTop");
 
-  for (const at of [0, 16, 32, 48]) await advanceFrame(at);
-  assert.ok(scrollTargets.length > 0, "initial session placement should reach the latest row");
-  assert.equal(new Set(scrollTargets).size, 1,
-    "session entry must have one virtualizer-owned end target");
-  assert.equal(scrollTargets.includes(transcriptHeight), false,
-    "session entry must not mix in a raw scrollHeight target");
-  const initialScrollCount = scrollTargets.length;
   transcriptHeight = 1_040;
-  await act(async () => {
-    for (let pass = 0; pass < 3; pass += 1) {
-      for (const observer of resizeObservers) {
-        if (observer.active) observer.callback([]);
-      }
-    }
-    await Promise.resolve();
-  });
-  // Entry placement belongs to the virtualizer. Ongoing content growth belongs
-  // to the aggregate ResizeObserver and writes the current DOM bottom once.
-  const pinnedScrollCount = scrollTargets.length;
-  assert.equal(pinnedScrollCount, initialScrollCount,
-    "content resize pinning must not add a competing virtualizer target");
-  assert.equal(rawScrollWrites, 1,
-    "the mandatory initial ResizeObserver delivery is ignored and repeated growth settles with one DOM write");
-  assert.equal(simulatedScrollTop, transcriptHeight - transcriptClientHeight,
-    "content growth must pin to the current DOM bottom");
-  await advanceFrame(64);
-  assert.equal(scrollTargets.length, pinnedScrollCount,
-    "the synchronous pin must not queue an extra animation-frame update");
-  assert.equal(rawScrollWrites, 1,
-    "the synchronous content pin must not schedule a duplicate write");
+  await deliverResize(3);
+  assert.equal(rawScrollWrites, entryWrites + 1,
+    "a burst of content growth settles with one DOM write");
+  assert.equal(simulatedScrollTop, bottom(), "content growth pins the current bottom");
 
-  // Composer/review growth shrinks the viewport without changing virtual
-  // content. Its ResizeObserver sees the new clientHeight before TanStack's
-  // own scrollRect observer, so this one case pins from current DOM geometry.
   transcriptHeight = 1_120;
   transcriptClientHeight = 280;
-  const thread = document.querySelector(".thread");
-  const viewportObserverFor = () => [...resizeObservers].reverse().find((observer) =>
-    observer.active && observer.targets.includes(transcript) && observer.targets.includes(thread));
-  let viewportObserver = viewportObserverFor();
-  assert.ok(viewportObserver, "conversation resize observer must watch content and viewport");
+  await deliverResize();
+  assert.equal(simulatedScrollTop, bottom(), "a viewport resize keeps the pinned bottom");
+
+  const beforeStream = rawScrollWrites;
+  transcriptHeight = 1_600;
   await act(async () => {
-    viewportObserver.callback([{ target: transcript }]);
+    publish({
+      sessionId: "measured-target",
+      items: targetItems.slice(0, -1),
+      streamingTail: {
+        ...targetItems.at(-1),
+        text: "```powershell\nGet-ChildItem\n```",
+        streaming: true,
+      },
+      busy: true,
+      queued: [],
+    });
     await Promise.resolve();
   });
-  assert.equal(rawScrollWrites, 2,
-    "viewport resize must apply one immediate DOM pin");
-  assert.equal(simulatedScrollTop, transcriptHeight - transcriptClientHeight,
-    "viewport resize must use the current scroll and client heights");
-
-  // Window/pane width changes rewrap many virtual rows. Every intermediate
-  // measurement used to pin the changing total height, producing a visibly
-  // shaking scrollbar in split workspaces. Suppress all burst writes and
-  // restore the semantic bottom once after width + total size stabilize.
-  // The shift START is the exception (VS Code part-toggle grammar): the
-  // first delivery re-wrapped in the same pre-paint frame, so exactly one
-  // immediate bottom pin makes the first painted frame correct.
-  const widthBurstRawStart = rawScrollWrites;
-  const widthBurstVirtualStart = scrollTargets.length;
-  for (const [width, height] of [[610, 1_180], [570, 1_300], [525, 1_460]]) {
-    transcriptClientWidth = width;
-    transcriptHeight = height;
-    viewportObserver = viewportObserverFor();
-    assert.ok(viewportObserver);
-    await act(async () => {
-      viewportObserver.callback([{ target: transcript }]);
-      viewportObserver.callback([{ target: thread }]);
-      await Promise.resolve();
-    });
-  }
-  assert.equal(rawScrollWrites, widthBurstRawStart + 1,
-    "a width shift must pin its scroll target once pre-paint at shift start,"
-    + " then never chase intermediate heights with raw scrollTop writes");
-  assert.equal(scrollTargets.length, widthBurstVirtualStart,
-    "width reflow must not ask the virtualizer to restore every intermediate width");
-  for (const at of [80, 96, 112, 128, 144, 160, 176, 192, 208, 224]) {
-    await advanceFrame(at);
-  }
-  assert.equal(rawScrollWrites, widthBurstRawStart + 2,
-    "one stable-frame DOM bottom restore owns the completed width reflow");
-  assert.equal(scrollTargets.length, widthBurstVirtualStart,
-    "the completed width reflow must not leave a delayed virtualizer correction");
-  assert.equal(transcript.hasAttribute("data-width-reflow"), false,
-    "the width authority lock must release before normal content growth resumes");
-  assert.ok(viewportObserverFor());
-
-  const settledItems = targetItems.slice(0, -1);
-  let script = "```powershell\n";
-  for (const [height, chunk] of [
-    [1_600, "Get-ChildItem -Recurse\n"],
-    [1_780, "npm run typecheck\n"],
-    [1_960, "npm run test\n```"],
-  ]) {
-    transcriptHeight = height;
-    script += chunk;
-    const phaseScrollStart = scrollTargets.length;
-    const phaseRawStart = rawScrollWrites;
-    await act(async () => {
-      publish({
-        sessionId: "measured-target",
-        items: settledItems,
-        streamingTail: {
-          ...targetItems.at(-1),
-          text: script,
-          streaming: true,
-        },
-        busy: true,
-        spinner: { active: true, mode: "responding", startedAt: Date.now() },
-        queued: [],
-      });
-      await Promise.resolve();
-      for (const observer of resizeObservers) {
-        if (observer.active) observer.callback([]);
-      }
-      await Promise.resolve();
-    });
-    await advanceFrame(height);
-    assert.equal(scrollTargets.length, phaseScrollStart,
-      "streaming growth must not add a competing virtualizer target");
-    assert.equal(rawScrollWrites, phaseRawStart + 1,
-      "streaming growth must apply one aggregate content pin");
-    assert.equal(simulatedScrollTop, transcriptHeight - transcriptClientHeight,
-      "streaming growth must retain the current DOM bottom");
-  }
+  await deliverResize();
+  assert.equal(rawScrollWrites, beforeStream + 1, "streaming growth applies one content pin");
+  assert.equal(simulatedScrollTop, bottom(), "streaming growth retains the DOM bottom");
 
   const wheel = new window.Event("wheel", { bubbles: true });
   Object.defineProperty(wheel, "deltaY", { value: -1 });
   await act(async () => transcript.dispatchEvent(wheel));
-  const disarmedScrollCount = scrollTargets.length;
-  const disarmedRawWrites = rawScrollWrites;
+  const disarmed = rawScrollWrites;
+  transcriptHeight = 1_800;
+  await deliverResize(2);
+  assert.equal(rawScrollWrites, disarmed,
+    "explicit upward scrolling disarms resize pinning immediately");
+  simulatedScrollTop = Math.max(0, bottom() - 500);
   await act(async () => {
-    for (const observer of resizeObservers) {
-      if (observer.active) observer.callback([]);
-    }
-    await Promise.resolve();
+    transcript.dispatchEvent(new window.Event("scroll", { bubbles: true }));
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
   });
-  await advanceFrame(80);
-  assert.equal(scrollTargets.length, disarmedScrollCount,
-    "explicit upward scrolling should disarm resize following immediately");
-  assert.equal(rawScrollWrites, disarmedRawWrites,
-    "explicit upward scrolling should disarm DOM resize pins immediately");
-});
-
-test("virtual tail selection skips trailing hidden completion metadata", () => {
-  assert.equal(lastVisibleTranscriptItemIndex(65, (index) => index === 64), 63);
-  assert.equal(lastVisibleTranscriptItemIndex(66, (index) => index >= 64), 63);
-  assert.equal(lastVisibleTranscriptItemIndex(1, () => true), -1);
+  assert.ok(document.querySelector(".jump-to-latest"),
+    "OpenCode reveals the jump control only after the reader moves far from the bottom");
 });
 
 test("the window bar places Update left of the sidebar toggle while the rail foot stays clear", async () => {
@@ -9085,8 +8970,8 @@ test("the window bar places Update left of the sidebar toggle while the rail foo
   const update = document.querySelector(".titlebar-update");
   assert.equal(update?.closest(".titlebar-leading") != null, true,
     "Update lives in the window bar's layout cluster (user: 사이드바 토글 왼쪽)");
-  assert.equal(update?.nextElementSibling?.classList.contains("toolbar-sidebar"), true,
-    "Update sits immediately left of the sidebar toggle");
+  assert.equal(update?.nextElementSibling?.classList.contains("toolbar-panel"), true,
+    "Update leads the right-edge cluster, immediately left of the panel toggle");
   assert.equal(update?.getAttribute("aria-label"), "Install Mixdog 2.0.0");
   assert.equal(document.querySelector(".sidebar-update-button"), null,
     "the rail no longer hosts the updater badge");
@@ -9761,7 +9646,10 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
     offsetHeight: { value: 800, configurable: true },
   });
   Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', {
-    get() { return this.classList?.contains('transcript-virtual-row') ? 96 : 0; },
+    get() {
+      if (!this.classList?.contains('transcript-virtual-row-content')) return 0;
+      return this.dataset.tag === 'TurnGap' ? 20 : 96;
+    },
     configurable: true,
   });
   await act(async () => {
@@ -9770,11 +9658,16 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
     await Promise.resolve();
   });
   await waitForDom(
-    () => Boolean(document.querySelector('.transcript-virtual-space[data-virtualized="true"]')),
+    () => Boolean(document.querySelector('.transcript-virtual-space')),
     "long transcripts should settle into the virtual timeline",
     1_000,
   );
-  const virtualSpace = document.querySelector('.transcript-virtual-space[data-virtualized="true"]');
+  await waitForDom(
+    () => document.querySelectorAll('.transcript-virtual-row').length > 0,
+    "the end-anchored timeline should compose its initial virtual window",
+    1_000,
+  );
+  const virtualSpace = document.querySelector('.transcript-virtual-space');
   const renderedRows = document.querySelectorAll('.transcript-virtual-row');
   const visibleRows = document.querySelectorAll('.transcript-virtual-row:not([hidden])');
   assert.ok(virtualSpace, "long transcripts should use the virtual timeline");
@@ -9782,22 +9675,15 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
     `expected a bounded DOM window, rendered ${renderedRows.length} of ${items.length}`);
   assert.ok(visibleRows.length > 0,
     "DOM retention must not hide the virtualizer's active window");
-  assert.ok(document.querySelector('.transcript-virtual-row--retained[data-retained="active"]'),
-    "a visible settled assistant should use its retained DOM row");
   await waitForDom(
-    () => Boolean(document.querySelector(
-      '.transcript-virtual-row--retained[data-retained="active"] .markdown-code')),
-    "the retained tail should finish rendering its long script",
+    () => Boolean(document.querySelector('.transcript-virtual-row .markdown-code')),
+    "the visible tail should finish rendering its long script",
     1_000,
   );
-  const retainedScriptRow = document.querySelector(
-    '.transcript-virtual-row--retained[data-retained="active"]:has(.markdown-code)');
-  const retainedScript = retainedScriptRow?.querySelector(".markdown-code");
   const conversationNode = document.querySelector(".conversation");
-  assert.ok(retainedScriptRow && retainedScript);
-  // Length-proportional row estimates shrank the pre-measure spacer scale
-  // (short fixture rows estimate ~56px, not a fixed 160px).
-  assert.ok(Number.parseFloat(virtualSpace.style.height) > 250_000,
+  assert.ok(document.querySelector('.transcript-virtual-row .markdown-code'));
+  const measuredHeight = Number.parseFloat(virtualSpace.style.height);
+  assert.ok(measuredHeight > 250_000,
     "the virtual spacer should preserve access to the full transcript");
 
   const tabByText = (text) => Array.from(document.querySelectorAll(".workspace-tab"))
@@ -9806,12 +9692,8 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
     tabByText("New task").querySelector(".workspace-tab-main").click();
     await Promise.resolve();
   });
-  assert.equal(document.querySelector(".transcript-virtual-space"), virtualSpace,
-    "New Task must park the existing virtual layer instead of replacing it");
-  assert.equal(retainedScriptRow.isConnected, true);
-  assert.equal(retainedScriptRow.dataset.retained, "hidden");
-  assert.equal(retainedScriptRow.hidden, false,
-    "parking must retain layout instead of collapsing the script through display:none");
+  assert.equal(document.querySelector(".conversation"), conversationNode,
+    "parking a session must keep the Conversation owner mounted");
 
   const queuedFrames = new Map();
   let queuedFrameSequence = 0;
@@ -9835,8 +9717,6 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
     tabByText("Long session").querySelector(".workspace-tab-main").click();
     await Promise.resolve();
   });
-  assert.equal(retainedScriptRow.dataset.retained, "active",
-    "the requested route and retained script must become active in the click commit");
   assert.ok(document.querySelector(".thread-welcome-paint-handoff"),
     "the previous New Task pixels must cover the warm raster for one frame");
   const callbacks = [...queuedFrames.values()];
@@ -9849,14 +9729,17 @@ test("long transcripts virtualize offscreen rows while preserving the full scrol
   assert.equal(document.querySelector(".thread-welcome-paint-handoff"), null,
     "the prior watermark must leave after one animation frame");
   await waitForDom(
-    () => retainedScriptRow.dataset.retained === "active",
-    "the parked long session should become active again",
+    () => Boolean(document.querySelector('.transcript-virtual-row .markdown-code')),
+    "the parked long session should paint its script again",
     1_000,
   );
   assert.equal(document.querySelector(".conversation"), conversationNode,
     "Session → New Task → Session must retain the Conversation owner");
-  assert.equal(retainedScriptRow.querySelector(".markdown-code"), retainedScript,
-    "Session → New Task → Session must reuse the exact parsed script DOM");
+  assert.equal(
+    Number.parseFloat(document.querySelector(".transcript-virtual-space").style.height),
+    measuredHeight,
+    "re-entry must replay the measured geometry instead of re-deriving estimates",
+  );
 });
 
 test("sidebar session titles rename inline with commit, cancel, validation, and rollback", { skip: "rename UI removed - delete-only session actions" }, async () => {
@@ -11690,7 +11573,7 @@ test("model control styles keep the reference compact geometry and bounded list"
   assert.doesNotMatch(themeCss, /\.model-tag\s*\{/);
   assert.match(themeCss, /\.model-provider-setup\s*\{[^}]*height:\s*20px;/s);
   assert.match(themeCss, /\.model-notice\s*\{[^}]*padding:\s*7px 9px;[^}]*line-height:\s*16px;/s);
-  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s,
+  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 16px;/s,
     "the composer should sit close to the workspace bottom edge");
   assert.match(themeCss, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s,
     "the composer should use the solid desktop base and its subtle raised elevation");
@@ -12402,7 +12285,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.doesNotMatch(themeCss, /\.turn-review-slot\s*\{[^}]*position:\s*absolute;/s);
   assert.match(themeCss, /\.turn-review-slot:has\(\.turn-review-bar\)\s*\{[^}]*margin-bottom:\s*8px;/s);
   assert.match(themeCss, /\.turn-review-summary\s*\{[^}]*min-height:\s*28px;/s);
-  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 8px;/s);
+  assert.match(themeCss, /\.composer-region\s*\{[^}]*padding:\s*0 32px 16px;/s);
   assert.match(themeCss, /\.toolbar-sidebar\s*\{[^}]*width:\s*36px;/s);
   assert.match(themeCss, /\.activity-rail > button\s*\{[^}]*display:\s*grid;[^}]*place-items:\s*center;/s);
   assert.doesNotMatch(themeCss, /\.workspace-tab-divider\s*\{/);
@@ -12514,7 +12397,8 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.equal(sidebar.style.getPropertyValue("--session-sidebar-min-width"), "232px");
   assert.equal(sidebar.style.getPropertyValue("--session-sidebar-max-width"), "420px");
   assert.equal(sidebar.style.maxWidth, "420px");
-  assert.equal(sidebar.style.flexShrink, "0");
+  assert.equal(sidebar.style.flexShrink, "1",
+    "the open sidebar must yield toward its 232px floor before the workbench scrolls");
   assert.equal(window.localStorage.getItem("mixdog:session-sidebar-width"), "300");
   await act(async () => resize.dispatchEvent(
     new window.KeyboardEvent("keydown", { key: "End", bubbles: true }),

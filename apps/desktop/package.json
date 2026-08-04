@@ -31,7 +31,9 @@
     "build:win": "npm run build && npm run prepare:runtime -- --platform=win32 --arch=x64 && npm run brand:win && electron-builder --win --x64 --publish never",
     "build:win:arm64": "npm run build && npm run prepare:runtime -- --platform=win32 --arch=arm64 && npm run brand:win && electron-builder --win --arm64 --publish never",
     "build:mac": "npm run build && npm run prepare:runtime && electron-builder --mac",
-    "build:linux": "npm run build && npm run prepare:runtime && electron-builder --linux"
+    "build:linux": "npm run build && npm run prepare:runtime && electron-builder --linux",
+    "i18n:sync": "node scripts/sync-i18n.mjs",
+    "i18n:check": "i18next-cli status && node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
@@ -46,6 +48,7 @@
     "@xterm/xterm": "^5.5.0",
     "electron-updater": "^6.8.9",
     "hast-util-to-jsx-runtime": "^2.3.6",
+    "i18next": "^26.3.6",
     "jsqr": "^1.4.0",
     "katex": "^0.18.1",
     "lucide-react": "^0.468.0",
@@ -76,6 +79,7 @@
     "electron": "^40.8.4",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
+    "i18next-cli": "^1.67.4",
     "jsdom": "^27.0.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",

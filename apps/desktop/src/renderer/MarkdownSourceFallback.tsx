@@ -98,7 +98,7 @@ export function MarkdownSourceFallback({
             ? <CopyControl value={part.text} label="Copy code" className="markdown-code-copy" />
             : null}
         </header>
-        <pre><code className={part.language ? `language-${part.language}` : undefined}>
+        <pre data-scrollable><code className={part.language ? `language-${part.language}` : undefined}>
           {part.text}
         </code></pre>
       </div>)}

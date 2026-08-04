@@ -16,6 +16,16 @@ function bridge() {
   return (window as unknown as TitleBarDimBridge).mixdogDesktop;
 }
 
+function parseColor(computed: string): Rgba | null {
+  const legacy = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(computed);
+  if (legacy) {
+    return { r: +legacy[1], g: +legacy[2], b: +legacy[3], a: legacy[4] === undefined ? 1 : +legacy[4] };
+  }
+  const srgb = /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)$/.exec(computed);
+  if (!srgb) return null;
+  return { r: +srgb[1] * 255, g: +srgb[2] * 255, b: +srgb[3] * 255, a: srgb[4] === undefined ? 1 : +srgb[4] };
+}
+
 // color-mix() variables resolve only on a live element, so a 1px offscreen
 // probe turns the token into a concrete rgb()/color(srgb) value.
 function resolveCssColor(value: string): Rgba | null {
@@ -27,49 +37,112 @@ function resolveCssColor(value: string): Rgba | null {
   document.body.appendChild(probe);
   const computed = window.getComputedStyle(probe).backgroundColor;
   probe.remove();
-  const legacy = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(computed);
-  if (legacy) {
-    return { r: +legacy[1], g: +legacy[2], b: +legacy[3], a: legacy[4] === undefined ? 1 : +legacy[4] };
-  }
-  const srgb = /^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)$/.exec(computed);
-  if (!srgb) return null;
-  return { r: +srgb[1] * 255, g: +srgb[2] * 255, b: +srgb[3] * 255, a: srgb[4] === undefined ? 1 : +srgb[4] };
+  return parseColor(computed);
 }
 
-/** Source-over composite of the translucent scrim onto an opaque base. */
-function over(top: Rgba, base: Rgba): string {
-  const channel = (t: number, b: number) =>
-    Math.max(0, Math.min(255, Math.round(t * top.a + b * (1 - top.a))))
-      .toString(16).padStart(2, '0');
-  return `#${channel(top.r, base.r)}${channel(top.g, base.g)}${channel(top.b, base.b)}`;
+/** Every fullscreen scrim currently painting over the window band. Counting
+ *  claims guessed one layer per modal; reading the LIVE layers makes the
+ *  caption match whatever the DOM actually shows, nesting included. */
+const SCRIM_LAYERS = '.onboarding-layer, .schedules-dialog-layer, .settings-confirm-layer,'
+  + ' .mx-dialog-layer, .settings-oauth-layer';
+
+function visibleScrims(): Rgba[] {
+  if (typeof document === 'undefined') return [];
+  return Array.from(document.querySelectorAll<HTMLElement>(SCRIM_LAYERS))
+    .filter((element) => element.getClientRects().length > 0)
+    .map((element) => {
+      const style = window.getComputedStyle(element);
+      const color = parseColor(style.backgroundColor);
+      if (!color) return null;
+      // A fading scrim animates ELEMENT opacity, not its background alpha:
+      // fold it in so the native band tracks the fade instead of jumping to
+      // the settled color a beat early (user: 딤드될 때 혼자 튀어 보임).
+      const opacity = Number.parseFloat(style.opacity);
+      return Number.isFinite(opacity) ? { ...color, a: color.a * opacity } : color;
+    })
+    .filter((color): color is Rgba => color !== null && color.a > 0);
+}
+
+/** Source-over composite of a translucent layer onto an opaque base. */
+function over(top: Rgba, base: Rgba): Rgba {
+  const channel = (t: number, b: number) => t * top.a + b * (1 - top.a);
+  return { r: channel(top.r, base.r), g: channel(top.g, base.g), b: channel(top.b, base.b), a: 1 };
+}
+
+function hex(color: Rgba): string {
+  const channel = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
+    .toString(16).padStart(2, '0');
+  return `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`;
 }
 
 let holds = 0;
+let followFrame = 0;
+let followUntil = 0;
 
-function sendDim(): void {
-  const scrim = resolveCssColor('var(--mx-scrim)');
-  const band = resolveCssColor('var(--mx-window-band)');
-  if (!scrim || !band) return;
+/** Track the scrim motion frame-by-frame: WCO colors cannot transition, so
+ *  the band re-samples the DOM's animated opacity until the fade settles. */
+function followCaption(durationMs = 450): void {
+  if (typeof requestAnimationFrame !== 'function') return;
+  followUntil = performance.now() + durationMs;
+  if (followFrame) return;
+  const step = (): void => {
+    sendCaption();
+    followFrame = performance.now() < followUntil ? requestAnimationFrame(step) : 0;
+  };
+  followFrame = requestAnimationFrame(step);
+}
+
+/** The caption band is native chrome, so its colors are PUSHED from the theme
+ *  tokens: pure black/white symbols read heavier than the DOM icons beside
+ *  them (user: 아이콘이랑 최대최소닫기 색감이 동떨어져 있다). While a modal
+ *  holds a claim, the same scrim is composited on top of both. */
+function sendCaption(): void {
+  // Prefer the ACTUAL painted titlebar over the token: the caption band must
+  // read as one surface with the strip beside it (user: 배경이랑 완전히
+  // 동화됐으면), even if a surface tweak moves the token.
+  const topbar = typeof document === 'undefined'
+    ? null : document.querySelector<HTMLElement>('header.topbar');
+  const painted = topbar ? parseColor(window.getComputedStyle(topbar).backgroundColor) : null;
+  const band = painted && painted.a === 1 ? painted : resolveCssColor('var(--mx-window-band)');
+  if (!band) return;
   const light = window.getComputedStyle(document.documentElement).colorScheme === 'light';
-  const symbol: Rgba = light ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
-  bridge()?.setTitleBarDim?.({ color: over(scrim, band), symbolColor: over(scrim, symbol) })
-    ?.catch?.(() => undefined);
+  // Caption symbols share the EXACT ink of the DOM cluster beside them
+  // (user: 그쪽만 혼자 다르게 튀어 보임): the native strokes are hairline,
+  // so full cluster ink does not read heavier.
+  const ink = resolveCssColor('var(--mx-icon)')
+    ?? (light ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 });
+  let plate = over(band, band);
+  let symbol = over(ink, plate);
+  // Stacked scrims darken the caption exactly as they darken the DOM: a
+  // confirmation over the wizard paints TWO (user: 왜 - ㅁ x 는 딤드에 포함
+  // 안 되는거야 — 한 겹만 먹고 있었다).
+  for (const scrim of visibleScrims()) {
+    plate = over(scrim, plate);
+    symbol = over(scrim, symbol);
+  }
+  bridge()?.setTitleBarDim?.({ color: hex(plate), symbolColor: hex(symbol) })?.catch?.(() => undefined);
 }
 
 /** One fullscreen-scrim claim; the returned release drops it (idempotent). */
 export function acquireTitleBarDim(): () => void {
   holds += 1;
-  if (holds === 1) sendDim();
+  // Every claim re-composites: nested modals deepen the band, releasing one
+  // lifts it back a layer.
+  sendCaption();
+  followCaption();
   let released = false;
   return () => {
     if (released) return;
     released = true;
     holds -= 1;
-    if (holds === 0) bridge()?.setTitleBarDim?.(null)?.catch?.(() => undefined);
+    // Resting colors are themed too, so the band never snaps back to the
+    // main process's black/white fallback.
+    sendCaption();
+    followCaption();
   };
 }
 
-/** Re-send the composite after a theme swap while a modal stays open. */
+/** Re-send the caption colors after a theme swap (dimmed or not). */
 export function refreshTitleBarDim(): void {
-  if (holds > 0) sendDim();
+  sendCaption();
 }

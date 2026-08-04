@@ -15,6 +15,14 @@ import {
   setDesktopThemePreference,
   type DesktopThemePreference,
 } from '../desktop-theme';
+import {
+  getUiLanguagePreference,
+  resolveUiLanguage,
+  setUiLanguagePreference,
+  SUPPORTED_UI_LANGUAGES,
+  t,
+  type UiLanguagePreference,
+} from '../i18n';
 import { providerDisplayName } from '../provider-display';
 import {
   getSidePanelMode,
@@ -93,7 +101,7 @@ function ShortcutsPanel() {
     {SHORTCUT_GROUPS.map(([title, rows]) => <Group key={title} title={title}>
       <div className="settings-shortcut-list">
         {rows.map(([keys, label]) => <div className="settings-shortcut-row" key={keys}>
-          <span>{label}</span>
+          <span>{t(label)}</span>
           <kbd>{keys}</kbd>
         </div>)}
       </div>
@@ -142,16 +150,13 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
     if (remoteServer) {
       return <Group title="Phone remote">
         <p className="settings-connection-note">
-          This device is paired and connected through <code>{remoteServer}</code>.
-          Pairing QR codes for other devices live in the desktop app under
-          Settings → Connection.
+          {t('This device is paired and connected through {{server}}. Pairing QR codes for other devices live in the desktop app under Settings → Connection.', { server: remoteServer })}
         </p>
       </Group>;
     }
     return <Group title="Phone remote">
       <p className="settings-connection-note">
-        Remote access is unavailable in this session. On the desktop it is on by
-        default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable pairing.
+        {t('Remote access is unavailable in this session. On the desktop it is on by default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable pairing.')}
       </p>
     </Group>;
   }
@@ -160,16 +165,13 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
       if (info === null) {
         return <Group title="Phone remote">
           <p className="settings-connection-note">
-            Remote access could not start in this session. On the desktop it is
-            on by default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable
-            pairing.
+            {t('Remote access could not start in this session. On the desktop it is on by default; restart without MIXDOG_REMOTE_BRIDGE=0 to enable pairing.')}
           </p>
         </Group>;
       }
       return <Group title="Phone remote">
         <p className="settings-connection-note">
-          Connecting to the Mixdog relay… this card refreshes automatically. If
-          this persists, check this PC&apos;s internet connection.
+          {t('Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.')}
         </p>
       </Group>;
     }
@@ -177,11 +179,11 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
       description="Works on any network. Scan with the phone camera.">
       <div className="settings-connection-grid">
         <figure className="settings-connection-card settings-connection-card--loading"
-          aria-label="Preparing pairing code" aria-busy="true">
+          aria-label={t('Preparing pairing code')} aria-busy="true">
           <div className="settings-connection-qr-placeholder" aria-hidden="true" />
           <figcaption>
-            <b>Preparing pairing code…</b>
-            <small>Starting the secure relay</small>
+            <b>{t('Preparing pairing code…')}</b>
+            <small>{t('Starting the secure relay')}</small>
           </figcaption>
         </figure>
       </div>
@@ -197,7 +199,7 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
     <div className="settings-connection-grid">
       <figure className="settings-connection-card">
         <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: browserQrSvg }} />
-        <figcaption><b>Open the web app</b><small>Works on iPhone and Android — nothing to install</small></figcaption>
+        <figcaption><b>{t('Open the web app')}</b><small>{t('Works on iPhone and Android — nothing to install')}</small></figcaption>
       </figure>
     </div>
     <ResourceRow title="Unpair every device"
@@ -317,11 +319,11 @@ function UpdatePanel({
     || updaterState.status === 'downloading'
     || updaterState.status === 'installing';
   const installLabel = updaterState.status === 'ready'
-    ? `Update to v${updaterState.version}`
+    ? t('Update to v{{version}}', { version: updaterState.version })
     : updaterState.status === 'installing'
-      ? `Installing v${updaterState.version}…`
+      ? t('Installing v{{version}}…', { version: updaterState.version })
       : updaterState.status === 'downloading'
-        ? `Downloading v${updaterState.version}…`
+        ? t('Downloading v{{version}}…', { version: updaterState.version })
         : updaterState.status === 'checking'
           ? 'Checking for update…'
           : updaterState.status === 'up-to-date'
@@ -331,8 +333,8 @@ function UpdatePanel({
               : 'Check for update';
   return <Group title="Update">
     <ResourceRow title="Current version" description="Installed Mixdog Desktop version."
-      meta={String(update.currentVersion || 'unknown')} />
-    <ResourceRow title="Latest version" meta={version || 'unknown'}
+      meta={String(update.currentVersion || t('unknown'))} />
+    <ResourceRow title="Latest version" meta={version || t('unknown')}
       actions={<ActionButton disabled={busy} onClick={() => void checkDesktopUpdate()}>Check now</ActionButton>} />
     <ToggleRow title="Auto-update" checked={update.autoUpdate === true}
       disabled={busy} onChange={(enabled) => void run('setAutoUpdate', [enabled])} />
@@ -360,6 +362,28 @@ function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>)
     <SelectRow title="Theme" value={preference} disabled={Boolean(pending)}
       options={desktopThemeOptions()}
       onChange={choose} />
+  </Group>;
+}
+
+// UI language is desktop-local (localStorage), like the theme rows: it never
+// writes engine config. Changing the RESOLVED language reloads the window —
+// module-scope strings bake their translation at import time, so a live swap
+// would leave mixed-language chrome. The pane layout restores from storage.
+function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
+  const [preference, setPreference] = useState<UiLanguagePreference>(() => getUiLanguagePreference());
+  return <Group title="Display language">
+    <SelectRow title="Display language" value={preference} disabled={Boolean(pending)}
+      options={[
+        { value: 'system', label: 'System default' },
+        ...SUPPORTED_UI_LANGUAGES,
+      ]}
+      onChange={(next) => {
+        const selected = next as UiLanguagePreference;
+        const previous = resolveUiLanguage();
+        setPreference(selected);
+        setUiLanguagePreference(selected);
+        if (resolveUiLanguage(selected) !== previous) window.location.reload();
+      }} />
   </Group>;
 }
 
@@ -396,6 +420,7 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
       <SelectRow title="Language" value={String(profile.language || 'system')} disabled={busy}
         options={languageOptions} onChange={(language) => void run('setProfile', [{ language }])} />
     </Group>
+    <UiLanguageChoices pending={pending} />
         <ThemeChoices data={data} pending={pending} />
     <SidePanelChoices pending={pending} />
   </>;
@@ -421,7 +446,7 @@ function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
       status={providerStatus(provider)}
       actions={<><OAuthControl provider={provider} disabled={busy} run={run} />
         {provider.authenticated && <ActionButton danger disabled={busy} onClick={() => {
-          confirm({ title: 'Forget provider authentication?', description: `Remove the saved authentication for ${providerLabel(provider)}.`,
+          confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
             confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
         }}>Forget</ActionButton>}</>} />) : <ListEmpty text={loading ? 'Loading providers…' : 'No OAuth providers available.'} />}</Group>
     <Group title="API-key providers">{apiProviders.length ? apiProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
@@ -442,7 +467,7 @@ function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
         </form>}
         {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&
           <ActionButton danger disabled={busy} onClick={() => {
-        confirm({ title: 'Forget provider authentication?', description: `Remove the saved authentication for ${providerLabel(provider)}.`,
+        confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
           confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
         }}>Forget</ActionButton>}</>} />) : <ListEmpty text={loading ? 'Loading providers…' : 'No API-key providers available.'} />}</Group>
     <Group title="Local providers">{localProviders.length ? localProviders.map((provider) => <React.Fragment key={String(provider.id)}>
@@ -553,16 +578,16 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
       aria-labelledby={`settings-oauth-title-${providerId}`} aria-describedby={`settings-oauth-description-${providerId}`}>
       <header><div><h3 id={`settings-oauth-title-${providerId}`}>{providerLabel(provider)} OAuth</h3>
         <p id={`settings-oauth-description-${providerId}`}>{manualCodeFlow
-          ? 'Complete the browser login, then paste the authorization code.'
-          : 'Finish signing in in your browser. This window updates automatically.'}</p></div>
-        <button type="button" aria-label="Close OAuth login" autoFocus onClick={close}>
+          ? t('Complete the browser login, then paste the authorization code.')
+          : t('Finish signing in in your browser. This window updates automatically.')}</p></div>
+        <button type="button" aria-label={t('Close OAuth login')} data-settings-nested-close autoFocus onClick={close}>
           <X aria-hidden="true" size={15} />
         </button></header>
       <div className="settings-oauth-body">
-        <div className="settings-oauth-status" role="status"><span>Status</span>
-          <b className={`tone-${status.tone}`}>{status.label}</b></div>
+        <div className="settings-oauth-status" role="status"><span>{t('Status')}</span>
+          <b className={`tone-${status.tone}`}>{t(status.label)}</b></div>
         {String(flow.error || '') && <p className="settings-oauth-error" role="alert">{String(flow.error)}</p>}
-        {manualCodeFlow && Boolean(flow.manualUrl || flow.url) && <label className="settings-oauth-url">Manual login URL
+        {manualCodeFlow && Boolean(flow.manualUrl || flow.url) && <label className="settings-oauth-url">{t('Manual login URL')}
           <textarea readOnly value={String(flow.manualUrl || flow.url)} /></label>}
         {manualCodeFlow && Boolean(flow.manualCodeSupported) && flow.state !== 'complete' && <form className="settings-oauth-code" onSubmit={(event) => {
         event.preventDefault();
@@ -574,12 +599,12 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
             if (next) setFlow(record(next));
             else setError('The authorization code could not be completed.');
           });
-      }}><input name="code" placeholder="Authorization code or code#state" aria-label="Anthropic authorization code" required />
-          <button type="submit" className="primary" disabled={disabled}>Complete</button></form>}
+      }}><input name="code" placeholder={t('Authorization code or code#state')} aria-label={t('Anthropic authorization code')} required />
+          <button type="submit" className="primary" disabled={disabled}>{t('Complete')}</button></form>}
         {error && <p className="settings-oauth-error" role="alert">{error}</p>}
       </div>
       <footer><button type="button" disabled={disabled} onClick={close}>
-        {flow.state === 'pending' ? 'Cancel' : 'Close'}
+        {flow.state === 'pending' ? t('Cancel') : t('Close')}
       </button></footer>
     </section></div>}
   </>;
@@ -591,10 +616,10 @@ function McpPanel({ data, pending, run }: PanelContext) {
   const busy = Boolean(pending);
   return <>
     <Group title="Servers"
-      description={`${status.connectedCount || 0} connected · ${status.failedCount || 0} failed`}>
+      description={t('{{connected}} connected · {{failed}} failed', { connected: status.connectedCount || 0, failed: status.failedCount || 0 })}>
       {servers.length ? servers.map((server) => <ResourceRow key={String(server.name)} title={String(server.name)}
         description={`${server.transport || 'transport unknown'}${server.error ? ` · ${server.error}` : ''}`}
-        meta={`${server.toolCount || 0} tools`}
+        meta={t('{{count}} tools', { count: server.toolCount || 0 })}
         status={String(server.status || 'unknown')}
         actions={<ActionButton disabled={busy} onClick={() => void run('setMcpServerEnabled', [server.name, server.enabled === false])}>
           {server.enabled === false ? 'Enable' : 'Disable'}
@@ -641,7 +666,7 @@ function PluginsPanel({ data, pending, run, confirm }: PanelContext) {
           void navigator.clipboard?.writeText(String(plugin.mcpServerName));
         }}>Copy MCP name</ActionButton>}
         <ActionButton danger disabled={busy} onClick={() => {
-          confirm({ title: 'Remove plugin?', description: `${label(plugin)} will be removed from Mixdog.`,
+          confirm({ title: 'Remove plugin?', description: t('{{name}} will be removed from Mixdog.', { name: label(plugin) }),
             confirmLabel: 'Remove', danger: true, onConfirm: () => void run('removePlugin', [plugin]) });
         }}><Trash2 size={13} /></ActionButton></>} />) : <ListEmpty text={sectionLoaded(data, 'plugins') ? 'No plugins installed.' : 'Loading plugins…'} />}
     </Group>
@@ -660,7 +685,7 @@ function HooksPanel({ data, pending, run }: PanelContext) {
   const busy = Boolean(pending);
   return <>
     <Group title="Rules"
-      description={`${status.ruleCount || rules.length} rules · ${status.configMode || 'standalone'}`}>
+      description={t('{{count}} rules · {{mode}}', { count: status.ruleCount || rules.length, mode: status.configMode || 'standalone' })}>
       {rules.length ? rules.map((rule, index) => <ResourceRow key={String(rule.index ?? index)} title={`${rule.tool || '*'} → ${rule.action || 'ask'}`}
         description={String(rule.match || rule.reason || '')} status={rule.enabled === false ? 'Disabled' : 'Enabled'}
         actions={<ActionButton disabled={busy} onClick={() => void run('setHookRuleEnabled', [Number(rule.index ?? index), rule.enabled === false])}>
@@ -696,7 +721,7 @@ function ContextPanel({ data, pending, run, confirm }: PanelContext) {
     <Group title="Memory"><ToggleRow title="Memory enabled" description="Enable memory recap and curated core memories."
       checked={memory.enabled !== false} disabled={busy} onChange={(enabled) => void run('setMemoryEnabled', [enabled])} /></Group>
     <section className="settings-group core-memory-section">
-      <header><h3>Core memories</h3><p>User-curated memories shared across Mixdog sessions.</p></header>
+      <header><h3>{t('Core memories')}</h3><p>{t('User-curated memories shared across Mixdog sessions.')}</p></header>
       <CoreMemoryManager initialValue={data.coreMemory} pending={pending} run={run} confirm={confirm} />
     </section>
   </>;
@@ -778,7 +803,7 @@ function CoreMemoryManager({ initialValue, pending, run, confirm }: {
   };
   return <div className="core-memory-manager">
     <section className="core-memory-add-card">
-      <header><b>Add memory</b><small>Save a durable fact or preference for future sessions.</small></header>
+      <header><b>{t('Add memory')}</b><small>{t('Save a durable fact or preference for future sessions.')}</small></header>
       <form className="core-memory-add" onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -786,8 +811,8 @@ function CoreMemoryManager({ initialValue, pending, run, confirm }: {
         if (!sentence) return;
         void mutate({ action: 'core', op: 'add', project_id: 'common', element: sentence, summary: sentence })
           .then((ok) => { if (ok) form.reset(); });
-      }}><input name="sentence" aria-label="Memory to add" placeholder="What should Mixdog remember?" maxLength={2000} required />
-        <button disabled={Boolean(pending)}>Add memory</button></form>
+      }}><input name="sentence" aria-label={t('Memory to add')} placeholder={t('What should Mixdog remember?')} maxLength={2000} required />
+        <button disabled={Boolean(pending)}>{t('Add memory')}</button></form>
     </section>
     {entries.length ? <div className="core-memory-list">
       {entries.map((entry) => editing === entry.id ? <form className="core-memory-edit" key={entry.id} onSubmit={(event) => {
@@ -797,18 +822,18 @@ function CoreMemoryManager({ initialValue, pending, run, confirm }: {
         const payload: RecordValue = { action: 'core', op: 'edit', id: entry.id, project_id: entry.projectId, summary };
         if (entry.singleSentence) payload.element = summary;
         void mutate(payload).then((ok) => { if (ok) setEditing(null); });
-      }}><input name="summary" aria-label="Memory text" defaultValue={entry.summary} maxLength={2000} required autoFocus />
-        <span className="core-memory-scope">{entry.projectId || 'Common'}</span>
-        <div className="core-memory-actions"><button disabled={Boolean(pending)}>Save</button>
-          <button type="button" onClick={() => setEditing(null)}>Cancel</button></div></form>
+      }}><input name="summary" aria-label={t('Memory text')} defaultValue={entry.summary} maxLength={2000} required autoFocus />
+        <span className="core-memory-scope">{entry.projectId || t('Common')}</span>
+        <div className="core-memory-actions"><button disabled={Boolean(pending)}>{t('Save')}</button>
+          <button type="button" onClick={() => setEditing(null)}>{t('Cancel')}</button></div></form>
         : <div className="core-memory-row" key={entry.id}><div className="core-memory-copy"><b>{entry.summary}</b></div>
-          <span className="core-memory-scope">{entry.projectId || 'Common'}</span>
-          <div className="core-memory-actions"><button disabled={Boolean(pending)} onClick={() => setEditing(entry.id)}>Edit</button>
+          <span className="core-memory-scope">{entry.projectId || t('Common')}</span>
+          <div className="core-memory-actions"><button disabled={Boolean(pending)} onClick={() => setEditing(entry.id)}>{t('Edit')}</button>
           <button className="danger" disabled={Boolean(pending)} onClick={() => {
-            confirm({ title: 'Delete memory?', description: `Memory #${entry.id} will be removed permanently.`,
+            confirm({ title: 'Delete memory?', description: t('Memory #{{id}} will be removed permanently.', { id: entry.id }),
               confirmLabel: 'Delete', danger: true,
               onConfirm: () => void mutate({ action: 'core', op: 'delete', id: entry.id, project_id: entry.projectId }) });
-          }}>Delete</button></div></div>)}
+          }}>{t('Delete')}</button></div></div>)}
     </div> : <div className="core-memory-list core-memory-list--empty"><Empty text="No core memories yet." /></div>}
     {error && <p className="settings-field-error">{error}</p>}
   </div>;
@@ -857,8 +882,8 @@ function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
             }
             const channelLabel = value === 'telegram' ? 'Telegram' : 'Discord';
             notice(data.remote === true || worker.running
-              ? `Channel set to ${channelLabel}. Restart remote to apply.`
-              : `Channel set to ${channelLabel}.`);
+              ? t('Channel set to {{channel}}. Restart remote to apply.', { channel: channelLabel })
+              : t('Channel set to {{channel}}.', { channel: channelLabel }));
           });
         }} />
       <ResourceRow title="Voice transcription"
@@ -941,11 +966,11 @@ function SecretForm({ title, status, disabled, onSave }: {
   const saved = status.stored === true || status.authenticated === true || String(status.status || '').toLowerCase() === 'set';
   const visibleStatus = status.problem ? String(status.status || 'Invalid') : saved ? 'Saved' : undefined;
   return <FormRow title={title} status={visibleStatus}
-    description={String(status.problem || status.status || 'Not configured')} resetOnSubmit
+    description={t(String(status.problem || status.status || 'Not configured'))} resetOnSubmit
     onSubmit={(form) => onSave(String(form.get('secret') || ''))}>
     <input name="secret" type="password" autoComplete="off" aria-label={title}
-      placeholder={saved ? '••••••••  Saved' : 'Secret'} required disabled={disabled} />
-    <button disabled={disabled}>{saved ? 'Replace' : 'Save'}</button>
+      placeholder={saved ? `••••••••  ${t('Saved')}` : t('Secret')} required disabled={disabled} />
+    <button disabled={disabled}>{saved ? t('Replace') : t('Save')}</button>
   </FormRow>;
 }
 

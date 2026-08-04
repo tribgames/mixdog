@@ -36,7 +36,6 @@ export function reconcileTurnFailures<T extends {
   toasts: T[] | undefined,
   scope?: string,
 ): TurnFailureModel;
-export function isScrollIntentKey(key: string): boolean;
 export function shouldNavigatePromptHistory(input?: {
   key?: string;
   value?: string;

@@ -193,6 +193,16 @@ export function installDom({ windowShown = true, sidebarOpen = true } = {}) {
     attachEvent: { value() {}, configurable: true },
     detachEvent: { value() {}, configurable: true },
   });
+  // jsdom implements no layout, so every element reports a 0x0 box. The
+  // transcript is virtualized: a viewport without a measurable height resolves
+  // no window of rows at all. Give it the 800px height the renderer assumes as
+  // its initial rect and leave every width at 0 (a faked offsetWidth would
+  // read as an 800px scrollbar gutter). Suites that need their own geometry
+  // keep overriding offsetHeight on the element or on this prototype.
+  Object.defineProperty(dom.window.HTMLElement.prototype, "offsetHeight", {
+    get() { return this.classList?.contains("transcript") ? 800 : 0; },
+    configurable: true,
+  });
   Object.defineProperty(dom.window.HTMLCanvasElement.prototype, "getContext", {
     value() {
       return {

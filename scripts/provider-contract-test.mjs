@@ -40,6 +40,11 @@ import {
     fetchOAuthUsageSnapshot,
 } from '../src/runtime/agent/orchestrator/providers/oauth-usage.mjs';
 
+// Usage snapshots persist to <data dir>/gateway-oauth-usage-cache.json. Without
+// an isolated data dir these fixtures wrote provider rows into the developer's
+// real cache, where a fake model id could later win a provider fallback lookup.
+process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-provider-contract-'));
+
 function stream(events) {
     return {
         async *[Symbol.asyncIterator]() {
@@ -186,6 +191,88 @@ test('Codex reset credits are scoped, confirmed with an idempotency key, and ref
     } finally {
         globalThis.fetch = originalFetch;
     }
+});
+
+test('a spent Codex reset credit reports the server outcome instead of a client-side offer check', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url, options = {}) => {
+        calls.push(`${options.method || 'GET'} ${String(url)}`);
+        if (String(url).endsWith('/consume')) {
+            return new Response(JSON.stringify({ code: 'already_redeemed' }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ available_count: 0, credits: [] }), { status: 200 });
+    };
+    const provider = {
+        ensureAuth: async () => ({ access_token: 'token', account_id: 'account-spent' }),
+    };
+    try {
+        const result = await consumeOpenAICodexResetCredit(provider, {
+            expectedOfferRevision: `v1:${'a'.repeat(64)}`,
+            idempotencyKey: '7d9ec9f4-6c23-4e66-9fc1-3715c24a9c2e',
+        });
+        // The credit is gone, so the stale offer can never match again: only the
+        // idempotent redeem can tell the user it was already applied.
+        assert.equal(result.outcome, 'alreadyRedeemed');
+        assert.equal(result.resetCredits.availableCount, 0);
+        assert.ok(calls.some((entry) => entry.startsWith('POST ')));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('an interrupted Codex redeem replays its idempotent request instead of losing the credit', async () => {
+    const originalFetch = globalThis.fetch;
+    let posts = 0;
+    globalThis.fetch = async (url) => {
+        if (String(url).endsWith('/consume')) {
+            posts += 1;
+            if (posts === 1) {
+                throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+            }
+            return new Response(JSON.stringify({ code: 'reset' }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ available_count: 0, credits: [] }), { status: 200 });
+    };
+    const provider = {
+        ensureAuth: async () => ({ access_token: 'token', account_id: 'account-retry' }),
+    };
+    try {
+        const result = await consumeOpenAICodexResetCredit(provider, {
+            expectedOfferRevision: `v1:${'c'.repeat(64)}`,
+            idempotencyKey: '2f1c0e6a-71a4-4a2f-93cd-1f0d4b6c7e21',
+        });
+        assert.equal(result.outcome, 'reset');
+        assert.equal(posts, 2);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('a completed Codex redeem returns its outcome even when the dashboard refresh fails', async () => {
+    const usage = createProviderUsage({
+        caches: {
+            providerSetupCache: {},
+            providerSetupQuickCache: {},
+            providerSetupPromise: null,
+            usageDashboardCache: {},
+            usageDashboardPromise: null,
+        },
+        displayConfig: () => ({}),
+        providerSetup: async () => ({ api: [], oauth: [], local: [] }),
+        createUsageDashboard: async () => { throw new Error('provider sweep failed'); },
+        getReg: () => ({ getProvider: () => ({}) }),
+        consumeOpenAICodexResetCredit: async () => ({ outcome: 'reset', resetCredits: null }),
+        getProviderSetupWarmupTimer: () => null,
+        scheduleProviderSetupWarmup() {},
+        isCloseRequested: () => false,
+    });
+
+    assert.deepEqual(
+        await usage.consumeCodexRateLimitResetCredit({}),
+        { outcome: 'reset', resetCredits: null },
+        'a spent credit must never be reported as unconfirmed because a courtesy refresh failed',
+    );
 });
 
 test('Codex usage preserves an embedded reset credit when the detail endpoint is unavailable', async () => {

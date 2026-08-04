@@ -1,0 +1,41 @@
+import WebSocket from 'ws';
+import fs from 'fs';
+const targets = await (await fetch('http://127.0.0.1:9343/json')).json();
+const page = targets.find((t) => t.type === 'page' && !/devtools/i.test(t.url));
+const ws = new WebSocket(page.webSocketDebuggerUrl);
+await new Promise((res, rej) => { ws.once('open', res); ws.once('error', rej); });
+let seq = 0; const pending = new Map();
+ws.on('message', (raw) => { const m = JSON.parse(raw.toString()); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
+const send = (method, params = {}) => new Promise((res) => { const id = ++seq; pending.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
+const evalJson = async (expr) => (await send('Runtime.evaluate', { returnByValue: true, expression: expr })).result?.result?.value;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+await send('Emulation.setDeviceMetricsOverride', { width: 562, height: 693, deviceScaleFactor: 0, mobile: false });
+await wait(500);
+// open drawer, go to workflows, close, reopen -> should be Sessions
+await evalJson(`(() => { const b = [...document.querySelectorAll('.topbar button')].find(x => (x.getAttribute('aria-label')||'').includes('사이드바 펼치기')); if (b) b.click(); })()`);
+await wait(400);
+await evalJson(`(() => { const b = [...document.querySelectorAll('button')].find(x => (x.getAttribute('aria-label')||x.dataset.tooltip||'').includes('워크플로') && x.getBoundingClientRect().left < 48); if (b) b.click(); })()`);
+await wait(400);
+console.log('view before close:', await evalJson(`(document.querySelector('.session-panel-title')||{}).textContent`));
+await evalJson(`(() => { const b = [...document.querySelectorAll('.topbar button')].find(x => (x.getAttribute('aria-label')||'').includes('사이드바 접기')); if (b) b.click(); })()`);
+await wait(400);
+await evalJson(`(() => { const b = [...document.querySelectorAll('.topbar button')].find(x => (x.getAttribute('aria-label')||'').includes('사이드바 펼치기')); if (b) b.click(); })()`);
+await wait(400);
+console.log('view after reopen (want 세션):', await evalJson(`(document.querySelector('.session-panel-title')||{}).textContent`));
+// popup z check
+await evalJson(`(() => { const pin = document.querySelector('.activity-rail .rail-usage-pin-stack'); const b = pin ? pin.closest('button') : null; if (b) b.click(); })()`);
+await wait(400);
+console.log('popup z:', await evalJson(`JSON.stringify((() => {
+  const popup = document.querySelector('.rail-usage-popup');
+  if (!popup || popup.dataset.state === 'closed') return 'no-popup';
+  const rail = document.querySelector('.activity-rail');
+  const r = popup.getBoundingClientRect();
+  const mid = document.elementFromPoint(Math.round(r.left + r.width/2), Math.round(r.top + 20));
+  return { railZ: getComputedStyle(rail).zIndex, popupVisibleAtPoint: !!(mid && mid.closest('.rail-usage-popup')) };
+})())`));
+const shot = await send('Page.captureScreenshot', { format: 'png' });
+fs.writeFileSync('scripts/tmp-final2-shot.png', Buffer.from(shot.result.data, 'base64'));
+await evalJson(`document.body.click()`);
+await evalJson(`(() => { const b = [...document.querySelectorAll('.topbar button')].find(x => (x.getAttribute('aria-label')||'').includes('사이드바 접기')); if (b) b.click(); })()`);
+await send('Emulation.clearDeviceMetricsOverride');
+ws.close();

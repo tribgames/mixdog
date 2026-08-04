@@ -7,6 +7,7 @@ import {
   reportBootSurfaceStage,
 } from "./boot-metrics";
 import { type RecordValue } from "./desktop-types";
+import { t } from "./i18n";
 import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
 import { ModelPicker } from "./ModelPicker";
 import { OpenSelect } from "./OpenSelect";
@@ -266,7 +267,7 @@ export const ModelSelector = memo(function ModelSelector({
     ? modelDisplayName(known.model, known.provider, known.display || "")
     : model && !catalogLoaded
       ? modelDisplayName(model, provider)
-      : "Select model";
+      : t("Select model");
 
   const loadCatalog = useCallback(async (force = false) => {
     if (catalogInFlight.current) return catalogInFlight.current;
@@ -484,7 +485,7 @@ export const ModelSelector = memo(function ModelSelector({
       triggerLabel={triggerModel} disabled={modelUnavailable}
       catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
       catalogError={catalogError} providerSetupError={providerSetupError}
-      tooltip={catalogLoaded && selectableModels.length === 0 ? "Add a provider to load models" : "Choose model"}
+      tooltip={catalogLoaded && selectableModels.length === 0 ? t("Add a provider to load models") : t("Choose model")}
       onOpen={() => {
         if (!catalogLoaded || Date.now() - catalogLoadedAt.current > 300_000) void loadCatalog(catalogLoaded);
       }}
@@ -492,7 +493,7 @@ export const ModelSelector = memo(function ModelSelector({
       onOpenProviders={() => onOpenSettings("providers")} />
     {known && known.effortOptions.length > 0 && (
       <div ref={effortControl} className="effort-control">
-        <OpenSelect variant="route" ariaLabel="Reasoning effort"
+        <OpenSelect variant="route" ariaLabel={t("Reasoning effort")}
           disabled={tuningUnavailable} value={selectedEffort?.value || ""}
           onChange={(value) => void changeEffort(value)} options={[
             ...(!selectedEffort ? [{ value: '', label: 'Effort', disabled: true }] : []),
@@ -503,7 +504,7 @@ export const ModelSelector = memo(function ModelSelector({
     {fastAvailable && (
       <div ref={fastControl} className="fast-control" aria-busy={routing || undefined}
         onFocusCapture={() => { restoreFastAfterDisabled.current = true; }}>
-        <OpenSelect variant="route" ariaLabel="Fast mode" disabled={tuningUnavailable}
+        <OpenSelect variant="route" ariaLabel={t("Fast mode")} disabled={tuningUnavailable}
           value={displayedFast ? "on" : "off"}
           options={[{ value: "on", label: "Fast On" }, { value: "off", label: "Fast Off" }]}
           onChange={(value) => void changeFast(value === "on")} />

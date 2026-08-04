@@ -3,6 +3,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
+import { t } from './i18n';
 import { filterConfiguredModels, ModelPicker } from './ModelPicker';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -264,15 +265,15 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
     }}>
     <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="schedules-dialog-title">
       <header>
-        <h2 id="schedules-dialog-title">{editing ? 'Edit scheduled task' : 'Create scheduled task'}</h2>
-        <button type="button" aria-label="Close schedule editor" onClick={onCancel}><X size={15} aria-hidden="true" /></button>
+        <h2 id="schedules-dialog-title">{editing ? t('Edit scheduled task') : t('Create scheduled task')}</h2>
+        <button type="button" aria-label={t("Close schedule editor")} onClick={onCancel}><X size={15} aria-hidden="true" /></button>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
         const text = (name: string) => String(data.get(name) || '').trim();
         if (!model) {
-          setFormError('Choose a model for this schedule.');
+          setFormError(t('Choose a model for this schedule.'));
           return;
         }
         const buildCron = () => {
@@ -305,7 +306,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           ...(editing ? { overwrite: true } : {}),
         });
       }}>
-        <label className="schedules-field">Name
+        <label className="schedules-field">{t('Name')}
           <input name="schedule-name" defaultValue={draft.name} placeholder="daily-briefing" required autoFocus
             disabled={busy || editing} maxLength={64} />
         </label>
@@ -313,14 +314,14 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
             Project → Delivery → Frequency as labeled fields. */}
         <div className="schedules-composer">
           <textarea name="schedule-instructions" defaultValue={draft.instructions} required disabled={busy}
-            placeholder="What should Mixdog do when this schedule fires?" aria-label="Schedule instructions" />
+            placeholder={t("What should Mixdog do when this schedule fires?")} aria-label={t("Schedule instructions")} />
           <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />
           <div className="composer-footer schedules-composer-footer">
             <AutomationAttachButton attachments={attachments} disabled={busy}
-              ariaLabel="Attach files to this schedule"
+              ariaLabel={t("Attach files to this schedule")}
               onChange={setAttachments} onError={setFormError} />
             <ModelPicker models={models} provider={modelProvider} model={modelId}
-              triggerLabel={modelLabel} ariaLabel="Schedule model"
+              triggerLabel={modelLabel} ariaLabel={t("Schedule model")}
               triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
               onSelect={(option) => {
                 setModel(`${option.provider}/${option.model}`);
@@ -329,60 +330,60 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
                 setFormError('');
               }} />
             {selected && selected.effortOptions.length > 0 && <OpenSelect variant="route"
-              ariaLabel="Schedule reasoning effort"
+              ariaLabel={t("Schedule reasoning effort")}
               value={effortValue} disabled={busy} options={selected.effortOptions} onChange={setEffort} />}
-            {selected?.fastCapable && <OpenSelect variant="route" ariaLabel="Schedule fast mode"
+            {selected?.fastCapable && <OpenSelect variant="route" ariaLabel={t("Schedule fast mode")}
               value={fast ? 'on' : 'off'} disabled={busy}
               options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
               onChange={(value) => setFast(value === 'on')} />}
             {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
             <div className="effort-control workflow-control">
-              <OpenSelect variant="route" ariaLabel="Schedule workflow" value={workflow} disabled={busy}
+              <OpenSelect variant="route" ariaLabel={t("Schedule workflow")} value={workflow} disabled={busy}
                 options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
                 onChange={setWorkflow} />
             </div>
           </div>
         </div>
         <div className="schedules-field">
-          <span>Project</span>
+          <span>{t('Project')}</span>
           <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Schedule project" value={cwd || '__none__'} disabled={busy}
+            <OpenSelect ariaLabel={t("Schedule project")} value={cwd || '__none__'} disabled={busy}
               options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
           </div>
         </div>
         <div className="schedules-field">
-          <span>Delivery</span>
+          <span>{t('Delivery')}</span>
           <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Schedule delivery" value={delivery} disabled={busy}
+            <OpenSelect ariaLabel={t("Schedule delivery")} value={delivery} disabled={busy}
               options={DELIVERY_OPTIONS} onChange={setDelivery} />
           </div>
         </div>
         <div className="schedules-field">
-          <span>Frequency</span>
+          <span>{t('Frequency')}</span>
           <div className="schedules-frequency">
-            <OpenSelect ariaLabel="Schedule frequency" value={frequency} disabled={busy}
+            <OpenSelect ariaLabel={t("Schedule frequency")} value={frequency} disabled={busy}
               options={FREQUENCY_OPTIONS}
               onChange={(value) => setFrequency((FREQUENCY_OPTIONS.some((option) => option.value === value)
                 ? value : 'daily') as FrequencyKind)} />
             {frequency === 'hourly' && <input name="schedule-minute" type="number" min={0} max={59}
-              defaultValue={draft.minute} required disabled={busy} aria-label="Minute of each hour" />}
+              defaultValue={draft.minute} required disabled={busy} aria-label={t("Minute of each hour")} />}
             {(frequency === 'daily' || frequency === 'weekdays') && <input name="schedule-clock" type="time"
-              defaultValue={draft.clock} required disabled={busy} aria-label="Time of day" />}
+              defaultValue={draft.clock} required disabled={busy} aria-label={t("Time of day")} />}
             {frequency === 'weekly' && <>
               <OpenSelect ariaLabel="Weekday" value={weekday} disabled={busy}
                 options={WEEKDAY_OPTIONS} onChange={setWeekday} />
               <input name="schedule-clock" type="time" defaultValue={draft.clock} required disabled={busy}
-                aria-label="Time of day" />
+                aria-label={t("Time of day")} />
             </>}
             {frequency === 'once' && <input name="schedule-at" type="datetime-local" defaultValue={draft.at}
-              required disabled={busy} aria-label="Run at" />}
+              required disabled={busy} aria-label={t("Run at")} />}
           </div>
         </div>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
-          <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button type="submit" disabled={busy}>Save</button>
+          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
@@ -495,7 +496,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
     <div className="schedules-page">
       {/* Title and primary action live in the sidebar panel header. */}
-      <SidebarPanelAction active={active} label="New schedule" icon={Plus}
+      <SidebarPanelAction active={active} label={t("New schedule")} icon={Plus}
         className="schedules-add" disabled={busy}
         onClick={() => {
           setError('');
@@ -503,13 +504,13 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
         }} />
       <div className="schedules-search">
         <Search size={14} aria-hidden="true" />
-        <input aria-label="Search schedules" placeholder="Search schedules…" value={query}
+        <input aria-label={t("Search schedules")} placeholder={t("Search schedules…")} value={query}
           onChange={(event) => setQuery(event.currentTarget.value)} />
       </div>
-      <div className="schedules-filters" aria-label="Schedule filter">
+      <div className="schedules-filters" aria-label={t("Schedule filter")}>
         {([['all', 'All'], ['active', 'Active'], ['paused', 'Paused']] as const).map(([value, label]) =>
           <button key={value} type="button" className={filter === value ? 'active' : ''}
-            aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
+            aria-pressed={filter === value} onClick={() => setFilter(value)}>{t(label)}</button>)}
       </div>
       {active && editor && <ScheduleEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
         busy={busy} models={models} projects={projects} workflows={workflows} error={error}
@@ -526,7 +527,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
           const running = runningNames?.has(name) === true;
           return <div key={name} className="schedules-row">
             <span className="schedules-row-status" role={running ? 'status' : undefined}
-              aria-label={running ? `${name} is running` : undefined} aria-hidden={running ? undefined : true}>
+              aria-label={running ? t("{{name}} is running", { name }) : undefined} aria-hidden={running ? undefined : true}>
               {running
                 ? <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
                 : <span className={`schedules-row-dot ${enabled ? 'on' : ''}`} />}
@@ -578,7 +579,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
         })}</div>
         : <div className="schedules-empty">
           <AlarmClock size={40} strokeWidth={1.5} aria-hidden="true" />
-          <p>{schedules.length ? 'No schedules match the current filter.' : 'No scheduled tasks yet.'}</p>
+          <p>{schedules.length ? t('No schedules match the current filter.') : t('No scheduled tasks yet.')}</p>
         </div>}
       <div className="schedules-feedback-slot">
         {(error || referenceError) && !editor

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { DesktopApi, DesktopCapability } from '../shared/contract';
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
+import { t } from './i18n';
 import { acquireModalLayer } from './modal-layer';
 import { ContextBody } from './ContextBody';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
@@ -189,7 +190,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
       return undefined;
     } finally { setPending(''); }
   };
-  const title = ({ context: 'Context', usage: 'Provider usage', doctor: 'Doctor' })[surface];
+  const title = t(({ context: 'Context', usage: 'Provider usage', doctor: 'Doctor' })[surface]);
   return createPortal(<div ref={surfaceLayer} className="mixdog-settings-layer" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
@@ -200,21 +201,21 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, onClose }:
       <div className="mixdog-settings__panel">
         <header className="mixdog-settings__header"><h1 id="command-surface-title">{title}</h1>
           <div className="command-surface-header-actions">
-            <button className="mixdog-settings__close" onClick={onClose} aria-label={`Close ${title}`}><X size={16} /></button>
+            <button className="mixdog-settings__close" onClick={onClose} aria-label={t('Close {{title}}', { title })}><X size={16} /></button>
           </div>
         </header>
         <div className="mixdog-settings__body">
-          <PaneSurfaceGate ready={!loading} label={`Loading ${title}…`}>
+          <PaneSurfaceGate ready={!loading} label={t('Loading {{title}}…', { title })}>
           <div className="command-surface-content">
           {/* The dialog heading already names the surface, so the old
               "/usage — Read-only …" restatement only pushed the content down
               (user decision). Keep the sentence for screen readers only. */}
           <p id="command-surface-description" className="sr-only">
-            {title} for the active Mixdog session.</p>
+            {t('{{title}} for the active Mixdog session.', { title })}</p>
           {loading
             ? surface === 'usage'
               ? <UsageSkeleton />
-              : <p className="settings-loading" role="status">Loading…</p>
+              : <p className="settings-loading" role="status">{t('Loading…')}</p>
             : <SurfaceBody surface={surface} data={data} pending={pending} run={run} />}
           {error && <p className="mixdog-settings__error" role="alert">{error}</p>}
           </div>
@@ -237,9 +238,9 @@ function SurfaceBody({ surface, data, pending, run }: {
   if (surface === 'context') return <ContextBody status={data.contextStatus} snapshot={data.snapshot} />;
   if (surface === 'usage') return <UsageBody data={data} />;
   if (surface === 'doctor') {
-    return <Group title="Diagnostic result">
-      <pre className="tool-detail">{pretty(data.runDoctor) || 'No data available.'}</pre>
-      <button disabled={busy} onClick={() => void run('runDoctor')}>Run diagnostics again</button>
+    return <Group title={t('Diagnostic result')}>
+      <pre className="tool-detail">{pretty(data.runDoctor) || t('No data available.')}</pre>
+      <button disabled={busy} onClick={() => void run('runDoctor')}>{t('Run diagnostics again')}</button>
     </Group>;
   }
   return null;
@@ -329,10 +330,10 @@ function usageProviderLabel(provider: Row): string {
 
 function UsageTableFrame({ children }: React.PropsWithChildren) {
   return <div className="usage-table-shell">
-    <table className="usage-table" aria-label="Provider usage">
+    <table className="usage-table" aria-label={t('Provider usage')}>
       <colgroup><col className="usage-provider-column" /><col className="usage-plan-column" />
         <col className="usage-values-column" /></colgroup>
-      <thead><tr><th scope="col">Provider</th><th scope="col">Type</th><th scope="col">Usage</th></tr></thead>
+      <thead><tr><th scope="col">{t('Provider')}</th><th scope="col">{t('Type')}</th><th scope="col">{t('Usage')}</th></tr></thead>
       <tbody>{children}</tbody>
     </table>
   </div>;
@@ -342,7 +343,7 @@ function UsageTableFrame({ children }: React.PropsWithChildren) {
 // its real size instead of collapsing around a bare "Loading…" line.
 function UsageSkeleton() {
   return <>
-    <p className="sr-only" role="status">Loading provider usage…</p>
+    <p className="sr-only" role="status">{t('Loading provider usage…')}</p>
     <UsageTableFrame>
       {[104, 88, 64, 112, 72, 96].map((width, index) => (
         <tr className="usage-skeleton-row" key={index} aria-hidden="true">
@@ -377,10 +378,10 @@ function UsageBody({ data }: { data: Record<string, unknown> }) {
         return <tr key={String(provider.id || provider.label || index)}>
           <td className="usage-provider-cell">
             <b>{usageProviderLabel(provider)}</b>
-            <span>{connected ? 'Connected' : String(provider.sourceLabel || provider.status || '')}</span>
+            <span>{connected ? t('Connected') : String(provider.sourceLabel || provider.status || '')}</span>
           </td>
           <td className="usage-plan-cell"><span className="usage-plan" data-plan={plan}>
-            {plan === 'subscription' ? 'Subscription' : 'API'}
+            {plan === 'subscription' ? t('Subscription') : 'API'}
           </span></td>
           <td><div className="usage-row-values">
             {windows.map((window, windowIndex) => {
@@ -397,11 +398,11 @@ function UsageBody({ data }: { data: Record<string, unknown> }) {
               && <span className="usage-row-note">{note || '—'}</span>}
             {billingUrl(provider) && <button className="usage-row-link" type="button"
               onClick={() => void window.mixdogDesktop?.openExternal?.(billingUrl(provider))
-                .catch(() => undefined)}>Billing ↗</button>}
+                .catch(() => undefined)}>{t('Billing ↗')}</button>}
           </div></td>
         </tr>;
     })}
-    {!providers.length && <tr><td className="usage-empty" colSpan={3}>No provider usage available.</td></tr>}
+    {!providers.length && <tr><td className="usage-empty" colSpan={3}>{t('No provider usage available.')}</td></tr>}
   </UsageTableFrame>;
 }
 

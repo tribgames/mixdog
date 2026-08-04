@@ -7,7 +7,9 @@ import {
   subscribeEditorLanguageStore,
   type EditorOutlineItem,
 } from "./editor-language-store";
+import { t } from "./i18n";
 import { acquireModalLayer } from "./modal-layer";
+import { acquireTitleBarDim } from "./titlebar-dim";
 
 export type WorkbenchQuickAccessMode = "files" | "commands";
 
@@ -198,7 +200,7 @@ export function WorkbenchQuickAccess({
           if (searchGeneration.current !== generation) return;
           setProjectSymbols(projectSymbolRows(projectPath, response.result));
           setLoading(false);
-          setError(response.available ? "" : response.detail || "Project symbols are unavailable.");
+          setError(response.available ? "" : response.detail || t("Project symbols are unavailable."));
         }).catch((reason) => {
           if (searchGeneration.current !== generation) return;
           setProjectSymbols([]);
@@ -222,7 +224,7 @@ export function WorkbenchQuickAccess({
     if (!projectPath || !window.mixdogDesktop?.searchProjectFiles) {
       setFiles([]);
       setLoading(false);
-      setError(projectPath ? "File search is unavailable." : "Open a project to search files.");
+      setError(projectPath ? t("File search is unavailable.") : t("Open a project to search files."));
       return undefined;
     }
     setLoading(true);
@@ -316,16 +318,16 @@ export function WorkbenchQuickAccess({
   };
   const selected = rows[selectedIndex];
   const listMessage = loading
-    ? "Searching…"
+    ? t("Searching…")
     : error || (commandMode
-      ? "No commands match."
+      ? t("No commands match.")
       : projectSymbolMode
-        ? (activeDocument ? "No project symbols match." : "Open a file to search project symbols.")
+        ? (activeDocument ? t("No project symbols match.") : t("Open a file to search project symbols."))
         : symbolMode
-          ? (activeDocument ? "No symbols match." : "Open a file to go to a symbol.")
+          ? (activeDocument ? t("No symbols match.") : t("Open a file to go to a symbol."))
           : lineMode
-            ? (activeDocument ? "Type a line number." : "Open a file to go to a line.")
-            : fileQuery.query ? "No files match." : projectPath ? "No recently opened files." : "Open a project to search files.");
+            ? (activeDocument ? t("Type a line number.") : t("Open a file to go to a line."))
+            : fileQuery.query ? t("No files match.") : projectPath ? t("No recently opened files.") : t("Open a project to search files."));
 
   return createPortal(
     <div ref={surfaceRef} className="workbench-quick-access-layer"
@@ -333,16 +335,16 @@ export function WorkbenchQuickAccess({
         if (event.target === event.currentTarget) onClose();
       }}>
       <section className="workbench-quick-access" role="dialog" aria-modal="true"
-        aria-label={commandMode ? "Command Palette" : "Quick Open"}>
+        aria-label={commandMode ? t("Command Palette") : t("Quick Open")}>
         <div className="workbench-quick-input">
           {commandMode
             ? <CommandIcon size={16} aria-hidden="true" />
             : <Search size={16} aria-hidden="true" />}
           <input ref={inputRef}
-            aria-label={commandMode ? "Command Palette" : "Quick Open"}
+            aria-label={commandMode ? t("Command Palette") : t("Quick Open")}
             placeholder={commandMode
-              ? "Type the name of a command"
-              : "Search files by name (: line · @ file symbols · # project symbols)"}
+              ? t("Type the name of a command")
+              : t("Search files by name (: line · @ file symbols · # project symbols)")}
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -371,7 +373,7 @@ export function WorkbenchQuickAccess({
             }} />
         </div>
         <div className="workbench-quick-results" role="listbox"
-          aria-label={commandMode ? "Commands" : "Files"}>
+          aria-label={commandMode ? t("Commands") : t("Files")}>
           {rows.length ? rows.map((row, index) => {
             const active = index === selectedIndex;
             if (row.kind === "command") {
@@ -414,7 +416,7 @@ export function WorkbenchQuickAccess({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => runRow(row)}>
                 <Search size={14} aria-hidden="true" />
-                <span>Go to line {row.line}</span>
+                <span>{t("Go to line {{line}}", { line: row.line })}</span>
               </button>;
             }
             const normalized = row.path.replace(/\\/g, "/");
@@ -465,6 +467,8 @@ export function UnsavedChangesDialog({
     const layer = acquireModalLayer(shell ? [shell] : []);
     layer.attachSurface(surfaceRef.current);
     saveRef.current?.focus({ preventScroll: true });
+    // The scrim cannot reach the NATIVE caption band; this claim dims it.
+    const captionDim = acquireTitleBarDim();
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!layer.isTop()) return;
       if (event.key === "Escape" && !busyRef.current) {
@@ -493,6 +497,7 @@ export function UnsavedChangesDialog({
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
       layer.release();
+      captionDim();
       prior?.focus({ preventScroll: true });
     };
   }, []);
@@ -505,16 +510,16 @@ export function UnsavedChangesDialog({
       <section ref={dialogRef} className="settings-confirm-dialog workbench-unsaved-dialog"
         role="alertdialog" aria-modal="true" aria-labelledby="workbench-unsaved-title"
         aria-describedby="workbench-unsaved-description" tabIndex={-1}>
-        <header><h3 id="workbench-unsaved-title">Save changes to {title}?</h3></header>
+        <header><h3 id="workbench-unsaved-title">{t("Save changes to {{title}}?", { title })}</h3></header>
         <p id="workbench-unsaved-description">
-          Your changes will be lost if you don’t save them.
+          {t("Your changes will be lost if you don’t save them.")}
         </p>
         {error && <p className="workbench-unsaved-error" role="alert">{error}</p>}
         <footer>
-          <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-          <button type="button" disabled={busy} onClick={onDiscard}>Don’t Save</button>
+          <button type="button" disabled={busy} onClick={onCancel}>{t("Cancel")}</button>
+          <button type="button" disabled={busy} onClick={onDiscard}>{t("Don’t Save")}</button>
           <button ref={saveRef} type="button" className="primary" disabled={busy}
-            onClick={onSave}>{busy ? "Saving…" : "Save"}</button>
+            onClick={onSave}>{busy ? t("Saving…") : t("Save")}</button>
         </footer>
       </section>
     </div>,

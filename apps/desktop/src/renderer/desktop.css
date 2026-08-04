@@ -368,11 +368,13 @@ svg.mx-icon {
   stroke-linejoin: miter;
 }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible {
-  outline: 2px solid var(--mx-focus);
-  outline-offset: 2px;
+  /* One quiet canonical ring (user: 전체적으로 호버나 선택 시 강조 최소화):
+     a hairline hugging the control, not a thick detached halo. */
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
 }
-/* Buttons float the focus ring slightly further out. */
-button:focus-visible { outline-offset: 2.5px; }
+/* Buttons float the ring a hair further out. */
+button:focus-visible { outline-offset: 1.5px; }
 /* Dialog titles tighten 15px headings to -0.13px. */
 .model-picker-header h2, .settings-confirm-dialog > header h3,
 .approval-heading b, .settings-section-heading h2,
@@ -411,6 +413,42 @@ button:focus-visible { outline-offset: 2.5px; }
   height: 28px;
   border-radius: 6px;
 }
+/* Persistent pane navigation (user: 코덱스처럼 좌우버튼 상시): ◀ n/m ▶ sits
+   left of the layout toggles and cycles reading-order pane focus; at narrow
+   widths the same buttons page the single-pane carousel. */
+/* Hard-centered 28px slot: the icon-button's 6px padding cannot hold an
+   18px glyph in a 28px box (6+18+6=30) and skewed the arrows off the row
+   axis (user: 상하 가운데 정렬이 안 맞음). Ink stays IDENTICAL to the
+   neighboring toggles — a separate muted rest state read as 이질감. */
+.topbar .titlebar-pane-nav {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.topbar .titlebar-pane-nav:disabled { opacity: .35; cursor: default; }
+.topbar .titlebar-pane-nav:disabled:hover { background: transparent; }
+/* Optical size parity (user: 크기 이질감): the arrow glyph fills its frame
+   edge-to-edge while the panel outlines carry inner padding, so an equal
+   18px frame read bigger — one step down levels the perceived size. */
+.topbar .titlebar-pane-nav .sidebar-toggle-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+/* Meet the Windows caption glyphs (─ ㅁ ×) halfway (user: 중간점으로
+   통일): ONE 1.1px stroke for every window-bar glyph — the left cluster
+   steps down from 1.25, the caption-adjacent pair up from hairline — so
+   the whole bar reads as a single weight. */
+.topbar .titlebar-nav .sidebar-toggle-icon,
+.topbar .titlebar-controls .sidebar-toggle-icon { stroke-width: 1.1px; }
+/* One chrome ink for every window-bar control (user: 아이콘 색감 맞추자):
+   the sidebar toggle's full-ink override made it heavier than the arrows
+   and panel/dock glyphs beside it — all rest at --mx-icon, hover lifts. */
+.topbar .toolbar-sidebar { color: var(--mx-icon); }
+.topbar .toolbar-sidebar:hover,
+.topbar .toolbar-sidebar:focus-visible { color: var(--mx-text); }
 /* Beside the OS caption glyphs (~10px, Windows-drawn, untouchable) the 18px
    frame read a full tier heavier (user: 최소·최대·닫기와 이질감). One step
    down — VS Code parity — narrows the gap; pane-header clusters keep 18px. */
@@ -537,21 +575,49 @@ button:focus-visible { outline-offset: 2.5px; }
   overflow-x: auto;
   overflow-x: overlay;
   overflow-y: hidden;
+  /* The run never RESTS mid-tab: a half-clipped label at the strip start
+     read as merge residue over the rail (user: 레일로 병합될 때 폰트가
+     남는다). Snap keeps every settled scroll on a tab boundary. */
+  scroll-snap-type: x mandatory;
+  scroll-timeline: --mx-tabs-scroll x;
 }
 .workspace-tabs::-webkit-scrollbar { height: 3px; }
 .workspace-tabs::-webkit-scrollbar-thumb { background: transparent; }
 .workspace-tabs:hover::-webkit-scrollbar-thumb { background: var(--mx-scrollbar-thumb); }
 .workspace-tabs::-webkit-scrollbar-thumb:hover { background: var(--mx-scrollbar-thumb-hover); }
 .titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
-.workspace-tabs-shell { align-self: center; }
+.workspace-tabs-shell { position: relative; align-self: center; timeline-scope: --mx-tabs-scroll; }
+/* Scrolled tab runs FADE at their left edge (scroll-driven): a clipped
+   first tab used to read as stray text merged into the rail (user: 레일로
+   병합되면서 폰트가 남네). The scrim rises over the first 24px of scroll,
+   so an unscrolled run stays untouched. */
+.workspace-tabs-shell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 24px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(to right, var(--mx-window-band), transparent);
+  opacity: 0;
+  animation: mx-tabs-left-scrim linear both;
+  animation-timeline: --mx-tabs-scroll;
+  animation-range: 0px 24px;
+}
+@keyframes mx-tabs-left-scrim { to { opacity: 1; } }
 .titlebar-caption-space {
-  width: max(0px, calc(100vw - env(titlebar-area-width, calc(100vw - 138px))));
-  flex: 0 0 max(0px, calc(100vw - env(titlebar-area-width, calc(100vw - 138px))));
+  /* WCO shells resolve env() to the real caption edge; plain browsers fall
+     back to 100vw → a 0px reserve, so no phantom 138px strip off-Electron. */
+  width: max(0px, calc(100vw - env(titlebar-area-width, 100vw)));
+  flex: 0 0 max(0px, calc(100vw - env(titlebar-area-width, 100vw)));
 }
 .workspace-tab {
   --workspace-tab-surface: var(--mx-window-band);
   position: relative;
   height: 35px;
+  scroll-snap-align: start;
   min-width: var(--workspace-tab-current-width, 50px);
   max-width: var(--workspace-tab-current-width, 160px);
   flex: 1 0 0;
@@ -688,9 +754,14 @@ button:focus-visible { outline-offset: 2.5px; }
    bumps (user: 탭/타이틀 크기가 제각각이라 위계가 안 잡힌다). */
 .workspace-tab-main span { font-size: 13px; font-weight: 400; line-height: 20px; }
 .workspace-tab-new {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
+  /* The HIT BOX fills the strip row and a full 34px column (user: +의
+     상하좌우 패딩이 이상해서 누르기 힘들다 — a 28px box in the 35px row
+     left dead edges); the hover pill is drawn on the glyph below, so the
+     visual stays a quiet 26px pill while every pixel of the slot clicks. */
+  width: 34px;
+  align-self: stretch;
+  height: auto;
+  flex: 0 0 34px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -707,6 +778,15 @@ button:focus-visible { outline-offset: 2.5px; }
   color: var(--mx-text);
   background: transparent;
 }
+/* Glyph carries the 26px hover pill inside the tall hit box. */
+.workspace-tab-new svg {
+  box-sizing: content-box;
+  padding: 5px;
+  border-radius: 6px;
+}
+.workspace-tab-new:hover svg,
+.workspace-tab-new:focus-visible svg,
+.workspace-tab-new[aria-expanded="true"] svg { background: var(--mx-hover); }
 .workspace-tab-new-menu {
   position: fixed;
   z-index: 10020;
@@ -1069,7 +1149,7 @@ button:focus-visible { outline-offset: 2.5px; }
   height: 36px;
   padding: 0 4px 0 6px;
   color: var(--mx-text);
-  font: 600 15px/22px "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 600 15px/22px "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
   letter-spacing: 0;
   user-select: none;
 }
@@ -1082,13 +1162,12 @@ button:focus-visible { outline-offset: 2.5px; }
   height: 1px;
   background: var(--mx-border-muted);
 }
-/* The list breathes below the header band instead of hugging its hairline. */
-.sidebar.session-sidebar > .session-sidebar-scroll { padding-top: 4px; }
-/* Rail destinations (Projects/Workflows/Webhooks/Schedules) open straight
-   into controls — no category heading to buy air like Sessions — so their
-   content sat hard under the header (user: 상단이 너무 빡빡). One extra step
-   keeps the uniform start rule, just at 8px for this container. */
-.sidebar.session-sidebar > .session-sidebar-scroll.session-sidebar-panels { padding-top: 8px; }
+/* ONE vertical rhythm for every rail page (user: 상단·하단 패딩이 안
+   맞는다 + 서치박스 위쪽 패딩): content opens 12px under the header
+   hairline and closes 12px before the panel bottom — the SAME 12px the
+   horizontal box line uses, so the first box (search field, category row,
+   section head) no longer hugs the header. In-page gaps stay 8. */
+.sidebar.session-sidebar > .session-sidebar-scroll { padding-block: 12px; }
 .session-panel-title {
   min-width: 0;
   flex: 1;
@@ -1212,29 +1291,35 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    다 빼든가) — only the schedules/webhooks state dot stays, since it carries
    enabled/paused/running. */
 .session-sidebar-panels .projects-row-icon { display: none; }
-/* Controls: rail heights, app type sizes. The search field adopts the
-   utility dock's search grammar — 26px, hairline border, sheet background —
-   so both rails read as one design (user: 우측 검색창이 더 이쁘다, 통합). */
+/* Controls: rail heights, app type sizes. The search field wears the SAME
+   item surface as the cards below it — 6% wash + 14% inset ring — instead
+   of the darker sheet + border it had, which made it pop out of the rail
+   (user: 서치박스가 튀어 보인다). */
 .session-sidebar-panels .schedules-search input {
   /* 26px read cramped beside the dock's airier search band (user). */
   height: 28px;
   padding: 0 8px 0 26px;
-  border: .5px solid var(--mx-border-muted);
+  border: 0;
   border-radius: 5px;
-  background: var(--mx-workspace-sheet);
-  box-shadow: none;
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
 }
 .session-sidebar-panels .schedules-search input:focus {
-  border-color: var(--mx-border-strong);
-  box-shadow: none;
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
 }
 .session-sidebar-panels .schedules-search svg { left: 8px; width: 14px; height: 14px; }
-/* Query + filter stack air (user: 상하가 너무 빡빡하다, 다른 패널 대비):
-   each control adds its own break on top of the page's 6px gap, so the
-   search sits 8px above the filters and the list starts on a 10px band. */
-.session-sidebar-panels .schedules-search { margin-bottom: 2px; }
-.session-sidebar-panels .schedules-filters { gap: 2px; margin-bottom: 4px; }
-.session-sidebar-panels .schedules-filters button { min-height: 24px; padding: 0 9px; }
+/* The page's rail gap (8px) alone spaces search → filters → list on one
+   even rhythm; the old +2/+4 margins predate the 6px page gap and drifted
+   the stack to 10/12px (user: 스케줄/웹훅 전체적으로 정리). */
+.session-sidebar-panels .schedules-filters { gap: 4px; }
+/* Filter chips speak the search box's control grammar — same 28px height,
+   same 5px radius, same 12px side inset (user: 검색박스랑 아래 태그들도
+   같게 맞춰야지) — instead of a second, smaller pill language. */
+.session-sidebar-panels .schedules-filters button {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 5px;
+}
 /* One restrained item surface across Projects, Workflows, Webhooks,
    Schedules, and Agents. The inset half-pixel distinguishes adjacent rows
    without turning either rail into a stack of prominent cards. */
@@ -1265,18 +1350,19 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-sidebar-panels .schedules-row {
   gap: 8px;
   /* Two-line cards need vertical air (user-tuned): 10px top/bottom against
-     the 8px radius. Horizontal stays compact. */
-  padding: 10px 6px 10px 8px;
+     the 8px radius. The copy needs a real left gutter too (user: 아이템 좌우
+     패딩이 부족하다) — the right stays a notch tighter for the ⋯ button. */
+  padding: 10px 10px 10px 12px;
   border: 0;
   border-radius: 8px;
   background: var(--mx-rail-item-surface);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
 }
-/* In-row ramp (user: 워커명과 모델 계층이 안 갈린다): NAME leads at 14/600
-   full ink > model value 13/500 at 82% > effort/fast 13/500 at 65% >
-   description 12 at 55%. */
+/* In-row ramp: NAME leads at 13/600 full ink — one step UNDER the 14px
+   category heads (user: 헤더 → 카테고리 → 아이템 순) — > model value
+   13/500 at 82% > effort/fast 13/500 at 65% > description 12 at 55%. */
 .session-sidebar-panels .schedules-row-copy b {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 .session-sidebar-panels .schedules-row-copy small {
@@ -1465,12 +1551,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   height: 32px;
   /* Compact section break ABOVE, tight binding to the list below. */
   margin: 6px 0 0;
-  padding: 0 6px;
+  /* Bare section h2 (Default agents) walks the SAME gutter axis and ramp as
+     the wrapped section heads — it sat at 14px on the 6px line while its
+     siblings moved to 13px on the 14px gutter (user: 워크플로우 폰트랑
+     에이전트 폰트만 왜 다르고). */
+  padding: 0 var(--mx-rail-gutter);
   display: flex;
   align-items: center;
   /* Same CATEGORY tier as the Sessions section headings — 14/600 at 68% ink
-     (user: 워크플로우/디폴트 에이전트/에이전트도 세션 카테고리랑 같은
-     폰트 스타일). Full ink shouted over the 13px rows. */
+     (rail ladder). Full ink shouted over the 13px rows. */
   color: color-mix(in srgb, var(--mx-text) 68%, transparent);
   font-size: 14px;
   font-weight: 600;
@@ -1497,6 +1586,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   visibility: hidden;
   pointer-events: none;
   box-shadow: none;
+}
+/* Compositor-only layout motion (user: vscode 같은 매끄러움 — width
+   transitions re-laid the workspace out every frame and read as jank):
+   the layout snaps once, then the opening rail slides INTO its already
+   reserved space from its window edge. Armed per-kind by
+   useSidePanelOpenFlip only around an OPEN commit, so dock toggles never
+   replay it and closes stay instant (VS Code grammar). The ≤760px drawer
+   keeps its own transform transition. */
+@media (min-width: 761px) {
+  html.mx-open-sidebar .sidebar.session-sidebar {
+    animation: sidebar-slide-in var(--mx-side-panel-motion);
+  }
+}
+@keyframes sidebar-slide-in {
+  from { transform: translateX(-100%); }
 }
 /* Phone drawer scrim: only the narrow-viewport media query displays it. */
 .sidebar-backdrop { display: none; }
@@ -2376,12 +2480,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
      so the scrollbar sits inside the reading inset instead of owning a second
      left/right column in every narrow pane. */
   scrollbar-gutter: stable;
-  /* Native anchoring preserves short, non-virtual history while reading.
-     Following and virtual history each have their own explicit authority. */
-  overflow-anchor: auto;
-}
-.transcript[data-following="true"],
-.transcript[data-virtualized="true"] {
+  /* Virtual-core owns end anchoring and measurement compensation. */
   overflow-anchor: none;
 }
 .transcript:focus-visible {
@@ -2392,12 +2491,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    800px measure with a 24px gutter (12px hugged the sheet edges). */
 /* Messages sit 4px INSIDE the composer/header axis (Grok: the input field is
    the widest element of the column; prose tucks slightly in). */
-/* Uniform 20px rhythm: the thread's bottom pad matches the row gap so the
-   last turn sits one grid step above the composer (user: unify spacing). */
+/* The viewport owns the scrollbar reserve; the centered reading column no
+   longer subtracts that gutter a second time. Row rhythm is projected below. */
 .thread {
-  width: min(100%, calc(800px - var(--mx-scrollbar-size)));
-  padding: 20px calc(36px - var(--mx-scrollbar-size)) 20px 36px;
-  gap: 20px;
+  width: min(100%, 800px);
+  padding: 20px 36px 0;
+  gap: 0;
 }
 /* Review chrome belongs to the bottom composer stack, not transcript scroll
    content. The thread keeps its normal 20px footer rhythm above that stack. */
@@ -2409,40 +2508,32 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   contain: strict;
   overflow: hidden;
 }
-.transcript-live-tail {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 20px;
-}
+.transcript-live-part { min-width: 0; }
 .transcript-virtual-row {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
-  padding-bottom: 20px;
   box-sizing: border-box;
+  /* The row box is exactly the geometry the virtualizer believes in: content
+     that has not settled yet is clipped instead of pushing its neighbours. */
+  overflow: clip;
 }
-.transcript-virtual-row--retained[data-retained="hidden"] {
-  /* `display:none` preserved React identity but discarded layout/raster state,
-     so a warm tab return still rebuilt a long script and visibly ticked.
-     Retained rows are absolute and bounded; visibility keeps their final-width
-     layout alive without affecting the virtual spacer or painting. */
-  visibility: hidden;
+/* Within a turn, parts use a compact measured step. Turn boundaries are their
+   own rows, so no flex gap or negative margin can disagree with geometry. */
+.transcript-virtual-row-content[data-tag="UserMessage"],
+.transcript-virtual-row-content[data-tag="AssistantPart"],
+.transcript-virtual-row-content[data-tag="Thinking"],
+.transcript-virtual-row-content[data-tag="Error"] { padding-bottom: 12px; }
+.transcript-virtual-row-content[data-turn-end="true"] { padding-bottom: 0; }
+.transcript-turn-gap { height: 20px; }
+.transcript-bottom-spacer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
   pointer-events: none;
 }
-.transcript-virtual-row--empty {
-  min-height: 1px;
-  padding-bottom: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-/* Virtualized bottom seam: the last visible row's 20px padding PLUS the thread's 20px
-   flex gap doubled the space above the live spinner band (user). The --tail
-   class marks the TRUE last visible row (JSX): a plain :last-child matched the
-   bottom overscan row, whose measurement then flip-flopped ±20px as it
-   entered/left last-child position and yanked the scroll ("툭" jump-back). */
-.transcript-virtual-row--tail { padding-bottom: 0; }
 .thread-welcome {
   width: min(100%, 440px);
   display: grid;
@@ -3288,27 +3379,44 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .code-diff { border-radius: 8px; box-shadow: 0 0 0 .5px var(--mx-border); }
 .diff-file > header { height: 32px; border-bottom-color: var(--mx-border-muted); background: var(--mx-bg-layer-1); font-size: 11px; }
 
-/* Prompt input: 96px raised surface and 28px controls. */
-.composer-region { width: min(100%, 800px); padding: 0 32px 8px; }
+/* Prompt input: 96px raised surface and 28px controls. The composer keeps a
+   real floor gap (user: 채팅창 아래 여백이 부족하다) instead of hugging the
+   window edge. */
+.composer-region { width: min(100%, 800px); padding: 0 32px 16px; }
 /* Pane-responsive insets: split panes resize independently of the window, so
    viewport media queries cannot recover width when only ONE pane is narrow. */
 @container chat-pane (max-width: 620px) {
   .session-header-content { padding-inline: 24px; }
   .thread {
-    padding-left: 24px;
-    padding-right: calc(24px - var(--mx-scrollbar-size));
+    padding-inline: 24px;
   }
   .composer-region { padding-inline: 20px; }
 }
 @container chat-pane (max-width: 420px) {
   .session-header-content { padding-inline: 16px; }
   .thread {
-    padding-left: 16px;
-    padding-right: calc(16px - var(--mx-scrollbar-size));
+    padding-inline: 16px;
   }
   .composer-region { padding-inline: 12px; }
 }
-.composer-context-bar { min-height: 28px; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.composer-context-bar {
+  min-height: 28px;
+  max-height: 56px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  transition: max-height 140ms ease-out, opacity 110ms ease-out,
+    margin-bottom 140ms ease-out, min-height 140ms ease-out;
+}
+/* Promotion exit: collapse instead of an instant unmount (composer jerk). */
+.composer-context-bar-collapsing {
+  min-height: 0;
+  max-height: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
 /* Project / workflow pills: one shared boxed-chip grammar. The container owns the plate, ring, and the
    hover/expanded highlight; the inner select trigger must never paint its own
    fill or the chip splits into two highlight regions. */
@@ -4392,7 +4500,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-overlay);
-  font: 400 13px/20px "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/20px "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
 }
 .mixdog-settings__panel {
   position: relative;
@@ -4679,7 +4787,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent), var(--mx-bg-base);
   box-shadow: var(--mx-button);
-  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
 }
 .settings-domain-grid textarea, .settings-oauth-url textarea { min-height: 72px; padding-block: 8px; line-height: 20px; }
 .settings-form-controls input:hover, .settings-domain-grid input:not([type="checkbox"]):hover,
@@ -6142,7 +6250,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex-direction: column;
   gap: 16px;
 }
-.schedules-new { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* justify-content matters: this inline-flex overrides .session-panel-action's
+   centering grid, and an uncentered glyph drifted ~8px left of the ⋯ column
+   (user: + 버튼 위치 정렬 잘못됨). */
+.schedules-new { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
 .schedules-search { position: relative; }
 .schedules-search svg {
   position: absolute;
@@ -6250,7 +6361,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
 }
 .schedules-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
 .schedules-composer {
@@ -7066,7 +7177,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-overlay);
-  font: 400 13px/20px "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI", sans-serif;
+  font: 400 13px/20px "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
 }
 .onboarding-dialog > header {
   flex: none;
@@ -7837,6 +7948,25 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .onboarding-star-card p { margin-top: 6px; max-width: 420px; color: var(--mx-text-muted); font-size: 12.5px; line-height: 19px; }
 .onboarding-star-actions { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .onboarding-star-card small { color: var(--mx-text-faint); font-size: 11px; }
+/* Context step: the session-lifecycle toggles live inside the memory card and
+   the card drops the 300px star floor, so the fixed-height dialog never grows
+   a scrollbar (user: 스크롤 안 나오게). */
+.onboarding-context-card { min-height: 0; padding: 26px 28px; }
+.onboarding-context-rows { width: 100%; display: grid; gap: 8px; }
+.onboarding-context-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  text-align: left;
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.onboarding-context-row > div:first-child { min-width: 0; display: grid; }
+.onboarding-context-row b { font-size: 12.5px; font-weight: 600; }
+.onboarding-context-row small { margin-top: 1px; color: var(--mx-text-muted); font-size: 11px; line-height: 15px; }
 .onboarding-dialog > footer {
   flex: none;
   margin-top: 20px;
@@ -7877,26 +8007,28 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   }
   .desktop-body { padding-inline: 0; }
   .workspace { border-radius: 0; }
-  /* Phones drop the workspace-tab strip entirely (user decision): ONE top
-     row — the session header — with the drawer toggle on the left and the
-     context/review/dock cluster on the right. Every mobile layer opens
-     below that row. */
+  /* TOUCH SHELLS ONLY (html[data-mixdog-mobile]) drop the workspace-tab
+     strip: ONE top row — the session header — with the drawer toggle on the
+     left and the context/review/dock cluster on the right. A narrow DESKTOP
+     window keeps the topbar band and its compact header instead (user:
+     제목이 자리를 많이 먹음 — 위에 띠 하나 유지): the tab strip already
+     titles the pane, so the 64px promotion below is phone-only. */
   /* Roomier phone header (user: too cramped): one centered line — the title
      column caps at ~30% of the width (user decision) so the project badge
      sits IMMEDIATELY to its right instead of under it. */
-  .app-shell { --titlebar-height: 64px; }
-  .topbar { display: none; }
-  .session-header {
+  html[data-mixdog-mobile] .app-shell { --titlebar-height: 64px; }
+  html[data-mixdog-mobile] .topbar { display: none; }
+  html[data-mixdog-mobile] .session-header {
     flex-basis: 64px;
     min-height: 64px;
     border-bottom: .5px solid var(--mx-border-muted);
   }
-  .studio-header { display: flex; }
+  html[data-mixdog-mobile] .studio-header { display: flex; }
   /* The coarse-pointer rule gives this button a 40px slot while the trailing
      controls retain a 28px flex basis. Pull the leading slot out by half the
      12px difference so both outer glyphs share the same optical inset. */
-  .session-header-menu { display: grid; place-items: center; margin: 0 2px 0 -6px; }
-  .session-header-content {
+  html[data-mixdog-mobile] .session-header-menu { display: grid; place-items: center; margin: 0 2px 0 -6px; }
+  html[data-mixdog-mobile] .session-header-content {
     height: 64px;
     padding-inline: 12px;
     display: grid;
@@ -7905,15 +8037,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     align-content: center;
     column-gap: 8px;
   }
-  .session-header-menu { grid-row: 1; grid-column: 1; }
-  .session-header-content h1 {
+  html[data-mixdog-mobile] .session-header-menu { grid-row: 1; grid-column: 1; }
+  html[data-mixdog-mobile] .session-header-content h1 {
     grid-row: 1;
     grid-column: 2;
     min-width: 0;
     font-size: 16px;
     line-height: 24px;
   }
-  .session-project-badge {
+  html[data-mixdog-mobile] .session-project-badge {
     grid-row: 1;
     grid-column: 3;
     justify-self: start;
@@ -7924,10 +8056,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     font-size: 12px;
     line-height: 22px;
   }
-  .session-header-menu .sidebar-toggle-icon,
-  .session-dock-toggle svg.lucide { width: 20px; height: 20px; }
-  .live-work-spinner { width: 18px; height: 18px; }
-  .session-header-status { grid-row: 1; grid-column: 4; }
+  html[data-mixdog-mobile] .session-header-menu .sidebar-toggle-icon,
+  html[data-mixdog-mobile] .session-dock-toggle svg.lucide { width: 20px; height: 20px; }
+  html[data-mixdog-mobile] .live-work-spinner { width: 18px; height: 18px; }
+  html[data-mixdog-mobile] .session-header-status { grid-row: 1; grid-column: 4; }
   .thread { padding-inline: 12px; }
   /* Phone: the main panel stacks header, workspace, and bottom panel. */
   .main-panel { flex-direction: column; }
@@ -7946,14 +8078,26 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     bottom: 0;
     left: 0;
     width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px));
+    /* The inline rail's height: 100% would push the fixed sheet 35px past
+       the window bottom (top offset + full height), clipping the rounded
+       corner and ring off-screen — top/bottom define the drawer box. */
+    height: auto;
     flex: none;
     margin: 0;
     padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
     background: var(--mx-window-band);
-    /* Define the drawer edge against the equally dark thread behind it. */
-    border-right: 1px solid var(--mx-border-muted);
-    border-radius: 0 0 16px 0;
-    box-shadow: var(--mx-overlay);
+    /* Floating sheet (ChatGPT reference; user: 상단 구분선이 지저분): the
+       drawer detaches from the chrome bands instead of continuing them —
+       both right corners round, no single-edge border, and one uniform
+       hairline ring + overlay shadow define the card edge. */
+    border-right: 0;
+    border-radius: 0 16px 16px 0;
+    /* INSET ring on purpose: the fixed sheet is clipped to the desktop-body
+       box (top = window bar's 35px), so an OUTER 1px ring loses its top
+       line and the card looks sliced (user: 사이드탭 위쪽이 자꾸 잘린다,
+       pixel-verified — y34 ring row never painted). Inside the border-box
+       the ring survives any ancestor clip. */
+    box-shadow: inset 0 0 0 1px var(--mx-border-muted), var(--mx-overlay);
     transform: translateX(-100%);
     visibility: hidden;
     pointer-events: auto;
@@ -7963,6 +8107,67 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     transform: none;
     visibility: visible;
   }
+  /* Desktop shells: MERGED frame (user: 좁은 폭에선 사이드레일 자체를
+     숨기고 드로어 프레임에 딸려나오게 병합 — 오른쪽 사이드탭처럼 둥근
+     한 장 카드로): the standing rail leaves the flow (content gets the
+     full width) and rides the SAME slide as the panel. Together they
+     mirror the right sheet exactly — the panel keeps the base card grammar
+     (radius 0 16 16 0, inset ring, overlay shadow, 12px floor lift) and
+     the rail below completes the card's left column. Phones (no rail)
+     keep the full-bleed card. */
+  html:not([data-mixdog-mobile]) .sidebar.session-sidebar,
+  html:not([data-mixdog-mobile]) .sidebar-collapsed .sidebar.session-sidebar {
+    bottom: 12px;
+    left: 48px;
+    /* Interior seam removed (user: 레일이랑 펼쳐지는 부분 이질감 — 일체화):
+       the panel drops its LEFT ring line, so rail and panel share one
+       unbroken surface; the union's outer ring = rail's left/top/bottom
+       lines + these top/right/bottom lines. */
+    box-shadow:
+      inset 0 1px 0 var(--mx-border-muted),
+      inset -1px 0 0 var(--mx-border-muted),
+      inset 0 -1px 0 var(--mx-border-muted),
+      var(--mx-overlay);
+  }
+  /* Rail-anchored popups outrank the drawer card (user: 팝업 우선순위
+     위로): the rail's slide transform traps descendants' z-index inside
+     its own stacking context, so the RAIL itself lifts while one is open. */
+  html:not([data-mixdog-mobile]) .activity-rail:has(.rail-usage-popup[data-state="open"]) {
+    z-index: 45;
+  }
+  html:not([data-mixdog-mobile]) .activity-rail {
+    position: fixed;
+    z-index: 40;
+    top: calc(var(--titlebar-height, 48px) + env(safe-area-inset-top, 0px));
+    bottom: 12px;
+    left: 0;
+    height: auto;
+    /* Card edges continue across the rail: top/left/bottom ring lines; the
+       rail/panel seam comes from the panel's own inset ring. */
+    border-right: 0;
+    box-shadow:
+      inset 1px 0 0 var(--mx-border-muted),
+      inset 0 1px 0 var(--mx-border-muted),
+      inset 0 -1px 0 var(--mx-border-muted);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+  }
+  /* The panel sits at left:48, so -100% alone parked its right edge ON the
+     window edge instead of past it (user: 오른쪽 사이드탭처럼 안 들어간다)
+     — the closed travel adds the rail's 48px so the WHOLE merged frame
+     exits like the right sheet does. */
+  html:not([data-mixdog-mobile]) .sidebar.session-sidebar:not([data-state="open"]),
+  html:not([data-mixdog-mobile]) .sidebar-collapsed .sidebar.session-sidebar:not([data-state="open"]) {
+    transform: translateX(calc(-100% - 48px));
+  }
+  html:not([data-mixdog-mobile]):has(.sidebar.session-sidebar[data-state="open"]) .activity-rail {
+    transform: none;
+    visibility: visible;
+  }
+  /* The sheet titles itself: the header's full-bleed hairline read as chrome
+     band residue on the floating card, so the title row sits clean. */
+  .sidebar.session-sidebar > .session-panel-header::after { display: none; }
   .sidebar-backdrop {
     display: block;
     position: fixed;
@@ -7987,9 +8192,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .session-sidebar-resize { display: none; }
   /* Touch has no hover: tab close buttons must be always-on. */
   .workspace-tab-close { opacity: 1; }
-  /* No OS caption buttons in a browser/native shell — the reserved strip
-     pushed the + affordance off a phone-width top bar. */
-  .titlebar-caption-space { display: none; }
   .mx-toast-region {
     width: calc(100vw - 32px);
   }
@@ -8030,7 +8232,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   /* Phone tab strip: uniform 6px rhythm, no divider ticks, tabs scroll
      horizontally and only the ACTIVE tab carries a close button (Chrome
      mobile grammar) — three desktop tabs collapsed into a broken jumble. */
-  .topbar { column-gap: 6px; padding-inline: 8px; }
+  /* The topbar itself keeps its desktop geometry at every width — the old
+     phone padding override shifted the sidebar toggle off the Activity
+     Rail's icon axis on a narrow DESKTOP window (user: 하단 아이콘이랑
+     중앙정렬이 안 됨); phones hide this bar entirely. */
   .workspace-tabs-shell { min-width: 0; flex: 1 1 auto; overflow: hidden; }
   .workspace-tabs {
     gap: 6px;
@@ -8240,10 +8445,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .terminal-tab-pane > .dock-terminal-surface { height: 100%; }
 /* Desktop TASK chrome (user decision): no title strip at all — only the
    context/remote cluster floats as a quiet top-right overlay above the
-   transcript. The header element stays in the tree because the phone layout
-   still uses it as its top bar; here it is collapsed to that overlay. */
-@media (min-width: 761px) {
-  .workspace { position: relative; }
+   transcript, at EVERY window width (user: 창 작아질 때도 이름/프로젝트명
+   없이 컨텍스트·커넥션만 창 클 때랑 똑같이). The header element stays in
+   the tree because the MOBILE app still uses it as its top bar — those
+   html[data-mixdog-mobile] rules out-rank this block. */
+.workspace { position: relative; }
   .workspace > .session-header {
     position: absolute;
     top: 6px;
@@ -8278,12 +8484,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     background: color-mix(in srgb, var(--mx-workspace-sheet) 65%, transparent);
     backdrop-filter: blur(8px);
   }
-}
 .workspace-tabs-shell .workspace-tabs {
   width: auto;
   min-width: 0;
   max-width: 100%;
   flex: 1 1 auto;
+}
+/* Chrome-style pinned "+": when the tab run overflows, the tabs scroll
+   BENEATH the + instead of pushing it out of the strip (user: + 자리
+   사라짐). Sticky inside the scrolling nav keeps the drag/measure logic
+   untouched; the band fill covers tabs sliding underneath. */
+.workspace-tabs .workspace-tab-new {
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: var(--mx-window-band);
 }
 .workspace-tabs[data-group-dragging="true"] { cursor: grabbing; }
 .workspace-tab-close {
@@ -9299,6 +9514,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   animation: none;
   transition: none;
 }
+/* Opening slides the dock into its already reserved space from the right
+   window edge — transform only, zero re-layout during the motion (user:
+   vscode 같은 매끄러움). Keyed on the mount itself, NOT a settle class: an
+   armed class from a LATER sidebar toggle used to re-match and replay the
+   already-open dock (user: 애니가 두 번 나옴). data-entering pins it off
+   once settled; ≤940px keeps its own sheet slide. */
+@media (min-width: 941px) {
+  .utility-dock--persistent:not([data-entering="true"]) {
+    animation: utility-dock-inline-expand var(--mx-side-panel-motion);
+  }
+}
+@keyframes utility-dock-inline-expand {
+  from { transform: translateX(100%); }
+}
 /* The dock shell can hit width 0, but its tabs/body keep their final
    geometry and are merely clipped. No text rewrap/repaint wave on close. */
 /* Clipping happens at the LEFT edge, the only edge that moves: the inner
@@ -9344,7 +9573,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex-basis: 35px;
   height: 35px;
   align-items: center;
-  padding-inline: 14px 8px;
+  padding-inline: 12px;
   font-size: 11px;
   line-height: 35px;
   text-transform: uppercase;
@@ -9357,7 +9586,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 2px;
   min-width: 0;
   margin-top: 4px;
-  padding: 0 8px 0 14px;
+  /* Dock walks the SAME 12px box line as the left rail (user: 오른쪽도
+     비슷하게): title text opens on it, trailing 28px actions close flush
+     on it, and every band container below shares the inset. */
+  padding: 0 12px;
   background: var(--mx-window-band);
   color: var(--mx-text);
 }
@@ -9476,10 +9708,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 41px;
   display: flex;
   align-items: center;
-  /* VS Code two-line grid: BOXES ride the 8px shell line, their inner pad
-     lands the TEXT on the 14px content line (pill grammar, same as the left
-     sidebar rows). */
-  padding: 6px 8px;
+  /* Boxes ride the dock's 12px box line (user: 오른쪽도 비슷하게 — same
+     line as the header title and every band container). */
+  padding: 6px 12px;
   border-bottom: 1px solid var(--mx-border-muted);
   background: var(--mx-window-band);
 }
@@ -9493,7 +9724,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-project-select .mx-select-trigger { width: 100%; height: 28px; max-width: none; justify-content: flex-start; padding: 0 7px; border: 0; border-radius: 7px; color: var(--mx-text); background: transparent; font-size: 12px; font-weight: 500; }
 .dock-project-select .mx-select-trigger:hover { color: var(--mx-text); background: var(--mx-hover); }
 .dock-project-select .mx-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-git-context-row { height: 32px; flex-basis: 32px; gap: 6px; padding: 2px 8px; border-bottom: 0; }
+.dock-git-context-row { height: 32px; flex-basis: 32px; gap: 6px; padding: 2px 12px; border-bottom: 0; }
+/* Pull Requests context row: SCM toolbar grammar with a REAL branch
+   switcher in the branch slot (user: 저기서도 브랜치 바꿀 수 있어야) — the
+   select borrows the project trigger's quiet chrome, the ⑂ glyph leads. */
+.dock-pr-branch-section { gap: 0; }
+.dock-pr-branch-glyph { flex: 0 0 auto; margin-left: 7px; color: var(--mx-text-muted); }
+.dock-pr-branch-select { min-width: 0; flex: 1 1 auto; }
+.dock-pr-branch-select .mx-select-trigger { width: 100% !important; height: 28px; padding: 0 7px 0 5px; border: 0 !important; border-radius: 7px; outline: 0; background: transparent !important; box-shadow: none !important; }
+.dock-pr-branch-select .mx-select-trigger:hover { background: var(--mx-hover) !important; }
 .dock-git-context-row .dock-project-select { width: auto; max-width: 62%; flex: 0 1 auto; }
 .dock-git-context-row .dock-project-select .mx-select-trigger { width: auto !important; max-width: 100%; height: 28px; padding: 0 7px; border: 0 !important; border-radius: 7px; outline: 0; background: transparent !important; box-shadow: none !important; }
 .dock-git-context-row .dock-project-select .mx-select-trigger:hover { background: var(--mx-hover) !important; }
@@ -9777,7 +10016,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 /* GitHub Desktop's top toolbar: repository | current branch | ONE push/pull
    button, sitting above the Changes | History tab row. The product keeps a
    roomier 6px vertical inset so these labels do not crowd the rows around it. */
-.dock-scm-toolbar { position: relative; z-index: 6; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-scm-toolbar { position: relative; z-index: 6; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
 /* The three sections are EQUAL THIRDS (user: 1:1:1): same `flex: 1 1 0`, same
    floor, so the push/pull section is a full segment with a readable verb
    instead of the intrinsic-width icon stub it used to collapse into. */
@@ -10418,15 +10657,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .dock-pr-toolbar > button:hover:not(:disabled), .dock-pr-toolbar .row-overflow-trigger:hover { color: var(--mx-text); background: var(--mx-hover); }
 .dock-pr-toolbar button:disabled { opacity: .4; cursor: default; }
 .dock-pr-surface { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-.dock-pr-view-controls.workbench-explorer-search { flex: 0 0 auto; display: block; padding: 6px 8px; border-bottom: 1px solid var(--mx-border-muted); }
-.dock-pr-list-header { min-width: 0; height: 29px; flex: 0 0 29px; display: flex; align-items: center; padding: 0 8px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-pr-view-controls.workbench-explorer-search { flex: 0 0 auto; display: block; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-pr-list-header { min-width: 0; height: 29px; flex: 0 0 29px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--mx-border-muted); }
 .dock-pr-scope-select { min-width: 0; flex: 1; }
 .dock-pr-scope-select .mx-select-trigger { width: 100%; min-width: 0; height: 24px; justify-content: flex-start; gap: 5px; padding: 0 5px; border: 0; border-radius: 4px; color: var(--mx-text); background: transparent; box-shadow: none; font: 600 12px/18px inherit; }
 .dock-pr-scope-select .mx-select-trigger:hover:not(:disabled),
 .dock-pr-scope-select .mx-select-trigger[aria-expanded="true"] { background: var(--mx-hover); box-shadow: none; }
 .dock-pr-scope-select .mx-select-value { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .dock-pr-scope-select .mx-select-trigger > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
-.dock-pr-list { min-height: 0; flex: 1; padding: 4px 8px 8px; }
+.dock-pr-list { min-height: 0; flex: 1; padding: 4px 12px 12px; }
 .dock-pr-create { min-width: 0; display: grid; gap: 10px; padding: 6px 2px 10px; }
 .dock-pr-create > header { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 2px 2px 4px; color: var(--mx-text-muted); }
 .dock-pr-create > header > svg { flex: 0 0 auto; color: var(--mx-success); }
@@ -11534,11 +11773,6 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
   border-bottom: .5px solid var(--mx-border-muted);
   color: var(--mx-text-muted);
 }
-.dock-terminal-strip > b {
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: .01em;
-}
 .dock-terminal-shell { position: relative; margin-left: auto; display: flex; }
 .dock-terminal-shell-trigger {
   height: 24px;
@@ -11620,23 +11854,23 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
   border-radius: 4px;
 }
 /* Phone dock scrim: only the narrow-viewport media query displays it. */
-.dock-backdrop { display: none; }
-@media (max-width: 900px) {
+.dock-backdrop, .panel-backdrop { display: none; }
+/* 940px = rail 48 + sidebar floor 232 + workspace floor 360 + dock floor 300:
+   below the aggregate floor the dock overlays as a sheet instead of forcing
+   the workbench into horizontal scroll (full-responsive shell). */
+@media (max-width: 940px) {
   /* Narrow viewports: the dock (only rendered while open) floats as a right
      sheet over the thread instead of vanishing (user: no right panel on the
      phone). The inline width/flex-basis style must not win here. */
-  /* Both sheets START below the session header, so the header must also PAINT
-     above them (rank 41 > drawer 40 > dock 38 > scrims): without it the sheet
-     shadow and hairline spilled over the header edge. */
-  .session-header { position: relative; z-index: 41; }
+  /* ONE sheet grammar for the whole overlay band (user: 909px에서 우측
+     레이어·딤드가 틀어진다): the sheet anchors to the window bar and rides
+     OVER the strip rows, exactly like the ≤760 drawer — the old 761–940
+     variant anchored below the tab strip (83px) with its own radius and a
+     partial scrim, so mid-band windows got a second, broken composition. */
   .utility-dock {
     position: fixed;
     z-index: 38;
-    /* Below the top bar zone AND the session header, mirroring the left
-       drawer. Between 761–900px the topbar is still visible, so a titlebar-
-       only offset dropped the sheet straight over the 48px session header
-       (user: the dock covered the header). */
-    top: calc(var(--titlebar-height, 40px) + var(--dock-sheet-header, 48px) + env(safe-area-inset-top, 0px));
+    top: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px));
     right: 0;
     bottom: 0;
     /* Wider than the left drawer read as imbalance (user): cap at the
@@ -11645,17 +11879,31 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
     flex-basis: auto !important;
     max-width: none;
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    /* Mirror of the left drawer's `0 0 16px 0`: both sheets hug the header
-       square and round only their inner bottom corner. */
-    border-radius: 0 0 0 16px;
-    border-left: 1px solid var(--mx-border-muted);
+    /* Card sheet mirroring the drawer: left corners round, ring via ::after. */
+    border-left: 0;
+    border-radius: 16px 0 0 16px;
     box-shadow: var(--mx-overlay);
   }
-  .dock-backdrop {
+  /* The ring rides an overlay, not the box: an OUTER ring loses its top
+     line to the desktop-body clip (same as the drawer), and an INSET one
+     hides under the tabs-header's opaque band (pixel-verified: y35 flat).
+     ::after paints over children, immune to both. */
+  .utility-dock::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  }
+  /* Desktop shells lift the sheet off the window bottom like the drawer. */
+  html:not([data-mixdog-mobile]) .utility-dock { bottom: 12px; }
+  .dock-backdrop, .panel-backdrop {
     display: block;
     position: fixed;
-    /* Dim only below the top bar zone, matching the drawer scrim. */
-    inset: calc(var(--titlebar-height, 40px) + var(--dock-sheet-header, 48px) + env(safe-area-inset-top, 0px)) 0 0 0;
+    /* Dim everything below the window bar, matching the drawer scrim. */
+    inset: calc(var(--titlebar-height, 40px) + env(safe-area-inset-top, 0px)) 0 0 0;
     z-index: 37;
     border: 0;
     padding: 0;
@@ -11665,10 +11913,20 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
     pointer-events: none;
     transition: opacity var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
   }
-  .dock-backdrop[data-state="open"] {
+  .dock-backdrop[data-state="open"], .panel-backdrop[data-state="open"] {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
+  }
+  /* Same rail carve-out as the drawer scrim: rail destinations stay
+     clickable while any sheet is up (exclusivity swaps the surfaces). */
+  html:not([data-mixdog-mobile]) .dock-backdrop,
+  html:not([data-mixdog-mobile]) .panel-backdrop { left: 48px; }
+  /* ≤760px merges the rail INTO the drawer frame — no standing rail to
+     carve out, so the scrims run from the window edge again. */
+  @media (max-width: 760px) {
+    html:not([data-mixdog-mobile]) .dock-backdrop,
+    html:not([data-mixdog-mobile]) .panel-backdrop { left: 0; }
   }
   /* Fixed sheet mode ignores inline width, so slide via transform instead. */
   .utility-dock { animation: utility-dock-sheet-in var(--mx-sheet-motion); }
@@ -11689,20 +11947,19 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
   .sidebar.session-sidebar,
   .sidebar-backdrop,
   .dock-backdrop,
+  .panel-backdrop,
   .studio-tile,
   .utility-dock.closing { transition: none; }
   .utility-dock { animation: none; }
-}
-@media (max-width: 760px) {
-  /* The phone layout hides the topbar and promotes the 64px session header
-     into --titlebar-height, so the sheet needs no extra header offset. */
-  .utility-dock, .dock-backdrop { --dock-sheet-header: 0px; }
+  html.mx-open-sidebar .sidebar.session-sidebar { animation: none; }
+  .utility-dock--persistent:not([data-entering="true"]) { animation: none; }
+  .bottom-panel:not([data-settled="true"]) { animation: none; }
 }
 @keyframes utility-dock-sheet-in { from { transform: translateX(calc(100% + 16px)); } }
 
 /* Plain query field, then equal-width mode buttons. Source Control uses this
    exact top control stack as Search. */
-.workbench-explorer-search, .dock-scm-view-controls { flex: 0 0 auto; display: grid; gap: 3px; padding: 6px 8px 0; border-bottom: 1px solid var(--mx-border-muted); }
+.workbench-explorer-search, .dock-scm-view-controls { flex: 0 0 auto; display: grid; gap: 3px; padding: 6px 12px 0; border-bottom: 1px solid var(--mx-border-muted); }
 /* THE workbench search/filter box — one component grammar for every panel:
    the Search pane's `Search files` field is the reference shape, and the
    dock's Changes `Filter` and History `Search commits` boxes render from
@@ -13394,4 +13651,552 @@ html[data-mixdog-mobile] select { font-size: 16px; }
   align-items: center;
   height: 100%;
   will-change: transform;
+}
+
+/* ── Dialog system ─────────────────────────────────────────────────────────
+   ONE grammar for every modal card: guided setup, the panel editors
+   (schedules/webhooks/workflows/projects), settings confirmations, the OAuth
+   sheet and the mx-dialog primitive. Same scrim, card, title ladder, footer
+   plate and button variants — each family keeps only its size and hero
+   deltas. Appended last so the older per-family rules settle in one place. */
+.onboarding-layer,
+.schedules-dialog-layer,
+.settings-confirm-layer,
+.mx-dialog-layer {
+  position: fixed;
+  /* The scrim covers the window band too, so the DOM titlebar dims with the
+     native caption band (titlebar-dim.ts composites the same scrim onto the
+     WCO). Only the CARD keeps clear of the min/max/close controls
+     (user: 팝업이 위에 - ㅁ x 를 가린다). */
+  inset: 0;
+  z-index: 940;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--titlebar-height, 36px) + 14px) 24px 24px;
+  background: var(--mx-scrim);
+  backdrop-filter: blur(2px);
+}
+/* A confirmation always paints above the card that raised it. */
+.settings-confirm-layer { z-index: 950; }
+.onboarding-dialog,
+.schedules-dialog,
+.settings-confirm-dialog,
+.settings-oauth-dialog,
+.mx-dialog {
+  box-sizing: border-box;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  /* Flat by decision (user: 입체감은 별로, 플랫한 게 좋다): one hairline ring
+     and the scrim carry the separation — no drop shadow, no lift. */
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  animation: mx-dialog-in .12s ease-out;
+}
+.mx-dialog { width: min(480px, calc(100vw - 32px)); }
+/* The guided-setup card is fixed-size, so it follows the shorter layer too. */
+.onboarding-dialog { height: min(720px, 100%); }
+@keyframes mx-dialog-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-dialog,
+  .schedules-dialog,
+  .settings-confirm-dialog,
+  .settings-oauth-dialog,
+  .mx-dialog { animation: none; }
+}
+/* Header: one title ladder (15/600) over an optional muted description. */
+.schedules-dialog > header,
+.settings-confirm-dialog > header,
+.settings-oauth-dialog > header,
+.mx-dialog > header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 20px 12px;
+}
+.schedules-dialog > header h2,
+.settings-confirm-dialog > header h3,
+.settings-oauth-dialog > header h3,
+.mx-dialog > header h2,
+.mx-dialog > header h3 {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  color: var(--mx-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: -.1px;
+}
+.settings-oauth-dialog > header p,
+.settings-confirm-dialog > p {
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.settings-confirm-dialog > p { margin: 0; padding: 0 20px 18px; }
+/* Close affordance: the same 26px ghost square on every card. */
+.schedules-dialog > header > button,
+.settings-confirm-dialog > header > button,
+.settings-oauth-dialog > header > button,
+.mx-dialog > header > button,
+.onboarding-top-actions > button {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.schedules-dialog > header > button:hover:not(:disabled),
+.settings-confirm-dialog > header > button:hover:not(:disabled),
+.settings-oauth-dialog > header > button:hover:not(:disabled),
+.mx-dialog > header > button:hover:not(:disabled),
+.onboarding-top-actions > button:hover:not(:disabled) {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
+/* Footer plate. The schedules family keeps its sticky geometry (that footer
+   rides the scrolling form), so only its tone joins the system here. */
+.settings-confirm-dialog > footer,
+.settings-oauth-dialog > footer,
+.mx-dialog > footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: .5px solid var(--mx-border);
+  background: var(--mx-bg-base);
+}
+/* One button ladder: quiet plate, contrast primary, ghost secondary, danger. */
+.schedules-dialog footer button,
+.settings-confirm-dialog > footer button,
+.settings-oauth-dialog > footer button,
+.onboarding-dialog > footer button,
+.mx-dialog > footer button {
+  min-height: 30px;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+/* Row actions stay one notch denser than the footer, same ink. */
+.onboarding-provider-list button,
+.onboarding-star-actions button {
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+}
+.schedules-dialog footer button:hover:not(:disabled),
+.settings-confirm-dialog > footer button:hover:not(:disabled),
+.settings-oauth-dialog > footer button:hover:not(:disabled),
+.onboarding-dialog > footer button:hover:not(:disabled),
+.mx-dialog > footer button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+}
+.schedules-dialog footer button:active:not(:disabled),
+.settings-confirm-dialog > footer button:active:not(:disabled),
+.settings-oauth-dialog > footer button:active:not(:disabled),
+.onboarding-dialog > footer button:active:not(:disabled),
+.mx-dialog > footer button:active:not(:disabled) { background: var(--mx-flat-press); }
+/* Submit IS the primary action of the panel editors. */
+.schedules-dialog footer button[type="submit"],
+.schedules-dialog footer button.primary,
+.settings-confirm-dialog > footer button.primary,
+.settings-oauth-dialog > footer button.primary,
+.onboarding-dialog > footer button.primary,
+.mx-dialog > footer button.primary {
+  color: var(--mx-grey-100);
+  background: var(--mx-bg-contrast);
+  box-shadow: var(--mx-button-contrast);
+  font-weight: 600;
+}
+.schedules-dialog footer button[type="submit"]:hover:not(:disabled),
+.schedules-dialog footer button.primary:hover:not(:disabled),
+.settings-confirm-dialog > footer button.primary:hover:not(:disabled),
+.settings-oauth-dialog > footer button.primary:hover:not(:disabled),
+.onboarding-dialog > footer button.primary:hover:not(:disabled),
+.mx-dialog > footer button.primary:hover:not(:disabled) { background: var(--mx-flat-hover-contrast); }
+.schedules-dialog footer button[type="submit"]:active:not(:disabled),
+.schedules-dialog footer button.primary:active:not(:disabled),
+.settings-confirm-dialog > footer button.primary:active:not(:disabled),
+.settings-oauth-dialog > footer button.primary:active:not(:disabled),
+.onboarding-dialog > footer button.primary:active:not(:disabled),
+.mx-dialog > footer button.primary:active:not(:disabled) { background: var(--mx-flat-press-contrast); }
+/* Quiet exits (Cancel/Skip/Later) never compete with the primary plate. */
+.schedules-dialog footer button.secondary,
+.settings-confirm-dialog > footer button.secondary,
+.settings-oauth-dialog > footer button.secondary,
+.onboarding-dialog > footer button.secondary,
+.mx-dialog > footer button.secondary {
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+.schedules-dialog footer button.secondary:hover:not(:disabled),
+.settings-confirm-dialog > footer button.secondary:hover:not(:disabled),
+.settings-oauth-dialog > footer button.secondary:hover:not(:disabled),
+.onboarding-dialog > footer button.secondary:hover:not(:disabled),
+.mx-dialog > footer button.secondary:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.schedules-dialog footer button.danger,
+.settings-confirm-dialog > footer button.danger,
+.settings-oauth-dialog > footer button.danger,
+.onboarding-dialog > footer button.danger,
+.mx-dialog > footer button.danger {
+  color: var(--mx-danger);
+  background: var(--mx-danger-bg);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
+}
+.schedules-dialog footer button.danger:hover:not(:disabled),
+.settings-confirm-dialog > footer button.danger:hover:not(:disabled),
+.settings-oauth-dialog > footer button.danger:hover:not(:disabled),
+.onboarding-dialog > footer button.danger:hover:not(:disabled),
+.mx-dialog > footer button.danger:hover:not(:disabled) {
+  color: var(--mx-danger);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
+}
+/* The solid pressed plate carries the danger read — drop the resting ring. */
+.schedules-dialog footer button.danger:active:not(:disabled),
+.settings-confirm-dialog > footer button.danger:active:not(:disabled),
+.settings-oauth-dialog > footer button.danger:active:not(:disabled),
+.onboarding-dialog > footer button.danger:active:not(:disabled),
+.mx-dialog > footer button.danger:active:not(:disabled) {
+  background: var(--mx-flat-press-danger);
+  box-shadow: none;
+}
+.schedules-dialog footer button:disabled,
+.settings-confirm-dialog > footer button:disabled,
+.settings-oauth-dialog > footer button:disabled,
+.onboarding-dialog > footer button:disabled,
+.mx-dialog > footer button:disabled { opacity: .45; cursor: default; }
+/* Text fields inside a dialog share one plate and one focus read. */
+.schedules-dialog input,
+.settings-oauth-dialog input,
+.mx-dialog input {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font: 400 13px/1 "Geist Variable", "Inter Variable", Inter, "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
+}
+.schedules-dialog input:focus,
+.settings-oauth-dialog input:focus,
+.mx-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+/* Guided setup keeps its hero, but its body text joins the shared ramp. */
+.onboarding-hero p { font-size: 13px; line-height: 20px; }
+/* Guided-setup surfaces are flat too (user: 아이템 프레임이 블록처럼 느껴진다):
+   no lift gradient, no drop shadow — a hairline ring plus a hover wash carry
+   every row and card. Selected states keep their own plate. */
+.onboarding-provider-list > form,
+.onboarding-provider-row,
+.onboarding-model-grid > label:not(.selected),
+.onboarding-star-card,
+.onboarding-choice-grid > button:not(.selected),
+.onboarding-memory-options > button:not(.selected) {
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  transition: background-color .12s ease;
+}
+.onboarding-provider-list > form:hover,
+.onboarding-provider-row:hover,
+.onboarding-model-grid > label:not(.selected):hover {
+  background: var(--mx-hover);
+}
+/* Dialog chrome buttons answer hover with a wash only — no frame appears on
+   hover, and the keyboard ring stays a hairline. */
+.schedules-dialog > header > button:focus-visible,
+.settings-confirm-dialog > header > button:focus-visible,
+.settings-oauth-dialog > header > button:focus-visible,
+.mx-dialog > header > button:focus-visible,
+.onboarding-top-actions > button:focus-visible,
+.schedules-dialog footer button:focus-visible,
+.settings-confirm-dialog > footer button:focus-visible,
+.settings-oauth-dialog > footer button:focus-visible,
+.onboarding-dialog > footer button:focus-visible,
+.mx-dialog > footer button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+}
+/* One ringed action per row: the quiet twin drops its outline entirely. */
+.onboarding-provider-list button.ghost,
+.onboarding-star-actions button.ghost {
+  /* A hairline still reads as a BUTTON (user: 포갓엔 버튼이 없고) — the quiet
+     twin differs by ink, not by losing its frame. */
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.onboarding-provider-list button.ghost:hover:not(:disabled),
+.onboarding-star-actions button.ghost:hover:not(:disabled) {
+  background: var(--mx-hover);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+}
+/* Provider rows: the state sits under the name for every kind, and the OAuth
+   action shares the API rows' action column. */
+.onboarding-provider-state { color: var(--mx-text-muted); }
+.onboarding-provider-state.connected { color: var(--mx-success); }
+.onboarding-provider-row > .onboarding-provider-action { grid-column: 4; }
+.onboarding-provider-row > .onboarding-provider-action > button { width: 100%; }
+/* ONE control skin for every dialog form field (user: 테두리 스타일이
+   중구난방): 32px, 8px radius, hairline at rest, and the canonical keyboard
+   ring tucked one pixel off the field instead of floating around it. */
+.schedules-dialog input,
+.settings-oauth-dialog input,
+.mx-dialog input,
+.onboarding-provider-list input,
+.onboarding-model-grid input,
+.onboarding-profile-fields input,
+.onboarding-dialog .mx-select-root .mx-select-trigger {
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.schedules-dialog input:hover:not(:disabled),
+.settings-oauth-dialog input:hover:not(:disabled),
+.mx-dialog input:hover:not(:disabled),
+.onboarding-provider-list input:hover:not(:disabled),
+.onboarding-model-grid input:hover:not(:disabled),
+.onboarding-profile-fields input:hover:not(:disabled),
+.onboarding-dialog .mx-select-root .mx-select-trigger:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+}
+.schedules-dialog input:focus,
+.settings-oauth-dialog input:focus,
+.mx-dialog input:focus,
+.onboarding-provider-list input:focus,
+.onboarding-model-grid input:focus,
+.onboarding-profile-fields input:focus,
+.onboarding-dialog .mx-select-root .mx-select-trigger:focus-visible {
+  /* Quiet focus (user: 호버나 선택 시 강조 최소화): a single hairline ring
+     tight to the field instead of a thick detached halo. */
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
+}
+/* Multi-line fields share the same frame, only taller. */
+.schedules-composer,
+.workflows-md-field textarea { border-radius: 8px; }
+/* Memory step: the decorative brain tile bought nothing but height and pushed
+   the fixed-height card into a scrollbar (user: 메모리에 스크롤 안 생기게,
+   아이콘 빼고 제목 살짝 키우자). The heading carries the step instead. */
+.onboarding-context-card { gap: 12px; padding: 24px 28px; }
+.onboarding-context-card .onboarding-connect-title { font-size: 18px; }
+.onboarding-context-card > p,
+.onboarding-context-card div > p { margin-top: 5px; }
+/* Step entry fades only. The old translateY(10px) pushed the incoming step
+   past the scroll box for a few frames, so a scrollbar flashed in and out on
+   every step change (user: 진입할 때 스크롤바가 잠시 생겼다 사라진다). */
+.onboarding-step-view { animation: onboarding-step-fade .2s ease-out; }
+@keyframes onboarding-step-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Wizard density at the default install size (1040×700): the channel step
+   overflowed by ~100px purely on rhythm. Rows give back 4px of vertical
+   padding and the step gaps tighten; the provider and model lists stay
+   scrollable by nature (user: 프로바이더/모델은 어쩔 수 없지). */
+.onboarding-step-view { gap: 16px; }
+.onboarding-body { margin-top: 16px; }
+.onboarding-model-section { gap: 10px; }
+.onboarding-provider-list,
+.onboarding-model-grid { gap: 8px; }
+.onboarding-provider-list > form,
+.onboarding-provider-row,
+.onboarding-model-grid > label { padding: 10px 16px; }
+
+/* ── Surface axis: Dark · Gray · White ─────────────────────────────────────
+   The default dark set is a NEUTRAL GREY ramp, which is why it never read as
+   "dark" (user: 다크가 그레이 같다). The desktop now owns three surface
+   choices on ONE temperature axis — a true near-black Dark, today's Gray, and
+   a neutral White — while accents stay on the shared blue ramp. */
+/* Same specificity shape as :root[data-mixdog-theme="…"] so the surface ramp
+   settles the palette blocks instead of losing the cascade to them. */
+:root[data-mixdog-surface="dark"] {
+  --mx-bg-deep: #0b0b0b;
+  --mx-window-band: #0f0f0f;
+  --mx-workspace-sheet: #141414;
+  --mx-bg-base: #1a1a1a;
+  --mx-bg-layer-1: #212121;
+  --mx-bg-layer-2: #292929;
+  --mx-bg-layer-3: #333333;
+  --mx-scrim: rgba(0, 0, 0, .55);
+}
+/* White drops the warm cast so light and dark share one neutral temperature
+   (the old paper set was warm while dark was neutral — the mismatch read as
+   two different products). */
+:root[data-mixdog-surface="white"] {
+  --mx-bg-deep: #f5f5f5;
+  --mx-window-band: #f0f0f0;
+  --mx-workspace-sheet: #fafafa;
+  --mx-bg-base: #ffffff;
+  --mx-bg-layer-1: #f7f7f7;
+  --mx-bg-layer-2: #f0f0f0;
+  --mx-bg-layer-3: #e8e8e8;
+  --mx-text: #17181a;
+  --mx-text-muted: #5c6066;
+  --mx-text-faint: #8a8f95;
+  --mx-hover: rgba(0, 0, 0, .05);
+  --mx-pressed: rgba(0, 0, 0, .09);
+  --mx-scrim: rgba(20, 20, 22, .38);
+  /* Neutral hairlines: the warm alpha set was invisible on paper and pulled
+     the seams brown (user: 태두리가 좀 연한가?). */
+  --mx-border-muted: rgba(23, 24, 26, .10);
+  --mx-border: rgba(23, 24, 26, .14);
+  --mx-border-strong: rgba(23, 24, 26, .26);
+}
+/* Alpha ink dropped labels a full contrast step below their neighbours
+   (measured 0.55α tab labels vs 15:1 body text — user: 일부 폰트가 너무
+   흐리다). Labels move to the SOLID muted ink; alpha stays for decoration. */
+.workspace-tab { color: var(--mx-text-muted); }
+.workspace-tab.active { color: var(--mx-text); }
+.session-sidebar-panels .schedules-row-copy small,
+.utility-dock .agent-activity-copy small { color: var(--mx-text-muted); }
+.session-panel-section-title,
+.sidebar-section-title { color: var(--mx-text-muted); }
+/* ── Rail gutter ───────────────────────────────────────────────────────────
+   ONE token drives every left/right inset in both rails (user: 공통값으로
+   한 번에 적용되게). Panel title, category heads, section heads, session rows
+   and panel cards all start on the same axis, and their trailing actions land
+   in the same right column. Nested groups add NO second inset — the group
+   header already says they are nested. */
+.session-sidebar,
+.session-sidebar-panels,
+.utility-dock {
+  --mx-rail-gutter: 14px;
+  --mx-rail-gap: 8px;
+}
+/* ── Left-rail BOX LINE ──────────────────────────────────────────────────
+   ONE 12px inset from the panel edge is THE line (user: 아이템까지의
+   패딩을 고려하고 카테고리나 헤더는 그 선에 맞추고 똑같이): every item
+   box — cards, session pills, the search field, the filter tags — opens on
+   it, and header/category TEXT sits on the same line instead of a deeper
+   text gutter. Item text keeps its own 14px inside its box. The sidebar
+   already pads 8, so containers add 4. */
+.sidebar.session-sidebar > .session-sidebar-scroll { padding-inline: 4px; }
+.session-sidebar .session-panel-header {
+  /* Title text on the box line; the 28px "+" box right-aligns to the same
+     line the content boxes close on (5px bezel keeps the glyph inside). */
+  padding-inline: 4px 5px;
+}
+/* In-card trailing actions (⋯/✎) close flush on the card edge, so every
+   action pill in the rail shares one right column with the boxes. */
+.session-sidebar-panels .schedules-row .row-overflow-trigger,
+.session-sidebar-panels .schedules-row .session-panel-action {
+  margin-right: calc(-1 * var(--mx-rail-gutter));
+}
+.session-sidebar .session-group h2,
+.session-sidebar .sidebar-section-heading,
+.session-sidebar .project-group-heading { padding-inline: 0; }
+.session-sidebar .session-row,
+.session-sidebar-panels .session-row,
+.utility-dock .session-row { padding-inline: var(--mx-rail-gutter); }
+.session-sidebar-panels .schedules-row,
+.utility-dock .schedules-row { padding: 12px var(--mx-rail-gutter); }
+.session-sidebar-panels .workflows-section-head { padding: 6px 0 0; }
+.utility-dock .workflows-section-head { padding: 6px var(--mx-rail-gutter) 0; }
+.session-sidebar-panels .workflows-section-head h2,
+.utility-dock .workflows-section-head h2 { padding: 0; }
+.session-sidebar-panels .workflows-models h2 { padding: 0; }
+/* Grouped rows keep the shared axis instead of stacking a second gutter. */
+.session-sidebar .automation-group-past,
+.session-sidebar .automation-group > div,
+.session-sidebar .project-group > div { padding-left: 0; }
+.session-sidebar-panels .schedules-page,
+.session-sidebar-panels .schedules-list,
+.utility-dock .schedules-list { gap: var(--mx-rail-gap); }
+/* ── Rail type ramp ──────────────────────────────────────────────────────
+   ONE descending ladder on BOTH rails (user: 헤더 → 카테고리 → 아이템
+   폰트 → 항목 순서로 정렬돼야지 — 헤더가 아이템 제목보다 작으면 안 된다):
+   panel title 15/600 full ink > category/section heads 14/600 at 68% >
+   item titles 13 full ink > meta 12 muted. Text walks the 14px gutter,
+   trailing actions land on the shared right column. */
+.utility-dock-title { font-size: 15px; }
+.session-sidebar .sidebar-recent-heading { padding-inline: 0; }
+.session-sidebar-panels .workflows-section-head h2,
+.utility-dock .workflows-section-head h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--mx-text) 68%, transparent);
+}
+
+/* ── Color roles ───────────────────────────────────────────────────────────
+   Four roles, one meaning each (user decision): indigo = INTERACTION (focus,
+   selection, links, primary), amber = NEEDS YOU (approvals, attention),
+   green/red = terminal OUTCOME, and work in progress stays neutral ink with
+   motion. Routine turn milestones were painted with the interaction accent,
+   which made the brand color ordinary and left nothing to notice. */
+.live-activity { --live-status-color: var(--mx-text-muted); }
+.turn-status.complete,
+.turn-status.success { color: var(--mx-text-muted); }
+.turn-status.complete svg,
+.turn-status.success svg { color: var(--mx-text-muted); }
+.turn-status.complete small,
+.turn-status.success small { color: var(--mx-text-faint); }
+/* A failed turn IS the outcome worth a color. */
+.turn-status.failed { color: var(--mx-danger); }
+/* An interruption is INFORMATION, not an error and not a task: it dropped to
+   neutral ink so the warm tones stay reserved (user: 빨간색을 둘 다 쓰냐 —
+   실패와 사용량 경고에만 남긴다). */
+.turn-status.interrupted { color: var(--mx-text-muted); }
+/* Brand accent = Material 3 indigo TONES, not the 2014 saturated ramp (user:
+   연한 인디고 맛이 안 난다): primary-80 (#bac3ff) carries the pale Google
+   indigo on dark plates, primary-40 (#4355b9) the same hue on paper. */
+:root[data-mixdog-surface="dark"],
+:root[data-mixdog-surface="gray"] {
+  --mx-text-accent: #bac3ff;
+  --mx-accent: var(--mx-text-accent);
+  --mx-accent-bg: #3d4ca0;
+  --mx-focus: #bac3ff;
+}
+:root[data-mixdog-surface="white"] {
+  --mx-text-accent: #4355b9;
+  --mx-accent: var(--mx-text-accent);
+  --mx-accent-bg: #4355b9;
+  --mx-focus: #4355b9;
+}
+/* Context compaction is a timeline event, not an action. */
+.compaction-divider { color: var(--mx-text-muted); }
+.compaction-divider svg {
+  color: var(--mx-text-muted);
+  filter: none;
 }

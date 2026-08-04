@@ -3,10 +3,12 @@ import { EngineHost } from './engine-host';
 
 // MIXDOG_JITTER_PROBE: '1' = streaming/follow pass, 'entry' = cold-entry and
 // tool-toggle pass, 'keys' = keyboard paging pass, 'switch' = rapid session
-// switching, warm paint handoff, and side-panel geometry pass.
+// switching, warm paint handoff, and side-panel geometry pass, 'width' = the
+// window-width rewrap pass.
 function jitterProbeEnabled(): boolean {
   const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
-  return mode === '1' || mode === 'entry' || mode === 'keys' || mode === 'switch';
+  return mode === '1' || mode === 'entry' || mode === 'keys' || mode === 'switch'
+    || mode === 'width';
 }
 
 // EngineHost.listSessions() lazily starts the runtime engine. The isolated
@@ -169,10 +171,10 @@ export class CaptureEngineHost extends EngineHost {
         working: true,
       }];
       // The cold-history row belongs to the passes that resume it (entry,
-      // keys). The streaming pass must not see it: an extra listed session
-      // changes the layout it measures against.
+      // keys, width). The streaming pass must not see it: an extra listed
+      // session changes the layout it measures against.
       const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
-      if (mode === 'entry' || mode === 'keys') {
+      if (mode === 'entry' || mode === 'keys' || mode === 'width') {
         sessions.push({
         id: 'probe_session_cold',
         preview: 'Cold history probe',

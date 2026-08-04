@@ -3,6 +3,9 @@ import "./process-shim";
 // WebSocket-backed DesktopApi before any module reads window.mixdogDesktop;
 // inside Electron the preload bridge already exists and this is a no-op.
 import "./remote-shim";
+// UI language resolves synchronously here, BEFORE any App module evaluates:
+// module-level English strings pass through t() at import time.
+import "./i18n";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from "./RendererRecovery";

@@ -3,6 +3,8 @@
 // small set of shortcuts that remain useful before a first task exists.
 import React from "react";
 
+import { t } from "./i18n";
+
 // The brand path sits inset in its 256 viewBox (tile margins). Watermarks
 // crop to the glyph bounds so the visible mark fills the box like VS Code's
 // letterpress; chrome surfaces (titlebar) keep the inset tile framing.
@@ -25,12 +27,12 @@ export function WorkspaceEmptyState(): React.JSX.Element {
         {/* Product vocabulary has ONE Project concept (user decision) — no
             "workspace" wording anywhere, including assistive labels. */}
         <h1 className="sr-only">Mixdog</h1>
-        <div className="welcome-shortcuts" aria-label="Keyboard shortcuts">
-          <div><span>New task</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>N</kbd></span></div>
-          <div><span>Switch tab</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>←</kbd><i>/</i><kbd>→</kbd></span></div>
-          <div><span>Switch pane</span><span className="welcome-keys"><kbd>Alt</kbd><i>+</i><kbd>←</kbd><i>/</i><kbd>→</kbd></span></div>
-          <div><span>Sidebar</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>B</kbd></span></div>
-          <div><span>Settings</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>,</kbd></span></div>
+        <div className="welcome-shortcuts" aria-label={t("Keyboard shortcuts")}>
+          <div><span>{t("New task")}</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>N</kbd></span></div>
+          <div><span>{t("Switch tab")}</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>←</kbd><i>/</i><kbd>→</kbd></span></div>
+          <div><span>{t("Switch pane")}</span><span className="welcome-keys"><kbd>Alt</kbd><i>+</i><kbd>←</kbd><i>/</i><kbd>→</kbd></span></div>
+          <div><span>{t("Sidebar")}</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>B</kbd></span></div>
+          <div><span>{t("Settings")}</span><span className="welcome-keys"><kbd>Ctrl</kbd><i>+</i><kbd>,</kbd></span></div>
         </div>
       </div>
     </div>

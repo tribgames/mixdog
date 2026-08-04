@@ -25,8 +25,11 @@ const jitterProbeOutput = join(here, "../../artifacts/jitter-probe.json");
 const jitterEntryMode = process.env.MIXDOG_JITTER_PROBE === "entry";
 const jitterKeysMode = process.env.MIXDOG_JITTER_PROBE === "keys";
 const jitterSwitchMode = process.env.MIXDOG_JITTER_PROBE === "switch";
+// Diagnosis pass: measure transcript stability across a real window-width
+// drag. Reports only — the metrics are read by a human while chasing a jump.
+const jitterWidthMode = process.env.MIXDOG_JITTER_PROBE === "width";
 const jitterProbeMode = process.env.MIXDOG_JITTER_PROBE === "1"
-  || jitterEntryMode || jitterKeysMode || jitterSwitchMode;
+  || jitterEntryMode || jitterKeysMode || jitterSwitchMode || jitterWidthMode;
 const timeoutMs = Number.parseInt(process.env.MIXDOG_CAPTURE_TIMEOUT_MS || "30000", 10);
 const captureOwnerFile = "capture-owner.json";
 const captureHeartbeatMs = 5_000;
@@ -304,7 +307,9 @@ try {
     console.log(`JITTER_PROBE_SUMMARY=${JSON.stringify(summary)}`);
     assert.ok(reportStat.mtimeMs >= startedAt && reportStat.mtimeMs <= Date.now(),
       "Jitter probe output mtime is outside the current run window.");
-    if (jitterKeysMode) {
+    if (jitterWidthMode) {
+      // Reporting pass only.
+    } else if (jitterKeysMode) {
       // Keyboard paging: every press must move the transcript and hold the
       // new offset (no spring-back to where the key started).
       for (const key of ["spaceFromTop", "spaceAgain", "pageDown", "spaceStreaming", "spaceStreamingAgain"]) {

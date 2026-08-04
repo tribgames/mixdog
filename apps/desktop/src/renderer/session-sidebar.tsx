@@ -28,6 +28,7 @@ import type {
 import { sessionSummaryTitle } from "../shared/session-title.mjs";
 import { DESKTOP_SIDEBAR_MIN_WIDTH } from "../shared/window-layout";
 import { ProgressSpinner } from "./ProgressSpinner";
+import { t } from "./i18n";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 
 import {
@@ -55,7 +56,9 @@ export function projectIdentity(path: string | null | undefined) {
 }
 
 
-const DEFAULT_SIDEBAR_WIDTH = 260;
+// Wider default rail (user: 사이드탭이 너무 좁다): the project/session cards
+// need room for a two-line row plus the 12px gutters.
+const DEFAULT_SIDEBAR_WIDTH = 300;
 const MIN_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_MIN_WIDTH;
 const MAX_SIDEBAR_WIDTH = 420;
 const SIDEBAR_WIDTH_KEY = "mixdog:session-sidebar-width";
@@ -408,19 +411,21 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       data-state={open ? "open" : "closed"}
       inert={!open}
       aria-hidden={!open}
-      aria-label="Session manager"
+      aria-label={t("Session manager")}
       style={{
         "--session-sidebar-width": `${displayedSidebarWidth}px`,
         "--session-sidebar-min-width": `${MIN_SIDEBAR_WIDTH}px`,
         "--session-sidebar-max-width": `${MAX_SIDEBAR_WIDTH}px`,
         maxWidth: open ? MAX_SIDEBAR_WIDTH : 0,
-        flexShrink: 0,
+        /* Full-responsive shell: the open rail yields between its preferred
+           width and the 232px floor before the workbench ever scrolls. */
+        flexShrink: open ? 1 : 0,
       } as React.CSSProperties}
     >
       {/* VS Code side-bar grammar: the panel titles itself; every primary
           navigation control lives on the Activity Rail to the left. */}
       <header className="session-panel-header">
-        <span className="session-panel-title">{panelActive ? panelTitle : "Sessions"}</span>
+        <span className="session-panel-title">{panelActive ? t(panelTitle) : t("Sessions")}</span>
         {/* Creation belongs to Sessions rather than the Activity Rail: these
             buttons create ordinary workspace tabs and never own a selected
             navigation state. Other panels portal their own primary action
@@ -429,8 +434,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           {!panelActive && <>
             <button ref={createButton} type="button"
               className="session-panel-action session-new-create"
-              aria-label="New tab" aria-haspopup="menu" aria-expanded={Boolean(createMenu)}
-              data-tooltip="New tab"
+              aria-label={t("New tab")} aria-haspopup="menu" aria-expanded={Boolean(createMenu)}
+              data-tooltip={t("New tab")}
               onPointerEnter={(event) => rememberCreateMenuAnchor(event.currentTarget)}
               onFocus={(event) => rememberCreateMenuAnchor(event.currentTarget)}
               onPointerDown={(event) => {
@@ -448,7 +453,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             </button>
             {createPortal(
               <div ref={createMenuNode} className="workspace-tab-new-menu" role="menu"
-                aria-label="Create tab" hidden={!createMenu}
+                aria-label={t("Create tab")} hidden={!createMenu}
                 style={createMenu ? { left: createMenu.left, top: createMenu.top } : undefined}>
                 {[
                   {
@@ -481,13 +486,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                     run: onNewTerminal,
                   },
                 ].map((item) => <button type="button" role="menuitem" key={item.label}
-                  className={item.className} aria-label={item.ariaLabel}
+                  className={item.className} aria-label={t(item.ariaLabel)}
                   onPointerEnter={item.prefetch} onFocus={item.prefetch}
                   onClick={() => {
                     setCreateMenu(null);
                     item.run();
                   }}>
-                  {item.icon}<span>{item.label}</span>
+                  {item.icon}<span>{t(item.label)}</span>
                 </button>)}
               </div>,
               document.body,
@@ -502,19 +507,19 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         aria-hidden={panelActive ? true : undefined}
         onScroll={revealWhenSentinelNear}>
         {automationGroups.length > 0 && (
-          <section className="sidebar-recent sidebar-automations" aria-label="Automations">
+          <section className="sidebar-recent sidebar-automations" aria-label={t("Automations")}>
             <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
               aria-expanded={automationsOpen}
               onClick={() => setAutomationsOpen((open) => !open)}>
-              <span>Automations</span>
+              <span>{t("Automations")}</span>
               {automationsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               {/* Collapsed sections still have to announce new activity. */}
               {!automationsOpen && automationGroups.some(({ runs }) =>
                 runs.some((run) => unreadSessionIds?.has(run.id) === true))
-                && <span className="sidebar-heading-dot" role="status" aria-label="Automations have new activity" />}
+                && <span className="sidebar-heading-dot" role="status" aria-label={t("Automations have new activity")} />}
             </button>
             {automationsOpen && (
-              <nav className="session-list automation-session-list" aria-label="Automations">
+              <nav className="session-list automation-session-list" aria-label={t("Automations")}>
                 {automationGroups.map(({ key, name, runs }) => {
                   const expanded = !collapsedAutomations.has(key);
                   const working = runs.some((run) => workingSessionIds?.has(run.id) === true);
@@ -531,7 +536,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                       <span className="session-row-status" data-working={working || undefined}>
                         {working
                           ? <ProgressSpinner size={12} className="session-row-spinner" role="status"
-                            aria-label={`${name} is working`} />
+                            aria-label={t("{{name}} is working", { name })} />
                           : expanded
                             ? <ChevronDown size={13} aria-hidden="true" />
                             : <ChevronRight size={13} aria-hidden="true" />}
@@ -540,7 +545,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                         <b>{name}</b>
                       </span>
                       {unread && !working && <span className="session-row-unread-dot" role="status"
-                        aria-label={`${name} has new activity`} />}
+                        aria-label={t("{{name}} has new activity", { name })} />}
                     </button>
                     {expanded && <div className="automation-group-past">
                       {runs.map((session) => <SessionSidebarRow key={session.id}
@@ -565,15 +570,15 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           </section>
         )}
         {remoteRow && (
-          <section className="sidebar-recent sidebar-remote" aria-label="Remote">
+          <section className="sidebar-recent sidebar-remote" aria-label={t("Remote")}>
             <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
               aria-expanded={remoteOpen}
               onClick={() => setRemoteOpen((open) => !open)}>
-              <span>Remote</span>
+              <span>{t("Remote")}</span>
               {remoteOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </button>
             {remoteOpen && (
-              <nav className="session-list remote-session-list" aria-label="Remote">
+              <nav className="session-list remote-session-list" aria-label={t("Remote")}>
                 <SessionSidebarRow key={remoteRow.id}
                   session={remoteRow} active={selection.kind === "session" && selection.id === remoteRow.id}
                   working={workingSessionIds?.has(remoteRow.id) === true}
@@ -592,20 +597,20 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             )}
           </section>
         )}
-        <section className="sidebar-recent" aria-label="Recent sessions">
+        <section className="sidebar-recent" aria-label={t("Recent sessions")}>
           <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
             aria-expanded={recentOpen}
             onClick={() => setRecentOpen((open) => !open)}>
-            <span>Recent</span>
+            <span>{t("Recent")}</span>
             {recentOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             {!recentOpen && rows.some((session) => unreadSessionIds?.has(session.id) === true)
-              && <span className="sidebar-heading-dot" role="status" aria-label="Recent has new activity" />}
+              && <span className="sidebar-heading-dot" role="status" aria-label={t("Recent has new activity")} />}
           </button>
           {recentOpen && (
-          <nav id="recent-session-list" className="session-list recent-session-list" aria-label="Recent sessions">
+          <nav id="recent-session-list" className="session-list recent-session-list" aria-label={t("Recent sessions")}>
             {!sessionsReady && rows.length === 0
-              ? <p className="sidebar-section-empty sidebar-section-loading" role="status">Loading sessions…</p>
-              : sessionsReady && rows.length === 0 && <p className="sidebar-section-empty">No sessions</p>}
+              ? <p className="sidebar-section-empty sidebar-section-loading" role="status">{t("Loading sessions…")}</p>
+              : sessionsReady && rows.length === 0 && <p className="sidebar-section-empty">{t("No sessions")}</p>}
             {visibleRecentRows.map((session) => <SessionSidebarRow key={session.id}
               session={session} active={selection.kind === "session" && selection.id === session.id}
               working={workingSessionIds?.has(session.id) === true}
@@ -627,15 +632,15 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           )}
         </section>
         {archivedRows.length > 0 && (
-          <section className="sidebar-recent sidebar-archived" aria-label="Archived sessions">
+          <section className="sidebar-recent sidebar-archived" aria-label={t("Archived sessions")}>
             <button type="button" className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
               aria-expanded={archivedOpen}
               onClick={() => setArchivedOpen((open) => !open)}>
-              <span>Archived</span>
+              <span>{t("Archived")}</span>
               {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </button>
             {archivedOpen && (
-              <nav className="session-list archived-session-list" aria-label="Archived sessions">
+              <nav className="session-list archived-session-list" aria-label={t("Archived sessions")}>
                 {archivedRows.map((session) => <SessionSidebarRow key={session.id}
                   session={session} active={selection.kind === "session" && selection.id === session.id}
                 working={workingSessionIds?.has(session.id) === true}
@@ -667,7 +672,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         </SidebarPanelHeaderSlot.Provider>
       </div>
       <div className="session-sidebar-resize" role="separator" tabIndex={0}
-        aria-label="Resize session sidebar" aria-orientation="vertical"
+        aria-label={t("Resize session sidebar")} aria-orientation="vertical"
         aria-valuemin={MIN_SIDEBAR_WIDTH} aria-valuemax={MAX_SIDEBAR_WIDTH}
         aria-valuenow={displayedSidebarWidth} aria-valuetext={`${displayedSidebarWidth} pixels`}
         onDoubleClick={() => updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
@@ -976,7 +981,7 @@ const SessionRow = React.memo(function SessionRow({
         value={titleDraft} maxLength={160} disabled={!editing}
         tabIndex={editing ? undefined : -1}
         aria-hidden={editing ? undefined : true}
-        aria-label={`Rename ${sessionLabel(session)}`}
+        aria-label={t("Rename {{name}}", { name: sessionLabel(session) })}
         aria-invalid={titleInvalid || undefined}
         onInput={(event) => onTitleDraftChange(event.currentTarget.value)}
         onClick={(event) => event.stopPropagation()}
@@ -1006,10 +1011,10 @@ const SessionRow = React.memo(function SessionRow({
         </span>
         <span className="session-row-status" data-working={working || undefined}>
           {working && <ProgressSpinner size={12} className="session-row-spinner" role="status"
-            aria-label={`${sessionLabel(session)} is working`} />}
+            aria-label={t("{{name}} is working", { name: sessionLabel(session) })} />}
         </span>
         {unread && !working && <span className="session-row-unread-dot" role="status"
-          aria-label={`${sessionLabel(session)} has new activity`} />}
+          aria-label={t("{{name}} has new activity", { name: sessionLabel(session) })} />}
       </button>
       <div className="session-row-actions"
         inert={editing ? true : undefined} aria-hidden={editing ? true : undefined}>
@@ -1017,9 +1022,9 @@ const SessionRow = React.memo(function SessionRow({
           <button type="button" className={`session-row-action ${confirmingDelete
             ? "session-row-delete-cancel" : "session-row-restore"}`}
             aria-label={confirmingDelete
-              ? `Cancel deleting ${sessionLabel(session)}`
-              : `Restore ${sessionLabel(session)}`}
-            data-tooltip={confirmingDelete ? "Cancel" : "Restore"}
+              ? t("Cancel deleting {{name}}", { name: sessionLabel(session) })
+              : t("Restore {{name}}", { name: sessionLabel(session) })}
+            data-tooltip={confirmingDelete ? t("Cancel") : t("Restore")}
             disabled={confirmingDelete && deleting}
             onClick={(event) => {
               event.preventDefault();
@@ -1032,9 +1037,9 @@ const SessionRow = React.memo(function SessionRow({
           <button type="button" className={`session-row-action ${confirmingDelete
             ? "session-row-delete-confirm" : "session-row-delete danger"}`}
             aria-label={confirmingDelete
-              ? `Confirm deleting ${sessionLabel(session)}`
-              : `Delete ${sessionLabel(session)}`}
-            data-tooltip={confirmingDelete ? "Delete" : undefined}
+              ? t("Confirm deleting {{name}}", { name: sessionLabel(session) })
+              : t("Delete {{name}}", { name: sessionLabel(session) })}
+            data-tooltip={confirmingDelete ? t("Delete") : undefined}
             disabled={confirmingDelete && deleting}
             onClick={(event) => {
               event.preventDefault();
@@ -1045,7 +1050,7 @@ const SessionRow = React.memo(function SessionRow({
             <Trash2 size={confirmingDelete ? 12 : 13} />
           </button>
         </> : <button type="button" className="session-row-action session-row-archive"
-          aria-label={`Archive ${sessionLabel(session)}`} data-tooltip="Archive"
+          aria-label={t("Archive {{name}}", { name: sessionLabel(session) })} data-tooltip={t("Archive")}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();

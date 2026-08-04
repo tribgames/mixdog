@@ -85,9 +85,6 @@ export function reconcileTurnFailures(_previous, items, _toasts, scope = '') {
   };
 }
 
-export function isScrollIntentKey(key) {
-  return ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(key);
-}
 
 export function shouldNavigatePromptHistory({
   key = '',

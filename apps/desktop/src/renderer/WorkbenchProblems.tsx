@@ -23,6 +23,7 @@ import {
   subscribeEditorLanguageStore,
   type EditorProblem,
 } from "./editor-language-store";
+import { t } from "./i18n";
 import { RowOverflowMenu } from "./RowOverflowMenu";
 
 export interface ProblemsPanelFilter {
@@ -99,28 +100,28 @@ export const WorkbenchProblemsToolbar = memo(function WorkbenchProblemsToolbar({
   const rows = projectProblems(projectPath, language.problems);
   const count = (severity: number) => rows.filter((problem) => problem.severity === severity).length;
   const update = (patch: Partial<ProblemsPanelFilter>) => onFilter({ ...filter, ...patch });
-  return <div className="problems-panel-actions" aria-label="Problems actions">
+  return <div className="problems-panel-actions" aria-label={t("Problems actions")}>
     <label className="problems-panel-filter">
       <Filter size={14} aria-hidden="true" />
       <input value={filter.query}
         onChange={(event) => update({ query: event.target.value })}
-        placeholder="Filter problems"
-        aria-label="Filter Problems" />
-      {filter.query && <button type="button" aria-label="Clear Problems filter"
+        placeholder={t("Filter problems")}
+        aria-label={t("Filter Problems")} />
+      {filter.query && <button type="button" aria-label={t("Clear Problems filter")}
         onClick={() => update({ query: "" })}><X size={13} aria-hidden="true" /></button>}
     </label>
     <button type="button" className="problems-filter-toggle" data-severity="error"
-      aria-label={`Show Errors (${count(1)})`} aria-pressed={filter.showErrors}
+      aria-label={t("Show Errors ({{count}})", { count: count(1) })} aria-pressed={filter.showErrors}
       onClick={() => update({ showErrors: !filter.showErrors })}>
       <CircleX size={14} aria-hidden="true" /><span>{count(1)}</span>
     </button>
     <button type="button" className="problems-filter-toggle" data-severity="warning"
-      aria-label={`Show Warnings (${count(2)})`} aria-pressed={filter.showWarnings}
+      aria-label={t("Show Warnings ({{count}})", { count: count(2) })} aria-pressed={filter.showWarnings}
       onClick={() => update({ showWarnings: !filter.showWarnings })}>
       <TriangleAlert size={14} aria-hidden="true" /><span>{count(2)}</span>
     </button>
     <button type="button" className="problems-filter-toggle" data-severity="info"
-      aria-label={`Show Infos (${count(3) + count(4)})`} aria-pressed={filter.showInfos}
+      aria-label={t("Show Infos ({{count}})", { count: count(3) + count(4) })} aria-pressed={filter.showInfos}
       onClick={() => update({ showInfos: !filter.showInfos })}>
       <Info size={14} aria-hidden="true" /><span>{count(3) + count(4)}</span>
     </button>
@@ -235,16 +236,16 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
   const openProblem = (problem: EditorProblem) =>
     onOpenFile?.(problem.projectPath, problem.relPath, problem.startLineNumber);
 
-  if (!projectPath) return <p className="utility-dock-empty">Open a project to view problems.</p>;
+  if (!projectPath) return <p className="utility-dock-empty">{t("Open a project to view problems.")}</p>;
   if (!rows.length) {
     return <p className="utility-dock-empty">
-      {filter.query || filter.activeFileOnly ? "No problems match the current filters." : "No problems detected."}
+      {filter.query || filter.activeFileOnly ? t("No problems match the current filters.") : t("No problems detected.")}
     </p>;
   }
   if (filter.view === "table") {
-    return <div className="problems-table" role="tree" aria-label="Problems">
+    return <div className="problems-table" role="tree" aria-label={t("Problems")}>
       <div className="problems-table-header" aria-hidden="true">
-        <span>Problem</span><span>File</span><span>Line</span>
+        <span>{t("Problem")}</span><span>{t("File")}</span><span>{t("Line")}</span>
       </div>
       {rows.map((problem) => <div key={problem.key} role="treeitem" tabIndex={0}
         className="problem-table-row" data-severity={problem.severity}
@@ -260,7 +261,7 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
       </div>)}
     </div>;
   }
-  return <div className="problems-tree" role="tree" aria-label="Problems">
+  return <div className="problems-tree" role="tree" aria-label={t("Problems")}>
     {groups.map(([relPath, problems]) => {
       const isCollapsed = collapsed.has(relPath);
       const segments = relPath.replace(/\\/g, "/").split("/");
@@ -303,7 +304,7 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
               <small>{[problem.source, problem.code].filter(Boolean).join(" ")}</small></span>
             <em>[Ln {problem.startLineNumber}, Col {problem.startColumn}]</em>
             {onQuickFix && <button type="button" className="problem-quick-fix"
-              aria-label={`Show Quick Fixes for ${problem.message}`}
+              aria-label={t("Show Quick Fixes for {{message}}", { message: problem.message })}
               onClick={(event) => {
                 event.stopPropagation();
                 onQuickFix(problem);

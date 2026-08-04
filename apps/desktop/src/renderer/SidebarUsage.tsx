@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { PaneSurfaceGate } from "./PaneSurfaceGate";
+import { t } from "./i18n";
 import { ProviderIcon } from "./provider-display";
 import {
   getUsageDashboardSnapshot,
@@ -127,23 +128,33 @@ export function usagePinEntries(dashboard: unknown): UsagePinEntry[] {
   });
 }
 
-function resetText(value: unknown): string {
+// Tidied schedule copy (user: 리셋시간 문구 정리): lowercase duration units
+// read as time, not as quota-window labels (5H/W/M stay uppercase).
+function resetSchedule(value: unknown): { state: "due" | "soon" | "in" | ""; time: string } {
   const resetAt = timestamp(value);
-  if (resetAt === null) return "";
+  if (resetAt === null) return { state: "", time: "" };
   const remaining = resetAt - Date.now();
-  if (remaining <= 0) return "Reset due";
+  if (remaining <= 0) return { state: "due", time: "" };
   const totalHours = Math.ceil(remaining / 3_600_000);
   const days = Math.floor(totalHours / 24);
   const hours = totalHours % 24;
-  // Tidied schedule copy (user: 리셋시간 문구 정리): lowercase duration units
-  // read as time, not as quota-window labels (5H/W/M stay uppercase).
-  if (days > 0) return `Resets in ${days}d${hours ? ` ${hours}h` : ""}`;
-  if (totalHours > 0) return `Resets in ${totalHours}h`;
-  return "Resets soon";
+  if (days > 0) return { state: "in", time: `${days}d${hours ? ` ${hours}h` : ""}` };
+  if (totalHours > 0) return { state: "in", time: `${totalHours}h` };
+  return { state: "soon", time: "" };
+}
+
+function resetText(value: unknown): string {
+  const schedule = resetSchedule(value);
+  if (schedule.state === "due") return t("Reset due");
+  if (schedule.state === "in") return t("Resets in {{time}}", { time: schedule.time });
+  return schedule.state === "soon" ? t("Resets soon") : "";
 }
 
 function resetExpiryText(value: unknown): string {
-  return resetText(value).replace(/^Resets/, "Expires");
+  const schedule = resetSchedule(value);
+  if (schedule.state === "due") return t("Expiry due");
+  if (schedule.state === "in") return t("Expires in {{time}}", { time: schedule.time });
+  return schedule.state === "soon" ? t("Expires soon") : "";
 }
 
 /** The provider header shows one schedule: the window that resets first. */
@@ -299,57 +310,60 @@ export function SidebarUsage({
       const authoritative = result.status === "offerChanged"
         || outcome === "reset" || outcome === "alreadyRedeemed"
         || outcome === "nothingToReset" || outcome === "noCredit";
-      // The mutation result is authoritative for every usage surface, not only
-      // this popup: it lands in the shared snapshot and its cache — but only if
-      // the store accepts it as a real dashboard.
-      const adopted = publishUsageDashboard(result.dashboard);
-      if (!authoritative || !adopted) {
-        // Unrecognised outcome or unusable dashboard: the durable idempotency
-        // key SURVIVES so a retry reuses this operation instead of spending a
-        // second credit, and the surface says so.
-        setResetNotice("Reset could not be confirmed. Retrying is safe.");
+      if (!authoritative) {
+        // Unrecognised outcome: the durable idempotency key SURVIVES so a retry
+        // reuses this operation instead of spending a second credit, and the
+        // surface says so.
+        setResetNotice(t("Reset could not be confirmed. Retrying is safe."));
         return;
+      }
+      // The OUTCOME settles the redeem; the rebuilt dashboard is a courtesy
+      // payload. When it arrives it lands in the shared snapshot and its cache
+      // (not popup-local state); when the runtime's refresh budget expired,
+      // the store revalidates instead of calling a spent credit unconfirmed.
+      if (!publishUsageDashboard(result.dashboard)) {
+        void refreshUsageDashboard(api, { force: true });
       }
       clearCodexResetAttempt(codexResetOffer);
       setResetConfirming(null);
       setResetNotice(result.status === "offerChanged"
-        ? "Reset availability changed. Review the latest Codex usage."
+        ? t("Reset availability changed. Review the latest Codex usage.")
         : outcome === "reset"
-        ? "Rate limits reset."
+        ? t("Rate limits reset.")
         : outcome === "alreadyRedeemed"
-        ? "Reset already applied."
+        ? t("Reset already applied.")
         : outcome === "nothingToReset"
-        ? "No eligible rate-limit window is exhausted."
-        : "No reset credit is available.");
+        ? t("No eligible rate-limit window is exhausted.")
+        : t("No reset credit is available."));
     } catch (cause) {
       // Keep the durable idempotency key: retrying an unknown provider outcome
       // must reuse the same operation rather than spend a second credit.
       console.error("Codex reset-credit consume failed:", cause);
       const reason = cause instanceof Error && cause.message ? cause.message.trim() : "";
       setResetNotice(reason
-        ? `Reset could not be confirmed (${reason}). Retrying is safe.`
-        : "Reset could not be confirmed. Retrying is safe.");
+        ? t("Reset could not be confirmed ({{reason}}). Retrying is safe.", { reason })
+        : t("Reset could not be confirmed. Retrying is safe."));
     } finally {
       setResetting(false);
     }
   };
 
   return (
-    <section ref={section} className="sidebar-usage" aria-label="Usage">
+    <section ref={section} className="sidebar-usage" aria-label={t("Usage")}>
       <header className="sidebar-usage-heading">
-        <b>Usage</b>
+        <b>{t("Usage")}</b>
         {onTogglePin && <button type="button"
           className={`sidebar-usage-pin ${pinned ? "is-active" : ""}`}
           aria-pressed={pinned}
-          aria-label={pinned ? "Unpin usage from the rail" : "Pin usage to the rail"}
-          title={pinned ? "Unpin usage from the rail" : "Pin usage to the rail"}
+          aria-label={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
+          title={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
           onClick={onTogglePin}>
           {/* VS Code-style DIAGONAL pushpin (user: 대각핀으로 가자) — the
               tilt comes from the CSS rotate on .sidebar-usage-pin svg. */}
           <Pin size={14} aria-hidden="true" />
         </button>}
       </header>
-      <PaneSurfaceGate ready={!awaitingFirstUsage} label="Loading usage…">
+      <PaneSurfaceGate ready={!awaitingFirstUsage} label={t("Loading usage…")}>
       <div className="sidebar-usage-content">
       <div id="sidebar-usage-list" className="sidebar-usage-list">
         {/* Orca-style flat roster: header (icon · name · soonest reset) with
@@ -367,8 +381,8 @@ export function SidebarUsage({
                 <ProviderIcon provider={subscription.provider} />
               </span>
               <b>{subscription.label}</b>
-              {windows.length === 0 && <small>{!available && awaitingFirstUsage ? "Loading…"
-                : connected ? "Connected" : "Not connected"}</small>}
+              {windows.length === 0 && <small>{!available && awaitingFirstUsage ? t("Loading…")
+                : connected ? t("Connected") : t("Not connected")}</small>}
               {/* The reset schedule rides the icon/name line (user: 아이콘과
                   같은 선상), pinned to the right edge. */}
               {windows.length > 0 && soonestReset
@@ -385,46 +399,49 @@ export function SidebarUsage({
                 </span>;
               })}
               {windows.length === 0 && <span className="sidebar-usage-meter sidebar-usage-meter-empty">
-                <small>{!available && awaitingFirstUsage ? "Loading…"
-                  : connected ? "No current quota window" : "Connect to load usage"}</small>
+                <small>{!available && awaitingFirstUsage ? t("Loading…")
+                  : connected ? t("No current quota window") : t("Connect to load usage")}</small>
               </span>}
             </span>
           </div>;
         })}
       </div>
-      {codexResetRows.length > 0 && codexResetOffer && <section className="sidebar-usage-reset-credit">
+      {/* A known offer always states its count — orca shows "N rate-limit
+          resets available" and only gates the redeem itself, so an account at
+          zero reads as "none left" instead of the feature disappearing. */}
+      {codexResetOffer && <section className="sidebar-usage-reset-credit">
         <header className="sidebar-usage-reset-heading">
-          <b>Codex reset credits</b>
-          <small>{codexResetCount} available</small>
+          <b>{t("Codex reset credits")}</b>
+          <small>{t("{{count}} available", { count: codexResetCount })}</small>
         </header>
-        <div className="sidebar-usage-reset-list">
+        {codexResetRows.length > 0 && <div className="sidebar-usage-reset-list">
           {codexResetRows.map((credit, index) => {
             const creditKey = codexResetKeys[index];
             return <div className="sidebar-usage-reset-row"
               key={creditKey}>
               <div className="sidebar-usage-reset-summary">
-                <b>Reset credit {index + 1}</b>
-                <small>{resetExpiryText(credit.expiresAt) || "Expiry unavailable"}</small>
+                <b>{t("Reset credit {{index}}", { index: index + 1 })}</b>
+                <small>{resetExpiryText(credit.expiresAt) || t("Expiry unavailable")}</small>
               </div>
               {resetConfirming !== creditKey
                 ? <button type="button" disabled={resetting}
-                  aria-label={`Use Codex reset credit ${index + 1}`}
-                  onClick={() => setResetConfirming(creditKey)}>Use</button>
+                  aria-label={t("Use Codex reset credit {{index}}", { index: index + 1 })}
+                  onClick={() => setResetConfirming(creditKey)}>{t("Use")}</button>
                 : <div className="sidebar-usage-reset-confirmation">
-                  <p>This uses one available credit and immediately resets eligible Codex rate-limit windows.</p>
+                  <p>{t("This uses one available credit and immediately resets eligible Codex rate-limit windows.")}</p>
                   <div className="sidebar-usage-reset-actions">
                     <button type="button" disabled={resetting}
-                      onClick={() => setResetConfirming(null)}>Cancel</button>
+                      onClick={() => setResetConfirming(null)}>{t("Cancel")}</button>
                     <button type="button"
-                      aria-label={`Confirm using Codex reset credit ${index + 1}`}
+                      aria-label={t("Confirm using Codex reset credit {{index}}", { index: index + 1 })}
                       disabled={resetting} onClick={() => void consumeCodexReset()}>
-                      {resetting ? "Using…" : "Confirm"}
+                      {resetting ? t("Using…") : t("Confirm")}
                     </button>
                   </div>
                 </div>}
             </div>;
           })}
-        </div>
+        </div>}
       </section>}
       {resetNotice && <p className="sidebar-usage-reset-notice" role="status">{resetNotice}</p>}
       </div>
