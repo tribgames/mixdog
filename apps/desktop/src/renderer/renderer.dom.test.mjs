@@ -12164,7 +12164,7 @@ test("desktop session sidebar resizes accessibly, releases its rail when collaps
   assert.match(themeCss,
     /\.workspace-tab-new\s*\{[^}]*padding:\s*0;[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/s);
   assert.match(themeCss,
-    /\.workspace-tab-new\s*\{[^}]*color:\s*color-mix\(in srgb,\s*var\(--mx-text\) 92%,\s*transparent\);/s);
+    /\.workspace-tab-new\s*\{[^}]*color:\s*var\(--mx-text\);/s);
   assert.match(themeCss,
     /\.workspace-tab-new-menu > button\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;/s);
   assert.doesNotMatch(themeCss, /\.studio-root > \.utility-dock|\.studio-side(?:[\s.{:#])/);
