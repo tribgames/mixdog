@@ -40,12 +40,12 @@ function pushClampNotice(a, msg) {
 
 // ripgrep-flavored aliases: models trained on `rg` emit short flags (-A/-B/-C),
 // long flags (--after-context / --before-context / --context), or snake/camel
-// spellings. All fold onto the canonical -A/-B/-C so a caller can write grep
+// spellings. All fold onto the canonical -A/-B/context so a caller can write grep
 // the way they would write ripgrep on the shell.
 const GREP_CONTEXT_KEY_GROUPS = [
     ['-A', ['-A', 'A', 'after', 'after_context', 'afterContext', '--after-context', 'after-context', 'afterLines', 'after_lines']],
     ['-B', ['-B', 'B', 'before', 'before_context', 'beforeContext', '--before-context', 'before-context', 'beforeLines', 'before_lines']],
-    ['-C', ['-C', 'C', 'context', 'context_lines', 'contextLines', '--context', 'contextN', 'around', 'surrounding']],
+    ['context', ['context', '-C', 'C', 'context_lines', 'contextLines', '--context', 'contextN', 'around', 'surrounding']],
 ];
 
 function grepContextKeyPresent(a, k) {
@@ -81,7 +81,7 @@ export function applyGrepContextLeadPolicy(args) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) return;
     // Idempotent guard: the outer builtin guard (validateBuiltinArgs) and the
     // executor (executeGrepTool) both call this on the SAME args object. The
-    // first pass folds aliases onto -A/-B/-C and clamps; a second pass would
+    // first pass folds aliases onto -A/-B/context and clamps; a second pass would
     // recompute the same folding for no effect. Skip once applied.
     if (args._grepContextPolicyApplied) return;
     for (const [canonical, keys] of GREP_CONTEXT_KEY_GROUPS) {

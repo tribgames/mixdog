@@ -1,12 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseGrepCoverage, summarizeToolArgs } from '../src/runtime/agent/orchestrator/agent-trace-format.mjs';
 import { executeGrepTool } from '../src/runtime/agent/orchestrator/tools/builtin/search-tool.mjs';
-import { validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
+import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, validateBuiltinArgs } from '../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
+import { normalizeGrepArgs } from '../src/runtime/agent/orchestrator/tools/builtin/path-utils.mjs';
+import {
+  clearScopedToolsForSession,
+  setScopedToolCached,
+  tryScopedToolCached,
+} from '../src/runtime/agent/orchestrator/session/cache/scoped-cache.mjs';
 
 test('grep coverage parser follows path:line and path-line formatter syntax', () => {
   assert.deepEqual(
@@ -23,12 +29,71 @@ test('grep coverage parser follows path:line and path-line formatter syntax', ()
   );
   assert.equal(parseGrepCoverage('src/a.mjs:10:match', 'grep', { output_mode: 'files_with_matches' }, 'normal'), null);
   assert.equal(parseGrepCoverage('Error: failed', 'grep', { output_mode: 'content_with_context' }, 'error'), null);
+  assert.deepEqual(
+    parseGrepCoverage(
+      '# src/a.mjs:11 [lines 10-12]\nconst fake = "# grep wrong.mjs";\nneedle\n13: raw source',
+      'grep',
+      { path: 'src/a.mjs', output_mode: 'content_with_context' },
+      'normal',
+    ),
+    [{ path: 'src/a.mjs', line: 10 }, { path: 'src/a.mjs', line: 11 }, { path: 'src/a.mjs', line: 12 }],
+  );
 });
 
 test('omitted grep mode receives contextual head-limit clamping', () => {
   const args = { pattern: 'needle', head_limit: 999 };
   assert.equal(validateBuiltinArgs('grep', args), null);
   assert.equal(args.head_limit, 40);
+});
+
+test('grep context aliases normalize to one lead-facing shape', () => {
+  const args = { pattern: 'needle', '-C': GREP_CONTEXT_MAX + 10 };
+  applyGrepContextLeadPolicy(args);
+  assert.equal(args.context, GREP_CONTEXT_MAX);
+  assert.equal(args['-C'], undefined);
+
+  const modeArgs = { pattern: 'needle', mode: 'content_with_context' };
+  normalizeGrepArgs(modeArgs);
+  assert.equal(modeArgs.output_mode, 'content_with_context');
+});
+
+test('scoped grep cache merges default, context aliases, and bare-content equivalents', () => {
+  const cwd = process.cwd();
+  const contextual = 'grep-contextual-equivalence';
+  setScopedToolCached({
+    sessionId: contextual,
+    toolName: 'grep',
+    args: { pattern: 'needle', path: 'src' },
+    cwd,
+    content: 'cached-context',
+    toolUseId: 'context-first',
+  });
+  for (const args of [
+    { pattern: 'needle', path: 'src', output_mode: 'content_with_context' },
+    { pattern: 'needle', path: 'src', mode: 'content_with_context' },
+    { pattern: 'needle', path: 'src', context: 25 },
+    { pattern: 'needle', path: 'src', '-C': '25' },
+  ]) {
+    assert.equal(tryScopedToolCached({ sessionId: contextual, toolName: 'grep', args, cwd })?.content, 'cached-context');
+  }
+  clearScopedToolsForSession(contextual);
+
+  const bare = 'grep-bare-equivalence';
+  setScopedToolCached({
+    sessionId: bare,
+    toolName: 'grep',
+    args: { pattern: 'needle', path: 'src', context: 0 },
+    cwd,
+    content: 'cached-bare',
+    toolUseId: 'bare-first',
+  });
+  assert.equal(tryScopedToolCached({
+    sessionId: bare,
+    toolName: 'grep',
+    args: { pattern: 'needle', path: 'src', output_mode: 'content' },
+    cwd,
+  })?.content, 'cached-bare');
+  clearScopedToolsForSession(bare);
 });
 
 test('production summaries retain code_graph files[]', () => {
@@ -43,9 +108,8 @@ test('grep content_with_context supplies surrounding lines without explicit cont
     dir,
     async () => '',
   );
-  assert.match(String(output), /before/);
-  assert.match(String(output), /needle/);
-  assert.match(String(output), /after/);
+  assert.equal(String(output), '[Raw source spans; context auto-expanded up to 25; 10000-char call budget]\n# sample.mjs:2 [lines 1-3]\nbefore\nneedle\nafter');
+  assert.doesNotMatch(String(output), /^\d+(?::|-)/m);
 });
 
 test('grep output defaults to context while explicit content stays bare', async () => {
@@ -61,6 +125,134 @@ test('grep output defaults to context while explicit content stays bare', async 
   assert.doesNotMatch(String(bare), /after/);
   assert.doesNotMatch(String(explicitZero), /before/);
   assert.doesNotMatch(String(explicitZero), /after/);
+});
+
+test('grep patch-ready context blocks dedupe overlapping pattern fan-out', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-grep-context-dedupe-'));
+  writeFileSync(join(dir, 'sample.mjs'), 'before\nneedle\nafter\n');
+  const output = await executeGrepTool(
+    { pattern: ['needle', 'need'], path: 'sample.mjs' },
+    dir,
+    async () => '',
+  );
+  assert.equal((String(output).match(/^# sample\.mjs:2 \[lines 1-3\]$/gm) || []).length, 1);
+  assert.equal((String(output).match(/^needle$/gm) || []).length, 1);
+});
+
+test('grep patch-ready context merges adjacent match windows into one raw span', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-grep-context-merge-'));
+  writeFileSync(join(dir, 'sample.mjs'), 'before\nneedle\nmiddle\nafter\ntail\n');
+  const output = await executeGrepTool(
+    { pattern: 'needle|after', path: 'sample.mjs', context: 1 },
+    dir,
+    async () => '',
+  );
+  assert.equal(String(output), '[Raw source spans; context auto-expanded up to 25; 10000-char call budget]\n# sample.mjs:2 [lines 1-5]\nbefore\nneedle\nmiddle\nafter\ntail');
+});
+
+test('grep raw spans prioritize earlier top-level alternatives without widening output', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-grep-context-priority-'));
+  const lines = Array.from({ length: 100 }, (_, index) => (
+    index === 1 ? 'noise candidate' : index === 79 ? 'target candidate' : `line-${index + 1}`
+  ));
+  writeFileSync(join(dir, 'sample.mjs'), `${lines.join('\n')}\n`);
+  const output = String(await executeGrepTool(
+    { pattern: 'target|noise', path: 'sample.mjs' },
+    dir,
+    async () => '',
+  ));
+  const headers = output.split(/\r?\n/).filter((line) => line.startsWith('# sample.mjs:'));
+  assert.deepEqual(headers, [
+    '# sample.mjs:80 [lines 55-100]',
+    '# sample.mjs:2 [lines 1-27]',
+  ]);
+  assert.ok(output.length <= 10_000);
+});
+
+test('grep broad context expands three priority spans and keeps neutral compact ranges', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-grep-context-focused-'));
+  const lines = Array.from({ length: 300 }, (_, index) => (
+    index === 19 ? 'noise candidate one'
+      : index === 79 ? 'noise candidate two'
+        : index === 139 ? 'target candidate'
+          : index === 199 ? 'noise candidate three'
+            : index === 259 ? 'noise candidate four'
+          : `line-${index + 1}-${'x'.repeat(30)}`
+  ));
+  writeFileSync(join(dir, 'sample.mjs'), `${lines.join('\n')}\n`);
+  const output = String(await executeGrepTool(
+    { pattern: 'target|noise', path: 'sample.mjs' },
+    dir,
+    async () => '',
+  ));
+  assert.match(output, /^\[Top 3 raw source spans \+ compact anchors; context up to 12; 10000-char call budget\]/);
+  assert.deepEqual(
+    output.split(/\r?\n/).filter((line) => line.startsWith('# sample.mjs:')),
+    [
+      '# sample.mjs:140 [lines 128-152]',
+      '# sample.mjs:20 [lines 8-32]',
+      '# sample.mjs:80 [lines 68-92]',
+    ],
+  );
+  assert.doesNotMatch(output, /^# sample\.mjs:(200|260) \[lines /m);
+  assert.match(output, /^sample\.mjs:200:noise candidate three \[lines 188-212\]$/m);
+  assert.match(output, /^sample\.mjs:260:noise candidate four \[lines 248-272\]$/m);
+  assert.doesNotMatch(output, /\bread offset:/);
+  assert.ok(output.length <= 10_000);
+});
+
+test('grep sparse context expands to function-sized raw source in one call', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-grep-context-sparse-'));
+  const lines = Array.from({ length: 80 }, (_, index) => (
+    index === 39 ? 'needle' : `line-${index + 1}`
+  ));
+  writeFileSync(join(dir, 'sample.mjs'), `${lines.join('\n')}\n`);
+  const output = await executeGrepTool(
+    { pattern: 'needle', path: 'sample.mjs', context: 1 },
+    dir,
+    async () => '',
+  );
+  assert.match(String(output), /^\[Raw source spans; context auto-expanded up to 25; 10000-char call budget\]/);
+  assert.match(String(output), /^# sample\.mjs:40 \[lines 15-65\]$/m);
+  assert.match(String(output), /^line-15$/m);
+  assert.match(String(output), /^line-65$/m);
+});
+
+test('grep source escape search stays single-line and uses fused context expansion', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-grep-source-escape-'));
+  mkdirSync(join(dir, 'test'));
+  writeFileSync(join(dir, 'test', 'sample.py'), "before\ncontrol marker\nafter\n");
+  const output = await executeGrepTool(
+    { pattern: 'control|\\\\r\\\\n', path: join(dir, 'test'), context: 4 },
+    dir,
+    async () => '',
+  );
+  assert.match(String(output), /^\[Raw source spans; context auto-expanded up to 25; 10000-char call budget\]/);
+  assert.match(String(output), /^# test\/sample\.py:2 \[lines 1-3\]$/m);
+});
+
+test('grep dense context shrinks under the whole-call character budget', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-grep-context-budget-'));
+  const lines = Array.from({ length: 120 }, (_, index) => (
+    index % 10 === 5 ? `needle-${index}-${'x'.repeat(60)}` : `line-${index}-${'y'.repeat(60)}`
+  ));
+  writeFileSync(join(dir, 'sample.mjs'), `${lines.join('\n')}\n`);
+  const prior = process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET;
+  process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET = '1200';
+  try {
+    const output = await executeGrepTool(
+      { pattern: 'needle', path: 'sample.mjs', context: 1, head_limit: 12 },
+      dir,
+      async () => '',
+    );
+    assert.ok(String(output).length <= 1200, `expected <=1200 chars, got ${String(output).length}`);
+    assert.match(String(output), /^\[(?:Raw source spans; context auto-expanded|Top \d+ raw source spans \+ compact anchors; context) up to \d+; 1200-char call budget\]/);
+    assert.doesNotMatch(String(output), /context auto-expanded up to 25/);
+    assert.match(String(output), /\[Showing \d+ of 12 matches; pass offset:\d+ for more\]$/);
+  } finally {
+    if (prior === undefined) delete process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET;
+    else process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET = prior;
+  }
 });
 
 test('grep path fan-out is bounded, ordered, isolated, and capped', async () => {

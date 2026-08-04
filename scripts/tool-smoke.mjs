@@ -485,11 +485,14 @@ const grepChunkContextOut = await executeBuiltinTool('grep', {
 if (!/\[capped at 10 of 21 patterns\]/.test(String(grepChunkContextOut))) {
   throw new Error(`oversized -C pattern[] should emit cap note:\n${grepChunkContextOut.slice(0, 500)}`);
 }
-if (!/tool-smoke\.mjs:\d+:/.test(String(grepChunkContextOut))) {
-  throw new Error(`capped -C must emit path-prefixed match lines:\n${grepChunkContextOut.slice(0, 800)}`);
+if (!/^# scripts\/tool-smoke\.mjs:\d+ \[lines \d+-\d+\]$/m.test(String(grepChunkContextOut))) {
+  throw new Error(`capped -C must emit patch-ready range headers:\n${grepChunkContextOut.slice(0, 800)}`);
 }
-if (!/tool-smoke\.mjs-\d+-/.test(String(grepChunkContextOut))) {
-  throw new Error(`capped -C must keep path-prefixed context lines:\n${grepChunkContextOut.slice(0, 800)}`);
+const prefixedChunkContextLines = String(grepChunkContextOut)
+  .split(/\r?\n/)
+  .filter((line) => /^scripts\/tool-smoke\.mjs(?::\d+:|-\d+-)/.test(line));
+if (prefixedChunkContextLines.some((line) => !/\[lines \d+-\d+\]$/.test(line))) {
+  throw new Error(`capped -C must strip rg prefixes except compact anchors with neutral ranges:\n${grepChunkContextOut.slice(0, 800)}`);
 }
 const ctxBodyLines = String(grepChunkContextOut).split('\n').filter((l) => l && !/^\[/.test(l) && !/^\(no matches\)/.test(l));
 const orphanLineOnlyContext = ctxBodyLines.some((l) => /^\d+-/.test(l));
@@ -974,7 +977,7 @@ if (literalBackslashPipeArray) {
 
 const grepContextPolicyArgs = { pattern: 'smoke', path: root, context: GREP_CONTEXT_MAX + 999 };
 applyGrepContextLeadPolicy(grepContextPolicyArgs);
-if (grepContextPolicyArgs['-C'] !== GREP_CONTEXT_MAX || Object.prototype.hasOwnProperty.call(grepContextPolicyArgs, 'context')) {
+if (grepContextPolicyArgs.context !== GREP_CONTEXT_MAX || Object.prototype.hasOwnProperty.call(grepContextPolicyArgs, '-C')) {
   throw new Error(`grep context policy must canonicalize and clamp explicit context: ${JSON.stringify(grepContextPolicyArgs)}`);
 }
 
@@ -2442,6 +2445,7 @@ const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description
 const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
 const grepOutputModeDescription = grepTool?.inputSchema?.properties?.output_mode?.description || '';
 const grepHeadLimitDescription = grepTool?.inputSchema?.properties?.head_limit?.description || '';
+const grepContextDescription = grepTool?.inputSchema?.properties?.context?.description || '';
 if (!/pattern\[\] batches variants/i.test(grepPatternDescription) || !/File\/dir scope/i.test(grepPathDescription)) {
   throw new Error('grep schema must keep compact pattern/path guidance');
 }
@@ -2458,6 +2462,9 @@ if (!/files_with_matches\/count/i.test(grepOutputModeDescription) || !/content_w
 }
 if (grepTool?.inputSchema?.properties?.head_limit?.minimum !== 0 || !/Max results/i.test(grepHeadLimitDescription)) {
   throw new Error('grep head_limit schema must keep locator caps explicit');
+}
+if (grepTool?.inputSchema?.properties?.['-C'] || !/automatic context/i.test(grepContextDescription) || !/0 for matches only/i.test(grepContextDescription)) {
+  throw new Error('grep schema must expose one context field and keep ripgrep aliases internal');
 }
 if (grepTool?.inputSchema?.properties?.type) {
   throw new Error('grep type schema must stay hidden; prefer glob for extension narrowing');

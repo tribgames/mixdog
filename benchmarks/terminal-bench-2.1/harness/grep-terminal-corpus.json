@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "description": "Four neutral repeated trials measuring grep-first retrieval efficiency without penalizing reads of new source ranges.",
+  "maxRetrievalOutputChars": 60000,
+  "tasks": [
+    {
+      "name": "fix-code-vulnerability",
+      "kind": "positive",
+      "attempts": 4
+    }
+  ]
+}

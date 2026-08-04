@@ -43,6 +43,28 @@ export function splitGrepCountPrefix(line) {
     return { path: text.slice(0, idx), pathEnd: idx, count: Number(count) };
 }
 
+export function parseGrepContextHeader(line) {
+    const match = /^# (.+):(\d+) \[lines (\d+)-(\d+)\]$/.exec(String(line || ''));
+    if (!match) return null;
+    const matchLine = Number(match[2]);
+    const startLine = Number(match[3]);
+    const endLine = Number(match[4]);
+    if (!Number.isSafeInteger(matchLine)
+        || !Number.isSafeInteger(startLine)
+        || !Number.isSafeInteger(endLine)
+        || startLine < 1
+        || endLine < startLine
+        || matchLine < startLine
+        || matchLine > endLine) return null;
+    return {
+        path: match[1],
+        matchLine,
+        startLine,
+        endLine,
+        sourceLineCount: endLine - startLine + 1,
+    };
+}
+
 export function normalizeGrepLine(line, pathOnly = false, outputMode = 'content', filenameOmitted = false) {
     if (process.platform !== 'win32') return line;
     // files_with_matches mode: the WHOLE line is a path, so every separator is

@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { countJsonNextCalls } from './tools/next-call-utils.mjs';
-import { splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
+import { parseGrepContextHeader, splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
 import {
     appendAgentTrace,
     normalizeSessionId,
@@ -236,7 +236,27 @@ export function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
     const out = [];
     const seen = new Set();
     let sectionPath = null;
+    let rawSourceLinesRemaining = 0;
+    const addLine = (path, lineNo) => {
+        if (!path || !Number.isInteger(lineNo) || lineNo < 1 || out.length >= GREP_COVERAGE_MAX) return;
+        const key = `${path}\0${lineNo}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ path: String(path).replace(/\\/g, '/'), line: lineNo });
+    };
     for (const line of String(resultText ?? '').split(/\r?\n/)) {
+        if (rawSourceLinesRemaining > 0) {
+            rawSourceLinesRemaining--;
+            continue;
+        }
+        const header = parseGrepContextHeader(line);
+        if (header) {
+            for (let lineNo = header.startLine; lineNo <= header.endLine && out.length < GREP_COVERAGE_MAX; lineNo++) {
+                addLine(header.path, lineNo);
+            }
+            rawSourceLinesRemaining = header.sourceLineCount;
+            continue;
+        }
         const section = line.match(/^# grep (.+)$/);
         if (section) {
             if (!section[1].startsWith('pattern:')) sectionPath = section[1];
@@ -252,11 +272,7 @@ export function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
         const path = split?.path || (omitted ? toolArgs.path : null) || (sectionOmitted ? sectionPath : null);
         const lineNo = split?.lineNo || (omitted ? Number(omitted[1]) : null)
             || (sectionOmitted ? Number(sectionOmitted[1]) : null);
-        if (!path || !Number.isInteger(lineNo) || lineNo < 1) continue;
-        const key = `${path}\0${lineNo}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ path: String(path).replace(/\\/g, '/'), line: lineNo });
+        addLine(path, lineNo);
         if (out.length >= GREP_COVERAGE_MAX) break;
     }
     return out.length ? out : null;

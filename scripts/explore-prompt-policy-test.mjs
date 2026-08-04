@@ -39,8 +39,8 @@ test('builtin descriptions stay contract-only; routing policy lives in shared ru
   assert.match(byName.find.description, /not file contents/i);
   assert.doesNotMatch(byName.shell.description, /apply_patch|fixed verification|post-patch shell/i);
   assert.doesNotMatch(byName.shell.description, /sleep\/watch\/dev loops|PowerShell:/i);
-  assert.match(`${byName.code_graph?.description || ''} ${CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || ''}`, /multiple exact symbols use one symbols\[\] call/i);
-  assert.match(CODE_GRAPH_TOOL_DEFS[0]?.description || '', /source files only/i);
+  assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || '', /batch multiple in one symbols\[\]/i);
+  assert.match(CODE_GRAPH_TOOL_DEFS[0]?.description || '', /over source files/i);
 });
 
 test('shared tool policy routes facets without duplicate content acquisition', () => {
@@ -53,7 +53,7 @@ test('shared tool policy routes facets without duplicate content acquisition', (
   assert.match(policy, /verify changes in proportion to risk with one decisive batched boundary probe/i);
   assert.doesNotMatch(policy, /one composite boundary probe|send the patch as soon/i);
   assert.match(policy, /gather every known facet — environment, capability, artifact, and failure checks — in one bounded tool message/i);
-  assert.match(policy, /don'?t[^.]{0,80}reread returned spans/i);
+  assert.match(policy, /do not call read when grep\/read already fully covers the requested range/i);
   assert.match(policy, /stop when evidence covers the deliverable/i);
   assert.match(policy, /known file\/span→`read` directly without `grep`/i);
   assert.doesNotMatch(policy, /retrieval[^.]{0,120}\b(?:one|at most \d+)\s+(?:lookup|inspection|turn|call)/i);
@@ -198,11 +198,12 @@ test('same-batch load_tool and legacy tool_search repeats all execute eagerly', 
 
 test('code graph descriptions partition file and symbol targets', () => {
   const description = CODE_GRAPH_TOOL_DEFS[0]?.description || '';
-  const mode = CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.mode?.description || '';
-  assert.match(mode, /file modes=\{overview,imports,dependents,related,impact\}.*symbols with files.*files\[\].*file outline/i);
-  assert.match(mode, /symbol modes=\{find_symbol,symbol_search,search,references,callers,callees\}.*fileless symbols.*symbol_search keywords/i);
-  assert.match(description, /exact identifiers.*find_symbol\/references\/callers\/callees.*keywords.*symbol_search\/search/i);
-  assert.match(description, /unsupported target arrays.*omitted.*never silently mixed/i);
+  const modeProperty = CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.mode || {};
+  const mode = modeProperty.description || '';
+  assert.deepEqual(modeProperty.enum, ['overview', 'imports', 'dependents', 'related', 'impact', 'symbols', 'find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees']);
+  assert.match(mode, /file modes=\{overview,imports,dependents,related,impact\}.*symbols with files\[\]=file outline.*rest are symbol modes/i);
+  assert.match(description, /exact identifiers via find_symbol\/references\/callers\/callees.*keywords via symbol_search\/search/i);
+  assert.match(description, /unsupported target arrays are omitted, never mixed/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.files?.description || '', /supported targets only/i);
   assert.match(CODE_GRAPH_TOOL_DEFS[0]?.inputSchema?.properties?.symbols?.description || '', /exact identifiers.*keywords/i);
   const grep = Object.fromEntries(BUILTIN_TOOLS.map((tool) => [tool.name, tool])).grep;
@@ -217,6 +218,8 @@ test('retrieval schemas require their primary arguments and preserve region path
   assert.deepEqual(region.required, ['path']);
   assert.deepEqual(byName.grep.inputSchema.anyOf, [{ required: ['pattern'] }, { required: ['glob'] }]);
   assert.deepEqual(byName.grep.inputSchema.properties.output_mode.enum, ['content_with_context', 'files_with_matches', 'count']);
+  assert.equal(byName.grep.inputSchema.properties['-C'], undefined);
+  assert.match(byName.grep.inputSchema.properties.context.description, /omit for automatic context.*0 for matches only/i);
   const grepSchema = byName.grep.inputSchema;
   const valid = (value) => grepSchema.anyOf.some((branch) => branch.required.every((key) => Object.hasOwn(value, key)));
   assert.equal(valid({ pattern: 'x' }), true);
@@ -235,6 +238,7 @@ test('explore locates; location-freeze policy lives in shared rules', () => {
   assert.doesNotMatch(EXPLORE_TOOL.description, /broad\/uncertain/i);
   assert.match(EXPLORE_TOOL.description, /fans out up to 8 independent facets/i);
   const rule = readFileSync(new URL('../src/rules/shared/01-tool.md', import.meta.url), 'utf8');
-  assert.match(rule, /returned `path:line`[\s\S]*is final[\s\S]*read\/code_graph is valid/i);
-  assert.match(rule, /nonzero `content_with_context` result is final/i);
+  assert.match(rule, /returned `path:line`[\s\S]*is final for its returned range/i);
+  assert.match(rule, /nonzero `content_with_context` result is final for its returned range/i);
+  assert.match(rule, /Read[\s\S]*is allowed for new\/uncovered lines; do not call read when grep\/read already[\s\S]*fully covers the requested range/i);
 });

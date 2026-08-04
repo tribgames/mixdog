@@ -115,7 +115,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Content search by literal or regex over file/dir scopes.',
+        description: 'Contextual content search by literal or regex over file/dir scopes.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -143,7 +143,7 @@ export const BUILTIN_TOOLS = [
                 output_mode: { type: 'string', enum: ['content_with_context', 'files_with_matches', 'count'], description: 'content_with_context (default); files_with_matches/count for existence.' },
                 head_limit: { type: 'number', minimum: 0, description: 'Max results. Defaults to 250; 0 = unlimited.' },
                 offset: { type: 'number', minimum: 0, description: 'Skip results for paging.' },
-                '-C': { type: 'number', minimum: 0, description: 'Lines before/after each match.' },
+                context: { type: 'number', minimum: 0, description: 'Minimum surrounding lines; runtime expands within its call budget. Omit for automatic context; 0 for matches only.' },
             },
             anyOf: [
                 { required: ['pattern'] },

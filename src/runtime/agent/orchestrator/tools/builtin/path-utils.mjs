@@ -103,6 +103,11 @@ function firstPresentArg(args, names) {
     return undefined;
 }
 
+// Shared semantic default for grep calls that omit output_mode/context.
+// Scoped-cache canonicalization imports this so omitted context and an
+// explicit context:25 resolve to the same cache key.
+export const GREP_AUTO_CONTEXT_LINES = 25;
+
 export function normalizeGrepArgs(args) {
     if (!args || typeof args !== 'object') return args;
     if (args.pattern === undefined || args.pattern === null || args.pattern === '') {
@@ -119,7 +124,7 @@ export function normalizeGrepArgs(args) {
     }
     if ((args.output_mode === undefined || args.output_mode === null || args.output_mode === '') && typeof args.mode === 'string') {
         const mode = args.mode.trim();
-        if (['files_with_matches', 'content', 'count'].includes(mode)) args.output_mode = mode;
+        if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) args.output_mode = mode;
     }
     return args;
 }
