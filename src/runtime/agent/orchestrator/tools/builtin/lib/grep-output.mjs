@@ -5,9 +5,11 @@
 import { normalizeOutputPath } from '../path-utils.mjs';
 import {
     groupGrepContentByFile,
+    parseGrepContextHeader,
     splitGrepLineNumberOnlyPrefix,
     splitGrepLinePrefix,
 } from '../grep-formatting.mjs';
+import { relativePathPrefix } from '../search-path-diagnostics.mjs';
 import { relativeGrepLine } from './search-input-helpers.mjs';
 
 export function grepMissingPatternMessage() {
@@ -22,30 +24,84 @@ export function globMissingPatternMessage() {
 // In context mode (explicit -A/-B/-C or content_with_context auto), head_limit
 // and offset count MATCH BLOCKS, not raw output lines, and truncation keeps a
 // head+tail slice with a middle marker instead of dropping the tail.
-function grepBlockMatchAnchor(line, filenameOmitted) {
+function grepContextSourceLine(line, filenameOmitted, fallbackPath = '') {
     if (filenameOmitted) {
         const p = splitGrepLineNumberOnlyPrefix(line);
-        return p && p.delimiter === ':' ? `#${p.lineNo}` : '';
+        return p ? {
+            path: fallbackPath,
+            lineNo: p.lineNo,
+            delimiter: p.delimiter,
+            content: String(line).slice(p.markerEnd),
+        } : null;
     }
     const s = splitGrepLinePrefix(line);
-    return s && s.delimiter === ':' ? `${s.path}\0${s.lineNo}` : '';
+    return s ? {
+        path: s.path,
+        lineNo: s.lineNo,
+        delimiter: s.delimiter,
+        content: String(line).slice(s.markerEnd),
+    } : null;
 }
 
-function parseGrepContextBlocks(lines, filenameOmitted) {
+function grepBlockMatchAnchor(line, filenameOmitted, fallbackPath) {
+    const parsed = grepContextSourceLine(line, filenameOmitted, fallbackPath);
+    return parsed && parsed.delimiter === ':' ? `${parsed.path}\0${parsed.lineNo}` : '';
+}
+
+function parseRenderableGrepContextBlock(block, filenameOmitted, fallbackPath) {
+    const parsed = block.lines.map((line) => grepContextSourceLine(line, filenameOmitted, fallbackPath));
+    const contiguous = parsed.length > 0
+        && parsed.every((entry, index) => entry
+            && entry.path
+            && entry.path === parsed[0].path
+            && (index === 0 || entry.lineNo === parsed[index - 1].lineNo + 1));
+    const match = contiguous ? parsed.find((entry) => entry.delimiter === ':') : null;
+    if (!match) return { raw: block.lines.join('\n') };
+    return {
+        path: match.path,
+        matchLine: match.lineNo,
+        startLine: parsed[0].lineNo,
+        endLine: parsed.at(-1).lineNo,
+        contents: parsed.map((entry) => entry.content),
+    };
+}
+
+function renderGrepContextBlocks(blocks, filenameOmitted, fallbackPath) {
+    const merged = [];
+    for (const block of blocks) {
+        const current = parseRenderableGrepContextBlock(block, filenameOmitted, fallbackPath);
+        const previous = merged.at(-1);
+        if (previous?.path
+            && current.path === previous.path
+            && current.startLine <= previous.endLine + 1) {
+            const overlap = Math.max(0, previous.endLine - current.startLine + 1);
+            previous.contents.push(...current.contents.slice(overlap));
+            previous.endLine = Math.max(previous.endLine, current.endLine);
+            continue;
+        }
+        merged.push(current);
+    }
+    return merged.map((block) => {
+        if (!block.path) return block.raw;
+        return `# ${block.path}:${block.matchLine} [lines ${block.startLine}-${block.endLine}]\n${block.contents.join('\n')}`;
+    });
+}
+
+function parseGrepContextBlocks(lines, filenameOmitted, fallbackPath) {
     const blocks = [];
     let pending = [];
     let i = 0;
     while (i < lines.length) {
         const line = lines[i];
         if (line === '--') { pending = []; i++; continue; }
-        const anchor = grepBlockMatchAnchor(line, filenameOmitted);
+        const anchor = grepBlockMatchAnchor(line, filenameOmitted, fallbackPath);
         if (anchor) {
             const blockLines = pending.concat([line]);
             pending = [];
             i++;
             while (i < lines.length) {
                 const next = lines[i];
-                if (next === '--' || grepBlockMatchAnchor(next, filenameOmitted)) break;
+                if (next === '--' || grepBlockMatchAnchor(next, filenameOmitted, fallbackPath)) break;
                 blockLines.push(next);
                 i++;
             }
@@ -58,9 +114,12 @@ function parseGrepContextBlocks(lines, filenameOmitted) {
     return blocks;
 }
 
-export function formatGrepContextOutput({ allLines, workDir, outputMode, filenameOmitted, headLimit, offset, totalKnown = true }) {
+export function formatGrepContextOutput({ allLines, workDir, outputMode, filenameOmitted, headLimit, offset, searchPath, totalKnown = true }) {
     const norm = allLines.map((l) => (l === '--' ? '--' : relativeGrepLine(l, workDir, false, outputMode, filenameOmitted)));
-    const blocks = parseGrepContextBlocks(norm, filenameOmitted);
+    const fallbackPath = filenameOmitted
+        ? relativePathPrefix(normalizeOutputPath(searchPath), workDir)
+        : '';
+    const blocks = parseGrepContextBlocks(norm, filenameOmitted, fallbackPath);
     const total = blocks.length;
     if (total === 0) return { text: '', total: 0, shown: 0, omitted: 0 };
     // Finding 2/3: denominator is the PRE-offset grand total; on a partial rg
@@ -78,7 +137,7 @@ export function formatGrepContextOutput({ allLines, workDir, outputMode, filenam
     }
     const shown = headLimit === Infinity ? afterOffset.length : Math.min(headLimit, afterOffset.length);
     const omitted = afterOffset.length - shown;
-    const render = (arr) => arr.map((b) => b.lines.join('\n'));
+    const render = (arr) => renderGrepContextBlocks(arr, filenameOmitted, fallbackPath);
     let segments;
     let nextOffset = offset + shown;
     if (omitted > 0 && shown > 0) {
@@ -99,16 +158,35 @@ export function formatGrepContextOutput({ allLines, workDir, outputMode, filenam
     const notice = (omitted > 0 || !totalKnown)
         ? `\n[Showing ${shown} of ${totalStr} matches${totalKnown ? '' : ' (results partial)'}; pass offset:${nextOffset} for more]`
         : '';
-    return { text: segments.join('\n--\n') + notice, total, shown, omitted };
+    return {
+        text: `[Raw source spans; apply_patch context may be copied verbatim]\n${segments.join('\n')}${notice}`,
+        total,
+        shown,
+        omitted,
+    };
 }
 
-// Part 1: drop path:line match lines already emitted by an earlier pattern in
-// a pattern[] fan-out. Context ('-') lines and non-match lines pass through.
+// Part 1: drop a numbered match line or patch-ready context block already
+// emitted by an earlier pattern in a pattern[] fan-out.
 export function dedupeFanoutMatchLines(body, seen) {
     const text = String(body);
     if (/^Error:/.test(text)) return text;
     const out = [];
-    for (const line of text.split('\n')) {
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const header = parseGrepContextHeader(line);
+        if (header) {
+            const key = `${header.path}\0${header.matchLine}`;
+            const duplicate = seen.has(key);
+            seen.add(key);
+            if (!duplicate) out.push(line);
+            for (let sourceIndex = 0; sourceIndex < header.sourceLineCount && i + 1 < lines.length; sourceIndex++) {
+                i++;
+                if (!duplicate) out.push(lines[i]);
+            }
+            continue;
+        }
         const s = splitGrepLinePrefix(line);
         if (s && s.delimiter === ':') {
             const key = `${s.path}\0${s.lineNo}`;

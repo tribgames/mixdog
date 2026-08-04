@@ -6,6 +6,7 @@ import {
     coerceReadFamilyPathArg,
     coerceShapeFlex,
     extractGlobBaseDirectory,
+    GREP_AUTO_CONTEXT_LINES,
     hasGlobMagic,
     normalizeGlobArgs,
     normalizeGrepArgs,
@@ -79,14 +80,6 @@ import {
     parseGrepCountLine,
 } from './lib/search-input-helpers.mjs';
 
-// Default surrounding-lines window applied by output_mode:'content_with_context'
-// when the caller does not pass an explicit -A/-B/-C/context. Sized to cover a
-// typical function/block so a match arrives readable without a follow-up read.
-// Explicit -A/-B/-C is honored up to the generic GREP_CONTEXT_MAX (no tighter
-// context-mode clamp by policy); only head_limit blocks are context-clamped.
-const GREP_AUTO_CONTEXT_LINES = 25;
-
-
 // CC parity (GrepTool.ts): a single glob string may pack multiple filters
 // separated by whitespace or commas, e.g. "*.ts,*.tsx" or "*.ts *.tsx". Split
 // each into its own --glob. Brace patterns ("*.{ts,tsx}") are left intact so
@@ -101,6 +94,10 @@ import {
     globMissingPatternMessage,
     grepMissingPatternMessage,
 } from './lib/grep-output.mjs';
+import {
+    expandGrepAnchorContextOutput,
+    GREP_CONTEXT_CHAR_BUDGET_DEFAULT,
+} from './lib/grep-context-expander.mjs';
 
 
 // Default grep result cap when head_limit is unspecified. 250 matches the
@@ -117,9 +114,19 @@ function _globDefaultHeadLimit() {
     return parsed > 0 ? parsed : 100;
 }
 
+function _grepContextCharBudget(options = {}) {
+    const explicit = Number(options?._grepContextCharBudget);
+    if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
+    const configured = Number(process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET);
+    return Number.isFinite(configured) && configured > 0
+        ? Math.floor(configured)
+        : GREP_CONTEXT_CHAR_BUDGET_DEFAULT;
+}
+
 export async function executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope = null, options = {}) {
     args = normalizeGrepArgs(args);
     args.path = coerceReadFamilyPathArg(args.path, workDir);
+    const callContextCharBudget = _grepContextCharBudget(options);
     // Fan-out guard: batch multiple string paths with bounded concurrency,
     // mirroring code_graph files[] batching. Recursive calls pass a single
     // string path, so recursion bottoms out after one level. Results are
@@ -133,7 +140,11 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             .filter(p => p && !seen.has(p) && seen.add(p));
         if (list.length > 1) {
             const capped = list.slice(0, GREP_PATH_CAP);
-            const nestedOptions = { ...options, _grepPathFanout: true };
+            const nestedOptions = {
+                ...options,
+                _grepPathFanout: true,
+                _grepContextCharBudget: Math.max(512, Math.floor(callContextCharBudget / capped.length)),
+            };
             const configuredOutputCap = Number(options?.toolOutputMaxBytes) > 0
                 ? Math.trunc(Number(options.toolOutputMaxBytes))
                 : Math.trunc(Number(process.env.MIXDOG_TOOL_OUTPUT_MAX_BYTES));
@@ -218,13 +229,22 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
 
     const GREP_MULTILINE_PATTERN_CAP = 5;
     const GREP_ARRAY_PATTERN_CAP = 20;
-    // Rescue: a pattern containing a literal two-char "\n" (backslash + n)
+    // Rescue: a pattern containing an unescaped two-char "\n" (backslash + n)
     // outside multiline mode makes rg hard-error with "the literal '\"\\n\"'
     // is not allowed in a regex" — rg requires -U/--multiline before a
-    // pattern is allowed to match across a newline. Rather than reject-and-
-    // retry, auto-enable multiline whenever any pattern carries a literal
-    // \n; an explicit multiline:true from the caller still wins outright.
-    const patternsWantMultiline = patterns.some((p) => /\\n/.test(p));
+    // pattern is allowed to match across a newline. An even backslash run
+    // (`\\n`) searches source text containing "\n" and must stay single-line.
+    const hasRegexNewlineEscape = (pattern) => {
+        const text = String(pattern || '');
+        for (let index = 0; index < text.length; index++) {
+            if (text[index] !== 'n') continue;
+            let slashes = 0;
+            for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor--) slashes++;
+            if (slashes % 2 === 1) return true;
+        }
+        return false;
+    };
+    const patternsWantMultiline = patterns.some(hasRegexNewlineEscape);
     const multilineMode = args.multiline === true || patternsWantMultiline;
     // Rescue: lookaround/backreference patterns are rejected by rg's default
     // Rust regex engine ("look-around ... is not supported" / "backreferences
@@ -375,7 +395,11 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         && !options._grepChunkMerge
         && !options._grepPatternFanout) {
         const seen = new Set();
-        const subOptions = { ...options, _grepPatternFanout: true };
+        const subOptions = {
+            ...options,
+            _grepPatternFanout: true,
+            _grepContextCharBudget: Math.max(512, Math.floor(callContextCharBudget / patterns.length)),
+        };
         // Each pattern is an INDEPENDENT grep; run them concurrently and then
         // apply dedup/section assembly in the original pattern order so the
         // shared `seen` set and output text stay byte-identical to the
@@ -504,6 +528,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         fileType,
         pcre2: pcre2Mode,
         withFilename: forceGrepFilename,
+        contextCharBudget: callContextCharBudget,
         // Capped requests carry the "[capped at N of M]" notice; key on the
         // original count so they never collide with an exact N-pattern request
         // (or a differently-capped one) in the internal result cache.
@@ -586,11 +611,99 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             pcre2: pcre2Mode,
             withFilename: forceGrepFilename,
         });
-        // Parts 2 & 3: context mode windows MATCH BLOCKS (not raw lines); the
-        // total match count and tail blocks come from the streamed (memory-
-        // bounded) collection below.
         const contextMode = outputMode === 'content' && (beforeN > 0 || afterN > 0 || contextN > 0);
         if (contextMode) {
+            // A symmetric content search is a fused two-pass operation:
+            // pass 1 streams only rg anchors, then pass 2 expands sparse
+            // searches to patch-ready source. Broad results expand up to three
+            // priority spans and retain compact range anchors, all within the
+            // whole-call character budget. Explicit context:0 remains bare.
+            const adaptiveContextMode = contextN > 0
+                && !(beforeN > 0)
+                && !(afterN > 0)
+                && showLineNumbers
+                && !multilineMode
+                && args['-o'] !== true;
+            if (adaptiveContextMode) {
+                const anchorArgs = buildGrepRgArgs({
+                    patterns,
+                    searchPath,
+                    globPatterns: normalizedGlobPatterns,
+                    outputMode,
+                    caseInsensitive,
+                    showLineNumbers: true,
+                    beforeN: null,
+                    afterN: null,
+                    contextN: null,
+                    multilineMode,
+                    fileType,
+                    onlyMatching: false,
+                    pcre2: pcre2Mode,
+                    withFilename: forceGrepFilename,
+                });
+                const anchorCap = Math.min(
+                    4000,
+                    headLimit === Infinity ? 4000 : Math.max(200, offset + headLimit + 4),
+                );
+                let ctxPartialSuffix = '';
+                const streamed = await runRgWindowedLines(
+                    anchorArgs,
+                    { cwd: rgSpawnCwd, signal: options.signal },
+                    { offset: 0, limit: anchorCap, summaryLimit: 0 },
+                );
+                let ctxTotalKnown = streamed.complete;
+                if (streamed.partial) {
+                    ctxTotalKnown = false;
+                    ctxPartialSuffix = streamed.timeout
+                        ? '\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.'
+                        : streamed.rgStderr
+                        ? `\n[warning] rg exit 2 (partial results): ${String(streamed.rgStderr).trim().slice(0, 300)}`
+                        : '\n[warning] rg exit 2 (partial results)';
+                } else if (!streamed.complete) {
+                    ctxPartialSuffix = `\n[warning] anchor output capped at ${anchorCap} matches; results partial — narrow path/glob/pattern for the full match set.`;
+                }
+                const ctx = await expandGrepAnchorContextOutput({
+                    allLines: streamed.lines,
+                    workDir,
+                    rgSpawnCwd,
+                    grepResolvedPath,
+                    searchPath,
+                    outputMode,
+                    filenameOmitted,
+                    headLimit,
+                    offset,
+                    totalKnown: ctxTotalKnown,
+                    requestedContext: contextN,
+                    maxContext: GREP_AUTO_CONTEXT_LINES,
+                    patterns,
+                    caseInsensitive,
+                    charBudget: callContextCharBudget,
+                    signal: options.signal,
+                });
+                if (ctx.total > 0 || streamed.lines.length === 0) {
+                    let ctxBody = ctx.text;
+                    if (!ctxBody) {
+                        const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
+                        const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
+                        const pathInfo = grepStat.isDirectory() ? 'path exists (dir)' : 'path exists (file)';
+                        ctxBody = `(no matches) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
+                    }
+                    const ctxOut = patternCapNote + ctxBody + ctxPartialSuffix;
+                    if (options?.scopedCacheOutcome && (!ctxTotalKnown || ctx.omitted > 0 || !ctx.sourceComplete)) {
+                        markScopedCacheIncomplete(options.scopedCacheOutcome);
+                    }
+                    if (ctxTotalKnown && ctx.omitted === 0 && ctx.sourceComplete) {
+                        cacheSet(cacheKey, ctxOut, { scopes: [grepResolvedPath] });
+                    }
+                    if (typeof options?.onProgress === 'function') {
+                        try { options.onProgress(`found ${ctx.total} matches`); } catch { /* best-effort */ }
+                    }
+                    return ctxOut;
+                }
+                // Non-empty but unparsable rg output (binary diagnostics or an
+                // unexpected platform format) falls through to the legacy
+                // context renderer rather than losing the result.
+            }
             // Finding 1: stream only enough lines to satisfy the block window
             // (offset + head_limit + tail reserve), so rg is stopped early and a
             // broad content_with_context never retains a full 20MB stdout copy.
@@ -622,6 +735,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 filenameOmitted,
                 headLimit,
                 offset,
+                searchPath,
                 totalKnown: ctxTotalKnown,
             });
             let ctxBody = ctx.text;

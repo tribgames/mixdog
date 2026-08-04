@@ -7,6 +7,7 @@ param(
     [string[]]$Include = @(),
     [string[]]$Exclude = @(),
     [int]$Concurrent = 4,
+    [int]$Attempts = 1,
     # Primary route overrides; empty => configured route provider/model.
     [string]$Provider = "",
     [string]$Model = "",
@@ -94,6 +95,7 @@ $harborArgs = @(
     "--agent-import-path", "harness.mixdog_agent:MixdogAgent",
     "-o", $JobsDir,
     "-n", $Concurrent,
+    "-k", $Attempts,
     "-r", $MaxRetries,
     "--retry-exclude", "AgentTimeoutError",
     "--retry-exclude", "VerifierOutputParseError",

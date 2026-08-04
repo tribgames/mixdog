@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "description": "Three sub-three-minute holdouts covering multi-file grep and two legitimate read-first workflows.",
+  "maxRetrievalOutputChars": 60000,
+  "tasks": [
+    {
+      "name": "sanitize-git-repo",
+      "kind": "positive",
+      "attempts": 1
+    },
+    {
+      "name": "kv-store-grpc",
+      "kind": "control",
+      "attempts": 1
+    },
+    {
+      "name": "modernize-scientific-stack",
+      "kind": "control",
+      "attempts": 1
+    }
+  ]
+}

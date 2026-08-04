@@ -17,9 +17,9 @@
   `find` first for guessed path/name fragments; on ENOENT, find the basename.
   Retry `EXPLORATION_FAILED` once with changed tokens.
 - Stop when evidence covers the deliverable: a returned `path:line` or
-  nonzero `content_with_context` result is final — act on it (inspecting it
-  via read/code_graph is valid); only zero/error results justify changed
-  tokens or scope. Don't re-locate, re-verify, or reread returned spans.
+  nonzero `content_with_context` result is final for its returned range. Read
+  is allowed for new/uncovered lines; do not call read when grep/read already
+  fully covers the requested range. Only zero/error results justify new scope.
 - Verify changes in proportion to risk with one decisive batched boundary
   probe. A pass is final; on failure, fix and rerun only what failed. Keep
   optional diagnostics non-fatal; report verified vs assumed.

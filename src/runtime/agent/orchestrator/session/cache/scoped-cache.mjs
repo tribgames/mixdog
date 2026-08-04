@@ -5,6 +5,7 @@
 import { join, resolve as _pathResolve, isAbsolute as _pathIsAbs, normalize as _pathNorm } from 'node:path';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { _normalizeCacheKey } from './util.mjs';
+import { GREP_AUTO_CONTEXT_LINES } from '../../tools/builtin/path-utils.mjs';
 
 const MAX_PER_SESSION = 100;
 
@@ -43,6 +44,22 @@ function _firstArg(args, names) {
     return undefined;
 }
 
+const _GREP_CONTEXT_GROUPS = [
+    ['-A', ['-A', 'A', 'after', 'after_context', 'afterContext', '--after-context', 'after-context', 'afterLines', 'after_lines']],
+    ['-B', ['-B', 'B', 'before', 'before_context', 'beforeContext', '--before-context', 'before-context', 'beforeLines', 'before_lines']],
+    ['context', ['context', '-C', 'C', 'context_lines', 'contextLines', '--context', 'contextN', 'around', 'surrounding']],
+];
+
+function _canonicalizeGrepContextArgs(args) {
+    for (const [canonical, aliases] of _GREP_CONTEXT_GROUPS) {
+        const value = _firstArg(args, aliases);
+        for (const alias of aliases) delete args[alias];
+        if (value === undefined) continue;
+        const numeric = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+        args[canonical] = Number.isFinite(numeric) && Number.isInteger(numeric) ? numeric : value;
+    }
+}
+
 function _canonicalToolArgs(toolName, args) {
     if (!args || typeof args !== 'object') return args;
     const next = { ...args };
@@ -59,12 +76,35 @@ function _canonicalToolArgs(toolName, args) {
             const alias = _firstArg(next, ['root', 'directory', 'dir']);
             if (alias !== undefined) next.path = alias;
         }
+        _canonicalizeGrepContextArgs(next);
         if ((next.output_mode === undefined || next.output_mode === null || next.output_mode === '') && typeof next.mode === 'string') {
             const mode = next.mode.trim();
-            if (['files_with_matches', 'content', 'count'].includes(mode)) next.output_mode = mode;
+            if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) next.output_mode = mode;
         }
         for (const k of ['query', 'regex', 'regexp', 'needle', 'search', 'literal', 'file_pattern', 'filePattern', 'include', 'includes', 'files', 'root', 'directory', 'dir']) delete next[k];
-        if (next.output_mode && next.mode === next.output_mode) delete next.mode;
+        delete next.mode;
+
+        // Canonicalize by execution semantics, not caller spelling:
+        // omitted/content_with_context => content + automatic 25-line context;
+        // context:0 => bare content; context flags are ignored in count/files.
+        const requestedMode = typeof next.output_mode === 'string' ? next.output_mode.trim() : '';
+        if (requestedMode === 'files_with_matches' || requestedMode === 'count') {
+            next.output_mode = requestedMode;
+            delete next['-A'];
+            delete next['-B'];
+            delete next.context;
+        } else {
+            const hasExplicitContext = ['-A', '-B', 'context']
+                .some((key) => Object.prototype.hasOwnProperty.call(next, key));
+            next.output_mode = 'content';
+            if ((requestedMode === '' || requestedMode === 'content_with_context') && !hasExplicitContext) {
+                next.context = GREP_AUTO_CONTEXT_LINES;
+            }
+            if (next.context === 0 && !Object.prototype.hasOwnProperty.call(next, '-A')
+                && !Object.prototype.hasOwnProperty.call(next, '-B')) {
+                delete next.context;
+            }
+        }
     } else if (toolName === 'glob') {
         if (next.pattern === undefined || next.pattern === null || next.pattern === '') {
             const alias = _firstArg(next, ['glob', 'file_pattern', 'filePattern', 'name', 'include', 'includes', 'files']);
