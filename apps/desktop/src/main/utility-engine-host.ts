@@ -1,0 +1,694 @@
+import type {
+  DesktopAgentPoolRow,
+  DesktopCapability,
+  DesktopCapabilityReadRequest,
+  DesktopCapabilityReadResult,
+  DesktopCapabilityResult,
+  DesktopModelCatalogOptions,
+  DesktopModelOption,
+  DesktopModelSelection,
+  DesktopNewTaskDraft,
+  DesktopNewTaskSubmitResult,
+  DesktopProjectSummary,
+  DesktopPromptContent,
+  DesktopSessionSummary,
+  DesktopSessionStateUpdate,
+  DesktopSubmitOptions,
+  EngineSnapshot,
+  ToolApprovalDecision,
+} from '../shared/contract';
+import type {
+  DesktopEngineHost,
+  EngineHostRpcMethod,
+  SerializableEngineHostOptions,
+} from './engine-host-api';
+import type {
+  EngineWorkerInbound,
+  EngineWorkerOutbound,
+} from './engine-worker-protocol';
+import { createSnapshotDeltaDecoder } from './state-delta';
+
+export interface EngineWorkerTransport {
+  postMessage(message: EngineWorkerInbound): void;
+  kill(): boolean;
+  on(event: string, listener: (...args: any[]) => void): unknown;
+}
+
+export interface UtilityEngineHostOptions {
+  spawn(): EngineWorkerTransport;
+  engineOptions(): SerializableEngineHostOptions;
+  initialSnapshot?: EngineSnapshot;
+  requestTimeoutMs?: number;
+  startupTimeoutMs?: number;
+  restartBaseDelayMs?: number;
+  restartMaxDelayMs?: number;
+  restartStableMs?: number;
+  disposeTimeoutMs?: number;
+  onDiagnostic?(event: string, data: Record<string, unknown>): void;
+}
+
+interface PendingRequest {
+  method: EngineHostRpcMethod;
+  resolve(value: unknown): void;
+  reject(error: Error): void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+const DEFAULT_STARTUP_TIMEOUT_MS = 15_000;
+const DEFAULT_RESTART_BASE_DELAY_MS = 250;
+const DEFAULT_RESTART_MAX_DELAY_MS = 5_000;
+const DEFAULT_RESTART_STABLE_MS = 30_000;
+const DEFAULT_DISPOSE_TIMEOUT_MS = 1_500;
+const PROCESS_FAILURE_TOAST_ID = 'engine-process-stopped';
+
+function displayExitCode(code: number): string {
+  if (
+    process.platform === 'win32'
+    && Number.isSafeInteger(code)
+    && code >= 0x80000000
+    && code <= 0xffffffff
+  ) {
+    return `0x${code.toString(16).padStart(8, '0').toUpperCase()}`;
+  }
+  return String(code);
+}
+
+class EngineWorkerExitError extends Error {
+  constructor(readonly exitCode: number) {
+    super(`Mixdog engine worker exited with code ${displayExitCode(exitCode)}.`);
+    this.name = 'EngineWorkerExitError';
+  }
+}
+
+function responseError(error: { name: string; message: string; code?: string }): Error {
+  const result = new Error(error.message);
+  result.name = error.name || 'Error';
+  if (error.code) (result as NodeJS.ErrnoException).code = error.code;
+  return result;
+}
+
+export class UtilityEngineHost implements DesktopEngineHost {
+  private readonly listeners = new Set<(snapshot: EngineSnapshot) => void>();
+  private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
+  private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
+  private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
+  private readonly sessionStateDecoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
+  private readonly pending = new Map<number, PendingRequest>();
+  private readonly decoder = createSnapshotDeltaDecoder();
+  private child: EngineWorkerTransport | null = null;
+  private cachedSnapshot: EngineSnapshot;
+  private bootstrapSnapshot: EngineSnapshot;
+  private cachedSessions: DesktopSessionSummary[] | null = null;
+  private cachedAgentPool: DesktopAgentPoolRow[] | null = null;
+  private sessionCacheFresh = false;
+  private agentPoolCacheFresh = false;
+  private visibleSessionIds: string[] = [];
+  private nextRequestId = 1;
+  private generation = 0;
+  private lastExitError: Error | null = null;
+  private readyPromise: Promise<void> | null = null;
+  private readyResolve: (() => void) | null = null;
+  private readyReject: ((error: Error) => void) | null = null;
+  private startupTimer: ReturnType<typeof setTimeout> | null = null;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
+  private consecutiveExitCount = 0;
+  private nextRestartAt = 0;
+  private disposing = false;
+  private disposed = false;
+  private recovering = false;
+
+  constructor(private readonly options: UtilityEngineHostOptions) {
+    this.cachedSnapshot = options.initialSnapshot ?? null;
+    this.bootstrapSnapshot = options.initialSnapshot ?? null;
+  }
+
+  start(): Promise<void> {
+    if (this.disposed || this.disposing) {
+      return Promise.reject(new Error('Mixdog engine host is disposed.'));
+    }
+    if (this.readyPromise) return this.readyPromise;
+    this.readyPromise = new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+    const readyPromise = this.readyPromise;
+    const restartDelayMs = Math.max(0, this.nextRestartAt - Date.now());
+    if (restartDelayMs > 0) {
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
+        this.spawnWorker();
+      }, restartDelayMs);
+      this.restartTimer.unref?.();
+    } else {
+      this.spawnWorker();
+    }
+    return readyPromise;
+  }
+
+  private spawnWorker(): void {
+    if (this.disposed || this.disposing) {
+      this.rejectStartup(new Error('Mixdog engine host is disposed.'));
+      return;
+    }
+    let child: EngineWorkerTransport;
+    try {
+      child = this.options.spawn();
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.rejectStartup(failure);
+      return;
+    }
+    this.child = child;
+    this.generation += 1;
+    child.on('message', (message: unknown) => this.handleMessage(child, message));
+    child.on('error', (type: unknown, location: unknown) => {
+      this.options.onDiagnostic?.('engine-worker-error', {
+        type: String(type || ''),
+        location: String(location || ''),
+      });
+    });
+    child.on('exit', (code: unknown) => this.handleExit(child, Number(code) || 0));
+    this.startupTimer = setTimeout(() => {
+      if (child !== this.child || !this.readyReject) return;
+      const error = new Error('Mixdog engine worker startup timed out.');
+      this.rejectStartup(error);
+      child.kill();
+    }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
+    this.startupTimer.unref?.();
+    try {
+      child.postMessage({ kind: 'init', options: this.options.engineOptions() });
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.rejectStartup(failure);
+      child.kill();
+    }
+  }
+
+  getSnapshot(): EngineSnapshot {
+    return this.cachedSnapshot;
+  }
+
+  subscribe(listener: (snapshot: EngineSnapshot) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void {
+    this.sessionListeners.add(listener);
+    return () => this.sessionListeners.delete(listener);
+  }
+
+  subscribeAgentPool(listener: (agents: DesktopAgentPoolRow[]) => void): () => void {
+    this.agentPoolListeners.add(listener);
+    return () => this.agentPoolListeners.delete(listener);
+  }
+
+  subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void {
+    this.sessionStateListeners.add(listener);
+    return () => this.sessionStateListeners.delete(listener);
+  }
+
+  private handleMessage(child: EngineWorkerTransport, value: unknown): void {
+    if (child !== this.child || !value || typeof value !== 'object') return;
+    const message = value as EngineWorkerOutbound;
+    if (message.kind === 'ready') {
+      if (this.startupTimer) clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+      this.nextRestartAt = 0;
+      if (this.stableTimer) clearTimeout(this.stableTimer);
+      this.stableTimer = setTimeout(() => {
+        this.stableTimer = null;
+        this.consecutiveExitCount = 0;
+      }, this.options.restartStableMs ?? DEFAULT_RESTART_STABLE_MS);
+      this.stableTimer.unref?.();
+      const resolve = this.readyResolve;
+      this.readyResolve = null;
+      this.readyReject = null;
+      resolve?.();
+      if (this.visibleSessionIds.length > 0) {
+        void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds])
+          .catch(() => { /* renderer registration remains cached for the next restart */ });
+      }
+      return;
+    }
+    if (message.kind === 'state') {
+      const decoded = this.decoder.decode(message.wire);
+      if (!decoded.ok) {
+        child.postMessage({ kind: 'state-resync' });
+        return;
+      }
+      const snapshot = decoded.snapshot as EngineSnapshot;
+      try {
+        if (this.recovering) {
+          this.recovering = false;
+          this.publish(this.processFailureSnapshot(snapshot));
+        } else {
+          this.publish(snapshot);
+        }
+      } finally {
+        // Acknowledge only after decode/publication. The worker keeps at most
+        // one frame in flight and collapses any intermediate publications.
+        try {
+          child.postMessage({ kind: 'state-ack', sequence: message.sequence });
+        } catch {
+          // Worker exit/recovery owns the failed transport.
+        }
+      }
+      return;
+    }
+    if (message.kind === 'sessions') {
+      const sessions = Array.isArray(message.sessions) ? message.sessions.slice() : [];
+      this.cachedSessions = sessions;
+      this.sessionCacheFresh = true;
+      for (const listener of this.sessionListeners) listener(sessions.slice());
+      return;
+    }
+    if (message.kind === 'agent-pool') {
+      const agents = Array.isArray(message.agents) ? message.agents.slice() : [];
+      this.cachedAgentPool = agents;
+      this.agentPoolCacheFresh = true;
+      for (const listener of this.agentPoolListeners) listener(agents.slice());
+      return;
+    }
+    if (message.kind === 'session-state') {
+      const sessionId = String(message.sessionId || '');
+      if (!sessionId) return;
+      let decoder = this.sessionStateDecoders.get(sessionId);
+      if (decoder) this.sessionStateDecoders.delete(sessionId);
+      else decoder = createSnapshotDeltaDecoder();
+      this.sessionStateDecoders.set(sessionId, decoder);
+      const decoded = decoder.decode(message.wire);
+      if (!decoded.ok) {
+        decoder.reset();
+        try { child.postMessage({ kind: 'session-state-resync', sessionId }); } catch {}
+        return;
+      }
+      if (message.wire === null) this.sessionStateDecoders.delete(sessionId);
+      const update: DesktopSessionStateUpdate = {
+        sessionId,
+        snapshot: decoded.snapshot as EngineSnapshot,
+        ...(message.frameSource ? { frameSource: message.frameSource } : {}),
+        ...(typeof message.contentRevision === 'number'
+          ? { contentRevision: message.contentRevision }
+          : {}),
+      };
+      for (const listener of this.sessionStateListeners) listener(update);
+      return;
+    }
+    if (message.kind !== 'response') return;
+    const pending = this.pending.get(message.id);
+    if (!pending) return;
+    this.pending.delete(message.id);
+    clearTimeout(pending.timer);
+    if (message.ok) pending.resolve(message.value);
+    else pending.reject(responseError(message.error));
+  }
+
+  private handleExit(child: EngineWorkerTransport, code: number): void {
+    if (child !== this.child) return;
+    this.child = null;
+    this.decoder.reset();
+    this.sessionStateDecoders.clear();
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    this.startupTimer = null;
+    if (this.stableTimer) clearTimeout(this.stableTimer);
+    this.stableTimer = null;
+    const error = new EngineWorkerExitError(code);
+    this.lastExitError = error;
+    this.readyReject?.(error);
+    this.readyResolve = null;
+    this.readyReject = null;
+    this.readyPromise = null;
+    this.rejectPending(error);
+    if (this.disposing || this.disposed) return;
+    this.consecutiveExitCount += 1;
+    const baseDelayMs = Math.max(
+      0,
+      this.options.restartBaseDelayMs ?? DEFAULT_RESTART_BASE_DELAY_MS,
+    );
+    const maxDelayMs = Math.max(
+      baseDelayMs,
+      this.options.restartMaxDelayMs ?? DEFAULT_RESTART_MAX_DELAY_MS,
+    );
+    const restartDelayMs = Math.min(
+      maxDelayMs,
+      baseDelayMs * (2 ** Math.min(this.consecutiveExitCount - 1, 10)),
+    );
+    this.nextRestartAt = Date.now() + restartDelayMs;
+    this.options.onDiagnostic?.('engine-worker-exit', {
+      code,
+      displayCode: displayExitCode(code),
+      restartCount: this.consecutiveExitCount,
+      restartDelayMs,
+    });
+    this.publishProcessFailure();
+    void this.start().catch((restartError) => {
+      if (this.disposing || this.disposed) return;
+      this.options.onDiagnostic?.('engine-worker-restart-failed', {
+        errorName: restartError instanceof Error ? restartError.name : 'Error',
+      });
+    });
+  }
+
+  private rejectStartup(error: Error): void {
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    this.startupTimer = null;
+    this.readyReject?.(error);
+    this.readyResolve = null;
+    this.readyReject = null;
+    this.readyPromise = null;
+  }
+
+  private rejectPending(error: Error): void {
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pending.clear();
+  }
+
+  private publish(snapshot: EngineSnapshot): void {
+    const next = this.snapshotWithBootstrap(snapshot);
+    this.cachedSnapshot = next;
+    for (const listener of this.listeners) listener(next);
+  }
+
+  private snapshotWithBootstrap(snapshot: EngineSnapshot): EngineSnapshot {
+    const bootstrap = this.bootstrapSnapshot;
+    if (!bootstrap || typeof bootstrap !== 'object') return snapshot;
+    const state = snapshot && typeof snapshot === 'object'
+      ? snapshot as Record<string, unknown>
+      : {};
+    if (String(state.provider || '').trim() && String(state.model || '').trim()) {
+      this.bootstrapSnapshot = null;
+      return snapshot;
+    }
+    // EngineHost's first route-less frame is transport readiness, not an
+    // authoritative model reset. Retain the lightweight persisted route until
+    // the live engine publishes its own provider/model pair.
+    return { ...bootstrap, ...state } as EngineSnapshot;
+  }
+
+  private publishProcessFailure(): void {
+    this.recovering = true;
+    this.publish(this.processFailureSnapshot(this.cachedSnapshot));
+  }
+
+  private processFailureSnapshot(snapshot: EngineSnapshot): EngineSnapshot {
+    const previous = snapshot && typeof snapshot === 'object'
+      ? snapshot as Record<string, unknown>
+      : {};
+    const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
+    return {
+      ...previous,
+      items: Array.isArray(previous.items) ? previous.items : [],
+      queued: [],
+      busy: false,
+      commandBusy: false,
+      toasts: [
+        ...existingToasts.filter((toast) => (
+          !toast || typeof toast !== 'object'
+          || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
+        )),
+        {
+          id: PROCESS_FAILURE_TOAST_ID,
+          tone: 'error',
+          text: 'The engine process stopped. Reopen the task to continue.',
+        },
+      ].slice(-8),
+    } as EngineSnapshot;
+  }
+
+  private async invoke<T>(method: EngineHostRpcMethod, args: unknown[] = []): Promise<T> {
+    const ready = this.start();
+    const generation = this.generation;
+    await ready;
+    if (generation !== this.generation) {
+      throw this.lastExitError
+        ?? new Error('Mixdog engine worker changed before the request was sent.');
+    }
+    return await this.sendRequest<T>(method, args);
+  }
+
+  private async invokeRead<T>(method: EngineHostRpcMethod, args: unknown[] = []): Promise<T> {
+    try {
+      return await this.invoke<T>(method, args);
+    } catch (error) {
+      if (!(error instanceof EngineWorkerExitError) || this.disposed || this.disposing) throw error;
+      return await this.invoke<T>(method, args);
+    }
+  }
+
+  private sendRequest<T>(
+    method: EngineHostRpcMethod,
+    args: unknown[],
+    timeoutMs = this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+  ): Promise<T> {
+    const child = this.child;
+    if (!child) {
+      return Promise.reject(
+        this.lastExitError ?? new Error('Mixdog engine worker is unavailable.'),
+      );
+    }
+    const id = this.nextRequestId++;
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Mixdog engine request timed out: ${method}.`));
+      }, timeoutMs);
+      this.pending.set(id, {
+        method,
+        resolve: (value) => resolve(value as T),
+        reject,
+        timer,
+      });
+      try {
+        child.postMessage({ kind: 'request', id, method, args });
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  startProject(projectPath: string): Promise<EngineSnapshot> {
+    return this.invoke('startProject', [projectPath]);
+  }
+  startProjectTask(projectPath: string): Promise<EngineSnapshot> {
+    return this.invoke('startProjectTask', [projectPath]);
+  }
+  startTask(): Promise<EngineSnapshot> {
+    return this.invoke('startTask');
+  }
+  listProjects(): Promise<DesktopProjectSummary[]> {
+    return this.invokeRead('listProjects');
+  }
+  addProject(projectPath: string): Promise<unknown> {
+    return this.invoke('addProject', [projectPath]);
+  }
+  projectDirectory(projectPath: string): Promise<string> {
+    return this.invokeRead('projectDirectory', [projectPath]);
+  }
+  renameProject(projectPath: string, alias: string): Promise<unknown> {
+    return this.invoke('renameProject', [projectPath, alias]);
+  }
+  removeProject(projectPath: string): Promise<unknown> {
+    return this.invoke('removeProject', [projectPath]);
+  }
+  listProjectDir(projectPath: string, relDir: string): Promise<unknown> {
+    return this.invokeRead('listProjectDir', [projectPath, relDir]);
+  }
+  readProjectTextFile(projectPath: string, relPath: string): Promise<unknown> {
+    return this.invokeRead('readProjectTextFile', [projectPath, relPath]);
+  }
+  writeProjectTextFile(
+    projectPath: string,
+    relPath: string,
+    content: string,
+    expectedContent: string,
+    encoding?: import('./project-files').ProjectTextEncoding,
+  ): Promise<unknown> {
+    return this.invoke('writeProjectTextFile', [
+      projectPath,
+      relPath,
+      content,
+      expectedContent,
+      encoding,
+    ]);
+  }
+  statProjectFile(projectPath: string, relPath: string): Promise<unknown> {
+    return this.invokeRead('statProjectFile', [projectPath, relPath]);
+  }
+  createProjectEntry(
+    projectPath: string,
+    relDir: string,
+    name: string,
+    directory: boolean,
+  ): Promise<unknown> {
+    return this.invoke('createProjectEntry', [projectPath, relDir, name, directory]);
+  }
+  renameProjectEntry(projectPath: string, relPath: string, newName: string): Promise<unknown> {
+    return this.invoke('renameProjectEntry', [projectPath, relPath, newName]);
+  }
+  moveProjectEntry(projectPath: string, relPath: string, targetDirRel: string): Promise<unknown> {
+    return this.invoke('moveProjectEntry', [projectPath, relPath, targetDirRel]);
+  }
+  copyProjectEntry(projectPath: string, relPath: string, targetDirRel: string): Promise<unknown> {
+    return this.invoke('copyProjectEntry', [projectPath, relPath, targetDirRel]);
+  }
+  projectEntryPath(projectPath: string, relPath: string): Promise<string> {
+    return this.invokeRead('projectEntryPath', [projectPath, relPath]);
+  }
+  codeGraphQuery(
+    projectPath: string,
+    mode: 'find_symbol' | 'references' | 'symbols',
+    query: string,
+  ): Promise<unknown> {
+    return this.invokeRead('codeGraphQuery', [projectPath, mode, query]);
+  }
+  async listSessions(): Promise<DesktopSessionSummary[]> {
+    await this.start();
+    if (this.sessionCacheFresh && this.cachedSessions) {
+      this.sessionCacheFresh = false;
+      return this.cachedSessions.slice();
+    }
+    const sessions = await this.invokeRead<DesktopSessionSummary[]>('listSessions');
+    this.cachedSessions = Array.isArray(sessions) ? sessions.slice() : [];
+    return this.cachedSessions.slice();
+  }
+  async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
+    await this.start();
+    if (this.agentPoolCacheFresh && this.cachedAgentPool) {
+      this.agentPoolCacheFresh = false;
+      return this.cachedAgentPool.slice();
+    }
+    const agents = await this.invokeRead<DesktopAgentPoolRow[]>('listAgentPool');
+    this.cachedAgentPool = Array.isArray(agents) ? agents.slice() : [];
+    return this.cachedAgentPool.slice();
+  }
+  renameSession(sessionId: string, title: string): Promise<unknown> {
+    return this.invoke('renameSession', [sessionId, title]);
+  }
+  setSessionArchived(sessionId: string, archived: boolean): Promise<unknown> {
+    return this.invoke('setSessionArchived', [sessionId, archived]);
+  }
+  deleteSession(sessionId: string): Promise<unknown> {
+    return this.invoke('deleteSession', [sessionId]);
+  }
+  prefetchSession(sessionId: string): Promise<boolean> {
+    return this.invokeRead('prefetchSession', [sessionId]);
+  }
+  peekSession(sessionId: string): Promise<boolean> {
+    return this.invokeRead('peekSession', [sessionId]);
+  }
+  setVisibleSessions(sessionIds: string[]): Promise<boolean> {
+    this.visibleSessionIds = [...new Set(sessionIds
+      .map((value) => String(value || ''))
+      .filter((value) => /^[A-Za-z0-9_-]+$/.test(value)))];
+    return this.invokeRead('setVisibleSessions', [this.visibleSessionIds]);
+  }
+  resumeSession(sessionId: string): Promise<EngineSnapshot> {
+    return this.invoke('resumeSession', [sessionId]);
+  }
+  searchProjectFiles(
+    projectIdOrWorkspaceId: string,
+    query: string,
+    limit = 50,
+  ): Promise<string[]> {
+    return this.invokeRead('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]);
+  }
+  submit(prompt: DesktopPromptContent, options: DesktopSubmitOptions = {}): Promise<boolean> {
+    return this.invoke('submit', [prompt, options]);
+  }
+  submitNewTask(
+    prompt: DesktopPromptContent,
+    options: DesktopSubmitOptions = {},
+    draft: DesktopNewTaskDraft = {},
+  ): Promise<DesktopNewTaskSubmitResult> {
+    return this.invoke('submitNewTask', [prompt, options, draft]);
+  }
+  abort(): Promise<unknown> {
+    return this.invoke('abort');
+  }
+  resolveToolApproval(id: string, decision: ToolApprovalDecision): Promise<boolean> {
+    return this.invoke('resolveToolApproval', [id, decision]);
+  }
+  submitToSession(
+    sessionId: string,
+    prompt: DesktopPromptContent,
+    options: DesktopSubmitOptions = {},
+  ): Promise<boolean> {
+    return this.invoke('submitToSession', [sessionId, prompt, options]);
+  }
+  abortSession(sessionId: string): Promise<unknown> {
+    return this.invoke('abortSession', [sessionId]);
+  }
+  resolveToolApprovalForSession(
+    sessionId: string,
+    id: string,
+    decision: ToolApprovalDecision,
+  ): Promise<boolean> {
+    return this.invoke('resolveToolApprovalForSession', [sessionId, id, decision]);
+  }
+  listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
+    return this.invokeRead('listProviderModels', [options]);
+  }
+  setModelRoute(selection: DesktopModelSelection): Promise<EngineSnapshot> {
+    return this.invoke('setModelRoute', [selection]);
+  }
+  setFast(enabled: boolean): Promise<EngineSnapshot> {
+    return this.invoke('setFast', [enabled]);
+  }
+  invokeCapability<T = unknown>(
+    capability: DesktopCapability,
+    args: unknown[] = [],
+  ): Promise<DesktopCapabilityResult<T>> {
+    return this.invoke('invokeCapability', [capability, args]);
+  }
+  readCapabilities(
+    requests: ReadonlyArray<DesktopCapabilityReadRequest>,
+  ): Promise<DesktopCapabilityReadResult[]> {
+    return this.invokeRead('readCapabilities', [requests]);
+  }
+  perfLog(line: string): void {
+    void this.invoke('perfLog', [line]).catch(() => { /* diagnostics only */ });
+  }
+
+  async dispose(): Promise<void> {
+    if (this.disposed || this.disposing) return;
+    this.disposing = true;
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.restartTimer = null;
+    if (this.stableTimer) clearTimeout(this.stableTimer);
+    this.stableTimer = null;
+    const child = this.child;
+    if (child) {
+      try {
+        await this.sendRequest(
+          'dispose',
+          [],
+          this.options.disposeTimeoutMs ?? DEFAULT_DISPOSE_TIMEOUT_MS,
+        );
+      } catch {
+        // Worker termination below is the bounded fallback.
+      }
+    }
+    this.disposed = true;
+    const disposedError = new Error('Mixdog engine host is disposed.');
+    this.readyReject?.(disposedError);
+    this.readyResolve = null;
+    this.readyReject = null;
+    this.rejectPending(disposedError);
+    child?.kill();
+    this.child = null;
+    this.readyPromise = null;
+    this.listeners.clear();
+    this.sessionListeners.clear();
+    this.agentPoolListeners.clear();
+    this.sessionStateListeners.clear();
+    this.visibleSessionIds = [];
+  }
+}

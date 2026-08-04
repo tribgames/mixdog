@@ -1,0 +1,6 @@
+{
+  "id": "worker",
+  "name": "Worker",
+  "description": "Use for simple, well-scoped tasks.",
+  "entry": "AGENT.md"
+}

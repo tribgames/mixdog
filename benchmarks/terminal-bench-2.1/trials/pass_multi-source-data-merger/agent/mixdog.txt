@@ -1,0 +1,9 @@
+(node:821) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_821_1783258071978_1783258072109_8bd224ae140aa37125adaae3efffbfa2
+Done — both outputs generated and verified.
+
+- **Merged dataset** at `/app/merged_users.parquet`: 4 unique users (101–104), columns `user_id` (int64), `name`/`email`/`created_date`/`status` (string), dates in YYYY-MM-DD, priority a > b > c applied (user 101 takes all source_a values).
+- **Conflict report** at `/app/conflicts.json`: 3 conflicts, all for user 101 (name, email, created_date), each listing per-source values and the selected one; `total_conflicts` matches the list length.
+- **Status normalization**: boolean `is_active`/`active` from sources b/c mapped to `"active"`/`"inactive"` strings, so status stays consistent across sources with no false conflicts.

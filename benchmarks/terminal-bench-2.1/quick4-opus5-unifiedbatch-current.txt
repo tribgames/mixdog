@@ -1,0 +1,2 @@
+jobs=jobs-quick4-opus5-unifiedbatch-20260803-190140
+snapshot=C:\Users\tempe\AppData\Local\Temp\mixdog-tb-src-unifiedbatch-7e1ce708f5cc42b6b215e0c3a8f5b114

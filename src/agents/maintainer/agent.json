@@ -1,0 +1,6 @@
+{
+  "id": "maintainer",
+  "name": "Maintainer",
+  "description": "Use for memory upkeep and long-running maintenance work.",
+  "entry": "AGENT.md"
+}

@@ -1,0 +1,9 @@
+{
+  "appId": "io.mixdog.app",
+  "appName": "Mixdog",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 140">
+  <rect width="560" height="140" rx="26" fill="#14161b"/>
+  <text x="44" y="96" font-family="'Segoe UI', Inter, Helvetica, sans-serif" font-size="76" font-weight="600" letter-spacing="-1.5" fill="#f2f4f7">mixdog</text>
+  <circle cx="300" cy="90" r="7" fill="#5b8cff"/>
+</svg>

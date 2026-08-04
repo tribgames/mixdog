@@ -1,0 +1,114 @@
+# Dependencies
+node_modules/
+vendor/pi/node_modules/
+refs/
+
+# Build output
+src/tui/dist/
+apps/desktop/.runtime/
+apps/desktop/.cache/
+apps/desktop/dist/
+apps/desktop/out/
+apps/desktop/artifacts/
+apps/mobile/www/
+apps/mobile/node_modules/
+# Junction-assembled Android SDK (Unity-provided toolchain + downloads)
+.android-sdk/
+.remote-dom.html
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local Mixdog runtime state
+.mixdog/
+.mixdog-bench/
+.dev-profile/
+.dev-profile-*/
+apps/desktop/.dev-detached.pid
+# Kiwi Korean morph model cache (runtime-downloaded, never committed)
+kiwi-model/
+**/kiwi-model/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Scratch
+*.tmp
+tmp/
+.tmp-internal-comms-live.*
+benchmarks/terminal-bench-2.1/jobs-*
+benchmarks/terminal-bench-2.1/harness/__pycache__/
+benchmarks/terminal-bench-2.1/tb-src-snap-*
+benchmarks/terminal-bench-2.1/cc-bin/
+scratch/
+
+# Tool backups
+.codex-backups/
+
+.bench/
+
+.bench-*.json
+scripts/bench/cache-hit-*.json
+boot-profile.log
+_smart-compact-sample.txt
+
+# Bench artifacts (local only)
+scripts/bench/
+/bench/
+/jobs/
+scripts/recall-bench-*.txt
+.mixdog-bench-*.json
+
+.tmp-ppt/
+
+# TUI stutter benchmark scratch (local-only)
+.bench-tui-stutter/
+bench-tui-stutter.mjs
+bench-tui-stutter-results-*.md
+
+# Vendored native mixdog-patch Rust build artifacts (source is committed,
+# target/ is rebuilt locally and by .github/workflows/patch-release.yml)
+native/mixdog-patch/target/
+native/mixdog-graph/target/
+native/mixdog-token/target/
+
+.tmp-voice/
+
+# Local bench/smoke artifacts
+bench-results/
+.mixdog-smoke-data-empty/
+__pycache__/
+
+apps/desktop/.tmp-dev/
+
+# Local desktop diagnosis probes and generated reports
+apps/desktop/*.report.json
+apps/desktop/scripts/bring-to-front.mjs
+apps/desktop/scripts/dev-badge.mjs
+apps/desktop/scripts/layout-shift-probe.mjs
+apps/desktop/scripts/pane-focus-diff.mjs
+apps/desktop/scripts/probe-daemon.mjs
+apps/desktop/scripts/remount-probe.mjs
+apps/desktop/scripts/row-height-sample.mjs
+apps/desktop/scripts/scroll-exercise.mjs
+apps/desktop/scripts/scroll-write-probe.mjs
+apps/desktop/scripts/tool-card-probe.mjs
+apps/desktop/scripts/tool-header-overflow-probe.mjs
+/one
+/two
+
+benchmarks/terminal-bench-2.1/mixdog-prebake/
+
+# independent bench working repos (own git history)
+benchmarks/deep-swe/
+benchmarks/deep-swe-lf/

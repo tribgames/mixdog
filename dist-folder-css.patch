@@ -1,0 +1,60 @@
+diff --git a/apps/desktop/src/renderer/desktop.css b/apps/desktop/src/renderer/desktop.css
+index f12cf271..7178df90 100644
+--- a/apps/desktop/src/renderer/desktop.css
++++ b/apps/desktop/src/renderer/desktop.css
+@@ -12643,3 +12676,55 @@ html[data-mixdog-mobile] select { font-size: 16px; }
+   font-size: 12.5px;
+ }
+ .folder-props-card > footer > button:hover { background: var(--mx-bg-layer-3); }
++/* Move-conflict dialog (Replace / Keep both / Skip). */
++.folder-conflict-list {
++  display: flex;
++  flex-direction: column;
++  gap: 3px;
++  max-height: 160px;
++  padding: 8px 10px;
++  border-radius: 6px;
++  background: var(--mx-bg-base);
++  overflow-y: auto;
++  font-size: 12.5px;
++  color: var(--mx-text-muted);
++}
++.folder-conflict-list > span {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++/* Breadcrumb survives narrowing: the run clips its HEAD, not the tail. */
++.folder-crumbs-run {
++  display: flex;
++  flex: 0 1 auto;
++  align-items: center;
++  justify-content: flex-end;
++  max-width: 100%;
++  min-width: 0;
++  margin-right: auto;
++  overflow: hidden;
++  white-space: nowrap;
++}
++.folder-address { min-width: 120px; }
++.folder-filter { flex: 0 1 200px; min-width: 130px; }
++/* Narrow panes: the expanded search REPLACES the address bar (Explorer),
++   so the row can never overflow the pane. */
++.folder-filter[data-compact="true"] { flex: 1 1 auto; min-width: 0; }
++/* Hard pane boundary: focus auto-scroll must never shift the surface. */
++.folder-pane-surface { overflow: hidden; }
++/* Crumbs never squeeze into "C.. > P.."; the run clips its head instead. */
++.folder-crumbs-run .folder-crumb { flex: 0 0 auto; }
++/* Details view scrolls horizontally when columns outgrow the pane; the
++   header shares the list's gutter and follows its scrollLeft. */
++.folder-pane-list[data-view="details"] { overflow-x: auto; scrollbar-gutter: stable; }
++.folder-details-head {
++  overflow: hidden;
++  scrollbar-gutter: stable;
++}
++.folder-details-head-run {
++  display: flex;
++  align-items: center;
++  height: 100%;
++  will-change: transform;
++}

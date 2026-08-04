@@ -1,0 +1,2 @@
+jobs=jobs-quick4-opus5-directverify-20260803-191548
+snapshot=C:\Users\tempe\AppData\Local\Temp\mixdog-tb-src-directverify-73bddbc5267740cf8dc65a40a2b177b7

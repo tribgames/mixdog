@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="60" fill="#f4f4f2"/>
+  <rect x="40" y="44" width="176" height="5" fill="#141414"/>
+  <text x="38" y="176" font-family="Helvetica, Arial, sans-serif" font-size="132" font-weight="700" letter-spacing="-6" fill="#141414">m</text>
+  <rect x="40" y="200" width="72" height="5" fill="#e0271b"/>
+  <rect x="120" y="200" width="96" height="5" fill="#141414"/>
+</svg>

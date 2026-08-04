@@ -1,0 +1,1275 @@
+/**
+ * Anthropic OAuth provider — uses Mixdog-owned local OAuth credentials
+ * for Claude Max subscription access.
+ *
+ * Raw HTTP + SSE streaming, reuses message/tool conversion patterns
+ * from anthropic.mjs. agent-trace instrumented.
+ */
+import { randomBytes } from 'crypto';
+import {
+    traceAgentFetch,
+    traceAgentSse,
+    traceAgentUsage,
+} from '../agent-trace.mjs';
+import { createAbortController } from '../../../shared/abort-controller.mjs';
+import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
+import {
+    _loadModelCache,
+    _setInMemoryCatalog,
+    _catalogHas,
+    _displayModel,
+    _catalogOutputTokens,
+    normalizeAndSaveCatalog,
+    resolveLatestAnthropicModel,
+    resolveAnthropicModelAfter404,
+    ensureLatestAnthropicModel,
+} from './anthropic-model-resolve.mjs';
+import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
+import {
+    TOKEN_REFRESH_SKEW_MS,
+    isAnthropicOAuthRefreshDisabled,
+    resolveCliVersion,
+    loadCredentials,
+    hasAnthropicOAuthCredentials,
+    describeAnthropicOAuthCredentials,
+    forgetAnthropicOAuthCredentials,
+    _scrubTokens,
+    _credentialsMaxMtime,
+    refreshOAuthCredentials,
+    beginOAuthLogin,
+    loginOAuth,
+} from './anthropic-oauth-credentials.mjs';
+import {
+    PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+    createPassthroughSignal,
+} from '../stall-policy.mjs';
+import {
+    ANTHROPIC_RETRY_BACKOFF_MS,
+    ANTHROPIC_RETRY_JITTER_RATIO,
+    AnthropicFallbackTriggeredError,
+    anthropicRequestTimeoutMs,
+    classifyError,
+    anthropicMaxAttempts,
+    createStallRetryBudget,
+    midstreamBackoffFor,
+    retryAfterMsFromError,
+    STREAM_STALL_RETRY_BUDGET_MS,
+    withRetry,
+} from './retry-classifier.mjs';
+import {
+    ANTHROPIC_MAX_MIDSTREAM_RETRIES,
+    parseSSEStream,
+    _classifyMidstreamError,
+    _midstreamSleepWithAbort,
+    stampAnthropicStreamOutcome,
+} from './anthropic-sse.mjs';
+import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import { gzipSync } from 'node:zlib';
+
+// Request-body gzip gate (see the fetch site below). Env kill-switch
+// (MIXDOG_ANTHROPIC_REQ_GZIP=0) plus a process-wide latch flipped on the
+// first 400 response to a compressed request. Small bodies skip compression:
+// below ~8KB the CPU + header cost outweighs the upload saving.
+const ANTHROPIC_REQ_GZIP_MIN_BYTES = 8 * 1024;
+let _anthropicReqGzipLatch = false;
+function _anthropicReqGzipDisabled() {
+    return _anthropicReqGzipLatch || process.env.MIXDOG_ANTHROPIC_REQ_GZIP === '0';
+}
+function _disableAnthropicReqGzip() { _anthropicReqGzipLatch = true; }
+import {
+    applyAnthropicEffortToBody,
+    effortValuesForModel,
+    shouldIncludeEffortBeta,
+} from './anthropic-effort.mjs';
+import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
+import { normalizeContentForAnthropic } from './media-normalization.mjs';
+import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
+import {
+    ANTHROPIC_CACHE_TTL_STABLE as CACHE_TTL_STABLE,
+    ANTHROPIC_CACHE_TTL_VOLATILE as CACHE_TTL_VOLATILE,
+    applyAnthropicCacheMarkers,
+    clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
+    deferredAnthropicTools as sharedDeferredAnthropicTools,
+    requestAnthropicTools as sharedRequestAnthropicTools,
+    normalizeAnthropicNonStreamingResponse,
+    resolveAnthropicCacheTtls as resolveCacheTtls,
+    sanitizeAnthropicInputSchema,
+    toAnthropicToolChoice,
+} from './lib/anthropic-request-utils.mjs';
+
+// SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
+const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
+
+function formatRetryAfter(ms) {
+    if (ms == null) return '';
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n < 0) return '';
+    if (n >= 60_000 && n % 60_000 === 0) return `${Math.round(n / 60_000)}m`;
+    if (n >= 1000) return `${Math.ceil(n / 1000)}s`;
+    return `${Math.ceil(n)}ms`;
+}
+
+function anthropicQuotaError(status, headers, bodyText = '') {
+    const retryAfterMs = retryAfterMsFromError({ headers, response: { headers } });
+    const retryAfter = formatRetryAfter(retryAfterMs);
+    const detail = bodyText ? `: ${String(bodyText).slice(0, 200)}` : '';
+    const retry = retryAfter ? ` retryAfter=${retryAfter}` : '';
+    const err = new Error(`Anthropic OAuth API ${status} quota/rate limit${retry}${detail}`);
+    err.name = 'ProviderQuotaError';
+    err.code = 'PROVIDER_QUOTA';
+    err.httpStatus = status;
+    err.status = status;
+    err.headers = headers;
+    err.response = { status, headers };
+    err.retryAfterMs = retryAfterMs;
+    err.providerQuota = true;
+    err.quotaExceeded = true;
+    // This error is constructed only from the initial HTTP response, before
+    // SSE parsing can expose text or a tool call. It is therefore safe for the
+    // request-local withRetry loop. Mid-stream paths stamp unsafeToRetry when
+    // output/tool exposure actually occurs.
+    return err;
+}
+
+let _modelRefreshInFlight = null;
+let _oauthRefreshInFlight = null;
+// No in-memory credential cache: the canonical credentials file is the
+// single source of truth. Cross-process refresh_token rotation by another
+// concurrent reader would invalidate any cached copy here and produce
+// invalid_grant on the next refresh. Reading from
+// disk on demand is cheap (one stat + one small JSON parse) and removes
+// the cache-vs-disk skew entirely.
+
+const API_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_VERSION = '2023-06-01';
+
+// Anthropic OAuth contract for first-party OAuth clients: Opus/Sonnet
+// requests are gated on this exact system-prompt prefix. Haiku is not
+// gated and ignores this prefix.
+const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
+const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
+
+function requiresSystemPrefix(model) {
+    // High-tier Claude OAuth models require the first-party system prefix for
+    // OAuth pool routing. Haiku does not; keep every other Claude family (Opus,
+    // Sonnet, Fable, and future non-Haiku families) on the prefixed path.
+    const id = String(model || '').toLowerCase();
+    return /^claude-/.test(id) && !/^claude-haiku(?:-|$)/.test(id);
+}
+
+// OAuth rate-limit pool routing is gated by the server inspecting the first
+// system block. When it reads exactly the OAuth system prefix string it routes
+// into the first-party OAuth pool; any other
+// content (even the prefix concatenated with extra text in the same block)
+// falls into the standard pool and Opus/Sonnet return 429. Splitting into
+// two blocks — [prefix, rest] — keeps both routing and user instructions.
+function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
+    // systemMsgs is an array of { content, cacheTier } — each non-empty element
+    // becomes its own Anthropic content block with its own cache_control
+    // breakpoint. Blocks tagged cacheTier:'tier3' (BP3 sessionMarker) take the
+    // tier3 TTL; every other block (BP1 baseRules / BP2 stableSystem) takes the
+    // system TTL. Invariant: callers must pass an array.
+    const items = Array.isArray(systemMsgs)
+        ? systemMsgs
+            .map(m => ({
+                text: typeof m?.content === 'string' ? m.content.trim() : '',
+                tier: m?.cacheTier === 'tier3' ? 'tier3' : 'system',
+            }))
+            .filter(it => it.text)
+        : [];
+    const gated = requiresSystemPrefix(model);
+
+    const blocks = [];
+    if (gated) {
+        blocks.push({ type: 'text', text: CLAUDE_CODE_SYSTEM_PREFIX });
+    }
+    for (let i = 0; i < items.length; i++) {
+        let body = items[i].text;
+        // Strip a duplicated OAuth system prefix from the first block if present.
+        if (gated && i === 0 && body.startsWith(CLAUDE_CODE_SYSTEM_PREFIX)) {
+            body = body.slice(CLAUDE_CODE_SYSTEM_PREFIX.length).trim();
+            if (!body) continue;
+        }
+        blocks.push({ type: 'text', text: body, _tier: items[i].tier });
+    }
+    // Apply per-tier cache_control. BP1/BP2 -> systemTtl, BP3 -> tier3Ttl. The
+    // gating prefix block is never cached (Anthropic routes on its exact bytes).
+    // tier3Ttl === null leaves the 3rd block uncached (e.g. maintenance roles).
+    // Anthropic caps cache_control breakpoints at 4 per request; defensively
+    // cap it here too so an unexpectedly large systemMsgs array can never
+    // mark more than 4 blocks (extras keep their text, just lose the
+    // cache_control breakpoint, not the block itself).
+    const MAX_SYSTEM_BREAKPOINTS = 4;
+    let bpCount = 0;
+    for (const b of blocks) {
+        const tier = b._tier;
+        delete b._tier;
+        if (b.text === CLAUDE_CODE_SYSTEM_PREFIX) continue;
+        const ttl = tier === 'tier3' ? tier3Ttl : systemTtl;
+        if (ttl && bpCount < MAX_SYSTEM_BREAKPOINTS) {
+            b.cache_control = ttl;
+            bpCount++;
+        }
+    }
+    return blocks;
+}
+
+// resolveMaxTokens: catalog-driven max_tokens for a model id. Thin wrapper
+// around the shared anthropic-max-tokens helper (also used by the API-key
+// twin in anthropic.mjs) — this provider supplies its own in-memory-mirror-
+// first catalog lookup strategy (see anthropic-model-resolve.mjs).
+//   1. MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS env override, if set, wins outright.
+//   2. Catalog outputTokens (trusted over hardcoded heuristics when present),
+//      clamped to [MAX_TOKENS_FLOOR, safetyCap].
+//   3. Static MAX_TOKENS table / family heuristic fallback when the catalog
+//      has no entry for this model, also clamped to the safety cap.
+function resolveMaxTokens(model) {
+    return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokens });
+}
+
+// --- Message conversion ---
+
+// Anthropic's tool spec forbids oneOf / allOf / anyOf at the TOP level of
+// input_schema (nested usage inside properties is allowed). External MCP
+// servers sometimes emit such schemas.
+// Convert them to a flat object schema so the API never sees a 400.
+// Map the orchestrator-level opts.toolChoice into Anthropic's tool_choice.
+// Only 'none' is activated: it lets the hard-cap final turn keep the tool
+// DEFINITIONS in-request (so the tools->system->messages prefix — and its
+// prompt-cache prefix — stay byte-identical to prior turns) while forbidding
+// tool USE, so the model can only emit text. Forced values
+// ('required'->{type:'any'}, {name}->{type:'tool'}) are deliberately NOT
+// mapped: Anthropic returns a 400 for any forced tool_choice while
+// extended/adaptive thinking is enabled, and the only caller that sets
+// opts.toolChoice='required' (the forced-first-tool turn) runs with
+// effort/thinking active on reasoning models — activating it would convert a
+// previously-harmless no-op into a hard 400 on exactly that turn. Attached
+// only when the request actually carries tools (see buildRequestBody).
+function deferredAnthropicTools(activeTools, messages, opts) {
+    return sharedDeferredAnthropicTools(activeTools, messages, opts, 'anthropic-oauth');
+}
+function requestAnthropicTools(tools, messages, opts) {
+    return sharedRequestAnthropicTools(tools, messages, opts, 'anthropic-oauth');
+}
+
+function toAnthropicMessages(messages) {
+    // Marker-free lowering. cache_control is applied AFTER sanitization by
+    // applyAnthropicCacheMarkers() so that block drops/inserts/reorders
+    // performed by sanitizeAnthropicContentPairs cannot move or delete a
+    // marked block (the root cause of the sporadic COLD-turn cache miss:
+    // pre-sanitize markers landed on blocks the sanitizer then rewrote, so
+    // the provider-visible breakpoint diverged from the cached one).
+    const result = [];
+    for (let idx = 0; idx < messages.length; idx++) {
+        const m = messages[idx];
+        if (m.role === 'system') continue;
+
+        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length || m.thinkingBlocks?.length)) {
+            let content;
+            if (m.assistantBlocks?.length) {
+                content = m.assistantBlocks.slice();
+            } else {
+                content = [];
+                // Adaptive-thinking round-trip: prior-turn thinking blocks are
+                // REQUIRED back, unmodified (signature intact; empty thinking
+                // field allowed), and MUST precede tool_use blocks. Emit them
+                // first, verbatim as received from the SSE parser.
+                if (Array.isArray(m.thinkingBlocks)) {
+                    for (const tb of m.thinkingBlocks) {
+                        if (tb && typeof tb === 'object') content.push(tb);
+                    }
+                }
+                if (m.content) content.push({ type: 'text', text: m.content });
+                for (const tc of m.toolCalls || []) {
+                    content.push({
+                        type: 'tool_use',
+                        id: tc.id,
+                        name: tc.name,
+                        input: tc.arguments,
+                    });
+                }
+            }
+            result.push({ role: 'assistant', content });
+            continue;
+        }
+
+        if (m.role === 'tool') {
+            const last = result[result.length - 1];
+            const native = m.nativeToolSearch;
+            const nativeProvider = String(native?.provider || '').toLowerCase();
+            const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
+            const references = (!nativeProvider || anthropicNative.has(nativeProvider))
+                && Array.isArray(native?.toolReferences)
+                ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
+                : [];
+            const block = {
+                type: 'tool_result',
+                tool_use_id: m.toolCallId || '',
+                content: references.length
+                    ? references.map((tool_name) => ({ type: 'tool_reference', tool_name }))
+                    : normalizeContentForAnthropic(m.content),
+                ...((m.toolKind === 'error' || m.isError === true) ? { is_error: true } : {}),
+            };
+            if (last?.role === 'user' && Array.isArray(last.content)) {
+                last.content.push(block);
+            } else {
+                result.push({ role: 'user', content: [block] });
+            }
+            continue;
+        }
+
+        // First-party client parity: fold a user text turn that directly follows a
+        // tool_result turn into that tool_result's content. A sibling text
+        // turn after tool_result renders as `</function_results>\n\nHuman:`
+        // on the wire and trains the model toward 3-token empty end_turn
+        // completions (see foldUserTextIntoToolResultTail).
+        //   EXCEPTION: steering-origin user messages (human/TUI interjections)
+        //   must keep their own user turn so their provenance survives — folding
+        //   them into the preceding tool_result would disguise user input as
+        //   tool output. Anthropic accepts a user text message after a
+        //   tool_result message, so the distinct turn stays request-valid.
+        const isSteering = m.role === 'user' && m.meta?.source === 'steering';
+        if (m.role === 'user' && !isSteering
+            && foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))) {
+            continue;
+        }
+        result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });
+    }
+    return sanitizeAnthropicContentPairs(result);
+}
+
+// Applies cache_control markers to the FINAL, already-sanitized Anthropic
+// message array — by INVARIANT, never by pre-sanitize index. Because
+// sanitizeAnthropicContentPairs has already run (and must NOT run again
+// after this), the blocks we mark here are exactly the blocks the provider
+// sees, so the cache breakpoint is stable across turns.
+//   message-anchor: prefer a safe tool_result tail, then a previous real user
+//                   text turn if another slot remains. Synthetic
+//                   <system-reminder> messages and current pure-text prompts
+//                   are excluded so first-turn prompts do not create a fresh
+//                   BP4 write on every new session.
+// messageTtl === null disables the tail. BP3 (tier3) now rides a system block,
+// so it is no longer marked here.
+// ANTHROPIC_MSG_SLOTS=0 is honoured upstream by passing messageTtl = null.
+// --- Build request body ---
+
+// BP3 (tier3) is injected by session/manager as its own `system` role block —
+// the 3rd system block, tagged `cacheTier:'tier3'`. buildSystemBlocks applies
+// the tier3 1h cache_control to that block; BP1/BP2 take the system TTL. No
+// `<system-reminder>` user message / sentinel scan is involved anymore.
+
+function buildRequestBody(messages, model, tools, sendOpts) {
+    const systemMsgs = messages.filter(m => m.role === 'system');
+    const chatMsgs = messages.filter(m => m.role !== 'system');
+    const maxTokens = resolveMaxTokens(model);
+    const opts = sendOpts || {};
+    const ttls = resolveCacheTtls(opts);
+    // Each system message becomes its own Anthropic content block with its own
+    // breakpoint: BP1 baseRules + BP2 stableSystem at ttls.system, BP3
+    // sessionMarker (cacheTier:'tier3') at ttls.tier3.
+    const systemBlocks = buildSystemBlocks(systemMsgs, model, ttls?.system, ttls?.tier3);
+
+    // 4-BP budget layout. tools BP is dropped — system BP covers the
+    // tools prefix via Anthropic's prompt cache prefix semantics
+    // (order: tools → system → messages). That frees slots for the
+    // messages-tail. The system blocks now hold BP1/BP2/BP3 (tier3), so the
+    // tier3 breakpoint is accounted for inside systemBpUsed.
+    const systemBpUsed = systemBlocks.filter(b => b.cache_control).length;
+    const toolsBpUsed = 0;
+    const usedSlots = toolsBpUsed + systemBpUsed;
+    // Env override for BP strategy. ANTHROPIC_MSG_SLOTS=0 disables message
+    // caching entirely. Any value >=1 first marks the previous user text turn
+    // so consecutive requests share a breakpoint; a second free slot marks the
+    // tail for the newest delta.
+    const msgSlotsCap = Number.parseInt(process.env.ANTHROPIC_MSG_SLOTS, 10);
+    const defaultMsgSlots = Math.max(0, 4 - usedSlots);
+    const msgSlots = ttls.messages
+        ? (Number.isFinite(msgSlotsCap) && msgSlotsCap >= 0 ? Math.min(msgSlotsCap, defaultMsgSlots) : defaultMsgSlots)
+        : 0;
+    // Build → sanitize (once, inside toAnthropicMessages) → mark. Markers are
+    // applied to the FINAL sanitized array by invariant, so block drops /
+    // inserts / reorders performed by the sanitizer can never move or delete a
+    // marked block. NEVER sanitize again after this (see send path).
+    // msgSlots === 0 (ANTHROPIC_MSG_SLOTS=0, or no free slot) → tail disabled.
+    const tailTtl = msgSlots > 0 ? ttls.messages : null;
+    const anthropicMessages = applyAnthropicCacheMarkers(
+        toAnthropicMessages(chatMsgs),
+        { messageTtl: tailTtl, messageSlots: msgSlots },
+    );
+
+    const body = {
+        model,
+        max_tokens: maxTokens,
+        messages: anthropicMessages,
+        stream: true,
+    };
+
+    if (systemBlocks.length) body.system = systemBlocks;
+
+    const requestTools = requestAnthropicTools(tools, chatMsgs, opts);
+    if (requestTools.length) {
+        // No cache_control on tools — the systemBase BP already covers the
+        // tools prefix via Anthropic's prompt cache prefix semantics (order:
+        // tools → system → messages). Placing a separate BP here would waste
+        // a slot that's better spent on messages tail.
+        body.tools = requestTools;
+    }
+    // tool_choice only when tools are actually present (Anthropic rejects
+    // tool_choice without tools). 'none' rides the hard-cap final turn to
+    // forbid tool USE while keeping the tools prefix stable for cache reuse.
+    if (body.tools) {
+        const toolChoice = toAnthropicToolChoice(opts.toolChoice);
+        if (toolChoice) body.tool_choice = toolChoice;
+    }
+
+    applyAnthropicEffortToBody(body, {
+        model,
+        opts,
+        maxTokens,
+        clampThinkingBudgetTokens,
+        logTag: 'anthropic-oauth',
+    });
+
+    if (opts.fast === true && supportsAnthropicFastMode(model)) {
+        body.speed = 'fast';
+    }
+
+    return body;
+}
+
+export function _buildRequestBodyForCacheSmoke(messages, model, tools = [], sendOpts = {}) {
+    return buildRequestBody(messages, model, tools, sendOpts);
+}
+
+// --- Provider ---
+
+export class AnthropicOAuthProvider {
+    // input_tokens EXCLUDES cache_read_input_tokens (separate field) — add the
+    // cache back for the real context footprint. See registry.mjs.
+    static inputExcludesCache = true;
+    name = 'anthropic-oauth';
+    credentials = null;
+    config;
+    fastModeBetaHeaderLatched = false;
+
+    constructor(config) {
+        this.config = config || {};
+        this.credentials = loadCredentials();
+        // Warm a kept-alive socket to the messages API so the first request
+        // skips the cold TLS handshake. Best-effort; never throws.
+        preconnect('https://api.anthropic.com');
+    }
+
+    async ensureAuth({ forceRefresh = false, reason = 'preemptive' } = {}) {
+        if (!this.credentials) {
+            this.credentials = loadCredentials();
+        }
+        if (!this.credentials) {
+            throw new Error('Anthropic OAuth credentials not found. Open /providers in mixdog to sign in.');
+        }
+
+        // Pick up Mixdog-updated tokens the moment the credentials file is
+        // rewritten — without this, a fresh /auth login in another process is
+        // ignored until the in-memory token's expiry skew triggers a refresh.
+        const diskMtime = _credentialsMaxMtime();
+        if (diskMtime > 0 && diskMtime > (this.credentials.mtimeMs || 0)) {
+            const fresh = loadCredentials();
+            if (fresh?.accessToken) {
+                this.credentials = fresh;
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk (mtime change)\n`);
+            }
+        }
+
+        const expiring = this.credentials.expiresAt
+            && this.credentials.expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
+        if (forceRefresh || expiring) {
+            if (isAnthropicOAuthRefreshDisabled()) {
+                throw new Error(
+                    'Anthropic OAuth credentials require refresh, but refresh is disabled '
+                    + 'in this container. Host credential preflight must provide a fresh snapshot.',
+                );
+            }
+            this.credentials = await this._refreshCredentials({ force: forceRefresh, reason });
+        }
+
+        return this.credentials;
+    }
+
+    async _refreshCredentials({ force = false, reason = 'preemptive' } = {}) {
+        if (isAnthropicOAuthRefreshDisabled()) {
+            throw new Error(
+                'Anthropic OAuth refresh is disabled in this container; '
+                + 'host credential preflight must provide a fresh snapshot.',
+            );
+        }
+        const currentToken = this.credentials?.accessToken || null;
+        const disk = loadCredentials();
+        const validAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
+        if (disk?.accessToken && disk.accessToken !== currentToken
+            && (!disk.expiresAt || disk.expiresAt >= validAfter)) {
+            this.credentials = disk;
+            if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk\n`);
+            return disk;
+        }
+        if (!this.credentials && disk) this.credentials = disk;
+
+        if (_oauthRefreshInFlight) {
+            const shared = await _oauthRefreshInFlight;
+            this.credentials = shared;
+            if (!force || shared?.accessToken !== currentToken) return this.credentials;
+        }
+
+        const startingCreds = this.credentials || disk;
+        _oauthRefreshInFlight = (async () => {
+            const latest = loadCredentials() || startingCreds;
+            const latestValidAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
+            if (latest?.accessToken && latest.accessToken !== currentToken
+                && (!latest.expiresAt || latest.expiresAt >= latestValidAfter)) {
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Credentials reloaded from disk\n`);
+                return latest;
+            }
+
+            if (!latest?.refreshToken) {
+                if (!force && latest?.accessToken && (!latest.expiresAt || latest.expiresAt > Date.now())) {
+                    if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] WARNING: token expiring but no refresh token; using current token until expiry\n`);
+                    return latest;
+                }
+                throw new Error('Anthropic OAuth refresh token not available. Open /providers in mixdog to sign in again.');
+            }
+
+            try {
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Token ${reason}, refreshing...\n`);
+                const refreshed = await refreshOAuthCredentials(latest);
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Token refreshed, expires in ${Math.round(((refreshed.expiresAt || Date.now()) - Date.now()) / 1000)}s\n`);
+                return refreshed;
+            } catch (err) {
+                if (!force && latest?.accessToken && (!latest.expiresAt || latest.expiresAt > Date.now())) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] Refresh failed (${msg}); using still-valid current token\n`);
+                    return latest;
+                }
+                throw err;
+            }
+        })().finally(() => { _oauthRefreshInFlight = null; });
+
+        this.credentials = await _oauthRefreshInFlight;
+        return this.credentials;
+    }
+
+    scrubTokens(text) {
+        return _scrubTokens(text);
+    }
+
+    async send(messages, model, tools, sendOpts) {
+        // Re-warm the kept-alive socket before the turn. preconnect() is a
+        // best-effort no-op while a socket is still hot (TTL gate), but after an
+        // idle gap longer than the keep-alive window it re-opens one in parallel
+        // with auth/body build so the POST below skips the cold TLS handshake.
+        preconnect('https://api.anthropic.com');
+        // Defense-in-depth: enforce tool_use / tool_result pairing before
+        // the Anthropic API call. The trim.mjs sanitize pass is normally
+        // invoked by the budget trimmer in loop.mjs, but dispatches under
+        // budget skip it — a tool that aborted mid-flight then leaves an
+        // unmatched tool_use in messages, which the provider rejects with
+        // a hard 400. Pairing here closes the gap regardless of caller.
+        messages = sanitizeToolPairs(messages);
+        const opts = sendOpts || {};
+        const onStageChange = typeof opts.onStageChange === 'function' ? opts.onStageChange : null;
+        const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
+        const onToolCall = typeof opts.onToolCall === 'function' ? opts.onToolCall : null;
+        const onTextDelta = typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null;
+        const onTextReset = typeof opts.onTextReset === 'function' ? opts.onTextReset : null;
+        const externalSignal = opts.signal || null;
+        // Test seam: lets the retry harness drive stream outcomes without a
+        // live OAuth session.
+        const parseSSEFn = typeof opts._parseSSEFn === 'function' ? opts._parseSSEFn : parseSSEStream;
+
+        let creds = await this.ensureAuth();
+        // Default when the caller doesn't pin a model: newest high-tier chat
+        // model from the live catalog (one warmup round-trip if cache is cold).
+        const useModel = model || await ensureLatestAnthropicModel(this);
+        const body = buildRequestBody(messages, useModel, tools, sendOpts);
+        if (body.speed === 'fast') {
+            this.fastModeBetaHeaderLatched = true;
+        }
+        // advanced-tool-use-2025-11-20 beta is only needed when this request
+        // actually carries deferred (defer_loading) tools — gate the header on
+        // that instead of sending it unconditionally on every request.
+        const hasDeferredTools = Array.isArray(body.tools)
+            && body.tools.some((t) => t && t.defer_loading === true);
+        // Known tool names for the leaked-tool-call guard in parseSSEStream:
+        // recovered leaked calls are only synthesized when they name a tool
+        // actually offered to this request (native + lowered). Derived from the
+        // final request body so it matches exactly what the model was given.
+        const knownToolNames = new Set(
+            (Array.isArray(body.tools) ? body.tools : [])
+                .map((t) => (t && typeof t.name === 'string' ? t.name : null))
+                .filter(Boolean),
+        );
+        const sessionId = opts.sessionId || null;
+        const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
+        // Option A: no absolute wall-clock cap on streaming generation. A stream
+        // that keeps emitting SSE deltas must NOT be killed by a fixed total-lifetime
+        // timer — the old PROVIDER_GENERATE_TOTAL_TIMEOUT_MS (~285s, derived from the
+        // stall WARN threshold) false-aborted live high-reasoning turns that were
+        // still alive and producing tokens. The streaming phase is bounded instead by:
+        //   (a) the per-attempt initial-response timeout in requestWithRetry
+        //       (PROVIDER_HTTP_RESPONSE_TIMEOUT_MS) for a socket that never sends a
+        //       first byte (truly wedged),
+        //   (b) externalSignal (client disconnect / replaced-by-newer-request), and
+        //   (c) the agent stall watchdog (STALL_ABORT_S, 600s, progress-based) plus
+        //       the optional SSE idle watchdog for a stream that goes dead mid-flight.
+        // totalSignal is therefore a pure pass-through of externalSignal with no timer.
+        const totalTimeout = createPassthroughSignal(externalSignal);
+        const totalSignal = totalTimeout.signal;
+        const requestTimeoutMs = anthropicRequestTimeoutMs();
+
+        const cleanupCancelHandler = (handler) => {
+            if (!handler) return;
+            try { totalSignal.removeEventListener('abort', handler); } catch {}
+        };
+
+        const doRequest = async (accessToken, requestSignal = null, requestBody = body) => {
+            const controller = createAbortController();
+            const fetchStartedAt = Date.now();
+
+            let cancelHandler = null;
+            let attemptCancelHandler = null;
+            if (totalSignal) {
+                if (totalSignal.aborted) {
+                    controller.abort(totalSignal.reason);
+                    throw totalSignal.reason instanceof Error
+                        ? totalSignal.reason
+                        : new Error('Anthropic OAuth request aborted by session close');
+                }
+                cancelHandler = () => { try { controller.abort(totalSignal.reason); } catch {} };
+                totalSignal.addEventListener('abort', cancelHandler, { once: true });
+            }
+            if (requestSignal && requestSignal !== totalSignal) {
+                if (requestSignal.aborted) {
+                    cleanupCancelHandler(cancelHandler);
+                    controller.abort(requestSignal.reason);
+                    throw requestSignal.reason instanceof Error
+                        ? requestSignal.reason
+                        : new Error('Anthropic OAuth request attempt aborted');
+                }
+                attemptCancelHandler = () => { try { controller.abort(requestSignal.reason); } catch {} };
+                requestSignal.addEventListener('abort', attemptCancelHandler, { once: true });
+            }
+
+            try {
+                try { onStageChange?.('requesting'); } catch {}
+                // NOTE: do NOT sanitize here. body.messages was already
+                // sanitized once inside toAnthropicMessages and then had cache
+                // markers applied by applyAnthropicCacheMarkers. Re-sanitizing
+                // after marking could drop/reorder a marked block and move the
+                // provider-visible cache breakpoint off the cached one — the
+                // exact COLD-turn bug this change fixes. Order is fixed:
+                // build → sanitize (once) → mark → JSON.stringify.
+                // Request-body gzip (probe-verified 2026-08-04: /v1/messages
+                // returns 200 for Content-Encoding: gzip, 400 for zstd). Large
+                // turn bodies (system prompt + history, typically 50-100KB+)
+                // compress ~5-10x, trimming upload time off every call's
+                // header wait. Latch OFF process-wide on the first 400 seen on
+                // a compressed request and retry that attempt uncompressed, so
+                // a server-side behavior change can never wedge the session.
+                const rawBody = Buffer.from(JSON.stringify(requestBody));
+                const useGzip = !_anthropicReqGzipDisabled() && rawBody.length >= ANTHROPIC_REQ_GZIP_MIN_BYTES;
+                const sendAttempt = (gz) => fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'anthropic-version': ANTHROPIC_VERSION,
+                        'anthropic-beta': buildAnthropicBetaHeaders({
+                            base: OAUTH_BETA_HEADERS,
+                            fastMode: this.fastModeBetaHeaderLatched,
+                            toolSearch: hasDeferredTools,
+                            effort: shouldIncludeEffortBeta(useModel, opts),
+                        }),
+                        'anthropic-dangerous-direct-browser-access': 'true',
+                        'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+                        'x-app': 'cli',
+                        'Content-Type': 'application/json',
+                        ...(gz ? { 'Content-Encoding': 'gzip' } : {}),
+                    },
+                    body: gz ? gzipSync(rawBody) : rawBody,
+                    signal: controller.signal,
+                    dispatcher: getLlmDispatcher(),
+                });
+                let response = await sendAttempt(useGzip);
+                if (useGzip && response.status === 400) {
+                    _disableAnthropicReqGzip();
+                    try { await response.arrayBuffer(); } catch { /* drain best-effort */ }
+                    response = await sendAttempt(false);
+                }
+
+                traceAgentFetch({
+                    sessionId,
+                    headersMs: Date.now() - fetchStartedAt,
+                    httpStatus: response.status,
+                    provider: 'anthropic-oauth',
+                    model: useModel,
+                    transport: 'sse',
+                });
+
+                if (attemptCancelHandler) {
+                    try { requestSignal.removeEventListener('abort', attemptCancelHandler); } catch {}
+                }
+                return { response, controller, cancelHandler };
+            } catch (err) {
+                if (attemptCancelHandler) {
+                    try { requestSignal.removeEventListener('abort', attemptCancelHandler); } catch {}
+                }
+                cleanupCancelHandler(cancelHandler);
+                if (requestSignal?.aborted) {
+                    const reason = requestSignal.reason;
+                    throw reason instanceof Error ? reason : new Error('Anthropic OAuth request attempt aborted');
+                }
+                if (totalSignal?.aborted) {
+                    const reason = totalSignal.reason;
+                    throw reason instanceof Error ? reason : new Error('Anthropic OAuth request aborted by session close');
+                }
+                if (err?.name === 'AbortError') {
+                    const timeoutErr = new Error(`Anthropic OAuth API initial response timed out after ${requestTimeoutMs}ms`);
+                    timeoutErr.code = 'EPROVIDERTIMEOUT';
+                    throw timeoutErr;
+                }
+                throw err;
+            }
+        };
+        // Test seam: injectable request factory for retry-path tests.
+        const doRequestImpl = typeof opts._doRequestFn === 'function' ? opts._doRequestFn : doRequest;
+
+        const requestWithRetry = async (accessToken, requestBody = body) => withRetry(async ({ signal: attemptSignal }) => {
+            const result = await doRequestImpl(accessToken, attemptSignal, requestBody);
+            const status = Number(result?.response?.status || 0);
+            const transientStatus = classifyError({ httpStatus: status }) === 'transient';
+            if (transientStatus || status === 429) {
+                if (status === 429) {
+                    const quotaText = await result.response.text().catch(() => '');
+                    cleanupCancelHandler(result.cancelHandler);
+                    try { result.controller?.abort?.(); } catch {}
+                    // Initial-response failure: nothing was sampled, so the
+                    // typed retry rules upstream own the decision.
+                    throw Object.assign(
+                        anthropicQuotaError(status, result?.response?.headers, this.scrubTokens(quotaText)),
+                        { initialResponseError: true },
+                    );
+                }
+                const err = new Error(`Anthropic OAuth API ${status}`);
+                err.httpStatus = status;
+                err.status = status;
+                err.headers = result?.response?.headers;
+                err.response = { status, headers: result?.response?.headers };
+                err.initialResponseError = true;
+                const retryAfterMs = retryAfterMsFromError(err);
+                if (transientStatus || retryAfterMs != null) {
+                    try { await result.response.text(); } catch {}
+                    cleanupCancelHandler(result.cancelHandler);
+                    try { result.controller?.abort?.(); } catch {}
+                    throw err;
+                }
+            }
+            return result;
+        }, {
+            signal: totalSignal,
+            maxAttempts: anthropicMaxAttempts(),
+            backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
+            retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
+            retryJitterMode: 'positive',
+            // Max/Pro OAuth sessions use subscription quota windows. Claude
+            // Code fails their 429s immediately rather than waiting through
+            // the API-key/PAYG retry budget (which may carry hours-long
+            // Retry-After values).
+            retry429: false,
+            perAttemptTimeoutMs: requestTimeoutMs,
+            perAttemptLabel: 'Anthropic OAuth initial response',
+            provider: 'anthropic',
+            model: useModel,
+            fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
+            onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
+                const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0) || null;
+                if (status === 429) notifyCurrentAnthropicRateLimit(lastErr);
+                const reason = status || lastErr?.code || lastErr?.message || 'network error';
+                const suffix = delayReason ? ` (${delayReason})` : '';
+                try {
+                    process.stderr.write(
+                        `[anthropic-oauth] retry attempt ${attempt + 1}/${anthropicMaxAttempts()} after ${reason}, backoff ${delayMs}ms${suffix}\n`,
+                    );
+                } catch {}
+            },
+        });
+        // Bounded mid-stream retries for transient stream loss; jittered backoff
+        // between attempts (see catch branches).
+        const MAX_MIDSTREAM_RETRIES = ANTHROPIC_MAX_MIDSTREAM_RETRIES;
+        let firstAttemptError = null;
+        let firstAttemptClassifier = null;
+        // Send-scoped stall window: in-place stall retries share one wall
+        // clock starting at the first stall (see createStallRetryBudget).
+        const stallRetryBudget = createStallRetryBudget();
+
+        // Core non-streaming re-issue: abort the dead stream and repeat the
+        // SAME request with stream:false. Shared by the exposed-text recovery
+        // (which must first get the owner's onTextReset acknowledgement) and
+        // the no-exposure stall fallback below (trivially safe — nothing was
+        // relayed or dispatched, so there is nothing to withdraw or replay).
+        const issueNonStreamingFallback = async (controller, abortReason) => {
+            try { controller?.abort?.(abortReason); } catch {}
+            try { onStageChange?.('requesting', { transport: 'non-streaming-fallback' }); } catch {}
+            let fallback = await requestWithRetry(creds.accessToken, { ...body, stream: false });
+            if (fallback.response.status === 401) {
+                cleanupCancelHandler(fallback.cancelHandler);
+                try { fallback.controller?.abort?.(); } catch {}
+                creds = await this.ensureAuth({ forceRefresh: true, reason: '401' });
+                fallback = await requestWithRetry(creds.accessToken, { ...body, stream: false });
+            }
+            if (!fallback.response.ok) {
+                const text = await fallback.response.text().catch(() => '');
+                cleanupCancelHandler(fallback.cancelHandler);
+                try { fallback.controller?.abort?.(); } catch {}
+                const fallbackError = new Error(`Anthropic OAuth API ${fallback.response.status}: ${this.scrubTokens(text).slice(0, 200)}`);
+                fallbackError.status = fallback.response.status;
+                fallbackError.httpStatus = fallback.response.status;
+                throw fallbackError;
+            }
+            try {
+                const message = await fallback.response.json();
+                return normalizeAnthropicNonStreamingResponse(message, useModel);
+            } finally {
+                cleanupCancelHandler(fallback.cancelHandler);
+                try { fallback.controller?.abort?.('Anthropic non-streaming fallback complete'); } catch {}
+            }
+        };
+
+        const recoverNonStreaming = async (midState, streamingError, controller) => {
+            const exposedChars = Number(midState?.emittedTextChars) || 0;
+            if (!onTextReset || exposedChars <= 0
+                || midState.emittedToolCall || midState.partialToolCall || midState.emittedThinking) {
+                try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
+                throw streamingError;
+            }
+            let resetAccepted = false;
+            try {
+                resetAccepted = await onTextReset({
+                    chars: exposedChars,
+                    reason: 'anthropic-streaming-fallback',
+                }) === true;
+            } catch {}
+            if (!resetAccepted) {
+                try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
+                throw streamingError;
+            }
+            return issueNonStreamingFallback(controller, streamingError);
+        };
+
+        try {
+        for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
+            let response, controller, cancelHandler;
+            try {
+                ({ response, controller, cancelHandler } = await requestWithRetry(creds.accessToken));
+            } catch (err) {
+                if (err instanceof AnthropicFallbackTriggeredError) {
+                    process.stderr.write(`[anthropic-oauth] ${err.message}\n`);
+                    return this.send(messages, err.fallbackModel, tools, {
+                        ...opts,
+                        fallbackModel: undefined,
+                        _fallbackTriggered: true,
+                    });
+                }
+                throw err;
+            }
+
+            // Refresh on 401, and only Anthropic's exact official revoked-token
+            // 403 signature. Ordinary permission/policy 403s are terminal.
+            let rejectedAuthBody = null;
+            if (response.status === 401 || response.status === 403) {
+                rejectedAuthBody = await response.text().catch(() => '');
+            }
+            const revoked403 = response.status === 403
+                && String(rejectedAuthBody).includes('OAuth token has been revoked');
+            if (response.status === 401 || revoked403) {
+                process.stderr.write(`[anthropic-oauth] ${response.status} — forcing refresh and retrying once\n`);
+                cleanupCancelHandler(cancelHandler);
+                // Body was drained above; abort closes any remaining transport
+                // resources before the credential-refresh replay.
+                try { controller?.abort?.(); } catch {}
+                creds = await this.ensureAuth({ forceRefresh: true, reason: String(response.status) });
+                ({ response, controller, cancelHandler } = await requestWithRetry(creds.accessToken));
+                rejectedAuthBody = null;
+            }
+
+            if (!response.ok) {
+                cleanupCancelHandler(cancelHandler);
+                const text = rejectedAuthBody ?? await response.text().catch(() => '');
+                const safeText = this.scrubTokens(text).slice(0, 200);
+                process.stderr.write(`[anthropic-oauth] API error ${response.status}: ${safeText}\n`);
+
+                if (response.status === 429) {
+                    throw anthropicQuotaError(response.status, response.headers, safeText);
+                }
+
+                // Phase I: on unknown/404 model errors, force a catalog refresh and
+                // retry once. Protects against a silently-rotated model id.
+                const isUnknownModel = response.status === 404
+                    || /unknown[_\s-]?model|model[_\s-]?not[_\s-]?found/i.test(safeText);
+                if (isUnknownModel && !opts._modelRetry) {
+                    process.stderr.write(`[anthropic-oauth] unknown model — refreshing catalog + 1 retry\n`);
+                    await this._refreshModelCache();
+                    const fallbackModel = resolveAnthropicModelAfter404(useModel);
+                    if (fallbackModel) {
+                        process.stderr.write(`[anthropic-oauth] model fallback ${useModel} -> ${fallbackModel}\n`);
+                    }
+                    return this.send(messages, fallbackModel || model, tools, { ...opts, _modelRetry: true });
+                }
+                const err = new Error(`Anthropic OAuth API ${response.status}: ${safeText}`);
+                err.status = response.status;
+                err.httpStatus = response.status;
+                throw err;
+            }
+
+            if (SSE_VERBOSE) process.stderr.write(`[anthropic-oauth] Response ${response.status}, parsing SSE...\n`);
+            try { onStageChange?.('streaming'); } catch {}
+
+            const midState = {
+                attemptIndex,
+                sawMessageStart: false,
+                sawCompleted: false,
+                emittedToolCall: false,
+                partialToolCall: false,
+                emittedThinking: false,
+                // Gateway live-text relay invariant: set by parseSSEStream once
+                // a non-empty text chunk has been forwarded to the client. A
+                // later failure is non-retryable (rendered text cannot be
+                // withdrawn; a retry would concatenate attempts).
+                emittedText: false,
+                userAbort: false,
+                watchdogAbort: null,
+                ttftAt: null,
+            };
+
+            try {
+                const sseStartedAt = Date.now();
+                const result = await parseSSEFn(
+                    response,
+                    controller.signal,
+                    (reason) => controller.abort(reason),
+                    onStreamDelta,
+                    onToolCall,
+                    midState,
+                    onTextDelta,
+                    knownToolNames,
+                );
+                try { controller?.abort?.('Anthropic SSE complete'); } catch {}
+
+                const ttftMs = midState.ttftAt ? midState.ttftAt - sseStartedAt : null;
+                const liveModel = result.model || useModel;
+                traceAgentSse({
+                    sessionId,
+                    sseParseMs: Date.now() - sseStartedAt,
+                    ttftMs,
+                    provider: 'anthropic-oauth',
+                    model: liveModel,
+                    transport: 'sse',
+                });
+
+                traceAgentUsage({
+                    sessionId,
+                    iteration,
+                    inputTokens: result.usage?.inputTokens || 0,
+                    outputTokens: result.usage?.outputTokens || 0,
+                    cachedTokens: result.usage?.cachedTokens || 0,
+                    cacheWriteTokens: result.usage?.cacheWriteTokens || 0,
+                    promptTokens: result.usage?.promptTokens || 0,
+                    model: liveModel,
+                    modelDisplay: _displayModel(liveModel),
+                    rawUsage: result.usage?.raw || null,
+                    provider: 'anthropic-oauth',
+                    requestKind: opts.requestKind || null,
+                });
+
+                // Phase I: if the live response surfaced a model id we don't know
+                // about yet, kick off a background catalog refresh. Fire-and-forget
+                // — do not await, do not surface errors.
+                if (result.model && !_catalogHas(result.model)) {
+                    void this._refreshModelCache();
+                }
+
+                if (SSE_VERBOSE) process.stderr.write(`[anthropic-oauth] Done: ${result.content.length} chars, ${result.toolCalls?.length || 0} tool calls\n`);
+                // Empty-stream guard. Invariant: a valid Anthropic SSE response
+                // ALWAYS opens with message_start (which carries usage.input_tokens).
+                // A 200 whose body produced no message_start delivered nothing —
+                // no usage, no content, no tool calls — i.e. a dropped/empty stream
+                // (transient, often rate-limit-adjacent under concurrent load), NOT
+                // a valid terminal turn. Returning it surfaces upstream as a silent
+                // empty turn (0 tokens, no content) that masks the cause. Throw a
+                // marked error: retry is provably safe here (no message_start ⇒
+                // nothing was emitted ⇒ no duplicate-tool risk), and once retries
+                // are exhausted the error is surfaced instead of swallowed.
+                if (!midState.sawMessageStart
+                    && !midState.userAbort
+                    && !midState.watchdogAbort
+                    && !result.content
+                    && !(result.toolCalls && result.toolCalls.length)
+                    && !(result.usage && result.usage.inputTokens > 0)) {
+                    const emptyErr = new Error('Anthropic OAuth SSE stream produced no message_start (empty/dropped stream — likely transient or rate-limited)');
+                    emptyErr.code = 'EEMPTYSTREAM';
+                    emptyErr.isEmptyStream = true;
+                    throw emptyErr;
+                }
+                try {
+                    Object.defineProperty(result, '__midstreamRetries', { value: attemptIndex, enumerable: false });
+                } catch { /* ignore non-extensible result */ }
+                return result;
+            } catch (err) {
+                // Canonical stream-outcome contract: stamp before ANY safety
+                // decision below. The parser's stamped verdict (when present)
+                // is authoritative — coarse midState.partialToolCall must not
+                // overwrite an idempotent pending-input truncation — while
+                // genuinely new wrapper-observed exposure is still merged.
+                let _outcome = null;
+                try {
+                    _outcome = stampAnthropicStreamOutcome(err, midState, { provider: 'anthropic-oauth' });
+                } catch { /* stamping is best-effort */ }
+                // Acknowledged reset semantics let the owner tombstone this
+                // attempt before the full request is restarted non-streaming.
+                // Without that acknowledgement, recoverNonStreaming stamps
+                // the error unsafe and preserves the no-concatenation rule.
+                if (midState.emittedText) {
+                    return await recoverNonStreaming(midState, err, controller);
+                }
+                // Dispatched tools and exposed thinking are replay boundaries;
+                // the canonical merge above already recorded them and wrote the
+                // aliases. Coarse midState flags are NOT written here: they
+                // would downgrade the parser's authoritative verdict that an
+                // incomplete, never dispatched tool input stays replay-safe.
+                if (_outcome?.replayUnsafe === true) {
+                    try { controller?.abort?.(err); } catch {}
+                    throw err;
+                }
+                // Empty/dropped stream (no message_start): safe to retry once —
+                // nothing was emitted, so there is no duplicate-tool risk. This
+                // is intentionally NOT routed through _classifyMidstreamError,
+                // which requires sawMessageStart and would reject it.
+                if (err?.isEmptyStream && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = 'empty_stream';
+                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
+                    try { process.stderr.write(`[anthropic-oauth] empty stream (no message_start) — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`); } catch {}
+                    await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
+                    continue;
+                }
+                if (classifyError(err) === 'transient'
+                    && !midState.sawMessageStart
+                    && _outcome?.replayUnsafe !== true
+                    && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = err?.providerErrorType || 'sse_transient';
+                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
+                    try {
+                        process.stderr.write(`[anthropic-oauth] transient SSE error — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (${err?.providerErrorType || err?.message || 'unknown'})\n`);
+                    } catch {}
+                    await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
+                    continue;
+                }
+                // Truncated stream (message_start without message_stop): the
+                // partial result is discarded and re-requesting is safe (a
+                // pendingToolUse means the tool_use input JSON never completed).
+                // _classifyMidstreamError does not cover this; route it through
+                // the shared classifier so it inherits the cross-provider
+                // transient policy instead of escaping and killing the worker.
+                // Guard: parseSSEStream eagerly fires onToolCall and sets
+                // emittedToolCall=true at content_block_stop, BEFORE message_stop.
+                // If the stream truncates after that, retrying would
+                // double-execute the tool. Only retry when nothing was emitted
+                // yet; otherwise let the error surface.
+                if ((err?.truncatedStream === true || err?.code === 'TRUNCATED_STREAM')
+                    && classifyError(err) === 'transient'
+                    && _outcome?.replayUnsafe !== true
+                    && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = 'truncated_stream';
+                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
+                    try { process.stderr.write(`[anthropic-oauth] truncated stream — retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES}\n`); } catch {}
+                    await _midstreamSleepWithAbort(midstreamBackoffFor(attemptIndex + 1), totalSignal);
+                    continue;
+                }
+                const classifier = _classifyMidstreamError(err, midState);
+                // CC-parity stall recovery (2026-08-03 v3 postmortem): a
+                // stalled stream that exposed NOTHING (no text/thinking
+                // relayed, no tool emitted) is re-issued NON-STREAMING instead
+                // of retrying the same streaming shape. Effort-mode models can
+                // legitimately think in silence past any streaming idle
+                // window; an in-place streaming retry re-runs the same silent
+                // generation into the same timer (observed live: deterministic
+                // 4×~138s beheading, ~552s per turn), while the non-streaming
+                // transport simply waits for the full body (bounded by
+                // PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS). Claude Code does
+                // exactly this on its watchdog aborts. Replay is trivially
+                // safe here — nothing was relayed or dispatched.
+                if (classifier === 'stream_stalled'
+                    && _outcome?.replayUnsafe !== true
+                    && !midState.emittedText
+                    && !midState.emittedToolCall
+                    && !midState.partialToolCall
+                    && !midState.emittedThinking) {
+                    try { process.stderr.write('[anthropic-oauth] stream stalled with no exposure — retrying non-streaming\n'); } catch {}
+                    return await issueNonStreamingFallback(controller, err);
+                }
+                if (classifier === 'stream_stalled' && !stallRetryBudget.allowStallRetry()) {
+                    try { process.stderr.write(`[anthropic-oauth] stall retry budget exhausted (${STREAM_STALL_RETRY_BUDGET_MS}ms since first stall) — surfacing for fresh-request retry\n`); } catch {}
+                    try { controller?.abort?.(err); } catch { /* best-effort teardown */ }
+                    throw err;
+                }
+                if (classifier && attemptIndex < MAX_MIDSTREAM_RETRIES) {
+                    firstAttemptError = err;
+                    firstAttemptClassifier = classifier;
+                    const status = Number(err?.httpStatus || err?.status || 0);
+                    let retryDelayMs = null;
+                    if (status === 429) {
+                        if (!err.headers && response?.headers) err.headers = response.headers;
+                        if (!err.response && response) err.response = { status, headers: response.headers };
+                        retryDelayMs = retryAfterMsFromError(err);
+                        if (retryDelayMs != null) err.retryAfterMs = retryDelayMs;
+                        notifyCurrentAnthropicRateLimit(err);
+                    }
+                    try { controller?.abort?.(err); } catch (abortErr) {
+                        /* best-effort stream teardown */
+                        try { process.stderr.write(`[anthropic-oauth] abort on stream error failed: ${abortErr?.message ?? String(abortErr)}\n`); } catch {}
+                    }
+                    try {
+                        process.stderr.write(`[anthropic-oauth] mid-stream recovered: retry ${attemptIndex + 1}/${MAX_MIDSTREAM_RETRIES} (cause: ${classifier})\n`);
+                    } catch {}
+                    await _midstreamSleepWithAbort(
+                        retryDelayMs ?? midstreamBackoffFor(attemptIndex + 1),
+                        totalSignal,
+                    );
+                    continue;
+                }
+                if (attemptIndex > 0 && firstAttemptError) {
+                    try { err.midstreamRetries = attemptIndex; } catch {}
+                    try { err.midstreamClassifier = firstAttemptClassifier; } catch {}
+                    throw err;
+                }
+                throw err;
+            } finally {
+                cleanupCancelHandler(cancelHandler);
+            }
+        }
+        throw firstAttemptError || new Error('Anthropic OAuth mid-stream retry: unreachable');
+        } finally {
+            totalTimeout.cleanup();
+        }
+    }
+
+    async listModels() {
+        // Dynamic lookup via /v1/models — returns whatever Anthropic currently
+        // exposes for this OAuth account. Cached on disk with 24h TTL; falls
+        // back to the static MODELS list on any failure so the plugin still
+        // works offline or when Anthropic's /v1/models is momentarily down.
+        const cached = await _loadModelCache();
+        if (cached) {
+            _setInMemoryCatalog(cached);
+            return cached;
+        }
+        try {
+            const creds = await this.ensureAuth();
+            const res = await fetch('https://api.anthropic.com/v1/models', {
+                signal: AbortSignal.timeout(10_000),
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${creds.accessToken}`,
+                    'anthropic-version': ANTHROPIC_VERSION,
+                    'anthropic-beta': OAUTH_BETA_HEADERS,
+                    'anthropic-dangerous-direct-browser-access': 'true',
+                    'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+                    'x-app': 'cli',
+                },
+                dispatcher: getLlmDispatcher(),
+            });
+            if (!res.ok) throw new Error(`list_models ${res.status}`);
+            const data = await res.json();
+            const items = Array.isArray(data?.data) ? data.data : [];
+            // Normalize + mark-latest + LiteLLM-enrich + persist (shared helper).
+            const enriched = await normalizeAndSaveCatalog(items);
+            return enriched;
+        } catch (err) {
+            if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] listModels fetch failed (${err.message})\n`);
+            // Fallback with full API model IDs. Short family tokens leaked
+            // through here would be accepted by setup and reintroduce the
+            // legacy shape. Env var override keeps this tracking defaults.
+            const opusId   = process.env.ANTHROPIC_DEFAULT_OPUS_MODEL   || 'claude-opus-4-8';
+            const sonnetId = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL || 'claude-sonnet-4-6';
+            const haikuId  = process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL  || 'claude-haiku-4-5-20251001';
+            return [
+                { id: opusId,   display: 'Opus (auto)',   family: 'opus',   provider: 'anthropic-oauth', tier: 'family', latest: true, contextWindow: 1000000 },
+                { id: sonnetId, display: 'Sonnet (auto)', family: 'sonnet', provider: 'anthropic-oauth', tier: 'family', latest: true, contextWindow: 1000000 },
+                { id: haikuId,  display: 'Haiku (auto)',  family: 'haiku',  provider: 'anthropic-oauth', tier: 'family', latest: true, contextWindow: 200000 },
+            ];
+        }
+    }
+
+    // Force a catalog refresh (ignores the 24h TTL). De-duped via
+    // _modelRefreshInFlight so concurrent callers share one HTTP round-trip.
+    // Returns the new catalog on success, null on failure.
+    async _refreshModelCache() {
+        if (_modelRefreshInFlight) return _modelRefreshInFlight;
+        _modelRefreshInFlight = (async () => {
+            try {
+                const creds = await this.ensureAuth();
+                const res = await fetch('https://api.anthropic.com/v1/models', {
+                    signal: AbortSignal.timeout(10_000),
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${creds.accessToken}`,
+                        'anthropic-version': ANTHROPIC_VERSION,
+                        'anthropic-beta': OAUTH_BETA_HEADERS,
+                        'anthropic-dangerous-direct-browser-access': 'true',
+                        'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+                        'x-app': 'cli',
+                    },
+                    dispatcher: getLlmDispatcher(),
+                });
+                if (!res.ok) throw new Error(`list_models ${res.status}`);
+                const data = await res.json();
+                const items = Array.isArray(data?.data) ? data.data : [];
+                const enriched = await normalizeAndSaveCatalog(items);
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] catalog refreshed (${enriched.length} models)\n`);
+                return enriched;
+            } catch (err) {
+                if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) process.stderr.write(`[anthropic-oauth] catalog refresh failed (${err.message})\n`);
+                return null;
+            } finally {
+                _modelRefreshInFlight = null;
+            }
+        })();
+        return _modelRefreshInFlight;
+    }
+
+    async isAvailable() {
+        return this.credentials !== null || loadCredentials() !== null;
+    }
+}
+
+// Re-exports so external callers of anthropic-oauth.mjs keep their existing
+// import path after the credential/login-flow extraction into
+// anthropic-oauth-credentials.mjs.
+export {
+    hasAnthropicOAuthCredentials,
+    describeAnthropicOAuthCredentials,
+    forgetAnthropicOAuthCredentials,
+    beginOAuthLogin,
+    loginOAuth,
+};
+
+// Re-exports so anthropic.mjs and the test harnesses keep their existing
+// import path after the SSE-parser extraction into anthropic-sse.mjs.
+export { parseSSEStream, _classifyMidstreamError, ANTHROPIC_MAX_MIDSTREAM_RETRIES };
+
+// Test-only escape hatch for scripts/tool-smoke.mjs to verify the
+// catalog-driven max-tokens resolution without duplicating its logic.
+export const _test = {
+    resolveMaxTokens,
+    deferredAnthropicTools,
+    requestAnthropicTools,
+    sanitizeInputSchema: (schema, toolName) => sanitizeAnthropicInputSchema(schema, toolName, 'anthropic-oauth'),
+};

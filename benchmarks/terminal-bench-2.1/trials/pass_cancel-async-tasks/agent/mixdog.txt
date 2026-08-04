@@ -1,0 +1,10 @@
+(node:1143) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_1143_1783263827887_1783263828030_f223f72ab3ca0a48c723ba4ba550e92c injected pre-send user message (merged=1 len=1749)
+models: ["claude-fable-5"]
+sessionId: sess_1143_1783263827887_1783263828030_f223f72ab3ca0a48c723ba4ba550e92c
+Now verifying concurrency limiting and cleanup-on-interrupt behavior:The background job wasn't interrupted — bash ignores SIGINT for `&` jobs in non-interactive shells. I'll cancel it and re-test with the signal raised from inside the process:Re-testing with SIGINT raised from inside the process (reliable delivery):One more edge check — a task raising an exception mid-run:Done — `/app/run.py` provides `async run_tasks(tasks, max_concurrent)`, importable via `from run import run_tasks`, using only the stdlib.
+
+- **Concurrency limit** enforced via a semaphore; verified peak of exactly 3 with limit 3 across 10 tasks, and all tasks complete on the happy path.
+- **KeyboardInterrupt-safe cleanup**: on cancellation the children are cancelled exactly once (avoiding a double-cancel that would abort `finally` blocks that themselves await) and awaited until their cleanup finishes — verified with a self-delivered SIGINT test (`started=[0,1] cleaned=[0,1]`).
+- **Failure path**: if a task raises, remaining tasks are cancelled, their cleanup runs, and the original exception propagates — also verified.

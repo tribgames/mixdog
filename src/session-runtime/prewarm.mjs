@@ -1,0 +1,161 @@
+// Background prewarm/start schedulers, extracted from
+// mixdog-session-runtime.mjs. Dependency-injected factory: timer handles live
+// in a caller-owned `timers` object (so the facade's clearTimeout teardown
+// still sees them) and all state reads go through supplied accessors. Byte-for-
+// byte identical behavior; only grouping changes.
+import { performance } from 'node:perf_hooks';
+
+export function createPrewarmSchedulers({
+  timers,
+  bootProfile,
+  getCurrentCwd,
+  isCloseRequested,
+  getActiveTurnCount,
+  getSessionCreatePromise,
+  getSession,
+  isRemoteEnabled,
+  channelsEnabled,
+  hasActiveAutomation,
+  getCodeGraphModule,
+  createCurrentSession,
+  channels,
+  envFlag,
+  delays,
+  flags,
+  state,
+}) {
+  const { codeGraphPrewarmDelayMs, channelStartDelayMs, backgroundBusyRetryMs } = delays;
+  const { codeGraphPrewarmEnabled } = flags;
+
+  function scheduleCodeGraphPrewarm(delayMs = codeGraphPrewarmDelayMs, reason = 'cwd') {
+    if (!codeGraphPrewarmEnabled) {
+      bootProfile('code-graph:prewarm-skipped', { reason: 'disabled' });
+      return;
+    }
+    if (isCloseRequested()) return;
+    state.codeGraphPrewarmQueuedCwd = getCurrentCwd();
+    if (timers.codeGraphPrewarmTimer) return;
+    timers.codeGraphPrewarmTimer = setTimeout(() => {
+      timers.codeGraphPrewarmTimer = null;
+      if (isCloseRequested()) return;
+      if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
+        bootProfile('code-graph:prewarm-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });
+        scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'busy');
+        return;
+      }
+      if (state.codeGraphPrewarmInFlight) {
+        bootProfile('code-graph:prewarm-deferred', { reason: 'in-flight' });
+        scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'in-flight');
+        return;
+      }
+      const prewarmCwd = state.codeGraphPrewarmQueuedCwd || getCurrentCwd();
+      state.codeGraphPrewarmQueuedCwd = '';
+      state.codeGraphPrewarmInFlight = true;
+      const startedAt = performance.now();
+      bootProfile('code-graph:prewarm:start', { cwd: prewarmCwd, reason });
+      void getCodeGraphModule()
+        .then((mod) => {
+          if (typeof mod?.prewarmCodeGraphIfProject !== 'function') return false;
+          return mod.prewarmCodeGraphIfProject(prewarmCwd);
+        })
+        .then((scheduled) => bootProfile(scheduled ? 'code-graph:prewarm:scheduled' : 'code-graph:prewarm:no-project', {
+          cwd: prewarmCwd,
+          ms: (performance.now() - startedAt).toFixed(1),
+        }))
+        .catch((error) => bootProfile('code-graph:prewarm:failed', {
+          cwd: prewarmCwd,
+          ms: (performance.now() - startedAt).toFixed(1),
+          error: error?.message || String(error),
+        }))
+        .finally(() => {
+          state.codeGraphPrewarmInFlight = false;
+          if (state.codeGraphPrewarmQueuedCwd && !isCloseRequested()) {
+            scheduleCodeGraphPrewarm(backgroundBusyRetryMs, 'queued');
+          }
+        });
+    }, delayMs);
+    timers.codeGraphPrewarmTimer.unref?.();
+  }
+
+  // Tool-runtime warmup: the per-call cold starts a session's FIRST tool call
+  // would otherwise pay — pwsh standby processes (~300ms each) and the o200k
+  // encoder + token-count worker (~100ms). Each part is independent and
+  // best-effort; failures only mark the boot profile.
+  function scheduleToolRuntimeWarmup(delayMs = 2500) {
+    if (envFlag('MIXDOG_DISABLE_TOOL_PREWARM')) {
+      bootProfile('tool-runtime:prewarm-skipped');
+      return;
+    }
+    const timer = setTimeout(() => void (async () => {
+      if (isCloseRequested()) return;
+      try {
+        const { prewarmShellStandbys } = await import('../runtime/agent/orchestrator/tools/builtin/bash-tool.mjs');
+        bootProfile('tool-runtime:shell-standby', { warmed: prewarmShellStandbys() === true });
+      } catch (error) {
+        bootProfile('tool-runtime:shell-standby-failed', { error: error?.message || String(error) });
+      }
+      try {
+        const { prewarmTokenEstimator } = await import('../runtime/agent/orchestrator/session/context-utils.mjs');
+        bootProfile('tool-runtime:token-estimator', { warmed: prewarmTokenEstimator() === true });
+      } catch (error) {
+        bootProfile('tool-runtime:token-estimator-failed', { error: error?.message || String(error) });
+      }
+    })(), delayMs);
+    timer.unref?.();
+  }
+
+  function invokeChannelStart() {
+    if (state.channelStartPromise) return state.channelStartPromise;
+    const startedAt = performance.now();
+    bootProfile('channels:start:begin');
+    state.channelStartPromise = channels.start()
+      .then(() => bootProfile('channels:start:ready', { ms: (performance.now() - startedAt).toFixed(1) }))
+      .catch((error) => bootProfile('channels:start:failed', {
+        ms: (performance.now() - startedAt).toFixed(1),
+        error: error?.message || String(error),
+      }))
+      .finally(() => {
+        state.channelStartPromise = null;
+      });
+    return state.channelStartPromise;
+  }
+
+  function scheduleChannelStart(delayMs = channelStartDelayMs) {
+    if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
+      bootProfile('channels:start-skipped');
+      return;
+    }
+    if (timers.channelStartTimer || state.channelStartPromise || isCloseRequested()) return;
+    bootProfile('channels:start-scheduled', { delayMs });
+    timers.channelStartTimer = setTimeout(() => void (async () => {
+      timers.channelStartTimer = null;
+      if (isCloseRequested()) return;
+      // Channels-module and remote toggles gate MESSAGING; automation
+      // (enabled schedules/webhooks) keeps the worker boot alive — its
+      // backend runs headless when messaging is off or unconfigured.
+      const automation = await hasActiveAutomation().catch(() => false);
+      if (!channelsEnabled() && !automation) {
+        bootProfile('channels:start-disabled');
+        return;
+      }
+      // A deferred start may straddle a stopRemote(); re-check before booting so
+      // a turned-off session neither starts channels nor keeps rescheduling.
+      if (!isRemoteEnabled() && !automation) return;
+      if (isCloseRequested()) return;
+      if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
+        bootProfile('channels:start-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });
+        scheduleChannelStart(backgroundBusyRetryMs);
+        return;
+      }
+      void invokeChannelStart();
+    })(), delayMs);
+    timers.channelStartTimer.unref?.();
+  }
+
+  return {
+    scheduleCodeGraphPrewarm,
+    scheduleToolRuntimeWarmup,
+    invokeChannelStart,
+    scheduleChannelStart,
+  };
+}

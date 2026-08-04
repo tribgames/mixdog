@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "types": ["vite/client"]
+  },
+  "files": [
+    "src/preload/index.d.ts",
+    "src/shared/contract.ts",
+    "src/renderer/desktop-api.d.ts",
+    "src/renderer/fontsource.d.ts",
+    "src/renderer/monaco-basic-languages.d.ts",
+    "src/renderer/renderer-logic.d.mts",
+    "src/renderer/App.tsx",
+    "src/renderer/main.tsx"
+  ]
+}

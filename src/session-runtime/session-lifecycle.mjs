@@ -1,0 +1,372 @@
+// Session lifecycle, extracted from runtime-core.mjs: first-turn route
+// resolution, route-effort refresh, and createCurrentSession (provider
+// session construction with MCP wiring and reset handling). Shared mutable
+// runtime state flows through the rt bag.
+import { ensureProviderEnabled, normalizeCompactionConfig } from './config-helpers.mjs';
+import { clean, hasOwn } from './session-text.mjs';
+import { coerceEffortFor, deferredSurfaceModeForLead, effortItemsFor, toolSpecForMode } from './effort.mjs';
+import { fastCapableFor } from './model-capabilities.mjs';
+import { bootProfile } from './boot-profile.mjs';
+import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
+import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
+import { attachSessionHooks } from './session-hooks.mjs';
+import { applyDeferredToolSurface } from './tool-catalog.mjs';
+import { writeStatuslineRoute } from './statusline-route.mjs';
+import { createWarmupSchedulers } from './warmup-schedulers.mjs';
+import { warmCatalogsInBackground } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
+import { envFlag } from './env.mjs';
+import { createPrewarmSchedulers } from './prewarm.mjs';
+import { hasActiveAutomation } from '../standalone/channel-admin.mjs';
+import { createRemoteTranscript } from './remote-transcript.mjs';
+export function createSessionLifecycle({
+  rt,
+  collectProviderModels,
+  ensureProvidersReady,
+  lookupModelMeta,
+  mgr,
+  loadCoreMemoryContext,
+  awaitKeychainPrewarm,
+  ensureConfigForRouteProvider,
+  reg,
+  cfgMod,
+  activeWorkflowContext,
+  memoryEnabled,
+  hooks,
+  hookCommonPayload,
+  mcpClient,
+  modelStandaloneTools,
+  applyPreSessionToolSelection,
+  statusRoutes,
+  warmupTimers,
+  providerModelCaches,
+  reloadFullConfig,
+  refreshStatuslineUsageSnapshot,
+  warmProviderModelCache,
+  cachedProviderSetup,
+  providerWarmupDelayMs,
+  providerSetupWarmupDelayMs,
+  providerModelWarmupDelayMs,
+  modelCatalogWarmupDelayMs,
+  statuslineUsageWarmupDelayMs,
+  statuslineUsageRefreshDelayMs,
+  backgroundBusyRetryMs,
+  providerWarmupEnabled,
+  modelPrefetchEnabled,
+  modelCatalogWarmupEnabled,
+  prewarmTimers,
+  channelsEnabled,
+  getCodeGraphModule,
+  channels,
+  codeGraphPrewarmDelayMs,
+  channelStartDelayMs,
+  codeGraphPrewarmEnabled,
+  prewarmState,
+}) {
+  async function resolveMissingRouteModelForFirstTurn() {
+    if (routeHasModel()) return rt.route;
+    const models = await collectProviderModels();
+    const picked = models[0] || null;
+    if (!picked) {
+      throw new Error('No provider models available. Open /providers to sign in, then /model to choose a model.');
+    }
+    rt.route = {
+      ...rt.route,
+      provider: picked.provider,
+      model: picked.id,
+      preset: null,
+    };
+    return rt.route;
+  }
+
+  async function refreshRouteEffort(modelMetaOverride = null, expectedRoute = null) {
+    const targetRoute = expectedRoute || rt.route;
+    await ensureProvidersReady(ensureProviderEnabled(rt.config, targetRoute.provider));
+    const modelMeta = modelMetaOverride || await lookupModelMeta(targetRoute.provider, targetRoute.model);
+    // A rapid second resume/model change can replace the route while provider
+    // metadata is loading. Never let the older completion overwrite it.
+    if (expectedRoute && rt.route !== expectedRoute) return null;
+    const requested = hasOwn(targetRoute, 'effort')
+      ? targetRoute.effort
+      : (targetRoute.preset?.effort || null);
+    const effectiveEffort = coerceEffortFor(targetRoute.provider, modelMeta, requested);
+    const fastCapable = fastCapableFor(targetRoute.provider, modelMeta);
+    // Carry the catalog display name onto the route so the statusline shows a
+    // human label (e.g. "Claude Fable 5") for preset-less direct models instead
+    // of the raw id. `name` is only trusted when it differs from the raw model
+    // id (some providers echo the id as `name`), so it can't clobber a better
+    // already-resolved label. Falls back to existing route.modelDisplay, then unset.
+    const metaName = clean(modelMeta?.name);
+    const modelDisplay = clean(modelMeta?.display) || clean(modelMeta?.displayName)
+      || (metaName && metaName !== clean(targetRoute.model) ? metaName : '')
+      || clean(targetRoute.modelDisplay);
+    rt.route = {
+      ...targetRoute,
+      fast: fastCapable ? targetRoute.fast === true : false,
+      fastCapable,
+      effectiveEffort,
+      effortOptions: effortItemsFor(rt.route.provider, modelMeta, effectiveEffort),
+      ...(modelDisplay ? { modelDisplay } : {}),
+    };
+    return rt.route;
+  }
+
+  function routeHasModel() {
+    return !!clean(rt.route?.model);
+  }
+
+  function requireModelRoute() {
+    if (routeHasModel()) return;
+    throw new Error('No model configured. Open /providers to sign in, then /model to choose a model.');
+  }
+
+  async function recreateCurrentSessionIfReady() {
+    if (!routeHasModel()) {
+      rt.session = null;
+      return null;
+    }
+    return await createCurrentSession();
+  }
+
+  async function createCurrentSession(reason = 'demand') {
+    if (rt.sessionCreatePromise) return await rt.sessionCreatePromise;
+    if (rt.session?.id && !rt.sessionNeedsCwdRefresh) {
+      const liveSession = mgr.getSession(rt.session.id);
+      if (liveSession && liveSession.closed !== true && liveSession.status !== 'closed') {
+        rt.session = liveSession;
+        return rt.session;
+      }
+      rt.session = null;
+    }
+
+    const startedAt = performance.now();
+    bootProfile('session:create:start', { mode: rt.mode, reason });
+    const promise = (async () => {
+      // Demand-only: this starts only after the user submits (unless an
+      // explicitly enabled prewarm caller asks for a session). Core-memory
+      // startup does not depend on keychain/provider readiness, so overlap the
+      // two cold paths instead of paying their bounded waits serially.
+      const coreMemoryContextPromise = loadCoreMemoryContext();
+      await awaitKeychainPrewarm();
+      ensureConfigForRouteProvider();
+      await resolveMissingRouteModelForFirstTurn();
+      requireModelRoute();
+      bootProfile('session:create:route-ready', { ms: (performance.now() - startedAt).toFixed(1) });
+      // Route effort waits on provider readiness while the already-started
+      // memory load continues independently.
+      const [, coreMemoryContext] = await Promise.all([
+        refreshRouteEffort(),
+        coreMemoryContextPromise,
+      ]);
+      bootProfile('session:create:effort-ready', { ms: (performance.now() - startedAt).toFixed(1) });
+      const providerImpl = reg.getProvider(rt.route.provider);
+      if (!providerImpl) {
+        throw new Error(`Provider "${rt.route.provider}" is not configured.`);
+      }
+      bootProfile('session:create:provider-ready', { ms: (performance.now() - startedAt).toFixed(1) });
+      if (rt.closeRequested) throw new Error('runtime is closing');
+      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
+      // Load the active WORKFLOW.md pack once for both summary + context block.
+      const { summary: workflow, context: workflowContext } = activeWorkflowContext(rt.config, dataDir);
+      const sessionOpts = {
+        provider: rt.route.provider,
+        model: rt.route.model,
+        preset: rt.route.preset || undefined,
+        tools: toolSpecForMode(rt.mode),
+        owner: 'cli',
+        agent: 'lead',
+        lane: 'cli',
+        sourceType: 'lead',
+        sourceName: 'main',
+        clientHostPid: process.pid,
+        disallowedTools: LEAD_DISALLOWED_TOOLS,
+        cwd: rt.currentCwd,
+        ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
+        coreMemoryContext,
+        workflow,
+        workflowContext,
+        fast: rt.route.fast === true,
+        compaction: rt.config.compaction && typeof rt.config.compaction === 'object'
+          ? normalizeCompactionConfig(rt.config.compaction, { memoryEnabled: memoryEnabled() })
+          : undefined,
+      };
+      if (hasOwn(rt.route, 'effort') || rt.route.effectiveEffort) {
+        sessionOpts.effort = rt.route.effectiveEffort || null;
+      }
+      rt.session = mgr.createSession(sessionOpts);
+      rt.sessionNeedsCwdRefresh = false;
+      attachSessionHooks(rt.session, { hooks, hookCommonPayload, getCwd: () => rt.currentCwd });
+      // Every-create MCP fold (NO blocking): seed the INITIAL provider-visible
+      // surface (and native BP1 manifest) from MCP servers connected at create
+      // time. There is no await — a boot connect still mid-handshake is caught on
+      // the first user turn by refreshInitialDeferredMcpSurface (session-turn-api),
+      // which re-folds the live registry into the first-turn surface before the
+      // prompt renders. This fold keeps recreate paths (cwd change with MCP
+      // already connected) seeding their manifest instead of re-announcing late.
+      let connectedMcpTools = [];
+      try { connectedMcpTools = mcpClient.getMcpTools?.() || []; }
+      catch { connectedMcpTools = []; }
+      applyDeferredToolSurface(
+        rt.session,
+        deferredSurfaceModeForLead(rt.mode),
+        connectedMcpTools.length ? [...modelStandaloneTools(), ...connectedMcpTools] : modelStandaloneTools(),
+        { provider: rt.route.provider },
+      );
+      // Session-local one-shot: mark this FRESH session eligible for the
+      // first-turn deferred-surface refresh (session-turn-api). A resumed
+      // session (prior transcript) is NEVER marked, so its already-baked BP1 is
+      // never rebuilt or re-announced — the gate is per-session, not the
+      // process-wide firstTurnCompleted.
+      rt.session.deferredInitialRefreshPending = !/resume/i.test(String(reason || ''));
+      applyPreSessionToolSelection();
+      writeStatuslineRoute(statusRoutes, rt.session, rt.route);
+      hooks.emit('session:create', { sessionId: rt.session.id, provider: rt.route.provider, model: rt.route.model, toolMode: rt.mode, cwd: rt.currentCwd });
+      // SessionStart: bridge to the standard project hook bus. Best-effort;
+      // a hook error must never break session creation. additionalContext is
+      // injected before the first user turn as a system-reminder context pair.
+      try {
+        const startSource = /resume/i.test(String(reason || ''))
+          ? 'resume'
+          : (/clear/i.test(String(reason || '')) ? 'clear' : 'startup');
+        const startDispatch = await hooks.dispatch('SessionStart', hookCommonPayload({ session_id: rt.session.id, source: startSource, model: rt.route.model }));
+        const startContext = Array.isArray(startDispatch?.additionalContext)
+          ? startDispatch.additionalContext.join('\n\n')
+          : String(startDispatch?.additionalContext || '');
+        if (startContext.trim()) {
+          rt.session.messages.push({ role: 'user', content: `<system-reminder>\n# SessionStart Hook Context\n${startContext.trim()}\n</system-reminder>` });
+          rt.session.messages.push({ role: 'assistant', content: '.' });
+          rt.session.updatedAt = Date.now();
+        }
+      } catch { /* best-effort: never break session create */ }
+      bootProfile('session:create:ready', {
+        ms: (performance.now() - startedAt).toFixed(1),
+        reason,
+        tools: Array.isArray(rt.session.tools) ? rt.session.tools.length : 0,
+        catalog: Array.isArray(rt.session.deferredToolCatalog) ? rt.session.deferredToolCatalog.length : 0,
+      });
+      // A rebind push may have been deferred (e.g. 'acquired' landed before this
+      // session existed). The writer is now bindable — flush it exactly once.
+      remoteTranscript.flushPendingTranscriptRebind();
+      return rt.session;
+    })();
+
+    rt.sessionCreatePromise = promise;
+    try {
+      return await promise;
+    } finally {
+      if (rt.sessionCreatePromise === promise) rt.sessionCreatePromise = null;
+    }
+  }
+
+  const {
+    scheduleProviderWarmup,
+    scheduleProviderSetupWarmup,
+    scheduleProviderModelWarmup,
+    scheduleModelCatalogWarmup,
+    scheduleStatuslineUsageWarmup,
+    scheduleStatuslineUsageRefresh,
+  } = createWarmupSchedulers({
+    timers: warmupTimers,
+    bootProfile,
+    getRoute: () => rt.route,
+    getConfig: () => rt.config,
+    isCloseRequested: () => rt.closeRequested,
+    getActiveTurnCount: () => rt.activeTurnCount,
+    getSessionCreatePromise: () => rt.sessionCreatePromise,
+    getProviderModelsCache: () => providerModelCaches.providerModelsCache,
+    getProviderModelsPromise: () => providerModelCaches.providerModelsPromise,
+    reloadFullConfig,
+    ensureConfigForRouteProvider,
+    awaitKeychainPrewarm,
+    ensureProvidersReady,
+    ensureProviderEnabled,
+    refreshStatuslineUsageSnapshot,
+    warmProviderModelCache,
+    cachedProviderSetup,
+    warmCatalogsInBackground,
+    isFirstTurnCompleted: () => rt.firstTurnCompleted,
+    isCatalogRefreshPending: () => rt.startupProviderCatalogRefreshPending,
+    envFlag,
+    delays: {
+      providerWarmupDelayMs,
+      providerSetupWarmupDelayMs,
+      providerModelWarmupDelayMs,
+      modelCatalogWarmupDelayMs,
+      statuslineUsageWarmupDelayMs,
+      statuslineUsageRefreshDelayMs,
+      backgroundBusyRetryMs,
+    },
+    flags: {
+      providerWarmupEnabled,
+      modelPrefetchEnabled,
+      modelCatalogWarmupEnabled,
+    },
+  });
+  rt.scheduleProviderModelWarmupRef = scheduleProviderModelWarmup;
+  rt.scheduleProviderSetupWarmupRef = scheduleProviderSetupWarmup;
+
+  const {
+    scheduleCodeGraphPrewarm,
+    scheduleToolRuntimeWarmup,
+    invokeChannelStart,
+    scheduleChannelStart,
+  } = createPrewarmSchedulers({
+    timers: prewarmTimers,
+    bootProfile,
+    getCurrentCwd: () => rt.currentCwd,
+    isCloseRequested: () => rt.closeRequested,
+    getActiveTurnCount: () => rt.activeTurnCount,
+    getSessionCreatePromise: () => rt.sessionCreatePromise,
+    getSession: () => rt.session,
+    isRemoteEnabled: () => rt.remoteEnabled,
+    channelsEnabled,
+    hasActiveAutomation,
+    getCodeGraphModule,
+    createCurrentSession,
+    channels,
+    envFlag,
+    delays: {
+      codeGraphPrewarmDelayMs,
+      channelStartDelayMs,
+      backgroundBusyRetryMs,
+    },
+    flags: {
+      codeGraphPrewarmEnabled,
+    },
+    state: prewarmState,
+  });
+
+  // Remote transcript binding + worker rebind pushes live in
+  // remote-transcript.mjs; the facade injects the mutable session/cwd/remote
+  // state it needs.
+  const remoteTranscript = createRemoteTranscript({
+    getSession: () => rt.session,
+    getCwd: () => rt.currentCwd,
+    isRemoteEnabled: () => rt.remoteEnabled,
+    getRemoteSessionId: () => rt.remoteSessionId,
+    setRemoteSessionId: (next) => { rt.remoteSessionId = next; },
+    isCloseRequested: () => rt.closeRequested,
+    channelsEnabled,
+    channels,
+    bootProfile,
+  });
+
+  return {
+    resolveMissingRouteModelForFirstTurn,
+    scheduleProviderWarmup,
+    scheduleProviderSetupWarmup,
+    scheduleProviderModelWarmup,
+    scheduleModelCatalogWarmup,
+    scheduleStatuslineUsageWarmup,
+    scheduleStatuslineUsageRefresh,
+    scheduleCodeGraphPrewarm,
+    scheduleToolRuntimeWarmup,
+    invokeChannelStart,
+    scheduleChannelStart,
+    refreshRouteEffort,
+    routeHasModel,
+    requireModelRoute,
+    recreateCurrentSessionIfReady,
+    createCurrentSession,
+    remoteTranscript,
+  };
+}

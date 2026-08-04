@@ -1,0 +1,110 @@
+{
+    "id": "51c70f07-4012-4893-9c67-29aeb09176f4",
+    "task_name": "terminal-bench/password-recovery",
+    "trial_name": "password-recovery__KWRuvhm",
+    "trial_uri": "file:///C:/Project/mixdog/bench/harbor/jobs-21-infra-retry/2026-07-05__23-08-26/password-recovery__KWRuvhm",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "password-recovery",
+        "ref": "sha256:9b5c6bdce0cf03f075b21f6a7af5030b825ce07d7b16b37610f3964217ab84a4"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "a8b12d116b3a8e03e946f0db92b77e789cfa26ecb49a56be5723ff47a03a532d",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/password-recovery",
+            "ref": "sha256:9b5c6bdce0cf03f075b21f6a7af5030b825ce07d7b16b37610f3964217ab84a4",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "password-recovery__KWRuvhm",
+        "trials_dir": "bench\\harbor\\jobs-21-infra-retry\\2026-07-05__23-08-26",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "bench.harbor.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "96810f0f-b046-47fb-96bc-681256286817"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.18",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-07-05T14:56:53.045267Z",
+    "finished_at": "2026-07-05T15:02:40.647552Z",
+    "environment_setup": {
+        "started_at": "2026-07-05T14:56:53.095867Z",
+        "finished_at": "2026-07-05T14:57:04.303016Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-07-05T14:57:04.303037Z",
+        "finished_at": "2026-07-05T14:58:04.504541Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-07-05T14:58:04.504581Z",
+        "finished_at": "2026-07-05T15:02:27.657613Z"
+    },
+    "verifier": {
+        "started_at": "2026-07-05T15:02:27.658770Z",
+        "finished_at": "2026-07-05T15:02:37.523772Z"
+    },
+    "step_results": null
+}

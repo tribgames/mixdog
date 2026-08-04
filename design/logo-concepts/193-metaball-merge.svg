@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="mb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#c05cff"/>
+    </linearGradient>
+    <filter id="goo">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -11"/>
+    </filter>
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#0c0e13"/>
+  <g filter="url(#goo)" fill="url(#mb)">
+    <circle cx="96" cy="152" r="44"/>
+    <circle cx="160" cy="106" r="38"/>
+    <circle cx="128" cy="130" r="24"/>
+  </g>
+</svg>

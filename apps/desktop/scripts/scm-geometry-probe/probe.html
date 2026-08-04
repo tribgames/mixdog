@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Source Control dock geometry probe</title>
+<link rel="stylesheet" href="../../src/renderer/ui/tokens.css" />
+<link rel="stylesheet" href="../../src/renderer/styles.css" />
+<link rel="stylesheet" href="../../src/renderer/desktop.css" />
+<link rel="stylesheet" href="../../src/renderer/pane-layout.css" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  #shell { display: flex; height: 100vh; }
+  #workspace { flex: 1 1 auto; min-width: 0; }
+  #dock { flex: 0 0 auto; width: 300px; }
+</style>
+</head>
+<body>
+  <div id="shell">
+    <main id="workspace"></main>
+    <aside id="dock" class="utility-dock">
+      <div class="utility-dock-body stable-surface-switch" data-ready="true" data-transitioning="false">
+        <div id="pane" class="utility-dock-pane stable-surface-layer"
+          data-tab="source-control" data-surface-active="true"></div>
+      </div>
+    </aside>
+  </div>
+  <script src="./probe.bundle.js"></script>
+</body>
+</html>

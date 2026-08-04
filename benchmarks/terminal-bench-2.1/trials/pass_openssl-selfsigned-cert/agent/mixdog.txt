@@ -1,0 +1,9 @@
+(node:1143) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1143_1783247356719_1783247356853_aab9aa92dafea4b8d3647f83a4021602
+Done — certificate stack created and verified end-to-end.
+
+- **Generated** 2048-bit RSA key (`/app/ssl/server.key`, mode 600), 365-day self-signed cert with `O=DevOps Team, CN=dev-internal.company.local` (`server.crt`), and combined `server.pem` (key + cert, 2 PEM blocks).
+- **verification.txt** contains subject, `notBefore`/`notAfter` dates (OpenSSL format with GMT timezone), and SHA-256 fingerprint.
+- **Verified**: `openssl verify` returns OK, `openssl rsa -check` passes, and `/app/check_cert.py` loads the cert, prints CN and expiration `2027-07-05`, and ends with "Certificate verification successful".

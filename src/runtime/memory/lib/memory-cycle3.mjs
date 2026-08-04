@@ -1,0 +1,915 @@
+import { __mixdogMemoryLog } from './memory-log.mjs';
+
+// Cycle 3 — user-curated core memory review.
+//
+// Walks every row in core_entries (via listCore('*')), retrieves the related
+// current memory for each row using searchRelevantHybrid, packs both into a
+// {{CORE_REVIEW}} block for defaults/cycle3-review-prompt.md, then asks the
+// maintenance-preset LLM for one verdict per id. By default Cycle3 performs
+// conservative cleanup: safe compression updates and strict duplicate merges
+// are applied. Deletes now also apply in conservative mode when the model
+// tags the entry as clear junk (a whitelisted junk reason) and — for
+// redundant-with-default reasons — the text actually echoes a current rule,
+// bounded by a per-run delete cap so a run keeps a safety margin instead of
+// nuking the whole set. Unreasoned / non-junk deletes still require APPLY.
+//
+// Verdict line grammar (mirrors parseUnifiedFormat in memory-cycle2.mjs):
+//   <id>|keep
+//   <id>|update|<element>|<summary>
+//   <id>|merge|<target_id>|<source_ids_csv>
+//   <id>|delete|<reason>
+//   <id>|reclassify|<project_slug|common>
+
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
+import { fileURLToPath } from 'url'
+import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
+import { callAgentDispatch } from './agent-ipc.mjs'
+import { listCore, editCore, deleteCore, archiveCore } from './core-memory-store.mjs'
+import { reclassifyCore } from './core-memory-store.mjs'
+import { loadCurrentRulesDigest } from './memory-cycle2.mjs'
+import { embedText } from './embedding-provider.mjs'
+import { searchRelevantHybrid } from './memory-recall-store.mjs'
+import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
+
+function resourceDir() {
+  return process.env.MIXDOG_ROOT || fileURLToPath(new URL('../../../..', import.meta.url))
+}
+
+async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch) {
+  return await llmCall({
+    agent: 'cycle3-agent',
+    taskType: 'maintenance',
+    mode,
+    preset,
+    timeout,
+    cwd: null,
+  }, prompt)
+}
+
+export async function invokeCycle3Maintenance(prompt, options = {}) {
+  const preset = options.preset || resolveMaintenancePreset('memory')
+  return await invokeLlm(
+    prompt,
+    'cycle3-review',
+    preset,
+    Number(options.timeout ?? 600000),
+    options.callLlm,
+  )
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw signal.reason ?? new Error('aborted')
+}
+
+function resolveApplyMode(config, options = {}) {
+  if (options?.apply === true) return 'confirmed'
+  if (options?.apply === false) return 'proposal'
+  const raw = String(options?.applyMode || config?.cycle3?.applyMode || 'conservative').trim().toLowerCase()
+  if (raw === 'proposal' || raw === 'dry-run' || raw === 'dryrun') return 'proposal'
+  return 'conservative'
+}
+
+function normalizeComparable(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[|`"'“”‘’()[\]{}<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function compactComparable(value) {
+  return normalizeComparable(value).replace(/\s+/g, '')
+}
+
+function charDice(a, b) {
+  const aa = compactComparable(a)
+  const bb = compactComparable(b)
+  if (!aa || !bb) return 0
+  if (aa === bb) return 1
+  if (aa.length < 3 || bb.length < 3) return aa === bb ? 1 : 0
+  const grams = (s) => {
+    const m = new Map()
+    for (let i = 0; i <= s.length - 3; i++) {
+      const g = s.slice(i, i + 3)
+      m.set(g, (m.get(g) || 0) + 1)
+    }
+    return m
+  }
+  const ga = grams(aa)
+  const gb = grams(bb)
+  let overlap = 0
+  for (const [g, n] of ga) overlap += Math.min(n, gb.get(g) || 0)
+  const total = [...ga.values()].reduce((s, n) => s + n, 0) + [...gb.values()].reduce((s, n) => s + n, 0)
+  return total > 0 ? (2 * overlap) / total : 0
+}
+
+function coreText(core) {
+  return `${core?.element || ''}\n${core?.summary || ''}`
+}
+
+function hasSubstantialNonLatinScript(value) {
+  const text = String(value ?? '')
+  const letters = text.match(/\p{L}/gu) || []
+  const latinLetters = letters.filter((letter) => /\p{Script=Latin}/u.test(letter))
+  const nonLatinLetters = letters.length - latinLetters.length
+  return nonLatinLetters >= 3 && nonLatinLetters >= letters.length * 0.3
+}
+
+function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return null
+  let dot = 0
+  let aNorm = 0
+  let bNorm = 0
+  for (let i = 0; i < a.length; i++) {
+    if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) return null
+    dot += a[i] * b[i]
+    aNorm += a[i] ** 2
+    bNorm += b[i] ** 2
+  }
+  if (aNorm === 0 || bNorm === 0) return null
+  return dot / Math.sqrt(aNorm * bNorm)
+}
+
+async function isSafeConservativeUpdate(current, action) {
+  if (!current || !action?.element || !action?.summary) return { ok: false, reason: 'missing text' }
+  const newElement = normalizeComparable(action.element)
+  const newSummary = normalizeComparable(action.summary)
+  if (!newElement || !newSummary) return { ok: false, reason: 'empty rewrite' }
+  const oldText = coreText(current)
+  const newText = `${action.element}\n${action.summary}`
+  const oldLen = normalizeComparable(oldText).length
+  const newLen = normalizeComparable(newText).length
+  const sim = charDice(oldText, newText)
+  const crossLanguageRewrite = sim < 0.28 && hasSubstantialNonLatinScript(oldText)
+  if (!crossLanguageRewrite) {
+    if (oldLen > 0 && newLen > oldLen + 20) return { ok: false, reason: 'rewrite expands entry' }
+    if (sim < 0.28) return { ok: false, reason: `rewrite drift sim=${sim.toFixed(2)}` }
+    return { ok: true, reason: 'safe compression' }
+  }
+
+  try {
+    const [oldEmbedding, newEmbedding] = await Promise.all([embedText(oldText), embedText(newText)])
+    const cosine = cosineSimilarity(oldEmbedding, newEmbedding)
+    if (cosine == null) return { ok: false, reason: 'cross-language embedding invalid' }
+    if (cosine < 0.6) return { ok: false, reason: `cross-language semantic drift cosine=${cosine.toFixed(2)}` }
+    return { ok: true, reason: `safe cross-language rewrite cosine=${cosine.toFixed(2)}` }
+  } catch (err) {
+    return { ok: false, reason: `cross-language embedding failed: ${err?.message || 'unknown error'}` }
+  }
+}
+
+function findElementConflict(coreById, currentId, element, projectId) {
+  const nextElement = String(element ?? '').trim()
+  if (!nextElement) return null
+  for (const [id, row] of coreById) {
+    if (Number(id) === Number(currentId)) continue
+    if ((row.project_id ?? null) !== (projectId ?? null)) continue
+    if (String(row.element ?? '') === nextElement) return Number(id)
+  }
+  return null
+}
+
+function isStrictDuplicate(a, b) {
+  if (!a || !b) return false
+  const ae = compactComparable(a.element)
+  const be = compactComparable(b.element)
+  const as = compactComparable(a.summary)
+  const bs = compactComparable(b.summary)
+  if (as && bs && as === bs) return true
+  if (ae && be && ae === be && charDice(a.summary, b.summary) >= 0.65) return true
+  const sim = charDice(coreText(a), coreText(b))
+  return sim >= 0.78
+}
+
+// Whitelisted delete reasons that conservative mode may auto-apply. These are
+// the "clear junk" classes: a copy of a built-in/default rule, a bare
+// restatement, an obsolete/already-implemented decision, or a past-event log.
+// Anything outside this set (or a bare `delete` with no reason) stays held for
+// APPLY CYCLE3 so genuinely durable rules are never removed unattended.
+const SAFE_DELETE_REASONS = new Set([
+  'duplicate', 'dup', 'duplicate_of_default', 'default', 'redundant',
+  'restatement', 'restate', 'restates_default',
+  'obsolete', 'implemented', 'done', 'completed', 'resolved',
+  'superseded_decision', 'stale', 'past_event', 'event_log', 'log',
+])
+// Reasons that claim redundancy with a built-in/default rule — these demand
+// corroboration (the core text must actually echo the current rules digest)
+// before a conservative auto-delete, so a mislabelled durable rule survives.
+const DEFAULT_ECHO_REASONS = new Set([
+  'duplicate', 'dup', 'duplicate_of_default', 'default', 'redundant',
+  'restatement', 'restate', 'restates_default',
+])
+
+function normalizeDeleteReason(reason) {
+  return String(reason ?? '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+// Max trigram similarity of `text` against any substantive line of the current
+// rules digest — how strongly a core entry echoes a built-in rule.
+function digestRedundancy(text, rulesDigest) {
+  if (!text || !rulesDigest) return 0
+  const lines = String(rulesDigest).split('\n').map(l => l.trim()).filter(l => l.length >= 12)
+  let best = 0
+  for (const line of lines) {
+    const d = charDice(text, line)
+    if (d > best) best = d
+    if (best >= 0.9) break
+  }
+  return best
+}
+
+function isSafeConservativeDelete(core, action, rulesDigest) {
+  const reason = normalizeDeleteReason(action?.reason)
+  if (!reason) return { ok: false, reason: 'delete needs a junk reason → APPLY CYCLE3' }
+  if (!SAFE_DELETE_REASONS.has(reason)) return { ok: false, reason: `delete reason "${reason}" not in safe set → APPLY CYCLE3` }
+  if (DEFAULT_ECHO_REASONS.has(reason)) {
+    const red = digestRedundancy(coreText(core), rulesDigest)
+    if (red < 0.5) return { ok: false, reason: `not redundant with defaults (sim=${red.toFixed(2)})` }
+  }
+  return { ok: true, reason }
+}
+
+function formatRelatedRow(r) {
+  const tag = r.project_id ? r.project_id : 'COMMON'
+  const stat = r.status ? `[${r.status}]` : '[?]'
+  const el = r.element ? `el:${r.element} ` : ''
+  const sm = String(r.summary || r.content || '').replace(/\s+/g, ' ').slice(0, 160)
+  return `    - id:${r.id} ${stat} ${tag} ${r.category ?? '?'} ${el}sm:${sm}`
+}
+
+function formatCoreBlock(core, related) {
+  const tag = core.project_id ? core.project_id : 'COMMON'
+  const head = `## CORE id:${core.id} ${tag} ${core.category}`
+  const el = `  element: ${core.element}`
+  const sm = `  summary: ${String(core.summary || '').replace(/\s+/g, ' ')}`
+  const rel = related && related.length
+    ? `  related current memory (top ${related.length}):\n` + related.map(formatRelatedRow).join('\n')
+    : `  related current memory: (none found)`
+  return [head, el, sm, rel].join('\n')
+}
+
+// Parse cycle3 verdict lines. Returns { actions } where each action is one of
+// { id, verb:'keep' } | { id, verb:'update', element, summary }
+// | { id, verb:'merge', targetId, sourceIds:[...] } | { id, verb:'delete' }.
+function parseVerdicts(raw, idSet) {
+  if (raw == null) return null
+  const text = String(raw).trim()
+  if (!text) return { actions: [] }
+  const lines = text.split('\n')
+  const actions = []
+  let sawValid = false
+  for (const rawLine of lines) {
+    const line = rawLine.trim().replace(/^\d+[\.)]?\s+(?=\d+\|)/, '')
+    if (!line) continue
+    if (line.startsWith('//') || line.startsWith('#')) continue
+    if (line.startsWith('```')) continue
+    const parts = line.split('|')
+    if (parts.length < 2) continue
+    const id = Number(parts[0].trim())
+    const verb = parts[1].trim().toLowerCase()
+    if (!Number.isFinite(id) || !verb) continue
+    if (!idSet.has(id)) continue
+    sawValid = true
+    if (verb === 'keep') {
+      actions.push({ id, verb: 'keep' })
+    } else if (verb === 'update') {
+      const element = (parts[2] ?? '').trim()
+      const summary = parts.slice(3).join('|').trim()
+      if (!element || !summary) continue
+      actions.push({ id, verb: 'update', element, summary })
+    } else if (verb === 'merge') {
+      const targetId = Number((parts[2] ?? '').trim())
+      const sourceIds = [...new Set((parts[3] ?? '')
+        .split(',')
+        .map(s => Number(String(s).trim()))
+        .filter(n => Number.isFinite(n) && idSet.has(n)))]
+      if (!Number.isFinite(targetId) || !idSet.has(targetId)) {
+        __mixdogMemoryLog(`[cycle3] merge rejected: id=${id} invalid target\n`)
+        continue
+      }
+      if (sourceIds.length === 0) {
+        __mixdogMemoryLog(`[cycle3] merge rejected: id=${id} invalid sources\n`)
+        continue
+      }
+      if (targetId !== id && !sourceIds.includes(id)) {
+        __mixdogMemoryLog(
+          `[cycle3] merge rejected: id=${id} must be target or listed source (target=${targetId} sources=${sourceIds.join(',')})\n`,
+        )
+        continue
+      }
+      actions.push({ id, verb: 'merge', targetId, sourceIds })
+    } else if (verb === 'delete') {
+      const reason = (parts[2] ?? '').trim()
+      actions.push({ id, verb: 'delete', reason: reason || null })
+    } else if (verb === 'reclassify' || verb === 'reproject' || verb === 'rescope') {
+      // Project classification correction: move a mis-scoped entry to the right
+      // pool. `<id>|reclassify|<project_slug|common>`. A missing target scope
+      // has no destination → drop. 'common' (case-insensitive) → COMMON pool.
+      const rawTarget = (parts[2] ?? '').trim()
+      if (!rawTarget) {
+        __mixdogMemoryLog(`[cycle3] reclassify rejected: id=${id} missing target scope\n`)
+        continue
+      }
+      const projectId = /^common$/i.test(rawTarget) ? null : rawTarget
+      actions.push({ id, verb: 'reclassify', projectId })
+    } else if (verb === 'superseded' || verb === 'supersede') {
+      // Require newer-id proof: `id|superseded|<newer_id>`. Without a valid
+      // newer active core id the supersession has no evidence → drop to keep.
+      const newerId = Number((parts[2] ?? '').trim())
+      if (!Number.isFinite(newerId) || !idSet.has(newerId) || newerId === id) {
+        __mixdogMemoryLog(`[cycle3] superseded rejected: id=${id} invalid/missing newer_id=${parts[2] ?? ''} → keep\n`)
+        actions.push({ id, verb: 'keep' })
+        continue
+      }
+      actions.push({ id, verb: 'superseded', newerId })
+    }
+  }
+  if (!sawValid) return null
+  return { actions }
+}
+
+const _runCycle3InFlight = new WeakMap()
+
+function mergeCycle3Counts(a = {}, b = {}) {
+  return {
+    kept: Number(a.kept || 0) + Number(b.kept || 0),
+    updated: Number(a.updated || 0) + Number(b.updated || 0),
+    merged: Number(a.merged || 0) + Number(b.merged || 0),
+    deleted: Number(a.deleted || 0) + Number(b.deleted || 0),
+    reclassified: Number(a.reclassified || 0) + Number(b.reclassified || 0),
+  }
+}
+
+function mergeCycle3Results(a, b) {
+  if (!a) return b
+  if (!b) return a
+  return {
+    ...a,
+    ...b,
+    reviewed: Number(a.reviewed || 0) + Number(b.reviewed || 0),
+    kept: Number(a.kept || 0) + Number(b.kept || 0),
+    updated: Number(a.updated || 0) + Number(b.updated || 0),
+    merged: Number(a.merged || 0) + Number(b.merged || 0),
+    deleted: Number(a.deleted || 0) + Number(b.deleted || 0),
+    reclassified: Number(a.reclassified || 0) + Number(b.reclassified || 0),
+    proposed: mergeCycle3Counts(a.proposed, b.proposed),
+    held: {
+      updated: Number(a?.held?.updated || 0) + Number(b?.held?.updated || 0),
+      merged: Number(a?.held?.merged || 0) + Number(b?.held?.merged || 0),
+      deleted: Number(a?.held?.deleted || 0) + Number(b?.held?.deleted || 0),
+      reclassified: Number(a?.held?.reclassified || 0) + Number(b?.held?.reclassified || 0),
+    },
+    details: [...(a.details || []), ...(b.details || [])],
+    skippedInFlight: false,
+  }
+}
+
+export async function runCycle3(db, config, dataDir, options = {}) {
+  const signal = options?.signal
+  throwIfAborted(signal)
+  const coalescedRetry = options?.coalescedRetry === true
+  const retryConfig = config?.cycle3 || config
+  const retryAttempt = Math.max(0, Number(options?.coalescedRetryAttempt || 0))
+  const maxRetries = resolveCoalesceMaxRetries(retryConfig, 3)
+  const applyMode = resolveApplyMode(config, options)
+  const requestSignature = makeCycleRequestSignature('cycle3', retryConfig, { applyMode, apply: options?.apply })
+  const scheduleRetry = () => scheduleCoalescedCycleRetry(
+    db,
+    'cycle3',
+    () => runCycle3(db, config, dataDir, { ...options, signal: undefined, coalescedRetry: true, coalescedRetryAttempt: retryAttempt + 1 }),
+    retryConfig,
+    requestSignature,
+  )
+  const partial = {
+    reviewed: 0, kept: 0, updated: 0, merged: 0, deleted: 0,
+    proposed: { kept: 0, updated: 0, merged: 0, deleted: 0 },
+    held: { updated: 0, merged: 0, deleted: 0 },
+    applied: applyMode !== 'proposal',
+    applyMode,
+    details: [],
+  }
+  if (_runCycle3InFlight.has(db)) {
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle3', 'in-flight', requestSignature)
+    if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
+    __mixdogMemoryLog('[cycle3] skipped: already in flight for this db\n')
+    return { ...partial, skippedInFlight: true }
+  }
+  const client = await db._pool.connect()
+  let gotLock = false
+  try {
+    const r = await client.query(`SELECT pg_try_advisory_lock(hashtext($1)) AS got`, ['mixdog.cycle3'])
+    gotLock = r.rows[0]?.got === true
+  } catch (err) {
+    client.release()
+    if (signal?.aborted) throw signal.reason ?? err
+    __mixdogMemoryLog(`[cycle3] advisory lock query failed: ${err.message}\n`)
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle3', 'lock-error', requestSignature)
+    return { ...partial, skippedInFlight: true }
+  }
+  if (!gotLock) {
+    client.release()
+    if (!coalescedRetry) await markCycleRequest(db, 'cycle3', 'advisory-lock', requestSignature)
+    if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
+    __mixdogMemoryLog('[cycle3] skipped: advisory lock held by another worker\n')
+    return { ...partial, skippedInFlight: true }
+  }
+  const promise = (async () => {
+    try {
+      let result = null
+      let coalescedRuns = 0
+      let coalescedRequests = 0
+      if (coalescedRetry) {
+        const pending = await consumeCycleRequests(db, 'cycle3', requestSignature)
+        if (pending <= 0) return { ...partial, skippedInFlight: false, coalescedRetryNoop: true }
+        coalescedRuns += 1
+        coalescedRequests += pending
+        __mixdogMemoryLog(`[cycle3] retrying coalesced requests=${pending}\n`)
+      }
+      try {
+        result = await _runCycle3Impl(db, config, dataDir, options)
+      } catch (err) {
+        if (coalescedRetry) {
+          await markCycleRequest(db, 'cycle3', 'retry-error', requestSignature)
+          if (retryAttempt < maxRetries) scheduleRetry()
+        }
+        throw err
+      }
+      const maxDrains = resolveCoalesceMaxDrains(retryConfig, 1)
+      let drainLoops = 0
+      while (drainLoops < maxDrains) {
+        throwIfAborted(signal)
+        const pending = await consumeCycleRequests(db, 'cycle3', requestSignature)
+        if (pending <= 0) break
+        drainLoops += 1
+        coalescedRuns += 1
+        coalescedRequests += pending
+        __mixdogMemoryLog(`[cycle3] draining coalesced requests=${pending}\n`)
+        try {
+          const next = await _runCycle3Impl(db, config, dataDir, options)
+          result = mergeCycle3Results(result, next)
+        } catch (err) {
+          await markCycleRequest(db, 'cycle3', 'drain-error', requestSignature)
+          if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
+          throw err
+        }
+      }
+      if (coalescedRuns > 0) {
+        result = { ...result, coalescedRuns, coalescedRequests }
+      }
+      if (coalescedRetry && !result?.coalescedRetryNoop && typeof options?.onCoalescedSuccess === 'function') {
+        try { await options.onCoalescedSuccess(result) }
+        catch (err) { __mixdogMemoryLog(`[cycle3] coalesced success callback failed: ${err?.message || err}\n`) }
+      }
+      return result
+    } finally {
+      let releaseErr = null
+      try {
+        const r = await client.query(`SELECT pg_advisory_unlock(hashtext($1)) AS unlocked`, ['mixdog.cycle3'])
+        if (r.rows[0]?.unlocked !== true) releaseErr = new Error('cycle3 advisory unlock returned false')
+      } catch (err) {
+        releaseErr = err
+      }
+      client.release(releaseErr || undefined)
+    }
+  })()
+  _runCycle3InFlight.set(db, promise)
+  try { return await promise }
+  finally { _runCycle3InFlight.delete(db) }
+}
+
+async function _runCycle3Impl(db, config, dataDir, options = {}) {
+  const signal = options?.signal
+  const applyMode = resolveApplyMode(config, options)
+  const confirmed = applyMode === 'confirmed'
+  const conservative = applyMode === 'conservative'
+  const mutate = confirmed || conservative
+  throwIfAborted(signal)
+  if (!dataDir) throw new Error('runCycle3: dataDir required')
+
+  const cores = await listCore(dataDir, '*')
+  throwIfAborted(signal)
+  if (!cores || cores.length === 0) {
+    __mixdogMemoryLog(`[cycle3] reviewed=0 kept=0 updated=0 merged=0 deleted=0 mode=${applyMode} (no core_entries)\n`)
+    return {
+      reviewed: 0, kept: 0, updated: 0, merged: 0, deleted: 0,
+      proposed: { kept: 0, updated: 0, merged: 0, deleted: 0 },
+      held: { updated: 0, merged: 0, deleted: 0 },
+      applied: mutate,
+      applyMode,
+      details: [],
+    }
+  }
+
+  // Per-core related-memory recall.
+  const blocks = []
+  for (const core of cores) {
+    throwIfAborted(signal)
+    const queryText = `${core.element}\n${String(core.summary || '')}`.trim()
+    let related = []
+    try {
+      const scope = core.project_id ? String(core.project_id) : 'common'
+      let queryVector = null
+      try {
+        queryVector = await embedText(queryText)
+      } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err
+        __mixdogMemoryLog(`[cycle3] embedding failed for core id=${core.id}: ${err.message}\n`)
+      }
+      related = await searchRelevantHybrid(db, queryText, {
+        limit: 8,
+        projectScope: scope,
+        includeMembers: false,
+        queryVector: Array.isArray(queryVector) ? queryVector : undefined,
+      })
+    } catch (err) {
+      if (signal?.aborted) throw signal.reason ?? err
+      __mixdogMemoryLog(`[cycle3] recall failed for core id=${core.id}: ${err.message}\n`)
+      related = []
+    }
+    throwIfAborted(signal)
+    blocks.push(formatCoreBlock(core, related))
+  }
+  const coreReview = blocks.join('\n\n')
+
+  // Load + fill prompt template.
+  const promptPath = join(resourceDir(), 'defaults', 'cycle3-review-prompt.md')
+  if (!existsSync(promptPath)) {
+    throw new Error(`runCycle3: prompt file missing at ${promptPath}`)
+  }
+  const template = readFileSync(promptPath, 'utf8')
+  const rulesDigest = loadCurrentRulesDigest() || '(no current rules digest available)'
+  const prompt = template
+    .replace('{{CORE_REVIEW}}', coreReview)
+    .replace('{{CURRENT_RULES}}', rulesDigest)
+
+  const timeout = Number(config?.cycle3?.timeout ?? 600000)
+  const mode = 'cycle3-review'
+
+  __mixdogMemoryLog(`[cycle3-diag] prompt=${prompt.length} bytes; cores=${cores.length}\n`)
+
+  let raw
+  try {
+    throwIfAborted(signal)
+    raw = await invokeCycle3Maintenance(prompt, { ...options, timeout, mode })
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason ?? err
+    __mixdogMemoryLog(`[cycle3] LLM error: ${err.message}\n`)
+    return {
+      reviewed: cores.length, kept: 0, updated: 0, merged: 0, deleted: 0,
+      proposed: { kept: 0, updated: 0, merged: 0, deleted: 0 },
+      held: { updated: 0, merged: 0, deleted: 0 },
+      applied: mutate,
+      applyMode,
+      details: [], error: err.message,
+    }
+  }
+  throwIfAborted(signal)
+
+  const idSet = new Set(cores.map(c => Number(c.id)))
+  const coreById = new Map(cores.map(c => [Number(c.id), c]))
+  // Real project pools present in this review — reclassify may only move an
+  // entry INTO a pool we already know is real (COMMON is always valid), never
+  // invent a typo pool from an LLM-supplied slug.
+  const knownPools = new Set(cores.map(c => c.project_id).filter(p => p != null).map(String))
+  const parsed = parseVerdicts(raw, idSet)
+  if (!parsed) {
+    __mixdogMemoryLog(
+      `[cycle3] unparseable response — skipping (${String(raw ?? '').replace(/\s+/g, ' ').slice(0, 200)})\n`,
+    )
+    return {
+      reviewed: cores.length, kept: 0, updated: 0, merged: 0, deleted: 0,
+      proposed: { kept: 0, updated: 0, merged: 0, deleted: 0 },
+      held: { updated: 0, merged: 0, deleted: 0 },
+      applied: mutate,
+      applyMode,
+      details: [], error: 'unparseable',
+    }
+  }
+  const seenVerdictIds = new Set()
+  const dedupedActions = []
+  for (const action of parsed.actions) {
+    const vid = Number(action.id)
+    if (seenVerdictIds.has(vid)) {
+      __mixdogMemoryLog(`[cycle3] duplicate verdict rejected: id=${vid} verb=${action.verb}\n`)
+      continue
+    }
+    seenVerdictIds.add(vid)
+    dedupedActions.push(action)
+  }
+  parsed.actions = dedupedActions
+  const actionIds = new Set(parsed.actions.map(a => Number(a.id)).filter(n => Number.isFinite(n)))
+  for (const id of idSet) {
+    if (!actionIds.has(id)) parsed.actions.push({ id, verb: 'keep' })
+  }
+
+  // Supersession target liveness: a `superseded` verdict points at a newerId
+  // that must remain LIVE after this batch. If newerId is itself superseded/
+  // delete/merged-away in the same batch, archiving against it retires a row
+  // against a non-live replacement. Resolve the newerId transitively through
+  // chained supersessions to the final live target; if that target is retired
+  // (deleted/merged-away or a supersession cycle/dead-end) → downgrade to keep.
+  {
+    const byId = new Map(parsed.actions.map(a => [Number(a.id), a]))
+    // Two-phase, cycle-safe. Phase 1 computes every resolution against a FROZEN
+    // snapshot of the original verbs/newerIds — the walk never observes another
+    // action's in-progress mutation, so an A→B, B→A mutual cycle can't have A
+    // downgrade first and then let B see A as live. Any id that enters a
+    // supersession cycle yields null (no live target) for ALL its members.
+    // Phase 2 applies the computed resolutions in one pass.
+    const snap = new Map(parsed.actions.map(a => [Number(a.id), {
+      verb: a.verb,
+      newerId: a.newerId != null ? Number(a.newerId) : null,
+      id: Number(a.id),
+      sourceIds: a.sourceIds,
+      targetId: a.targetId,
+    }]))
+    // ids removed from the live pool by their own verdict (not superseded —
+    // that is chased transitively below).
+    const retiredBySnap = (s) => s && (s.verb === 'delete' ||
+      (s.verb === 'merge' && s.sourceIds?.includes(s.id) && s.targetId !== s.id))
+    const resolveLiveTarget = (startId) => {
+      let cur = Number(startId)
+      const seen = new Set()
+      while (true) {
+        if (seen.has(cur)) return null // supersession cycle → no live target
+        seen.add(cur)
+        const s = snap.get(cur)
+        if (!s) return null
+        if (retiredBySnap(s)) return null // target itself removed this batch
+        if (s.verb === 'superseded') { cur = Number(s.newerId); continue }
+        return cur // keep/update/merge-survivor → live
+      }
+    }
+    // Phase 1: resolve against frozen snapshot.
+    const resolutions = []
+    for (const a of parsed.actions) {
+      if (a.verb !== 'superseded') continue
+      resolutions.push({ action: a, live: resolveLiveTarget(a.newerId) })
+    }
+    // Phase 2: apply.
+    for (const { action: a, live } of resolutions) {
+      if (live == null) {
+        __mixdogMemoryLog(`[cycle3] superseded downgraded to keep: id=${a.id} newerId=${a.newerId} not live after batch\n`)
+        a.verb = 'keep'
+        delete a.newerId
+      } else if (live !== Number(a.newerId)) {
+        __mixdogMemoryLog(`[cycle3] superseded newerId resolved transitively: id=${a.id} ${a.newerId}->${live}\n`)
+        a.newerId = live
+      }
+    }
+  }
+
+  let kept = 0, updated = 0, merged = 0, deleted = 0, superseded = 0, reclassified = 0
+  const proposed = { kept: 0, updated: 0, merged: 0, deleted: 0, superseded: 0, reclassified: 0 }
+  const held = { updated: 0, merged: 0, deleted: 0, superseded: 0, reclassified: 0 }
+  const details = []
+  const touched = new Set() // ids already acted on this cycle — avoid double action
+  // Safety margin: even when every junk verdict is legitimate, a single
+  // conservative run applies at most this many outright deletes and holds the
+  // rest for the next pass. Prevents an over-eager model from clearing the set.
+  const conservativeDeleteCap = Math.max(1, Math.ceil(cores.length * 0.35))
+
+  // Core-store edit/delete calls are the mutation unit; checkpoints sit before
+  // each action/source and after each awaited unit, not inside one file-store write.
+  for (const a of parsed.actions) {
+    throwIfAborted(signal)
+    if (touched.has(a.id)) continue
+    if (a.verb === 'keep') {
+      kept++
+      proposed.kept++
+      details.push({ id: a.id, verb: 'keep' })
+      touched.add(a.id)
+      continue
+    }
+    if (a.verb === 'update') {
+      proposed.updated++
+      const safety = conservative ? await isSafeConservativeUpdate(coreById.get(a.id), a) : { ok: true, reason: 'confirmed' }
+      const conflictId = conservative
+        ? findElementConflict(coreById, a.id, a.element, coreById.get(a.id)?.project_id ?? null)
+        : null
+      if (!mutate || (conservative && (!safety.ok || conflictId != null))) {
+        held.updated++
+        details.push({
+          id: a.id, verb: 'update', element: a.element, summary: a.summary,
+          applied: false, held: true,
+          reason: !mutate ? 'proposal mode' : (conflictId != null ? `element conflicts with core id=${conflictId}` : safety.reason),
+        })
+        touched.add(a.id)
+        continue
+      }
+      try {
+        await editCore(dataDir, a.id, { element: a.element, summary: a.summary })
+        updated++
+        details.push({ id: a.id, verb: 'update', element: a.element, summary: a.summary, applied: true })
+        touched.add(a.id)
+      } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err
+        __mixdogMemoryLog(`[cycle3] update failed id=${a.id}: ${err.message}\n`)
+        details.push({ id: a.id, verb: 'update', error: err.message })
+      }
+      continue
+    }
+    if (a.verb === 'delete') {
+      proposed.deleted++
+      // confirmed → always delete. conservative → delete only clear junk (safe
+      // reason, corroborated for redundant-with-default), capped per run.
+      // proposal → always hold.
+      let applyDelete = confirmed
+      let holdReason = 'proposal mode'
+      let safeReason = null
+      if (!confirmed && conservative) {
+        const safeDel = isSafeConservativeDelete(coreById.get(a.id), a, rulesDigest)
+        if (!safeDel.ok) holdReason = safeDel.reason
+        else if (deleted >= conservativeDeleteCap) holdReason = `conservative delete cap ${conservativeDeleteCap} reached`
+        else { applyDelete = true; safeReason = safeDel.reason }
+      }
+      if (!applyDelete) {
+        held.deleted++
+        details.push({ id: a.id, verb: 'delete', applied: false, held: true, reason: holdReason })
+        touched.add(a.id)
+        continue
+      }
+      try {
+        await deleteCore(dataDir, a.id)
+        deleted++
+        details.push({ id: a.id, verb: 'delete', applied: true, reason: safeReason || 'confirmed' })
+        touched.add(a.id)
+      } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err
+        __mixdogMemoryLog(`[cycle3] delete failed id=${a.id}: ${err.message}\n`)
+        details.push({ id: a.id, verb: 'delete', error: err.message })
+      }
+      continue
+    }
+    if (a.verb === 'reclassify') {
+      proposed.reclassified++
+      // Project classification correction: move a mis-scoped entry to the right
+      // pool. Non-destructive (project_id only, no delete, no re-embed) and
+      // reversible, so it applies in DEFAULT (conservative) mode. Guards: the
+      // move must actually change pools and the target must be a real pool from
+      // this review (or COMMON) — otherwise hold. Unique-collision / content
+      // drift are resolved inside reclassifyCore (returns skipped).
+      const core = coreById.get(a.id)
+      const curPid = core?.project_id ?? null
+      const targetPid = a.projectId ?? null
+      let holdReason = null
+      if ((curPid ?? null) === (targetPid ?? null)) holdReason = 'already in target pool'
+      else if (targetPid != null && !knownPools.has(String(targetPid))) holdReason = `unknown target pool "${targetPid}"`
+      if (!mutate) holdReason = holdReason || 'proposal mode'
+      if (holdReason) {
+        held.reclassified++
+        details.push({ id: a.id, verb: 'reclassify', from: curPid, to: targetPid, applied: false, held: true, reason: holdReason })
+        touched.add(a.id)
+        continue
+      }
+      try {
+        const res = await reclassifyCore(dataDir, a.id, targetPid, core ? { element: core.element, summary: core.summary, sourceProjectId: curPid } : null)
+        if (res?.skipped) {
+          held.reclassified++
+          details.push({ id: a.id, verb: 'reclassify', from: curPid, to: targetPid, applied: false, held: true, reason: res.reason })
+        } else {
+          reclassified++
+          details.push({ id: a.id, verb: 'reclassify', from: curPid, to: targetPid, applied: true })
+        }
+        touched.add(a.id)
+      } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err
+        __mixdogMemoryLog(`[cycle3] reclassify failed id=${a.id}: ${err.message}\n`)
+        details.push({ id: a.id, verb: 'reclassify', error: err.message })
+      }
+      continue
+    }
+    if (a.verb === 'superseded') {
+      proposed.superseded++
+      // Supersession archives (status flip), never physical DELETE, and applies
+      // in DEFAULT (conservative) mode — reversible and audit-retained, so it is
+      // safe without the confirmed gate that outright deletes require.
+      if (!mutate) {
+        held.superseded++
+        details.push({
+          id: a.id, verb: 'superseded', applied: false, held: true,
+          reason: 'proposal mode',
+        })
+        touched.add(a.id)
+        continue
+      }
+      try {
+        const core = coreById.get(a.id)
+        const res = await archiveCore(dataDir, a.id, core ? { element: core.element, summary: core.summary } : null)
+        if (res?.skipped) {
+          held.superseded++
+          details.push({ id: a.id, verb: 'superseded', newerId: a.newerId, applied: false, held: true, reason: res.reason })
+        } else {
+          superseded++
+          details.push({ id: a.id, verb: 'superseded', newerId: a.newerId, applied: true })
+        }
+        touched.add(a.id)
+      } catch (err) {
+        if (signal?.aborted) throw signal.reason ?? err
+        __mixdogMemoryLog(`[cycle3] supersede archive failed id=${a.id}: ${err.message}\n`)
+        details.push({ id: a.id, verb: 'superseded', error: err.message })
+      }
+      continue
+    }
+    if (a.verb === 'merge') {
+      if (a.targetId !== a.id && !a.sourceIds.includes(a.id)) {
+        __mixdogMemoryLog(
+          `[cycle3] merge rejected: id=${a.id} must be target or listed source (target=${a.targetId} sources=${a.sourceIds.join(',')})\n`,
+        )
+        touched.add(a.id)
+        touched.add(a.targetId)
+        for (const sid of a.sourceIds) touched.add(sid)
+        details.push({ id: a.id, verb: 'merge', error: 'id must be target or listed source' })
+        continue
+      }
+      // Only merge within the same project pool. Survivor = targetId.
+      const target = coreById.get(a.targetId)
+      if (!target) {
+        details.push({ id: a.id, verb: 'merge', error: `target ${a.targetId} not found` })
+        touched.add(a.id)
+        continue
+      }
+      const validSources = []
+      for (const sid of a.sourceIds) {
+        throwIfAborted(signal)
+        if (sid === a.targetId) continue
+        if (touched.has(sid)) continue
+        const src = coreById.get(sid)
+        if (!src) continue
+        if ((src.project_id ?? null) !== (target.project_id ?? null)) {
+          __mixdogMemoryLog(`[cycle3] merge skipped src=${sid} target=${a.targetId} (project pool mismatch)\n`)
+          continue
+        }
+        validSources.push(sid)
+      }
+      if (validSources.length === 0) {
+        details.push({ id: a.id, verb: 'merge', error: 'no valid sources' })
+        continue
+      }
+      // Refresh target via editCore so summary/element reflect the merged form.
+      // The verdict carries no rewritten text → fall back to the target's
+      // existing element/summary unmodified; the LLM expressed merge intent
+      // alone. editCore requires a change, so when no text drift is supplied
+      // we skip the target update and just absorb sources.
+      proposed.merged++
+      const safeSources = conservative
+        ? validSources.filter(sid => isStrictDuplicate(target, coreById.get(sid)))
+        : validSources
+      const mergedDetail = {
+        id: a.id, verb: 'merge', targetId: a.targetId, sourceIds: validSources,
+        removed: [], applied: false, applyMode,
+      }
+      if (!mutate || safeSources.length === 0) {
+        held.merged++
+        mergedDetail.held = true
+        mergedDetail.reason = !mutate ? 'proposal mode' : 'no strict duplicate source'
+        details.push(mergedDetail)
+        touched.add(a.targetId)
+        validSources.forEach(sid => touched.add(sid))
+        continue
+      }
+      for (const sid of safeSources) {
+        throwIfAborted(signal)
+        try {
+          await deleteCore(dataDir, sid)
+          mergedDetail.removed.push(sid)
+          touched.add(sid)
+        } catch (err) {
+          if (signal?.aborted) throw signal.reason ?? err
+          __mixdogMemoryLog(`[cycle3] merge delete src=${sid} failed: ${err.message}\n`)
+        }
+      }
+      if (mergedDetail.removed.length > 0) {
+        merged++
+        mergedDetail.applied = true
+        if (safeSources.length < validSources.length) {
+          held.merged++
+          mergedDetail.heldSources = validSources.filter(sid => !safeSources.includes(sid))
+        }
+        touched.add(a.targetId)
+      }
+      details.push(mergedDetail)
+      continue
+    }
+  }
+
+  throwIfAborted(signal)
+
+  __mixdogMemoryLog(
+    `[cycle3] reviewed=${cores.length} kept=${kept}` +
+    ` proposed_update=${proposed.updated} proposed_merge=${proposed.merged} proposed_delete=${proposed.deleted}` +
+    ` applied_update=${updated} applied_merge=${merged} applied_delete=${deleted}` +
+    ` applied_superseded=${superseded}` +
+    ` applied_reclassify=${reclassified}` +
+    ` held_update=${held.updated} held_merge=${held.merged} held_delete=${held.deleted} held_superseded=${held.superseded}` +
+    ` held_reclassify=${held.reclassified}` +
+    ` mode=${applyMode}\n`,
+  )
+
+  return { reviewed: cores.length, kept, updated, merged, deleted, superseded, reclassified, proposed, held, applied: mutate, applyMode, details }
+}

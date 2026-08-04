@@ -1,0 +1,43 @@
+{
+    "id": "045d1fd7-eaaf-4023-bbae-09eba13957e1",
+    "started_at": "2026-07-05T20:10:53.855493",
+    "updated_at": "2026-07-05T20:17:46.444686",
+    "finished_at": "2026-07-05T20:17:46.444686",
+    "n_total_trials": 3,
+    "stats": {
+        "n_completed_trials": 3,
+        "n_errored_trials": 0,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "mixdog__terminal-bench/terminal-bench-2-1": {
+                "n_trials": 3,
+                "n_errors": 0,
+                "metrics": [
+                    {
+                        "mean": 0.3333333333333333
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "1.0": [
+                            "write-compressor__3sSiJdv"
+                        ],
+                        "0.0": [
+                            "dna-assembly__hA6RFDJ",
+                            "model-extraction-relu-logits__dN7sZQc"
+                        ]
+                    }
+                },
+                "exception_stats": {}
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

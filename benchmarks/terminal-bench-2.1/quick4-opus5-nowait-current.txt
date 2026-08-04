@@ -1,0 +1,2 @@
+jobs=jobs-quick4-opus5-nowait-20260803-193138
+snapshot=C:\Users\tempe\AppData\Local\Temp\mixdog-tb-src-nowait-9e35b99907994336b6fefb0da22b4632

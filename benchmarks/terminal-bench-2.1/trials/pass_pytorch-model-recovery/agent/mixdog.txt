@@ -1,0 +1,9 @@
+(node:1130) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1130_1783252577564_1783252577693_85967a0f8c92ec06913e33cddd1f7850
+Done — `/app/model.pt` saved in TorchScript format with all success criteria verified in-script.
+
+- **Architecture recovered**: transformer seq2seq — Linear embedding 64→128, sinusoidal `pos_encoder` (pe 1×5000×128, batch_first), 3-layer encoder + 1-layer decoder (d_model 128, ffn 256), `output_layer` Linear 128→64; loads `weights.pt` with `strict=True`.
+- **Loss improved**: original MSE 1.5510 → 0.1802 after tuning only `output_layer` (Adam, all other params frozen).
+- **Verified**: reloaded `/app/model.pt` accepts the original `weights.pt` state dict without error, every non-`output_layer` tensor is bit-identical to the original, and the reloaded tuned model reproduces MSE 0.1802; `weights.pt` was never written.

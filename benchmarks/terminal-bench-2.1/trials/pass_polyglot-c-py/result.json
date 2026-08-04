@@ -1,0 +1,110 @@
+{
+    "id": "08af9bf5-594f-4d85-8a81-efc33d687cb5",
+    "task_name": "terminal-bench/polyglot-c-py",
+    "trial_name": "polyglot-c-py__Cfrwuhn",
+    "trial_uri": "file:///C:/Project/mixdog/bench/harbor/jobs-21-full-r3/2026-07-05__20-19-30/polyglot-c-py__Cfrwuhn",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "polyglot-c-py",
+        "ref": "sha256:25570ccacf63f573a252eaa2a9c62ee8b55f5aa228cc803b5beb39dd6d8afeb7"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "d1e52e6139c57528762bbb163dc3f89edb967511d897ac5e7859398d3f44eb3c",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/polyglot-c-py",
+            "ref": "sha256:25570ccacf63f573a252eaa2a9c62ee8b55f5aa228cc803b5beb39dd6d8afeb7",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "polyglot-c-py__Cfrwuhn",
+        "trials_dir": "bench\\harbor\\jobs-21-full-r3\\2026-07-05__20-19-30",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "bench.harbor.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {},
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "3c7f4f39-71b5-4a3c-88f4-7917a69af994"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.18",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-07-05T13:01:59.130753Z",
+    "finished_at": "2026-07-05T13:05:25.805163Z",
+    "environment_setup": {
+        "started_at": "2026-07-05T13:01:59.159926Z",
+        "finished_at": "2026-07-05T13:02:16.962259Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-07-05T13:02:16.962279Z",
+        "finished_at": "2026-07-05T13:03:30.229420Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-07-05T13:03:30.229472Z",
+        "finished_at": "2026-07-05T13:05:12.774754Z"
+    },
+    "verifier": {
+        "started_at": "2026-07-05T13:05:12.775949Z",
+        "finished_at": "2026-07-05T13:05:22.879576Z"
+    },
+    "step_results": null
+}

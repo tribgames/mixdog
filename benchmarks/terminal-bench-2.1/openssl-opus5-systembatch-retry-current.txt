@@ -1,0 +1,2 @@
+jobs=jobs-openssl-opus5-systembatch-retry-20260803-185207
+snapshot=C:\Users\tempe\AppData\Local\Temp\mixdog-tb-src-systembatch-retry-3af04f2d4c134dcc947529fe6b4c35ac

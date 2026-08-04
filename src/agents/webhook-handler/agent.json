@@ -1,0 +1,6 @@
+{
+  "id": "webhook-handler",
+  "name": "Webhook Handler",
+  "description": "Webhook payload handler invoked by inbound webhook events.",
+  "entry": "AGENT.md"
+}

@@ -1,0 +1,9 @@
+(node:1143) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_1143_1783259829109_1783259829262_24c3629ee261fdcf0665a850eb7d4e17
+0.80 with contact off — need more. Let me profile stage costs and test more knobs.Ratios are noisier than the first single-shot run. Let me profile stage timings to find the real remaining cost.Done — `/app/model.xml` runs at ~44–46% of reference time (target ≤60%) with a final state difference of 0 across repeated `eval.py` runs, and `model_ref.xml` is untouched.
+
+- **What changed**: solver options only, no physical properties — `<option jacobian="dense" solver="PGS" tolerance="0" iterations="50">` plus `<flag contact="disable"/>`.
+- **Why it's exact**: the scene never produces a contact (max `ncon` = 0 over the whole sim), and with only 3 equality rows PGS converges to machine precision (max elementwise diff ~1e-14 over 10 seeds), while avoiding Newton's per-step dense Hessian factorization that dominated the reference cost.
+- **Verified**: `python eval.py` passed 3 consecutive times (pctg 0.44, 0.44, 0.46), no NaN/Inf.

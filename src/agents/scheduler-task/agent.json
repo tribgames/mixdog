@@ -1,0 +1,6 @@
+{
+  "id": "scheduler-task",
+  "name": "Scheduler Task",
+  "description": "Scheduled-task executor invoked by scheduler tick.",
+  "entry": "AGENT.md"
+}

@@ -1,0 +1,6 @@
+{
+  "id": "heavy-worker",
+  "name": "Heavy Worker",
+  "description": "Use for complex, high-difficulty tasks.",
+  "entry": "AGENT.md"
+}

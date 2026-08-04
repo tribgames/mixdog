@@ -1,0 +1,64 @@
+appId: io.mixdog.desktop
+productName: Mixdog
+artifactName: mixdog-desktop-${os}-${arch}.${ext}
+asar: true
+# Native modules ship as prebuilt binaries mirrored into runtime.asar.unpacked
+# by prepare-runtime.mjs; never rebuild them against Electron headers here.
+npmRebuild: false
+nodeGypRebuild: false
+extraMetadata:
+  name: mixdog-desktop
+protocols:
+  name: Mixdog
+  schemes:
+    - mixdog
+directories:
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - '!out/main/capture-window.js'
+  - '!**/*.map'
+extraResources:
+  # BrowserWindow uses the same explicit icon as the executable/shortcut so
+  # Windows taskbar rendering never depends on Explorer's embedded-icon cache.
+  - from: build/mixdog.ico
+    to: mixdog.ico
+  # Electron resolves modules directly from this archive. NSIS therefore
+  # installs one runtime file instead of expanding thousands of dependencies.
+  - from: .runtime/runtime.asar
+    to: runtime.asar
+  # electron-builder filters a source path containing node_modules. The
+  # preparation step mirrors only native binaries under this neutral root;
+  # restore Electron's exact ASAR-unpacked layout at the destination.
+  - from: .runtime/native-modules
+    to: runtime.asar.unpacked/node_modules
+win:
+  icon: build/mixdog.ico
+  verifyUpdateCodeSignature: false
+  target:
+    - nsis
+nsis:
+  installerIcon: build/mixdog.ico
+  installerHeaderIcon: build/mixdog.ico
+  # One-click, per-user installation avoids elevation and machine-wide state.
+  oneClick: true
+  perMachine: false
+  # Keep a desktop entry for direct discoverability after a silent one-click install.
+  createDesktopShortcut: always
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+linux:
+  category: Development
+  target:
+    - AppImage
+publish:
+  provider: github
+  owner: tribgames
+  repo: mixdog
+  channel: latest

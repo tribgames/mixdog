@@ -1,0 +1,2 @@
+jobs=jobs-quick4-opus5-solobench-20260803-185614
+snapshot=C:\Users\tempe\AppData\Local\Temp\mixdog-tb-src-solobench-068b49cdafe54f29be3168cbc7691378

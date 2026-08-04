@@ -1,0 +1,10 @@
+(node:1130) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+[steer] sess=sess_1130_1783262541279_1783262541440_0d41d970922e4f7629399cb3b9e45aac injected pre-send user message (merged=1 len=1232)
+models: ["claude-fable-5"]
+sessionId: sess_1130_1783262541279_1783262541440_0d41d970922e4f7629399cb3b9e45aac
+Done — the sentiment service is live in the background on `0.0.0.0:5000`.
+
+- **Model saved** to `/app/model_cache/sentiment_model` (config, safetensors, tokenizer files verified).
+- **Flask API** at `/app/sentiment_service.py` serves `POST /sentiment`, loading the model from the local cache; running via `nohup` with logs at `/app/sentiment_service.log`.
+- **Verified end-to-end**: positive text → `{"sentiment":"positive","confidence":{...}}`, negative text → `"negative"`, and missing/invalid `text` returns `{"error": ...}` with status 400; a post-launch probe confirmed the port still answers 200.

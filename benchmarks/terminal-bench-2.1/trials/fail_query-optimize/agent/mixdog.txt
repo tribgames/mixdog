@@ -1,0 +1,9 @@
+(node:5509) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5509_1783263735525_1783263735660_79cb31d01ac0dfd0c69dbd9d79842c86
+No indexes exist and every sense has a matching synset, so I can rewrite it as a single-pass aggregation with a window function.The `time` builtin broke the run — retrying with bash.Done — `/app/sol.sql` produces byte-identical output and runs ~400x faster.
+
+- **Rewrite**: replaced the three correlated per-word subqueries (which re-scanned and re-grouped `senses` for every candidate row) with a single-pass CTE that groups `(wordid, synsetid)` once and picks the top synset via `ROW_NUMBER()`, then aggregates per word.
+- **Verified**: both queries return the same 500 rows (`diff` clean); original 2m11s → optimized 0.32s on the same untouched database.
+- **Safety checked**: confirmed every sense joins to a synset, so dropping the redundant subquery scans cannot change results; the DB file was only read, never modified.

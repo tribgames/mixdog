@@ -1,0 +1,11 @@
+(node:5391) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5391_1783258815980_1783258816119_add59bf317a99c7f3d5f0bb22b3956be
+Crash is in libstdc++ locale facet teardown at exit. Let me inspect the modified source in /build.Fixed and verified.
+
+**Root cause**: the modified release libstdc++ (`/build/patches/locale_init.cc.patch`) lazily allocates MSVC-style facet nodes via global `::operator new` on the first facet use after static init — which happened mid-`run()` while `main.cpp`'s custom bump heap was active. The exit-time static destructor `_Fac_tidy_reg_t` then called `std::free()` on pointers into the already-destroyed 10MB custom heap → segfault. The debug libstdc++ uses `malloc` directly for these nodes, so debug never crashed.
+
+**Fix** (`/app/user.cpp` only): `user_init()` now streams numeric values through an `ostringstream` and touches `std::use_facet`, triggering the library's one-time facet registration *before* the custom heap is installed — the nodes become malloc-backed, so the exit-time `operator delete → free` matches correctly.
+
+**Verified**: both builds compile with the exact given commands, run to completion with exit 0 and identical output; Valgrind on both shows `ERROR SUMMARY: 0 errors` and 0 bytes definitely/indirectly/possibly lost (the one 72KB "still reachable" block is the runtime's own pre-main pool, identical in both builds and not a leak).

@@ -1,0 +1,9 @@
+(node:836) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_836_1783259359493_1783259359627_18aab0eeae208d76e7398dc398381b30
+Build and install done. Quick check that the cdb debugger is functional (built without `-DSERVER`):Done — pMARS 0.9.4 built from Debian sources without X11 and installed.
+
+- **Source**: fetched via `apt-get source pmars` (added deb-src for trixie); tree left in place at `/app/pmars-0.9.4/`.
+- **Build**: removed `-DXWINGRAPHX` and the `-lX11` link flag in `src/Makefile`; `ldd` shows only libc/vdso — no X11 dependencies.
+- **Verified**: `pmars -b -r 50 -f flashpaper.red rave.red | tail -n 1` → `Results: 12 30 8`, and the cdb debugger works (`pmars -e` accepts `go`/`q` at the `(cdb)` prompt).

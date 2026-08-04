@@ -1,0 +1,16 @@
+{
+  "outputStyle": "default",
+  "mcpServers": {},
+  "channels": {
+    "promptInjection": {
+      "mode": "hook",
+      "targetPath": ""
+    }
+  },
+  "memory": {
+    "enabled": true,
+    "user": { "title": "" },
+    "cycle1": { "interval": "10m" },
+    "cycle2": { "interval": "1h" }
+  }
+}

@@ -1,0 +1,2 @@
+jobs=jobs-quick4-opus5-barrierprompt-20260803-192021
+snapshot=C:\Users\tempe\AppData\Local\Temp\mixdog-tb-src-barrierprompt-dacc6ace5bc44b40ab713751fa3aeaeb

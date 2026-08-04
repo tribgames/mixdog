@@ -1,0 +1,11 @@
+(node:5548) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+models: ["claude-fable-5"]
+sessionId: sess_5548_1783261236993_1783261237142_8a8f0cea1620c1a2aacfb35b913025d7
+Build running in the background; it takes a while since it bootstraps the compiler.Build and bootstrap succeeded. Now the basic testsuite:Done — the compiler bootstraps again and the basic testsuite is clean: 40 passed, 0 failed, 0 skipped.
+
+- **Root cause**: in `pool_sweep` (`runtime/shared_heap.c:650`), the sweep loop advanced by `p += Whsize_hd(hd)` instead of `p += wh` (the size-class slot width). Since blocks smaller than their size class and run-length free headers have `Whsize_hd(hd) != wh`, the sweep walked off block boundaries and corrupted the major heap — every other pool walker (`calc_pool_stats`, `pool_finalise`, `compact_update_pools`, `verify_pool`) already strides by `wh`.
+
+- **Fix**: one-word change `p += Whsize_hd(hd);` → `p += wh;`; the free-run skip `p += wh * Wosize_hd(hd)` above it was already correct.
+
+- **Verified**: full `./configure && make -j` bootstrap succeeded (exit 0), and `make -C testsuite one DIR=tests/basic` reports all 40 tests passing.
