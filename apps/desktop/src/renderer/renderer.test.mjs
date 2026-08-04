@@ -1989,14 +1989,14 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles, /\.sidebar-recent-heading\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);/s,
     "section headings sit on the single 13px chrome scale");
   assert.match(styles,
-    /\.sidebar-recent-heading\.sidebar-heading-toggle\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*color:\s*color-mix\(in srgb, var\(--mx-text\) 68%, transparent\);/s,
-    "collapsible rail section names should sit on the 14/600 68%-ink category tier");
+    /\.sidebar-recent-heading\.sidebar-heading-toggle\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*var\(--mx-weight-semibold\);[^}]*color:\s*var\(--mx-text-muted\);/s,
+    "collapsible rail section names should sit on the 14/semibold muted category tier");
   assert.match(styles,
     /\.session-sidebar-scroll > \.sidebar-recent \+ \.sidebar-recent\s*\{\s*margin-top:\s*2px;/s,
     "adjacent session categories should keep a compact separation");
   assert.match(styles,
-    /\.session-sidebar-panels \.workflows-models h2\s*\{[^}]*margin:\s*6px 0 0;[^}]*color:\s*color-mix\(in srgb, var\(--mx-text\) 68%, transparent\);/s,
-    "workflow category names should share the Sessions category tier (68% ink)");
+    /\.session-sidebar-panels \.workflows-models h2\s*\{[^}]*margin:\s*6px 0 0;[^}]*color:\s*var\(--mx-text-muted\);/s,
+    "workflow category names should share the Sessions muted category tier");
   assert.match(styles,
     /\.session-sidebar-panels \.workflows-packs > \.workflows-section-head\s*\{\s*padding-top:\s*0;/s,
     "the first workflow category should bind directly below the panel header");
