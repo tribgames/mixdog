@@ -172,6 +172,17 @@ test('patch-first mixed batch runs patch then later shells in parallel', async (
     assert.deepEqual(results.map((result) => result.toolKind), ['normal', 'normal', 'normal']);
 });
 
+test('tool results preserve call order when a later duplicate is skipped early', async () => {
+    const calls = [
+        { id: 'r1', name: 'read', arguments: { path: 'same.txt' } },
+        { id: 'r2', name: 'read', arguments: { path: 'same.txt' } },
+    ];
+    const results = await runBatch(calls, async () => 'read body');
+    assert.deepEqual(results.map((result) => result.toolCallId), ['r1', 'r2']);
+    assert.equal(results[0].content, 'read body');
+    assert.match(results[1].content, /\[intra-turn-dedup\]/);
+});
+
 test('prepatch shell segment finishes in parallel before the patch barrier', async () => {
     const events = [];
     let active = 0;

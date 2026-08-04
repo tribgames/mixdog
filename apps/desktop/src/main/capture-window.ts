@@ -115,7 +115,8 @@ async function captureWindow(): Promise<void> {
     if (process.env.MIXDOG_JITTER_PROBE === '1'
       || process.env.MIXDOG_JITTER_PROBE === 'entry'
       || process.env.MIXDOG_JITTER_PROBE === 'keys'
-      || process.env.MIXDOG_JITTER_PROBE === 'switch') {
+      || process.env.MIXDOG_JITTER_PROBE === 'switch'
+      || process.env.MIXDOG_JITTER_PROBE === 'width') {
       const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
       await runJitterProbe({
         window,

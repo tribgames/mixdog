@@ -130,3 +130,24 @@ export const intersectRects = (first: AnchorRect, second: AnchorRect): AnchorRec
     height: Math.max(0, bottom - top),
   };
 };
+
+/** Keep a portaled overlay fully inside the window once it can be measured.
+ *  Menus anchored to a trigger near an edge (the tab strip "+", folder and
+ *  review context menus) would otherwise render half off-screen (user: 팝업이
+ *  화면 밖으로 나가 안 보인다). Guessed "menu is ~200px" constants cannot do
+ *  this: only the measured box knows. Doubles as a React ref callback.
+ *  An overlay pinned by inline right/bottom keeps that axis untouched. */
+export function clampOverlayIntoView(element: HTMLElement | null, edge = 8): void {
+  if (!element) return;
+  const rect = element.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return;
+  const view = viewportRect();
+  if (!element.style.right) {
+    const left = clamp(rect.left, view.left + edge, view.right - edge - rect.width);
+    if (Math.round(left) !== Math.round(rect.left)) element.style.left = `${Math.round(left)}px`;
+  }
+  if (!element.style.bottom) {
+    const top = clamp(rect.top, view.top + edge, view.bottom - edge - rect.height);
+    if (Math.round(top) !== Math.round(rect.top)) element.style.top = `${Math.round(top)}px`;
+  }
+}

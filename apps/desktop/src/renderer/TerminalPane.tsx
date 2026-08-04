@@ -7,6 +7,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Check, ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { t } from './i18n';
 import {
   beginBootSurface,
   reportBootSurfaceStage,
@@ -490,31 +491,35 @@ export default function TerminalPane({
   }, [active, key]);
   // Surface WHAT the default actually spawns (user: 기본 OS 터미널이 나와야).
   const defaultProfile = profiles?.find((profile) => profile.default) ?? null;
-  const defaultShellLabel = defaultProfile ? `Default (${defaultProfile.label})` : 'Default shell';
+  const defaultShellLabel = defaultProfile
+    ? t('Default ({{label}})', { label: defaultProfile.label })
+    : t('Default shell');
   const shellLabel = shell
     ? profiles?.find((profile) => profile.id === shell)?.label || shell
     : defaultShellLabel;
   return <div className="dock-terminal-surface">
     {/* File-breadcrumb strip grammar (user: TASK나 파일처럼 띠 하나): a 30px
-        band above the terminal with the shell switcher on the right edge. */}
+        band above the terminal with the shell switcher on the right edge.
+        NO title text — every host (workspace tab, bottom panel) already
+        labels the surface "Terminal" one row above (user: 터미널 아래
+        터미널이 왜 또 있어야 하는지 모르겠다). */}
     <header className="dock-terminal-strip">
-      <b>Terminal</b>
       <div className="dock-terminal-shell">
         <button type="button" className="dock-terminal-shell-trigger"
           aria-haspopup="menu" aria-expanded={shellMenuOpen}
-          title="Change terminal shell"
+          title={t('Change terminal shell')}
           onClick={() => setShellMenuOpen((open) => !open)}>
           <span>{shellLabel}</span>
           <ChevronDown size={13} aria-hidden="true" />
         </button>
         {shellMenuOpen && <div className="dock-terminal-shell-menu" role="menu"
-          aria-label="Terminal shells">
+          aria-label={t('Terminal shells')}>
           {profiles === null
-            && <span className="dock-terminal-shell-note">Detecting shells…</span>}
+            && <span className="dock-terminal-shell-note">{t('Detecting shells…')}</span>}
           {profiles?.length === 0
-            && <span className="dock-terminal-shell-note">No shells detected</span>}
+            && <span className="dock-terminal-shell-note">{t('No shells detected')}</span>}
           {(profiles?.length ?? 0) > 0 && <button type="button" role="menuitemradio"
-            aria-checked={!shell} title={defaultProfile?.path || 'OS default shell'}
+            aria-checked={!shell} title={defaultProfile?.path || t('OS default shell')}
             onClick={() => {
               setShellMenuOpen(false);
               if (!shell) return;

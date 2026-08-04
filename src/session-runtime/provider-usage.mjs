@@ -6,6 +6,10 @@
 // live-binding is preserved.
 import { clean } from './session-text.mjs';
 
+// A post-redeem dashboard rebuild is best effort: past this budget the caller
+// gets its confirmed outcome and the surface revalidates on its own cadence.
+const REDEEM_REFRESH_BUDGET_MS = 15_000;
+
 export function createProviderUsage({
   caches,
   getConfig,
@@ -134,9 +138,29 @@ export function createProviderUsage({
     const providerObj = reg().getProvider('openai-oauth');
     if (!providerObj) throw new Error('Codex is not signed in');
     const result = await consumeOpenAICodexResetCredit(providerObj, options);
+    // The redeem is DONE and its outcome is authoritative. Rebuilding the whole
+    // dashboard is a COURTESY refresh: it forces a sweep across every provider,
+    // so binding the answer to it once turned a spent credit into "reset could
+    // not be confirmed" whenever that sweep was slow or failed.
     caches.usageDashboardCache = {};
-    const dashboard = await getUsageDashboard({ refresh: true, refreshSetup: false });
-    return { ...result, dashboard };
+    const dashboard = await refreshedUsageDashboardWithin(REDEEM_REFRESH_BUDGET_MS);
+    return { ...result, ...(dashboard ? { dashboard } : {}) };
+  }
+
+  async function refreshedUsageDashboardWithin(budgetMs) {
+    let timer = null;
+    const budget = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), budgetMs);
+      timer?.unref?.();
+    });
+    try {
+      return await Promise.race([
+        getUsageDashboard({ refresh: true, refreshSetup: false }).catch(() => null),
+        budget,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   return {

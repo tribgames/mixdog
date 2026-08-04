@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
+import { t } from './i18n';
 import { StudioModelMenu, type StudioModelEntry } from './StudioModelMenu';
 import { BrandTile } from './WorkspaceEmptyState';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
@@ -904,24 +905,24 @@ export function StudioPane({
         onClick={() => setPromptOpen((current) => !current)}>{asset.prompt}</p>
     </section>
     <section className="studio-detail-block studio-detail-block--metadata">
-      <div className="studio-detail-block-head"><span>DETAILS</span></div>
+      <div className="studio-detail-block-head"><span>{t('DETAILS')}</span></div>
       <dl>
-        <div><dt>Provider</dt><dd>{asset.lane}</dd></div>
-        <div><dt>Model</dt><dd>{asset.model}</dd></div>
-        <div><dt>Size</dt><dd>{formatBytes(asset.bytes)}</dd></div>
-        {asset.durationSeconds ? <div><dt>Duration</dt><dd>{asset.durationSeconds}s</dd></div> : null}
-        <div><dt>Created</dt><dd>{new Date(asset.createdAt).toLocaleString()}</dd></div>
+        <div><dt>{t('Provider')}</dt><dd>{asset.lane}</dd></div>
+        <div><dt>{t('Model')}</dt><dd>{asset.model}</dd></div>
+        <div><dt>{t('Size')}</dt><dd>{formatBytes(asset.bytes)}</dd></div>
+        {asset.durationSeconds ? <div><dt>{t('Duration')}</dt><dd>{asset.durationSeconds}s</dd></div> : null}
+        <div><dt>{t('Created')}</dt><dd>{new Date(asset.createdAt).toLocaleString()}</dd></div>
       </dl>
     </section>
     <div className="studio-detail-actions">
       <button type="button" className="studio-detail-primary" onClick={() => void regenerate(asset)}>
-        <RotateCcw size={14} aria-hidden="true" />Regenerate
+        <RotateCcw size={14} aria-hidden="true" />{t('Regenerate')}
       </button>
       <button type="button" onClick={() => void openAssetFolder(asset)}>
-        <FolderOpen size={14} aria-hidden="true" />Open Folder
+        <FolderOpen size={14} aria-hidden="true" />{t('Open Folder')}
       </button>
       <button type="button" className="studio-detail-danger" onClick={() => void remove(asset)}>
-        <Trash2 size={14} aria-hidden="true" />Delete
+        <Trash2 size={14} aria-hidden="true" />{t('Delete')}
       </button>
     </div>
   </>;
@@ -1125,12 +1126,12 @@ export function StudioPane({
     <div className="studio-shell">
       {/* Desktop already names this surface in its workspace tab. Phones keep
           only the drawer reopen control because their tab strip is hidden. */}
-      <header className="session-header studio-header" aria-label="Studio navigation">
+      <header className="session-header studio-header" aria-label={t('Studio navigation')}>
         <div className="session-header-content">
           {/* Phone-only sidebar reopen, exactly like the chat header (CSS
               hides it on desktop where the titlebar owns the toggle). */}
           <button type="button" className="toolbar-sidebar session-header-menu"
-            aria-label="Toggle session list" aria-expanded={sidebarOpen}
+            aria-label={t('Toggle session list')} aria-expanded={sidebarOpen}
             onClick={onToggleSidebar}>
             <PanelLeft className="sidebar-toggle-icon" size={18} aria-hidden="true" />
           </button>
@@ -1143,17 +1144,17 @@ export function StudioPane({
             the toggle, none hides it entirely. */}
         <div className="studio-kind"
           data-empty={kindsOffered.length > 1 ? undefined : 'true'}
-          role="group" aria-label="Media kind"
+          role="group" aria-label={t('Media kind')}
           aria-hidden={kindsOffered.length > 1 ? undefined : true}>
           {(['image', 'video'] as const)
             .map((value) =>
               <button key={value} type="button" className={kind === value ? 'active' : ''}
                 disabled={!kindsOffered.includes(value)}
                 aria-pressed={kind === value} onClick={() => setKind(value)}>
-                {value}
+                {t(value)}
               </button>)}
         </div>
-        <label className="studio-density" aria-label="Thumbnail size">
+        <label className="studio-density" aria-label={t('Thumbnail size')}>
           <input type="range" min={0} max={TILE_SIZES.length - 1} step={1}
             value={TILE_SIZES.length - 1
               - Math.max(0, TILE_SIZES.indexOf(tileSize as typeof TILE_SIZES[number]))}
@@ -1168,7 +1169,7 @@ export function StudioPane({
             }} />
         </label>
       </div>
-      <div className="studio-results" aria-label="Generated media" ref={resultsRef}
+      <div className="studio-results" aria-label={t('Generated media')} ref={resultsRef}
         onScroll={handleResultsScroll}>
         {visibleAssets.length === 0 && pendingJobs.length === 0 && !loading
           && <div className="studio-blank">
@@ -1177,8 +1178,7 @@ export function StudioPane({
               stays visible because it is a blocker, not canvas guidance. */}
           <span className="welcome-logo" aria-hidden="true"><BrandTile crop /></span>
           {available.length === 0 && <p>
-            No provider supports this mode yet — sign in to Grok/ChatGPT or
-            add a Gemini key in Settings → Providers.
+            {t('No provider supports this mode yet — sign in to Grok/ChatGPT or add a Gemini key in Settings → Providers.')}
           </p>}
         </div>}
         <div className="studio-grid" ref={gridRef}
@@ -1209,21 +1209,21 @@ export function StudioPane({
                 ? <div className="studio-tile-open">
                   <div className="studio-failed-body">
                     <Ban size={16} aria-hidden="true" />
-                    <p>{pending.error || 'Generation failed'}</p>
+                    <p>{pending.error || t('Generation failed')}</p>
                     <div className="studio-failed-actions">
                       {/* Retry replaces this slot with a fresh queued run. */}
                       <button type="button" onClick={() => {
                         dismissJob(pending.id);
                         void generate();
                       }}>
-                        <RotateCcw size={12} aria-hidden="true" />Retry
+                        <RotateCcw size={12} aria-hidden="true" />{t('Retry')}
                       </button>
-                      <button type="button" onClick={() => dismissJob(pending.id)}>Dismiss</button>
+                      <button type="button" onClick={() => dismissJob(pending.id)}>{t('Dismiss')}</button>
                     </div>
                   </div>
                 </div>
                 : <>
-                  <div className="studio-tile-open" role="img" aria-label="Generating">
+                  <div className="studio-tile-open" role="img" aria-label={t('Generating')}>
                     {/* Status reads from the bottom of the tile: the elapsed clock
                         always, the percentage and a determinate rail only for a
                         lane that reports one. Everything else runs indeterminate
@@ -1247,13 +1247,13 @@ export function StudioPane({
                         and the clock below do not already show. */}
                     <span className="studio-pending-chip" role="img"
                       aria-label={determinate
-                        ? `Generating, ${progress}%, ${elapsed} elapsed`
-                        : `Generating, ${elapsed} elapsed`}>
+                        ? t('Generating, {{progress}}%, {{elapsed}} elapsed', { progress, elapsed })
+                        : t('Generating, {{elapsed}} elapsed', { elapsed })}>
                       <ProgressSpinner size={13} className="studio-spinner" aria-hidden="true" />
                     </span>
-                    <button type="button" className="studio-pending-cancel" aria-label="Cancel generation"
+                    <button type="button" className="studio-pending-cancel" aria-label={t('Cancel generation')}
                       onClick={() => void cancel(pending.id)}>
-                      <Ban size={12} aria-hidden="true" /><span>Cancel</span>
+                      <Ban size={12} aria-hidden="true" /><span>{t('Cancel')}</span>
                     </button>
                   </div>
                 </>}
@@ -1326,7 +1326,7 @@ export function StudioPane({
             {/* Clean tiles: detail opens from the media itself; only destructive
                 cleanup remains in the top-right hover control. */}
             {!phoneViewer && <div className="studio-tile-actions">
-              <button type="button" className="studio-tile-remove" aria-label="Delete asset"
+              <button type="button" className="studio-tile-remove" aria-label={t('Delete asset')}
                 title={assetLabel(asset)}
                 onClick={() => void remove(asset)}><Trash2 size={15} aria-hidden="true" /></button>
             </div>}
@@ -1361,20 +1361,20 @@ export function StudioPane({
             void addFiles(files);
           }}
           data-dropping={dropping ? 'true' : undefined}>
-          {refs.length > 0 && <div className="studio-refs" aria-label="Reference images">
+          {refs.length > 0 && <div className="studio-refs" aria-label={t('Reference images')}>
             {refs.map((ref, index) => <span key={ref.url} className="studio-ref">
               <img src={ref.url} alt="" />
-              <button type="button" aria-label="Remove reference"
+              <button type="button" aria-label={t('Remove reference')}
                 onClick={() => setRefs((current) => current.filter((_, at) => at !== index))}>
                 <X size={11} aria-hidden="true" />
               </button>
             </span>)}
           </div>}
           <textarea value={prompt} rows={1} ref={promptRef}
-            aria-label="Generation prompt"
+            aria-label={t('Generation prompt')}
             placeholder={kind === 'video'
-              ? 'Describe the video…'
-              : 'Describe the image you want…'}
+              ? t('Describe the video…')
+              : t('Describe the image you want…')}
             onChange={(event) => setPrompt(event.currentTarget.value)}
             onPaste={(event) => {
               const files = [...event.clipboardData.files].filter((file) => file.type.startsWith('image/'));
@@ -1391,9 +1391,9 @@ export function StudioPane({
               already valid for this render, so remounting would only force
               another Chromium text raster pass. */}
           <div className="studio-composer-bar">
-            <button type="button" className="studio-attach" aria-label="Attach reference image"
+            <button type="button" className="studio-attach" aria-label={t('Attach reference image')}
               disabled={refs.length >= maxRefs}
-              data-tooltip="Attach reference"
+              data-tooltip={t('Attach reference')}
               onClick={() => fileInput.current?.click()}><Plus size={16} aria-hidden="true" /></button>
             <input ref={fileInput} type="file" accept="image/*" multiple hidden
               onChange={(event) => {
@@ -1437,7 +1437,7 @@ export function StudioPane({
                     (value) => setOptions((current) => ({ ...current, duration: Number.parseInt(value, 10) || current.duration })))
                   : <label className="studio-duration">
                     <input type="range" min={controls.durationRange?.[0] ?? 1} max={controls.durationRange?.[1] ?? 15}
-                      value={options.duration} disabled={disabled} aria-label="Duration seconds"
+                      value={options.duration} disabled={disabled} aria-label={t('Duration seconds')}
                       onChange={(event) => {
                         // Read the value BEFORE the state updater runs: React
                         // has already cleared currentTarget by then, and the
@@ -1452,15 +1452,15 @@ export function StudioPane({
             <span className="studio-composer-spacer" />
             {/* Never flips to a disabled spinner: each press queues another run
                 and the in-flight ones report on their own tiles. */}
-            <button type="button" className="studio-generate" aria-label="Generate"
-              data-tooltip="Generate" disabled={!lane || !prompt.trim()} onClick={() => void generate()}>
+            <button type="button" className="studio-generate" aria-label={t('Generate')}
+              data-tooltip={t('Generate')} disabled={!lane || !prompt.trim()} onClick={() => void generate()}>
               <Sparkles size={15} aria-hidden="true" />
             </button>
           </div>
         </div>
       </div>
 
-      {selected && <div className="studio-detail" role="dialog" aria-label="Generated media detail"
+      {selected && <div className="studio-detail" role="dialog" aria-label={t('Generated media detail')}
         data-phone={phoneViewer || narrowDetailViewer ? 'true' : undefined}
         data-pane-compact={narrowDetailViewer && !phoneViewer ? 'true' : undefined}
         onClick={() => setSelected(null)}>
@@ -1480,13 +1480,13 @@ export function StudioPane({
               alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />}
           {/* Phone viewer: the media is full-bleed, so its close control floats
               over the stage instead of sitting in the side rail's header. */}
-          <button type="button" className="studio-detail-stage-close" aria-label="Close preview"
+          <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')}
             onClick={() => setSelected(null)}><X size={17} aria-hidden="true" /></button>
         </div>
         <aside className="studio-detail-side">
           <header>
-            <b>{selected.kind === 'video' ? 'Video' : 'Image'}</b>
-            <button type="button" className="studio-detail-close" aria-label="Close preview"
+            <b>{selected.kind === 'video' ? t('Video') : t('Image')}</b>
+            <button type="button" className="studio-detail-close" aria-label={t('Close preview')}
               onClick={() => setSelected(null)}><X size={15} aria-hidden="true" /></button>
           </header>
           {detailSections(selected)}

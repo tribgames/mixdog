@@ -115,11 +115,56 @@
   color: var(--mx-text);
   background: var(--mx-workspace-sheet);
 }
+/* Opening slides the panel up into its already reserved space — transform
+   only, zero re-layout during motion (user: vscode 같은 매끄러움).
+   data-settled (400ms after open) pins the animation off so band crossings
+   never replay it. Reduced-motion disables this in desktop.css. */
+.bottom-panel:not([data-settled="true"]) {
+  animation: bottom-panel-expand var(--mx-side-panel-motion);
+}
 /* Floor-overlap state: the panel rides OVER the pane bottom once the pane is
    at its floor — lift it above the workspace and read as a covering sheet. */
 .bottom-panel[data-overlaying="true"] {
   z-index: 7;
   box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.28);
+}
+@keyframes bottom-panel-expand {
+  from { transform: translateY(100%); }
+}
+/* ≤940px: the bottom panel joins the SHEET grammar (user: 하단 탭도 좌우
+   탭과 같은 취급 — 레이아웃도 비슷하게, 애니하고): a fixed card over the
+   workspace with the side sheets' rounding/ring/shadow language, sliding
+   in from its own (bottom) edge. App-level exclusivity guarantees only
+   one sheet at a time in this band. */
+@media (max-width: 940px) {
+  .bottom-panel {
+    position: fixed;
+    z-index: 38;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: calc(100% - var(--titlebar-height, 40px) - 48px);
+    border-top: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: var(--mx-overlay);
+  }
+  .bottom-panel:not([data-settled="true"]) {
+    animation: bottom-sheet-in var(--mx-sheet-motion);
+  }
+  /* Overlay ring like the side sheets: painted above children, immune to
+     the desktop-body clip and opaque bands. */
+  .bottom-panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  }
+}
+@keyframes bottom-sheet-in {
+  from { transform: translateY(calc(100% + 16px)); }
 }
 .bottom-panel-resize {
   position: absolute;
@@ -143,7 +188,9 @@
   gap: 2px;
   flex: 0 0 auto;
   height: 35px;
-  padding: 0 8px;
+  /* 4+8(tab pad) lands the first tab LABEL on the 12px line the terminal
+     strip and xterm content start on (user: 위쪽 메뉴 왼쪽 패딩 맞추고). */
+  padding: 0 8px 0 4px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
 .bottom-panel-tab-region {
@@ -541,20 +588,23 @@
 }
 /* Responsive chat gutters (user request): the paddings step down with the
    SURFACE width, not the window — a narrow split pane on a big monitor gets
-   the compact gutters, and phones/tablets fall out of the same scale. */
+   the compact gutters, and phones/tablets fall out of the same scale.
+   Only the SIDE gutters step: the bottom inset stays the base 16px so
+   side-by-side panes keep their composers on one line (user: 채팅창 높이
+   통일 — the 16/8/6 steps read as mismatched heights). */
 .workspace { container-type: inline-size; }
 @container chat-pane (max-width: 620px) {
   .thread {
     padding: 18px calc(24px - var(--mx-scrollbar-size)) 18px 24px;
   }
-  .composer-region { padding: 0 20px 8px; }
+  .composer-region { padding: 0 20px 16px; }
   .session-header-content { padding: 12px 24px; }
 }
 @container chat-pane (max-width: 420px) {
   .thread {
     padding: 14px calc(16px - var(--mx-scrollbar-size)) 14px 16px;
   }
-  .composer-region { padding: 0 12px 6px; }
+  .composer-region { padding: 0 12px 16px; }
   .session-header-content { padding: 10px 16px; }
 }
 
@@ -645,3 +695,27 @@
   font-size: 15px;
   opacity: 0.45;
 }
+
+/* Narrow-shell single-pane mode (user decision): below the phone breakpoint
+   a split tree would crush every pane under its floor, so the workspace
+   shows ONE pane at a time and the strip-row pager steps through the panes
+   in visual order. Hidden panes stay mounted (display only) so terminals,
+   editors, and conversations keep their state across switches. */
+.pane-carousel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.pane-carousel > .pane-carousel-item { display: none; }
+.pane-carousel > .pane-carousel-item[data-carousel-active="true"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.main-panel > .pane-carousel { flex: 1 1 auto; min-width: 0; min-height: 0; }

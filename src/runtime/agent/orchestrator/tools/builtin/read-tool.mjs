@@ -113,6 +113,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         _rangeHashesFromRenderedReadText,
         _readEntryLineWindow,
         _recordReadSnapshot,
+        READ_MAX_OUTPUT_BYTES,
     } = helpers;
     // CC `file_path` alias — official SDK schema uses `file_path`;
     // mixdog has historically used `path`. Honor `file_path` so a
@@ -310,6 +311,21 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             if (a.offset !== b.offset) return a.offset - b.offset;
             return a.index - b.index;
         });
+        // A path[] Read shares one byte ceiling. Reserve room for headers and
+        // split the remaining body budget across distinct disk windows.
+        const _readCallBudget = Number(options?.readOutputBudgetBytes) > 0
+            ? Math.min(READ_MAX_OUTPUT_BYTES, Math.trunc(Number(options.readOutputBudgetBytes)))
+            : READ_MAX_OUTPUT_BYTES;
+        const _headerReserve = Math.min(
+            Math.max(2_048, entries.reduce((sum, entry) => (
+                sum + Buffer.byteLength(String(normalizeOutputPath(entry?.path || '(missing-path)')), 'utf8') + 128
+            ), 0)),
+            Math.floor(_readCallBudget / 2),
+        );
+        const _perTaskOutputBudget = Math.max(
+            256,
+            Math.floor((_readCallBudget - _headerReserve) / Math.max(1, tasks.length)),
+        );
         const results = new Array(entries.length);
         const readChains = new Map();
         await Promise.all(tasks.map(({ entry, index }) => {
@@ -319,9 +335,15 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             }
             const run = async () => {
                 const _diskWin = readEntryCoalescedDiskWindow(entry);
-                const readEntry = _diskWin
+                let readEntry = _diskWin
                     ? { ...entry, offset: _diskWin.offset, limit: _diskWin.limit }
                     : entry;
+                if ((!readEntry.mode || readEntry.mode === 'full')
+                    && readEntry.offset == null
+                    && readEntry.limit == null
+                    && readEntry.full !== true) {
+                    readEntry = { ...readEntry, offset: 0, limit: 2000 };
+                }
                 // Full image children retain their rich blocks; the aggregate
                 // assembler below flattens them without stringification.
                 // Other media (PDF/notebook) remains text-only in a batch so
@@ -332,6 +354,9 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                     suppressReadUnchangedStub: true,
                     mediaTextOnly: !richImage,
                     _skipReachPreflight: true,
+                    forceReadRangeStream: true,
+                    readOutputBudgetBytes: _perTaskOutputBudget,
+                    toolOutputMaxBytes: _perTaskOutputBudget,
                 });
                 results[index] = { path: entry.path, mode: entry.mode || 'full', n: entry.n, body };
             };

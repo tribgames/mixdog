@@ -2,7 +2,7 @@
 // with clickable progress bars, per-step hero titles, and Ctrl+Enter to
 // advance. The capability wiring (completeOnboarding / skipOnboarding and the
 // provider/model reads) is shared with Settings and stays authoritative.
-import { ArrowLeft, ArrowRight, Brain, Check, ExternalLink, Github, Star, UserRound, Users, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ExternalLink, Github, Star, UserRound, Users, X } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -281,16 +281,20 @@ export function OnboardingWizard({ api, onDone }: {
         { capability: 'getAutoClear' },
         { capability: 'getCompactionSettings' },
       ];
-      const [readResults, modelResult, snapshotResult] = await Promise.all([
+      // The provider-model catalog is the slow read (remote catalogs); it must
+      // not hold the reveal gate — the Models step sits two steps in and its
+      // options fill in as they arrive (user: 처음 들어가면 검정 빈 화면).
+      void api.listProviderModels({ quick: false, ...(force ? { force: true } : {}) })
+        .then(setModels)
+        .catch(() => { /* the Models step keeps its empty select; reload retries */ });
+      const [readResults, snapshotResult] = await Promise.all([
         readCapabilityBatch(api, readRequests),
-        api.listProviderModels({ quick: false, ...(force ? { force: true } : {}) }),
         api.getSnapshot(),
       ]);
       const values = readResults.map((result) => result.ok ? result.value : null);
       const readErrors = readResults.flatMap((result) => result.ok ? [] : [result.error]);
       if (readErrors.length) setError(readErrors.join(' · '));
       setProviderSetup(record(values[0]));
-      setModels(modelResult);
       setSearchModels(rows(values[1]));
       setAgents(rows(values[2]));
       const output = record(values[3]);
@@ -570,6 +574,9 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: {
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { cancelRef.current?.focus(); }, []);
+  // This scrim stacks on the wizard's: the native caption band has to darken
+  // by the same amount the DOM does.
+  useEffect(() => acquireTitleBarDim(), []);
   return <div className="settings-confirm-layer">
     <section className="settings-confirm-dialog" role="alertdialog" aria-modal="true"
       aria-labelledby="onboarding-skip-title" aria-describedby="onboarding-skip-description"
@@ -608,9 +615,15 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
   return <>
     {oauthProviders.length > 0 && <div className="onboarding-model-section"><h3>OAuth</h3>
     <div className="onboarding-provider-list">
+      {/* One status slot for every provider kind: the state reads under the
+          name, never above the row's actions (user: 커넥티드 위치가 제각각).
+          The token file/store location is plumbing, not setup guidance. */}
       {oauthProviders.map((provider) => <div className="onboarding-provider-row" key={String(provider.id)}><div><b>{providerTitle(provider)}</b>
-        <small>{String(provider.detail || provider.status || '')}</small></div><span>{provider.authenticated ? 'Connected' : 'OAuth'}</span>
-        <OAuthControl provider={{ ...provider, label: providerTitle(provider) }} disabled={Boolean(pending)} run={run} onComplete={onReload} />
+        <small className={`onboarding-provider-state${provider.authenticated ? ' connected' : ''}`}>
+          {provider.authenticated ? 'Connected' : 'Not connected'}</small></div>
+        <span className="onboarding-provider-action">
+          <OAuthControl provider={{ ...provider, label: providerTitle(provider) }} disabled={Boolean(pending)} run={run} onComplete={onReload} />
+        </span>
         {Boolean(provider.authenticated) && <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
           void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
             if (result !== undefined) onReload();
@@ -620,7 +633,9 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
     {apiProviders.length > 0 && <div className="onboarding-model-section"><h3>API keys</h3>
     <div className="onboarding-provider-list">
       {apiProviders.map((provider) => <form key={String(provider.id)} onSubmit={(event) => onSaveApiKey(event, String(provider.id))}>
-        <div><b>{providerTitle(provider)}</b><small>{provider.authenticated ? 'Connected' : String(provider.detail || provider.status || 'API key required')}</small></div>
+        <div><b>{providerTitle(provider)}</b>
+          <small className={`onboarding-provider-state${provider.authenticated ? ' connected' : ''}`}>
+            {provider.authenticated ? 'Connected' : String(provider.detail || provider.status || 'API key required')}</small></div>
         {String(provider.id) === 'opencode-go' && <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
           void run('loginOpenCodeGoUsage', [], 'opencode-go-usage').then((result) => {
             if (result !== undefined) onReload();
@@ -874,13 +889,22 @@ function GitStep({ api }: { api: DesktopApi }) {
   </div>;
 }
 
-// Desktop theme modes only (user decision): System / Dark / White cards, the
-// same desktop-local preference Settings → General writes.
+// Desktop surface modes only (user decision): System / Dark / Gray / White,
+// the same desktop-local preference Settings → General writes.
 const THEME_MODES: ReadonlyArray<{ id: DesktopThemePreference; label: string; hint: string }> = [
   { id: 'system', label: 'System', hint: 'Match OS' },
-  { id: 'dark', label: 'Dark', hint: 'Easy on the eyes' },
+  { id: 'dark', label: 'Dark', hint: 'True black' },
+  { id: 'gray', label: 'Gray', hint: 'Soft charcoal' },
   { id: 'white', label: 'White', hint: 'Bright & crisp' },
 ];
+
+/** The desktop surface ramps, mirrored from desktop.css for the mini preview
+ *  (the TUI registry palette knows nothing about Dark vs Gray). */
+const SURFACE_PREVIEW: Record<string, { deep: string; base: string; text: string; border: string }> = {
+  dark: { deep: '#0b0b0b', base: '#1a1a1a', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
+  gray: { deep: '#141414', base: '#262626', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
+  white: { deep: '#f5f5f5', base: '#ffffff', text: '#17181a', border: 'rgba(0,0,0,.14)' },
+};
 
 function ThemeStep({ mode, onSelect }: {
   mode: DesktopThemePreference;
@@ -891,8 +915,10 @@ function ThemeStep({ mode, onSelect }: {
       onClick={() => onSelect(entry.id)}>
       <span className="onboarding-theme-preview" aria-hidden="true">
         {entry.id === 'system'
-          ? <span className="onboarding-theme-split"><ThemeChromeMock id="basic" /><ThemeChromeMock id="light" /></span>
-          : <ThemeChromeMock id={entry.id === 'white' ? 'light' : 'basic'} />}
+          ? <span className="onboarding-theme-split">
+            <ThemeChromeMock id="basic" surface="dark" /><ThemeChromeMock id="light" surface="white" />
+          </span>
+          : <ThemeChromeMock id={entry.id === 'white' ? 'light' : 'basic'} surface={String(entry.id)} />}
       </span>
       <span className="onboarding-theme-name"><b>{entry.label}</b>
         {mode === entry.id ? <Check size={13} /> : null}
@@ -903,15 +929,17 @@ function ThemeStep({ mode, onSelect }: {
 
 // Tiny Mixdog chrome (sidebar, tab, transcript, composer) painted with the
 // theme's own registry palette so every card previews its real colors.
-function ThemeChromeMock({ id }: { id: string }) {
+function ThemeChromeMock({ id, surface }: { id: string; surface?: string }) {
   const palette = themePreviewPalette(id);
   if (!palette) return <span className="onboarding-theme-preview-empty" />;
-  const deep = palette.background === 'transparent' ? palette.inverseText : palette.background;
-  const base = palette.mdCodeBlockBg;
-  const text = palette.text;
+  const ramp = surface ? SURFACE_PREVIEW[surface] : undefined;
+  const deep = ramp?.deep
+    ?? (palette.background === 'transparent' ? palette.inverseText : palette.background);
+  const base = ramp?.base ?? palette.mdCodeBlockBg;
+  const text = ramp?.text ?? palette.text;
   const line = `color-mix(in srgb, ${text} 24%, transparent)`;
   const lineDim = `color-mix(in srgb, ${text} 11%, transparent)`;
-  const border = `color-mix(in srgb, ${palette.promptBorder} 55%, transparent)`;
+  const border = ramp?.border ?? `color-mix(in srgb, ${palette.promptBorder} 55%, transparent)`;
   return <span className="onboarding-theme-chrome" style={{ background: deep }}>
     <span className="onboarding-theme-side" style={{ background: base, borderRight: `1px solid ${border}` }}>
       <span style={{ background: line }} />
@@ -1163,9 +1191,7 @@ function ContextStep({ memoryEnabled, autoClearOn, compactAuto, pending, run, on
       value: autoClearOn, apply: onAutoClear,
       save: (next: boolean) => run('setAutoClear', [{ enabled: next }], 'onboarding-autoclear') },
   ];
-  return <>
-  <div className="onboarding-star-card onboarding-connect-card">
-    <span className="onboarding-connect-icon" aria-hidden="true"><Brain size={26} /></span>
+  return <div className="onboarding-star-card onboarding-connect-card onboarding-context-card">
     <div>
       <span className="onboarding-connect-title">Memory</span>
       <p>Mixdog recaps recent sessions and keeps user-curated core memories, so new sessions start with context.</p>
@@ -1184,12 +1210,10 @@ function ContextStep({ memoryEnabled, autoClearOn, compactAuto, pending, run, on
         <span><b>{label}</b><small>{hint}</small></span>
       </button>)}
     </div>
-    <small>Core memories live in Settings → Context.</small>
-  </div>
-  <div className="onboarding-model-section">
-    <h3>Session lifecycle</h3>
-    <div className="onboarding-provider-list">
-      {lifecycle.map((row) => <div className="onboarding-provider-row onboarding-provider-row--plain" key={row.key}>
+    {/* Lifecycle toggles live inside the card: a separate section overflowed
+        the fixed-height dialog into a scrollbar (user: 스크롤 안 나오게). */}
+    <div className="onboarding-context-rows">
+      {lifecycle.map((row) => <div className="onboarding-context-row" key={row.key}>
         <div><b>{row.label}</b><small>{row.hint}</small></div>
         <div className="onboarding-backend-toggle" role="group" aria-label={row.label}>
           {([[true, 'On'], [false, 'Off']] as const).map(([value, name]) => <button key={name} type="button"
@@ -1201,8 +1225,7 @@ function ContextStep({ memoryEnabled, autoClearOn, compactAuto, pending, run, on
         </div>
       </div>)}
     </div>
-  </div>
-  </>;
+  </div>;
 }
 
 function ChannelsStep({ setup, pending, run, onReload }: {

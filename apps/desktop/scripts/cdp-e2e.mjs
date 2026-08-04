@@ -513,7 +513,7 @@ const bootstrap = harnessInstalled
       throw new Error('Transcript message navigation buttons should be absent.');
     }
     if (itemCount > 80) {
-      await waitFor(() => queryVisible('.transcript-virtual-space[data-virtualized="true"]'),
+      await waitFor(() => queryVisible('.transcript-virtual-space'),
         'recent session virtual timeline');
       await waitFor(() => document.querySelectorAll('.transcript-virtual-row').length,
         'recent session virtual rows');
@@ -521,7 +521,7 @@ const bootstrap = harnessInstalled
         .some((entry) => Number(entry.getAttribute('data-index')) === itemCount - 1),
       'recent session virtual tail');
     }
-    const virtualized = Boolean(queryVisible('.transcript-virtual-space[data-virtualized="true"]'));
+    const virtualized = Boolean(queryVisible('.transcript-virtual-space'));
     const renderedIndexes = Array.from(document.querySelectorAll('.transcript-virtual-row'))
       .map((entry) => Number(entry.getAttribute('data-index')))
       .filter(Number.isFinite);

@@ -283,6 +283,92 @@ test("consuming a reset credit updates the shared snapshot and its cache", async
     "a reset counts as a live response for the refresh TTL");
 });
 
+test("a confirmed reset without a rebuilt dashboard revalidates instead of claiming failure", async () => {
+  installDom();
+  const offerRevision = `v1:${"e".repeat(64)}`;
+  const initial = {
+    checkedAt: Date.now(),
+    rows: [{
+      id: "openai-oauth",
+      label: "OpenAI OAuth",
+      group: "oauth",
+      authenticated: true,
+      windows: [{ label: "5H", usedPct: 100 }],
+      resetCredits: {
+        availableCount: 1,
+        availableCredits: [{ expiresAt: Date.now() + 2 * 86_400_000 }],
+        offerRevision,
+      },
+    }],
+  };
+  const refreshed = {
+    checkedAt: Date.now() + 1,
+    rows: [{ ...initial.rows[0], windows: [{ label: "5H", usedPct: 0 }], resetCredits: {} }],
+  };
+  window.localStorage.setItem(USAGE_DASHBOARD_CACHE_KEY, JSON.stringify(initial));
+  let consumed = false;
+  const usageApi = {
+    invokeCapability: async (request) => {
+      if (request.capability === "consumeCodexRateLimitResetCredit") {
+        consumed = true;
+        // The runtime's courtesy refresh ran out of budget: the OUTCOME is
+        // still the server's answer and the credit is spent.
+        return { value: { outcome: "reset" } };
+      }
+      return { value: consumed ? refreshed : initial };
+    },
+  };
+
+  await act(async () => {
+    root.render(React.createElement(SidebarUsage, { api: usageApi }));
+    await Promise.resolve();
+  });
+  await act(async () => document.querySelector('[aria-label="Use Codex reset credit 1"]').click());
+  await act(async () => {
+    document.querySelector('[aria-label="Confirm using Codex reset credit 1"]').click();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  assert.match(document.querySelector('[role="status"]')?.textContent || "", /Rate limits reset/);
+  assert.equal(window.localStorage.getItem(CODEX_RESET_ATTEMPT_KEY), null,
+    "a confirmed outcome clears the durable attempt even without a rebuilt dashboard");
+  assert.equal(getUsageDashboardSnapshot().dashboard.rows[0].windows[0].usedPct, 0,
+    "the store revalidates so the surface stops showing pre-reset meters");
+});
+
+test("an account with no reset credits still states the reset-credit count", async () => {
+  installDom();
+  const initial = {
+    checkedAt: Date.now(),
+    rows: [{
+      id: "openai-oauth",
+      label: "OpenAI OAuth",
+      group: "oauth",
+      authenticated: true,
+      windows: [{ label: "7D", usedPct: 90 }],
+      resetCredits: {
+        availableCount: 0,
+        availableCredits: [],
+        offerRevision: `v1:${"f".repeat(64)}`,
+      },
+    }],
+  };
+  window.localStorage.setItem(USAGE_DASHBOARD_CACHE_KEY, JSON.stringify(initial));
+  const usageApi = { invokeCapability: async () => ({ value: initial }) };
+
+  await act(async () => {
+    root.render(React.createElement(SidebarUsage, { api: usageApi }));
+    await Promise.resolve();
+  });
+
+  const section = document.querySelector(".sidebar-usage-reset-credit");
+  assert.ok(section, "a known offer must state its count instead of hiding the feature");
+  assert.equal(document.querySelectorAll(".sidebar-usage-reset-row").length, 0,
+    "there is nothing to redeem, so no credit row may offer it");
+});
+
 test("reset confirmation follows the credit identity when a refresh inserts an earlier row", async () => {
   installDom();
   const checkedAt = Date.now();

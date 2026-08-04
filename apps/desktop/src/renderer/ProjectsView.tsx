@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopProjectSummary } from '../shared/contract';
+import { t } from './i18n';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { projectIdentity, SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -123,7 +124,7 @@ export function ProjectsPane({
       {/* The panel header names this view and hosts its action (user: 타이틀
           이 2번 나옴) — the list starts right at the search field. */}
       {/* Plain + like every other rail panel action (user: 프로젝트도 + 통일). */}
-      <SidebarPanelAction active={active} label="Add project" icon={Plus}
+      <SidebarPanelAction active={active} label={t('Add project')} icon={Plus}
         className="projects-add" onClick={() => setAddOpen(true)} />
       {active && addOpen && createPortal(<div className="schedules-dialog-layer"
         onMouseDown={(event) => { if (event.target === event.currentTarget) closeAdd(); }}
@@ -137,8 +138,8 @@ export function ProjectsPane({
         <section className="schedules-dialog projects-add-dialog" role="dialog" aria-modal="true"
           aria-labelledby="projects-add-title">
           <header>
-            <h2 id="projects-add-title">Add project</h2>
-            <button type="button" aria-label="Close add project" onClick={closeAdd}>
+            <h2 id="projects-add-title">{t('Add project')}</h2>
+            <button type="button" aria-label={t('Close add project')} onClick={closeAdd}>
               <X size={15} aria-hidden="true" /></button>
           </header>
           <form onSubmit={(event) => {
@@ -151,15 +152,15 @@ export function ProjectsPane({
               .catch((reason) => setAddError(reason instanceof Error ? reason.message : String(reason)))
               .finally(() => setAddBusy(false));
           }}>
-            <label className="schedules-field">Name
+            <label className="schedules-field">{t('Name')}
               <input name="project-name" value={addName} maxLength={120} autoFocus disabled={addBusy}
-                placeholder="my-project"
+                placeholder={t('my-project')}
                 onChange={(event) => setAddName(event.currentTarget.value)} />
             </label>
             <div className="schedules-field">
-              <span>Folder</span>
+              <span>{t('Folder')}</span>
               <div className="projects-folder-row">
-                <code>{addPath || 'No folder selected'}</code>
+                <code>{addPath || t('No folder selected')}</code>
                 {/* Folder comes from the OS chooser only (user decision):
                     prefill the Name with the folder's basename once picked. */}
                 <button type="button" className="settings-action" disabled={addBusy}
@@ -168,13 +169,13 @@ export function ProjectsPane({
                     setAddPath(selected);
                     setAddName((current) => current.trim() ? current : displayProjectFolder(selected));
                     setAddError('');
-                  })}>Browse…</button>
+                  })}>{t('Browse…')}</button>
               </div>
             </div>
             <footer>
               {addError && <p className="schedules-form-error" role="alert">{addError}</p>}
-              <button type="button" disabled={addBusy} onClick={closeAdd}>Cancel</button>
-              <button type="submit" disabled={addBusy || !addPath}>Add</button>
+              <button type="button" disabled={addBusy} onClick={closeAdd}>{t('Cancel')}</button>
+              <button type="submit" disabled={addBusy || !addPath}>{t('Add')}</button>
             </footer>
           </form>
         </section>
@@ -192,7 +193,7 @@ export function ProjectsPane({
           aria-labelledby="projects-instructions-title">
           <header>
             <h2 id="projects-instructions-title">{insTarget.title}</h2>
-            <button type="button" aria-label="Close instructions editor" onClick={closeInstructions}>
+            <button type="button" aria-label={t('Close instructions editor')} onClick={closeInstructions}>
               <X size={15} aria-hidden="true" /></button>
           </header>
           <form onSubmit={(event) => {
@@ -209,17 +210,17 @@ export function ProjectsPane({
           }}>
             {/* EXACT workflow-editor field grammar (user: 옵션창에서 쓰는
                 거로) — same label + bare textarea as the WORKFLOW.md body. */}
-            <label className="schedules-field workflows-md-field">Instructions
-              <textarea aria-label="Instructions markdown"
-                value={insLoading ? 'Loading…' : insDraft} disabled={insLoading || insBusy}
+            <label className="schedules-field workflows-md-field">{t('Instructions')}
+              <textarea aria-label={t('Instructions markdown')}
+                value={insLoading ? t('Loading…') : insDraft} disabled={insLoading || insBusy}
                 spellCheck={false} autoFocus
-                placeholder="Markdown instructions for the model…"
+                placeholder={t('Markdown instructions for the model…')}
                 onChange={(event) => setInsDraft(event.currentTarget.value)} />
             </label>
             <footer>
               {insError && <p className="schedules-form-error" role="alert">{insError}</p>}
-              <button type="button" disabled={insBusy} onClick={closeInstructions}>Cancel</button>
-              <button type="submit" disabled={insBusy || insLoading}>Save</button>
+              <button type="button" disabled={insBusy} onClick={closeInstructions}>{t('Cancel')}</button>
+              <button type="submit" disabled={insBusy || insLoading}>{t('Save')}</button>
             </footer>
           </form>
         </section>
@@ -229,11 +230,11 @@ export function ProjectsPane({
           <span className="projects-row-icon" aria-hidden="true"><NotebookPen size={16} /></span>
           <button type="button" className="schedules-row-copy projects-row-open"
             onClick={() => openInstructions(null, 'Common Instructions')}>
-            <b>Common Instructions</b>
-            <small>Applies to all projects</small>
+            <b>{t('Common Instructions')}</b>
+            <small>{t('Applies to all projects')}</small>
           </button>
           <button type="button" className="session-panel-action projects-instructions-edit"
-            aria-label="Edit common instructions" data-tooltip="Edit"
+            aria-label={t('Edit common instructions')} data-tooltip={t('Edit')}
             onClick={() => openInstructions(null, 'Common Instructions')}>
             <Pencil size={14} aria-hidden="true" />
           </button>
@@ -265,7 +266,7 @@ export function ProjectsPane({
                   else renameInputs.current.delete(project.path);
                 }}
                 value={renameDraft} maxLength={120} disabled={!editing}
-                tabIndex={editing ? undefined : -1} aria-label="Project display name"
+                tabIndex={editing ? undefined : -1} aria-label={t('Project display name')}
                 onChange={(event) => setRenameDraft(event.currentTarget.value)}
                 onKeyDown={(event) => {
                   if (event.key !== 'Escape') return;
@@ -321,7 +322,7 @@ export function ProjectsPane({
       })}</div>
         : <div className="schedules-empty">
           <Folder size={40} strokeWidth={1.5} aria-hidden="true" />
-          <p>{projects.length ? 'No projects match the current search.' : 'No projects yet. Add a folder to make it available in Mixdog.'}</p>
+          <p>{projects.length ? t('No projects match the current search.') : t('No projects yet. Add a folder to make it available in Mixdog.')}</p>
         </div>}
     </div>
   </div>;

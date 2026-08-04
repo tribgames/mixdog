@@ -9,7 +9,6 @@ import {
   draftAfterSubmission,
   focusTrapIndex,
   isApprovalDismissKey,
-  isScrollIntentKey,
   mergeModelCatalog,
   mergeTranscript,
   normalizeApplyPatch,
@@ -46,11 +45,9 @@ import {
   studioTargetRowHeight,
 } from './studio-support.ts';
 import {
-  rememberMeasuredTranscriptRowHeight,
-  estimatedTranscriptRowHeight,
-  shouldCompensateTranscriptRowMeasurement,
+  TRANSCRIPT_ROW_ESTIMATE,
   TRANSCRIPT_VIRTUAL_OVERSCAN,
-} from './transcript-metrics.ts';
+} from './transcript-virtual-cache.ts';
 import {
   createStreamingMarkdownCache,
   resolveStreamingMarkdownChunks,
@@ -71,10 +68,7 @@ import {
 import { createFrameCoordinator } from './interaction-frame-scheduler.ts';
 import { TerminalWritePump } from './terminal-write-pump.ts';
 import { parseMarkdownToHast } from './markdown-ast.ts';
-import {
-  isRetainableTranscriptMarkdownRow,
-  refreshRetainedTranscriptMarkdownRows,
-} from './transcript-dom-lru.ts';
+import { projectTranscriptRows } from './transcript-rows.ts';
 import {
   mergeSessionCatalogPushRows,
   mergeSessionCatalogRows,
@@ -102,10 +96,7 @@ import {
   parseEditorAnsi,
   visibleEditorAnsiText,
 } from './editor-ansi.ts';
-import {
-  pendingPromptTranscriptItems,
-  rememberSessionScrollPosition,
-} from './Conversation.tsx';
+import { pendingPromptTranscriptItems } from './Conversation.tsx';
 import {
   isMonacoRestoreCancellation,
   isResizeObserverDeliveryWarning,
@@ -128,7 +119,7 @@ import {
   hiddenWslDistribution,
 } from '../main/shell-profiles.ts';
 
-const APP_MODULE_FILES = ['./App.tsx', './app-project-actions.ts', './app-session-catalog.ts', './session-catalog-cache.ts', './app-session-snapshots.ts', './app-workspace-shortcuts.ts', './workbench-workspace.ts', './app-snapshot-views.tsx', './app-side-panel-flip.ts', './mobile-task-gestures.ts', './Conversation.tsx', './notifications.tsx', './Composer.tsx', './composer-attachments.ts', './model-controls.tsx', './TranscriptView.tsx', './UtilityDock.tsx', './ReviewPane.tsx', './TurnReview.tsx', './ApprovalCard.tsx', './transcript-metrics.ts', './desktop-types.ts', './text-format.ts', './lazy-widgets.ts', './EditorPane.lazy.tsx', './editor-language-store.ts', './media-lifecycle.ts', './PaneSurfaceGate.tsx'];
+const APP_MODULE_FILES = ['./App.tsx', './app-project-actions.ts', './app-session-catalog.ts', './session-catalog-cache.ts', './app-session-snapshots.ts', './app-workspace-shortcuts.ts', './workbench-workspace.ts', './app-snapshot-views.tsx', './app-side-panel-flip.ts', './mobile-task-gestures.ts', './Conversation.tsx', './TranscriptList.tsx', './transcript-rows.ts', './transcript-virtual-cache.ts', './use-transcript-follow.ts', './notifications.tsx', './Composer.tsx', './composer-attachments.ts', './model-controls.tsx', './TranscriptView.tsx', './UtilityDock.tsx', './ReviewPane.tsx', './TurnReview.tsx', './ApprovalCard.tsx', './transcript-metrics.ts', './desktop-types.ts', './text-format.ts', './lazy-widgets.ts', './EditorPane.lazy.tsx', './editor-language-store.ts', './media-lifecycle.ts', './PaneSurfaceGate.tsx'];
 
 test('PANE language resolution audits every VS Code association and formats log files', async () => {
   assert.equal(EDITOR_LANGUAGE_AUDIT.sourceLanguageIds, 74);
@@ -643,7 +634,7 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
     "file editor actions must not expose the redundant full-review transition");
   assert.doesNotMatch(studio, /aria-label="Open in system viewer"/);
   assert.match(studio, /openMediaFolder', \[asset\.id\]/);
-  assert.match(studio, /<FolderOpen size=\{14\} aria-hidden="true" \/>Open Folder/);
+  assert.match(studio, /<FolderOpen size=\{14\} aria-hidden="true" \/>\{t\(['"]Open Folder['"]\)\}/);
   assert.match(studio, /className="studio-thumbnail-loading"/);
   assert.match(desktopCss, /\.studio-thumbnail-image\[data-ready='true'\]\s*\{\s*opacity:\s*1;/s);
   assert.match(studio,
@@ -653,7 +644,7 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
     /className="studio-results"[\s\S]*?className="studio-dock"/,
     "Studio results, including pending thumbnails, must stay above the composer");
   assert.match(studio,
-    /className="studio-tile-remove" aria-label="Delete asset"[\s\S]*?<Trash2 size=\{15\}/);
+    /className="studio-tile-remove" aria-label=\{t\(['"]Delete asset['"]\)\}[\s\S]*?<Trash2 size=\{15\}/);
   assert.match(studio,
     /value=\{TILE_SIZES\.length - 1[\s\S]*?TILE_SIZES\[TILE_SIZES\.length - 1 - scaleIndex\]/,
     "thumbnail scale must run from smaller tiles on the left to larger tiles on the right");
@@ -809,7 +800,7 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   assert.match(app, /editorSaveHandles/);
   assert.doesNotMatch(app, /window\.confirm\(`Discard unsaved changes/);
   assert.match(overlays, /role="dialog"[\s\S]*?Command Palette/);
-  assert.match(overlays, />Cancel<[\s\S]*?>Don’t Save<[\s\S]*?\{busy \? "Saving…" : "Save"\}/);
+  assert.match(overlays, />\{t\(["']Cancel["']\)\}<[\s\S]*?>\{t\(["']Don’t Save["']\)\}<[\s\S]*?\{busy \? t\(["']Saving…["']\) : t\(["']Save["']\)\}/);
   assert.match(shortcuts, /key === "p"/);
   assert.match(shortcuts, /key === "w"/);
   assert.match(shortcuts, /key === "w" \|\| key === "q"/);
@@ -1405,72 +1396,39 @@ test('visible workbench streams stay live while the composer is isolated', async
     'Monaco must retain its independent input subscription');
 });
 
-test('conversation scroll restoration retains only the most recent sessions', () => {
-  const positions = new Map();
-  for (let index = 0; index < 5; index += 1) {
-    rememberSessionScrollPosition(positions, `session-${index}`, {
-      top: index * 10,
-      atEnd: false,
-    }, 3);
-  }
-  assert.deepEqual([...positions.keys()], ['session-2', 'session-3', 'session-4']);
-  rememberSessionScrollPosition(positions, 'session-2', { top: 99, atEnd: true }, 3);
-  assert.deepEqual([...positions.keys()], ['session-3', 'session-4', 'session-2']);
-});
-
 test('studio media failures stay scoped to one asset variant', () => {
   assert.equal(mediaVariantKey('asset-a', 'thumb'), 'asset-a:thumb');
   assert.notEqual(mediaVariantKey('asset-a', 'thumb'), mediaVariantKey('asset-a', 'original'));
 });
 
-test('transcript entry keeps fixed overscan and schedules no delayed geometry warmup', async () => {
-  const [conversation, css] = await Promise.all([
-    readFile(new URL('./Conversation.tsx', import.meta.url), 'utf8'),
+test('the transcript timeline paints one contained layer with OpenCode cold overscan', async () => {
+  const [list, css] = await Promise.all([
+    readFile(new URL('./TranscriptList.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
   ]);
-  const virtualizer = conversation
-    .slice(conversation.indexOf('const transcriptVirtualizer = useVirtualizer'))
-    .slice(0, 2_500);
-  assert.match(virtualizer, /overscan:\s*TRANSCRIPT_VIRTUAL_OVERSCAN,/);
-  assert.doesNotMatch(conversation, /transcript-prewarm|prewarmRange|resizeItem\(/,
+  assert.match(list, /overscan:\s*50,/);
+  assert.match(list,
+    /restored\?\.measurements\?\.length \|\| coldBottomMount \? 6 : TRANSCRIPT_VIRTUAL_OVERSCAN/);
+  assert.match(list,
+    /current < TRANSCRIPT_VIRTUAL_OVERSCAN \? TRANSCRIPT_VIRTUAL_OVERSCAN : current/);
+  assert.equal(TRANSCRIPT_VIRTUAL_OVERSCAN, 20);
+  // One flat estimate: real geometry comes from measurement, and re-entry
+  // replays the measured snapshot instead of a content heuristic.
+  assert.equal(TRANSCRIPT_ROW_ESTIMATE, 60);
+  assert.doesNotMatch(list, /prewarmRange|setTimeout/,
     'session entry must not schedule delayed virtual-size mutations');
-  assert.equal(TRANSCRIPT_VIRTUAL_OVERSCAN, 4);
-  assert.doesNotMatch(virtualizer, /getBoundingClientRect/,
-    'row estimates must reuse the cached reading width instead of forcing layout per item');
+  assert.match(list, /Math\.abs\(size - previous\) > element\.clientHeight/,
+    'a rewrap larger than the viewport must keep the reader\'s rows mounted');
   assert.match(css,
     /\.transcript-virtual-space\s*\{[^}]*transform:\s*translate3d\(0,\s*0,\s*0\);[^}]*contain:\s*strict;[^}]*overflow:\s*hidden;/s,
     'the virtual timeline should stay in one contained compositor layer');
-});
-
-test('transcript estimates match collapsed chrome and retain measured row heights', () => {
-  assert.equal(estimatedTranscriptRowHeight({ id: 'tool-height', kind: 'tool' }), 48);
-  assert.equal(estimatedTranscriptRowHeight({
-    id: 'short-assistant-height', kind: 'assistant', text: 'A concise answer.',
-  }), 44);
-  const measured = { id: 'measured-height', kind: 'assistant', text: 'Measured response' };
-  assert.equal(rememberMeasuredTranscriptRowHeight(measured, 137.4), true);
-  assert.equal(rememberMeasuredTranscriptRowHeight(measured, 137.2), false,
-    'an unchanged ResizeObserver height must not churn the stable cache');
-  assert.equal(estimatedTranscriptRowHeight(measured), 137);
-  assert.equal(estimatedTranscriptRowHeight({ ...measured }), 137,
-    'stable item identity should reuse the real mounted height on re-entry');
-  const scoped = { id: 'scoped-height', kind: 'assistant', text: 'Scoped response' };
-  rememberMeasuredTranscriptRowHeight(scoped, 311, { sessionKey: 'session-a', width: 728 });
-  assert.equal(
-    estimatedTranscriptRowHeight({ ...scoped }, { sessionKey: 'session-a', width: 728 }),
-    311,
-    'the same session and reading width should reuse its final measured height',
-  );
-  assert.notEqual(
-    estimatedTranscriptRowHeight({ ...scoped }, { sessionKey: 'session-b', width: 728 }),
-    311,
-    'another session must not inherit a colliding transcript id',
-  );
-  assert.notEqual(
-    estimatedTranscriptRowHeight({ ...scoped }, { sessionKey: 'session-a', width: 612 }),
-    311,
-    'a responsive rewrap must not inherit a measurement from the old width',
-  );
+  assert.match(css, /\.transcript-virtual-row\s*\{[^}]*overflow:\s*clip;/s,
+    'a row box must clip to exactly the geometry the virtualizer believes in');
+  assert.match(css,
+    /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?padding-bottom:\s*12px;/,
+    'within-turn rhythm belongs to the measured row box');
+  assert.match(css, /\.transcript-turn-gap\s*\{[^}]*height:\s*20px;/s,
+    'turn boundaries must be explicit virtual rows');
 });
 
 test('streaming markdown repartitions without hiding visible source text', async () => {
@@ -1742,57 +1700,54 @@ test('the stable composer placeholder does not schedule idle rerenders', async (
   assert.doesNotMatch(renderer, /setInterval\(\(\) => setPlaceholder/);
 });
 
-test('session scrolling restores once before paint and preserves per-session positions', async () => {
-  const [renderer, scrollRuntime] = await Promise.all([
+test('the transcript delegates reflow and bottom anchoring to one virtual timeline', async () => {
+  const [renderer, follow, list] = await Promise.all([
     readAppModules(),
-    readFile(new URL('./use-transcript-scroll-runtime.ts', import.meta.url), 'utf8'),
+    readFile(new URL('./use-transcript-follow.ts', import.meta.url), 'utf8'),
+    readFile(new URL('./TranscriptList.tsx', import.meta.url), 'utf8'),
   ]);
-  assert.match(renderer, /const transcriptVirtualSize = transcriptVirtualizer\.getTotalSize\(\)/);
-  assert.match(renderer, /sessionScrollPositions\.current\.get\(transcriptSessionKey\)/);
-  assert.match(renderer,
-    /rememberSessionScrollPosition\(\s*sessionScrollPositions\.current,\s*transcriptSessionKey/);
-  assert.match(renderer, /anchorKey/);
-  assert.match(renderer, /transcriptVirtualizer\.getOffsetForIndex\(anchorIndex,\s*"start"\)/);
-  assert.match(renderer, /transcriptVirtualizer\.getOffsetForIndex\(itemCount - 1,\s*"end"\)/);
-  assert.doesNotMatch(renderer, /transcriptVirtualizer\.scrollToIndex\(/,
-    "session restores must never pre-scroll by index before writing the final offset");
-  assert.match(renderer, /const sameLayoutWidth = Number\.isFinite\(saved\.layoutWidth\)/);
-  assert.match(renderer,
-    /if \(sameLayoutWidth\) \{[\s\S]{0,220}?transcriptVirtualizer\.scrollToOffset\(saved\.top/);
-  assert.match(renderer, /transcriptVirtualizer\.scrollToOffset\(saved\.top/);
-  assert.match(renderer, /restoredTranscriptSessionKey\.current === transcriptSessionKey/);
-  assert.match(renderer,
-    /if \(!programmaticScroll\.current\) \{[\s\S]{0,220}?rememberSessionScrollPosition\(/,
-    "programmatic restoration must not overwrite the session's authoritative saved position");
-  assert.match(renderer, /scheduleStickyBottom\(element\)/);
-  // Submit re-arms follow once; the aggregate observer owns the one bottom
-  // write after the optimistic row changes geometry. A second immediate
-  // jump visibly kicked every script row on Enter.
-  assert.match(renderer, /resumeFollowOnSubmitRef\.current\(\);/);
-  assert.doesNotMatch(renderer, /jumpToLatestRef|jumpToLatest\("auto"\)/,
-    "submit must not retain a second bottom-scroll authority");
-  // The transition-save must not run while a programmatic restore owns the
-  // viewport, or it would poison the NEW session key's saved position.
-  assert.match(renderer, /if \(!transitioning\) return;[\s\S]{0,900}?if \(programmaticScroll\.current\) return;[\s\S]{0,500}?rememberSessionScrollPosition\(\s*sessionScrollPositions\.current,\s*transcriptSessionKey/);
-  assert.match(renderer, /const detachedStreamingTail = Boolean/);
-  assert.match(renderer, /className="transcript-live-tail" data-streaming-tail="true"/);
-  assert.match(renderer, /virtualContent\.current\.style\.height\s*=\s*`\$\{instance\.getTotalSize\(\)\}px`/);
-  assert.match(renderer, /observer\.observe\(contentElement\)/);
+  // 1. Virtual-core owns row geometry, bottom anchoring, and append following.
+  assert.match(list, /anchorTo:\s*"end",/);
+  assert.match(list, /followOnAppend:\s*true,/);
+  assert.match(list, /scrollEndThreshold:\s*80,/);
+  assert.match(list, /paddingEnd:\s*TRANSCRIPT_BOTTOM_SPACER,/);
+  assert.match(list, /overscan:\s*50,/);
+  assert.match(list, /defaultRangeExtractor\(\{ \.\.\.range, overscan: renderOverscan \}\)/);
+  assert.match(list, /current < TRANSCRIPT_VIRTUAL_OVERSCAN \? TRANSCRIPT_VIRTUAL_OVERSCAN : current/);
+  assert.match(list, /if \(shouldAnchorBottom\) virtualizerRef\.current\.scrollToEnd\(\);/);
+  assert.match(list, /initialMeasurementsCache:\s*restored\?\.measurements/,
+    're-entry must replay the real measurements, not re-derive estimates');
+  assert.match(list,
+    /initialOffset:\s*\(\) => \(restored && !restored\.atEnd \? restored\.offset : Number\.MAX_SAFE_INTEGER\)/,
+    'entry geometry is resolved at construction, before the first paint');
+  assert.match(list,
+    /rememberTranscriptVirtualMeasurements\(\s*sessionKey,\s*virtualizerRef\.current\.takeSnapshot\(\),/);
+  assert.match(list,
+    /shouldAdjustScrollPositionOnItemSizeChange = \(item, _delta, instance\) =>/,
+    'only rows completely above the viewport may compensate a late measurement');
+  assert.match(list, /spacer\.current\.style\.height = `\$\{instance\.getTotalSize\(\)\}px`/);
+  assert.match(list, /item\.end <= logicalScrollOffset\(instance\)/,
+    'virtual-core alone compensates measured rows above the reader');
+  assert.match(list, /\.\.\.activeIndexesRef\.current/,
+    'the active output rows stay mounted while the reader scrolls history');
+  assert.match(list, /className="transcript-bottom-spacer"/);
+  // 2. Outer follow is the React port of OpenCode createAutoScroll.
+  assert.match(follow, /new ResizeObserver/);
+  assert.match(follow, /element\.scrollTop = element\.scrollHeight/);
+  assert.match(follow, /BOTTOM_THRESHOLD_PX = 10/);
+  assert.match(follow, /data-scrollable/);
+  assert.match(follow, /markAuto|isAuto/);
+  assert.doesNotMatch(follow, /style\.width|restoreReadingAnchor|reflowingRef/);
+  assert.match(follow, /GESTURE_WINDOW_MS = 250/);
+  assert.match(renderer, /className="transcript-live-part" data-streaming-tail="true"/);
   assert.match(renderer, /data-following=\{following \? "true" : "false"\}/);
-  assert.match(renderer, /data-virtualized=\{virtualizingTranscript \? "true" : "false"\}/);
+  assert.match(renderer, /resumeFollowOnSubmitRef\.current\(\);/);
+  // 3. Everything the hand-rolled anchoring needed is gone.
   assert.doesNotMatch(renderer,
-    /anchorTo:|followOnAppend:|scrollEndThreshold:|transcriptVirtualizer\.scrollToEnd|pinDetachedStreamingTail|onStreamingContentCommit/,
-    'streaming must not retain a second bottom-scroll authority');
-  assert.equal((renderer.match(/\.scrollTop\s*=/g) || []).length, 0,
-    'conversation surfaces must not write scrollTop outside the transcript runtime');
-  assert.equal((scrollRuntime.match(/element\.scrollTop\s*=/g) || []).length, 1,
-    'the transcript runtime should own the only direct scrollTop write');
-  assert.match(scrollRuntime,
-    /const writeScrollTop[\s\S]{0,400}?element\.scrollTop\s*=\s*target/);
-  assert.match(scrollRuntime, /ownerRef = useRef<TranscriptScrollOwner>\("follow"\)/);
-  assert.doesNotMatch(renderer, /transcriptVirtualizer\.measure\(\)/);
-  assert.doesNotMatch(renderer, /pendingScrollRestore/,
-    "session hydration must retry through one guarded restore effect, not a second pending path");
+    /TranscriptPinProvider|usePinTranscriptBottomOnCommit|toggleHoldUntil|scrollIntentUntil|pointerScrollIntent|widthReflowing|programmaticScroll|sessionScrollPositions|freezeContentWidth|freezeWidth|entryHoldFrame|data-entry-fade|prewarmRange/,
+    'no time window, width freeze, or entry hold may guard transcript scrolling');
+  assert.doesNotMatch(renderer, /jumpToLatestRef|jumpToLatest\("auto"\)/,
+    'submit must not retain a second bottom-scroll authority');
   assert.doesNotMatch(renderer, /skipNextFollowFrame|bottomPinForced|measurementCaptureFrame/);
   assert.doesNotMatch(renderer, /restoringSessionTail|sessionTailRestoreTimer/);
 });
@@ -1932,7 +1887,7 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   ]);
   assert.match(styles, /--titlebar-height:\s*35px/);
   assert.match(styles, /\.topbar\s*\{[^}]*height:\s*var\(--titlebar-height\);[^}]*align-items:\s*center;[^}]*padding:\s*0 0 0 5px;/s);
-  assert.match(styles, /\.titlebar-caption-space\s*\{[^}]*env\(titlebar-area-width,\s*calc\(100vw - 138px\)\)/s);
+  assert.match(styles, /\.titlebar-caption-space\s*\{[^}]*env\(titlebar-area-width,\s*100vw\)/s);
   assert.match(styles, /--mx-bg-deep:\s*#141414;[\s\S]*?--mx-window-band:\s*#181818;[\s\S]*?--mx-workspace-sheet:\s*#1f1f1f;[\s\S]*?--mx-text:\s*#e9e9e9;/s);
   assert.match(styles, /:root\[data-mixdog-theme="light"\]\s*\{[^}]*--mx-bg-deep:\s*#f8f6f3;[^}]*--mx-window-band:\s*#f1efec;[^}]*--mx-workspace-sheet:\s*#faf8f5;[^}]*--mx-text:\s*#1b1a17;/s);
   assert.match(styles, /\.composer\s*\{[^}]*border-radius:\s*12px;[^}]*background:\s*var\(--mx-bg-base\);[^}]*box-shadow:\s*var\(--mx-raised\);/s);
@@ -1962,7 +1917,9 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*0;/s);
   assert.match(styles, /\.schedules-page\s*\{[^}]*max-width:\s*720px;/s);
   assert.match(styles,
-    /\.thread\s*\{[^}]*width:\s*min\(100%,\s*calc\(800px - var\(--mx-scrollbar-size\)\)\);/s);
+    /\.thread\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
+  assert.match(styles, /\.transcript\s*\{[^}]*scrollbar-gutter:\s*stable;/s,
+    'the viewport owns the one scrollbar reserve outside the reading column');
   assert.match(styles, /\.composer-region\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   // Control chrome (Activity Bar, New task, pickers) keeps the VS Code rail
   // geometry stable against 400 content rows.
@@ -2026,7 +1983,7 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*\.sidebar\.session-sidebar,[\s\S]*?position:\s*fixed;[\s\S]*?transform:\s*translateX\(-100%\)/);
   assert.match(styles, /\.sidebar-backdrop\s*\{\s*display:\s*none;\s*\}/);
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*\.sidebar\.session-sidebar\[data-state="open"\]\s*\{[^}]*transform:\s*none;/);
-  assert.match(navigation, /aria-label="Session manager"/);
+  assert.match(navigation, /aria-label=\{t\(["']Session manager["']\)\}/);
   assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);
   assert.match(navigation, /className="schedules-list projects-list"/);
   assert.match(navigation, /"Open projects"/);
@@ -2057,7 +2014,7 @@ test('workflow picker sits beside Project above the composer and is absent from 
     readFile(new URL('./desktop.css', import.meta.url), 'utf8'),
   ]);
   assert.match(conversation,
-    /className="composer-context-bar"[\s\S]*?<ProjectContextSelector[\s\S]*?<WorkflowSelect/);
+    /composer-context-bar[\s\S]*?<ProjectContextSelector[\s\S]*?<WorkflowSelect/);
   assert.match(conversation,
     /<WorkflowSelect workflow=\{\(draftWorkflow \|\| routeSnapshot\.workflow as RecordValue \| null\) \?\? null\}/);
   assert.doesNotMatch(sidebar, /workflowControl|sidebar-workflow-select/,
@@ -2146,7 +2103,7 @@ test('Maintainer keeps its default model row but stays out of workflow agent cho
   assert.match(styles,
     /\.session-sidebar-panels \.workflows-agent-summary-row > \.row-overflow\s*\{[^}]*align-self:\s*center;/s);
   assert.match(view,
-    /aria-label="Workflows">[\s\S]*?className="workflows-section-head"[\s\S]*?<h2>Workflows<\/h2>[\s\S]*?aria-label="New workflow"/);
+    /aria-label=\{t\(["']Workflows["']\)\}>[\s\S]*?className="workflows-section-head"[\s\S]*?<h2>\{t\(['"]Workflows['"]\)\}<\/h2>[\s\S]*?aria-label=\{t\(["']New workflow["']\)\}/);
 });
 
 test('agent creation asks for Name without exposing its internal ID', async () => {
@@ -2154,7 +2111,7 @@ test('agent creation asks for Name without exposing its internal ID', async () =
   assert.doesNotMatch(view, /name="agent-id"|>ID\s*</);
   assert.match(view, /\.\.\.\(editing \? \{ id: String\(agent\?\.id \|\| ''\) \} : \{\}\)/);
   assert.match(view,
-    /name="agent-name"[\s\S]*?placeholder="Agent name" required autoFocus=\{!editing\}/);
+    /name="agent-name"[\s\S]*?placeholder=\{t\(["']Agent name["']\)\} required autoFocus=\{!editing\}/);
 });
 
 test('workspace tabs compress contiguously without scrolling selected neighbors out of the strip', async () => {
@@ -2193,8 +2150,8 @@ test('copy hover changes only icon color while keyboard focus keeps its frame', 
     /\.message\.assistant \.response-footer:has\(\.turn-status\)\s*\{[^}]*min-height:\s*24px;[^}]*margin-top:\s*16px;/s,
     'completion footer geometry must replace the live activity lane without moving the response body');
   assert.match(styles,
-    /\.transcript-virtual-row--empty\s*\{[^}]*min-height:\s*1px;[^}]*visibility:\s*hidden;[^}]*pointer-events:\s*none;/s,
-    'hidden completion metadata must keep an invisible virtual measurement anchor');
+    /\.transcript-virtual-row\s*\{[^}]*overflow:\s*clip;/s,
+    'hidden rows never reach the timeline, and a row box clips to its measured geometry');
   assert.doesNotMatch(styles, /\.tool-header:hover:not\(:disabled\) \.tool-icon/,
     'tool icons should retain their status color on hover');
   assert.match(styles,
@@ -2222,7 +2179,10 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles, /\.session-row-copy b\s*\{[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
   assert.doesNotMatch(styles, /\.message\.user\.attached-user\s*\{[^}]*margin-top:/s);
   assert.match(styles,
-    /\.thread\s*\{[^}]*padding:\s*20px calc\(36px - var\(--mx-scrollbar-size\)\) 20px 36px;[^}]*gap:\s*20px;/s);
+    /\.thread\s*\{[^}]*padding:\s*20px 36px 0;[^}]*gap:\s*0;/s);
+  assert.match(styles,
+    /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?padding-bottom:\s*12px;[\s\S]*?\.transcript-turn-gap\s*\{\s*height:\s*20px;/,
+    'part and turn spacing must be measured timeline geometry, not a container gap');
   assert.doesNotMatch(styles, /\.conversation:has\(\.turn-review-bar\) \.thread/,
     'the review bar belongs to the composer stack, never transcript content');
   assert.match(styles,
@@ -2277,16 +2237,10 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   // predicate as an INSTANCE property, not a useVirtualizer option — passing
   // it in options silently reverts to the library default and the anchor
   // compensation fights user wheel input (measured scroll reversals).
-  assert.match(app,
-    /\.shouldAdjustScrollPositionOnItemSizeChange = [\s\S]*?shouldCompensateTranscriptRowMeasurement\(\{/,
+  assert.match(app, /\.shouldAdjustScrollPositionOnItemSizeChange = \(item, _delta, instance\) =>/,
     "the anchor-compensation predicate must be assigned on the virtualizer instance");
   assert.doesNotMatch(app, /shouldAdjustScrollPositionOnItemSizeChange:\s*\(/,
     "the predicate must not ride in useVirtualizer options — 3.17 cores ignore it there");
-  assert.match(app,
-    /shouldCompensateTranscriptRowMeasurement\(\{[\s\S]*?end:\s*item\.end[\s\S]*?pointerScrollIntent:\s*pointerScrollIntent\.current/,
-    "only completely passed rows may compensate, and active pointer scrolling must block it");
-  assert.doesNotMatch(app, /frames < 2[\s\S]*?requestAnimationFrame\(correct\)/,
-    "tool disclosure changes must not apply the same anchor delta twice");
   assert.match(styles, /\.tool-card\[data-open="true"\] \.tool-chevron svg\s*\{[^}]*rotate\(90deg\)/s);
   assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--mx-border-muted\);[^}]*border-radius:\s*8px;/s);
   assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*min\(100%, 800px\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px 36px;/s);
@@ -2332,7 +2286,7 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.equal((app.match(/<LiveWorkStatus\b/g) || []).length, 2,
     'focused and unfocused pane sources each render the shared live-work component');
   assert.match(navigation,
-    /aria-label=\{confirmingDelete[\s\S]*?: `Delete \$\{sessionLabel\(session\)\}`\}/,
+    /aria-label=\{confirmingDelete[\s\S]*?: t\("Delete \{\{name\}\}", \{ name: sessionLabel\(session\) \}\)\}/,
     'delete confirmation must update one retained action button instead of replacing its DOM');
   assert.doesNotMatch(navigation, /confirmingDelete \? \(\s*<>/,
     'the archived-row action pair must not remount when confirmation starts');
@@ -2365,8 +2319,11 @@ test('conversation uses native scrolling and silent session transitions', async 
   assert.doesNotMatch(renderer, /session-switch-overlay|data-settling|data-staging|threadStaging/);
   assert.doesNotMatch(renderer, /useCachedMeasurements:\s*true/);
   assert.doesNotMatch(renderer, /sessionRowMeasurements|revealedTranscriptKey|data-measurement-key/);
-  assert.match(renderer, /observer\.observe\(contentElement\)/);
-  assert.match(renderer, /scheduleStickyBottom\(element\)/);
+  assert.match(renderer, /anchorTo:\s*"end"/);
+  assert.match(renderer, /followOnAppend:\s*true/);
+  assert.match(renderer, /scrollEndThreshold:\s*80/);
+  assert.doesNotMatch(renderer, /observer\.observe\(contentElement\)|element\.scrollTop = bottomOffset\(element\)/,
+    'virtual-core owns append growth and width reflow without a second layout observer');
   assert.match(renderer, /pendingResumeTarget/);
   assert.match(renderer,
     /const markdownReady = preloadMarkdownBody\(\)[\s\S]*?markdownReady\.finally/,
@@ -2861,43 +2818,44 @@ test('an explicit transcript error marks only its unfinished turn', () => {
   assert.deepEqual(completed.failedTurnKeys, []);
 });
 
-test('transcript recognizes explicit scroll intent keys', () => {
-  assert.equal(isScrollIntentKey('PageUp'), true);
-  assert.equal(isScrollIntentKey('ArrowDown'), true);
-  assert.equal(isScrollIntentKey('Tab'), false);
-});
+test('the transcript projection folds completions and drops invisible rows', () => {
+  const items = [
+    { id: 'u1', kind: 'user', text: 'run it' },
+    { id: 'u2', kind: 'user', text: 'and this too' },
+    { id: 'internal', kind: 'user', text: 'injected context', internal: true },
+    { id: 'a1', kind: 'assistant', text: 'working' },
+    { id: 'd1', kind: 'turndone', label: 'Thought', status: 'done' },
+    { id: 'u3', kind: 'user', text: 'again' },
+    { id: 'a2', kind: 'assistant', text: 'failing' },
+    { id: 'd2', kind: 'turndone', status: 'done' },
+  ];
+  const rows = projectTranscriptRows({
+    sessionKey: 'session',
+    items,
+    turnKeys: ['t1', 't1', 't1', 't1', 't1', 't2', 't2', 't2'],
+    failedTurns: new Set(['t2']),
+  });
+  assert.deepEqual(rows.map((row) => row.key), [
+    'session:u1', 'session:u2', 'session:a1', 'session:gap:t2',
+    'session:u3', 'session:a2', 'session:failed:t2',
+  ], 'hidden prompts never reach the timeline and a failed turn keeps one status row');
+  assert.equal(rows[1].attachedUser, true, 'a consecutive prompt attaches to the one above it');
+  assert.equal(rows[2].completion?.id, 'd1',
+    'a successful turn folds its completion into the assistant row it closes');
+  assert.equal(rows[3]._tag, 'TurnGap');
+  assert.equal(rows.at(-1)._tag, 'Error');
 
-test('transcript measurement compensation excludes visible tall scripts and active gestures', () => {
-  const baseline = {
-    now: 1_000,
-    toggleHoldUntil: 0,
-    scrollIntentUntil: 0,
-    pointerScrollIntent: false,
-    widthReflowing: false,
-    following: false,
-  };
-  assert.equal(shouldCompensateTranscriptRowMeasurement({
-    ...baseline,
-    end: 5_100,
-    scrollOffset: 1_000,
-  }), false, 'a 5,000px script crossing the viewport must never rewrite scrollTop');
-  assert.equal(shouldCompensateTranscriptRowMeasurement({
-    ...baseline,
-    end: 900,
-    scrollOffset: 1_000,
-  }), true, 'a completely passed row keeps anchor compensation');
-  assert.equal(shouldCompensateTranscriptRowMeasurement({
-    ...baseline,
-    end: 900,
-    scrollOffset: 1_000,
-    pointerScrollIntent: true,
-  }), false, 'scrollbar drag owns the viewport until release');
-  assert.equal(shouldCompensateTranscriptRowMeasurement({
-    ...baseline,
-    end: 900,
-    scrollOffset: 1_000,
-    scrollIntentUntil: 1_001,
-  }), false, 'touch, wheel, and post-release inertia suspend compensation');
+  const staleTailRows = projectTranscriptRows({
+    sessionKey: 'session',
+    items,
+    turnKeys: ['t1', 't1', 't1', 't1', 't1', 't2', 't2', 't2'],
+    failedTurns: new Set(['t2']),
+    liveItem: { id: 'a1', kind: 'assistant', text: 'delayed stale publication' },
+  });
+  assert.equal(staleTailRows.filter((row) => row.key === 'session:a1').length, 1,
+    'a tail id that already settled is represented by exactly one timeline row');
+  assert.equal(staleTailRows.some((row) => row.live), false,
+    'a delayed stale tail never reopens settled output as a live row');
 });
 
 test('the Agents activity board omits synthetic Turn rows', async () => {
@@ -3271,52 +3229,6 @@ test('streaming Markdown worker AST is cloneable, GFM-complete, and HTML-safe', 
   assert.match(serialized, /<script>alert\(1\)<\/script>/);
 });
 
-test('settled assistant DOM retention uses a bounded recency order', () => {
-  const row = (id, session = 'session') => ({
-    key: `${session}:${id}`,
-    index: Number(id),
-    item: { id, kind: 'assistant', text: `Response ${id}` },
-    completion: undefined,
-    attachedUser: false,
-    disclosureScope: session,
-  });
-  const first = [row('1'), row('2')];
-  const retained = refreshRetainedTranscriptMarkdownRows([], first, 2);
-  assert.equal(refreshRetainedTranscriptMarkdownRows(retained, first, 2), retained,
-    'an unchanged active window must not trigger another cache render');
-  const advanced = refreshRetainedTranscriptMarkdownRows(retained, [row('3')], 2);
-  assert.deepEqual(advanced.map((entry) => entry.key), ['session:2', 'session:3']);
-  const oversizedViewport = refreshRetainedTranscriptMarkdownRows(
-    [],
-    [row('1'), row('2'), row('3')],
-    2,
-  );
-  assert.deepEqual(oversizedViewport.map((entry) => entry.key), ['session:2', 'session:3'],
-    'an oversized active viewport must still obey the hard DOM cap');
-  const parked = refreshRetainedTranscriptMarkdownRows(
-    [row('1', 'session-a')],
-    [],
-    2,
-  );
-  const revisitedThroughAnotherSession = refreshRetainedTranscriptMarkdownRows(
-    parked,
-    [row('1', 'session-b')],
-    2,
-  );
-  assert.deepEqual(
-    revisitedThroughAnotherSession.map((entry) => entry.key),
-    ['session-a:1', 'session-b:1'],
-    'parking a tab behind New Task must retain its script row across session keys',
-  );
-  assert.equal(isRetainableTranscriptMarkdownRow(advanced[0].item), true);
-  assert.equal(isRetainableTranscriptMarkdownRow({
-    id: 'live', kind: 'assistant', text: 'streaming', streaming: true,
-  }), false);
-  assert.equal(isRetainableTranscriptMarkdownRow({
-    id: 'user', kind: 'user', text: 'prompt',
-  }), false);
-});
-
 test('streaming Markdown worker queue drops obsolete waiting snapshots', async () => {
   const pending = [];
   const parsed = [];
@@ -3361,7 +3273,7 @@ test('flat action surfaces stay token-flat under one canonical focus ring', asyn
   // Real controls stay keyboard-visible through the canonical ring: the
   // row/list sweep may not swallow them, and nothing re-arms with !important.
   assert.match(styles,
-    /button:focus-visible, input:focus-visible[^{]*\{\s*outline: 2px solid var\(--mx-focus\);\s*outline-offset: 2px;/,
+    /button:focus-visible, input:focus-visible[^{]*\{[\s\S]*?outline: 1px solid var\(--mx-focus\);\s*outline-offset: 1px;/,
     'the shell keeps one canonical keyboard ring for real controls');
   assert.match(styles, /^:focus-visible:not\(button, input, textarea, select, a\) \{ outline: none !important; \}$/m,
     'the no-ring sweep must stay narrowed to non-control focus targets');

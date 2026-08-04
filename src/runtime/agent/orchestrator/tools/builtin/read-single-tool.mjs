@@ -99,6 +99,9 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         _rawContentCacheSet,
         _recordReadSnapshot,
     } = helpers;
+    const _readMaxOutputBytes = Number(options?.readOutputBudgetBytes) > 0
+        ? Math.min(READ_MAX_OUTPUT_BYTES, Math.trunc(Number(options.readOutputBudgetBytes)))
+        : READ_MAX_OUTPUT_BYTES;
     // Normalize path (strip whitespace, expand ~, posix→windows) up front so
     // LLM-injected stray spaces don't trigger an ENOENT retry that pollutes
     // the conversation history and breaks the cache prefix on later turns.
@@ -454,7 +457,10 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             return withSymbolReadNote(text, args);
         }
         try {
-            const _streamRes = await streamReadRange(fullPath, offset, limit, st, { displayPath: filePath });
+            const _streamRes = await streamReadRange(fullPath, offset, limit, st, {
+                displayPath: filePath,
+                maxOutputBytes: _readMaxOutputBytes,
+            });
             const out = _streamRes.text;
             // W1 H: snapshot only emitted line bounds, not the
             // requested window — byte-cap truncation can stop short.
@@ -547,9 +553,13 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             // Fall through to the regular read path; it still enforces output caps.
         }
     }
-    if (!_isUtf16 && hasRangeArgs && !wantFull && st.size > READ_STREAM_RANGE_MIN_BYTES) {
+    if (!_isUtf16 && hasRangeArgs && !wantFull
+        && (options?.forceReadRangeStream === true || st.size > READ_STREAM_RANGE_MIN_BYTES)) {
         try {
-            const _streamRes = await streamReadRange(fullPath, offset, limit, st, { displayPath: filePath });
+            const _streamRes = await streamReadRange(fullPath, offset, limit, st, {
+                displayPath: filePath,
+                maxOutputBytes: _readMaxOutputBytes,
+            });
             const out = _streamRes.text;
             const _emittedRanges = (_streamRes.firstEmitted && _streamRes.lastEmitted)
                 ? [{ startLine: _streamRes.firstEmitted, endLine: _streamRes.lastEmitted }]
@@ -649,19 +659,19 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             _smartTruncated = true;
             _smartVisibleRanges = Array.isArray(smart.ranges) ? smart.ranges : null;
             _renderedLineCount = 0;
-        } else if (Buffer.byteLength(rendered, 'utf8') > READ_MAX_OUTPUT_BYTES) {
+        } else if (Buffer.byteLength(rendered, 'utf8') > _readMaxOutputBytes) {
             let lo = 0;
             let hi = rendered.length;
             while (lo < hi) {
                 const mid = Math.ceil((lo + hi) / 2);
-                if (Buffer.byteLength(rendered.slice(0, mid), 'utf8') <= READ_MAX_OUTPUT_BYTES) lo = mid;
+                if (Buffer.byteLength(rendered.slice(0, mid), 'utf8') <= _readMaxOutputBytes) lo = mid;
                 else hi = mid - 1;
             }
             const slice = rendered.slice(0, lo);
             const completeRenderedLines = Math.max(0, slice.split('\n').length - 1);
             _renderedLineCount = completeRenderedLines;
             _byteCapTruncated = true;
-            out = slice + `\n\n... [output truncated at ${Math.round(READ_MAX_OUTPUT_BYTES/1024)} KB] ...`;
+            out = slice + `\n\n... [output truncated at ${Math.round(_readMaxOutputBytes/1024)} KB] ...`;
         } else {
             out = rendered;
         }
@@ -671,10 +681,10 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             } else if (_byteCapTruncated) {
                 const emittedStart = offset + 1;
                 const emittedEnd = offset + _renderedLineCount;
-                const capKb = Math.round(READ_MAX_OUTPUT_BYTES / 1024);
+                const capKb = Math.round(_readMaxOutputBytes / 1024);
                 const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}; output truncated at ${capKb} KB${emittedEnd < lineCount ? `; pass offset:${emittedEnd} to continue` : ''}]`;
                 out += `${out ? '\n' : ''}${footer}`;
-            } else if (Buffer.byteLength(rendered, 'utf8') <= READ_MAX_OUTPUT_BYTES) {
+            } else if (Buffer.byteLength(rendered, 'utf8') <= _readMaxOutputBytes) {
                 const emittedStart = offset + 1;
                 const emittedEnd = offset + sliced.length;
                 // Anti-fragmentation: when the remainder is modest, hand the

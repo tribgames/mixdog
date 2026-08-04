@@ -32,7 +32,6 @@ import {
 } from "../shared/session-title.mjs";
 import { DESKTOP_WORKSPACE_MIN_WIDTH } from "../shared/window-layout";
 import {
-  applyDesktopTheme,
   applyDesktopThemePreference,
   getDesktopThemePreference
 } from "./desktop-theme";
@@ -414,7 +413,8 @@ function loadSettingsViewModule() {
 }
 const SettingsView = lazy(() => loadSettingsViewModule()
   .then((module) => ({ default: module.SettingsView })));
-const OnboardingWizard = lazy(() => import("./settings/OnboardingWizard")
+const loadOnboardingWizardModule = () => import("./settings/OnboardingWizard");
+const OnboardingWizard = lazy(() => loadOnboardingWizardModule()
   .then((module) => ({ default: module.OnboardingWizard })));
 const CommandSurface = lazy(() => import("./CommandSurface")
   .then((module) => ({ default: module.CommandSurface })));
@@ -489,6 +489,26 @@ export function App() {
     window.matchMedia?.("(max-width: 760px)").matches === true;
   const activeSidePanelMode = mobileSidePanels ? "close-both" : preferredSidePanelMode;
   const activeSidePanelLayout = sidePanelLayout(activeSidePanelMode);
+  // Chrome-like responsive side panels (user decision): crossing into the
+  // phone band changes the panels' MODE (inline → overlay drawer), never
+  // their meaning — a drawer always starts closed, and returning to the
+  // desktop band restores the inline open/collapsed states exactly as they
+  // were (접혀있던 걸 굳이 펼치거나 펼쳐져 있던 걸 굳이 접지 않기).
+  const [narrowShell, setNarrowShell] = useState(
+    () => window.matchMedia?.("(max-width: 760px)").matches === true,
+  );
+  const wasNarrowShell = useRef(narrowShell);
+  // Callback-safe mirror: the sheet-exclusivity rule below runs inside
+  // stable useCallbacks and must read the CURRENT band.
+  const narrowShellRef = useRef(narrowShell);
+  narrowShellRef.current = narrowShell;
+  useEffect(() => {
+    const query = window.matchMedia?.("(max-width: 760px)");
+    if (!query) return undefined;
+    const onChange = (): void => setNarrowShell(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     if (activeSidePanelLayout.sidebarLockedOpen) return true;
     try {
@@ -501,13 +521,20 @@ export function App() {
       return false;
     }
   });
+  const desktopSidebarOpen = useRef(sidebarOpen);
   useEffect(() => {
+    // Phone-band drawer toggles are transient: they update neither the
+    // stored preference nor the restore target. The wasNarrowShell guard
+    // also holds the first wide render back until the crossing effect below
+    // has re-applied the inline state.
+    if (narrowShell || wasNarrowShell.current) return;
+    desktopSidebarOpen.current = sidebarOpen;
     const timer = window.setTimeout(() => {
       try { window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen)); }
       catch { /* layout persistence is a convenience only */ }
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [sidebarOpen]);
+  }, [narrowShell, sidebarOpen]);
   // Projects panel (rail → Projects): hosted in the session-panel area with
   // popup editors (user decision — Schedules grammar, no takeover).
   const [projectsOpen, setProjectsOpen] = useState(false);
@@ -524,6 +551,7 @@ export function App() {
     activeSidePanelLayout.dockLockedOpen ? true : readDockState().open);
   const [dockTab, setDockTab] = useState<UtilityDockTab>(() => readDockState().tab);
   const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
+  const desktopDockOpen = useRef(dockOpen);
   const bottomPanel = useBottomPanelState("terminal");
   const [problemsFilter, setProblemsFilter] = useState<ProblemsPanelFilter>(
     () => ({ ...DEFAULT_PROBLEMS_PANEL_FILTER }),
@@ -542,10 +570,34 @@ export function App() {
     dockOpenIntent.current = open;
     setDockOpen(open);
   }, []);
+  // The bottom panel is the SAME kind of narrow-band surface as the side
+  // sheets (user: 하단 탭도 좌우 탭과 같은 취급 — 겹치면 안 된다): while a
+  // sheet would overlap it (dock ≤940px, drawer ≤760px), opening either
+  // side folds the bottom panel, mirroring the bottom-panel toggle that
+  // folds the sheets. Wide inline layouts coexist untouched.
+  const dismissBottomPanelForSheet = useCallback((band: "dock" | "drawer") => {
+    const query = band === "dock" ? "(max-width: 940px)" : "(max-width: 760px)";
+    if (window.matchMedia?.(query).matches === true && bottomPanel.open) {
+      bottomPanel.setOpen(false);
+    }
+  }, [bottomPanel]);
+  // A band change re-applies the sheet media rules to the ALREADY-open dock,
+  // which used to replay the slide-in (user: 해상도 바뀔 때 굳이 애니 나올
+  // 필요 없다). Once the fresh-open animation has run, `data-entering`
+  // pins animation/transition off for the rest of the mount.
+  const [dockSettled, setDockSettled] = useState(false);
+  useEffect(() => {
+    if (!dockOpen) { setDockSettled(false); return undefined; }
+    const timer = window.setTimeout(() => setDockSettled(true), 400);
+    return () => window.clearTimeout(timer);
+  }, [dockOpen]);
   const openDockTab = useCallback((tab: UtilityDockTab) => {
     setDockTab(tab);
+    // Narrow shells keep ONE sheet: the last-pressed side wins (user).
+    if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
+    dismissBottomPanelForSheet("dock");
     applyDockOpen(true);
-  }, [applyDockOpen]);
+  }, [applyDockOpen, applySidebarOpen, dismissBottomPanelForSheet]);
   const resizeDock = useCallback((value: number) => {
     setDockWidth(clampDockWidth(value));
   }, []);
@@ -571,26 +623,113 @@ export function App() {
   const openSidebar = useCallback(() => {
     if (sidebarOpenIntent.current) return;
     sidebarOpenIntent.current = true;
+    // Narrow shells keep ONE sheet: opening the drawer dismisses the dock.
+    if (narrowShellRef.current && dockOpenIntent.current) applyDockOpen(false);
+    dismissBottomPanelForSheet("drawer");
     beginSidePanelOpen("sidebar", () => applySidebarOpen(true));
-  }, [applySidebarOpen, beginSidePanelOpen]);
-  const toggleSidebar = useCallback(() => {
+  }, [applyDockOpen, applySidebarOpen, beginSidePanelOpen, dismissBottomPanelForSheet]);
+  // Toggle spam queues expensive panel mounts and replays them after the
+  // clicks stop (user: 연타하면 예약되어서 여러 번 열린다): clicks inside
+  // one motion window coalesce into the FIRST one instead of stacking.
+  // The window is measured on the EVENT clock, not the handler clock: a
+  // mount that blocks longer than the window would otherwise re-space the
+  // queued clicks and let every one of them through (user: 여러 번 예약된
+  // 것처럼 다시 열려).
+  const lastSidePanelToggle = useRef(0);
+  const sidePanelToggleReady = useCallback((stamp?: number) => {
+    const now = typeof stamp === "number" && stamp > 0 ? stamp : performance.now();
+    if (now - lastSidePanelToggle.current < 220) return false;
+    lastSidePanelToggle.current = now;
+    return true;
+  }, []);
+  const toggleSidebar = useCallback((event?: { timeStamp?: number }) => {
+    if (!sidePanelToggleReady(event?.timeStamp)) return;
     const nextOpen = !sidebarOpenIntent.current;
     sidebarOpenIntent.current = nextOpen;
     if (nextOpen) {
+      if (narrowShellRef.current && dockOpenIntent.current) applyDockOpen(false);
+      dismissBottomPanelForSheet("drawer");
       beginSidePanelOpen("sidebar", () => applySidebarOpen(true));
     } else {
       beginSidePanelClose("sidebar", () => applySidebarOpen(false));
     }
-  }, [applySidebarOpen, beginSidePanelClose, beginSidePanelOpen]);
-  const toggleDock = useCallback(() => {
+  }, [applyDockOpen, applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]);
+  const toggleDock = useCallback((event?: { timeStamp?: number }) => {
+    if (!sidePanelToggleReady(event?.timeStamp)) return;
     const nextOpen = !dockOpenIntent.current;
     dockOpenIntent.current = nextOpen;
     if (nextOpen) {
+      if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
+      dismissBottomPanelForSheet("dock");
       beginSidePanelOpen("dock", () => applyDockOpen(true));
     } else {
       beginSidePanelClose("dock", () => applyDockOpen(false));
     }
-  }, [applyDockOpen, beginSidePanelClose, beginSidePanelOpen]);
+  }, [applyDockOpen, applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]);
+  // Expanding the bottom panel in the sheet band dismisses the overlay
+  // sheets — last press wins (user: 좁은 폭일 때 아래쪽 탭을 확장하면
+  // 오른쪽은 사라져야지). The dock floats as a sheet ≤940px, the drawer
+  // ≤760px; wide inline layouts coexist and stay untouched.
+  const dismissSheetsForBottomPanel = useCallback(() => {
+    if (window.matchMedia?.("(max-width: 940px)").matches !== true) return;
+    if (dockOpenIntent.current) applyDockOpen(false);
+    if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
+  }, [applyDockOpen, applySidebarOpen]);
+  const toggleBottomPanel = useCallback(() => {
+    if (!bottomPanel.open) dismissSheetsForBottomPanel();
+    bottomPanel.toggle();
+  }, [bottomPanel, dismissSheetsForBottomPanel]);
+  // The breakpoint crossing itself (user: 축소할 때 왼쪽 세션창은 숨기고
+  // 다시 늘리면 열리게 — 아래쪽도): the LEFT drawer hides on the way IN and
+  // the stored inline state returns on the way OUT; the RIGHT sheet is the
+  // one surface that survives the crossing (user: 오른쪽이 우선순위가
+  // 높다). The bottom panel follows the same hide/restore rule on its own
+  // 940px sheet band below. Runs after the side-panel mode effect above so
+  // a mode-policy write never overrides the restore.
+  useEffect(() => {
+    if (wasNarrowShell.current === narrowShell) return;
+    wasNarrowShell.current = narrowShell;
+    if (narrowShell) {
+      if (sidebarOpenIntent.current) applySidebarOpen(false);
+      return;
+    }
+    if (desktopSidebarOpen.current !== sidebarOpenIntent.current) {
+      applySidebarOpen(desktopSidebarOpen.current);
+    }
+    if (desktopDockOpen.current !== dockOpenIntent.current) {
+      applyDockOpen(desktopDockOpen.current);
+    }
+  }, [narrowShell, applyDockOpen, applySidebarOpen]);
+  // Bottom panel band (≤940px = the width where it becomes an overlay
+  // sheet): hide on shrink, restore the stored wide state on expand.
+  const [bottomSheetBand, setBottomSheetBand] = useState(
+    () => window.matchMedia?.("(max-width: 940px)").matches === true,
+  );
+  useEffect(() => {
+    const query = window.matchMedia?.("(max-width: 940px)");
+    if (!query) return undefined;
+    const onChange = (): void => setBottomSheetBand(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  const wasBottomSheetBand = useRef(bottomSheetBand);
+  const desktopBottomPanelOpen = useRef(bottomPanel.open);
+  useEffect(() => {
+    // Narrow-band opens are transient, exactly like the drawer's.
+    if (bottomSheetBand || wasBottomSheetBand.current) return;
+    desktopBottomPanelOpen.current = bottomPanel.open;
+  }, [bottomPanel.open, bottomSheetBand]);
+  useEffect(() => {
+    if (wasBottomSheetBand.current === bottomSheetBand) return;
+    wasBottomSheetBand.current = bottomSheetBand;
+    if (bottomSheetBand) {
+      if (bottomPanel.open) bottomPanel.setOpen(false);
+      return;
+    }
+    if (desktopBottomPanelOpen.current !== bottomPanel.open) {
+      bottomPanel.setOpen(desktopBottomPanelOpen.current);
+    }
+  }, [bottomSheetBand, bottomPanel]);
   // Workflow and agent configuration panel (rail → Workflows).
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
   // Rail destinations pre-mount hidden after boot and stay mounted while the
@@ -705,6 +844,12 @@ export function App() {
     setProjectsOpen(false);
     setWorkflowsOpen(false);
   }, []);
+  // A collapsed drawer forgets its rail destination on EVERY close path
+  // (toggle, backdrop, exclusivity, band crossing): the next open always
+  // starts from Sessions (user: 다시 열고 닫을 때 세션으로 초기화).
+  useEffect(() => {
+    if (!sidebarOpen) closeSidebarPanels();
+  }, [closeSidebarPanels, sidebarOpen]);
   // Re-selecting the visible rail destination mirrors the Sessions button:
   // collapse the whole sidebar, but clear the destination first so the next
   // expand always starts from Sessions instead of restoring a stale panel.
@@ -714,13 +859,17 @@ export function App() {
     beginSidePanelClose("sidebar", () => applySidebarOpen(false));
   }, [applySidebarOpen, beginSidePanelClose, closeSidebarPanels]);
   useEffect(() => {
+    // Same transience rule as the sidebar: drawer-band dock toggles never
+    // overwrite the desktop dock preference or the restore target.
+    if (narrowShell || wasNarrowShell.current) return;
+    desktopDockOpen.current = dockOpen;
     const timer = window.setTimeout(() => {
       try {
         window.localStorage.setItem(DOCK_STATE_KEY, JSON.stringify({ open: dockOpen, tab: dockTab, width: dockWidth }));
       } catch { /* dock state is a convenience only */ }
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [dockOpen, dockTab, dockWidth]);
+  }, [narrowShell, dockOpen, dockTab, dockWidth]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
@@ -1319,7 +1468,8 @@ export function App() {
       if (live && getDesktopThemePreference() === 'system') applyStoredPreference();
     };
     systemTheme?.addEventListener('change', handleSystemThemeChange);
-    if (!applyStoredPreference()) applyDesktopTheme('basic');
+    // A fresh install lands on the true-dark surface, not the grey ramp.
+    if (!applyStoredPreference()) applyDesktopThemePreference('dark');
     return () => {
       live = false;
       systemTheme?.removeEventListener('change', handleSystemThemeChange);
@@ -1343,7 +1493,10 @@ export function App() {
     void invoke<RecordValue>({ capability: 'getOnboardingStatus' })
       .then(async (result) => {
         if (asRecord(result.value)?.completed !== false) return;
-        await loadSettingsViewModule().catch(() => undefined);
+        // Both chunks preload before the wizard mounts: a lazy import at open
+        // time flashed the dark Suspense overlay (user: 검정 빈 화면).
+        await Promise.all([loadSettingsViewModule(), loadOnboardingWizardModule()])
+          .catch(() => undefined);
         if (live) setOnboardingOpen(true);
       })
       .catch(() => {})
@@ -3581,8 +3734,26 @@ export function App() {
       return;
     }
     void prefetchTerminalPane().catch(() => {});
+    dismissSheetsForBottomPanel();
     bottomPanel.setTab("terminal");
     focusPanelTerminal();
+  };
+  // Reading-order pane focus cycle, shared verbatim by Alt+Left/Right and
+  // the window bar's persistent ◀ ▶ buttons (user: 코덱스처럼 좌우버튼
+  // 상시). At narrow widths the carousel derives its visible pane from the
+  // same focus, so one path drives both presentations.
+  const focusSiblingPane = (offset: number) => {
+    const leaves = paneLeavesInVisualOrder(paneWorkspace.layout);
+    if (leaves.length < 2) return;
+    const index = leaves.findIndex((leaf) => leaf.id === paneWorkspace.focusedLeafId);
+    const next = leaves[(index + offset + leaves.length) % leaves.length];
+    if (!next) return;
+    paneWorkspace.focusLeaf(next.id);
+    // Mirror the pane-click path: route the engine surface AND land the
+    // caret in that pane's typing area.
+    const nextActive = paneActiveSelection(next);
+    if (nextActive) activatePaneSurface(nextActive);
+    focusPaneTypingSurface(next.id, nextActive);
   };
   useWorkspaceShortcuts({
     tabs: focusedLeafTabs,
@@ -3592,24 +3763,12 @@ export function App() {
     activeTabKey: focusedActiveTabKey,
     navigateTab: navigateFocusedPaneTab,
     // Alt+Left/Right: reading-order pane focus cycle across every group.
-    focusSiblingPane: (offset: number) => {
-      const leaves = paneLeavesInVisualOrder(paneWorkspace.layout);
-      if (leaves.length < 2) return;
-      const index = leaves.findIndex((leaf) => leaf.id === paneWorkspace.focusedLeafId);
-      const next = leaves[(index + offset + leaves.length) % leaves.length];
-      if (!next) return;
-      paneWorkspace.focusLeaf(next.id);
-      // Mirror the pane-click path: route the engine surface AND land the
-      // caret in that pane's typing area.
-      const nextActive = paneActiveSelection(next);
-      if (nextActive) activatePaneSurface(nextActive);
-      focusPaneTypingSurface(next.id, nextActive);
-    },
+    focusSiblingPane,
     startTask,
     openSettings,
     toggleSidebar,
     toggleDock,
-    togglePanel: bottomPanel.toggle,
+    togglePanel: toggleBottomPanel,
     openTerminalPanel: toggleTerminalPanel,
     openQuickAccess: () => setQuickAccessMode("files"),
     openCommandPalette: () => setQuickAccessMode("commands"),
@@ -3741,7 +3900,7 @@ export function App() {
       category: "View",
       label: "Toggle Panel",
       shortcut: "Ctrl+J",
-      run: bottomPanel.toggle,
+      run: toggleBottomPanel,
     },
     {
       id: "workbench.action.terminal.toggleTerminal",
@@ -4790,9 +4949,11 @@ export function App() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
         panelOpen={bottomPanel.open}
-        onTogglePanel={bottomPanel.toggle}
+        onTogglePanel={toggleBottomPanel}
         dockOpen={dockOpen}
         onToggleDock={toggleDock}
+        paneCount={paneWorkspace.leaves.length}
+        onFocusSiblingPane={focusSiblingPane}
         dockLabel="utility panel"
         updaterState={updaterState}
         onOpenUpdate={openDesktopUpdate} />
@@ -5024,6 +5185,13 @@ export function App() {
           aria-hidden={!dockOpen}
           tabIndex={dockOpen ? 0 : -1}
           onClick={() => applyDockOpen(false)} aria-label="Close utility panel" />
+        {/* Bottom sheet band: same dismiss scrim grammar as the side sheets
+            (user: 하단 탭도 좌우 탭과 같은 취급). */}
+        <button className="panel-backdrop"
+          data-state={bottomPanel.open ? "open" : "closed"}
+          aria-hidden={!bottomPanel.open}
+          tabIndex={bottomPanel.open ? 0 : -1}
+          onClick={() => bottomPanel.setOpen(false)} aria-label="Close panel" />
     {dockOpen && <SnapshotUtilityDock snapshotStore={snapshotStore}
           frozenSnapshot={null} hidden={hideLiveSnapshot}
       open={dockOpen} width={dockWidth} tab={dockTab}
@@ -5032,7 +5200,7 @@ export function App() {
           workspaceFolders={workbenchWorkspace.workspace.folders as DesktopWorkspaceFolder[]}
           onSelectProject={selectToolProject}
           metricSurface="dock"
-          entering={false} contentReady
+          entering={dockSettled} contentReady
           onTab={setDockTab} onResize={resizeDock}
           onClose={toggleDock}
           activeFileKey={activeFileKey}
@@ -5105,5 +5273,4 @@ export function App() {
 
 export { ApprovalCard } from "./ApprovalCard";
 export { DesktopUpdateDialog } from "./notifications";
-export { lastVisibleTranscriptItemIndex } from "./transcript-metrics";
 export { ContextUsageIndicator, LiveWorkStatus, TranscriptRow } from "./TranscriptView";

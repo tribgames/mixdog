@@ -62,6 +62,10 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
     let pendingBytes = 0;
     let lineCollectCapped = false;
     let prefixHash = rangeIndex?.prefixHash || '';
+    const maxOutputBytes = Number(hooks.maxOutputBytes) > 0
+        ? Math.min(READ_MAX_OUTPUT_BYTES, Math.trunc(Number(hooks.maxOutputBytes)))
+        : READ_MAX_OUTPUT_BYTES;
+    const bodyOutputBytes = Math.max(1, maxOutputBytes - Math.min(384, Math.floor(maxOutputBytes / 3)));
     const deadline = Date.now() + READ_STREAM_TIMEOUT_MS;
     let bytesScanned = anchor.byteOffset;
 
@@ -85,7 +89,7 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
         // Truncation drops the entire rendered line (codepoint-safe by
         // construction), so no mid-codepoint cut can occur here.
         collectedBytes += Buffer.byteLength(rendered, 'utf8') + 1;
-        if (collectedBytes > READ_MAX_OUTPUT_BYTES) {
+        if (collectedBytes > bodyOutputBytes) {
             truncated = true;
             return false;
         }
@@ -207,7 +211,8 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
 
     let out = collected.join('\n');
     if (truncated) {
-        out += `\n\n... [output truncated at ${Math.round(READ_MAX_OUTPUT_BYTES/1024)} KB] ...`;
+        const nextOffset = lastEmitted || offset;
+        out += `\n\n... [output truncated at ${Math.max(1, Math.round(maxOutputBytes/1024))} KB; pass offset:${nextOffset} to continue] ...`;
     } else if (stoppedAtLimit) {
         out += `${out ? '\n' : ''}... [range limit reached; next offset: ${offset + collected.length}]`;
     } else if (!out && offset >= lineIdx) {

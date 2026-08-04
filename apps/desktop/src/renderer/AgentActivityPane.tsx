@@ -9,6 +9,7 @@ import {
   isQueuedDesktopAgentEntry,
 } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { modelDisplayName } from './provider-display';
 import { defaultSessionLaneStore } from './session-lane-store';
@@ -184,7 +185,7 @@ export function AgentActivityPane({
     return [...grouped.entries()].map(([key, agents]) => ({
       key,
       ownerSessionId: agents[0]?.ownerSessionId || key,
-      title: owners.has(key) ? sessionSummaryTitle(owners.get(key)!) : 'Background agents',
+      title: owners.has(key) ? sessionSummaryTitle(owners.get(key)!) : t('Background agents'),
       agents,
     }));
   }, [agentPool, laneRevision, poolAvailable, sessions]);
@@ -200,7 +201,7 @@ export function AgentActivityPane({
     {groups.length > 0 ? <div className="agent-session-groups">
       {groups.map(({ key, ownerSessionId, title, agents }) => {
         const collapsed = collapsedSessionIds.has(key);
-        return <section key={key} className="agent-session-group" aria-label={`${title} agents`}>
+        return <section key={key} className="agent-session-group" aria-label={t('{{title}} agents', { title })}>
           <button type="button" className="agent-session-heading"
             aria-expanded={!collapsed}
             onClick={() => setCollapsedSessionIds((current) => {
@@ -225,7 +226,7 @@ export function AgentActivityPane({
               return <button key={agent.key} type="button" className="agent-activity-row"
                 data-agent-tag={agent.tag || undefined}
                 data-agent-session-id={agent.sessionId || undefined}
-                aria-label={`Open ${agent.role} in ${title}`}
+                aria-label={t('Open {{role}} in {{title}}', { role: agent.role, title })}
                 aria-disabled={!agent.sessionId || undefined}
                 onClick={() => {
                   if (agent.sessionId) {
@@ -234,8 +235,8 @@ export function AgentActivityPane({
                 }}>
                 <span className="agent-activity-state">
                   {agent.queued
-                    ? <Clock3 size={12} aria-label="Queued" />
-                    : <ProgressSpinner size={12} role="status" aria-label={`${agent.role} is running`} />}
+                    ? <Clock3 size={12} aria-label={t('Queued')} />
+                    : <ProgressSpinner size={12} role="status" aria-label={t('{{name}} is running', { name: agent.role })} />}
                 </span>
                 <span className="agent-activity-copy">
                   <span className="agent-activity-primary">
@@ -252,7 +253,7 @@ export function AgentActivityPane({
       })}
     </div> : <div className="utility-dock-empty agent-activity-empty">
       <Bot size={28} strokeWidth={1.5} aria-hidden="true" />
-      <p>No agents are running.</p>
+      <p>{t('No agents are running.')}</p>
     </div>}
   </div>;
 }

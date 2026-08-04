@@ -320,6 +320,9 @@ export async function runJitterProbe({
   // MIXDOG_JITTER_PROBE=switch runs rapid A→B→C switching plus both side
   // panels' named View Transition handover checks.
   const switchMode = process.env.MIXDOG_JITTER_PROBE === 'switch';
+  // MIXDOG_JITTER_PROBE=width measures a REAL window-width drag: who writes
+  // scrollTop, and how far the reader's row moves per rewrap step.
+  const widthMode = process.env.MIXDOG_JITTER_PROBE === 'width';
   if (entryMode) {
     await window.webContents.executeJavaScript(
       'window.__mixdogMarkdownPreloadDelayMs = 1200; true',
@@ -331,17 +334,239 @@ export async function runJitterProbe({
   // visible transcript.
   await window.webContents.executeJavaScript(`(async () => {
     const started = Date.now();
+    // Class selectors only: aria-labels are localized, so an English label
+    // silently stops finding the entry in a Korean UI.
+    const find = () => document.querySelector('.session-new-task')
+      || document.querySelector('button[aria-label="New task"]');
     let link = null;
     while (Date.now() - started < 5_000) {
-      link = document.querySelector('button[aria-label="New task"]');
+      link = find();
       if (link instanceof HTMLElement) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    if (!(link instanceof HTMLElement)) throw new Error('Missing capture element: .task-link');
-    link.click();
+    // New Task moved behind the Sessions create menu: open the panel and the
+    // menu before reaching for the entry.
+    if (!(link instanceof HTMLElement)) {
+      const sidebar = document.querySelector('.toolbar-sidebar');
+      if (!document.querySelector('.session-new-create') && sidebar instanceof HTMLElement) {
+        sidebar.click();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      const create = document.querySelector('.session-new-create');
+      if (create instanceof HTMLElement) {
+        create.click();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        link = find();
+      }
+    }
+    if (link instanceof HTMLElement) link.click();
     await new Promise((resolve) => setTimeout(resolve, 300));
-    return true;
+    return Boolean(document.querySelector('.composer'));
   })()`);
+
+  if (widthMode) {
+    // Enter through the real resume path: a snapshot pushed for a session the
+    // visible route does not own is suppressed as a foreign frame.
+    const widthSnapshot = {
+      ...baseSnapshot,
+      toasts: [],
+      sessionId: 'probe_session_cold',
+      busy: false,
+      spinner: null,
+      // Real sessions carry multi-hundred-line fenced answers: those rows are
+      // the ones whose rewrap moves the viewport by hundreds of pixels.
+      // 200 rows also leaves most of the timeline UNMEASURED (flat estimate),
+      // which is the state a long working session is really in.
+      items: probeItems(200),
+      streamingTail: null,
+    };
+    window.setBounds({ ...window.getBounds(), width: 1_280, height: 900 });
+    await sleep(400);
+    prepareColdResume(widthSnapshot);
+    await window.webContents.executeJavaScript(`(async () => {
+      const row = document.querySelector('[data-session-id="probe_session_cold"]');
+      if (!(row instanceof HTMLElement)) throw new Error('Missing cold probe session row');
+      row.click();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return true;
+    })()`);
+    send(widthSnapshot);
+    await sleep(1_200);
+    const ready = await window.webContents.executeJavaScript(`(async () => {
+      const visible = () => [...document.querySelectorAll('.transcript')]
+        .find((node) => node.getBoundingClientRect().height > 0);
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const node = visible();
+        const rows = node ? node.querySelectorAll('.transcript-virtual-row').length : 0;
+        if (node && rows > 3) {
+          return { rows, height: Math.round(node.getBoundingClientRect().height) };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return { rows: 0, transcripts: document.querySelectorAll('.transcript').length };
+    })()`);
+    if (!(ready as { rows?: number })?.rows) {
+      const dom = await window.webContents.executeJavaScript(`(() => ({
+        tabs: document.querySelectorAll('.workspace-tab').length,
+        composer: document.querySelectorAll('.composer').length,
+        sidebar: document.querySelectorAll('.session-sidebar').length,
+        create: document.querySelectorAll('.session-new-create').length,
+        rail: document.querySelectorAll('.toolbar-sidebar').length,
+        newTask: document.querySelectorAll('button[aria-label="New task"]').length,
+        panes: document.querySelectorAll('[data-pane-id]').length,
+        text: (document.body.innerText || '').slice(0, 200).replace(/\\s+/g, ' '),
+      }))()`);
+      throw new Error(`width probe: transcript never rendered ${JSON.stringify(ready)} dom=${JSON.stringify(dom)}`);
+    }
+    const install = `(() => {
+      const w = window;
+      const transcript = [...document.querySelectorAll('.transcript')]
+        .find((node) => node.getBoundingClientRect().height > 0);
+      if (!transcript) return { error: 'no transcript' };
+      if (!w.__widthTraceInstalled) {
+        w.__widthTraceInstalled = true;
+        const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+        Object.defineProperty(Element.prototype, 'scrollTop', {
+          configurable: true,
+          get() { return descriptor.get.call(this); },
+          set(value) {
+            const trace = w.__widthTrace;
+            if (trace && this.classList && this.classList.contains('transcript')) {
+              trace.writes.push({
+                t: Math.round(performance.now()),
+                from: Math.round(descriptor.get.call(this)),
+                to: Math.round(Number(value) || 0),
+                bottom: Math.round(this.scrollHeight - this.clientHeight),
+                width: Math.round(this.clientWidth),
+                stack: String(new Error().stack || '').split('\\n').slice(2, 5)
+                  .map((line) => line.trim().replace(/^at\\s+/, '')).join(' <- '),
+              });
+            }
+            descriptor.set.call(this, value);
+          },
+        });
+      }
+      w.__widthTrace = { writes: [], samples: [], raf: 0 };
+      const sample = () => {
+        const node = [...document.querySelectorAll('.transcript')]
+          .find((candidate) => candidate.getBoundingClientRect().height > 0);
+        if (node) {
+          const box = node.getBoundingClientRect();
+          const rows = [...node.querySelectorAll('.transcript-virtual-row')]
+            .map((row) => ({ row, rect: row.getBoundingClientRect() }))
+            .filter((entry) => entry.rect.bottom > box.top + 1)
+            .sort((a, b) => a.rect.top - b.rect.top);
+          const top = rows[0];
+          w.__widthTrace.samples.push({
+            t: Math.round(performance.now()),
+            width: Math.round(box.width),
+            scrollTop: Math.round(node.scrollTop),
+            bottom: Math.round(node.scrollHeight - node.clientHeight),
+            following: node.getAttribute('data-following'),
+            index: top ? Number(top.row.getAttribute('data-index')) : null,
+            offset: top ? Math.round(top.rect.top - box.top) : null,
+            space: Math.round(node.querySelector('.transcript-virtual-space')?.getBoundingClientRect().height || 0),
+          });
+        }
+        w.__widthTrace.raf = requestAnimationFrame(sample);
+      };
+      w.__widthTrace.raf = requestAnimationFrame(sample);
+      return {
+        rows: transcript.querySelectorAll('.transcript-virtual-row').length,
+        scrollHeight: transcript.scrollHeight,
+        clientHeight: transcript.clientHeight,
+      };
+    })()`;
+    const collect = `(() => {
+      const w = window;
+      cancelAnimationFrame(w.__widthTrace.raf);
+      const trace = w.__widthTrace;
+      const byIndex = new Map();
+      for (const sample of trace.samples) {
+        if (sample.index === null || sample.offset === null) continue;
+        const bucket = byIndex.get(sample.index) || [];
+        bucket.push(sample.offset);
+        byIndex.set(sample.index, bucket);
+      }
+      let worstDrift = 0;
+      for (const offsets of byIndex.values()) {
+        worstDrift = Math.max(worstDrift, Math.max(...offsets) - Math.min(...offsets));
+      }
+      const tops = trace.samples.map((sample) => sample.scrollTop);
+      let reversals = 0;
+      for (let i = 2; i < tops.length; i++) {
+        const a = tops[i - 1] - tops[i - 2];
+        const b = tops[i] - tops[i - 1];
+        if (Math.abs(a) > 8 && Math.abs(b) > 8 && Math.sign(a) !== Math.sign(b)) reversals += 1;
+      }
+      const jumps = trace.writes
+        .map((write) => ({ ...write, delta: write.to - write.from, offBottom: write.to - write.bottom }))
+        .filter((write) => Math.abs(write.delta) > 8);
+      let maxFrameAnchorJump = 0;
+      let maxFrameScrollJump = 0;
+      for (let i = 1; i < trace.samples.length; i++) {
+        const previous = trace.samples[i - 1];
+        const current = trace.samples[i];
+        maxFrameScrollJump = Math.max(maxFrameScrollJump, Math.abs(current.scrollTop - previous.scrollTop));
+        if (current.index === null || previous.index === null) continue;
+        if (current.index !== previous.index) continue;
+        maxFrameAnchorJump = Math.max(maxFrameAnchorJump, Math.abs(current.offset - previous.offset));
+      }
+      return {
+        frames: trace.samples.length,
+        writes: trace.writes.length,
+        worstAnchorDrift: worstDrift,
+        maxFrameAnchorJump,
+        maxFrameScrollJump,
+        scrollReversals: reversals,
+        scrollRange: tops.length ? Math.max(...tops) - Math.min(...tops) : 0,
+        biggestWrites: jumps.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 8),
+        writeStacks: [...new Set(trace.writes.map((write) => write.stack))].slice(0, 8),
+      };
+    })()`;
+    const sweep = async (label: string, prepare: string) => {
+      await window.webContents.executeJavaScript(prepare);
+      await sleep(400);
+      const setup = await window.webContents.executeJavaScript(install);
+      const bounds = window.getBounds();
+      // A real drag delivers a new width almost every frame: step in small
+      // increments so the rewrap path is exercised the way a pointer does it.
+      for (let step = 0; step >= -30; step -= 1) {
+        window.setBounds({ ...bounds, width: Math.max(720, bounds.width + step * 12) });
+        await sleep(30);
+      }
+      for (let step = -30; step <= 0; step += 1) {
+        window.setBounds({ ...bounds, width: Math.max(720, bounds.width + step * 12) });
+        await sleep(30);
+      }
+      window.setBounds(bounds);
+      await sleep(400);
+      const report = await window.webContents.executeJavaScript(collect);
+      return { label, setup, ...(report as Record<string, unknown>) };
+    };
+    const reading = await sweep('reading', `(() => {
+      const node = [...document.querySelectorAll('.transcript')]
+        .find((candidate) => candidate.getBoundingClientRect().height > 0);
+      node.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -120 }));
+      node.scrollTop = Math.round((node.scrollHeight - node.clientHeight) * 0.5);
+      node.dispatchEvent(new Event('scroll', { bubbles: true }));
+      return true;
+    })()`);
+    const following = await sweep('following', `(() => {
+      const node = [...document.querySelectorAll('.transcript')]
+        .find((candidate) => candidate.getBoundingClientRect().height > 0);
+      const jump = document.querySelector('.jump-to-latest');
+      if (jump instanceof HTMLElement) jump.click();
+      node.scrollTop = node.scrollHeight - node.clientHeight;
+      node.dispatchEvent(new Event('scroll', { bubbles: true }));
+      return true;
+    })()`);
+    const summary = { widthSweeps: [reading, following] };
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, JSON.stringify({ summary }, null, 1));
+    console.log(`[jitter-probe] ${JSON.stringify(summary)}`);
+    return { reversals: 0 } as { reversals: number };
+  }
 
   if (switchMode) {
     const clickSession = async (id: string, waitMs: number) => {
@@ -418,7 +643,6 @@ export async function runJitterProbe({
       const anchorFor = (transcript) => {
         const box = transcript.getBoundingClientRect();
         const rows = [...transcript.querySelectorAll('.transcript-virtual-row')]
-          .filter((row) => row.getAttribute('data-retained') !== 'hidden')
           .map((row) => ({ row, box: row.getBoundingClientRect() }))
           .filter((entry) => entry.box.bottom > box.top && entry.box.top < box.bottom)
           .sort((left, right) => left.box.top - right.box.top);
@@ -548,7 +772,7 @@ export async function runJitterProbe({
       while (performance.now() - started < 2_000) {
         const box = transcript.getBoundingClientRect();
         const candidates = [...transcript.querySelectorAll(
-          '.transcript-virtual-row--retained[data-retained="active"] .markdown-code',
+          '.transcript-virtual-row .markdown-code',
         )];
         script = candidates.find((candidate) => {
           const rect = candidate.getBoundingClientRect();
@@ -558,16 +782,16 @@ export async function runJitterProbe({
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       if (!(script instanceof HTMLElement)) throw new Error('Missing warm re-entry script');
-      const retainedScriptRow = script.closest('.transcript-virtual-row--retained');
-      if (!(retainedScriptRow instanceof HTMLElement)) {
-        throw new Error('Missing warm re-entry retained row');
+      const scriptRow = script.closest('.transcript-virtual-row');
+      if (!(scriptRow instanceof HTMLElement)) {
+        throw new Error('Missing warm re-entry script row');
       }
+      const rowIndex = scriptRow.getAttribute('data-index');
       const conversation = transcript.closest('.conversation');
       const preflight = {
         scriptConnected: script.isConnected,
-        rowConnected: retainedScriptRow.isConnected,
-        rowState: retainedScriptRow.getAttribute('data-retained'),
-        rowIndex: retainedScriptRow.getAttribute('data-index'),
+        rowConnected: scriptRow.isConnected,
+        rowIndex,
       };
       const samples = [];
       const shifts = [];
@@ -582,7 +806,8 @@ export async function runJitterProbe({
       } catch {}
       const probe = {
         script,
-        retainedScriptRow,
+        scriptRow,
+        rowIndex,
         conversation,
         samples,
         shifts,
@@ -593,27 +818,27 @@ export async function runJitterProbe({
       const sample = () => {
         const current = visibleTranscript();
         const space = current?.querySelector('.transcript-virtual-space');
-        const retainedRow = script?.closest('.transcript-virtual-row--retained');
-        const scriptActive = script?.isConnected
-          && retainedRow?.getAttribute('data-retained') === 'active'
-          && retainedRow.closest('.transcript') === current;
+        // The timeline is rebuilt per session from its measured snapshot, so
+        // the contract is the SAME ROW returning to the same place, not the
+        // same DOM node surviving the round trip.
+        const row = current
+          ? [...current.querySelectorAll('.transcript-virtual-row')]
+            .find((candidate) => candidate.getAttribute('data-index') === rowIndex)
+          : null;
+        const currentScript = row?.querySelector('.markdown-code') || null;
         samples.push({
           t: performance.now(),
           sessionKey: current?.getAttribute('data-session-key') || '',
           scrollTop: current instanceof HTMLElement ? current.scrollTop : null,
           scrollHeight: current instanceof HTMLElement ? current.scrollHeight : null,
           spaceHeight: space?.getBoundingClientRect().height ?? null,
-          scriptTop: script?.isConnected ? script.getBoundingClientRect().top : null,
+          scriptTop: currentScript ? currentScript.getBoundingClientRect().top : null,
           conversationSame: current?.closest('.conversation') === conversation,
-          retainedRowSame: retainedScriptRow.isConnected
-            && retainedScriptRow.closest('.transcript') === current,
-          retainedRowState: retainedScriptRow.isConnected
-            ? retainedScriptRow.getAttribute('data-retained')
-            : null,
+          rowSame: Boolean(row),
           replacementScript: Boolean(current?.querySelector(
-            '.transcript-virtual-row--retained[data-retained="active"] .markdown-code',
+            '.transcript-virtual-row .markdown-code',
           )),
-          scriptSame: Boolean(scriptActive),
+          scriptSame: Boolean(currentScript),
         });
         probe.raf = requestAnimationFrame(sample);
       };
@@ -650,17 +875,14 @@ export async function runJitterProbe({
       await new Promise((resolve) => setTimeout(resolve, 120));
       return {
         scriptConnected: probe.script.isConnected,
-        rowConnected: probe.retainedScriptRow.isConnected,
-        rowState: probe.retainedScriptRow.isConnected
-          ? probe.retainedScriptRow.getAttribute('data-retained')
-          : null,
+        rowConnected: probe.scriptRow.isConnected,
       };
     })()`) as Record<string, unknown>;
     paintProbe.mark('reentry');
     let warmResult: {
       frames: number;
       conversationSame: boolean;
-      retainedRowSame: boolean;
+      rowSame: boolean;
       replacementScriptFrames: number;
       scriptSame: boolean;
       maxScrollDrift: number;
@@ -704,8 +926,8 @@ export async function runJitterProbe({
       return {
         frames: post.length,
         conversationSame: post.every((sample) => sample.conversationSame),
-        retainedRowSame: post.some((sample) => sample.retainedRowSame)
-          && post.every((sample) => sample.retainedRowSame),
+        rowSame: post.some((sample) => sample.rowSame)
+          && post.every((sample) => sample.rowSame),
         replacementScriptFrames: post.filter((sample) => sample.replacementScript).length,
         scriptSame: post.some((sample) => sample.scriptSame)
           && post.every((sample) => sample.scriptSame),
@@ -1305,7 +1527,7 @@ export async function runJitterProbe({
     ...baseSnapshot,
     toasts: [],
     sessionId: 'probe_session_cold',
-    busy: false,
+    busy: true,
     spinner: {
       active: true,
       mode: 'responding',
@@ -1710,7 +1932,10 @@ diff --git a/src/probe.ts b/src/probe.ts
       const el = document.querySelector('.transcript');
       if (el) {
         const box = el.getBoundingClientRect();
-        const tail = el.querySelector('.transcript-live-tail, .transcript-virtual-row--tail');
+        const virtualRows = el.querySelectorAll('.transcript-virtual-row');
+        const tail = el.querySelector('.transcript-live-part')?.closest('.transcript-virtual-row')
+          || virtualRows[virtualRows.length - 1]
+          || null;
         const tailBody = tail?.querySelector('.message-body');
         const thread = el.querySelector('.thread');
         w.__jitter.samples.push({
@@ -1786,13 +2011,22 @@ diff --git a/src/probe.ts b/src/probe.ts
     send(sessionB());
   }
 
-  // Phase 3: settle the streaming assistant and attach the successful
-  // completion footer. The completion keeps a hidden zero-height transcript
-  // item; the visible assistant must remain the tail anchor throughout.
+  // Phase 3: settle the streaming assistant and fold the successful
+  // completion footer into that same projected assistant row. `data-index`
+  // belongs to the projected timeline (including TurnGap rows), not `items`.
+  // Capture the actual live row index before completion so the same visible
+  // assistant must remain the tail anchor throughout settlement.
   const finishStart = await window.webContents.executeJavaScript(
     'window.__jitter.samples.length',
   ) as number;
-  const completedVisibleTailIndex = items.length;
+  const completedVisibleTailIndex = await window.webContents.executeJavaScript(`(() => {
+    const row = document.querySelector('.transcript-live-part')?.closest('.transcript-virtual-row');
+    const index = row?.getAttribute('data-index');
+    return index == null ? null : Number(index);
+  })()`) as number | null;
+  if (!Number.isInteger(completedVisibleTailIndex)) {
+    throw new Error('Missing projected live tail before completion settlement');
+  }
   send({
     ...sessionB(),
     // Keep the capture-only route alive while measuring. Removing spinner and

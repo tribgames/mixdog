@@ -1,6 +1,7 @@
 import { Activity, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 
 type RuntimeHealth = {
@@ -89,8 +90,8 @@ export function StatusPopover() {
   const tone = error ? 'critical' : runtime?.running ? 'healthy' : runtime ? 'idle' : 'pending';
   return <>
     <button ref={trigger} type="button" className="runtime-status-trigger"
-      aria-label="Runtime status" aria-haspopup="dialog" aria-expanded={open}
-      data-tooltip="Runtime status"
+      aria-label={t('Runtime status')} aria-haspopup="dialog" aria-expanded={open}
+      data-tooltip={t('Runtime status')}
       onPointerEnter={(event) => rememberAnchor(event.currentTarget)}
       onFocus={(event) => rememberAnchor(event.currentTarget)}
       onPointerDown={(event) => {
@@ -107,18 +108,18 @@ export function StatusPopover() {
       <span className="runtime-status-icon"><Activity size={15} /><i data-tone={tone} /></span>
     </button>
     {open && createPortal(<div ref={panel} className="runtime-status-popover" role="dialog"
-      aria-label="Runtime health" style={{
+      aria-label={t('Runtime health')} style={{
         left: anchor.current?.left ?? 8,
         bottom: anchor.current?.bottom ?? 8,
       }}>
-      <header><div><b>Runtime health</b><span data-tone={tone}>{error ? 'Issue detected' : runtime?.running ? 'Running' : loading ? 'Checking…' : 'Stopped'}</span></div>
-        <button type="button" aria-label="Close runtime status" onClick={() => setOpen(false)}><X size={14} /></button></header>
+      <header><div><b>{t('Runtime health')}</b><span data-tone={tone}>{error ? t('Issue detected') : runtime?.running ? t('Running') : loading ? t('Checking…') : t('Stopped')}</span></div>
+        <button type="button" aria-label={t('Close runtime status')} onClick={() => setOpen(false)}><X size={14} /></button></header>
       <div className="runtime-status-body">
-        <div><span>Desktop bridge</span><b>Connected</b></div>
-        <div><span>Engine</span><b>{engineState}</b></div>
-        <div><span>Workflow</span><b>{workflowMode}</b></div>
-        <div><span>Channel worker</span><b>{runtime?.running ? 'Running' : loading ? 'Checking…' : 'Stopped'}</b></div>
-        <div><span>Process ID</span><b>{runtime?.pid || '—'}</b></div>
+        <div><span>{t('Desktop bridge')}</span><b>{t('Connected')}</b></div>
+        <div><span>{t('Engine')}</span><b>{t(engineState)}</b></div>
+        <div><span>{t('Workflow')}</span><b>{t(workflowMode)}</b></div>
+        <div><span>{t('Channel worker')}</span><b>{runtime?.running ? t('Running') : loading ? t('Checking…') : t('Stopped')}</b></div>
+        <div><span>{t('Process ID')}</span><b>{runtime?.pid || '—'}</b></div>
         {error && <p role="alert">{error}</p>}
       </div>
     </div>, document.body)}

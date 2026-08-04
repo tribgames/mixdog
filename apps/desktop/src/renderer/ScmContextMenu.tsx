@@ -8,6 +8,8 @@ import { Check } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { t } from "./i18n";
+
 export interface ScmContextMenuItem {
   /** Stable semantic action identity; labels and enabled state may update in place. */
   id: string;
@@ -148,7 +150,7 @@ export function ScmContextMenu({
         item.separatorBefore ? "menu-separator" : "",
       ].filter(Boolean).join(" ") || undefined}
       disabled={item.disabled}
-      title={item.title}
+      title={item.title ? t(item.title) : undefined}
       onClick={() => {
         onClose();
         item.onSelect?.();
@@ -156,7 +158,7 @@ export function ScmContextMenu({
       <span className="dock-scm-context-check">
         {item.checked && <Check size={12} aria-hidden="true" />}
       </span>
-      <span className="dock-scm-context-label">{item.label}</span>
+      <span className="dock-scm-context-label">{t(item.label)}</span>
     </button>)}
   </div>, document.body);
 }

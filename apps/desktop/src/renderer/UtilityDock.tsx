@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
+  DesktopGitBranch,
   DesktopGitStatus,
   DesktopProjectSummary,
   DesktopSessionSummary,
@@ -31,6 +32,7 @@ import {
 } from "./boot-metrics";
 import { EMPTY_TRANSCRIPT_ITEMS, type Snapshot, type TranscriptItem } from "./desktop-types";
 import { FilesRootPane, SetiFileIcon } from "./ExplorerTree";
+import { t } from "./i18n";
 import {
   cancelLayoutFrame,
   flushLayoutFrame,
@@ -290,28 +292,28 @@ const FilesPane = memo(function FilesPane({
         <Search size={14} aria-hidden="true" />
         <input ref={searchInputRef} value={query}
           onChange={(event) => setQuery(event.currentTarget.value)}
-          placeholder={contentsMode ? "Search text" : "Search files"}
-          aria-label={contentsMode ? "Search text in project files" : "Search project files by name"} />
-        {query && <button type="button" aria-label="Clear search"
+          placeholder={contentsMode ? t("Search text") : t("Search files")}
+          aria-label={contentsMode ? t("Search text in project files") : t("Search project files by name")} />
+        {query && <button type="button" aria-label={t("Clear search")}
           onClick={() => setQuery("")}><X size={13} aria-hidden="true" /></button>}
       </label>
-      <div className="workbench-search-mode" role="tablist" aria-label="Explorer search mode">
+      <div className="workbench-search-mode" role="tablist" aria-label={t("Explorer search mode")}>
         <button type="button" role="tab" aria-selected={!contentsMode}
-          onClick={() => setSearchMode("names")}>Names</button>
+          onClick={() => setSearchMode("names")}>{t("Names")}</button>
         <button type="button" role="tab" aria-selected={contentsMode}
-          onClick={() => setSearchMode("contents")}>Contents</button>
+          onClick={() => setSearchMode("contents")}>{t("Contents")}</button>
       </div>
     </div>
     {searching ? (
       searchLoading
-        ? <p className="utility-dock-empty">Searching…</p>
+        ? <p className="utility-dock-empty">{t("Searching…")}</p>
         : searchError
           ? <p className="utility-dock-empty">{searchError}</p>
           : !contentsMode
             ? (totalNameHits === 0
-              ? <p className="utility-dock-empty">No matching files.</p>
-              : <div className="workbench-search-results" role="tree" aria-label="File name results">
-                <p className="workbench-search-summary">{totalNameHits} file{totalNameHits === 1 ? "" : "s"}</p>
+              ? <p className="utility-dock-empty">{t("No matching files.")}</p>
+              : <div className="workbench-search-results" role="tree" aria-label={t("File name results")}>
+                <p className="workbench-search-summary">{totalNameHits === 1 ? t("1 file") : t("{{count}} files", { count: totalNameHits })}</p>
                 {nameResults.flatMap(({ project, paths }) => paths.map((relPath) => {
                   const normalized = relPath.replace(/\\/g, "/");
                   const split = normalized.lastIndexOf("/");
@@ -329,9 +331,9 @@ const FilesPane = memo(function FilesPane({
                 }))}
               </div>)
             : (contentResults.length === 0
-              ? <p className="utility-dock-empty">No results found.</p>
-              : <div className="workbench-search-results" role="tree" aria-label="Search results">
-                <p className="workbench-search-summary">{totalMatches} result{totalMatches === 1 ? "" : "s"}</p>
+              ? <p className="utility-dock-empty">{t("No results found.")}</p>
+              : <div className="workbench-search-results" role="tree" aria-label={t("Search results")}>
+                <p className="workbench-search-summary">{totalMatches === 1 ? t("1 result") : t("{{count}} results", { count: totalMatches })}</p>
                 {contentResults.flatMap(({ project, files, limitHit }) => files.map((file) => {
                   const normalized = file.relPath.replace(/\\/g, "/");
                   const split = normalized.lastIndexOf("/");
@@ -350,13 +352,13 @@ const FilesPane = memo(function FilesPane({
                         : onOpenFile?.(project, file.relPath, "preview")}>
                       <span>{match.line}</span><code>{match.preview || match.matchText}</code>
                     </button>)}
-                    {limitHit && <p className="utility-dock-empty">Result limit reached.</p>}
+                    {limitHit && <p className="utility-dock-empty">{t("Result limit reached.")}</p>}
                   </details>;
                 }))}
               </div>)
     ) : <>
     {folders.length === 0
-      ? <p className="utility-dock-empty">Open a project to browse files.</p>
+      ? <p className="utility-dock-empty">{t("Open a project to browse files.")}</p>
       : folders.map((folder) => {
         const key = `${readinessKey}:${folder.path}`;
         return <FilesRootPane key={folder.path}
@@ -490,10 +492,10 @@ export const UtilityDock = memo(function UtilityDock({
     [dockProjectOptions],
   );
   const projectSelectControl = useMemo(() => dockProjectOptions.length > 0
-    ? <OpenSelect ariaLabel="Switch project"
+    ? <OpenSelect ariaLabel={t("Switch project")}
       className="dock-project-select"
       value={dockProjectPath}
-      displayValue={dockProjectPath ? undefined : "Select project"}
+      displayValue={dockProjectPath ? undefined : t("Select project")}
       options={dockProjectSelectOptions}
       onChange={selectDockProject} />
     : null, [dockProjectOptions.length, dockProjectPath, dockProjectSelectOptions, selectDockProject]);
@@ -634,6 +636,30 @@ export const UtilityDock = memo(function UtilityDock({
   const dockGitStatusReady = !dockProjectPath || (dockGitMatchesProject && dockGitState.ready);
   const dockGitLoading = dockGitMatchesProject && dockGitState.loading;
   const dockGitError = dockGitMatchesProject ? dockGitState.error : "";
+  // PR context-row branch switcher (user: 저기서도 브랜치 바꿀 수 있어야):
+  // local branches load with the PR tab and refresh when the checked-out
+  // branch moves; checkout rides the same status refresh path as SCM.
+  const [prBranches, setPrBranches] = useState<DesktopGitBranch[]>([]);
+  useEffect(() => {
+    if (!open || tab !== "pull-requests" || !dockProjectPath) return undefined;
+    let live = true;
+    void window.mixdogDesktop?.gitBranches?.(dockProjectPath)
+      .then((rows) => { if (live) setPrBranches(rows ?? []); })
+      .catch(() => { /* the row simply keeps the current branch only */ });
+    return () => { live = false; };
+  }, [open, tab, dockProjectPath, dockGitStatus?.branch]);
+  const prBranchOptions = useMemo(() => {
+    const names = prBranches.filter((branch) => !branch.remote).map((branch) => branch.name);
+    const current = dockGitStatus?.branch || "";
+    const all = current && !names.includes(current) ? [current, ...names] : names;
+    return all.map((name) => ({ value: name, label: name }));
+  }, [prBranches, dockGitStatus?.branch]);
+  const checkoutPrBranch = useCallback((branch: string) => {
+    if (!dockProjectPath || !branch || branch === dockGitStatus?.branch) return;
+    void window.mixdogDesktop?.gitCheckoutBranch?.(dockProjectPath, branch)
+      .catch(() => undefined)
+      .then(() => refreshDockGitStatus(true));
+  }, [dockProjectPath, dockGitStatus?.branch, refreshDockGitStatus]);
   const [readyPaneKeys, setReadyPaneKeys] = useState<Partial<Record<UtilityDockTab, string>>>({});
   const setPaneReady = useCallback((
     pane: UtilityDockTab,
@@ -693,10 +719,10 @@ export const UtilityDock = memo(function UtilityDock({
     reportBootSurfaceStage(metricSurface, tab, "data");
     reportBootSurfaceReady(metricSurface, tab);
   }, [contentReady, metricSurface, open, selectedSurfaceReady, tab]);
-  const loadingLabel = tab === "files" ? "Preparing Search…"
-    : tab === "source-control" ? "Preparing Source Control…"
-      : tab === "pull-requests" ? "Preparing Pull Requests…"
-        : "Preparing Agents…";
+  const loadingLabel = tab === "files" ? t("Preparing Search…")
+    : tab === "source-control" ? t("Preparing Source Control…")
+      : tab === "pull-requests" ? t("Preparing Pull Requests…")
+        : t("Preparing Agents…");
   const presentedTab = tab;
   // Instant switching (user: 탭 전환이 즉시 되어야 한다): a tab the user has
   // actually opened keeps its layer mounted for the life of the dock, so a
@@ -854,28 +880,28 @@ export const UtilityDock = memo(function UtilityDock({
       // and naturally returns to the preferred width when space comes back.
       flexShrink: open && showTabs && side === "right" ? 1 : 0,
     } as React.CSSProperties}
-    aria-label="Utility panel">
+    aria-label={t("Utility panel")}>
     <div className="utility-dock-resize" role="separator" aria-orientation="vertical"
-      aria-label="Resize utility panel" onPointerDown={startResize} />
+      aria-label={t("Resize utility panel")} onPointerDown={startResize} />
     {showTabs && <header className="utility-dock-tabs-header" data-active-tab={presentedTab}>
-      <nav className="utility-dock-tabs" aria-label="Utility panel tabs">
+      <nav className="utility-dock-tabs" aria-label={t("Utility panel tabs")}>
         <button type="button" className={presentedTab === "tasks" ? "active" : ""}
-          aria-label="Agents" aria-current={presentedTab === "tasks" ? "page" : undefined}
-          data-tooltip="Agents"
+          aria-label={t("Agents")} aria-current={presentedTab === "tasks" ? "page" : undefined}
+          data-tooltip={t("Agents")}
           onClick={() => onTab("tasks")}><Bot size={18} aria-hidden="true" /></button>
         <button type="button" className={presentedTab === "files" ? "active" : ""}
-          aria-label="Explorer" aria-current={presentedTab === "files" ? "page" : undefined}
-          data-tooltip="Explorer"
+          aria-label={t("Explorer")} aria-current={presentedTab === "files" ? "page" : undefined}
+          data-tooltip={t("Explorer")}
           onClick={() => onTab("files")}><Files size={18} aria-hidden="true" /></button>
         <button type="button" className={presentedTab === "source-control" ? "active" : ""}
-          aria-label="Source Control"
+          aria-label={t("Source Control")}
           aria-current={presentedTab === "source-control" ? "page" : undefined}
-          data-tooltip="Source Control"
+          data-tooltip={t("Source Control")}
           onClick={() => onTab("source-control")}><GitCompare size={18} aria-hidden="true" /></button>
         <button type="button" className={presentedTab === "pull-requests" ? "active" : ""}
-          aria-label="GitHub Pull Requests"
+          aria-label={t("GitHub Pull Requests")}
           aria-current={presentedTab === "pull-requests" ? "page" : undefined}
-          data-tooltip="GitHub Pull Requests"
+          data-tooltip={t("GitHub Pull Requests")}
           onClick={() => onTab("pull-requests")}><Github size={18} aria-hidden="true" /></button>
       </nav>
     </header>}
@@ -885,19 +911,19 @@ export const UtilityDock = memo(function UtilityDock({
       data-transitioning="false">
       {paneMounted("tasks") && <DockPane tab="tasks" active={paneActive("tasks")}>
       {showTabs && <header className="utility-dock-header" data-panel-header="tasks">
-        <div className="utility-dock-title"><b>{title || "Agents"}</b></div>
+        <div className="utility-dock-title"><b>{t(title || "Agents")}</b></div>
       </header>}
       <AgentActivityPane active={paneActive("tasks")}
         sessions={agentSessions} onOpenSession={onOpenAgentSession} />
       </DockPane>}
       {paneMounted("files") && <DockPane tab="files" active={paneActive("files")}>
       {showTabs && <header className="utility-dock-header" data-panel-header="files">
-        <div className="utility-dock-title"><b>{title || "Explorer"}</b></div>
+        <div className="utility-dock-title"><b>{t(title || "Explorer")}</b></div>
         <span className="utility-dock-header-actions utility-dock-file-actions"
           ref={setFilesHeaderActionsSlot} />
       </header>}
       {showTabs && dockProjectOptions.length > 0 && <div className="utility-dock-project-row"
-        title={dockProjectPath || "Select project"}>
+        title={dockProjectPath || t("Select project")}>
         {projectSelectControl}
       </div>}
       <FilesPane
@@ -914,7 +940,7 @@ export const UtilityDock = memo(function UtilityDock({
       {paneMounted("source-control")
         && <DockPane tab="source-control" active={paneActive("source-control")}>
       {showTabs && <header className="utility-dock-header" data-panel-header="source-control">
-        <div className="utility-dock-title"><b>{title || "Source Control"}</b></div>
+        <div className="utility-dock-title"><b>{t(title || "Source Control")}</b></div>
         <span className="utility-dock-header-actions utility-dock-scm-actions"
           ref={setHeaderActionsSlot} />
       </header>}
@@ -939,19 +965,30 @@ export const UtilityDock = memo(function UtilityDock({
       {paneMounted("pull-requests")
         && <DockPane tab="pull-requests" active={paneActive("pull-requests")}>
       {showTabs && <header className="utility-dock-header" data-panel-header="pull-requests">
-        <div className="utility-dock-title"><b>{title || "Pull Requests"}</b></div>
+        <div className="utility-dock-title"><b>{t(title || "Pull Requests")}</b></div>
         <span className="utility-dock-header-actions utility-dock-scm-actions"
           ref={setReviewHeaderActionsSlot} />
       </header>}
+      {/* SAME GitHub-Desktop context-row grammar as Source Control (user:
+          풀리퀘만 프로젝트 영역이 다름): repository + branch sections on the
+          shared toolbar band, and the branch slot switches branches too
+          (user: 저기서도 브랜치 바꿀 수 있어야). */}
       {showTabs && dockProjectOptions.length > 0 && <div
-        className="utility-dock-project-row dock-git-context-row"
-        title={dockProjectPath || "Select project"}>
-        {projectSelectControl}
-        {dockGitStatus?.branch && <span className="dock-git-branch-context"
+        className="dock-scm-toolbar dock-pr-context-toolbar"
+        title={dockProjectPath || t("Select project")}>
+        <div className="dock-scm-toolbar-section dock-scm-toolbar-project">
+          {projectSelectControl}
+        </div>
+        {dockGitStatus?.branch && <div
+          className="dock-scm-toolbar-section dock-scm-toolbar-branch dock-pr-branch-section"
           title={dockGitStatus.upstreamName || dockGitStatus.branch}>
-          <GitBranch size={12} aria-hidden="true" />
-          <span>{dockGitStatus.branch}</span>
-        </span>}
+          <GitBranch className="dock-pr-branch-glyph" size={12} aria-hidden="true" />
+          <OpenSelect ariaLabel={t("Switch branch")}
+            className="dock-project-select dock-pr-branch-select"
+            value={dockGitStatus.branch}
+            options={prBranchOptions}
+            onChange={checkoutPrBranch} />
+        </div>}
       </div>}
       <MemoSourceControlDock
         surface="prs"

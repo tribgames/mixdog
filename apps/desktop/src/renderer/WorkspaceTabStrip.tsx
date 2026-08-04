@@ -13,6 +13,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { clampOverlayIntoView } from "./anchored-panel";
 import {
   Bot,
   FileText,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 
 import type { WorkspaceTab } from "./nav-types";
+import { t } from "./i18n";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
@@ -162,6 +164,10 @@ export function WorkspaceTabStrip({
       window.removeEventListener("scroll", closeMenu, true);
     };
   }, [tabMenu]);
+  // Both menus anchor to a trigger that can sit hard against the window's
+  // right edge; the measured box is what keeps them on screen.
+  useLayoutEffect(() => { clampOverlayIntoView(newMenuNode.current); }, [newMenu]);
+  useLayoutEffect(() => { clampOverlayIntoView(tabMenuNode.current); }, [tabMenu]);
   // VS Code fixed sizing mode freezes each tab's current width while the
   // pointer remains over the strip, allowing rapid repeated closes without
   // any width animation or timer.
@@ -465,7 +471,7 @@ export function WorkspaceTabStrip({
         <nav ref={tabStrip} className="workspace-tabs"
           data-slot="workspace-tabs-scroll"
           data-group-dragging={draggingGroup ? "true" : undefined}
-          aria-label="Open tabs" onKeyDown={onTabKeyDown}
+          aria-label={t("Open tabs")} onKeyDown={onTabKeyDown}
           onWheel={(event) => {
             // VS Code tabsScrollbar scrollYToX: the vertical wheel drives the
             // horizontal tab run.
@@ -576,7 +582,7 @@ export function WorkspaceTabStrip({
                         progress spinner (user decision) — no extra dot. */}
                     {working
                       ? <ProgressSpinner size={14} className="workspace-tab-status" role="status"
-                        aria-label={`${tab.title} is working`} />
+                        aria-label={t("{{name}} is working", { name: tab.title })} />
                       : tab.selection.kind === "agent-session"
                         ? <Bot size={14} />
                       : tab.selection.kind === "project"
@@ -596,7 +602,7 @@ export function WorkspaceTabStrip({
                                 : <MessageCircle size={14} />}
                     <span>{tab.title}</span>
                     {unread && !working && <i className="workspace-tab-unread-dot" role="status"
-                      aria-label={`${tab.title} has new activity`} />}
+                      aria-label={t("{{name}} has new activity", { name: tab.title })} />}
                   </button>
                   <button
                     type="button"
@@ -605,8 +611,8 @@ export function WorkspaceTabStrip({
                       event.stopPropagation();
                       closeTab(tab, true);
                     }}
-                    aria-label={`Close ${tab.title}`}
-                    data-tooltip="Close tab"
+                    aria-label={t("Close {{title}}", { title: tab.title })}
+                    data-tooltip={t("Close tab")}
                   >
                     {tab.dirty
                       ? <span className="workspace-tab-dirty-glyph" aria-hidden="true">●</span>
@@ -616,8 +622,8 @@ export function WorkspaceTabStrip({
             );
           })}
           <button ref={newButton} type="button" className="workspace-tab-new"
-            aria-label="New tab" aria-haspopup="menu" aria-expanded={Boolean(newMenu)}
-            data-tooltip="New tab"
+            aria-label={t("New tab")} aria-haspopup="menu" aria-expanded={Boolean(newMenu)}
+            data-tooltip={t("New tab")}
             onPointerEnter={(event) => rememberNewMenuAnchor(event.currentTarget)}
             onFocus={(event) => rememberNewMenuAnchor(event.currentTarget)}
             onPointerDown={(event) => {
@@ -651,7 +657,7 @@ export function WorkspaceTabStrip({
         ) : null}
         {newMenu ? createPortal(
           <div ref={newMenuNode} className="workspace-tab-new-menu" role="menu"
-            aria-label="Create tab"
+            aria-label={t("Create tab")}
             style={{ left: newMenu.left, top: newMenu.top }}>
             {[
               { label: "New Task", icon: <MessageCircle size={15} />, run: onNewTask },
@@ -665,7 +671,7 @@ export function WorkspaceTabStrip({
                 setNewMenu(null);
                 item.run?.();
               }}>
-              {item.icon}<span>{item.label}</span>
+              {item.icon}<span>{t(item.label)}</span>
             </button>)}
           </div>,
           document.body,
@@ -734,7 +740,7 @@ export function WorkspaceTabStrip({
           ];
           return createPortal(
             <div ref={tabMenuNode} className="workspace-tab-new-menu workspace-tab-context-menu"
-              role="menu" aria-label={`${menuTab.title} tab actions`}
+              role="menu" aria-label={t("{{title}} tab actions", { title: menuTab.title })}
               style={{ left: tabMenu.left, top: tabMenu.top }}>
               {items.map((item) => <button type="button" role="menuitem" key={item.label}
                 disabled={item.disabled}
@@ -742,7 +748,7 @@ export function WorkspaceTabStrip({
                   setTabMenu(null);
                   item.run();
                 }}>
-                <span>{item.label}</span>
+                <span>{t(item.label)}</span>
               </button>)}
             </div>,
             document.body,

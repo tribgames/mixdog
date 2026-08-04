@@ -31,20 +31,21 @@ export function markdownComponents(CopyControl: MarkdownCopyControl) {
       } : undefined}>{children}</a>;
     },
     table({ children }: { children?: ReactNode }) {
-      return <div className="markdown-table" role="region" aria-label="Scrollable table" tabIndex={0}>
+      return <div className="markdown-table" role="region" aria-label="Scrollable table"
+        data-scrollable tabIndex={0}>
         <table>{children}</table>
       </div>;
     },
     pre({ children }: { children?: ReactNode }) {
       const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
-      if (!React.isValidElement(child)) return <pre>{children}</pre>;
+      if (!React.isValidElement(child)) return <pre data-scrollable>{children}</pre>;
       const props = child.props as { className?: string; children?: ReactNode };
       const language = props.className?.match(/language-([^\s]+)/)?.[1] || "";
       const code = nodeText(props.children).replace(/\n$/, "");
       return <div className="markdown-code">
         <header><span>{language || "code"}</span>
           <CopyControl value={code} label="Copy code" className="markdown-code-copy" /></header>
-        <pre><code className={props.className}>{props.children}</code></pre>
+        <pre data-scrollable><code className={props.className}>{props.children}</code></pre>
       </div>;
     },
   };

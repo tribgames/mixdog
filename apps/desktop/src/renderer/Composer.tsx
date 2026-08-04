@@ -3,6 +3,7 @@ import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, 
 import { createPortal } from "react-dom";
 import type { DesktopCapability, DesktopModelSelection, DesktopPromptAttachment, DesktopPromptContent, DesktopSubmitOptions, EngineSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
+import { t } from "./i18n";
 import { ModelSelector } from "./model-controls";
 import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
@@ -196,9 +197,9 @@ export const Composer = memo(function Composer({
   // User request: once a session has content, the composer shows NO hint copy
   // at all — instructional placeholders belong to the empty new-task state.
   const placeholder = hasConversation ? ''
-    : turnBusy ? 'Steer the active turn or queue a follow-up…'
-      : commandBusy ? 'Queue a message after the current command…'
-        : COMPOSER_PLACEHOLDERS[0];
+    : turnBusy ? t('Steer the active turn or queue a follow-up…')
+      : commandBusy ? t('Queue a message after the current command…')
+        : t(COMPOSER_PLACEHOLDERS[0]);
   // Match the TUI palette: it only owns a single, argument-free /token.
   // Once whitespace is entered the composer returns to normal editing and the
   // argument hint/submit path owns the draft.
@@ -1092,17 +1093,17 @@ export const Composer = memo(function Composer({
           previously rendered inside the pill and read as composer content). */}
       {(attachmentError) && <p className="composer-error" role="alert">
         <span>{attachmentError}</span>
-        <button type="button" className="composer-banner-close" aria-label="Dismiss error"
+        <button type="button" className="composer-banner-close" aria-label={t("Dismiss error")}
           onClick={() => setAttachmentError('')}><X size={14} /></button>
       </p>}
       {composerNotice && <p className="composer-notice" role="status">
         <span>{composerNotice}</span>
-        <button type="button" className="composer-banner-close" aria-label="Dismiss notice"
+        <button type="button" className="composer-banner-close" aria-label={t("Dismiss notice")}
           onClick={() => showComposerNotice('')}><X size={14} /></button>
       </p>}
       {draggingFiles && !transitioning && dropTargetRef.current && createPortal(
         <div className="task-drop-overlay" role="status">
-          <MxIcon name="photo" size={16} /><span>Drop images, PDFs, or text files</span>
+          <MxIcon name="photo" size={16} /><span>{t("Drop images, PDFs, or text files")}</span>
         </div>,
         dropTargetRef.current,
       )}
@@ -1112,8 +1113,8 @@ export const Composer = memo(function Composer({
           if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
         }}>
       {slashOpen && (
-        <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label="Slash commands">
-          <header><Command size={13} /><span>Commands</span></header>
+        <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label={t("Slash commands")}>
+          <header><Command size={13} /><span>{t("Commands")}</span></header>
           {slashCommands.length ? slashCommands.map((command, index) => (
             <button type="button" role="option" aria-selected={index === slashIndex} key={command.name}
               id={`composer-slash-option-${index}`}
@@ -1123,13 +1124,13 @@ export const Composer = memo(function Composer({
               <code>{command.usage || `/${command.name}`}{command.params ? ` ${command.params}` : ''}</code>
               <span>{command.description}</span>
             </button>
-          )) : <p>No matching command.</p>}
+          )) : <p>{t("No matching command.")}</p>}
         </div>
       )}
       {mentionOpen && (
         <div ref={mentionPalette} id="composer-mention-palette"
-          className="slash-palette mention-palette" role="listbox" aria-label="Project files">
-          <header><MxIcon name="open-file" size={13} /><span>Files</span></header>
+          className="slash-palette mention-palette" role="listbox" aria-label={t("Project files")}>
+          <header><MxIcon name="open-file" size={13} /><span>{t("Files")}</span></header>
           {mentionResults.length ? mentionResults.map((path, index) => {
             const separator = path.lastIndexOf('/');
             const directory = separator >= 0 ? path.slice(0, separator + 1) : '';
@@ -1144,16 +1145,16 @@ export const Composer = memo(function Composer({
                 <span className="mention-path"><span>{directory}</span><strong>{filename}</strong></span>
               </button>
             );
-          }) : <p role="status">{mentionLoading ? 'Searching project files…' : 'No matching files.'}</p>}
+          }) : <p role="status">{mentionLoading ? t('Searching project files…') : t('No matching files.')}</p>}
         </div>
       )}
-      {attachments.length > 0 && <div className="composer-attachments" aria-label="Attachments">
+      {attachments.length > 0 && <div className="composer-attachments" aria-label={t("Attachments")}>
         {attachments.map((attachment) => <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
           {attachment.kind === 'image'
             ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
             : <span><MxIcon name="open-file" size={15} /></span>}
           <span data-tooltip={attachment.name}>{attachment.name}</span>
-          <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => {
+          <button type="button" aria-label={t("Remove {{name}}", { name: attachment.name })} onClick={() => {
             setAttachments((current) => {
               const next = current.filter((entry) => entry.id !== attachment.id);
               attachmentsRef.current = next;
@@ -1211,12 +1212,12 @@ export const Composer = memo(function Composer({
         aria-activedescendant={mentionOpen && mentionResults.length
           ? `composer-mention-option-${mentionIndex}`
           : slashOpen && slashCommands.length ? `composer-slash-option-${slashIndex}` : undefined}
-        aria-label="Message Mixdog" />
+        aria-label={t("Message Mixdog")} />
       <div className="composer-footer">
         <input ref={fileInput} type="file" hidden multiple
           accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql"
           onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
-        <button type="button" className="composer-tool" disabled={transitioning} aria-label="Attach files" data-tooltip="Attach images, PDFs, or text files" data-tooltip-side="top"
+        <button type="button" className="composer-tool" disabled={transitioning} aria-label={t("Attach files")} data-tooltip={t("Attach images, PDFs, or text files")} data-tooltip-side="top"
         onClick={() => fileInput.current?.click()}><MxIcon name="plus" size={16} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
           modelDisabled={commandBusy || transitioning}
@@ -1230,10 +1231,10 @@ export const Composer = memo(function Composer({
         <button type="button"
           className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
           disabled={transitioning || dictationState === 'transcribing'}
-          aria-label={dictationState === 'recording' ? 'Stop dictation' : 'Dictate with voice'}
+          aria-label={dictationState === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
           aria-pressed={dictationState === 'recording'}
-          data-tooltip={dictationState === 'recording' ? 'Stop and transcribe'
-            : dictationState === 'transcribing' ? 'Transcribing…' : 'Dictate (local Whisper)'}
+          data-tooltip={dictationState === 'recording' ? t('Stop and transcribe')
+            : dictationState === 'transcribing' ? t('Transcribing…') : t('Dictate (local Whisper)')}
           data-tooltip-side="top"
           onClick={() => void toggleDictation()}>
           {dictationState === 'transcribing' ? <ProgressSpinner className="composer-mic-spinner" size={15} /> : <Mic size={15} />}
@@ -1244,13 +1245,13 @@ export const Composer = memo(function Composer({
           disabled={turnBusy && !draft.trim() ? false
             : (!draft.trim() && !attachments.some((attachment) => !attachment.token))
               || submitting || transitioning}
-          aria-label={turnBusy && !draft.trim() ? "Stop generation"
-            : submitting ? (hasConversation ? "Sending message" : "Starting session")
-              : turnBusy ? "Queue or steer active turn"
-                : commandBusy ? "Queue after current command" : "Send message"}
-          data-tooltip={turnBusy && !draft.trim() ? "Stop"
-            : turnBusy ? "Queue or steer · Enter"
-              : commandBusy ? "Queue after command · Enter" : "Send · Enter"}
+          aria-label={turnBusy && !draft.trim() ? t("Stop generation")
+            : submitting ? (hasConversation ? t("Sending message") : t("Starting session"))
+              : turnBusy ? t("Queue or steer active turn")
+                : commandBusy ? t("Queue after current command") : t("Send message")}
+          data-tooltip={turnBusy && !draft.trim() ? t("Stop")
+            : turnBusy ? t("Queue or steer · Enter")
+              : commandBusy ? t("Queue after command · Enter") : t("Send · Enter")}
           data-tooltip-side="top">
           {turnBusy && !draft.trim()
             ? <MxIcon name="stop" size={15} />

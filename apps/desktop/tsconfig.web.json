@@ -9,6 +9,7 @@
     "noUnusedParameters": true,
     "jsx": "react-jsx",
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "types": ["vite/client"]
   },
   "include": [

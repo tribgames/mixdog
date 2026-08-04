@@ -2,6 +2,7 @@ import { FileText, Minus, Plus, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { splitGitPatchHunks, type GitPatchHunk } from "../shared/git-patch";
+import { t } from "./i18n";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -129,18 +130,18 @@ export function GitDiffPane({
       </div>
       <div className="workspace-git-diff-actions">
         <button type="button" aria-pressed={mode === "unified"}
-          onClick={() => setMode("unified")}>Unified</button>
+          onClick={() => setMode("unified")}>{t("Unified")}</button>
         <button type="button" aria-pressed={mode === "split"}
-          onClick={() => setMode("split")}>Split</button>
+          onClick={() => setMode("split")}>{t("Split")}</button>
         <button type="button" aria-pressed={renderer === "editor"}
           onClick={() => setRenderer(renderer === "editor" ? "text" : "editor")}>
-          Editor
+          {t("Editor")}
         </button>
-        <button type="button" aria-label={`Open file ${selection.rel}`}
+        <button type="button" aria-label={t("Open file {{file}}", { file: selection.rel })}
           onClick={() => onOpenFile?.(selection.project, selection.rel)}>
           <FileText size={14} aria-hidden="true" />
         </button>
-        <button type="button" aria-label="Refresh diff" onClick={() => void load()}>
+        <button type="button" aria-label={t("Refresh diff")} onClick={() => void load()}>
           <RefreshCw size={14} aria-hidden="true" />
         </button>
       </div>
@@ -186,7 +187,7 @@ export function GitDiffPane({
                 })}
               </div>
               : <GitFileDiff patch={patch} mode={mode} />
-            : <p className="workspace-git-diff-state">No textual differences.</p>}
+            : <p className="workspace-git-diff-state">{t("No textual differences.")}</p>}
     </div>
   </div>;
 }

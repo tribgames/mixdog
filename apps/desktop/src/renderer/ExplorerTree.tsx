@@ -29,6 +29,7 @@ import {
   validateExplorerName,
   wellFormedExplorerName,
 } from "./explorer-logic";
+import { t } from "./i18n";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
 import { setiIconFor } from "./seti-icons";
 import { copyTextToClipboard } from "./text-format";
@@ -367,7 +368,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       rowEls.current.get(rel)?.scrollIntoView?.({ block: "nearest" });
     });
   }, [active, activeFileKey, dirs, load, patch]);
-  if (!projectPath) return <p className="utility-dock-empty">Open a project to browse its files.</p>;
+  if (!projectPath) return <p className="utility-dock-empty">{t("Open a project to browse its files.")}</p>;
   const openFile = (rel: string, mode: "preview" | "pinned" = "preview") => onOpenFile
     ? onOpenFile(projectPath, rel, mode)
     : void api?.openFilePath?.(projectPath, rel);
@@ -596,19 +597,19 @@ export const FilesRootPane = memo(function FilesRootPane({
   const rootExpanded = dirs.get("")?.expanded === true;
   const rootVisible = !showRootHeader || rootExpanded;
   const headerPortal = headerSlot ? createPortal(<>
-    <button type="button" aria-label="New file" data-tooltip="New File…"
+    <button type="button" aria-label={t("New file")} data-tooltip={t("New File…")}
       onClick={() => beginCreate(false)}>
       <FilePlus size={16} aria-hidden="true" />
     </button>
-    <button type="button" aria-label="New folder" data-tooltip="New Folder…"
+    <button type="button" aria-label={t("New folder")} data-tooltip={t("New Folder…")}
       onClick={() => beginCreate(true)}>
       <FolderPlus size={16} aria-hidden="true" />
     </button>
-    <button type="button" aria-label="Refresh files" data-tooltip="Refresh Explorer"
+    <button type="button" aria-label={t("Refresh files")} data-tooltip={t("Refresh Explorer")}
       disabled={refreshing} onClick={() => void refreshTree()}>
       <RefreshCw size={16} className={refreshing ? "spin" : undefined} aria-hidden="true" />
     </button>
-    <button type="button" aria-label="Collapse all folders" data-tooltip="Collapse All"
+    <button type="button" aria-label={t("Collapse all folders")} data-tooltip={t("Collapse All")}
       disabled={!canCollapseAll} onClick={collapseAll}>
       <ListCollapse size={16} aria-hidden="true" />
     </button>
@@ -623,7 +624,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       {!editDir && <SetiFileIcon name={editValue || "file"} className="dock-file-icon" />}
       <span className="explorer-edit-box" data-problem={editProblem?.severity || undefined}>
         <input ref={editInputRef} value={editValue} spellCheck={false}
-          aria-label="Type file name. Press Enter to confirm or Escape to cancel."
+          aria-label={t("Type file name. Press Enter to confirm or Escape to cancel.")}
           onChange={(event) => setEditValue(event.currentTarget.value)}
           onKeyDown={(event) => {
             event.stopPropagation();
@@ -782,7 +783,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       {row.dir
         ? (gitDirs.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />)
         : (badge
-          ? <em className="dock-file-badge" aria-label={`Git status ${badge}`}>{badge}</em>
+          ? <em className="dock-file-badge" aria-label={t("Git status {{badge}}", { badge })}>{badge}</em>
           : changed.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />)}
     </button>;
   };
@@ -849,7 +850,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       }}>
       {rootVisible && treeItems}
       {rootVisible && rows.length === 0 && !editing && rootEntriesEmpty
-        && <p className="utility-dock-empty">Empty folder.</p>}
+        && <p className="utility-dock-empty">{t("Empty folder.")}</p>}
     </div>
     {menu && (() => {
       const multi = !menu.background && selected.size > 1 && selected.has(menu.rel);
@@ -861,7 +862,7 @@ export const FilesRootPane = memo(function FilesRootPane({
           className={options?.danger ? "danger" : undefined}
           disabled={options?.disabled}
           onClick={menuAction(onClick)}>
-          <span>{label}</span>
+          <span>{t(label)}</span>
           {options?.hint && <span className="dock-file-menu-key">{options.hint}</span>}
         </button>;
       const sep = (id: string) => <hr key={id} className="dock-file-menu-sep" aria-hidden="true" />;

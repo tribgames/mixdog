@@ -14,7 +14,7 @@ import { markSessionToolCall, updateSessionStage } from './manager.mjs';
 import { resolveToolSelfDeadlineMs } from '../agent-runtime/agent-progress-watchdog.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
-import { maybeOffloadToolResult } from './tool-result-offload.mjs';
+import { maybeOffloadToolResultBatch } from './tool-result-offload.mjs';
 import {
     tryReadCached, setReadCached, invalidatePathForSession, markPostEdit,
     consumePostEditMark, clearReadDedupSession, extractTouchedPathsFromPatch,
@@ -93,6 +93,16 @@ export async function processToolBatch(ctx) {
         // between two tool results of the same multi-tool turn (which would put a
         // user message between tool(A) and tool(B) and break provider pairing).
         const _batchNewMessages = [];
+        // Finalize together after execution so the message-level output budget
+        // can select the largest non-Read results before cache/history/UI see
+        // any body.
+        const _batchCompleted = [];
+        const _batchToolResultByCallId = new Map();
+        const _batchToolResultsWithoutId = [];
+        const _stageToolResultMessage = (message) => {
+            if (message?.toolCallId) _batchToolResultByCallId.set(message.toolCallId, message);
+            else _batchToolResultsWithoutId.push(message);
+        };
         // Ordered-mutation batch gate. Each apply_patch is an eager-dispatch
         // barrier: side effects overlap within the current segment, but no
         // later segment starts before the loop crosses the patch in model
@@ -110,7 +120,7 @@ export async function processToolBatch(ctx) {
             if (_duplicateCallIds.has(call.id)) {
                 const _firstId = _dupFirstId.get(call.id);
                 const _stub = `[intra-turn-dedup] identical read-only \`${call.name}\` call was already executed in this same assistant turn as tool_use_id=${_firstId}. The first call's tool_result is in context immediately above; skipping re-execution to save tokens. If you needed a different slice of the file, narrow the next call (different path / offset / limit / pattern) so it has a distinct signature.`;
-                pushToolResultMessage({
+                _stageToolResultMessage({
                     role: 'tool',
                     content: _stub,
                     toolCallId: call.id,
@@ -136,7 +146,7 @@ export async function processToolBatch(ctx) {
                     _prior.count += 1;
                     dedupStubTotal += 1;
                     const _stub = crossTurnDedupStub(call.name, _prior.firstIteration, dedupStubTotal >= 5);
-                    pushToolResultMessage({
+                    _stageToolResultMessage({
                         role: 'tool',
                         content: _stub,
                         toolCallId: call.id,
@@ -175,7 +185,7 @@ export async function processToolBatch(ctx) {
             {
                 const _rfg = sessionRef?._repeatFailGuard;
                 if (_rfg && _rfg.sig === _repeatFailSig && _rfg.count >= repeatFailLimit) {
-                    pushToolResultMessage({
+                    _stageToolResultMessage({
                         role: 'tool',
                         content: `[repeat-failure-guard] This exact \`${call.name}\` call (identical arguments) has already failed ${_rfg.count} times in a row; not re-executing because the result will not change. Change approach: use different arguments, a different tool, or skip this step.`,
                         toolCallId: call.id,
@@ -200,7 +210,7 @@ export async function processToolBatch(ctx) {
             // structural failure that drives retry/stop-hook behavior.
             if (_orderedMutationFailed && _isOrderedGateSkippable(call.name) && !pending.has(call.id)) {
                 if (call?.id) restoreToolCallBodyForId(assistantTurnMsg, calls, call.id);
-                pushToolResultMessage({
+                _stageToolResultMessage({
                     role: 'tool',
                     content: `[prerequisite-failed] an earlier apply_patch in this same tool batch (call index ${_orderedMutationFailed.index + 1}) failed, so this later \`${call.name}\` was skipped without starting. Re-issue it after resolving the patch failure.`,
                     toolCallId: call.id,
@@ -516,37 +526,62 @@ export async function processToolBatch(ctx) {
             if (sessionId && _isShellTool(call.name)) {
                 clearScopedToolsForSession(sessionId);
             }
-            // R17 compression pipeline — correct ordering (compress → cache → push):
-            //   1. compressToolResult: lossless ANSI/dedup/separator passes.
-            //   2. setReadCached / setScopedToolCached: cache stores the SAME result that
-            //      goes into conversation history. Cache-hit refs point to the tool_use_id
-            //      whose message body matches — no phantom full body.
-            //   3. offload → hint → message push.
-            // Offload FIRST — before compress. Large RAW output goes to a disk sidecar
-            // + ~2K preview before any in-place shrink (lossless compress) can reduce
-            // it below the offload threshold and pre-empt the sidecar. When offload
-            // fires it replaces `result` with a short preview stub (<2K) referencing
-            // the on-disk path; the later compress is a no-op on that stub. compress
-            // then only touches output that stayed inline (<= threshold).
-            // Per-tool post-processing backstop. The executeTool try/catch
-            // above terminates BEFORE offload/compress/trim/hint/cache writes/
-            // trace/messages.push, so a maybeOffloadToolResult rejection (or
-            // any downstream throw) would otherwise leave the assistant
-            // tool_use message with no matching tool result. Wrap the whole
-            // post-processing window through messages.push() in a catch; on
-            // failure push a synthetic Error: tool result for this call.id
-            // and skip the cache writes for it.
-            let _nativeToolSearch = null;
+            _batchCompleted.push({
+                call,
+                result,
+                toolStartedAt,
+                toolEndedAt,
+                toolKind,
+                resultKind: _resultKind,
+                executeOk: _executeOk,
+                readCacheHit: _readCacheHit,
+                scopedCacheHit: _scopedCacheHit,
+                crossTurnSig: _ctSig,
+                mutationEpoch: epoch.mutation,
+                nativeToolSearch: null,
+                postError: null,
+            });
+            // Soft-cancel after each tool: if close landed during execution,
+            // discard the rest of the batch and skip the next provider.send.
+            throwIfAborted();
+        }
+        for (const completed of _batchCompleted) {
             try {
-                // Offload thresholds are keyed by BARE tool name
-                // (INLINE_THRESHOLD_BY_TOOL: grep=20k, bash=30k, read=Infinity, ...),
-                // so strip the MCP prefix exactly as the cache write below does.
-                // Otherwise an mcp__..__grep name misses its 20k grep cap and
-                // silently falls back to the 50k default — per-tool limits ignored.
-                const _toolBare = _stripMcpPrefix(call.name);
-                _nativeToolSearch = parseNativeToolSearchPayload(call.name, result);
-                if (_nativeToolSearch?.summary) result = _nativeToolSearch.summary;
-                result = await maybeOffloadToolResult(sessionId, call.id, _toolBare, result);
+                completed.nativeToolSearch = parseNativeToolSearchPayload(completed.call.name, completed.result);
+                if (completed.nativeToolSearch?.summary) completed.result = completed.nativeToolSearch.summary;
+            } catch (error) {
+                completed.postError = error;
+            }
+        }
+        let _offloadStates;
+        try {
+            _offloadStates = await maybeOffloadToolResultBatch(
+                sessionId,
+                _batchCompleted.map((completed) => ({
+                    toolCallId: completed.call.id,
+                    toolName: _stripMcpPrefix(completed.call.name),
+                    result: completed.postError ? null : completed.result,
+                })),
+            );
+        } catch (error) {
+            _offloadStates = _batchCompleted.map(() => ({ result: null, error }));
+        }
+        // Assistant-message pipeline: offload → compress → trace → cache →
+        // push. The cache and transcript therefore receive the same body.
+        for (let completedIndex = 0; completedIndex < _batchCompleted.length; completedIndex += 1) {
+            const completed = _batchCompleted[completedIndex];
+            const {
+                call, toolStartedAt, toolEndedAt, toolKind,
+                executeOk: _executeOk, resultKind: _resultKind,
+                readCacheHit: _readCacheHit, scopedCacheHit: _scopedCacheHit,
+            } = completed;
+            let _ctSig = completed.crossTurnSig;
+            let result = completed.result;
+            const _nativeToolSearch = completed.nativeToolSearch;
+            try {
+                if (completed.postError) throw completed.postError;
+                if (_offloadStates[completedIndex]?.error) throw _offloadStates[completedIndex].error;
+                result = _offloadStates[completedIndex]?.result;
                 result = compressToolResult(call.name, call.arguments, result, { sessionId, toolKind });
                 traceAgentTool({
                     sessionId,
@@ -561,44 +596,37 @@ export async function processToolBatch(ctx) {
                     resultText: result,
                     cwd,
                 });
-                // Cache stores run AFTER compress+trim+offload+hint AND after all other
-                // post-processing (trace) so stored content == history content. Placing
-                // the cache writes immediately before messages.push ensures ANY throw
-                // earlier in post-processing skips the cache entirely — no stale or
-                // partial result is ever cached. Cache-hit refs pointing to an offloaded
-                // tool_use will show the offload stub; LLM can still recover the full
-                // body via the disk path in that stub.
-                if (sessionId && _executeOk && _resultKind === 'normal') {
+                // Deferred writes that predate a later mutation are skipped;
+                // immediate writes used to be invalidated by that mutation.
+                const _outcomeMap = sessionRef?._scopedCacheOutcomeByCallId instanceof Map
+                    ? sessionRef._scopedCacheOutcomeByCallId : null;
+                if (sessionId && _executeOk && _resultKind === 'normal' && completed.mutationEpoch === epoch.mutation) {
                     if (_scopedCacheHit === null && _isScopedCacheableTool(call.name)) {
-                        const _outcomeMap = sessionRef?._scopedCacheOutcomeByCallId instanceof Map
-                            ? sessionRef._scopedCacheOutcomeByCallId : null;
                         const _outcome = _outcomeMap?.get(call.id);
                         setScopedToolCached({
                             sessionId,
-                            toolName: _toolBare,
+                            toolName: _stripMcpPrefix(call.name),
                             args: call.arguments,
                             cwd,
                             content: result,
                             toolUseId: call.id,
                             complete: _outcome ? _outcome.complete : true,
                         });
-                        _outcomeMap?.delete(call.id);
                     }
                     if (_readCacheHit === null && _isReadTool(call.name)) {
-                        // Pass tool_use id so future cache-hits can reference the body's location in history.
                         setReadCached({ sessionId, args: call.arguments, cwd, content: result, toolUseId: call.id });
                     }
                 }
-                // UI-only: apply_patch stashes the standard unified diff keyed
-                // by tool_use id (never in the model-visible result). Attach it
-                // here as a side-channel field so the TUI's expanded (ctrl+o)
-                // raw view renders a colored +/- diff. The provider lowering
-                // (anthropic/openai/etc.) never reads `uiDiff`, so the model
-                // sees only `content` (the compact summary) — no token bloat.
+                // A successful scoped lookup from before a later mutation is
+                // intentionally not cached, but its per-call completeness
+                // record still has to be reclaimed.
+                if (_scopedCacheHit === null && _isScopedCacheableTool(call.name)) {
+                    _outcomeMap?.delete(call.id);
+                }
                 const _applyPatchUiDiff = _stripMcpPrefix(call.name) === 'apply_patch'
                     ? takeApplyPatchUiDiff(call.id)
                     : null;
-                pushToolResultMessage({
+                _stageToolResultMessage({
                     role: 'tool',
                     content: result,
                     toolCallId: call.id,
@@ -606,10 +634,6 @@ export async function processToolBatch(ctx) {
                     ...(_nativeToolSearch ? { nativeToolSearch: _nativeToolSearch } : {}),
                     ...(_applyPatchUiDiff ? { uiDiff: _applyPatchUiDiff } : {}),
                 });
-                // Completion-first bookkeeping (Steps 1 & 2). Only successful
-                // executions count. Edit/progress = any executed tool whose def
-                // lacks readOnlyHint (apply_patch/bash/MCP-write/skill/...).
-                // Read-only successful calls seed the cross-turn dedup map.
                 if (_executeOk) {
                     const _isEager = isEagerDispatchable(call.name, tools);
                     if (isToolCallDedupEligible(call.name, tools)) {
@@ -621,30 +645,19 @@ export async function processToolBatch(ctx) {
                                 crossTurnCalls.delete(_oldest);
                             }
                         }
-                    } else if (!_isEager) {
-                        // A successful mutating (non-eager) tool invalidates the
-                        // cross-turn dedup map wholesale: any prior read/grep may
-                        // now return different content, so a post-edit
-                        // verification read must NOT be stubbed as "unchanged".
-                        if (isEditProgressTool(call.name, false)) {
-                            crossTurnCalls.clear();
-                            editCount += 1;
-                        }
+                    } else if (!_isEager && isEditProgressTool(call.name, false)) {
+                        crossTurnCalls.clear();
+                        editCount += 1;
                     }
                 }
             } catch (postErr) {
-                // Reviewer fix: the exec itself succeeded — if it was a
-                // mutating edit-progress tool, the file changes are real even
-                // though post-processing failed, so the cross-turn dedup map
-                // must still be invalidated (otherwise a later verification
-                // read could be stubbed as "unchanged" against stale sigs).
                 if (_executeOk && !isEagerDispatchable(call.name, tools) && isEditProgressTool(call.name, false)) {
                     crossTurnCalls.clear();
                     editCount += 1;
                 }
-                // Post-processing failed AFTER a successful exec: the result is
-                // replaced with an error below, so preserve this call's full body
-                // too for a clean retry (mirrors the failed-exec path above).
+                if (sessionRef?._scopedCacheOutcomeByCallId instanceof Map && call?.id) {
+                    sessionRef._scopedCacheOutcomeByCallId.delete(call.id);
+                }
                 if (call?.id) restoreToolCallBodyForId(assistantTurnMsg, calls, call.id);
                 const _postMsg = `Error: tool result post-processing failed for "${call.name}": ${postErr instanceof Error ? postErr.message : String(postErr)}`;
                 traceAgentToolFailure({
@@ -660,23 +673,24 @@ export async function processToolBatch(ctx) {
                     resultText: _postMsg,
                     resultKind: 'error',
                 });
-                // Always emit a matching tool result so the assistant
-                // tool_use isn't orphaned. Cache writes are placed at the
-                // end of the try block (immediately before messages.push),
-                // so ANY throw in post-processing reaches this catch before
-                // the cache is written — stale/partial results are never
-                // cached. The next read on the same path/scope re-executes
-                // naturally.
-                pushToolResultMessage({
+                _stageToolResultMessage({
                     role: 'tool',
                     content: _postMsg,
                     toolCallId: call.id,
                     toolKind: 'error',
                 });
             }
-            // Soft-cancel after each tool: if close landed during execution,
-            // discard the rest of the batch and skip the next provider.send.
             throwIfAborted();
+        }
+        // Early dedup/guard skips and deferred execution results share this
+        // ordered flush so provider tool_result blocks always follow the
+        // assistant's original tool_use order.
+        for (const call of calls) {
+            const message = _batchToolResultByCallId.get(call?.id);
+            if (message) pushToolResultMessage(message);
+        }
+        for (const message of _batchToolResultsWithoutId) {
+            pushToolResultMessage(message);
         }
         // Flush the per-batch newMessages channel. All tool_results for this
         // assistant turn are now pushed; appending the injected role:'user'

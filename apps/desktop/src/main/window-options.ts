@@ -4,9 +4,10 @@ import * as electron from 'electron';
 import type { BrowserWindow, BrowserWindowConstructorOptions, NativeTheme } from 'electron';
 import { DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
 
-export const DESKTOP_BACKGROUND_COLOR = '#181818';
-/* Light window band (warm neutral set) — must track --mx-window-band. */
-export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#f1efec';
+/* Dark window band — must track --mx-window-band on the Dark surface. */
+export const DESKTOP_BACKGROUND_COLOR = '#0f0f0f';
+/* Light window band (neutral set) — must track --mx-window-band on White. */
+export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#f0f0f0';
 export const DESKTOP_TITLEBAR_HEIGHT = 35;
 
 type DesktopTitleBarWindow = Pick<BrowserWindow, 'setBackgroundColor' | 'setTitleBarOverlay'>;

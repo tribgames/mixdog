@@ -10,6 +10,7 @@ const TOOL_RESULT_PREVIEW_CHARS = 2_000;
 const TOOL_RESULT_SHELL_THRESHOLD_CHARS = 30_000;
 const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_GREP_THRESHOLD_CHARS = 20_000;
+export const TOOL_RESULT_MESSAGE_MAX_CHARS = 200_000;
 const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
 const OFFLOAD_PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
 // clearOffloadSession only runs on a CLEAN session close, so every killed
@@ -86,6 +87,35 @@ function getOffloadThreshold(toolName) {
     return INLINE_THRESHOLD_BY_TOOL.get(key) ?? TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS;
 }
 
+const AGGREGATE_OFFLOAD_EXCLUDED_TOOLS = new Set([
+    'read',
+    'head',
+    'tail',
+    'diff',
+    'skill',
+    'skill_view',
+    'skills_list',
+]);
+
+export function isAggregateOffloadEligible(toolName, result) {
+    if (typeof result !== 'string') return false;
+    const key = String(toolName || '').toLowerCase();
+    return !AGGREGATE_OFFLOAD_EXCLUDED_TOOLS.has(key);
+}
+
+export function rankAggregateOffloadCandidates(entries) {
+    return entries
+        .map((entry, index) => ({
+            index,
+            length: typeof entry?.result === 'string' ? entry.result.length : 0,
+            eligible: isAggregateOffloadEligible(entry?.toolName, entry?.result)
+                && !String(entry?.result || '').startsWith(TOOL_RESULT_OFFLOAD_PREFIX),
+        }))
+        .filter((entry) => entry.eligible)
+        .sort((a, b) => b.length - a.length || b.index - a.index)
+        .map((entry) => entry.index);
+}
+
 // Sanitize sessionId before using it as a path segment. A raw `..` or slash
 // would let the sidecar dir — and clearOffloadSession's readdir+unlink — escape
 // the tool-results root (arbitrary .txt deletion). Strip to [A-Za-z0-9_-];
@@ -139,15 +169,17 @@ function countLines(text) {
     return lines;
 }
 
-export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, result) {
+export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, result, options = {}) {
     if (!sessionId || !toolCallId) return result;
     if (typeof result !== 'string') return result;
-    if (result.length <= getOffloadThreshold(toolName)) return result;
+    if (result.startsWith(TOOL_RESULT_OFFLOAD_PREFIX)) return result;
+    const force = options?.force === true;
+    if (!force && result.length <= getOffloadThreshold(toolName)) return result;
     // Keep error surfaces inline so the model can self-correct without an
     // extra read turn — but only up to the global default. A giant error
     // (e.g. a megabyte of stack/diff/dump) still offloads so it can't blow up
     // context; small errors (the overwhelming majority) stay inline.
-    if (classifyResultKind(result) === 'error'
+    if (!force && classifyResultKind(result) === 'error'
         && result.length <= TOOL_RESULT_OFFLOAD_THRESHOLD_CHARS) return result;
 
     // Generate a safe filename — never trust toolCallId as a path component.
@@ -168,6 +200,69 @@ export async function maybeOffloadToolResult(sessionId, toolCallId, toolName, re
     const header = `${TOOL_RESULT_OFFLOAD_PREFIX} ${toolName} → ${displayPath} (${sizeKb} KB, ${lines} lines)]`;
     const suffix = truncated ? '\n... [preview truncated — use read on the saved path for full output]' : '';
     return `${header}\n\n${preview}${suffix}`;
+}
+
+// Apply per-tool persistence first, then enforce the Claude Code message-level
+// budget across the remaining non-Read text results. Selection is
+// largest-first; ties prefer the latest result in the assistant tool batch.
+export async function maybeOffloadToolResultBatch(sessionId, entries, options = {}) {
+    const source = Array.isArray(entries) ? entries : [];
+    const maxChars = Number(options.maxAggregateChars) > 0
+        ? Math.trunc(Number(options.maxAggregateChars))
+        : TOOL_RESULT_MESSAGE_MAX_CHARS;
+    const applyPerToolLimits = options.applyPerToolLimits !== false;
+    const offloadResult = typeof options.offloadResult === 'function'
+        ? options.offloadResult
+        : maybeOffloadToolResult;
+    const states = source.map((entry) => ({ result: entry?.result, error: null }));
+
+    if (applyPerToolLimits) {
+        await Promise.all(source.map(async (entry, index) => {
+            try {
+                states[index].result = await offloadResult(
+                    sessionId,
+                    entry?.toolCallId,
+                    entry?.toolName,
+                    entry?.result,
+                    { force: false },
+                );
+            } catch (error) {
+                states[index].error = error;
+            }
+        }));
+    }
+
+    const inlineChars = () => states.reduce((total, state, index) => (
+        state.error || !isAggregateOffloadEligible(source[index]?.toolName, state.result)
+            ? total
+            : total + state.result.length
+    ), 0);
+    let total = inlineChars();
+    const attempted = new Set();
+    while (total > maxChars) {
+        const ranked = rankAggregateOffloadCandidates(source.map((entry, index) => ({
+            toolName: entry?.toolName,
+            result: states[index].error || attempted.has(index) ? null : states[index].result,
+        })));
+        if (ranked.length === 0) break;
+        const index = ranked[0];
+        attempted.add(index);
+        const before = states[index].result;
+        try {
+            states[index].result = await offloadResult(
+                sessionId,
+                source[index]?.toolCallId,
+                source[index]?.toolName,
+                before,
+                { force: true },
+            );
+            total += String(states[index].result || '').length - before.length;
+        } catch (error) {
+            states[index].error = error;
+            total -= before.length;
+        }
+    }
+    return states;
 }
 
 // Drop a session's offload sidecars on session close. Unlinks every

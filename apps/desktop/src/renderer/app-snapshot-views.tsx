@@ -149,7 +149,6 @@ const PaneStreamingTail = memo(function PaneStreamingTail({
     desktopStreamingTailSnapshotsEqual,
     !hidden,
   );
-  if (hidden) return null;
   const laneSnapshot = lane ?? fallback ?? EMPTY_SNAPSHOT;
   const selectedSessionId = String(selectedSnapshot.sessionId || "");
   const selectedOwnsPane = sessionId
@@ -161,6 +160,7 @@ const PaneStreamingTail = memo(function PaneStreamingTail({
     ? laneSnapshot
     : focused && selectedOwnsPane ? selectedSnapshot : laneSnapshot;
   const tail = snapshot.streamingTail as TranscriptItem | null | undefined;
+  if (hidden) return null;
   if (!tail) return null;
   const items = Array.isArray(snapshot.items) ? snapshot.items : EMPTY_TRANSCRIPT_ITEMS;
   const settledIndex = tail.id == null
@@ -168,7 +168,7 @@ const PaneStreamingTail = memo(function PaneStreamingTail({
     : items.findIndex((item) => item?.id === tail.id);
   if (settledIndex >= 0 && settledIndex !== items.length - 1) return null;
   const index = settledIndex >= 0 ? settledIndex : items.length;
-  return <div className="transcript-live-tail" data-streaming-tail="true" data-index={index}>
+  return <div className="transcript-live-part" data-streaming-tail="true" data-index={index}>
     <TranscriptRow item={tail}
       disclosureScope={String(snapshot.sessionId || "new-task")} />
   </div>;

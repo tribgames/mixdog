@@ -10,6 +10,12 @@ import type {
 import { ModelPicker } from '../ModelPicker';
 import { OpenSelect } from '../OpenSelect';
 import { modelDisplayName, modelOptionLabel, providerDisplayName } from '../provider-display';
+// The primitives translate their OWN string props: every settings panel that
+// renders through Group/Rows/ActionButton gets localized titles without each
+// call site wrapping literals. Dynamic values (model names, provider labels)
+// simply miss the catalog and pass through unchanged.
+import { t } from '../i18n';
+import { acquireTitleBarDim } from '../titlebar-dim';
 
 import { count, providerLabel, record, type RecordValue, rows, type SettingsConfirmation } from "./capability-data";
 
@@ -18,8 +24,8 @@ export function Group({ title, description, children }: {
 }) {
   return <section className="settings-group">
     {(title || description) &&
-    <header>{title && <h3>{title}</h3>}
-      {description && <p>{description}</p>}</header>}
+    <header>{title && <h3>{t(title)}</h3>}
+      {description && <p>{t(description)}</p>}</header>}
     <div className="settings-group-body">{children}</div></section>;
 }
 
@@ -40,9 +46,10 @@ export function ToggleRow({ title, description: _description, checked, disabled,
   // on a disabled control). Writes are serialized and idempotent, so the last
   // click wins.
   const blocked = disabled === true && override === null;
+  const displayTitle = t(title);
   return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
-    <span className="mixdog-settings__row-title">{title}</span>
-  </div><div className="settings-row-control"><label className="mixdog-settings__switch"><input type="checkbox" aria-label={title} checked={value}
+    <span className="mixdog-settings__row-title">{displayTitle}</span>
+  </div><div className="settings-row-control"><label className="mixdog-settings__switch"><input type="checkbox" aria-label={displayTitle} checked={value}
     disabled={blocked} onChange={(event) => {
       const next = event.currentTarget.checked;
       setOverride(next);
@@ -56,11 +63,12 @@ export function SelectRow({ title, description: _description, value, disabled, o
 }) {
   const normalized = options.some((entry) => entry.value === value)
     ? options
-    : [{ value, label: value || 'Select…' }, ...options];
+    : [{ value, label: value || t('Select…') }, ...options];
+  const displayTitle = t(title);
   return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
-    <span className="mixdog-settings__row-title">{title}</span>
-  </div><div className="settings-row-control"><OpenSelect className="settings-select" ariaLabel={title} value={value} disabled={disabled}
-    options={normalized} onChange={onChange} /></div></div>;
+    <span className="mixdog-settings__row-title">{displayTitle}</span>
+  </div><div className="settings-row-control"><OpenSelect className="settings-select" ariaLabel={displayTitle} value={value} disabled={disabled}
+    options={normalized.map((entry) => ({ ...entry, label: t(entry.label) }))} onChange={onChange} /></div></div>;
 }
 
 export function QuietSelectRow({ title, value, disabled, options, kind, onChange }: {
@@ -73,12 +81,13 @@ export function QuietSelectRow({ title, value, disabled, options, kind, onChange
 }) {
   const normalized = options.some((entry) => entry.value === value)
     ? options
-    : [{ value, label: value || 'Select…' }, ...options];
+    : [{ value, label: value || t('Select…') }, ...options];
+  const displayTitle = t(title);
   return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
-    <span className="mixdog-settings__row-title">{title}</span>
+    <span className="mixdog-settings__row-title">{displayTitle}</span>
   </div><div className="settings-row-control"><div className={`${kind}-control`}>
-    <OpenSelect ariaLabel={title} value={value} disabled={disabled}
-      options={normalized} onChange={onChange} />
+    <OpenSelect ariaLabel={displayTitle} value={value} disabled={disabled}
+      options={normalized.map((entry) => ({ ...entry, label: t(entry.label) }))} onChange={onChange} />
   </div></div></div>;
 }
 
@@ -154,7 +163,7 @@ export function RouteEditor({ title, description: _description, route, models, d
     provider={String(route.provider || '')} model={String(route.model || '')}
     triggerLabel={selected
       ? modelDisplayName(selected.model, selected.provider, selected.display)
-      : route.model ? modelDisplayName(String(route.model), String(route.provider || '')) : 'Select model…'}
+      : route.model ? modelDisplayName(String(route.model), String(route.provider || '')) : t('Select model…')}
     ariaLabel={title} triggerClassName="model-trigger settings-model-trigger"
     disabled={disabled} onSelect={(model) => onChange(selectionFor(model))}
     onOpenProviders={onOpenProviders} />;
@@ -162,7 +171,7 @@ export function RouteEditor({ title, description: _description, route, models, d
     return <>
       <div className="mixdog-settings__row settings-route-row">
         <div className="mixdog-settings__copy">
-          <span className="mixdog-settings__row-title">Model</span>
+          <span className="mixdog-settings__row-title">{t('Model')}</span>
         </div>
         <div className="settings-row-control">{modelSelect}</div>
       </div>
@@ -186,7 +195,7 @@ export function RouteEditor({ title, description: _description, route, models, d
       </div>}
       {selected?.fastCapable && <div className="fast-control">
         <OpenSelect variant="route" ariaLabel={`${title} fast mode`} value={fast ? 'on' : 'off'} disabled={disabled}
-          options={[{ value: 'on', label: 'Fast On' }, { value: 'off', label: 'Fast Off' }]}
+          options={[{ value: 'on', label: t('Fast On') }, { value: 'off', label: t('Fast Off') }]}
           onChange={(value) => onChange(selectionFor(selected, { fast: value === 'on' }))} />
       </div>}
     </div>
@@ -202,8 +211,8 @@ export function FormRow({ title, description: _description, status, children, re
     const form = event.currentTarget;
     onSubmit(new FormData(form));
     if (resetOnSubmit) form.reset();
-  }}><div className="settings-resource-title"><b>{title}</b>
-      {state && <span className={`settings-status settings-status--${state.tone}`}><i aria-hidden="true" />{state.label}</span>}
+  }}><div className="settings-resource-title"><b>{t(title)}</b>
+      {state && <span className={`settings-status settings-status--${state.tone}`}><i aria-hidden="true" />{t(state.label)}</span>}
     </div><div className="settings-form-controls">{children}</div></form>;
 }
 
@@ -222,8 +231,10 @@ export function AutoSaveRow({ title, value, name, placeholder, required = false,
     if (required && !input.reportValidity()) return;
     onSave(input.value);
   };
-  return <div className="settings-form-row"><div><b>{title}</b></div><div className="settings-form-controls">
-    <input key={value} name={name} aria-label={title} defaultValue={value} placeholder={placeholder}
+  const displayTitle = t(title);
+  return <div className="settings-form-row"><div><b>{displayTitle}</b></div><div className="settings-form-controls">
+    <input key={value} name={name} aria-label={displayTitle} defaultValue={value}
+      placeholder={placeholder === undefined ? undefined : t(placeholder)}
       required={required} disabled={disabled}
       onBlur={(event) => commit(event.currentTarget)}
       onKeyDown={(event) => {
@@ -243,12 +254,15 @@ export function AutoSaveRow({ title, value, name, placeholder, required = false,
 export function ActionButton({ children, danger, disabled, onClick }: {
   children: ReactNode; danger?: boolean; disabled?: boolean; onClick(): void;
 }) {
-  return <button type="button" className={`settings-action ${danger ? 'danger' : ''}`} disabled={disabled} onClick={onClick}>{children}</button>;
+  return <button type="button" className={`settings-action ${danger ? 'danger' : ''}`} disabled={disabled} onClick={onClick}>
+    {typeof children === 'string' ? t(children) : children}</button>;
 }
 
 export function SettingsConfirmDialog({ options, onClose }: { options: SettingsConfirmation; onClose(): void }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { cancelRef.current?.focus(); }, []);
+  // Fullscreen scrim: the native caption controls dim with it.
+  useEffect(() => acquireTitleBarDim(), []);
   const accept = () => {
     onClose();
     void options.onConfirm();
@@ -258,12 +272,13 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
   }}>
     <section className="settings-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="settings-confirm-title"
       aria-describedby="settings-confirm-description" data-settings-nested-dialog>
-      <header><h3 id="settings-confirm-title">{options.title}</h3>
-        <button type="button" aria-label="Close confirmation" onClick={onClose}><X aria-hidden="true" size={15} /></button></header>
-      <p id="settings-confirm-description">{options.description}</p>
-      <footer><button ref={cancelRef} type="button" onClick={onClose}>Cancel</button>
+      <header><h3 id="settings-confirm-title">{t(options.title)}</h3>
+        <button type="button" aria-label={t('Close confirmation')} data-settings-nested-close
+          onClick={onClose}><X aria-hidden="true" size={15} /></button></header>
+      <p id="settings-confirm-description">{t(options.description)}</p>
+      <footer><button ref={cancelRef} type="button" onClick={onClose}>{t('Cancel')}</button>
         <button type="button" className={options.danger ? 'danger' : 'primary'} onClick={accept}>
-          {options.confirmLabel || 'Continue'}
+          {options.confirmLabel ? t(options.confirmLabel) : t('Continue')}
         </button></footer>
     </section>
   </div>;
@@ -291,8 +306,8 @@ export function ResourceRow({ title, description: _description, meta, status, se
 }) {
   const state = status ? settingsStatus(status) : selected ? settingsStatus('Active') : null;
   return <div className={`settings-resource ${className}`.trim()} aria-current={selected ? 'true' : undefined}><div>
-    <div className="settings-resource-title"><b>{title}</b>
-      {state && <span className={`settings-status settings-status--${state.tone}`}><i aria-hidden="true" />{state.label}</span>}
+    <div className="settings-resource-title"><b>{t(title)}</b>
+      {state && <span className={`settings-status settings-status--${state.tone}`}><i aria-hidden="true" />{t(state.label)}</span>}
     </div>
     {meta && <small className="settings-resource-meta">{meta}</small>}
   </div>
@@ -303,7 +318,7 @@ export function ResourceRow({ title, description: _description, meta, status, se
 export function MetricGrid({ items }: { items: Array<{ label: string; value: unknown; tone?: string }> }) {
   const visible = items.filter((item) => item.value !== undefined && item.value !== null && item.value !== '');
   return visible.length ? <div className="settings-metric-grid">{visible.map((item) => <div key={item.label}
-    className={item.tone ? `tone-${item.tone}` : ''}><span>{item.label}</span><b>{String(item.value)}</b></div>)}</div>
+    className={item.tone ? `tone-${item.tone}` : ''}><span>{t(item.label)}</span><b>{String(item.value)}</b></div>)}</div>
     : <Empty text="No status data available." />;
 }
 
@@ -355,9 +370,9 @@ export function UsageDashboard({ value }: { value: unknown }) {
 }
 
 export function Empty({ text }: { text: string }) {
-  return <p className="settings-empty">{text}</p>;
+  return <p className="settings-empty">{t(text)}</p>;
 }
 
 export function ListEmpty({ text }: { text: string }) {
-  return <p className="settings-empty settings-empty-list">{text}</p>;
+  return <p className="settings-empty settings-empty-list">{t(text)}</p>;
 }

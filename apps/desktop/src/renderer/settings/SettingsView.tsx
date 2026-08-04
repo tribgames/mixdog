@@ -20,6 +20,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
+import { t } from '../i18n';
 import { CapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
 import { preloadConnectionInfo } from './connection-info';
 import { preloadGitPanelInfo } from './git-panel-info';
@@ -193,7 +194,9 @@ export function SettingsView({
         event.preventDefault();
         event.stopPropagation();
         if (nestedDialog) {
-          nestedDialog.querySelector<HTMLButtonElement>('[aria-label^="Close"]')?.click();
+          // Close buttons carry data-settings-nested-close because their
+          // aria-labels are localized ("Close…" only holds in English).
+          nestedDialog.querySelector<HTMLButtonElement>('[data-settings-nested-close], [aria-label^="Close"]')?.click();
           return;
         }
         requestClose();
@@ -235,7 +238,7 @@ export function SettingsView({
     }}>
     <section ref={dialogRef} className="mixdog-settings mixdog-settings-v2" role="dialog" aria-modal="true"
       aria-labelledby="mixdog-settings-title" tabIndex={-1}>
-      <aside className="mixdog-settings__rail" aria-label="Settings categories">
+      <aside className="mixdog-settings__rail" aria-label={t('Settings categories')}>
         <nav>
           {/* One flat, evenly spaced list (user decision): the category
               headings AND the gaps between their blocks are gone — twelve
@@ -246,10 +249,10 @@ export function SettingsView({
               const Icon = CATEGORY_ICONS[item.value];
               return <button type="button" key={item.value}
                 className={category === item.value ? 'active' : ''}
-                aria-label={item.label}
+                aria-label={t(item.label)}
                 aria-current={category === item.value ? 'page' : undefined}
                 onClick={() => setCategory(item.value)}>
-                <Icon aria-hidden="true" size={16} /><span>{item.label}</span>
+                <Icon aria-hidden="true" size={16} /><span>{t(item.label)}</span>
               </button>;
             })}
           </div>
@@ -260,10 +263,10 @@ export function SettingsView({
       <div className="mixdog-settings__panel">
         <header className="mixdog-settings__header">
           <div className="mixdog-settings__header-title">
-            <h1 id="mixdog-settings-title">{SETTINGS_CATEGORIES.find((item) => item.value === category)?.label || 'Settings'}</h1>
+            <h1 id="mixdog-settings-title">{t(SETTINGS_CATEGORIES.find((item) => item.value === category)?.label || 'Settings')}</h1>
           </div>
           <button ref={closeRef} type="button" className="mixdog-settings__close" onClick={requestClose}
-            aria-label="Close settings"><X aria-hidden="true" size={16} /></button>
+            aria-label={t('Close settings')}><X aria-hidden="true" size={16} /></button>
         </header>
         <div ref={bodyRef} className="mixdog-settings__body">
           <div className="mixdog-settings__category-stage">

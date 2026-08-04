@@ -13,9 +13,11 @@ import {
 import { nextHotFileEditorKeys, shouldKeepFileEditorMounted, TranscriptRow } from "../renderer/App.tsx";
 import { mergeSessionCatalogRows } from "../shared/session-catalog.ts";
 import {
-  estimatedTranscriptRowHeight,
-  rememberMeasuredTranscriptRowHeight,
-} from "../renderer/transcript-metrics.ts";
+  readTranscriptVirtualSnapshot,
+  rememberTranscriptVirtualMeasurements,
+  rememberTranscriptVirtualOffset,
+  TRANSCRIPT_VIRTUAL_CACHE_LIMIT,
+} from "../renderer/transcript-virtual-cache.ts";
 import { hasActiveSnapshotWork, workingSessionIdsForSnapshot } from "../renderer/desktop-types.ts";
 import {
   desktopChromeSnapshotsEqual,
@@ -343,28 +345,21 @@ test("TranscriptRow keeps semantically unchanged rows memoized", () => {
   assert.equal(serialized, 0, "the growing streaming tail must never be JSON-stringified for memo equality");
 });
 
-test("live transcript estimates scale with a long streaming script", () => {
-  const short = {
-    id: "live-script",
-    kind: "assistant",
-    text: "```powershell\nGet-ChildItem\n```",
-    streaming: true,
-  };
-  const long = {
-    ...short,
-    text: `\`\`\`powershell\n${Array.from({ length: 90 }, (_, index) =>
-      `Write-Output "streaming line ${index}"`).join("\n")}\n\`\`\``,
-  };
-  assert.ok(estimatedTranscriptRowHeight(short) < estimatedTranscriptRowHeight(long));
-  assert.ok(estimatedTranscriptRowHeight(long) > 1_500,
-    "a mounted long live script must not start from the old 160px cap");
-});
-
-test("measured transcript heights replace estimates across equivalent session rows", () => {
-  const item = { id: "measured-perf-row", kind: "assistant", text: "Stable measured content" };
-  rememberMeasuredTranscriptRowHeight(item, 212);
-  assert.equal(estimatedTranscriptRowHeight(item), 212);
-  assert.equal(estimatedTranscriptRowHeight({ ...item }), 212);
+test("session virtual geometry survives re-entry and stays bounded", () => {
+  rememberTranscriptVirtualOffset("perf-session", 1_240, false);
+  rememberTranscriptVirtualMeasurements("perf-session", [
+    { index: 0, key: "perf-session:a", start: 0, end: 212, size: 212, lane: 0 },
+  ]);
+  const restored = readTranscriptVirtualSnapshot("perf-session");
+  assert.equal(restored.offset, 1_240, "re-entry paints at the exact previous offset");
+  assert.equal(restored.atEnd, false);
+  assert.equal(restored.measurements.length, 1,
+    "real measurements replace estimates on the next mount");
+  for (let index = 0; index < TRANSCRIPT_VIRTUAL_CACHE_LIMIT + 4; index += 1) {
+    rememberTranscriptVirtualOffset(`overflow-${index}`, index, true);
+  }
+  assert.equal(readTranscriptVirtualSnapshot("perf-session"), undefined,
+    "the geometry cache stays bounded to the most recent sessions");
 });
 
 test("desktop work detection includes live engine activity fields", () => {
@@ -752,8 +747,6 @@ test("heavy renderer surfaces remain dynamic imports", async () => {
   assert.match(snapshotViews,
     /return <UtilityDock \{\.\.\.props\} snapshot=\{hidden \? EMPTY_SNAPSHOT : selectedSnapshot\} \/>;/,
     "a hidden Dock must detach from live transcript snapshots");
-  assert.match(conversation, /overscan:\s*TRANSCRIPT_VIRTUAL_OVERSCAN,/,
-    "history overscan must remain fixed for the mounted session");
   assert.doesNotMatch(conversation, /transcriptOverscan|setTranscriptOverscan|prewarmRange|resizeItem\(/,
     "no delayed task may mutate transcript geometry after entry");
   assert.match(warmup, /addEventListener\("pointerdown", postpone\)/);

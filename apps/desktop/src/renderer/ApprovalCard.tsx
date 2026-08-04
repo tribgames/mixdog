@@ -1,6 +1,7 @@
 import { Check, ShieldAlert, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Approval } from "./desktop-types";
+import { t } from "./i18n";
 import { isApprovalDismissKey } from "./renderer-logic.mjs";
 import { asRecord, textOf } from "./text-format";
 
@@ -14,7 +15,7 @@ export function ApprovalCard({ approval, resolve }: {
   resolve: (approved: boolean) => Promise<unknown>;
 }) {
   const reason = approvalText(approval.reason, "message")
-    || "Review this tool request before continuing.";
+    || t("Review this tool request before continuing.");
   const cwd = approvalText(approval.cwd, "path");
   const [resolving, setResolving] = useState(false);
   const [approvalError, setApprovalError] = useState("");
@@ -30,14 +31,14 @@ export function ApprovalCard({ approval, resolve }: {
     try {
       const accepted = await resolveRef.current(approved);
       if (accepted === true) return;
-      setApprovalError("Mixdog could not record this decision. Please try again.");
+      setApprovalError(t("Mixdog could not record this decision. Please try again."));
       resolvingRef.current = false;
       setResolving(false);
     } catch (reason) {
       const detail = reason instanceof Error ? reason.message : String(reason || "");
       setApprovalError(detail
-        ? `Mixdog could not record this decision: ${detail}`
-        : "Mixdog could not record this decision. Please try again.");
+        ? t("Mixdog could not record this decision: {{detail}}", { detail })
+        : t("Mixdog could not record this decision. Please try again."));
       resolvingRef.current = false;
       setResolving(false);
     }
@@ -80,21 +81,21 @@ export function ApprovalCard({ approval, resolve }: {
       aria-labelledby="approval-title" aria-describedby="approval-description"
       >
       <div className="approval-heading"><span><ShieldAlert size={19} /></span>
-        <div><b id="approval-title">Tool approval required</b>
-          <small>{String(approval.name || "Tool")} wants to run</small></div>
+        <div><b id="approval-title">{t("Tool approval required")}</b>
+          <small>{t("{{name}} wants to run", { name: String(approval.name || t("Tool")) })}</small></div>
       </div>
       <p id="approval-description">{reason}</p>
       <dl>
-        {cwd && <><dt>Folder</dt><dd>{cwd}</dd></>}
-        {approval.args != null && <><dt>Arguments</dt><dd><code>{textOf(approval.args)}</code></dd></>}
+        {cwd && <><dt>{t("Folder")}</dt><dd>{cwd}</dd></>}
+        {approval.args != null && <><dt>{t("Arguments")}</dt><dd><code>{textOf(approval.args)}</code></dd></>}
       </dl>
       {approvalError && <p className="approval-error" role="alert" aria-live="assertive">
         {approvalError}
       </p>}
       <div className="approval-actions">
-        <button disabled={resolving} onClick={() => void decide(false)}><X size={15} /> Deny</button>
+        <button disabled={resolving} onClick={() => void decide(false)}><X size={15} /> {t("Deny")}</button>
         <button disabled={resolving} className="allow" onClick={() => void decide(true)}>
-          <Check size={15} /> Allow once</button>
+          <Check size={15} /> {t("Allow once")}</button>
       </div>
     </article>
   );

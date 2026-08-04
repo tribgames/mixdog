@@ -1,0 +1,32 @@
+import WebSocket from 'ws';
+const targets = await (await fetch('http://127.0.0.1:9343/json')).json();
+const page = targets.find((t) => t.type === 'page' && !/devtools/i.test(t.url));
+const ws = new WebSocket(page.webSocketDebuggerUrl);
+await new Promise((res, rej) => { ws.once('open', res); ws.once('error', rej); });
+let seq = 0; const pending = new Map();
+ws.on('message', (raw) => { const m = JSON.parse(raw.toString()); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
+const send = (method, params = {}) => new Promise((res) => { const id = ++seq; pending.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
+const evalJson = async (expr) => { const r = await send('Runtime.evaluate', { returnByValue: true, expression: expr }); return r.result?.result?.value ?? JSON.stringify(r.result?.result); };
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+console.log('sidebar:', await evalJson(`(() => { try {
+  const b = [...document.querySelectorAll('.topbar button')].find(x => (x.getAttribute('aria-label')||'').includes('사이드바'));
+  b.click();
+  const armed = document.documentElement.classList.contains('mx-side-panel-animating');
+  const sb = document.querySelector('.sidebar.session-sidebar');
+  const cs = sb ? getComputedStyle(sb) : null;
+  return JSON.stringify({ armed, tp: cs ? cs.transitionProperty.slice(0,70) : 'no-el', dur: cs ? cs.transitionDuration.split(',')[0] : null });
+} catch (e) { return 'ERR ' + e.message; } })()`));
+await wait(420);
+console.log('settled:', await evalJson(`document.documentElement.classList.contains('mx-side-panel-animating')`));
+await evalJson(`[...document.querySelectorAll('.topbar button')].find(x => (x.getAttribute('aria-label')||'').includes('사이드바')).click()`);
+await wait(420);
+console.log('dock:', await evalJson(`(() => { try {
+  const b = [...document.querySelectorAll('.topbar button')].find(x => (x.getAttribute('aria-label')||'').includes('유틸리티 패널'));
+  b.click();
+  const dock = document.querySelector('.utility-dock--persistent');
+  return JSON.stringify({ anim: dock ? getComputedStyle(dock).animationName : 'no-dock' });
+} catch (e) { return 'ERR ' + e.message; } })()`));
+await wait(500);
+console.log('dock settled anim:', await evalJson(`(() => { const d = document.querySelector('.utility-dock--persistent'); return d ? getComputedStyle(d).animationName : 'closed'; })()`));
+await evalJson(`[...document.querySelectorAll('.topbar button')].find(x => (x.getAttribute('aria-label')||'').includes('유틸리티 패널')).click()`);
+ws.close();

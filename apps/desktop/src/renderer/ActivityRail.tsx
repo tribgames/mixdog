@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { schedulePostInteractionIdle } from "./app-idle-warmup";
+import { t } from "./i18n";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import { ProviderIcon } from "./provider-display";
 import { SidebarUsage, usagePinEntries } from "./SidebarUsage";
@@ -174,14 +175,14 @@ export function ActivityRail({
     };
   }, [usageOpen]);
   return (
-    <aside className="activity-rail" aria-label="Activity Bar">
-      <nav className="sidebar-primary-nav" aria-label="Workspace">
+    <aside className="activity-rail" aria-label={t("Activity Bar")}>
+      <nav className="sidebar-primary-nav" aria-label={t("Workspace")}>
         {/* The Sessions toggle mirrors VS Code's Explorer button: pressing it
             expands/collapses the session panel. is-active (not selected)
             tracks the OPEN panel so surface selection stays separate. */}
         <button type="button" className={`sessions-link ${sidebarOpen ? "is-active" : ""}`}
-          aria-label="Sessions" aria-expanded={sidebarOpen} aria-controls="session-sidebar"
-          data-tooltip="Sessions" onClick={onToggleSessions}>
+          aria-label={t("Sessions")} aria-expanded={sidebarOpen} aria-controls="session-sidebar"
+          data-tooltip={t("Sessions")} onClick={onToggleSessions}>
           <MessageSquare size={20} aria-hidden="true" />
         </button>
         {/* Workbench tools (Explorer/Search/SCM/Debug/Tests) live ONLY on the
@@ -193,8 +194,8 @@ export function ActivityRail({
           return (
             <button key={id} type="button"
               className={`projects-link ${selected ? "selected" : ""}`}
-              aria-label={label} aria-current={selected ? "page" : undefined}
-              data-tooltip={tooltip}
+              aria-label={t(label)} aria-current={selected ? "page" : undefined}
+              data-tooltip={t(tooltip)}
               onPointerEnter={onPrefetch}
               onFocus={onPrefetch}
               onClick={selected ? onCloseActiveSurface : onOpen}>
@@ -207,8 +208,8 @@ export function ActivityRail({
       <button type="button"
         className={`sidebar-usage-toggle ${usageOpen ? "is-active" : ""}${
           usagePinRows.length ? " is-pinned" : ""}`}
-        aria-label="Usage" aria-expanded={usageOpen} aria-haspopup="dialog"
-        data-tooltip="Usage"
+        aria-label={t("Usage")} aria-expanded={usageOpen} aria-haspopup="dialog"
+        data-tooltip={t("Usage")}
         onPointerEnter={(event) => rememberUsageAnchor(event.currentTarget)}
         onFocus={(event) => rememberUsageAnchor(event.currentTarget)}
         onPointerDown={(event) => {
@@ -246,13 +247,13 @@ export function ActivityRail({
       </button>
       <button type="button"
         className={`sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}
-        aria-label="Open settings" aria-current={activeSurface === "settings" ? "page" : undefined}
-        data-tooltip="Settings" onPointerEnter={onPrefetchSettings}
+        aria-label={t("Open settings")} aria-current={activeSurface === "settings" ? "page" : undefined}
+        data-tooltip={t("Settings")} onPointerEnter={onPrefetchSettings}
         onFocus={onPrefetchSettings} onClick={onOpenSettings}>
         <Settings size={20} aria-hidden="true" />
       </button>
       {/* The flyout's bottom edge tracks the Usage button itself (user). */}
-      {usageOpen && <div className="rail-usage-popup" role="dialog" aria-label="Subscription usage"
+      {usageOpen && <div className="rail-usage-popup" role="dialog" aria-label={t("Subscription usage")}
         style={{ "--rail-usage-popup-bottom": `${usageAnchorBottom}px` } as React.CSSProperties}
         data-state="open">
         {/* The popup shares the rail's host API so its open-time revalidation

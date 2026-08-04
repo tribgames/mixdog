@@ -2,6 +2,8 @@ import { type SVGProps } from "react";
 
 import type { DesktopModelOption } from "../shared/contract";
 
+import { t } from "./i18n";
+
 const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic API",
   "anthropic-api": "Anthropic API",
@@ -44,7 +46,7 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
 
 export function providerDisplayName(provider: string | null | undefined) {
   const id = String(provider || "").trim();
-  if (!id) return "Unknown provider";
+  if (!id) return t("Unknown provider");
   const normalized = id.toLowerCase();
   const known = PROVIDER_LABELS[normalized];
   if (known) return known;
@@ -196,7 +198,7 @@ export function modelOptionDescription(model: DesktopModelOption): string {
   // so an explicit description (the provider lane) wins over the "-" filler.
   const context = formatContextWindow(modelContextWindow(model));
   const primary = context || String(model.description || "").trim() || "-";
-  return [primary, model.fastCapable ? "Fast Available" : ""].filter(Boolean).join(" · ");
+  return [primary, model.fastCapable ? t("Fast Available") : ""].filter(Boolean).join(" · ");
 }
 
 export function modelDetailTooltip(model: DesktopModelOption): string {
@@ -207,10 +209,10 @@ export function modelDetailTooltip(model: DesktopModelOption): string {
     providerDisplayName(model.provider),
     model.model,
     formatContextWindow(modelContextWindow(model)),
-    effort.length > 0 ? `Reasoning ${effort.join("/")}` : "",
-    model.fastCapable ? "Fast available" : "",
-    model.latest ? "Latest" : "",
-    model.releaseDate ? `Released ${model.releaseDate}` : "",
+    effort.length > 0 ? t("Reasoning {{levels}}", { levels: effort.join("/") }) : "",
+    model.fastCapable ? t("Fast available") : "",
+    model.latest ? t("Latest") : "",
+    model.releaseDate ? t("Released {{date}}", { date: model.releaseDate }) : "",
   ].filter(Boolean).join(" · ");
 }
 
@@ -278,7 +280,7 @@ export function modelDisplayName(model: string | null | undefined, provider = ""
 }
 
 export function modelOptionLabel(model: { provider: string; model: string; display: string }) {
-  const display = modelDisplayName(model.model, model.provider, model.display) || "Unnamed model";
+  const display = modelDisplayName(model.model, model.provider, model.display) || t("Unnamed model");
   return `${display} · ${providerDisplayName(model.provider)}`;
 }
 
