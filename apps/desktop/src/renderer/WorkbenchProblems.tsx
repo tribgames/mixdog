@@ -81,7 +81,26 @@ export const ProjectProblemCount = memo(function ProjectProblemCount({
   return count ? <i className="bottom-panel-tab-count">{count}</i> : null;
 });
 
-export const WorkbenchProblemsToolbar = memo(function WorkbenchProblemsToolbar({
+export const WorkbenchProblemsFilter = memo(function WorkbenchProblemsFilter({
+  filter,
+  onFilter,
+}: {
+  filter: ProblemsPanelFilter;
+  onFilter(next: ProblemsPanelFilter): void;
+}) {
+  const update = (patch: Partial<ProblemsPanelFilter>) => onFilter({ ...filter, ...patch });
+  return <label className="problems-panel-filter">
+    <Filter size={14} aria-hidden="true" />
+    <input value={filter.query}
+      onChange={(event) => update({ query: event.target.value })}
+      placeholder={t("Filter problems")}
+      aria-label={t("Filter Problems")} />
+    {filter.query && <button type="button" aria-label={t("Clear Problems filter")}
+      onClick={() => update({ query: "" })}><X size={13} aria-hidden="true" /></button>}
+  </label>;
+});
+
+export const WorkbenchProblemsSeverityActions = memo(function WorkbenchProblemsSeverityActions({
   projectPath,
   filter,
   onFilter,
@@ -101,15 +120,6 @@ export const WorkbenchProblemsToolbar = memo(function WorkbenchProblemsToolbar({
   const count = (severity: number) => rows.filter((problem) => problem.severity === severity).length;
   const update = (patch: Partial<ProblemsPanelFilter>) => onFilter({ ...filter, ...patch });
   return <div className="problems-panel-actions" aria-label={t("Problems actions")}>
-    <label className="problems-panel-filter">
-      <Filter size={14} aria-hidden="true" />
-      <input value={filter.query}
-        onChange={(event) => update({ query: event.target.value })}
-        placeholder={t("Filter problems")}
-        aria-label={t("Filter Problems")} />
-      {filter.query && <button type="button" aria-label={t("Clear Problems filter")}
-        onClick={() => update({ query: "" })}><X size={13} aria-hidden="true" /></button>}
-    </label>
     <button type="button" className="problems-filter-toggle" data-severity="error"
       aria-label={t("Show Errors ({{count}})", { count: count(1) })} aria-pressed={filter.showErrors}
       onClick={() => update({ showErrors: !filter.showErrors })}>
@@ -125,9 +135,7 @@ export const WorkbenchProblemsToolbar = memo(function WorkbenchProblemsToolbar({
       onClick={() => update({ showInfos: !filter.showInfos })}>
       <Info size={14} aria-hidden="true" /><span>{count(3) + count(4)}</span>
     </button>
-    {/* Cleanup (user: 구조 클린하게 — 좁은 창에서 다 가려짐): the always-on
-        strip keeps ONLY the filter and the severity counters. The four
-        low-frequency toggles live in one "…" menu, VS Code-style. */}
+    {/* Low-frequency toggles live in one "…" menu, VS Code-style. */}
     <RowOverflowMenu label="More Problems actions" width={188} items={[
       {
         id: "active-file",

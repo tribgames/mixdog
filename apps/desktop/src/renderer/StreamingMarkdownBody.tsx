@@ -24,12 +24,12 @@ interface RenderedMarkdownAst {
 
 const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   text,
-  parseEnabled,
+  live,
   deferAsyncPromotion,
   copyControl,
 }: {
   text: string;
-  parseEnabled: boolean;
+  live: boolean;
   deferAsyncPromotion: boolean;
   copyControl: MarkdownCopyControl;
 }) {
@@ -48,7 +48,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   const exact = rendered?.text === text ? rendered : null;
 
   useEffect(() => {
-    if (!parseEnabled || persistentCodeSource) return;
+    if (persistentCodeSource) return;
     const cachedRoot = readCachedStreamingMarkdownAst(text);
     if (cachedRoot) {
       if (!deferAsyncPromotion) {
@@ -70,11 +70,21 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
         setRendered({ text: parsedText, root });
       }
     });
-  }, [deferAsyncPromotion, parseEnabled, persistentCodeSource, text]);
+  }, [deferAsyncPromotion, persistentCodeSource, text]);
   useEffect(() => () => queue.current?.dispose(), []);
 
-  if (parseEnabled && !persistentCodeSource && exact) {
+  if (!persistentCodeSource && exact) {
     return <MarkdownAstBody root={exact.root} copyControl={copyControl} />;
+  }
+  // OpenCode parses the live tail on every paced tick (PacedMarkdown), so
+  // styled markdown appears WHILE the model is typing. Our worker is the
+  // pace: while the newest slice is still parsing, keep the PREVIOUS parsed
+  // AST on screen (a few tokens behind) instead of dropping the whole block
+  // back to source-shaped text — that source phase read as "markdown styling
+  // arrives late" during generation. Before the first worker result (or with
+  // a geometry-locked fenced script) the source fallback still applies.
+  if (!persistentCodeSource && live && rendered && !deferAsyncPromotion) {
+    return <MarkdownAstBody root={rendered.root} copyControl={copyControl} />;
   }
   // Keep the exact source visible until this exact immutable chunk is parsed.
   return <MarkdownSourceFallback text={text} copyControl={copyControl} />;
@@ -91,10 +101,10 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   deferAsyncPromotion?: boolean;
   copyControl: MarkdownCopyControl;
 }) {
-  // Open fences and the current unstable block keep one DOM grammar while
-  // growing. They are promoted only after the outer stream partition marks
-  // them stable (or the turn settles), eliminating newline-time AST reflow.
-  return <ParsedMarkdownBody text={text} parseEnabled={!live}
+  // Stable chunks promote exactly (immutable text -> exact AST). The live
+  // tail renders the latest COMPLETED parse and trails the raw text by worker
+  // latency, mirroring OpenCode's paced streaming markdown.
+  return <ParsedMarkdownBody text={text} live={live}
     deferAsyncPromotion={deferAsyncPromotion} copyControl={copyControl} />;
 });
 

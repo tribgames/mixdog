@@ -44,6 +44,8 @@ function measureTranscriptRow(element: Element, entry?: ResizeObserverEntry): nu
   return Math.max(1, element instanceof HTMLElement ? element.offsetHeight : 0);
 }
 
+// OpenCode's core exposes getLogicalScrollOffset(); the resolved core predates
+// it, so read the same scrollOffset + pending scrollAdjustments pair directly.
 function logicalScrollOffset(
   instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
 ): number {
@@ -57,12 +59,16 @@ export function TranscriptList({
   sessionKey,
   rows,
   viewport,
+  content,
+  shouldAnchorBottom,
   scrollToEndRef,
   renderRow,
 }: {
   sessionKey: string;
   rows: readonly TranscriptRowModel[];
   viewport: RefObject<HTMLDivElement | null>;
+  content: MutableRefObject<HTMLDivElement | null>;
+  shouldAnchorBottom: boolean;
   scrollToEndRef: MutableRefObject<(behavior?: ScrollBehavior) => void>;
   renderRow: (row: TranscriptRowModel) => ReactNode;
 }) {
@@ -86,7 +92,6 @@ export function TranscriptList({
     () => readTranscriptVirtualSnapshot(sessionKey),
     [sessionKey],
   );
-  const shouldAnchorBottom = !restored || restored.atEnd;
   const coldBottomMount = !restored?.measurements?.length && shouldAnchorBottom;
   const [renderOverscan, setRenderOverscan] = useState(
     () => (restored?.measurements?.length || coldBottomMount ? 6 : TRANSCRIPT_VIRTUAL_OVERSCAN),
@@ -104,14 +109,23 @@ export function TranscriptList({
         ...resizePinned.current,
         ...indexes,
         ...activeIndexesRef.current,
-      ])].sort((a, b) => a - b);
+      ])].filter((index) => index >= 0 && index < rows.length)
+        .sort((a, b) => a - b);
     },
-    initialOffset: () => (restored && !restored.atEnd ? restored.offset : Number.MAX_SAFE_INTEGER),
+    initialOffset: () => (shouldAnchorBottom ? Number.MAX_SAFE_INTEGER : 0),
     initialMeasurementsCache: restored?.measurements,
     anchorTo: "end",
     followOnAppend: true,
     scrollEndThreshold: 80,
     paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
+    // OpenCode's Solid timeline commits virtual state to the DOM in the same
+    // task as every core notify. React's default async rerender let the core
+    // move scrollTop pre-paint while rows still painted at their previous
+    // translateY — the width-drag shake/ghosting. Direct DOM updates restore
+    // Solid's commit timing: row transforms and the container height are
+    // written inside the core transaction, and React reconciles on range
+    // changes only.
+    directDomUpdates: true,
     // Grow the spacer before a programmatic write so Chrome cannot clamp the
     // requested offset against the previous total height.
     scrollToFn: (offset, options, instance) => {
@@ -119,10 +133,6 @@ export function TranscriptList({
       elementScroll(offset, options, instance);
     },
   });
-  // Rows measured above the viewport keep the reader's content still. At the
-  // end, anchorTo:"end" applies the total-size delta before this predicate.
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
-    item.end <= logicalScrollOffset(instance);
   // React re-renders reuse one virtualizer instance. Patch resizeItem exactly
   // once instead of wrapping the previous wrapper again on every render.
   const patchedVirtualizer = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
@@ -155,6 +165,12 @@ export function TranscriptList({
       resizeItem(index, size);
     };
   }
+  // OpenCode: rows measured above the reading offset keep the reader's content
+  // still. At the end, virtual-core's anchorTo:"end" wasAtEnd path applies the
+  // total-size delta BEFORE this predicate is consulted, so the bottom pin has
+  // exactly one writer during a rewrap storm (pane drag, window resize).
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
+    item.end <= logicalScrollOffset(instance);
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
   const overscanFrame = useRef(0);
@@ -163,6 +179,12 @@ export function TranscriptList({
   const measureRow = useCallback((element: HTMLDivElement | null) => {
     virtualizerRef.current.measureElement(element);
   }, []);
+  const bindSpacer = useCallback((element: HTMLDivElement | null) => {
+    spacer.current = element;
+    content.current = element;
+    // Direct DOM updates keep the spacer height current between React commits.
+    virtualizerRef.current.containerRef(element);
+  }, [content]);
 
   useLayoutEffect(() => () => {
     rememberTranscriptVirtualMeasurements(
@@ -201,6 +223,10 @@ export function TranscriptList({
   }, [sessionKey, shouldAnchorBottom]);
 
   useLayoutEffect(() => {
+    // OpenCode maybeAnchorBottom: one entry anchor per session key, the first
+    // time the timeline has rows. Live appends are followed by the core's
+    // followOnAppend — re-running this on every rows change added a second,
+    // one-frame-late scroll writer.
     if (bottomAnchorSession.current === sessionKey || rows.length === 0) return undefined;
     bottomAnchorSession.current = sessionKey;
     if (!shouldAnchorBottom) return undefined;
@@ -223,7 +249,7 @@ export function TranscriptList({
 
   const virtualRows = virtualizer.getVirtualItems();
   return (
-    <div className="transcript-virtual-space" ref={spacer}
+    <div className="transcript-virtual-space" ref={bindSpacer}
       style={{ height: `${virtualizer.getTotalSize()}px` }}>
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index];
@@ -231,15 +257,18 @@ export function TranscriptList({
         const next = rows[virtualRow.index + 1];
         const turnEnd = !next || next._tag === "TurnGap";
         return (
-          // The outer box owns exactly the geometry the virtualizer believes
-          // in; content that has not settled yet is clipped instead of pushing
-          // its neighbours.
+          // OpenCode's Solid rows bind position AND measurement to one
+          // reactive element. Position and measurement therefore share the
+          // OUTER box here, so applyDirectStyles (elementsCache) moves exactly
+          // the element the ResizeObserver measures — in the same pre-paint
+          // transaction. The row keeps its natural content height; geometry
+          // corrections land before paint, so nothing is clipped a frame late.
           <div className="transcript-virtual-row" key={virtualRow.key}
-            data-index={virtualRow.index}
-            style={{ transform: `translateY(${virtualRow.start}px)`, height: `${virtualRow.size}px` }}>
-            <div className="transcript-virtual-row-content" data-index={virtualRow.index}
-              data-tag={row._tag} data-turn-end={turnEnd ? "true" : undefined}
-              ref={measureRow}>
+            data-index={virtualRow.index} ref={measureRow}
+            style={{ transform: `translateY(${virtualRow.start}px)` }}>
+            <div className="transcript-virtual-row-content"
+              data-slot="session-turn-message-container" data-index={virtualRow.index}
+              data-tag={row._tag} data-turn-end={turnEnd ? "true" : undefined}>
               {renderRow(row)}
             </div>
           </div>

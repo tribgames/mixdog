@@ -157,6 +157,30 @@ async function renderSettings(props = {}) {
   });
 }
 
+test('settings backdrop dims the native Windows caption band', async () => {
+  mount();
+  const style = document.createElement('style');
+  style.textContent = '.mixdog-settings-layer { background-color: rgba(0, 0, 0, .32); opacity: 1; }';
+  document.head.appendChild(style);
+  const topbar = document.createElement('header');
+  topbar.className = 'topbar';
+  topbar.style.backgroundColor = 'rgb(240, 240, 240)';
+  document.body.prepend(topbar);
+  document.documentElement.style.colorScheme = 'light';
+  const titleBarDims = [];
+  window.mixdogDesktop = {
+    setTitleBarDim: async (dim) => { titleBarDims.push(dim); },
+  };
+  const { api } = capabilityApi();
+
+  await renderSettings({ api });
+
+  assert.ok(
+    titleBarDims.some((dim) => dim?.color === '#a3a3a3'),
+    `expected a scrim-composited caption color, received ${JSON.stringify(titleBarDims)}`,
+  );
+});
+
 test('switching settings categories resets the shared pane scroll position', async () => {
   mount();
   const { api } = capabilityApi();

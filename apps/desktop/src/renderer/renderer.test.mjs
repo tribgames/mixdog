@@ -743,7 +743,7 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
     /\.session-sidebar-surface\[data-surface-active="true"\]\s*\{[^}]*visibility:\s*visible;[^}]*pointer-events:\s*auto;/s,
     "sidebar surfaces must swap visibility without re-entering document flow");
   assert.match(app, /panelOpen=\{bottomPanel\.open\}/);
-  assert.match(app, /onTogglePanel=\{bottomPanel\.toggle\}/);
+  assert.match(app, /onTogglePanel=\{toggleBottomPanel\}/);
   assert.match(app, /dockOpen=\{dockOpen\}/);
   assert.match(app, /<SnapshotUtilityDock/);
   assert.doesNotMatch(app, /\{codingWorkspaceActive && <BottomPanel/);
@@ -775,6 +775,8 @@ test('pane, takeover, editor, and terminal surfaces share the workbench hierarch
   assert.match(paneCss,
     /\.pane-split-row > \.pane-resize-handle::before\s*\{[^}]*left:\s*-3px;[^}]*right:\s*-3px;/s);
   assert.match(paneCss, /\.pane-resize-handle::after\s*\{[^}]*background:\s*var\(--mx-border-muted/s);
+  assert.doesNotMatch(paneCss, /@container chat-pane|\.thread\s*\{[\s\S]*?var\(--mx-scrollbar-size\)/,
+    'pane chrome must not reintroduce a second transcript/composer gutter scale');
   assert.match(terminal, /TERMINAL_VIEW_STATE_KEY/);
   assert.match(terminal, /requestAnimationFrame\(\(\) => \{[\s\S]*?fitTerminalView/);
   assert.match(terminal, /scrollToLine\(Math\.min\(current\.scrollY/);
@@ -894,8 +896,11 @@ test('side-panel toggles commit final layout synchronously without view transiti
   assert.doesNotMatch(app, /data-side-flip/,
     'no flip phase attribute: layout commits are single-frame (VS Code grammar)');
   const flipSource = await readFile(new URL('./app-side-panel-flip.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(flipSource, /startViewTransition|setTimeout|flushSync/,
+  assert.doesNotMatch(flipSource, /startViewTransition|flushSync/,
     'side-panel commits must be synchronous — snapshot crossfades ghost text over the reflow');
+  assert.match(flipSource,
+    /window\.setTimeout\(\(\) => \{[\s\S]*?root\.classList\.remove\(cls\);[\s\S]*?\}, 240\);/,
+    'the only timer clears the compositor entry class after the synchronous commit');
   const css = await readFile(new URL('./desktop.css', import.meta.url), 'utf8');
   assert.doesNotMatch(css, /view-transition|data-side-flip/,
     'window layout shifts must not composite old/new snapshots (afterimages + font shimmer)');
@@ -1427,6 +1432,12 @@ test('the transcript timeline paints one contained layer with OpenCode cold over
   assert.match(css,
     /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?padding-bottom:\s*12px;/,
     'within-turn rhythm belongs to the measured row box');
+  assert.match(css,
+    /@container chat-pane \(min-width:\s*768px\)[\s\S]*?max-width:\s*800px;[\s\S]*?padding-inline:\s*20px;/,
+    'OpenCode md row width and inset must follow the chat pane, not the window');
+  assert.match(css,
+    /@container chat-pane \(min-width:\s*1536px\)[\s\S]*?max-width:\s*1000px;/,
+    'OpenCode 2xl centered rows must expand to 1000px');
   assert.match(css, /\.transcript-turn-gap\s*\{[^}]*height:\s*20px;/s,
     'turn boundaries must be explicit virtual rows');
 });
@@ -1462,7 +1473,10 @@ test('streaming markdown repartitions without hiding visible source text', async
   assert.match(view, /deferAsyncPromotion=\{fencedScriptGeometryLocked\.current\}/);
   assert.doesNotMatch(view, /stream-cursor/);
   assert.match(body, /isFencedCodeOnlyMarkdown/);
-  assert.match(body, /parseEnabled=\{!live\}/);
+  assert.match(body, /live=\{live\}/,
+    'the live tail parses too — OpenCode paced streaming markdown');
+  assert.match(body, /live && rendered && !deferAsyncPromotion/,
+    'while the newest slice parses, the previous AST stays on screen instead of source text');
   assert.match(body, /requestedText\.current === parsedText && !deferAsyncPromotionRef\.current/);
   assert.match(fallback, /className="markdown-code markdown-code-fallback"/);
   assert.match(fallback, /trimPartialClosingFence/);
@@ -1701,16 +1715,21 @@ test('the stable composer placeholder does not schedule idle rerenders', async (
 });
 
 test('the transcript delegates reflow and bottom anchoring to one virtual timeline', async () => {
-  const [renderer, follow, list] = await Promise.all([
+  const [renderer, follow, list, probe] = await Promise.all([
     readAppModules(),
     readFile(new URL('./use-transcript-follow.ts', import.meta.url), 'utf8'),
     readFile(new URL('./TranscriptList.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../main/jitter-probe.ts', import.meta.url), 'utf8'),
   ]);
   // 1. Virtual-core owns row geometry, bottom anchoring, and append following.
   assert.match(list, /anchorTo:\s*"end",/);
   assert.match(list, /followOnAppend:\s*true,/);
   assert.match(list, /scrollEndThreshold:\s*80,/);
   assert.match(list, /paddingEnd:\s*TRANSCRIPT_BOTTOM_SPACER,/);
+  assert.match(list, /directDomUpdates:\s*true,/,
+    'React must mirror Solid commit timing: transforms land in the core transaction, pre-paint');
+  assert.match(list, /virtualizerRef\.current\.containerRef\(element\);/,
+    'the spacer height must stay current between React commits');
   assert.match(list, /overscan:\s*50,/);
   assert.match(list, /defaultRangeExtractor\(\{ \.\.\.range, overscan: renderOverscan \}\)/);
   assert.match(list, /current < TRANSCRIPT_VIRTUAL_OVERSCAN \? TRANSCRIPT_VIRTUAL_OVERSCAN : current/);
@@ -1718,16 +1737,20 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(list, /initialMeasurementsCache:\s*restored\?\.measurements/,
     're-entry must replay the real measurements, not re-derive estimates');
   assert.match(list,
-    /initialOffset:\s*\(\) => \(restored && !restored\.atEnd \? restored\.offset : Number\.MAX_SAFE_INTEGER\)/,
-    'entry geometry is resolved at construction, before the first paint');
+    /initialOffset:\s*\(\) => \(shouldAnchorBottom \? Number\.MAX_SAFE_INTEGER : 0\)/,
+    'OpenCode entry geometry is resolved from current follow intent before the first paint');
   assert.match(list,
     /rememberTranscriptVirtualMeasurements\(\s*sessionKey,\s*virtualizerRef\.current\.takeSnapshot\(\),/);
   assert.match(list,
     /shouldAdjustScrollPositionOnItemSizeChange = \(item, _delta, instance\) =>/,
-    'only rows completely above the viewport may compensate a late measurement');
+    'the anchor-compensation predicate rides on the virtualizer instance');
   assert.match(list, /spacer\.current\.style\.height = `\$\{instance\.getTotalSize\(\)\}px`/);
   assert.match(list, /item\.end <= logicalScrollOffset\(instance\)/,
-    'virtual-core alone compensates measured rows above the reader');
+    'OpenCode reader anchoring compensates rows above the logical scroll offset');
+  assert.match(list, /bottomAnchorSession\.current === sessionKey/,
+    'OpenCode maybeAnchorBottom anchors once per session entry, not per rows change');
+  assert.doesNotMatch(list, /queueMicrotask/,
+    'virtual-core wasAtEnd owns the bottom pin during a rewrap — resizeItem must not add a second scroll writer');
   assert.match(list, /\.\.\.activeIndexesRef\.current/,
     'the active output rows stay mounted while the reader scrolls history');
   assert.match(list, /className="transcript-bottom-spacer"/);
@@ -1739,6 +1762,28 @@ test('the transcript delegates reflow and bottom anchoring to one virtual timeli
   assert.match(follow, /markAuto|isAuto/);
   assert.doesNotMatch(follow, /style\.width|restoreReadingAnchor|reflowingRef/);
   assert.match(follow, /GESTURE_WINDOW_MS = 250/);
+  assert.match(follow, /element\.style\.overflowAnchor = "none"/);
+  assert.match(follow, /if \(element !== target\) observer\.observe\(element\);/,
+    'the shrinking composer/bottom-panel stack re-pins the bottom on viewport resize too');
+  assert.doesNotMatch(follow, /inlineReflowFrame|viewportObserver|previousInlineSize/,
+    'OpenCode parity must not add a second pane-width observer grammar');
+  const widthProbe = probe.slice(
+    probe.indexOf('const widthSnapshot'),
+    probe.indexOf('const install', probe.indexOf('const widthSnapshot')),
+  );
+  assert.match(widthProbe, /busy:\s*true,/,
+    'the width probe must exercise the working-only observer path');
+  assert.match(widthProbe, /streamingTail:\s*\{/,
+    'the width probe must keep one active timeline row');
+  assert.match(probe, /const narrowWidth = 489;/,
+    'the window sweep must include the reported narrow range');
+  assert.match(probe, /maxNarrowBottomDistance:/,
+    'the reported <=520px range must have its own strict bottom metric');
+  assert.match(probe,
+    /writes <= 2[\s\S]{0,240}?reversals <= 2 \* writes[\s\S]{0,160}?writeStacks\[0\]\.includes\('ResizeObserver\.'\)/,
+    'the window sweep may resolve one OpenCode content-observer transaction per 768px crossing');
+  assert.match(probe, /writes === 0 && reversals === 0/,
+    'the physical sash path must remain write-free and reversal-free');
   assert.match(renderer, /className="transcript-live-part" data-streaming-tail="true"/);
   assert.match(renderer, /data-following=\{following \? "true" : "false"\}/);
   assert.match(renderer, /resumeFollowOnSubmitRef\.current\(\);/);
@@ -1916,11 +1961,8 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
     'visible session rows must not run a continuous spinner animation');
   assert.match(styles, /\.workspace\s*\{[^}]*margin:\s*0;[^}]*border-radius:\s*0;/s);
   assert.match(styles, /\.schedules-page\s*\{[^}]*max-width:\s*720px;/s);
-  assert.match(styles,
-    /\.thread\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   assert.match(styles, /\.transcript\s*\{[^}]*scrollbar-gutter:\s*stable;/s,
     'the viewport owns the one scrollbar reserve outside the reading column');
-  assert.match(styles, /\.composer-region\s*\{[^}]*width:\s*min\(100%,\s*800px\);/s);
   // Control chrome (Activity Bar, New task, pickers) keeps the VS Code rail
   // geometry stable against 400 content rows.
   assert.match(styles, /\.activity-rail\s*\{[^}]*width:\s*48px;[^}]*min-width:\s*48px;/s,
@@ -1944,10 +1986,10 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
   assert.match(styles,
     /\.utility-dock-header-actions > button,[\s\S]*?\.utility-dock-header-actions \.row-overflow-trigger\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;[^}]*flex:\s*0 0 28px;/s,
     "dock title actions share the pane-sized click target");
-  assert.match(styles, /\.sidebar-recent-heading\s*\{[^}]*font-size:\s*13px;[^}]*font-weight:\s*600;/s,
+  assert.match(styles, /\.sidebar-recent-heading\s*\{[^}]*font-size:\s*var\(--mx-font-ui\);[^}]*font-weight:\s*600;/s,
     "section headings sit on the single 13px chrome scale");
   assert.match(styles,
-    /\.sidebar-recent-heading\.sidebar-heading-toggle\s*\{[^}]*font-size:\s*14px;[^}]*font-weight:\s*600;[^}]*color:\s*color-mix\(in srgb, var\(--mx-text\) 68%, transparent\);/s,
+    /\.sidebar-recent-heading\.sidebar-heading-toggle\s*\{[^}]*font-size:\s*var\(--mx-font-emphasis\);[^}]*font-weight:\s*600;[^}]*color:\s*color-mix\(in srgb, var\(--mx-text\) 68%, transparent\);/s,
     "collapsible rail section names should sit on the 14/600 68%-ink category tier");
   assert.match(styles,
     /\.session-sidebar-scroll > \.sidebar-recent \+ \.sidebar-recent\s*\{\s*margin-top:\s*2px;/s,
@@ -1980,9 +2022,9 @@ test('Desktop shell keeps Project and flat recent sessions inside the sidebar ra
     "sidebar disclosure chevrons must sit on the title's optical center");
   // Phone drawer: the sidebar overlays the thread instead of squeezing it
   // out of a 390px viewport (user: "message pane not visible" on a phone).
-  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*\.sidebar\.session-sidebar,[\s\S]*?position:\s*fixed;[\s\S]*?transform:\s*translateX\(-100%\)/);
+  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*html\[data-mixdog-mobile\] \.sidebar\.session-sidebar,[\s\S]*?position:\s*fixed;[\s\S]*?transform:\s*translateX\(-100%\)/);
   assert.match(styles, /\.sidebar-backdrop\s*\{\s*display:\s*none;\s*\}/);
-  assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*\.sidebar\.session-sidebar\[data-state="open"\]\s*\{[^}]*transform:\s*none;/);
+  assert.match(styles, /html\[data-mixdog-mobile\] \.sidebar\.session-sidebar\[data-state="open"\]\s*\{[^}]*transform:\s*none;/);
   assert.match(navigation, /aria-label=\{t\(["']Session manager["']\)\}/);
   assert.match(navigation, /session\.classification === "task" \|\| session\.classification === "project"/);
   assert.match(navigation, /className="schedules-list projects-list"/);
@@ -2179,7 +2221,7 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles, /\.session-row-copy b\s*\{[^}]*text-overflow:\s*clip;[^}]*white-space:\s*nowrap;/s);
   assert.doesNotMatch(styles, /\.message\.user\.attached-user\s*\{[^}]*margin-top:/s);
   assert.match(styles,
-    /\.thread\s*\{[^}]*padding:\s*20px 36px 0;[^}]*gap:\s*0;/s);
+    /\.thread\s*\{[^}]*width:\s*100%;[^}]*padding:\s*20px 0 0;[^}]*gap:\s*0;/s);
   assert.match(styles,
     /\.transcript-virtual-row-content\[data-tag="UserMessage"\],[\s\S]*?padding-bottom:\s*12px;[\s\S]*?\.transcript-turn-gap\s*\{\s*height:\s*20px;/,
     'part and turn spacing must be measured timeline geometry, not a container gap');
@@ -2243,7 +2285,10 @@ test('session title actions, message hover rows, and tool disclosures keep the d
     "the predicate must not ride in useVirtualizer options — 3.17 cores ignore it there");
   assert.match(styles, /\.tool-card\[data-open="true"\] \.tool-chevron svg\s*\{[^}]*rotate\(90deg\)/s);
   assert.match(styles, /\.shell-output\s*\{[^}]*border:\s*1px solid var\(--mx-border-muted\);[^}]*border-radius:\s*8px;/s);
-  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*min\(100%, 800px\);[^}]*margin:\s*0 auto;[^}]*padding:\s*12px 36px;/s);
+  assert.match(styles, /\.session-header-content\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*margin:\s*0 auto;[^}]*padding:\s*12px 16px;/s);
+  assert.match(styles,
+    /\.composer-region\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*margin:\s*0 auto;[^}]*padding:\s*0 12px 16px;/s,
+    'OpenCode dock parity keeps a 12px outer inset on the shared centered frame');
   assert.match(styles, /\.session-header-content h1\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*min\(52ch,\s*100%\);[^}]*flex:\s*0 1 auto;/s);
   assert.match(styles, /\.session-title-trigger\s*\{[^}]*width:\s*100%;[^}]*padding:\s*0;/s);
   assert.match(styles, /\.session-header-title-input\s*\{[^}]*field-sizing:\s*content;[^}]*width:\s*auto;[^}]*max-width:\s*100%;[^}]*padding:\s*0;/s);
@@ -2253,9 +2298,9 @@ test('session title actions, message hover rows, and tool disclosures keep the d
     'the empty workspace must use a large quiet watermark instead of an app-card');
   assert.doesNotMatch(styles, /\.welcome-wordmark\s*\{/,
     'the empty workspace must not repeat the product wordmark');
-  assert.match(styles,
-    /@media \(min-width:\s*761px\) and \(max-width:\s*1024px\)\s*\{[\s\S]*?\.session-header-content,[\s\S]*?\.studio-topbar\s*\{[^}]*padding-inline:\s*16px;[\s\S]*?\.session-header-content h1\s*\{[^}]*max-width:\s*min\(36ch,\s*100%\);[^}]*flex:\s*1 1 auto;[^}]*text-overflow:\s*ellipsis;[\s\S]*?\.session-header-status\s*\{[^}]*flex-shrink:\s*0;[\s\S]*?\.session-project-badge\s*\{\s*display:\s*none;/s,
-    'compact desktop must preserve Task header controls and reclaim Task/Studio gutter space');
+  assert.doesNotMatch(styles,
+    /@media \(min-width:\s*761px\) and \(max-width:\s*1024px\)\s*\{[^}]*\.(?:thread|composer-region)/s,
+    'window media queries must not override pane-owned transcript or composer widths');
   assert.match(styles, /\.mixdog-settings__close\s*\{[^}]*flex:\s*0 0 24px;[^}]*place-items:\s*center;/s);
   assert.match(styles, /\.command-surface-header-actions\s*\{[^}]*flex:\s*0 0 auto;/s);
   assert.match(styles, /\.session-context-indicator > button\s*\{[^}]*place-items:\s*center;/s);
@@ -2263,7 +2308,7 @@ test('session title actions, message hover rows, and tool disclosures keep the d
   assert.match(styles, /\.live-work-status\s*\{[^}]*margin-left:\s*0;/s);
   assert.match(styles, /\.composer-mic\s*\{[^}]*margin-left:\s*6px;[^}]*margin-right:\s*8px;/s);
   assert.match(styles,
-    /\.chat-live-work\s*\{[^}]*position:\s*absolute;[^}]*right:\s*32px;[^}]*bottom:\s*calc\(100% \+ 20px\);/s);
+    /\.chat-live-work\s*\{[^}]*position:\s*absolute;[^}]*right:\s*12px;[^}]*bottom:\s*calc\(100% \+ 20px\);/s);
   assert.doesNotMatch(styles, /\.composer-region:has\(\.turn-review-bar\) \.chat-live-work/);
   assert.match(styles, /\.chat-live-work \.live-work-status\s*\{[^}]*height:\s*20px;/s);
   assert.match(styles, /\.live-activity-status\s*\{[^}]*min-height:\s*24px;/s);
@@ -2301,11 +2346,9 @@ test('phone header uses the roomier mobile scale', async () => {
   assert.match(styles, /\.session-header\s*\{[^}]*flex-basis:\s*64px;[^}]*min-height:\s*64px;/s);
   assert.match(styles, /\.session-header-content\s*\{[^}]*height:\s*64px;[^}]*grid-template-columns:/s);
   assert.match(styles, /\.session-header-content h1\s*\{[^}]*font-size:\s*16px;[^}]*line-height:\s*24px;/s);
-  assert.match(styles, /\.session-project-badge\s*\{[^}]*height:\s*22px;[^}]*font-size:\s*12px;[^}]*line-height:\s*22px;/s);
+  assert.match(styles, /\.session-project-badge\s*\{[^}]*height:\s*22px;[^}]*font-size:\s*var\(--mx-font-minor\);[^}]*line-height:\s*22px;/s);
   assert.match(styles, /\.session-header-menu \.sidebar-toggle-icon,[^}]*\.session-dock-toggle svg\.lucide\s*\{[^}]*width:\s*20px;[^}]*height:\s*20px;/s);
   assert.match(styles, /@media \(pointer:\s*coarse\)\s*\{[^}]*\.toolbar-sidebar\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;/s);
-  assert.match(styles,
-    /@media \(max-width:\s*760px\)\s*\{[\s\S]*?\.composer-region\s*\{[^}]*padding-inline:\s*16px;[^}]*\}[\s\S]*?\.chat-live-work\s*\{[^}]*right:\s*16px;/s);
   assert.match(styles,
     /@media \(hover:\s*none\) and \(pointer:\s*coarse\)\s*\{[\s\S]*?\.session-header-menu:hover,[\s\S]*?\.session-dock-toggle:hover\s*\{[^}]*background:\s*transparent;/s);
   assert.match(app, /renderUtilityTabs=\{paneUtilityTabs\}/);

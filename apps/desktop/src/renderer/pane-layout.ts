@@ -445,6 +445,22 @@ export function paneNodeAtPath(root: PaneNode, path: string): PaneNode | null {
   return node;
 }
 
+/** Split axis that directly owns a leaf. Structural removals use this before
+ *  collapsing the parent so the surviving tracks can be redistributed along
+ *  exactly the axis that changed. */
+export function paneLeafParentDirection(
+  root: PaneNode,
+  leafId: string,
+): PaneDirection | null {
+  if (root.type === "leaf") return null;
+  if ((root.first.type === "leaf" && root.first.id === leafId)
+    || (root.second.type === "leaf" && root.second.id === leafId)) {
+    return root.direction;
+  }
+  return paneLeafParentDirection(root.first, leafId)
+    ?? paneLeafParentDirection(root.second, leafId);
+}
+
 export type PaneRelativeRect = {
   left: number;
   top: number;
@@ -687,9 +703,14 @@ export function distributePaneRatiosAlong(
     return Math.max(weight(node.first), weight(node.second));
   };
   const walk = (node: PaneNode): PaneNode => {
-    if (node.type === "leaf" || node.direction !== direction) return node;
+    if (node.type === "leaf") return node;
     const first = walk(node.first);
     const second = walk(node.second);
+    if (node.direction !== direction) {
+      return first === node.first && second === node.second
+        ? node
+        : { ...node, first, second };
+    }
     const a = weight(first);
     const b = weight(second);
     const ratio = clampPaneRatio(a / (a + b));

@@ -84,7 +84,7 @@ test('live-share mirrors owner deltas and routes viewer submits', async () => {
     socketPathFor: () => pipePath,
     getPublishedState: () => ownerState,
     listeners,
-    onRemoteSubmit: (text) => receivedSubmits.push(text),
+    onRemoteSubmit: (text, meta) => receivedSubmits.push({ text, meta }),
     onOwnerClosed: () => {},
     viewerApply: null,
   });
@@ -150,7 +150,19 @@ test('live-share mirrors owner deltas and routes viewer submits', async () => {
     // Viewer submit reaches the owner queue.
     assert.equal(viewerShare.sendSubmit('typed on viewer'), true);
     await waitFor(() => receivedSubmits.length === 1, 'viewer submit');
-    assert.equal(receivedSubmits[0], 'typed on viewer');
+    assert.equal(receivedSubmits[0].text, 'typed on viewer');
+
+    // Submission metadata survives the pipe: the desktop pane releases its
+    // optimistic user row only when the settled item carries the SAME id.
+    assert.equal(
+      viewerShare.sendSubmit('typed with id', { id: 'desktop-submit-42', submittedAt: 1234.7 }),
+      true,
+    );
+    await waitFor(() => receivedSubmits.length === 2, 'viewer submit with id');
+    assert.deepEqual(receivedSubmits[1], {
+      text: 'typed with id',
+      meta: { id: 'desktop-submit-42', submittedAt: 1235 },
+    });
 
     // Owner shutdown notifies the viewer promotion path.
     owner.dispose();

@@ -136,18 +136,17 @@ export function desktopThemePreferenceForTheme(value: unknown): DesktopThemePref
   return resolved === 'light' ? 'white' : 'dark';
 }
 
-/** Settings picker options: classic modes first, then every registry theme
- * not already covered by White (light) or Dark (the default dark theme). */
+/** Settings picker options — DESKTOP keeps exactly the classic modes
+ * (user: 데스크탑은 분리고 화이트·다크·그레이 3개면 된다): System +
+ * White/Dark/Gray. The TUI registry themes (nord, dracula, …) stay
+ * TUI-only; a previously stored registry id still resolves for rendering,
+ * it just is not offered here anymore. */
 export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; label: string }> {
-  const covered = new Set<string>([DEFAULT_THEME_ID, 'light']);
   return [
     { value: 'system', label: 'System' },
     { value: 'white', label: 'White' },
     { value: 'dark', label: 'Dark' },
     { value: 'gray', label: 'Gray' },
-    ...(THEME_ORDER as string[])
-      .filter((id) => !covered.has(id) && registry[id])
-      .map((id) => ({ value: id, label: registry[id].label })),
   ];
 }
 

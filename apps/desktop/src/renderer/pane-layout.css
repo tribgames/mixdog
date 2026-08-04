@@ -166,6 +166,11 @@
 @keyframes bottom-sheet-in {
   from { transform: translateY(calc(100% + 16px)); }
 }
+/* Responsive band crossings are layout corrections, not user gestures.
+   Explicitly suppress both inline and sheet opening animations for them. */
+.bottom-panel[data-motion="instant"] {
+  animation: none;
+}
 .bottom-panel-resize {
   position: absolute;
   top: -2px;
@@ -187,9 +192,9 @@
   align-items: center;
   gap: 2px;
   flex: 0 0 auto;
-  height: 35px;
-  /* 4+8(tab pad) lands the first tab LABEL on the 12px line the terminal
-     strip and xterm content start on (user: 위쪽 메뉴 왼쪽 패딩 맞추고). */
+  height: 36px;
+  /* Header tier: the panel destinations title the whole surface, so they
+     share the 15/600 rail-header scale instead of tiny utility-caption text. */
   padding: 0 8px 0 4px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
@@ -218,15 +223,14 @@
   color: inherit;
   opacity: 0.65;
   font: inherit;
-  height: 35px;
-  font-size: 11px;
-  font-weight: 500;
+  height: 36px;
+  font-size: var(--mx-font-ui);
+  font-weight: 600;
   padding: 0 8px;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
   cursor: pointer;
-  border-bottom: 1px solid transparent;
-  transition: opacity 100ms ease-out, border-color 100ms ease-out;
+  transition: opacity 100ms ease-out;
 }
 .bottom-panel-tab-count {
   min-width: 16px;
@@ -236,7 +240,7 @@
   color: var(--mx-grey-50);
   background: var(--mx-accent-bg);
   font-style: normal;
-  font-size: 10px;
+  font-size: var(--mx-font-micro);
   line-height: 16px;
 }
 .bottom-panel-tab:hover {
@@ -244,12 +248,28 @@
 }
 .bottom-panel-tab.is-active {
   opacity: 1;
-  /* VS Code panelTitle.activeBorder follows the FOREGROUND, not focus blue
-     (refs) — matches the workspace tab underline grammar. */
-  border-bottom-color: currentColor;
 }
 .bottom-panel-tabs-spacer {
   flex: 0 0 0;
+}
+.bottom-panel-header-actions {
+  width: clamp(140px, 22vw, 240px);
+  min-width: 90px;
+  display: flex;
+  flex: 0 1 240px;
+  justify-content: flex-end;
+}
+.bottom-panel-toolbar {
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 6px 0 12px;
+  border-bottom: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  background: var(--mx-window-band);
 }
 .bottom-panel-close {
   border: none;
@@ -259,7 +279,7 @@
   font: inherit;
   min-height: 24px;
   width: 28px;
-  font-size: 14px;
+  font-size: var(--mx-font-emphasis);
   padding: 0;
   cursor: pointer;
 }
@@ -268,9 +288,10 @@
 }
 .problems-panel-actions {
   min-width: 0;
+  width: auto;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 .problems-panel-actions > button,
 .problems-panel-filter > button {
@@ -303,6 +324,10 @@
   color: var(--mx-text-muted);
   background: var(--mx-bg-base);
 }
+.bottom-panel-header-actions .problems-panel-filter {
+  width: 100%;
+  flex: 1 1 auto;
+}
 .problems-panel-filter:focus-within { border-color: var(--mx-focus); }
 .problems-panel-filter input {
   min-width: 0;
@@ -312,14 +337,14 @@
   color: var(--mx-text);
   background: transparent;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--mx-font-minor);
 }
 .problems-filter-toggle {
   width: auto !important;
   grid-auto-flow: column;
   gap: 3px;
   padding-inline: 4px !important;
-  font-size: 10px;
+  font-size: var(--mx-font-micro);
 }
 .problems-filter-toggle[data-severity="error"] svg { color: var(--mx-danger); }
 /* The "…" trigger sits on the same 24px control grammar as its siblings. */
@@ -397,7 +422,7 @@
   height: 22px;
   gap: 5px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: var(--mx-font-minor);
 }
 .problems-file-row[aria-expanded="true"] > svg:first-child { transform: rotate(90deg); }
 .problems-file-row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -412,13 +437,13 @@
   margin-left: 3px;
   color: var(--mx-text-muted);
   font-style: normal;
-  font-size: 10px;
+  font-size: var(--mx-font-micro);
 }
 .problem-tree-row {
   min-height: 22px;
   gap: 6px;
   padding: 1px 8px 1px 31px;
-  font-size: 12px;
+  font-size: var(--mx-font-minor);
 }
 .problem-tree-row > svg { flex: 0 0 auto; }
 .problem-tree-row[data-severity="1"] > svg { color: var(--mx-danger); }
@@ -441,8 +466,8 @@
   white-space: nowrap;
 }
 .problem-tree-row b { font-weight: 400; }
-.problem-tree-row small { color: var(--mx-text-muted); font-size: 11px; }
-.problem-tree-row em { color: var(--mx-text-muted); font-size: 11px; font-style: normal; }
+.problem-tree-row small { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.problem-tree-row em { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-style: normal; }
 .problem-quick-fix {
   width: 22px;
   height: 20px;
@@ -470,9 +495,9 @@
   padding: 0 10px;
   border-bottom: 1px solid var(--mx-border-muted);
   color: var(--mx-text-muted);
-  font-size: 11px;
+  font-size: var(--mx-font-meta);
 }
-.problem-table-row { min-height: 24px; padding: 0 10px; font-size: 12px; }
+.problem-table-row { min-height: 24px; padding: 0 10px; font-size: var(--mx-font-minor); }
 .problem-table-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .problem-table-row > span:first-child { display: flex; align-items: center; gap: 6px; }
 
@@ -575,8 +600,8 @@
   font: inherit;
   cursor: pointer;
 }
-.pane-placeholder-title { font-size: 14px; opacity: 0.85; }
-.pane-placeholder-hint { font-size: 12px; opacity: 0.5; }
+.pane-placeholder-title { font-size: var(--mx-font-emphasis); opacity: 0.85; }
+.pane-placeholder-hint { font-size: var(--mx-font-minor); opacity: 0.5; }
 .pane-placeholder:hover .pane-placeholder-hint { opacity: 0.8; }
 
 /* Non-focused panes sit on the same floating workspace sheet as the
@@ -586,28 +611,6 @@
   background: var(--mx-workspace-sheet);
   box-shadow: none;
 }
-/* Responsive chat gutters (user request): the paddings step down with the
-   SURFACE width, not the window — a narrow split pane on a big monitor gets
-   the compact gutters, and phones/tablets fall out of the same scale.
-   Only the SIDE gutters step: the bottom inset stays the base 16px so
-   side-by-side panes keep their composers on one line (user: 채팅창 높이
-   통일 — the 16/8/6 steps read as mismatched heights). */
-.workspace { container-type: inline-size; }
-@container chat-pane (max-width: 620px) {
-  .thread {
-    padding: 18px calc(24px - var(--mx-scrollbar-size)) 18px 24px;
-  }
-  .composer-region { padding: 0 20px 16px; }
-  .session-header-content { padding: 12px 24px; }
-}
-@container chat-pane (max-width: 420px) {
-  .thread {
-    padding: 14px calc(16px - var(--mx-scrollbar-size)) 14px 16px;
-  }
-  .composer-region { padding: 0 12px 16px; }
-  .session-header-content { padding: 10px 16px; }
-}
-
 /* Integration with the app shell: the split workspace fills the main panel
    and each cell stretches the standard .workspace sheet. */
 .main-panel > .pane-split,
@@ -692,7 +695,7 @@
 
 /* Empty-state card for a parked non-session pane (draft / project / file). */
 .pane-placeholder {
-  font-size: 15px;
+  font-size: var(--mx-font-body);
   opacity: 0.45;
 }
 

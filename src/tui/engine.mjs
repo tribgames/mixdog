@@ -882,9 +882,12 @@ export async function createEngineSession({
     socketPathFor: (id) => liveSharePipePath(id, sessionPath(id)),
     getPublishedState: () => publishedState,
     listeners,
-    onRemoteSubmit: (text) => {
+    onRemoteSubmit: (text, meta) => {
       if (flags.disposed || state.sessionRemoteAttached) return;
-      bag.enqueue(text);
+      // Preserve the viewer's submission id end-to-end: the queue entry and
+      // the settled user item then carry the id the submitting surface used
+      // for its optimistic row, so that row releases instead of duplicating.
+      bag.enqueue(text, meta && meta.id ? { id: meta.id, submittedAt: meta.submittedAt } : {});
       void bag.drain();
     },
     onRemoteAbort: () => {
@@ -936,7 +939,7 @@ export async function createEngineSession({
         // directly to the durable owner spool instead of starting a fake local
         // turn that renders an error/synthetic assistant message.
         try { liveShare.ensure(); } catch { /* durable fallback below */ }
-        if (text && liveShare.sendSubmit(text)) return true;
+        if (text && liveShare.sendSubmit(text, { id: options.id, submittedAt: options.submittedAt })) return true;
         return runtime.enqueueRemoteAttachedPrompt?.(prompt) === true;
       }
       return baseSubmit(prompt, options);
@@ -973,9 +976,14 @@ export async function createEngineSession({
         // EngineHost holds renderer publications across resume. Keep that hold
         // until the owner's first FULL frame replaces the persisted transcript,
         // then synchronously publish the complete draft before getState().
-        // Old owners without live-share fall back to the disk restore after the
-        // short bounded wait rather than blocking session entry indefinitely.
-        if (id && await liveShare.waitForViewerSync(id)) bag.flushEmit();
+        // A healthy local owner serves its full frame on connect within tens
+        // of ms; a dead presence sidecar or an owner blocked mid-turn never
+        // will. The old 1500ms default made exactly those sessions stall
+        // entry for the full budget (measured 1571/1519ms resumes — user:
+        // 세션 로드가 가끔 매우 느림). Cap the boundary wait low: late owner
+        // frames still land through viewerApply and simply replace the disk
+        // restore when they arrive.
+        if (id && await liveShare.waitForViewerSync(id, 400)) bag.flushEmit();
       }
       return result;
     };

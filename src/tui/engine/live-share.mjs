@@ -287,7 +287,18 @@ export function createLiveShare({
       });
       attachLineReader(socket, (frame) => {
         if (frame.t === 'submit' && typeof frame.text === 'string' && frame.text.trim()) {
-          onRemoteSubmit(frame.text);
+          // Optional submission metadata (additive, old viewers omit it): the
+          // originating surface's submission id must survive the pipe so its
+          // optimistic user row releases when the SAME id settles in the
+          // owner's transcript (user: 방금 친 메세지가 2개 남는다).
+          const id = typeof frame.id === 'string' && frame.id.trim() ? frame.id : undefined;
+          const submittedAt = Number(frame.submittedAt);
+          onRemoteSubmit(frame.text, {
+            ...(id ? { id } : {}),
+            ...(Number.isFinite(submittedAt) && submittedAt > 0
+              ? { submittedAt: Math.round(submittedAt) }
+              : {}),
+          });
         } else if (frame.t === 'abort') {
           // Viewer stop button: interrupt the owner's active turn here — the
           // viewer process has no turn of its own to cancel.
@@ -589,10 +600,19 @@ export function createLiveShare({
     ensure: ensureShare,
     viewerConnected: () => clientUp,
     waitForViewerSync,
-    sendSubmit(text) {
+    sendSubmit(text, meta = null) {
       if (!clientUp || !client) return false;
       try {
-        client.write(frameLine({ t: 'submit', text: String(text) }));
+        const id = meta && meta.id != null && String(meta.id).trim() ? String(meta.id) : undefined;
+        const submittedAt = Number(meta?.submittedAt);
+        client.write(frameLine({
+          t: 'submit',
+          text: String(text),
+          ...(id ? { id } : {}),
+          ...(Number.isFinite(submittedAt) && submittedAt > 0
+            ? { submittedAt: Math.round(submittedAt) }
+            : {}),
+        }));
         return true;
       } catch {
         return false;

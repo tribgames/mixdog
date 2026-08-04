@@ -43,8 +43,8 @@ function resolveCssColor(value: string): Rgba | null {
 /** Every fullscreen scrim currently painting over the window band. Counting
  *  claims guessed one layer per modal; reading the LIVE layers makes the
  *  caption match whatever the DOM actually shows, nesting included. */
-const SCRIM_LAYERS = '.onboarding-layer, .schedules-dialog-layer, .settings-confirm-layer,'
-  + ' .mx-dialog-layer, .settings-oauth-layer';
+const SCRIM_LAYERS = '.onboarding-layer, .schedules-dialog-layer, .mixdog-settings-layer,'
+  + ' .settings-confirm-layer, .mx-dialog-layer, .settings-oauth-layer';
 
 function visibleScrims(): Rgba[] {
   if (typeof document === 'undefined') return [];

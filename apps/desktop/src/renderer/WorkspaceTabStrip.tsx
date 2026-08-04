@@ -174,6 +174,26 @@ export function WorkspaceTabStrip({
   const [fixedTabWidths, setFixedTabWidths] =
     useState<ReadonlyMap<string, number>>(() => new Map());
   const previousTabKeys = useRef(tabs.map((tab) => tab.key));
+  const revealActiveTab = useCallback(() => {
+    const strip = tabStrip.current;
+    const node = tabNodes.current.get(activeKey);
+    if (!strip || !node) return;
+    // The add button is a sibling of the scroll viewport, so clientWidth is
+    // already the complete unobscured label run.
+    const visibleWidth = strip.clientWidth;
+    if (visibleWidth <= 0) return;
+    if (strip.scrollWidth <= visibleWidth) {
+      strip.scrollLeft = 0;
+      return;
+    }
+    const left = node.offsetLeft;
+    const right = left + node.offsetWidth;
+    if (right > strip.scrollLeft + visibleWidth) {
+      strip.scrollLeft = right - visibleWidth;
+    } else if (left < strip.scrollLeft) {
+      strip.scrollLeft = left;
+    }
+  }, [activeKey]);
   useLayoutEffect(() => {
     const previousKeys = previousTabKeys.current;
     const appended = tabs.length > previousKeys.length
@@ -191,16 +211,26 @@ export function WorkspaceTabStrip({
   // hides tabs. Right overflow aligns the tab's right edge; left overflow
   // aligns its left edge (multiEditorTabsControl reveal synopsis).
   useLayoutEffect(() => {
+    revealActiveTab();
+  }, [activeKey, revealActiveTab, tabs]);
+  // Parent layout calls are implicit in React/CSS, unlike VS Code's explicit
+  // title-control layout(dimensions). Observe this strip's OWN width so sash,
+  // dock, sidebar and window changes all release mouse-close sizing and reveal
+  // the active label without coupling pane labels to viewport breakpoints.
+  useLayoutEffect(() => {
     const strip = tabStrip.current;
-    const node = tabNodes.current.get(activeKey);
-    if (!strip || !node) return;
-    const width = strip.clientWidth;
-    if (width <= 0) return;
-    const left = node.offsetLeft;
-    const right = left + node.offsetWidth;
-    if (right > strip.scrollLeft + width) strip.scrollLeft = right - width;
-    else if (left < strip.scrollLeft) strip.scrollLeft = left;
-  }, [activeKey, tabs]);
+    if (!strip || typeof ResizeObserver === "undefined") return undefined;
+    let previousWidth = strip.clientWidth;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = strip.clientWidth;
+      if (nextWidth === previousWidth) return;
+      previousWidth = nextWidth;
+      setFixedTabWidths((current) => current.size > 0 ? new Map() : current);
+      revealActiveTab();
+    });
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [revealActiveTab]);
   const closeTab = useCallback((tab: WorkspaceTab, freezeSurvivorWidths = false) => {
     const closingLastTab = tabs.at(-1)?.key === tab.key;
     if (freezeSurvivorWidths && !closingLastTab) {
@@ -621,25 +651,28 @@ export function WorkspaceTabStrip({
                 </div>
             );
           })}
-          <button ref={newButton} type="button" className="workspace-tab-new"
-            aria-label={t("New tab")} aria-haspopup="menu" aria-expanded={Boolean(newMenu)}
-            data-tooltip={t("New tab")}
-            onPointerEnter={(event) => rememberNewMenuAnchor(event.currentTarget)}
-            onFocus={(event) => rememberNewMenuAnchor(event.currentTarget)}
-            onPointerDown={(event) => {
-              if (event.button !== 0) return;
-              newMenuClickGuard.markPointerActivation();
-              toggleNewMenu(event.currentTarget);
-            }}
-            onClick={(event) => {
-              if (newMenuClickGuard.consumePointerClick()) return;
-              if (event.detail !== 0) return;
-              toggleNewMenu(event.currentTarget);
-            }}
-            onPointerCancel={newMenuClickGuard.clearPointerActivation}>
-            <Plus size={16} aria-hidden="true" />
-          </button>
         </nav>
+        {/* The fixed add slot is OUTSIDE the horizontal viewport. At a pane's
+            320px floor, tabs may scroll but can never paint beneath this
+            control or make it disappear. */}
+        <button ref={newButton} type="button" className="workspace-tab-new"
+          aria-label={t("New tab")} aria-haspopup="menu" aria-expanded={Boolean(newMenu)}
+          data-tooltip={t("New tab")}
+          onPointerEnter={(event) => rememberNewMenuAnchor(event.currentTarget)}
+          onFocus={(event) => rememberNewMenuAnchor(event.currentTarget)}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            newMenuClickGuard.markPointerActivation();
+            toggleNewMenu(event.currentTarget);
+          }}
+          onClick={(event) => {
+            if (newMenuClickGuard.consumePointerClick()) return;
+            if (event.detail !== 0) return;
+            toggleNewMenu(event.currentTarget);
+          }}
+          onPointerCancel={newMenuClickGuard.clearPointerActivation}>
+          <Plus size={16} aria-hidden="true" />
+        </button>
         {/* VS Code drag image: a text-only ghost label whose top-left corner
             rides at the cursor (setDragImage(tab, 0, 0) / applyDragImage). */}
         {draggingKey ? createPortal(
