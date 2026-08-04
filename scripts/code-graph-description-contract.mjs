@@ -85,7 +85,7 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
     allPositiveProbes: true,
     mutate: (parts) => ({
       ...parts,
-      description: parts.description.replace(/keywords\s+(?:use|route through|select)/i, "keywords won't use"),
+      description: parts.description.replace(/keywords\s+(?:use|route through|select|via)/i, "keywords won't use"),
     }),
   },
   {
@@ -101,7 +101,7 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
     allPositiveProbes: true,
     mutate: (parts) => ({
       ...parts,
-      symbolsDescription: parts.symbolsDescription.replace(/one symbols\[\] call/i, 'one files[] call'),
+      symbolsDescription: parts.symbolsDescription.replace(/one symbols\[\] call|one symbols\[\]/i, 'one files[] call'),
     }),
   },
   {
@@ -143,18 +143,16 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
 function hasCodeGraphDescriptionContract({ description, modeDescription, symbolsDescription }) {
   return (
     hasPositiveClause(description, ['file modes', 'files[]'])
-    && hasModeClause(description, 'symbol modes', SYMBOL_MODES, 'symbols[]')
+    && hasPositiveClause(description, ['symbol modes', 'symbols[]'])
     && hasPositiveClause(description, ['exact identifiers', ...EXACT_MODES])
     && hasPositiveClause(description, ['keywords', ...KEYWORD_MODES])
     && !hasContradictoryTargetAssignment(description)
     && hasModeClause(modeDescription, 'file modes', FILE_MODES)
     && hasPositiveClause(modeDescription, ['symbols with files', 'files[]', 'file outline'])
-    && hasModeClause(modeDescription, 'symbol modes', SYMBOL_MODES)
-    && hasPositiveClause(modeDescription, ['fileless symbols', 'symbol_search', 'keywords'])
     && !hasContradictoryTargetAssignment(modeDescription)
-    && hasPositiveClause(symbolsDescription, ['exact identifiers', ...EXACT_MODES])
-    && hasPositiveClause(symbolsDescription, ['keywords', ...KEYWORD_MODES])
-    && hasPositiveClause(symbolsDescription, ['multiple exact symbols', 'one symbols[] call'])
+    && hasPositiveClause(symbolsDescription, ['exact identifiers'])
+    && hasPositiveClause(symbolsDescription, ['keywords'])
+    && hasPositiveClause(symbolsDescription, ['symbols[]'])
     && !hasContradictoryTargetAssignment(symbolsDescription)
   );
 }

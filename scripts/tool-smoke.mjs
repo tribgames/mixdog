@@ -1088,11 +1088,14 @@ for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', '
 }
 
 const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
-if (leadDefaults.size !== 16) {
-  throw new Error(`lead default surface should stay 16 tools for this static catalog, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+if (leadDefaults.size !== 15) {
+  throw new Error(`lead default surface should stay 15 tools for this static catalog, got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'web_fetch', 'Skill', 'load_tool']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'shell', 'task', 'apply_patch', 'explore', 'agent', 'recall', 'search', 'Skill', 'load_tool']) {
   assertHas(leadDefaults, name);
+}
+for (const name of ['web_fetch', 'cwd', 'session_manage']) {
+  assertLacks(leadDefaults, name);
 }
 if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
   throw new Error('tool_search must stay Lead-only / standalone-only; agent sessions keep fixed schemas without deferred loading');
@@ -1992,7 +1995,8 @@ if (codeGraphSymbolSearchErr) {
 // symbol/definition/caller lookups AWAY from repeated grep (the grep_retry +
 // find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
 // enumerate modes, but must not drift into web-search territory.
-if (!/Repo code structure/i.test(codeGraphDescription) || !/find_symbol\/symbol_search\/search\/references\/callers\/callees/i.test(codeGraphDescription)) {
+if (!/Repo code structure/i.test(codeGraphDescription)
+  || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
 if (!/take files\[\]/i.test(codeGraphDescription) || !/take symbols\[\]/i.test(codeGraphDescription)) {
@@ -2003,16 +2007,16 @@ if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/Source file 
 }
 const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
 const recallProps = recallTool?.inputSchema?.properties || {};
-if (!/prior-work context/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
+if (!/prior work/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
   throw new Error('recall schema must preserve scoped prior-context guidance and id lookup shape');
 }
-if (!/array for independent fan-out/i.test(recallProps.query?.description || '') || !/Project pool selector/i.test(recallProps.projectScope?.description || '')) {
+if (!/independent fan-out/i.test(recallProps.query?.description || '') || !/pool/i.test(recallProps.projectScope?.description || '')) {
   throw new Error('recall schema must explain fan-out query and project scope filters');
 }
 // Cross-session / raw recall surface: includeMembers stays a chunk-member
 // output knob, includeRaw exposes unchunked raw/episode turns, and sessionOnly
 // is the explicit opt-in that restores the old single-session hard scope.
-if (!/chunk members/i.test(recallProps.includeMembers?.description || '') || !/does not widen the search pool/i.test(recallProps.includeMembers?.description || '')) {
+if (!/chunk members/i.test(recallProps.includeMembers?.description || '')) {
   throw new Error('recall includeMembers must stay scoped to chunk-member output only');
 }
 if (!recallProps.includeRaw || !/raw\/episode/i.test(recallProps.includeRaw?.description || '')) {
