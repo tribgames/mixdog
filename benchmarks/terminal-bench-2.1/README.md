@@ -5,10 +5,12 @@ coding harness for the same model family. Each run covers all 89 tasks with
 unmodified task timeouts and resources. Results are self-reported single runs
 (`k=1`, 2026-08), not leaderboard submissions.
 
-Together the runs show mixdog matching or beating the harnesses that hold the
-current Terminal-Bench 2.1 leaderboard #1 and #2 spots — on score, while
-running 1.27–1.43× faster at 29–40% lower priced cost with the same model and
-reasoning level.
+These runs test whether mixdog can deliver the same quality of results as
+the native harnesses while spending less to get there. Against the
+harnesses that hold the current Terminal-Bench 2.1 leaderboard #1 and #2
+spots, mixdog scores on par (one task ahead in one run, tied in the other —
+both within single-run noise) while running 1.27–1.43× faster at 29–40%
+lower priced cost with the same model and reasoning level.
 
 ## Results
 
@@ -16,7 +18,7 @@ reasoning level.
 
 ![Terminal-Bench 2.1 comparison of mixdog with Claude Opus 5 and Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
 
-- Score: **78/89 vs 77/89** — mixdog ahead by one task
+- Score: **78/89 vs 77/89** — parity (one-task edge, within single-run noise)
 - Speed: **1.43×**
 - Final context: **40% smaller** (median tokens at task end, 22.8K vs 38.2K)
 - Priced cost: **29% lower**
