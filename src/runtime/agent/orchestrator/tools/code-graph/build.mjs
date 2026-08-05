@@ -146,7 +146,9 @@ export async function _runDiskCodeGraphFastPath({
   signal = null,
   loadDiskEntry,
   consumeDirty = () => {},
-  acquireSlot = acquireChildSpawnSlot,
+  // Long-lived build slot: 'build' lane so a cold graph build never blocks
+  // short rg spawns behind the win32 cap=1 default lane.
+  acquireSlot = (signal) => acquireChildSpawnSlot(signal, 'build'),
   validateDiskHit = _validateDiskCodeGraphHit,
   spawnWorker,
   maxFiles = CODE_GRAPH_MAX_FILES,
@@ -418,7 +420,7 @@ export function _spawnCodeGraphWorker(
       if (val instanceof Error) reject(val);
       else resolve(val);
     };
-    (preAcquiredRelease ? Promise.resolve(preAcquiredRelease) : acquireChildSpawnSlot(signal || null)).then((release) => {
+    (preAcquiredRelease ? Promise.resolve(preAcquiredRelease) : acquireChildSpawnSlot(signal || null, 'build')).then((release) => {
       _releaseSlot = release;
       if (settled) { release(); _releaseSlot = null; return; }
       if (signal?.aborted) { settle(new Error('aborted')); return; }
