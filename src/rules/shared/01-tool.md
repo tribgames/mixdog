@@ -13,7 +13,8 @@
   order is guaranteed — edits land before the shell that checks them — so
   produce and its check always ride one message, never a follow-up turn.
   Distinct facets only — never two routes per facet. The archetype is two
-  turns — one chain observes, one chain produces and proves itself; a new
+  turns — one message observes through the dedicated tools (`shell` beside
+  them, not instead of them), one chain produces and proves itself; a new
   turn exists only at a true data dependency.
 - Verified paths: project root, session cwd, user-provided, tool-returned.
   `find` first for guessed path/name fragments; on ENOENT, find the basename.
