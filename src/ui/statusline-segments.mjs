@@ -18,7 +18,13 @@ const DEFAULT_MIXDOG_HOME = process.env.MIXDOG_HOME || join(homedir(), '.mixdog'
 const DEFAULT_STANDALONE_DATA_DIR = join(DEFAULT_MIXDOG_HOME, 'data');
 const SHELL_JOBS_SEGMENT_CACHE_MS = 1000;
 
-let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: { count: 0, elapsedLabel: '' } };
+// Session buckets ride along with the owner-wide totals: one host process can
+// own many sessions (the desktop pools every pane's engine), so a pane must be
+// able to ask for ITS OWN jobs instead of the process aggregate.
+const EMPTY_SHELL_JOBS_SESSION = Object.freeze({ count: 0, elapsedLabel: '' });
+const EMPTY_SHELL_JOBS = Object.freeze({ count: 0, elapsedLabel: '', sessions: Object.freeze({}) });
+
+let _shellJobsSegmentCache = { ownerPid: 0, at: 0, value: EMPTY_SHELL_JOBS };
 let _shellJobsRefreshInFlight = false;
 
 function dataDir() {
@@ -26,10 +32,16 @@ function dataDir() {
 }
 
 // Render-path entry point: synchronous, cache-only. Never blocks on fs.
-export function shellJobsStatus({ clientHostPid } = {}) {
+// Without `sessionId` this reports the owner process aggregate (CLI statusline,
+// keep-awake); with one it reports only that session's own jobs.
+export function shellJobsStatus({ clientHostPid, sessionId } = {}) {
   const ownerPid = positiveInt(clientHostPid);
-  const empty = { count: 0, elapsedLabel: '' };
-  if (!ownerPid) return empty;
+  // Asking for a scope is what matters, not whether that scope is non-empty:
+  // an explicit blank id (a desktop pane with no session yet) owns nothing,
+  // while an OMITTED id means "the whole owner process".
+  const scoped = sessionId !== undefined && sessionId !== null;
+  const scope = String(sessionId ?? '').trim();
+  if (!ownerPid) return scoped ? EMPTY_SHELL_JOBS_SESSION : EMPTY_SHELL_JOBS;
   const now = Date.now();
   const sameOwner = _shellJobsSegmentCache.ownerPid === ownerPid;
   const fresh = sameOwner && now - _shellJobsSegmentCache.at < SHELL_JOBS_SEGMENT_CACHE_MS;
@@ -37,7 +49,9 @@ export function shellJobsStatus({ clientHostPid } = {}) {
     _shellJobsRefreshInFlight = true;
     refreshShellJobsStatus(ownerPid).finally(() => { _shellJobsRefreshInFlight = false; });
   }
-  return sameOwner ? (_shellJobsSegmentCache.value || empty) : empty;
+  const value = sameOwner ? (_shellJobsSegmentCache.value || EMPTY_SHELL_JOBS) : EMPTY_SHELL_JOBS;
+  if (!scoped) return value;
+  return (scope && value.sessions?.[scope]) || EMPTY_SHELL_JOBS_SESSION;
 }
 
 // Memory cycle L2 segment source. The memory daemon writes
@@ -95,8 +109,7 @@ function pidAlive(pid) {
 }
 
 async function refreshShellJobsStatus(ownerPid) {
-  const empty = { count: 0, elapsedLabel: '' };
-  let value = empty;
+  let value = EMPTY_SHELL_JOBS;
   try {
     const dir = join(dataDir(), 'shell-jobs');
     let names;
@@ -123,23 +136,43 @@ async function refreshShellJobsStatus(ownerPid) {
       .slice(0, 30);
     let count = 0;
     let oldestMs = Infinity;
+    // sessionId -> { count, oldestMs }. Jobs with no session stamp (legacy
+    // records, plain CLI runs) still count toward the owner total but belong to
+    // no pane, so they never light up a session's indicator.
+    const bySession = new Map();
     for (const id of ids) {
       const p = join(dir, `${id}.json`);
       let detail;
       try { detail = JSON.parse(await readFile(p, 'utf-8')); } catch { continue; }
       if (!(await isShellJobAlive(detail, p, dir, id))) continue;
       count++;
+      let jobMs = Infinity;
       try {
         const st = await stat(p);
+        jobMs = st.mtimeMs;
         if (st.mtimeMs < oldestMs) oldestMs = st.mtimeMs;
       } catch {}
+      const owner = String(detail?.ownerSessionId ?? '').trim();
+      if (!owner) continue;
+      const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity };
+      bucket.count += 1;
+      if (jobMs < bucket.oldestMs) bucket.oldestMs = jobMs;
+      bySession.set(owner, bucket);
     }
     if (count) {
-      const elapsedLabel = Number.isFinite(oldestMs) ? formatElapsed(Date.now() - oldestMs) : '';
-      value = { count, elapsedLabel };
+      const now = Date.now();
+      const elapsedLabel = Number.isFinite(oldestMs) ? formatElapsed(now - oldestMs) : '';
+      const sessions = {};
+      for (const [owner, bucket] of bySession) {
+        sessions[owner] = {
+          count: bucket.count,
+          elapsedLabel: Number.isFinite(bucket.oldestMs) ? formatElapsed(now - bucket.oldestMs) : '',
+        };
+      }
+      value = { count, elapsedLabel, sessions };
     }
   } catch {
-    value = empty;
+    value = EMPTY_SHELL_JOBS;
   }
   _shellJobsSegmentCache = { ownerPid, at: Date.now(), value };
 }

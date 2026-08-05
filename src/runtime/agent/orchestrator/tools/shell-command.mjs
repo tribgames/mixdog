@@ -232,6 +232,7 @@ export function execShellCommand({
   onProgress,
   onOutputTail,
   clientHostPid,
+  ownerSessionId,
   backgroundOnTimeout,
   promotedTimeoutMs = 0,
   admission = resourceAdmission,
@@ -780,6 +781,9 @@ export function execShellCommand({
           // Stamp the adopted job with the dispatching terminal's claude.exe
           // pid so the statusline scopes it to the owning session.
           clientHostPid,
+          // …and with the dispatching SESSION, so a pooled host (desktop) can
+          // show the job on its own pane only.
+          ownerSessionId,
         });
       } catch {
         job = null;

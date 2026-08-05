@@ -25,6 +25,10 @@ const DELAYED_PIPE_ID = `${PIPE_ID}_delayed`;
 const delayedPipePath = process.platform === 'win32'
   ? `\\\\.\\pipe\\mixdog-live-${DELAYED_PIPE_ID}`
   : join(tmpdir(), `mixdog-live-${DELAYED_PIPE_ID}.sock`);
+const ACK_PIPE_ID = `${PIPE_ID}_ack`;
+const ackPipePath = process.platform === 'win32'
+  ? `\\\\.\\pipe\\mixdog-live-${ACK_PIPE_ID}`
+  : join(tmpdir(), `mixdog-live-${ACK_PIPE_ID}.sock`);
 
 function waitFor(check, label, timeoutMs = 4000) {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -167,6 +171,63 @@ test('live-share mirrors owner deltas and routes viewer submits', async () => {
     // Owner shutdown notifies the viewer promotion path.
     owner.dispose();
     await waitFor(() => ownerClosedCount === 1, 'owner close notification');
+  } finally {
+    owner.dispose();
+    viewerShare.dispose();
+  }
+});
+
+test('a viewer submit the owner refuses is reported for durable re-delivery', async () => {
+  let acceptSubmits = true;
+  const receivedSubmits = [];
+  const owner = createLiveShare({
+    ownerSessionId: () => ACK_PIPE_ID,
+    viewerSessionId: () => '',
+    socketPathFor: () => ackPipePath,
+    getPublishedState: () => ({ items: [], streamingTail: null, spinner: null }),
+    listeners: new Set(),
+    onRemoteSubmit: (text) => { receivedSubmits.push(text); return acceptSubmits; },
+    onOwnerClosed: () => {},
+    viewerApply: null,
+  });
+  const viewer = createViewerStore();
+  const undelivered = [];
+  const viewerShare = createLiveShare({
+    ownerSessionId: () => '',
+    viewerSessionId: () => ACK_PIPE_ID,
+    socketPathFor: () => ackPipePath,
+    getPublishedState: () => ({ items: [], streamingTail: null, spinner: null }),
+    listeners: new Set(),
+    onRemoteSubmit: () => {},
+    onOwnerClosed: () => {},
+    viewerApply: viewer.apply,
+  });
+
+  try {
+    owner.ensure();
+    await waitFor(() => {
+      viewerShare.ensure();
+      return viewerShare.viewerConnected();
+    }, 'viewer connect');
+
+    // Accepted: the owner acknowledges, so nothing is re-delivered.
+    assert.equal(viewerShare.sendSubmit('accepted prompt', {
+      id: 'ack-ok-1',
+      onUndelivered: () => undelivered.push('ack-ok-1'),
+    }), true);
+    await waitFor(() => receivedSubmits.length === 1, 'accepted submit reaches the owner');
+
+    // Refused (owner disposed / itself attached): the write still "succeeds",
+    // so only the ack verdict can save the prompt.
+    acceptSubmits = false;
+    assert.equal(viewerShare.sendSubmit('refused prompt', {
+      id: 'ack-no-1',
+      onUndelivered: () => undelivered.push('ack-no-1'),
+    }), true);
+    await waitFor(() => undelivered.includes('ack-no-1'),
+      'a refused submit is reported undelivered');
+    assert.deepEqual(undelivered, ['ack-no-1'],
+      'an acknowledged submit is never re-delivered');
   } finally {
     owner.dispose();
     viewerShare.dispose();

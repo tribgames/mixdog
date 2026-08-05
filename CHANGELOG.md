@@ -5,11 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-- Engine daemon: a machine-global process can now own every live session
-  engine, with the terminal TUI and the desktop app attached as views over a
-  127.0.0.1 HTTP+SSE transport. Opt in with `MIXDOG_ENGINE_DAEMON=1`
-  (`strict` refuses the in-process fallback); the daemon host itself always
-  builds real engines, so the factory can never recurse into its own proxy.
+- Engine daemon by DEFAULT: a machine-global process owns every live session
+  engine and the terminal TUI plus every desktop window attach as views over a
+  127.0.0.1 HTTP+SSE transport, so there is no owner/viewer role to negotiate
+  between surfaces. `MIXDOG_ENGINE_DAEMON=0` opts out to an in-process engine
+  and `strict` refuses the local fallback; the daemon host itself always builds
+  real engines, so the factory can never recurse into its own proxy.
+- Submitted prompts can no longer be lost between surfaces. A daemon view's
+  submit keeps its synchronous answer but is retried until the engine takes it
+  (and re-delivered after a daemon restart), a live-share submit is
+  acknowledged by the owner and falls back to the durable spool when it is
+  refused or unacknowledged, and the queue drops a re-delivered submission id
+  instead of posting the message twice.
 - Cross-client editing: resuming a session another view already holds adopts
   that live engine instead of loading a second copy, engine frames fan out to
   every view, and an engine only ends with its LAST viewer — so a terminal and

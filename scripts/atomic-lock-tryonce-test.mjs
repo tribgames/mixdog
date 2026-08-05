@@ -26,6 +26,46 @@ function tmpLock() {
   return { dir, lockPath: join(dir, 't.lock') };
 }
 
+// One process now hosts every session (engine daemon) plus its channels and
+// config writers, so same-process contention is the COMMON case. The OS lock
+// cannot express "already mine": contenders spun to ELOCKTIMEOUT and a nested
+// call waited for itself forever. These pin the in-process queue instead.
+test('same-process writers on one path serialize instead of timing out', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixlock-inproc-'));
+  const file = join(dir, 'state.json');
+  try {
+    const writes = Array.from({ length: 12 }, (_, index) => updateJsonAtomic(
+      file,
+      (current) => ({ hits: [...(current?.hits || []), index] }),
+      // A timeout short enough that spinning contenders would fail.
+      { timeoutMs: 300, lock: true, compact: true },
+    ));
+    await Promise.all(writes);
+    const stored = JSON.parse(readFileSync(file, 'utf8'));
+    assert.equal(stored.hits.length, 12, 'every writer applied its update');
+    assert.deepEqual([...stored.hits].sort((a, b) => a - b),
+      Array.from({ length: 12 }, (_, index) => index));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a nested lock on the same path runs through instead of self-deadlocking', async () => {
+  const { dir, lockPath } = tmpLock();
+  try {
+    const order = [];
+    await withFileLock(lockPath, async () => {
+      order.push('outer');
+      await withFileLock(lockPath, async () => { order.push('inner'); }, { timeoutMs: 300 });
+      order.push('outer-end');
+    }, { timeoutMs: 300 });
+    assert.deepEqual(order, ['outer', 'inner', 'outer-end']);
+    assert.equal(existsSync(lockPath), false, 'the lock is released after the outermost holder');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('try-once sync throws ELOCKCONTENDED without sleeping when held', () => {
   const { dir, lockPath } = tmpLock();
   try {

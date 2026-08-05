@@ -293,12 +293,20 @@ export function createLiveShare({
           // owner's transcript (user: 방금 친 메세지가 2개 남는다).
           const id = typeof frame.id === 'string' && frame.id.trim() ? frame.id : undefined;
           const submittedAt = Number(frame.submittedAt);
-          onRemoteSubmit(frame.text, {
+          const delivered = onRemoteSubmit(frame.text, {
             ...(id ? { id } : {}),
             ...(Number.isFinite(submittedAt) && submittedAt > 0
               ? { submittedAt: Math.round(submittedAt) }
               : {}),
-          });
+          }) !== false;
+          // Acknowledge the verdict (additive: viewers without ack tokens are
+          // unaffected). A refusal travels back as ok:false so the sender
+          // re-delivers instead of assuming the prompt landed.
+          const ackId = typeof frame.ack === 'string' && frame.ack.trim() ? frame.ack : '';
+          if (ackId) {
+            try { socket.write(frameLine({ t: 'submit-ack', ack: ackId, ok: delivered })); }
+            catch { /* close handles it; the sender's ack timeout re-delivers */ }
+          }
         } else if (frame.t === 'abort') {
           // Viewer stop button: interrupt the owner's active turn here — the
           // viewer process has no turn of its own to cancel.
@@ -358,6 +366,27 @@ export function createLiveShare({
   let clientRetryId = '';
   let clientRetryDelayMs = clientRetryMinimumMs;
   const viewerSyncWaiters = new Set();
+  // Submit delivery tracking. A pipe write only proves the bytes left this
+  // process: the owner can REFUSE the prompt (disposed / itself attached) and
+  // the socket can die before it is read. Every submit therefore carries an
+  // ack token, and an unacknowledged one is reported to the caller so it can
+  // re-deliver through the durable spool instead of losing the message.
+  const SUBMIT_ACK_TIMEOUT_MS = 2_000;
+  const pendingSubmitAcks = new Map();
+  let submitAckSeq = 0;
+
+  const settleSubmitAck = (ackId, delivered) => {
+    const entry = pendingSubmitAcks.get(ackId);
+    if (!entry) return;
+    pendingSubmitAcks.delete(ackId);
+    clearTimeout(entry.timer);
+    if (delivered) return;
+    try { entry.onUndelivered?.(); } catch { /* fallback is best-effort */ }
+  };
+
+  const failPendingSubmitAcks = () => {
+    for (const ackId of [...pendingSubmitAcks.keys()]) settleSubmitAck(ackId, false);
+  };
 
   const settleViewerSync = (id, synced) => {
     for (const waiter of [...viewerSyncWaiters]) {
@@ -552,6 +581,9 @@ export function createLiveShare({
         clientUp = false;
         clientSyncedId = '';
       }
+      // Anything still awaiting an ack died with this socket: report it as
+      // undelivered so the caller re-delivers durably.
+      if (wasCurrent) failPendingSubmitAcks();
       try { socket.destroy(); } catch { /* already gone */ }
       if (wasUp) clearMirroredLiveState();
       // A live link that dropped means the owner ended or crashed: nudge the
@@ -564,6 +596,13 @@ export function createLiveShare({
     attachLineReader(socket, (frame) => {
       if (client !== socket) return;
       if (frame.t === 'close') { down(true); return; }
+      // Delivery verdicts are session-independent: settle them before the
+      // session-scope guard, so a submit acknowledged during a session switch
+      // is not counted as lost (and re-sent as a duplicate).
+      if (frame.t === 'submit-ack') {
+        settleSubmitAck(String(frame.ack || ''), frame.ok !== false);
+        return;
+      }
       if (viewerSessionId() !== id) return;
       try {
         applyViewerFrame(frame, socket);
@@ -602,21 +641,33 @@ export function createLiveShare({
     waitForViewerSync,
     sendSubmit(text, meta = null) {
       if (!clientUp || !client) return false;
+      const ackId = `ack-${process.pid}-${Date.now()}-${(submitAckSeq += 1)}`;
+      const onUndelivered = typeof meta?.onUndelivered === 'function' ? meta.onUndelivered : null;
       try {
         const id = meta && meta.id != null && String(meta.id).trim() ? String(meta.id) : undefined;
         const submittedAt = Number(meta?.submittedAt);
         client.write(frameLine({
           t: 'submit',
           text: String(text),
+          ack: ackId,
           ...(id ? { id } : {}),
           ...(Number.isFinite(submittedAt) && submittedAt > 0
             ? { submittedAt: Math.round(submittedAt) }
             : {}),
         }));
-        return true;
       } catch {
         return false;
       }
+      // Written, not yet delivered. The caller gets its synchronous `true`
+      // (the store contract), and an owner that never acknowledges — refusal,
+      // crash, half-open pipe — triggers the durable re-delivery instead of
+      // silently eating the prompt.
+      if (onUndelivered) {
+        const timer = setTimeout(() => settleSubmitAck(ackId, false), SUBMIT_ACK_TIMEOUT_MS);
+        timer.unref?.();
+        pendingSubmitAcks.set(ackId, { timer, onUndelivered });
+      }
+      return true;
     },
     sendAbort() {
       if (!clientUp || !client) return false;
@@ -630,6 +681,7 @@ export function createLiveShare({
     dispose() {
       disposed = true;
       listeners.delete(onPublish);
+      failPendingSubmitAcks();
       stopServer();
       stopClient();
       for (const waiter of [...viewerSyncWaiters]) waiter.finish(false);

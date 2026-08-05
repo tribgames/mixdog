@@ -29,6 +29,7 @@ import {
     shellJobEnforcedPath,
     shellJobGuardianReceiptPath,
     resolveJobOwnerHostPid,
+    resolveJobOwnerSessionId,
     trimShellJobSpill,
     writeShellJobDetail,
     readShellJobDetail,
@@ -780,7 +781,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
 // depends on holds for adopted jobs exactly as it does for staged wrappers.
 // This function only allocates the jobId/paths and writes the initial
 // 'running' detail.
-export function adoptForegroundShellJob({ command, cwd, pid, timeoutMs, mergeStderr, stdoutPath, stderrPath, clientHostPid }) {
+export function adoptForegroundShellJob({ command, cwd, pid, timeoutMs, mergeStderr, stdoutPath, stderrPath, clientHostPid, ownerSessionId }) {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const exitPath = shellJobExitPath(jobId);
     const donePath = shellJobDonePath(jobId);
@@ -805,6 +806,9 @@ export function adoptForegroundShellJob({ command, cwd, pid, timeoutMs, mergeStd
         // dispatching terminal's claude.exe pid (resolveJobOwnerHostPid falls
         // back to the single-client env only when unset).
         ownerHostPid: resolveJobOwnerHostPid(clientHostPid),
+        // Dispatching session (see resolveJobOwnerSessionId): a pane counts
+        // only the jobs its own session started.
+        ownerSessionId: resolveJobOwnerSessionId(ownerSessionId),
         startedAt: new Date().toISOString(),
     };
     writeShellJobDetail(detail);

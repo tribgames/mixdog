@@ -20,6 +20,7 @@ import {
   normalizedChannelRemoteState,
   storedVisibleSessionSnapshotRegresses,
   sessionTranscriptGeneration,
+  sessionSnapshotWithRememberedRoute,
 } from "./engine-host.ts";
 import { createSessionLiveLanes } from "./session-live-lanes.ts";
 import { searchProjectDirectory } from "./project-file-search.ts";

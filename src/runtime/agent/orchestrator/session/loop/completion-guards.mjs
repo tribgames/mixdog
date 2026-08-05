@@ -38,20 +38,6 @@ export function isEditProgressTool(name, isEager) {
     return !NON_PROGRESS_TOOLS.has(bare);
 }
 
-// Step 1 — level-2 escalation steering. N = cumulative level-1 fires.
-// `readOnlyRole` swaps the edit-oriented directive for a report-oriented one:
-// read-permission sessions (reviewer-style) cannot apply_patch, so telling
-// them to edit is self-contradictory and pushes premature termination.
-const LEVEL2_DIMINISHING_RETURNS = ' Further reads add cost, not evidence.';
-
-export function level2SteerMessage(n, readOnlyRole = false, level2Fires = 1) {
-    const tail = Number(level2Fires) >= 2 ? LEVEL2_DIMINISHING_RETURNS : '';
-    if (readOnlyRole) {
-        return `<system-reminder>\nEnough evidence gathered — report findings now; name any gaps.${tail}\n</system-reminder>`;
-    }
-    return `<system-reminder>\nStop exploring — apply the edit you know, or report blocked with what's missing.${tail}\n</system-reminder>`;
-}
-
 // Step 2 — cross-turn dedup stub. `stuck` appends the escalation tail at the
 // 5th+ dedup stub in the session.
 export function crossTurnDedupStub(name, firstIteration, stuck) {

@@ -17,6 +17,67 @@ function _sortEffortLevels(levels) {
     return [...levels].sort((a, b) => rank(a) - rank(b));
 }
 
+// Control flags that ride the capabilities.effort map alongside real levels
+// (`{supported:true, low:true, …}`). They are NOT selectable effort levels;
+// letting them through minted a bogus "supported" level that got persisted
+// into the on-disk catalog and offered in the UI.
+const CONTROL_EFFORT_KEYS = new Set(['supported', 'enabled', 'default']);
+
+// ── Catalog-first capability index ───────────────────────────────────────
+// The provider catalog already carries what each model advertises
+// (capabilities.effort → reasoningOptions:[{type:'effort',values:[…]}]), so it
+// — not a hardcoded regex ladder — is the source of truth for what we put on
+// the wire. anthropic-model-resolve feeds this whenever the in-memory catalog
+// moves. The regex ladder below stays as the fallback for ids the catalog does
+// not know (offline start, api-key provider, first run before /v1/models).
+const _catalogEffortLevels = new Map();
+
+function _catalogKeys(model) {
+    const id = normalizeModelId(model);
+    if (!id) return [];
+    // A dated id and its bare version alias describe the SAME model — index
+    // both so `claude-opus-5` and `claude-opus-5-20260101` resolve alike.
+    const undated = id.replace(/-\d{8}$/, '');
+    return undated !== id ? [id, undated] : [id];
+}
+
+/**
+ * Replace the catalog-derived capability index. Records without a
+ * `reasoningOptions` array are treated as UNKNOWN (skipped, so the regex
+ * fallback still applies) rather than as "no effort" — offline/static fallback
+ * lists carry no capability data and must not disable effort.
+ */
+export function setModelEffortCapabilities(models) {
+    _catalogEffortLevels.clear();
+    if (!Array.isArray(models)) return;
+    for (const model of models) {
+        if (!model?.id || !Array.isArray(model.reasoningOptions)) continue;
+        const option = model.reasoningOptions.find(
+            (entry) => String(entry?.type || '').trim().toLowerCase() === 'effort',
+        );
+        const levels = new Set(
+            (Array.isArray(option?.values) ? option.values : [])
+                .map((value) => String(value || '').trim().toLowerCase())
+                .filter((value) => value && !CONTROL_EFFORT_KEYS.has(value)),
+        );
+        for (const key of _catalogKeys(model.id)) {
+            const existing = _catalogEffortLevels.get(key);
+            // A bare alias shared by several records keeps the richer entry.
+            if (existing?.size && levels.size === 0) continue;
+            _catalogEffortLevels.set(key, levels);
+        }
+    }
+}
+
+/** Advertised levels for `model`, or null when the catalog has no record. */
+function _catalogLevels(model) {
+    for (const key of _catalogKeys(model)) {
+        const levels = _catalogEffortLevels.get(key);
+        if (levels) return levels;
+    }
+    return null;
+}
+
 export const EFFORT_BETA_HEADER = 'effort-2025-11-24';
 
 export const LEGACY_EFFORT_BUDGET = Object.freeze({
@@ -40,7 +101,10 @@ function parseClaudeVersion(model) {
     if (triple) {
         return { family: triple[1], major: Number(triple[2]), minor: Number(triple[3]) };
     }
-    const pair = m.match(/^claude-(sonnet|fable)-(\d+)(?:$|[-@])/);
+    // Bare version ids carry family + major only (claude-opus-5). opus/haiku
+    // were missing here, so `claude-opus-5` parsed to null and fell through
+    // every capability check as an unknown shape.
+    const pair = m.match(/^claude-(sonnet|fable|opus|haiku)-(\d+)(?:$|[-@])/);
     if (pair) {
         return { family: pair[1], major: Number(pair[2]), minor: null };
     }
@@ -64,6 +128,9 @@ function isLegacyAnthropicReasoningModel(model) {
     if (parsed.family === 'sonnet' || parsed.family === 'opus') {
         if (parsed.major < 4) return true;
         if (parsed.major === 4 && parsed.minor !== null && parsed.minor < 6) return true;
+        // Bare major, no minor (claude-opus-4 / claude-sonnet-4): adaptive
+        // effort only ships from 5 up, so 4.x aliases stay manual-thinking.
+        if (parsed.minor === null && parsed.major < 5) return true;
         return false;
     }
     return false;
@@ -72,13 +139,22 @@ function isLegacyAnthropicReasoningModel(model) {
 // @[MODEL LAUNCH]: extend allowlist when new Claude models ship with effort support.
 export function modelSupportsEffort(model) {
     if (isEnvTruthy(process.env.MIXDOG_ANTHROPIC_ALWAYS_ENABLE_EFFORT)) return true;
+    const advertised = _catalogLevels(model);
+    if (advertised) return advertised.size > 0;
+    return _regexSupportsEffort(model);
+}
+
+// Fallback ladder for ids the catalog does not carry. Also used by
+// effortValuesForModel, which BUILDS the catalog records and therefore must
+// never consult the index it feeds.
+function _regexSupportsEffort(model) {
     const m = normalizeModelId(model);
     if (!m.includes('claude')) return false;
     if (isLegacyAnthropicReasoningModel(model)) return false;
     if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) return true;
     if (m.includes('sonnet-5') || m.includes('fable-5')) return true;
     if (/^claude-opus-4-(6|7|8)(?:$|[-@])/.test(m)) return true;
-    if (/^claude-opus-5-/.test(m)) return true;
+    if (/^claude-opus-5(?:$|[-@])/.test(m)) return true;
     // Fallthrough for not-yet-enumerated modern models: only grant effort when
     // parseClaudeVersion resolves a family with major>=4 (and not a manual-
     // thinking legacy already excluded above). A bare `startsWith('claude-')`
@@ -98,6 +174,12 @@ export function modelSupportsEffort(model) {
 // supported by: Fable 5, Mythos 5, Opus 4.8, Opus 4.7, Sonnet 5.
 // NOT Opus 4.6 / Sonnet 4.6 (those support max but not xhigh).
 export function modelSupportsXhighEffort(model) {
+    const advertised = _catalogLevels(model);
+    if (advertised) return advertised.has('xhigh');
+    return _regexSupportsXhighEffort(model);
+}
+
+function _regexSupportsXhighEffort(model) {
     const m = normalizeModelId(model);
     if (/^claude-opus-4-(7|8)(?:$|[-@])/.test(m)) return true;
     if (/^claude-opus-5(?:$|[-@])/.test(m)) return true;
@@ -111,7 +193,14 @@ export function modelSupportsXhighEffort(model) {
 // @[MODEL LAUNCH]: extend when new Opus models support max effort.
 // Max list = xhigh list PLUS Opus 4.6, Sonnet 4.6, Opus 4.5.
 export function modelSupportsMaxEffort(model) {
-    if (modelSupportsXhighEffort(model)) return true;
+    const advertised = _catalogLevels(model);
+    // xhigh support implies max support (kept from the ladder below).
+    if (advertised) return advertised.has('max') || advertised.has('xhigh');
+    return _regexSupportsMaxEffort(model);
+}
+
+function _regexSupportsMaxEffort(model) {
+    if (_regexSupportsXhighEffort(model)) return true;
     const m = normalizeModelId(model);
     if (/^claude-opus-4-(5|6)(?:$|[-@])/.test(m)) return true;
     if (/^claude-sonnet-4-6(?:$|[-@])/.test(m)) return true;
@@ -254,7 +343,8 @@ export function effortValuesForModel(capabilities, modelId) {
     // advertises (xhigh, max, or anything future), no hardcoded allowlist.
     if (effort !== true && typeof effort === 'object') {
         const advertised = Object.keys(effort).filter(
-            (level) => effort[level] === true || effort[level]?.supported === true,
+            (level) => !CONTROL_EFFORT_KEYS.has(String(level).trim().toLowerCase())
+                && (effort[level] === true || effort[level]?.supported === true),
         );
         if (advertised.length) return _sortEffortLevels(advertised);
         // Object with no per-level flags: fall through to the boolean/supported
@@ -265,10 +355,10 @@ export function effortValuesForModel(capabilities, modelId) {
     // the model supports effort but doesn't enumerate levels, so derive the
     // set from the known level ladder, gated by the top-tier model check.
     let levels = [...EFFORT_LEVELS];
-    if (!modelSupportsMaxEffort(modelId)) {
+    if (!_regexSupportsMaxEffort(modelId)) {
         levels = levels.filter((level) => level !== 'max');
     }
-    if (!modelSupportsXhighEffort(modelId)) {
+    if (!_regexSupportsXhighEffort(modelId)) {
         levels = levels.filter((level) => level !== 'xhigh');
     }
     return levels;

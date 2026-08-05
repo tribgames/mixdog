@@ -15,6 +15,8 @@ const valueFor = (prefix) => argumentsList
 const port = Number(valueFor('--port') || 9342);
 const clicks = Number(valueFor('--clicks') || 5);
 const gapMs = Number(valueFor('--gap') || 1200);
+// Watch-only: record sidebar order churn with no synthetic clicks at all.
+const watchMs = Number(valueFor('--watch') || 0);
 
 const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
 const target = targets.find((candidate) => candidate.type === 'page');
@@ -110,6 +112,30 @@ const preflight = await evaluate(`(() => {
   });
 })()`);
 console.log('rows:', JSON.stringify(preflight));
+if (watchMs > 0) {
+  await sleep(watchMs);
+  const samples = await evaluate(`(() => {
+    const state = window.__mixdogOrderWatch;
+    if (!state) return [];
+    state.stop = true;
+    return state.samples;
+  })()`);
+  console.log(`--- sidebar order changes over ${watchMs}ms ---`);
+  let previous = null;
+  for (const sample of samples) {
+    const order = sample.key.split(',');
+    const moved = previous
+      ? order.map((id, index) => {
+        const was = previous.indexOf(id);
+        return was >= 0 && was !== index ? `${id}:${was}->${index}` : '';
+      }).filter(Boolean).join(' ')
+      : '(first)';
+    console.log(`${sample.t}\tactive=${sample.activeId || '-'}\tn=${order.length}\t${moved || '(no move)'}`);
+    previous = order;
+  }
+  socket.close();
+  process.exit(0);
+}
 const firstY = preflight[0]?.y ?? 160;
 const rowHeight = (preflight[1]?.y ?? firstY + 32) - firstY || 32;
 const steps = [];

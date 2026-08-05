@@ -524,6 +524,9 @@ export async function executeBashTool(args, workDir, options = {}) {
                     // Per-terminal session stamp: the dispatching terminal's
                     // claude.exe pid (server-main threads callerSession.clientHostPid).
                     clientHostPid: options?.clientHostPid,
+                    // Dispatching session: hosts that pool many sessions in one
+                    // process (desktop) scope the job to its own pane with this.
+                    ownerSessionId: options?.callerSessionId || options?.sessionId || null,
                     ...(options?.shellJobRuntime || {}),
                 });
                 if (job && job.error) {
@@ -634,6 +637,8 @@ export async function executeBashTool(args, workDir, options = {}) {
             // Threaded so an auto-backgrounded foreground job is stamped with
             // the dispatching terminal's claude.exe pid (per-terminal scope).
             clientHostPid: options?.clientHostPid,
+            // …and with the dispatching session, for per-pane scoping.
+            ownerSessionId: options?.callerSessionId || options?.sessionId || null,
             // MCP live-progress reporter (null unless the client subscribed via
             // callTool onprogress). execShellCommand emits throttled "running
             // Ns" frames while the foreground command runs.

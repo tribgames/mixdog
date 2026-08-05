@@ -75,7 +75,7 @@ test('worker IPC modules contain no raw process or child send calls', () => {
     '../src/runtime/channels/lib/worker-ipc.mjs',
     '../src/runtime/channels/lib/owned-runtime.mjs',
     '../src/runtime/memory/lib/agent-ipc.mjs',
-    '../src/standalone/channel-daemon.mjs',
+    '../src/standalone/backend-daemon.mjs',
     '../src/standalone/channel-worker.mjs',
     '../src/runtime/memory/index.mjs',
     '../scripts/channel-daemon-stub.mjs',

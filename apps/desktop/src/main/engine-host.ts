@@ -214,6 +214,34 @@ export function sessionSnapshotPreservesRetained(
   return true;
 }
 
+/** The route (provider/model/effort/fast) is SESSION state, not transcript
+ *  state. A storage projection or a partial owner frame that carries none
+ *  blanked the pane's model controls to "Select model" every time a lane
+ *  republished (user report). Such a frame inherits the route this host
+ *  remembers for the session; effort/fast only when the resulting route is
+ *  the remembered one. A frame that names its own route is left untouched. */
+export function sessionSnapshotWithRememberedRoute(
+  snapshot: EngineSnapshot,
+  remembered: DesktopModelSelection | undefined,
+): EngineSnapshot {
+  if (!snapshot || typeof snapshot !== 'object' || !remembered) return snapshot;
+  const frame = snapshot as Record<string, unknown>;
+  const framedProvider = String(frame.provider || '');
+  const framedModel = String(frame.model || '');
+  if (framedProvider && framedModel) return snapshot;
+  const provider = framedProvider || String(remembered.provider || '');
+  const model = framedModel || String(remembered.model || '');
+  if (!provider || !model) return snapshot;
+  const matches = provider === String(remembered.provider || '')
+    && model === String(remembered.model || '');
+  const effort = String(frame.effort || '')
+    || (matches ? String(remembered.effort || '') : '');
+  const fast = typeof frame.fast === 'boolean'
+    ? frame.fast === true
+    : (matches && remembered.fast === true);
+  return { ...frame, provider, model, effort, fast } as EngineSnapshot;
+}
+
 /** A completed owner can close before its final durable save is observable.
  * Never replace the already-rendered live frame with an older disk projection;
  * a later equal/newer disk read may still take ownership normally. */
@@ -2367,13 +2395,17 @@ export class EngineHost {
     // even when it opened without one.
     if (source === 'live') this.markVisibleResumeHoldViewerBacked(sessionId);
     const current = this.visibleSessionFrames.get(sessionId);
-    let projected = snapshot;
+    // Route is SESSION state, not transcript state: a storage projection or an
+    // external-owner frame that carries none must never blank the pane's model
+    // controls. Stamp the route this host remembers (and learn a named one).
+    const framed = this.routeStampedSessionSnapshot(sessionId, snapshot);
+    let projected = framed;
     let live = source === 'live';
     const regressed = source === 'stored' && current !== undefined
       && storedVisibleSessionSnapshotRegresses(current.snapshot, snapshot);
     if (regressed && current) {
       projected = {
-        ...(snapshot && typeof snapshot === 'object' ? snapshot : {}),
+        ...(framed && typeof framed === 'object' ? framed : {}),
         ...(current.snapshot && typeof current.snapshot === 'object' ? current.snapshot : {}),
         sessionId,
         busy: false,
@@ -2407,10 +2439,33 @@ export class EngineHost {
   private retainedPeekUpdate(sessionId: string, snapshot: EngineSnapshot): SessionStateUpdate {
     return {
       sessionId,
-      snapshot,
+      snapshot: this.routeStampedSessionSnapshot(sessionId, snapshot),
       frameSource: 'replay',
       contentRevision: this.retainedSessionContentRevision(sessionId),
     };
+  }
+
+  /** Every frame this host publishes for a session carries that session's
+   *  route: a frame that names one updates the memory, a frame that carries
+   *  none inherits it. */
+  private routeStampedSessionSnapshot(
+    sessionId: string,
+    snapshot: EngineSnapshot,
+  ): EngineSnapshot {
+    if (!snapshot || typeof snapshot !== 'object') return snapshot;
+    const frame = snapshot as Record<string, unknown>;
+    const provider = String(frame.provider || '');
+    const model = String(frame.model || '');
+    if (provider && model) {
+      this.sessionRoutes.set(sessionId, {
+        provider,
+        model,
+        ...(typeof frame.effort === 'string' && frame.effort ? { effort: frame.effort } : {}),
+        ...(typeof frame.fast === 'boolean' ? { fast: frame.fast } : {}),
+      });
+      return snapshot;
+    }
+    return sessionSnapshotWithRememberedRoute(snapshot, this.sessionRoutes.get(sessionId));
   }
 
   private disposeVisibleSessionViewer(sessionId: string): void {

@@ -24,6 +24,7 @@ import { dirname, basename, join } from 'path';
 import { randomBytes } from 'crypto';
 import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 const _execFileAsync = promisify(execFile);
 
@@ -306,7 +307,42 @@ function _asyncSleep(ms) {
   return new Promise((resolve) => { setTimeout(resolve, Math.max(1, Number(ms) || 1)); });
 }
 
+// ── In-process serialization ────────────────────────────────────────
+// The file lock arbitrates between PROCESSES. Inside one process (the engine
+// daemon now hosts every session, the TUI and the desktop) several callers
+// reach the same path concurrently, and an OS-level lock cannot express
+// "already mine": contenders spun until ELOCKTIMEOUT, and a nested call inside
+// a holder waited for itself forever (observed: session-pending-messages and
+// mixdog-config held by our own pid for minutes while every submit hung).
+// One async queue per lock path removes that class of failure entirely — no
+// retry loop involved — and a re-entrant call runs straight through.
+const _lockQueues = new Map();
+const _heldLockPaths = new AsyncLocalStorage();
+
 export async function withFileLock(lockPath, fn, opts = {}) {
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_LOCK_TIMEOUT_MS;
+  const held = _heldLockPaths.getStore();
+  // Re-entrant: this async context already owns the path. Waiting here would
+  // be waiting for ourselves.
+  if (held?.has(lockPath)) return fn();
+  // try-once callers must keep failing fast on contention, so they skip the
+  // queue and contend for the OS lock directly.
+  if (timeoutMs <= 0) return _withOsFileLock(lockPath, fn, opts);
+  const nextHeld = new Set(held || []);
+  nextHeld.add(lockPath);
+  const previous = _lockQueues.get(lockPath) ?? Promise.resolve();
+  const task = previous
+    .catch(() => {})
+    .then(() => _heldLockPaths.run(nextHeld, () => _withOsFileLock(lockPath, fn, opts)));
+  const settled = task.then(() => {}, () => {});
+  _lockQueues.set(lockPath, settled);
+  void settled.then(() => {
+    if (_lockQueues.get(lockPath) === settled) _lockQueues.delete(lockPath);
+  });
+  return task;
+}
+
+async function _withOsFileLock(lockPath, fn, opts = {}) {
   const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_LOCK_TIMEOUT_MS;
   const staleMs = Number.isFinite(opts.staleMs) ? opts.staleMs : 30000;
   const deadline = Date.now() + timeoutMs;

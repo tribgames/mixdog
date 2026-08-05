@@ -29,6 +29,7 @@ import {
     shellJobEnforcedPath,
     shellJobGuardianReceiptPath,
     resolveJobOwnerHostPid,
+    resolveJobOwnerSessionId,
     trimShellJobSpill,
     writeShellJobDetail,
     readShellJobDetail,
@@ -82,7 +83,7 @@ import {
 
 export async function _startBackgroundShellJobImpl({
     command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, shellArg, shellArgs,
-    shellType, clientHostPid, spawnFn = spawn, writeDetailFn = writeShellJobDetail,
+    shellType, clientHostPid, ownerSessionId, spawnFn = spawn, writeDetailFn = writeShellJobDetail,
     rollbackTimeoutMs = 5000,
 }) {
     // Route ANY PowerShell shell to the PS wrapper, regardless of platform.
@@ -91,7 +92,7 @@ export async function _startBackgroundShellJobImpl({
     // bash script. isPowerShellShell already matches pwsh/powershell by stem.
     if (isPowerShellShell(shell, shellType)) {
         return startBackgroundPowerShellJob({
-            command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid,
+            command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid, ownerSessionId,
             spawnFn, writeDetailFn,
         });
     }
@@ -201,6 +202,9 @@ export async function _startBackgroundShellJobImpl({
         donePath,
         // Per-terminal session stamp (see resolveJobOwnerHostPid).
         ownerHostPid: resolveJobOwnerHostPid(clientHostPid),
+        // Dispatching session (see resolveJobOwnerSessionId): a pane counts
+        // only the jobs its own session started.
+        ownerSessionId: resolveJobOwnerSessionId(ownerSessionId),
         startedAt: new Date().toISOString(),
     };
     let terminal = false;
@@ -293,7 +297,7 @@ export async function _startBackgroundShellJobImpl({
 }
 
 async function startBackgroundPowerShellJob({
-    command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid,
+    command, timeoutMs, workDir, mergeStderr, spawnEnv, shell, clientHostPid, ownerSessionId,
     spawnFn = spawn, writeDetailFn = writeShellJobDetail, rollbackTimeoutMs = 5000,
 }) {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -447,6 +451,9 @@ async function startBackgroundPowerShellJob({
         timeoutEnforced: Number(timeoutMs) > 0,
         // Per-terminal session stamp (see resolveJobOwnerHostPid).
         ownerHostPid: resolveJobOwnerHostPid(clientHostPid),
+        // Dispatching session (see resolveJobOwnerSessionId): a pane counts
+        // only the jobs its own session started.
+        ownerSessionId: resolveJobOwnerSessionId(ownerSessionId),
         startedAt: new Date().toISOString(),
     };
     let terminal = false;
