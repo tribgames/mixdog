@@ -126,7 +126,7 @@
    at its floor — lift it above the workspace and read as a covering sheet. */
 .bottom-panel[data-overlaying="true"] {
   z-index: 7;
-  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 -8px 20px var(--mx-alpha-dark-30);
 }
 @keyframes bottom-panel-expand {
   from { transform: translateY(100%); }
@@ -221,7 +221,7 @@
   border: none;
   background: transparent;
   color: inherit;
-  opacity: 0.65;
+  opacity: var(--mx-op-secondary);
   font: inherit;
   height: 36px;
   font-size: var(--mx-font-ui);
@@ -241,10 +241,10 @@
   background: var(--mx-accent-bg);
   font-style: normal;
   font-size: var(--mx-font-micro);
-  line-height: 16px;
+  line-height: var(--mx-line-meta);
 }
 .bottom-panel-tab:hover {
-  opacity: 0.9;
+  opacity: var(--mx-op-soft);
 }
 .bottom-panel-tab.is-active {
   opacity: 1;
@@ -275,7 +275,7 @@
   border: none;
   background: transparent;
   color: inherit;
-  opacity: 0.65;
+  opacity: var(--mx-op-secondary);
   font: inherit;
   min-height: 24px;
   width: 28px;
@@ -600,9 +600,9 @@
   font: inherit;
   cursor: pointer;
 }
-.pane-placeholder-title { font-size: var(--mx-font-emphasis); opacity: 0.85; }
-.pane-placeholder-hint { font-size: var(--mx-font-minor); opacity: 0.5; }
-.pane-placeholder:hover .pane-placeholder-hint { opacity: 0.8; }
+.pane-placeholder-title { font-size: var(--mx-font-emphasis); opacity: var(--mx-op-soft); }
+.pane-placeholder-hint { font-size: var(--mx-font-minor); opacity: var(--mx-op-dim); }
+.pane-placeholder:hover .pane-placeholder-hint { opacity: var(--mx-op-soft); }
 
 /* Non-focused panes sit on the same floating workspace sheet as the
    interactive surface — bare band-colored cells read as dead black panes. */
@@ -696,7 +696,7 @@
 /* Empty-state card for a parked non-session pane (draft / project / file). */
 .pane-placeholder {
   font-size: var(--mx-font-body);
-  opacity: 0.45;
+  opacity: var(--mx-op-disabled);
 }
 
 /* Narrow-shell single-pane mode (user decision): below the phone breakpoint

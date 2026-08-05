@@ -12,9 +12,6 @@
   --mx-control-xs: 24px;
   --mx-control-sm: 28px;
   --mx-control-md: 32px;
-  --mx-font-xs: 11px;
-  --mx-font-sm: 12px;
-  --mx-font-md: 13px;
   --mx-icon-xs: 12px;
   --mx-icon-sm: 14px;
   --mx-icon-md: 16px;
@@ -50,14 +47,14 @@
 .mx-button:hover:not(:disabled),
 .mx-icon-button:hover:not(:disabled) { background: var(--mx-bg-layer-1); }
 .mx-button:disabled,
-.mx-icon-button:disabled { opacity: .45; cursor: default; }
-.mx-button.is-primary { color: #fff; border-color: transparent; background: var(--mx-accent-bg); }
+.mx-icon-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.mx-button.is-primary { color: var(--mx-grey-50); border-color: transparent; background: var(--mx-accent-bg); }
 .mx-button.is-primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--mx-accent-bg) 86%, white);
 }
 .mx-button.is-ghost { border-color: transparent; background: transparent; }
 .mx-button.is-danger { color: var(--mx-danger); border-color: var(--mx-danger); background: var(--mx-danger-bg); }
-.mx-button.is-xs { min-height: var(--mx-control-xs); padding-inline: 6px; font-size: var(--mx-font-xs); }
+.mx-button.is-xs { min-height: var(--mx-control-xs); padding-inline: 6px; font-size: var(--mx-font-meta); }
 .mx-button.is-md { min-height: var(--mx-control-md); padding-inline: var(--mx-space-3); }
 .mx-icon-button {
   width: var(--mx-control-sm);
@@ -87,7 +84,7 @@
   border-radius: 999px;
   color: var(--mx-text-muted);
   background: var(--mx-bg-layer-1);
-  font-size: var(--mx-font-xs);
+  font-size: var(--mx-font-meta);
 }
 .mx-status-badge.is-info { color: var(--mx-focus); }
 .mx-status-badge.is-success { color: var(--mx-success); background: var(--mx-success-bg); }
