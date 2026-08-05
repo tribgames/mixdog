@@ -115,7 +115,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Mixdog Grep',
         annotations: { title: 'Mixdog Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Contextual content search by literal or regex over file/dir scopes.',
+        description: 'Content search by literal or regex over file/dir scopes; matches return copy-ready raw source spans.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -197,7 +197,7 @@ export const BUILTIN_TOOLS = [
                     description: 'Partial path/name words; query[] batches.',
                 },
                 path: { type: 'string', description: 'Base directory.' },
-                head_limit: { type: 'number', description: 'Max paths. Defaults to 25.' },
+                head_limit: { type: 'number', description: 'Max paths across the call. Defaults to 25.' },
             },
             required: ['query'],
             additionalProperties: false,
@@ -207,7 +207,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'Mixdog List Directory',
         annotations: { title: 'Mixdog List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'List directory entries; batch independent dirs as path[].',
+        description: 'List directory entries (path + type); batch independent dirs as path[].',
         inputSchema: {
             type: 'object',
             properties: {

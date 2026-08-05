@@ -73,6 +73,10 @@ import {
     READ_SMART_STREAM_MIN_BYTES,
     READ_STREAM_RANGE_MIN_BYTES,
 } from './builtin/read-constants.mjs';
+import {
+    LOCATOR_OUTPUT_MAX_BYTES,
+    capLineOrientedToolOutput,
+} from './builtin/tool-output-limit.mjs';
 import { isBlockedDevicePath, isUncPath, isWindowsDevicePath, hasUnsafeWin32Component, isSpecialFileStat } from './builtin/device-paths.mjs';
 import { mergeReadRanges as _mergeReadRanges } from './builtin/read-ranges.mjs';
 import { hashText as _hashText } from './builtin/hash-utils.mjs';
@@ -410,7 +414,54 @@ function capToolOutput(result, options = {}) {
     return `${head}\n... [tool-output truncated: ${Math.round(bytes / 1024)} KB -> ${Math.round(cap / 1024)} KB cap (tool_output_token_limit)] ...\n${tail}`;
 }
 
+const _LOCATOR_BUDGET_TOOLS = new Set(['find', 'glob', 'list']);
+
+function _locatorTargets(toolName, args) {
+    const raw = toolName === 'find' ? args?.query : args?.path;
+    const values = (Array.isArray(raw) ? raw : [raw])
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean);
+    return values.length ? values : [toolName === 'find' ? '' : '.'];
+}
+
+function _locatorBudgetFooter(toolName, args, keptLines, capBytes) {
+    const targets = _locatorTargets(toolName, args);
+    const header = new RegExp(`^# ${toolName} (.+)$`);
+    let targetIndex = 0;
+    let visibleEntries = 0;
+    for (const line of keptLines) {
+        const section = header.exec(line);
+        if (section) {
+            const matched = targets.findIndex((target) => target === section[1]);
+            targetIndex = matched >= 0 ? matched : Math.min(targetIndex + 1, targets.length - 1);
+            visibleEntries = 0;
+            continue;
+        }
+        if (!line || /^(?:#|\.\.\.|\[|\()/.test(line)) continue;
+        visibleEntries += 1;
+    }
+    const target = targets[targetIndex] || targets[0] || '';
+    const remaining = targets.length - targetIndex - 1;
+    const capKb = Math.round((Number(capBytes) > 0 ? Number(capBytes) : LOCATOR_OUTPUT_MAX_BYTES) / 1024);
+    // Factual continuation only — no retry imperatives (Claude Code/Codex
+    // markers state what was cut, never instruct another call).
+    const nextTarget = remaining > 0 ? `; ${remaining} target(s) not shown, next=${JSON.stringify(targets[targetIndex + 1])}` : '';
+    if (toolName === 'find') {
+        return `... [find output capped at ${capKb} KB; remaining matches for query=${JSON.stringify(target)} omitted${nextTarget}]`;
+    }
+    const baseOffset = Number.isFinite(Number(args?.offset)) && Number(args.offset) > 0
+        ? Math.floor(Number(args.offset))
+        : 0;
+    return `... [${toolName} output capped at ${capKb} KB; rows above are complete; continue path=${JSON.stringify(target)} offset:${baseOffset + visibleEntries}${nextTarget}]`;
+}
+
 export async function executeBuiltinTool(name, args, cwd, options = {}) {
+    if (args && typeof args === 'object' && !Array.isArray(args) && '_clampNotices' in args) {
+        // Reserved harness notice channel (arg-guard pushClampNotice). Drop
+        // caller-supplied values so a model cannot inject fake [arg-guard]
+        // notices into its own tool results.
+        delete args._clampNotices;
+    }
     if (options.abortSignal && !options.signal) {
         options = { ...options, signal: options.abortSignal };
     }
@@ -477,7 +528,21 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
     const _capOptions = toolName === 'read' && !(Number(options?.toolOutputMaxBytes) > 0)
         ? { ...options, toolOutputMaxBytes: READ_MAX_OUTPUT_BYTES }
         : options;
-    return capToolOutput(_appendClampNotices(args, _toolResult), _capOptions);
+    const _withNotices = _appendClampNotices(args, _toolResult);
+    const _explicitCap = Number(options?.toolOutputMaxBytes) > 0
+        ? Math.trunc(Number(options.toolOutputMaxBytes))
+        : null;
+    const _locatorCap = _explicitCap
+        ? Math.min(_explicitCap, LOCATOR_OUTPUT_MAX_BYTES)
+        : LOCATOR_OUTPUT_MAX_BYTES;
+    const _budgetedResult = _LOCATOR_BUDGET_TOOLS.has(toolName)
+        ? capLineOrientedToolOutput(
+            _withNotices,
+            _locatorCap,
+            (kept) => _locatorBudgetFooter(toolName, args, kept, _locatorCap),
+        )
+        : _withNotices;
+    return capToolOutput(_budgetedResult, _capOptions);
 }
 
 // Surface arg-guard clamp notices (args._clampNotices, see pushClampNotice in

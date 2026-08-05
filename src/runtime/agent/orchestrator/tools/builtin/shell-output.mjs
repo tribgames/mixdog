@@ -16,18 +16,18 @@ export function smartMiddleTruncate(content) {
         const head = fastLines.slice(0, SMART_BASH_HEAD_LINES).join('\n');
         const tail = fastLines.slice(-SMART_BASH_TAIL_LINES).join('\n');
         const middle = fastLines.length - SMART_BASH_HEAD_LINES - SMART_BASH_TAIL_LINES;
-        return `${head}\n\n... [TRUNCATED — ${middle} lines middle elided; total ${fastLines.length} lines. Rerun with tighter filters for more] ...\n\n${tail}`;
+        return `${head}\n\n... [${middle} lines omitted of ${fastLines.length} total — head and tail shown] ...\n\n${tail}`;
     }
     const lines = s.split('\n');
     if (lines.length <= SMART_BASH_MAX_LINES) {
         const head = s.slice(0, SMART_BASH_MAX_BYTES);
-        return `${head}\n\n... [TRUNCATED — output exceeded ${Math.round(SMART_BASH_MAX_BYTES / 1024)} KB on a single line] ...`;
+        return `${head}\n\n... [output exceeded ${Math.round(SMART_BASH_MAX_BYTES / 1024)} KB on a single line] ...`;
     }
     const head = lines.slice(0, SMART_BASH_HEAD_LINES).join('\n');
     const tail = lines.slice(-SMART_BASH_TAIL_LINES).join('\n');
     const middle = lines.length - SMART_BASH_HEAD_LINES - SMART_BASH_TAIL_LINES;
     const totalKb = Math.round(s.length / 1024);
-    return `${head}\n\n... [TRUNCATED — ${middle} lines middle elided; total ${lines.length} lines / ${totalKb} KB. Rerun with tighter filters for more] ...\n\n${tail}`;
+    return `${head}\n\n... [${middle} lines omitted of ${lines.length} total / ${totalKb} KB — head and tail shown] ...\n\n${tail}`;
 }
 
 export function capShellOutput(content) {

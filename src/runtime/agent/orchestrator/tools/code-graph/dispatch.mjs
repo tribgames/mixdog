@@ -8,6 +8,10 @@ import { normalizeInputPath, toDisplayPath } from '../builtin.mjs';
 import { findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../code-graph-tool-defs.mjs';
+import {
+  CODE_GRAPH_OUTPUT_MAX_BYTES,
+  capLineOrientedToolOutput,
+} from '../builtin/tool-output-limit.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _graphRel, _getSourceTextForNode, _appendSameBasenameHint } from './source-access.mjs';
 import { _extractSymbolsCheap, _buildExplainerFileSummary } from './symbol-index.mjs';
@@ -45,14 +49,19 @@ import {
 
 const CODE_GRAPH_BATCHABLE_MODES = new Set(['symbol', 'find_symbol', 'symbol_search', 'callers', 'callees', 'references']);
 const CODE_GRAPH_FILE_BATCHABLE_MODES = new Set(['imports', 'dependents', 'related', 'impact', 'symbols', 'overview']);
+const CODE_GRAPH_SYMBOL_BATCH_CAP = 20;
 
 function _collectGraphSymbolList(args) {
   const split = (s) => String(s || '').split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
-  return [...new Set([
+  const list = [...new Set([
     ...(Array.isArray(args?.symbols) ? args.symbols.map((s) => String(s || '').trim()).filter(Boolean) : []),
     ...(typeof args?.symbols === 'string' ? split(args.symbols) : []),
     ...(typeof args?.symbol === 'string' ? split(args.symbol) : []),
   ])];
+  if (list.length <= CODE_GRAPH_SYMBOL_BATCH_CAP) return list;
+  const capped = list.slice(0, CODE_GRAPH_SYMBOL_BATCH_CAP);
+  capped._omitted = list.slice(CODE_GRAPH_SYMBOL_BATCH_CAP);
+  return capped;
 }
 
 const CODE_GRAPH_FILE_BATCH_CAP = 20;
@@ -603,7 +612,7 @@ export async function resolveSymbolReadSpan(cwd, { symbol, path = null, language
   };
 }
 
-export async function executeCodeGraphTool(name, args, cwd, signal = null, options = {}) {
+async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options = {}) {
   if (!cwd) throw new Error('find_symbol/code_graph requires cwd — caller did not provide a working directory');
   args = _normalizeGraphFileArgs(args);
   const baseCwd = (args && typeof args.cwd === 'string' && args.cwd.trim()) ? args.cwd.trim() : cwd;
@@ -781,6 +790,12 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
                 catch (e) { body = `Error: ${e?.message || String(e)}`; }
                 return `# ${batchMode} ${sym}\n${body}`;
               }));
+              if (symbolList._omitted?.length) {
+                sections.push(
+                  `Note: symbol list capped at ${CODE_GRAPH_SYMBOL_BATCH_CAP}; `
+                  + `retry symbols=${JSON.stringify(symbolList._omitted)}.`,
+                );
+              }
               return sections.join('\n\n');
             })();
           }
@@ -828,6 +843,40 @@ export async function executeCodeGraphTool(name, args, cwd, signal = null, optio
   return Promise.race([_work, abortP]).then(
     (v) => { cleanup(); return v; },
     (e) => { cleanup(); throw e; },
+  );
+}
+
+function _codeGraphBudgetFooter(args, keptLines) {
+  const rawMode = String(args?.mode || '').trim();
+  const capKb = Math.round(CODE_GRAPH_OUTPUT_MAX_BYTES / 1024);
+  const targets = _collectGraphSymbolList(args);
+  const files = _collectGraphFileList(args, { cap: false });
+  const batchTargets = targets.length ? targets : files;
+  const label = targets.length ? 'symbols' : 'files';
+  let currentIndex = 0;
+  if (batchTargets.length > 1) {
+    const header = new RegExp(`^# (?:${rawMode === 'search' ? 'symbol_search' : rawMode}) (.+)$`);
+    for (const line of keptLines) {
+      const match = header.exec(line);
+      if (!match) continue;
+      const index = batchTargets.findIndex((target) => target === match[1]);
+      if (index >= 0) currentIndex = index;
+    }
+    return `... [code_graph output capped at ${capKb} KB; not fully shown: ${label}=${JSON.stringify(batchTargets.slice(currentIndex))}]`;
+  }
+  const target = batchTargets[0];
+  const targetTail = target
+    ? `; remainder for ${label.slice(0, -1)}=${JSON.stringify(target)} omitted`
+    : '; remainder omitted';
+  return `... [code_graph output capped at ${capKb} KB${targetTail}]`;
+}
+
+export async function executeCodeGraphTool(name, args, cwd, signal = null, options = {}) {
+  const result = await executeCodeGraphToolRaw(name, args, cwd, signal, options);
+  return capLineOrientedToolOutput(
+    result,
+    CODE_GRAPH_OUTPUT_MAX_BYTES,
+    (kept) => _codeGraphBudgetFooter(args, kept),
   );
 }
 

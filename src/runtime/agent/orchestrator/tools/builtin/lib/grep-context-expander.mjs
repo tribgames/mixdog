@@ -20,7 +20,11 @@ export const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = 10_000;
 const GREP_CONTEXT_READ_CONCURRENCY = 4;
 const GREP_FOCUSED_CONTEXT_RADIUS = 12;
 const GREP_FOCUSED_RAW_BLOCKS = 3;
-const GREP_COMPACT_ANCHOR_CONTENT_MAX = 96;
+// Anchors must stay usable as evidence without a follow-up read: keep the
+// complete match line and only cut pathological long lines (minified files).
+// Mid-line ellipsis below ~100 chars measurably pushed models into re-read
+// verification loops (tool-budget bench, 20260805).
+const GREP_COMPACT_ANCHOR_CONTENT_MAX = 400;
 
 function parseAnchor(line, {
     workDir,
@@ -321,7 +325,7 @@ function pagingNotice({ shown, total, totalKnown, omitted, offset, nextOffset })
         : '';
 }
 
-function renderAtRadius(selected, sources, radius, budget, notice) {
+function renderAtRadius(selected, sources, radius, _budget, notice) {
     const blocks = mergeBlocks(selected.map((anchor) => (
         sourceBlock(anchor, sources.get(anchor.absolutePath), radius)
     )));
@@ -329,7 +333,9 @@ function renderAtRadius(selected, sources, radius, budget, notice) {
         `# ${block.path}:${block.matchLine} [lines ${block.startLine}-${block.endLine}]\n${block.contents.join('\n')}`
     )).join('\n');
     const sourceComplete = blocks.every((block) => block.sourceComplete);
-    const text = `[Raw source spans; context auto-expanded up to ${radius}; ${budget}-char call budget]\n${body}${notice}`;
+    // Header is a format cue only — internal radius/char-budget numbers are
+    // harness noise (neither Claude Code nor Codex surface theirs).
+    const text = `[Raw source spans; apply_patch context may be copied verbatim]\n${body}${notice}`;
     return { text, sourceComplete, blockCount: blocks.length };
 }
 
@@ -351,7 +357,7 @@ function anchorRangeHint(anchor, radius) {
     return `lines ${startLine}-${endLine}`;
 }
 
-function renderFocusedContext(selected, sources, radius, budget, notice) {
+function renderFocusedContext(selected, sources, radius, _budget, notice) {
     const ordered = [...selected].sort(anchorPriority);
     const rankedBlocks = mergeBlocks(ordered.map((anchor) => (
         sourceBlock(anchor, sources.get(anchor.absolutePath), radius)
@@ -371,7 +377,10 @@ function renderFocusedContext(selected, sources, radius, budget, notice) {
             `${anchor.path}:${anchor.lineNo}:${compactAnchorContent(anchor.content)} [${anchorRangeHint(anchor, radius)}]`
         )).join('\n')}`
         : '';
-    const text = `[Top ${rawBlocks.length} raw source spans + compact anchors; context up to ${radius}; ${budget}-char call budget]\n${raw}${anchors}${notice}`;
+    const header = compact.length
+        ? `[Top ${rawBlocks.length} of ${ordered.length} matches as raw source spans; remaining matches as path:line anchors]`
+        : '[Raw source spans; apply_patch context may be copied verbatim]';
+    const text = `${header}\n${raw}${anchors}${notice}`;
     return {
         text,
         sourceComplete: rawBlocks.every((block) => block.sourceComplete),

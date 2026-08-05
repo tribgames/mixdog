@@ -291,3 +291,38 @@ test('find query batch keeps every query parallel while sharing one broad and on
         rmSync(root, { recursive: true, force: true });
     }
 });
+
+test('find query batch treats head_limit and bytes as call-level budgets', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-find-batch-budget-'));
+    try {
+        const queries = ['alpha', 'beta', 'gamma', 'delta'];
+        const listing = queries.flatMap((query) => Array.from(
+            { length: 40 },
+            (_, index) => `src/${query}-target-${String(index).padStart(2, '0')}-${'x'.repeat(240)}.mjs`,
+        )).join('\n');
+        const out = await executeFuzzyFindTool({
+            query: queries,
+            head_limit: 100,
+        }, root, {
+            __runRg: async () => `${listing}\n`,
+        });
+        const resultLines = out.split(/\r?\n/).filter((line) =>
+            /^src\/(?:alpha|beta|gamma|delta)-target-/.test(line));
+        assert.ok(resultLines.length <= 100, `head_limit must cap the whole batch, got ${resultLines.length}`);
+        assert.ok(Buffer.byteLength(out, 'utf8') <= 20 * 1024, `batch output exceeded 20KB: ${Buffer.byteLength(out, 'utf8')}`);
+        assert.match(out, /find result budget reached/, 'each query must stop within its pre-allocated byte share');
+
+        const tiny = await executeFuzzyFindTool({
+            query: queries,
+            head_limit: 2,
+        }, root, {
+            __runRg: async () => `${listing}\n`,
+        });
+        assert.match(tiny, /# find alpha/);
+        assert.match(tiny, /# find beta/);
+        assert.doesNotMatch(tiny, /# find gamma/);
+        assert.match(tiny, /retry query=\["gamma","delta"\]/);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});

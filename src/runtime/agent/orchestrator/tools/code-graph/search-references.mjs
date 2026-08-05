@@ -181,7 +181,12 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, li
   const lines = [];
   if (declCount > 1) {
     lines.push(`⚠ ${declCount} declarations found — verify which one you intend`);
-    for (const h of declHits) lines.push(`  ${_formatSymbolHitLocation(h)} [${h.lang}]`);
+    for (const h of declHits.slice(0, Math.max(1, limit))) {
+      lines.push(`  ${_formatSymbolHitLocation(h)} [${h.lang}]`);
+    }
+    if (declCount > limit) {
+      lines.push(`  ... ${declCount - limit} more declarations; narrow file or raise limit`);
+    }
     lines.push('');
   }
   if (primary?.declarationLike) {
@@ -240,22 +245,6 @@ export function _findSymbolAcrossGraph(graph, symbol, cwd, { language = null, li
   if (declCount === 0 && hits.length > 0) {
     lines.push('');
     lines.push(`(no user declaration found; likely a global/builtin identifier — all ${hits.length} hits are references)`);
-  }
-  if (primary?.declarationLike) {
-    const calleeRows = _extractCallees(graph, primary, cwd, {
-      cap: 25,
-      callerSymbol: symbol,
-      language,
-    });
-    lines.push('');
-    lines.push('# callees');
-    if (calleeRows.length) {
-      for (const row of calleeRows) {
-        lines.push(_formatCalleeRow(row));
-      }
-    } else {
-      lines.push('(no callees)');
-    }
   }
   const _nodeCount = graph?.nodes?.size ?? 0;
   const truncatedSuffix = graph?.truncated
