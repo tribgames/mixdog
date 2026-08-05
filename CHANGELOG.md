@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Engine daemon: a machine-global process can now own every live session
+  engine, with the terminal TUI and the desktop app attached as views over a
+  127.0.0.1 HTTP+SSE transport. Opt in with `MIXDOG_ENGINE_DAEMON=1`
+  (`strict` refuses the in-process fallback); the daemon host itself always
+  builds real engines, so the factory can never recurse into its own proxy.
+- Cross-client editing: resuming a session another view already holds adopts
+  that live engine instead of loading a second copy, engine frames fan out to
+  every view, and an engine only ends with its LAST viewer — so a terminal and
+  a desktop window can drive one session turn by turn.
+
 ## v0.9.94 - 2026-08-05
 
 - Desktop tab strip follows Chromium's `tab_strip_layout`: tabs shrink
