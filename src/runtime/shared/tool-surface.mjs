@@ -475,7 +475,7 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return unitDescriptor('Patch', {
         count: patchFileCount(a) || 1,
         active: (creating ? 'Creating' : deleting ? 'Deleting' : 'Editing') + (verifying ? ' & verifying' : ''),
-        done: creating ? 'Created' : deleting ? 'Deleted' : 'Edited',
+        done: (creating ? 'Created' : deleting ? 'Deleted' : 'Edited') + (verifying ? ' & verified' : ''),
         noun: 'file',
       });
     }

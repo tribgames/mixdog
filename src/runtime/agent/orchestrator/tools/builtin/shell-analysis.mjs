@@ -766,7 +766,10 @@ export async function analyzeShellCommandEffects(command, cwd) {
 // Exported: bash-tool promotes a detected sleep-chain to a background task
 // BEFORE foregroundLongCommandHint runs, so in the one-shot shell path this
 // deny only survives for callers that do not promote (task-tool preflight).
-export function detectBlockedSleepPattern(command) {
+// `minSecs` lets the promoting caller raise the bar: a short (2-29s) leading
+// sleep chain is cheaper run sync than round-tripped through a background
+// task + completion notification.
+export function detectBlockedSleepPattern(command, minSecs = 2) {
     const cmd = String(command || '').trim();
     if (!cmd) return null;
     const sep = cmd.match(/&&|\|\||;|\|/);
@@ -782,7 +785,7 @@ export function detectBlockedSleepPattern(command) {
         const psMs = /^start-sleep\s+-(?:milliseconds|m)\s+(\d+)\s*$/i.exec(first);
         if (psMs) secs = Math.floor(Number.parseInt(psMs[1], 10) / 1000);
     }
-    if (secs == null || secs < 2) return null;
+    if (secs == null || secs < minSecs) return null;
     const rest = sep ? cmd.slice(sep.index).replace(/^(?:&&|\|\||;|\|)\s*/, '').trim() : '';
     return rest ? `sleep ${secs} followed by: ${rest.slice(0, 80)}` : `standalone sleep ${secs}`;
 }
