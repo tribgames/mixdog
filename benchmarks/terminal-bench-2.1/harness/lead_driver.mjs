@@ -648,9 +648,17 @@ const driveSession = async (route) => {
   };
 
   if (BOOT_JITTER_MS > 0) {
-    // Log the drawn jitter so timing analysis can subtract it from the
-    // agent_execution window (it is anti-429 spread, not agent work).
-    const jitterMs = Math.floor(Math.random() * BOOT_JITTER_MS);
+    // Anti-429 spread for concurrent trials, made DETERMINISTIC: the offset
+    // is an FNV-1a hash of the task prompt, so the same task draws the same
+    // delay in every run — repeat measurements stay comparable instead of
+    // absorbing 0-30s of random noise. Logged so analysis subtracts it from
+    // the agent_execution window (it is spread, not agent work).
+    let hash = 0x811c9dc5;
+    for (const ch of String(prompt)) {
+      hash ^= ch.codePointAt(0);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    const jitterMs = hash % BOOT_JITTER_MS;
     process.stderr.write(`[boot-timing] jitter=${jitterMs}ms\n`);
     await new Promise((r) => setTimeout(r, jitterMs));
   }
