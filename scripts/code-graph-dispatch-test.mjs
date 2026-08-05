@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { findCachedGraphBinary } from '../src/runtime/agent/orchestrator/tools/graph-binary-fetcher.mjs';
+import { CODE_GRAPH_OUTPUT_MAX_BYTES } from '../src/runtime/agent/orchestrator/tools/builtin/tool-output-limit.mjs';
 
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
 const previousGraphBin = process.env.MIXDOG_GRAPH_BIN;
@@ -27,6 +28,12 @@ await writeFile(join(sourceDir, 'one.mjs'), [
 await writeFile(join(sourceDir, 'two.mjs'), [
   "import { alpha } from './one.mjs';",
   'export function gamma() { return alpha(); }',
+  '',
+].join('\n'));
+await writeFile(join(sourceDir, 'huge.mjs'), [
+  'export function huge() {',
+  ...Array.from({ length: 100 }, () => `  void "${'x'.repeat(600)}";`),
+  '}',
   '',
 ].join('\n'));
 
@@ -93,4 +100,30 @@ test('dispatch partitions every file and symbol mode by its supported target arr
     assert.match(result, /# search keyword=alp matches=\d+ shown=\d+[\s\S]*\balpha\b/);
     assert.match(result, /# search keyword=bet matches=\d+ shown=\d+[\s\S]*\bbeta\b/);
   }
+});
+
+test('find_symbol stays structural and code_graph enforces symbol/output budgets', async () => {
+  const alpha = await executeCodeGraphTool('code_graph', {
+    mode: 'find_symbol',
+    symbols: ['alpha'],
+    body: false,
+  }, project);
+  assert.doesNotMatch(alpha, /# callees/);
+
+  const many = Array.from({ length: 25 }, (_, index) => `missing${index}`);
+  const batched = await executeCodeGraphTool('code_graph', {
+    mode: 'find_symbol',
+    symbols: many,
+    body: false,
+  }, project);
+  assert.match(batched, /symbol list capped at 20/);
+  assert.doesNotMatch(batched, /# find_symbol missing20\b/);
+
+  const huge = await executeCodeGraphTool('code_graph', {
+    mode: 'find_symbol',
+    symbols: ['huge'],
+    body: true,
+  }, project);
+  assert.ok(Buffer.byteLength(huge, 'utf8') <= CODE_GRAPH_OUTPUT_MAX_BYTES);
+  assert.match(huge, /code_graph output capped at 30 KB/);
 });

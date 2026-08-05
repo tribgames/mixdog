@@ -2472,6 +2472,7 @@ if (grepTool?.inputSchema?.properties?.type) {
 const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
+const findHeadLimitDescription = findTool?.inputSchema?.properties?.head_limit?.description || '';
 if (!/exact glob patterns/i.test(globTool?.description || '')) {
   throw new Error('glob description must route exact-pattern unknown paths before read/grep/list');
 }
@@ -2479,6 +2480,9 @@ if (!/exact glob patterns/i.test(globTool?.description || '')) {
 // lives in src/rules/shared/01-tool.md.
 if (!/fuzzy lookup for partial paths\/names/i.test(findTool?.description || '') || !/not file contents/i.test(findTool?.description || '')) {
   throw new Error('find description must state its fuzzy path-lookup contract');
+}
+if (!/across the call/i.test(findHeadLimitDescription) || !/Defaults to 25/i.test(findHeadLimitDescription)) {
+  throw new Error('find head_limit must be one call-level result budget');
 }
 if (!/List directory entries/i.test(listTool?.description || '') || !/path\[\]/i.test(listTool?.inputSchema?.properties?.path?.description || '')) {
   throw new Error('list description must require verified directories and locator-first unknown dirs');

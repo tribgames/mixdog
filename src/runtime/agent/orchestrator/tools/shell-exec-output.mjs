@@ -183,7 +183,7 @@ function _readHeadTail(filePath, fileSize) {
     }
     const tail = tailBuf.slice(tOff, tn).toString('utf-8');
     const elided = Math.max(0, (tailStart + tOff) - hEnd);
-    return `${head}\n... [${elided} bytes elided of ${fileSize} total — head+tail shown; full output spilled to disk] ...\n${tail}`;
+    return `${head}\n... [${elided} bytes elided of ${fileSize} total — head+tail shown; full output at ${filePath}] ...\n${tail}`;
   } finally {
     try { closeSync(fd); } catch {}
   }

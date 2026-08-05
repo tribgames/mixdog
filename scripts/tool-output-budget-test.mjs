@@ -10,6 +10,7 @@ import {
 } from '../src/runtime/agent/orchestrator/session/tool-result-offload.mjs';
 import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
 import { READ_MAX_OUTPUT_BYTES } from '../src/runtime/agent/orchestrator/tools/builtin/read-constants.mjs';
+import { LOCATOR_OUTPUT_MAX_BYTES } from '../src/runtime/agent/orchestrator/tools/builtin/tool-output-limit.mjs';
 
 test('aggregate offload excludes Read/Skill and chooses the latest largest result', async () => {
   const entries = [
@@ -61,6 +62,55 @@ test('batched Read shares one 50KB budget and returns exact continuation offsets
     assert.ok(Buffer.byteLength(result, 'utf8') <= READ_MAX_OUTPUT_BYTES);
     assert.match(result, /pass offset:\d+ to continue/);
     assert.doesNotMatch(result, /row-999-/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('locator tools share a 20KB call budget and list omits unused metadata', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-locator-budget-'));
+  try {
+    for (let file = 0; file < 600; file += 1) {
+      const name = `budget-item-${String(file).padStart(4, '0')}-${'x'.repeat(72)}.txt`;
+      writeFileSync(join(dir, name), 'x');
+    }
+    const listResult = await executeBuiltinTool('list', {
+      path: dir,
+      head_limit: 0,
+      offset: 0,
+    }, dir);
+    assert.ok(Buffer.byteLength(listResult, 'utf8') <= LOCATOR_OUTPUT_MAX_BYTES);
+    assert.match(listResult, /\tfile(?:\r?\n|$)/);
+    assert.doesNotMatch(listResult, /\tfile\t/);
+    assert.match(listResult, /continue path=.* offset:\d+/);
+
+    const globResult = await executeBuiltinTool('glob', {
+      path: dir,
+      pattern: '*.txt',
+      head_limit: 0,
+      offset: 0,
+    }, dir);
+    assert.ok(Buffer.byteLength(globResult, 'utf8') <= LOCATOR_OUTPUT_MAX_BYTES);
+    assert.match(globResult, /continue path=.* offset:\d+/);
+
+    const findResult = await executeBuiltinTool('find', {
+      path: dir,
+      query: 'budget-item',
+      head_limit: 0,
+    }, dir);
+    assert.ok(Buffer.byteLength(findResult, 'utf8') <= LOCATOR_OUTPUT_MAX_BYTES);
+    assert.match(findResult, /find result budget reached for query="budget-item"/);
+
+    const batchedFindResult = await executeBuiltinTool('find', {
+      path: dir,
+      query: ['budget-item', 'item', 'txt', 'budget'],
+      head_limit: 100,
+    }, dir);
+    const batchedPathLines = batchedFindResult.split(/\r?\n/)
+      .filter((line) => line.includes('budget-item-'));
+    assert.ok(batchedPathLines.length <= 100);
+    assert.ok(Buffer.byteLength(batchedFindResult, 'utf8') <= LOCATOR_OUTPUT_MAX_BYTES);
+    assert.doesNotMatch(batchedFindResult, /find output capped at 20 KB/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

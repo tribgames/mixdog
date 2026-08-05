@@ -20,7 +20,6 @@ import {
     getCachedReadOnlyStat,
     statCacheSet,
     statPathsForMtime,
-    lstatPathsForMtime,
     registerCacheInvalidationListener,
 } from './cache-layers.mjs';
 import {
@@ -28,8 +27,11 @@ import {
     NOISE_DIR_NAMES,
     walkDir,
 } from './glob-walk.mjs';
-import { formatMtime, formatListSize } from './list-formatting.mjs';
-import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
+import {
+    capLineOrientedToolOutput,
+    LOCATOR_OUTPUT_MAX_BYTES,
+    TOOL_OUTPUT_MAX_BYTES,
+} from './tool-output-limit.mjs';
 import { runRg } from './rg-runner.mjs';
 import { hasSpareCapacity as childSpawnHasSpareCapacity } from '../../../../shared/child-spawn-gate.mjs';
 import { fuzzyRank } from './fuzzy-match.mjs';
@@ -50,6 +52,22 @@ function _listDefaultHeadLimit(fallback) {
 function _findDefaultHeadLimit(fallback) {
     const parsed = parseInt(process.env.MIXDOG_FIND_DEFAULT_HEAD_LIMIT ?? '', 10);
     return parsed > 0 ? parsed : fallback;
+}
+
+function _findOutputBudgetBytes(options = {}) {
+    const requested = Number(options?.__findOutputBudgetBytes);
+    const explicit = Number(options?.toolOutputMaxBytes);
+    return Math.max(1, Math.min(
+        LOCATOR_OUTPUT_MAX_BYTES,
+        Number.isFinite(requested) && requested > 0 ? Math.trunc(requested) : LOCATOR_OUTPUT_MAX_BYTES,
+        Number.isFinite(explicit) && explicit > 0 ? Math.trunc(explicit) : LOCATOR_OUTPUT_MAX_BYTES,
+    ));
+}
+
+function _splitFindBudget(total, count, index) {
+    if (!(count > 0)) return 0;
+    const base = Math.floor(total / count);
+    return base + (index < (total % count) ? 1 : 0);
 }
 
 export async function executeListTool(args, workDir, options = {}) {
@@ -209,20 +227,10 @@ export async function executeListTool(args, workDir, options = {}) {
 
     const windowed = offset > 0 ? rows.slice(offset) : rows;
     const sliced = headLimit > 0 ? windowed.slice(0, headLimit) : windowed;
-    if (!needsGlobalStat && sliced.length > 0) {
-        // Use lstat so a symlink reports its own size/mtime instead of
-        // the target's. The walker already typed symlinks from Dirent;
-        // following the link here would lie about the listed entry.
-        const stats = await lstatPathsForMtime(sliced.map((row) => row.fullPath), workDir, 64, { deadlineMs: 5000 });
-        for (let i = 0; i < sliced.length; i++) {
-            const item = stats[i];
-            if (!item?.stat) continue;
-            sliced[i].size = item.size;
-            sliced[i].mtimeMs = item.mtimeMs;
-        }
-    }
-    const lines = sliced.map(r =>
-        `${normalizeOutputPath(r.path)}\t${r.type}\t${formatListSize(r.type, r.size)}\t${formatMtime(r.mtimeMs)}`);
+    // Paths and entry types are the list contract. Size/mtime columns were
+    // neither exposed in the model schema nor used by routing, yet consumed
+    // roughly 28–40% of live list output and forced a stat per visible entry.
+    const lines = sliced.map(r => `${normalizeOutputPath(r.path)}\t${r.type}`);
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${rows.length}; pass offset:${offset + sliced.length} to continue]`);
     if (truncatedByCap) lines.push(`... walk truncated at ${LIST_ABSOLUTE_CAP} rows or ${LIST_WALK_TIMEOUT_MS}ms timeout; narrow the path or lower depth for a complete listing`);
     let emptyMsg = '(empty directory)';
@@ -563,24 +571,60 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
         const capped = list.length > 5;
         const targets = capped ? list.slice(0, 5) : list;
         if (targets.length > 1) {
+            // head_limit is one call-level result budget, not a multiplier per
+            // query. Split it deterministically in caller order; if it cannot
+            // fund one result per query, return the remaining queries exactly.
+            const totalHeadLimit = normalizeListHeadLimit(args.head_limit, _findDefaultHeadLimit(25));
+            const activeCount = totalHeadLimit > 0
+                ? Math.min(targets.length, totalHeadLimit)
+                : targets.length;
+            const activeTargets = targets.slice(0, activeCount);
+            const omittedByHeadLimit = targets.slice(activeCount);
+            const notes = [];
+            if (omittedByHeadLimit.length) {
+                notes.push(
+                    `... [head_limit ${totalHeadLimit} exhausted across query[]; `
+                    + `retry query=${JSON.stringify(omittedByHeadLimit)}]`,
+                );
+            }
+            if (capped) notes.push(`... [capped at 5 of ${list.length} queries]`);
+            const sectionHeaders = activeTargets.map((query) => `# find ${query}\n`);
+            const separatorBytes = Math.max(0, activeTargets.length + notes.length - 1) * 2;
+            const fixedBytes = sectionHeaders.reduce(
+                (sum, header) => sum + Buffer.byteLength(header, 'utf8'),
+                separatorBytes + notes.reduce((sum, note) => sum + Buffer.byteLength(note, 'utf8'), 0),
+            );
+            const bodyBudget = Math.max(activeTargets.length, _findOutputBudgetBytes(options) - fixedBytes);
             // Full parallelism is intentional. All sections share one common
             // broad enumeration and one unioned ignored/truncated targeted pass,
-            // but ranking and output remain isolated per query.
+            // while each query receives a fair share of the call-level count and
+            // byte budgets before any aggregate result is assembled.
             const batchContext = {
-                queries: targets,
+                queries: activeTargets,
                 targetedRuns: new Map(),
                 itemsByFiles: new WeakMap(),
             };
-            const nestedOptions = { ...options, __findBatchContext: batchContext };
-            const bodies = await Promise.all(targets.map(async (query) => {
+            const bodies = await Promise.all(activeTargets.map(async (query, index) => {
+                const queryHeadLimit = totalHeadLimit > 0
+                    ? _splitFindBudget(totalHeadLimit, activeTargets.length, index)
+                    : 0;
+                const nestedOptions = {
+                    ...options,
+                    __findBatchContext: batchContext,
+                    __findOutputBudgetBytes: _splitFindBudget(bodyBudget, activeTargets.length, index),
+                };
                 try {
-                    return await executeFuzzyFindTool({ ...args, query }, workDir, nestedOptions);
+                    return await executeFuzzyFindTool(
+                        { ...args, query, head_limit: queryHeadLimit },
+                        workDir,
+                        nestedOptions,
+                    );
                 } catch (err) {
                     return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
                 }
             }));
-            const sections = targets.map((q, i) => `# find ${q}\n${bodies[i]}`);
-            if (capped) sections.push(`... [capped at 5 of ${list.length} queries]`);
+            const sections = activeTargets.map((q, i) => `${sectionHeaders[i]}${bodies[i]}`);
+            sections.push(...notes);
             return sections.join('\n\n');
         }
         args.query = targets[0];
@@ -616,7 +660,12 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
         includeNoise,
     });
     const cached = cacheGet(cacheKey);
-    if (cached !== null) return cached;
+    const capFindResult = (value) => capLineOrientedToolOutput(
+        value,
+        _findOutputBudgetBytes(options),
+        () => `... [find result budget reached for query=${JSON.stringify(query)}; narrow path/head_limit]`,
+    );
+    if (cached !== null) return capFindResult(cached);
     // Common discovery respects .gitignore even outside a Git repository.
     // include_noise deliberately retains the old hardened --no-ignore behavior.
     // Noise dirs stay excluded via DEFAULT_IGNORE_GLOBS below.
@@ -751,7 +800,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     if (typeof options?.onProgress === 'function') {
         try { options.onProgress(`${ranked.length} candidates`); } catch { /* best-effort */ }
     }
-    return result;
+    return capFindResult(result);
 }
 
 export async function executeFindFilesTool(args, workDir, options = {}) {

@@ -108,7 +108,7 @@ test('grep content_with_context supplies surrounding lines without explicit cont
     dir,
     async () => '',
   );
-  assert.equal(String(output), '[Raw source spans; context auto-expanded up to 25; 10000-char call budget]\n# sample.mjs:2 [lines 1-3]\nbefore\nneedle\nafter');
+  assert.equal(String(output), '[Raw source spans; apply_patch context may be copied verbatim]\n# sample.mjs:2 [lines 1-3]\nbefore\nneedle\nafter');
   assert.doesNotMatch(String(output), /^\d+(?::|-)/m);
 });
 
@@ -147,7 +147,7 @@ test('grep patch-ready context merges adjacent match windows into one raw span',
     dir,
     async () => '',
   );
-  assert.equal(String(output), '[Raw source spans; context auto-expanded up to 25; 10000-char call budget]\n# sample.mjs:2 [lines 1-5]\nbefore\nneedle\nmiddle\nafter\ntail');
+  assert.equal(String(output), '[Raw source spans; apply_patch context may be copied verbatim]\n# sample.mjs:2 [lines 1-5]\nbefore\nneedle\nmiddle\nafter\ntail');
 });
 
 test('grep raw spans prioritize earlier top-level alternatives without widening output', async () => {
@@ -185,7 +185,7 @@ test('grep broad context expands three priority spans and keeps neutral compact 
     dir,
     async () => '',
   ));
-  assert.match(output, /^\[Top 3 raw source spans \+ compact anchors; context up to 12; 10000-char call budget\]/);
+  assert.match(output, /^\[Top 3 of 5 matches as raw source spans; remaining matches as path:line anchors\]/);
   assert.deepEqual(
     output.split(/\r?\n/).filter((line) => line.startsWith('# sample.mjs:')),
     [
@@ -212,7 +212,7 @@ test('grep sparse context expands to function-sized raw source in one call', asy
     dir,
     async () => '',
   );
-  assert.match(String(output), /^\[Raw source spans; context auto-expanded up to 25; 10000-char call budget\]/);
+  assert.match(String(output), /^\[Raw source spans; apply_patch context may be copied verbatim\]/);
   assert.match(String(output), /^# sample\.mjs:40 \[lines 15-65\]$/m);
   assert.match(String(output), /^line-15$/m);
   assert.match(String(output), /^line-65$/m);
@@ -227,7 +227,7 @@ test('grep source escape search stays single-line and uses fused context expansi
     dir,
     async () => '',
   );
-  assert.match(String(output), /^\[Raw source spans; context auto-expanded up to 25; 10000-char call budget\]/);
+  assert.match(String(output), /^\[Raw source spans; apply_patch context may be copied verbatim\]/);
   assert.match(String(output), /^# test\/sample\.py:2 \[lines 1-3\]$/m);
 });
 
@@ -246,8 +246,12 @@ test('grep dense context shrinks under the whole-call character budget', async (
       async () => '',
     );
     assert.ok(String(output).length <= 1200, `expected <=1200 chars, got ${String(output).length}`);
-    assert.match(String(output), /^\[(?:Raw source spans; context auto-expanded|Top \d+ raw source spans \+ compact anchors; context) up to \d+; 1200-char call budget\]/);
-    assert.doesNotMatch(String(output), /context auto-expanded up to 25/);
+    assert.match(String(output), /^\[(?:Raw source spans; apply_patch context may be copied verbatim|Top \d+ of \d+ matches as raw source spans)/);
+    // Radius must have shrunk below the default 25 to fit the 1200-char
+    // budget; block spans reveal the applied radius without header numbers.
+    const spanWidths = [...String(output).matchAll(/\[lines (\d+)-(\d+)\]/g)]
+      .map((m) => Number(m[2]) - Number(m[1]) + 1);
+    assert.ok(spanWidths.length > 0 && spanWidths.every((w) => w < 51), `expected shrunken spans, got ${spanWidths}`);
     assert.match(String(output), /\[Showing \d+ of 12 matches; pass offset:\d+ for more\]$/);
   } finally {
     if (prior === undefined) delete process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET;
