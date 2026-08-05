@@ -33,6 +33,7 @@ export function buildGrepCacheKey(parts) {
         withFilename,
         contextCharBudget = 0,
         patternCapTotal = 0,
+        candidatesKey = '',
     } = parts;
     return [
         'grep',
@@ -57,6 +58,10 @@ export function buildGrepCacheKey(parts) {
         // "[capped at N of M]" notice) from colliding with an exact N-pattern
         // request or with a differently-capped one (of 15 vs of 20).
         'pc' + String(patternCapTotal || 0),
+        // Candidate-file scoping (fan-out prefilter) changes which files rg
+        // visits and their order; scoped results get their own cache slot so
+        // they never collide with an unscoped run of the same pattern.
+        'cd' + String(candidatesKey || ''),
     ].join('|');
 }
 
@@ -77,6 +82,7 @@ export function buildGrepRgArgs(parts) {
         fixedStrings = false,
         pcre2 = false,
         withFilename = false,
+        candidateFiles = null,
     } = parts;
     // `--hidden`: search dotfiles/dot-dirs (.github, .mixdog) that
     // rg skips by default. The DEFAULT_IGNORE_GLOBS below still exclude .git and
@@ -129,7 +135,14 @@ export function buildGrepRgArgs(parts) {
     // `--type` is treated as a positional path, not parsed as an rg
     // option. Patterns already use `-e`, so the separator only needs to
     // guard the trailing path operand.
-    rgArgs.push('--', searchPath);
+    if (Array.isArray(candidateFiles) && candidateFiles.length > 0) {
+        // Fan-out prefilter scoping: search ONLY the candidate files (paths
+        // relative to the spawn cwd) instead of walking searchPath — explicit
+        // file operands skip the directory walk entirely.
+        rgArgs.push('--', ...candidateFiles);
+    } else {
+        rgArgs.push('--', searchPath);
+    }
     return rgArgs;
 }
 
