@@ -374,6 +374,11 @@ function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
 /**
  * Per-server MCP initialize instructions for deferred-pool tools only.
  * Empty when no instructions or no matching deferred MCP tools → omit block.
+ * Emits ONLY the server heading + instruction body: the per-server tool names
+ * are deliberately NOT repeated here — every pool tool is already listed once
+ * (with its description) in <available-deferred-tools>, and re-listing ~30
+ * names per server doubled the MCP share of the BP1 prefix (2026-08-05 audit).
+ * Server membership stays evident from the mcp__<server>__ name prefix.
  */
 function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
     const map = mcpServerInstructions && typeof mcpServerInstructions === 'object'
@@ -400,8 +405,7 @@ function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
     for (const server of servers) {
         const safeServer = sanitizeMcpManifestServerName(server);
         const body = sanitizeMcpInstructionText(map[server]);
-        const tools = [...toolsByServer.get(server)].sort((a, b) => a.localeCompare(b));
-        lines.push(`## ${safeServer}`, body, ...tools.map((tool) => `- ${tool}`));
+        lines.push(`## ${safeServer}`, body);
     }
     lines.push('</mcp-instructions>');
     return lines.join('\n');
