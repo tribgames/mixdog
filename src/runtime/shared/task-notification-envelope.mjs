@@ -24,6 +24,15 @@ export {
   backgroundTaskHeaderStatus,
 };
 
+// The full command is already visible in the start response / task record;
+// the envelope only needs an identifying prefix. Flatten whitespace and cap
+// so multi-line commands do not re-echo hundreds of chars per notification.
+function compactCommand(command) {
+  if (!command) return null;
+  const flat = String(command).replace(/\s+/g, ' ').trim();
+  return flat.length > 160 ? `${flat.slice(0, 160)}…` : flat;
+}
+
 // Render the bracketed shell *completion* envelope body.
 // Byte-compatible with the historical inline assembly in shell-jobs.fire().
 export function renderShellCompletionEnvelope({
@@ -42,7 +51,7 @@ export function renderShellCompletionEnvelope({
     `[status: ${status}]`,
     `[exit: ${exitCode === null ? 'n/a' : exitCode}]`,
     elapsedMs !== null ? `[elapsed: ${elapsedMs} ms]` : null,
-    command ? `[command: ${command}]` : null,
+    command ? `[command: ${compactCommand(command)}]` : null,
   ].filter((l) => l !== null);
   const bodySections = [
     summary ? `Summary: ${summary}` : null,
@@ -86,7 +95,7 @@ export function renderShellPromptStallEnvelope({
     '[status: running]',
     `[stalled: no output growth for ${stalledMs} ms]`,
     (elapsedMs !== null && elapsedMs >= 0) ? `[elapsed: ${elapsedMs} ms]` : null,
-    command ? `[command: ${command}]` : null,
+    command ? `[command: ${compactCommand(command)}]` : null,
     '',
     'This background shell task appears to be waiting for interactive input. Background tasks cannot answer prompts automatically; cancel it or rerun with non-interactive flags/input.',
     tailText ? `\n${tailText}` : null,

@@ -635,7 +635,7 @@ if (!/^Error[\s:[]/.test(String(readDirOut)) || !/read expects a file/i.test(Str
       .join('\n');
     if (mixedParts.filter((part) => part?.type === 'image').length !== 1
       || !/batch text body/.test(mixedText)
-      || !/missing\.png \[full\] \[error\]/.test(mixedText)
+      || !/missing\.png \[error\]/.test(mixedText)
       || !/\[= entry #1, identical result omitted\]/.test(mixedText)) {
       throw new Error(`mixed read batch must preserve text, per-entry errors, and rich duplicate elision: ${JSON.stringify(mixedBatch)}`);
     }
@@ -658,7 +658,7 @@ const readRegionBatchOut = await executeBuiltinTool('read', {
   ],
 }, root);
 if (!/^read 2\b/m.test(String(readRegionBatchOut))
-  || (String(readRegionBatchOut).match(/scripts\/smoke\.mjs \[full\] \[ok\]/g) || []).length < 2
+  || (String(readRegionBatchOut).match(/scripts\/smoke\.mjs \[ok\]/g) || []).length < 2
   || !/1→import \{ spawnSync \}/.test(String(readRegionBatchOut))
   || !/3→import \{ fileURLToPath \}/.test(String(readRegionBatchOut))
   || !/(pass offset:2 to continue|ONE window: offset:2,? limit:\d+)/.test(String(readRegionBatchOut))
@@ -676,7 +676,7 @@ if (readStringifiedRegionErr || !Array.isArray(readStringifiedRegionArgs.path)) 
 const readStringifiedRegionOut = await executeBuiltinTool('read', {
   path: JSON.stringify([{ path: 'scripts/smoke.mjs', offset: 0, limit: 2 }]),
 }, root);
-if (!/^read 1\b/m.test(String(readStringifiedRegionOut)) || !/scripts\/smoke\.mjs \[full\] \[ok\]/.test(String(readStringifiedRegionOut)) || !/1→import \{ spawnSync \}/.test(String(readStringifiedRegionOut))) {
+if (!/^read 1\b/m.test(String(readStringifiedRegionOut)) || !/scripts\/smoke\.mjs \[ok\]/.test(String(readStringifiedRegionOut)) || !/1→import \{ spawnSync \}/.test(String(readStringifiedRegionOut))) {
   throw new Error(`read stringified region batch must execute after guard coercion:\n${readStringifiedRegionOut}`);
 }
 const readStringifiedLineArgs = {
